@@ -1,51 +1,41 @@
 # ChatGPT-Web2API
 
-OpenAI-compatible API proxy that routes through the real ChatGPT web interface via Chrome DevTools Protocol.
+OpenAI-compatible API proxy that drives a real ChatGPT browser session via Chrome DevTools Protocol.
 
-**No API key needed. No sentinel solving. Works with your ChatGPT Plus account.**
+**No API key. No sentinel solving. One command to start.**
 
-## How It Works
+## Architecture
 
 ```
-Client (OpenAI SDK / curl)
-  ↓ HTTP (aiohttp)
-API Server (:8080)
-  ↓ CDP (websockets)
-Chrome (chatgpt.com)
+┌──────────────┐     HTTP      ┌──────────────┐    CDP     ┌──────────────┐
+│  Your code   │ ────────────► │  API Server  │ ─────────► │    Chrome     │
+│  (SDK/curl)  │ ◄──────────── │  (aiohttp)   │ ◄───────── │  chatgpt.com  │
+└──────────────┘   JSON/SSE    └──────────────┘  commands  └──────────────┘
 ```
 
-The proxy automates a real Chrome browser to send messages and read responses. The browser handles all anti-bot challenges (Turnstile, PoW, so) automatically — just like a real user.
+The proxy launches and owns a dedicated Chrome instance. It types messages, clicks send, and reads responses — exactly like a human would. All anti-bot challenges (Turnstile, PoW, so) are handled automatically by the browser.
 
 ## Quick Start
 
-### 1. Start Chrome with remote debugging
-
-Close all Chrome instances, then:
-
 ```bash
-# Windows
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
-
-# macOS
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
-
-# Linux
-google-chrome --remote-debugging-port=9222
-```
-
-Navigate to `https://chatgpt.com` and log in.
-
-### 2. Install and run the proxy
-
-```bash
+# Install
 pip install -e .
-chatgpt-web2api --cdp-port 9222
+
+# Start (launches Chrome + API server)
+chatgpt-web2api
+
+# Or with options
+chatgpt-web2api --port 9090 --log-level DEBUG
 ```
 
-### 3. Use it like the OpenAI API
+On first run, Chrome opens to `chatgpt.com` — **log in with your account**. The proxy waits until it detects a valid auth session, then the API is live.
+
+Subsequent starts reuse the saved Chrome profile (already logged in).
+
+## Usage
 
 ```bash
-# Non-streaming
+# Chat completion
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"auto","messages":[{"role":"user","content":"Hello!"}]}'
@@ -55,14 +45,14 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"auto","stream":true,"messages":[{"role":"user","content":"Hello!"}]}'
 
-# List models
+# Models
 curl http://localhost:8080/v1/models
 
-# List projects
+# Projects
 curl http://localhost:8080/v1/projects
 ```
 
-### 4. Use with OpenAI Python SDK
+### Python (OpenAI SDK)
 
 ```python
 from openai import OpenAI
@@ -70,81 +60,116 @@ from openai import OpenAI
 client = OpenAI(base_url="http://localhost:8080/v1", api_key="not-needed")
 
 # Non-streaming
-response = client.chat.completions.create(
+resp = client.chat.completions.create(
     model="auto",
-    messages=[{"role": "user", "content": "Hello!"}]
+    messages=[{"role": "user", "content": "What is 2+2?"}]
 )
-print(response.choices[0].message.content)
+print(resp.choices[0].message.content)  # "4"
 
 # Streaming
 for chunk in client.chat.completions.create(
     model="auto",
-    messages=[{"role": "user", "content": "Hello!"}],
-    stream=True
+    messages=[{"role": "user", "content": "Write a poem"}],
+    stream=True,
 ):
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
+
+# With project memory
+resp = client.chat.completions.create(
+    model="auto",
+    messages=[{"role": "user", "content": "Hello!"}],
+    extra_body={"project_id": "g-p-abc123"}
+)
+```
+
+## Configuration
+
+### CLI Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | — | Path to config JSON |
+| `--port` | 8080 | API server port |
+| `--host` | 127.0.0.1 | API server host |
+| `--cdp-port` | 9222 | Chrome CDP port |
+| `--chrome-path` | auto | Path to Chrome binary |
+| `--user-data-dir` | `~/.chatgpt-web2api/chrome-profile` | Chrome profile dir |
+| `--headless` | false | Run Chrome headless |
+| `--log-level` | INFO | Logging level |
+
+### Config File
+
+```json
+{
+  "port": 8080,
+  "host": "127.0.0.1",
+  "cdp_port": 9222,
+  "chrome_path": "auto",
+  "user_data_dir": "~/.chatgpt-web2api/chrome-profile",
+  "headless": false,
+  "default_model": "auto",
+  "api_keys": [],
+  "request_timeout": 120
+}
+```
+
+### Environment Variables
+
+All config keys are available as `W2A_*` env vars:
+
+```bash
+W2A_PORT=9090 W2A_LOG_LEVEL=DEBUG chatgpt-web2api
 ```
 
 ## Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/chat/completions` | POST | Chat completion (streaming + non-streaming) |
-| `/v1/models` | GET | Model catalog from ChatGPT |
-| `/v1/projects` | GET | ChatGPT projects list |
-| `/health` | GET | Health check |
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/chat/completions` | Chat completion (streaming + non-streaming) |
+| GET | `/v1/models` | Model catalog from ChatGPT |
+| GET | `/v1/projects` | ChatGPT projects list |
+| GET | `/health` | Health + Chrome status |
 
 ## Models
 
-Available models (auto-detected from your ChatGPT account):
+Live models from your ChatGPT account. Aliases for backward compatibility:
 
-| Model ID | Description |
-|----------|-------------|
-| `auto` | Default model selection |
-| `gpt-5-5` | GPT-5.5 |
-| `gpt-5-3` | GPT-5.3 |
-| `gpt-5-mini` | GPT-5 Mini |
-| `gpt-5.3-mini` | GPT-5.3 Mini |
+| Alias | Maps to |
+|-------|---------|
+| `gpt-4o` | `auto` |
+| `gpt-4` | `gpt-5` |
+| `gpt-3.5-turbo` | `gpt-5-mini` |
 
 ## Project Memory
 
-Use ChatGPT projects for persistent context:
+Use ChatGPT Projects for persistent context:
 
 ```python
-response = client.chat.completions.create(
+resp = client.chat.completions.create(
     model="auto",
     messages=[{"role": "user", "content": "Hello!"}],
-    extra_body={"project_id": "g-p-abc123"}  # ChatGPT project gizmo_id
+    extra_body={"project_id": "g-p-abc123"}
 )
 ```
 
-## Architecture
+## How It Works
 
-- **CDP Driver** (`cdp_driver.py`) — Automates Chrome via DevTools Protocol
-  - Connects to Chrome's CDP websocket
-  - Types messages via `Input.insertText`
-  - Clicks send via JS `MouseEvent` sequence
-  - Reads responses via conversation API
-  
-- **API Server** (`api_server.py`) — OpenAI-compatible HTTP server
-  - `aiohttp` based, streaming SSE support
-  - Request serialization (one at a time)
-  - Model name mapping
+1. **Chrome lifecycle** — The service finds or launches a Chrome instance with `--remote-debugging-port`. A dedicated user data dir keeps the proxy's Chrome separate from your daily browser.
 
-## Performance
+2. **CDP driver** — Connects to Chrome via WebSocket. Types messages with `Input.insertText`, clicks send via JS `MouseEvent` sequence (bypasses React synthetic events).
 
-Typical latency (ChatGPT Plus):
-- Page navigation: ~2-5s
-- Message typing + send: ~0.5s
-- Response generation: 3-30s (depends on model + output length)
-- Total end-to-end: ~13-36s
+3. **Response retrieval** — Hybrid approach: polls DOM for streaming text, then fetches the final response from ChatGPT's conversation API (`/backend-api/conversation/{id}`). This handles thinking models where the DOM is empty during the reasoning phase.
+
+4. **API server** — Standard aiohttp server with OpenAI-compatible JSON schema. Requests are serialized (one at a time through the single browser). SSE streaming support.
+
+5. **Health monitoring** — Background task pings Chrome CDP every 30s. Auto-restart on crash.
 
 ## Requirements
 
 - Python 3.11+
-- Chrome with remote debugging enabled
-- ChatGPT Plus account (logged in)
+- Chrome or Chromium installed
+- ChatGPT Plus account
 - Dependencies: `websockets`, `aiohttp`
 
 ## License

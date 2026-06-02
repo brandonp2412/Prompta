@@ -1,11 +1,11 @@
-"""ChatGPT-Web2API — CDP-driven reverse proxy.
-
-Routes OpenAI API calls through a real Chrome browser via CDP.
-The browser handles all anti-bot challenges automatically.
+"""ChatGPT-Web2API — OpenAI-compatible proxy via CDP.
 
 Usage:
-    python -m chatgpt_web2api --cdp-port 9222
-    python -m chatgpt_web2api --cdp-port 9222 --port 8080
+    chatgpt-web2api                          # all defaults
+    chatgpt-web2api --config config.json     # from config file
+    chatgpt-web2api --port 9090              # override port
+    chatgpt-web2api --cdp-port 9333          # override CDP port
+    chatgpt-web2api --headless               # headless Chrome
 """
 
 from __future__ import annotations
@@ -13,68 +13,62 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 
-from .cdp_driver import CDPDriver
-from .api_server import APIServer
+from .config import Config
+from .service import run_service
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ChatGPT-Web2API: OpenAI-compatible proxy via CDP"
+        prog="chatgpt-web2api",
+        description="OpenAI-compatible API proxy through ChatGPT web via CDP",
     )
-    parser.add_argument("--cdp-port", type=int, required=True,
-                        help="Chrome remote debugging port")
-    parser.add_argument("--port", type=int, default=8080,
-                        help="API server port (default: 8080)")
-    parser.add_argument("--host", default="0.0.0.0",
-                        help="API server host (default: 0.0.0.0)")
+    parser.add_argument("--config", "-c", help="Config file path (JSON)")
+    parser.add_argument("--port", "-p", type=int, help="API server port (default: 8080)")
+    parser.add_argument("--host", help="API server host (default: 127.0.0.1)")
+    parser.add_argument("--cdp-port", type=int, help="Chrome CDP port (default: 9222)")
+    parser.add_argument("--chrome-path", help="Path to Chrome binary")
+    parser.add_argument("--user-data-dir", help="Chrome user data directory")
+    parser.add_argument("--headless", action="store_true", help="Run Chrome headless")
     parser.add_argument("--log-level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = parser.parse_args()
 
+    # Load config
+    config = Config.load(args.config)
+
+    # CLI overrides
+    if args.port:
+        config.server.port = args.port
+    if args.host:
+        config.server.host = args.host
+    if args.cdp_port:
+        config.chrome.cdp_port = args.cdp_port
+    if args.chrome_path:
+        config.chrome.chrome_path = args.chrome_path
+    if args.user_data_dir:
+        config.chrome.user_data_dir = args.user_data_dir
+    if args.headless:
+        config.chrome.headless = True
+    if args.log_level:
+        config.log.level = args.log_level
+
+    # Logging
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=getattr(logging, config.log.level),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    asyncio.run(_run(args))
+    # Suppress noisy loggers
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
-
-async def _run(args):
-    driver = CDPDriver(args.cdp_port)
-    server = APIServer(driver, host=args.host, port=args.port)
-
-    print()
-    print("=" * 60)
-    print("  ChatGPT-Web2API — CDP-Driven Proxy")
-    print("=" * 60)
-    print(f"  CDP port:    {args.cdp_port}")
-    print(f"  API server:  http://{args.host}:{args.port}")
-    print()
-    print("  Connecting to Chrome...")
-
-    await driver.connect()
-
-    print("  Connected! Starting API server...")
-    print()
-    print("  Endpoints:")
-    print(f"    POST http://{args.host}:{args.port}/v1/chat/completions")
-    print(f"    GET  http://{args.host}:{args.port}/v1/models")
-    print(f"    GET  http://{args.host}:{args.port}/v1/projects")
-    print(f"    GET  http://{args.host}:{args.port}/health")
-    print()
-    print("  Example:")
-    print(f'    curl http://localhost:{args.port}/v1/chat/completions \\')
-    print('      -H "Content-Type: application/json" \\')
-    print('      -d \'{"model":"auto","messages":[{"role":"user","content":"Hello"}]}\'')
-    print()
-
+    # Run
     try:
-        await server.run()
+        asyncio.run(run_service(config))
     except KeyboardInterrupt:
-        print("\nShutting down...")
-    finally:
-        await driver.close()
+        print("\nStopped.")
 
 
 if __name__ == "__main__":

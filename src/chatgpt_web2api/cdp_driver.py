@@ -1,15 +1,12 @@
 """CDP Driver — browser automation via Chrome DevTools Protocol.
 
-All HTTP to chatgpt.com routes through the browser. No sentinel solving
-needed — the browser handles Turnstile/PoW/so challenges automatically.
-
-Operations:
-  - Connect to Chrome CDP
-  - Get auth token
-  - Navigate to new chat or project
-  - Type message via Input.insertText
-  - Click send via JS MouseEvent sequence
-  - Stream response by polling DOM
+Connects to an existing Chrome instance via CDP websocket.
+Provides typed primitives for:
+  - Auth token management
+  - JS evaluation
+  - Page navigation
+  - Message input via CDP Input.insertText
+  - Response retrieval via conversation API
 """
 
 from __future__ import annotations
@@ -20,7 +17,7 @@ import logging
 import time
 import urllib.request
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
 try:
@@ -32,89 +29,50 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MessageResponse:
-    """Response from a chat message."""
-    conversation_id: str
-    message_id: str
-    text: str
-    model: str
-    finish_reason: str = "stop"
-    thinking: str = ""
-    reasoning_recap: str = ""
-
-
-@dataclass
 class StreamChunk:
-    """A streaming chunk."""
+    """A single streaming chunk."""
     delta: str
     finish_reason: Optional[str] = None
-    thinking_delta: str = ""
-
-
-# JS templates — stored as constants to avoid quoting issues
-# Uses single quotes in JS, avoids needing escaped double quotes
-_POLL_RESPONSE_JS = r"""
-(function() {
-    var msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-    if (msgs.length === 0) return JSON.stringify({text:'', done:false, thinking:true});
-    var last = msgs[msgs.length - 1];
-    var markdownEl = last.querySelector('.markdown');
-    var text = markdownEl ? (markdownEl.textContent || '') : '';
-    var isThinking = !markdownEl && !text;
-    var stopBtn = document.querySelector('button[aria-label="Stop"]');
-    var done = !stopBtn && !isThinking;
-    var fullText = text || last.textContent || '';
-    return JSON.stringify({text: fullText, done: done, thinking: isThinking});
-})()
-""".strip()
-
-_FINAL_TEXT_JS = r"""
-(function() {
-    var msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-    if (msgs.length === 0) return '';
-    var last = msgs[msgs.length - 1];
-    var md = last.querySelector('.markdown');
-    return md ? md.textContent : last.textContent;
-})()
-""".strip()
-
-_ASSISTANT_COUNT_JS = "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
 
 
 class CDPDriver:
-    """Chrome DevTools Protocol driver for ChatGPT."""
+    """Chrome DevTools Protocol driver for ChatGPT automation."""
 
-    def __init__(self, cdp_port: int):
+    def __init__(self, cdp_port: int = 9222) -> None:
         self.port = cdp_port
-        self.ws = None
+        self._ws = None
         self._msg_id = 0
         self._access_token = ""
-        self._conversation_url: Optional[str] = None
-        self._lock = asyncio.Lock()
+        self._user_name = ""
 
     # ── Connection ────────────────────────────────────────────
 
-    async def connect(self):
-        """Connect to Chrome's CDP on the ChatGPT page."""
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/json/list")
-        with urllib.request.urlopen(req) as resp:
-            targets = json.loads(resp.read())
-
-        chatgpt = [t for t in targets if t.get("type") == "page" and "chatgpt.com" in t.get("url", "")]
-        if not chatgpt:
-            pages = [t for t in targets if t.get("type") == "page"]
-            if not pages:
-                raise RuntimeError("No browser pages found. Open chatgpt.com first.")
-            chatgpt = pages
-
-        target = chatgpt[0]
-        ws_url = target["webSocketDebuggerUrl"]
-        logger.info("CDP connected to: %s", target.get("title", "")[:60])
-
-        self.ws = await websockets.connect(ws_url, max_size=100 * 1024 * 1024)
+    async def connect(self) -> None:
+        """Connect to Chrome's CDP and authenticate."""
+        ws_url = await self._find_page_ws()
+        self._ws = await websockets.connect(ws_url, max_size=100 * 1024 * 1024)
+        logger.info("CDP connected to Chrome")
         await self._refresh_token()
 
-    async def _refresh_token(self):
+    async def _find_page_ws(self) -> str:
+        """Find a suitable page's websocket URL."""
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/json/list"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            targets = json.loads(resp.read())
+
+        pages = [t for t in targets if t.get("type") == "page"]
+        if not pages:
+            raise RuntimeError("No browser pages found — is Chrome running with chatgpt.com?")
+
+        # Prefer chatgpt.com page
+        chatgpt = [t for t in pages if "chatgpt.com" in t.get("url", "")]
+        target = chatgpt[0] if chatgpt else pages[0]
+        logger.info("Using page: %s", target.get("title", "")[:60])
+        return target["webSocketDebuggerUrl"]
+
+    async def _refresh_token(self) -> None:
         """Get a fresh access token from /api/auth/session."""
         raw = await self._js(
             "(async () => {"
@@ -125,28 +83,28 @@ class CDPDriver:
         )
         data = json.loads(raw)
         self._access_token = data.get("token", "")
+        self._user_name = data.get("user", "")
         if not self._access_token:
-            raise RuntimeError("No access token — are you logged into ChatGPT?")
-        logger.info("Auth token: %d chars, user: %s", len(self._access_token), data.get("user", ""))
+            raise RuntimeError("No access token — not logged into ChatGPT")
+        logger.info("Auth: %d chars, user: %s", len(self._access_token), self._user_name)
 
     # ── CDP primitives ────────────────────────────────────────
 
     async def _cdp(self, method: str, params: dict = None, timeout: float = 15) -> dict:
-        """Send a CDP command and wait for response."""
         self._msg_id += 1
-        msg = {"id": self._msg_id, "method": method, "params": params or {}}
-        await self.ws.send(json.dumps(msg))
-        target_id = self._msg_id
+        mid = self._msg_id
+        await self._ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            raw = await asyncio.wait_for(self.ws.recv(), timeout=max(1, deadline - time.monotonic()))
+            raw = await asyncio.wait_for(
+                self._ws.recv(), timeout=max(1, deadline - time.monotonic())
+            )
             resp = json.loads(raw)
-            if resp.get("id") == target_id:
+            if resp.get("id") == mid:
                 return resp
-        raise TimeoutError(f"CDP timeout for {method}")
+        raise TimeoutError(f"CDP timeout: {method}")
 
     async def _js(self, expr: str, timeout: float = 15) -> str:
-        """Evaluate JS and return string value."""
         resp = await self._cdp("Runtime.evaluate", {
             "expression": expr,
             "awaitPromise": True,
@@ -157,258 +115,216 @@ class CDPDriver:
 
     # ── Navigation ────────────────────────────────────────────
 
-    async def navigate_new_chat(self, gizmo_id: str = None):
-        """Navigate to a new chat, optionally within a project."""
-        if gizmo_id:
-            url = f"https://chatgpt.com/g/{gizmo_id}/project"
-        else:
-            url = "https://chatgpt.com/"
-
-        logger.info("Navigating to: %s", url)
+    async def navigate_new_chat(self, gizmo_id: str = None) -> None:
+        """Navigate to a fresh chat. Optionally scope to a project gizmo."""
+        url = f"https://chatgpt.com/g/{gizmo_id}/project" if gizmo_id else "https://chatgpt.com/"
+        logger.info("Navigate: %s", url)
         await self._cdp("Page.navigate", {"url": url})
         await asyncio.sleep(2)
 
-        # Wait for textarea to be ready (send button appears only after typing)
-        for i in range(30):
+        # Wait for textarea
+        for _ in range(30):
             result = await self._js(
                 "(function() {"
-                "  var ta = document.querySelector('#prompt-textarea');"
-                "  return JSON.stringify({hasTA: !!ta, url: location.href});"
+                "  return JSON.stringify({"
+                "    ready: !!document.querySelector('#prompt-textarea'),"
+                "    url: location.href"
+                "  });"
                 "})()"
             )
             try:
                 state = json.loads(result)
-                if state.get("hasTA"):
-                    logger.info("Page ready: %s", state.get("url", ""))
+                if state.get("ready"):
+                    logger.info("Page ready: %s", state.get("url"))
                     break
             except (json.JSONDecodeError, TypeError):
                 pass
             await asyncio.sleep(0.5)
-        else:
-            logger.warning("Page may not be fully ready")
 
-        # Settle time for sentinel initialization
+        # Settle time for sentinel init
         await asyncio.sleep(2)
-        self._conversation_url = None
 
-    async def navigate_conversation(self, conversation_id: str):
-        """Navigate to an existing conversation."""
-        url = f"https://chatgpt.com/c/{conversation_id}"
-        logger.info("Navigating to: %s", url)
-        await self._cdp("Page.navigate", {"url": url})
-        await asyncio.sleep(4)
-        self._conversation_url = url
+    # ── Message Input ─────────────────────────────────────────
 
-    # ── Message operations ────────────────────────────────────
-
-    async def send_message(self, text: str) -> None:
-        """Type a message and click send."""
-        async with self._lock:
-            # Focus the textarea
-            await self._js(
-                "(function() {"
-                "  var el = document.querySelector('#prompt-textarea');"
-                "  if (!el) return 'no textarea';"
-                "  el.focus();"
-                "  return 'focused';"
-                "})()"
-            )
-
-            # Type the message via CDP Input.insertText
-            await self._cdp("Input.insertText", {"text": text})
-            await asyncio.sleep(0.5)
-
-            # Verify text was inserted
-            content = await self._js(
-                "document.querySelector('#prompt-textarea').textContent || ''"
-            )
-            if not content:
-                raise RuntimeError("Failed to insert text into textarea")
-
-            logger.info("Typed message: %s", text[:60])
-
-            # Wait for send button to be enabled (appears when textarea has content)
-            for _ in range(10):
-                has_btn = await self._js(
-                    "(function() {"
-                    "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
-                    "  return btn && !btn.disabled ? 'yes' : 'no';"
-                    "})()"
-                )
-                if has_btn == "yes":
-                    break
-                await asyncio.sleep(0.3)
-
-            # Click send button via JS MouseEvent sequence
-            result = await self._js(
-                "(function() {"
-                "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
-                "  if (!btn) return 'no send button';"
-                "  if (btn.disabled) return 'button disabled';"
-                "  var events = ['pointerdown','mousedown','pointerup','mouseup','click'];"
-                "  for (var i = 0; i < events.length; i++) {"
-                "    btn.dispatchEvent(new MouseEvent(events[i], {bubbles:true, cancelable:true, view:window}));"
-                "  }"
-                "  return 'sent';"
-                "})()"
-            )
-            logger.info("Send result: %s", result)
-
-            if result != "sent":
-                raise RuntimeError(f"Send failed: {result}")
-
-    async def wait_for_response(self, timeout: float = 120) -> MessageResponse:
-        """Wait for a complete response (non-streaming)."""
-        chunks = []
-        async for chunk in self.stream_response(timeout=timeout):
-            chunks.append(chunk)
-
-        if not chunks:
-            raise RuntimeError("No response received")
-
-        # Get conversation URL
-        url = await self._js("window.location.href")
-        self._conversation_url = url
-
-        conv_id = ""
-        if "/c/" in url:
-            conv_id = url.split("/c/")[1].split("/")[0].split("?")[0]
-
-        return MessageResponse(
-            conversation_id=conv_id,
-            message_id=str(uuid.uuid4()),
-            text="".join(c.delta for c in chunks),
-            model="gpt-5-5-thinking",
-            finish_reason=chunks[-1].finish_reason if chunks else "stop",
+    async def type_message(self, text: str) -> None:
+        """Type text into the ChatGPT prompt textarea."""
+        # Focus
+        await self._js(
+            "(function() {"
+            "  var el = document.querySelector('#prompt-textarea');"
+            "  if (!el) return 'no textarea';"
+            "  el.focus();"
+            "  return 'focused';"
+            "})()"
         )
 
-    async def stream_response(self, timeout: float = 120) -> AsyncIterator[StreamChunk]:
-        """Stream response chunks by polling the DOM.
+        # Insert text via CDP
+        await self._cdp("Input.insertText", {"text": text})
+        await asyncio.sleep(0.3)
 
-        Strategy: The thinking model renders differently — the DOM may not show text
-        until the full thinking+reasoning+text sequence completes. So we use a hybrid:
-        1. Poll DOM for streaming text (when available)
-        2. Fall back to polling the conversation API
+        # Verify
+        content = await self._js(
+            "document.querySelector('#prompt-textarea')?.textContent || ''"
+        )
+        if not content:
+            raise RuntimeError("Failed to insert text into textarea")
+        logger.info("Typed: %s", text[:80])
+
+    async def click_send(self) -> None:
+        """Click the send button via JS MouseEvent sequence."""
+        # Wait for button to be enabled
+        for _ in range(10):
+            has_btn = await self._js(
+                "(function() {"
+                "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
+                "  return btn && !btn.disabled ? 'yes' : 'no';"
+                "})()"
+            )
+            if has_btn == "yes":
+                break
+            await asyncio.sleep(0.3)
+
+        result = await self._js(
+            "(function() {"
+            "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
+            "  if (!btn) return 'no send button';"
+            "  if (btn.disabled) return 'button disabled';"
+            "  var evts = ['pointerdown','mousedown','pointerup','mouseup','click'];"
+            "  for (var i = 0; i < evts.length; i++) {"
+            "    btn.dispatchEvent(new MouseEvent(evts[i], {bubbles:true, cancelable:true, view:window}));"
+            "  }"
+            "  return 'sent';"
+            "})()"
+        )
+        if result != "sent":
+            raise RuntimeError(f"Send failed: {result}")
+        logger.info("Message sent")
+
+    # ── Response Retrieval ────────────────────────────────────
+
+    async def send_and_stream(self, text: str, timeout: float = 120) -> AsyncIterator[StreamChunk]:
+        """Send a message and yield streaming response chunks.
+
+        This is the main high-level operation:
+        1. Type message
+        2. Click send
+        3. Wait for assistant message to appear
+        4. Poll DOM for streaming text
+        5. Fetch final text from conversation API
         """
-        initial_raw = await self._js(_ASSISTANT_COUNT_JS)
+        # Type and send
+        await self.type_message(text)
+        await self.click_send()
+
+        # Count existing assistant messages
+        initial_raw = await self._js(
+            "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
+        )
         initial_count = int(initial_raw) if initial_raw else 0
 
-        # Wait for a new assistant message to appear (up to 60s)
+        # Wait for a new assistant message (up to 60s)
         deadline = time.monotonic() + min(timeout, 60)
         while time.monotonic() < deadline:
-            raw = await self._js(_ASSISTANT_COUNT_JS)
-            count = int(raw) if raw else 0
-            if count > initial_count:
+            raw = await self._js(
+                "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
+            )
+            if int(raw or 0) > initial_count:
                 break
             await asyncio.sleep(0.5)
         else:
-            raise RuntimeError("Timed out waiting for assistant response to appear")
+            raise RuntimeError("Timed out waiting for assistant response")
 
-        # Now we need to wait for the response to fully complete.
-        # The thinking model has multiple phases: thinking → reasoning → text.
-        # DOM polling may show empty during thinking phase.
-        # We'll poll the Stop button to know when generation is done,
-        # then fetch the final text from the conversation API.
+        logger.info("Assistant message appeared, waiting for completion...")
 
-        logger.info("Waiting for generation to complete...")
-        generation_done = False
-        deadline = time.monotonic() + timeout
-
-        # First, try DOM-based streaming while the Stop button exists
+        # Poll until generation is done (Stop button gone)
         last_dom_text = ""
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            result = await self._js(_POLL_RESPONSE_JS)
+            result = await self._js(
+                "(function() {"
+                "  var msgs = document.querySelectorAll('[data-message-author-role=\"assistant\"]');"
+                "  if (!msgs.length) return JSON.stringify({text:'', done:false});"
+                "  var last = msgs[msgs.length - 1];"
+                "  var md = last.querySelector('.markdown');"
+                "  var text = md ? (md.textContent || '') : '';"
+                "  var stopBtn = document.querySelector('button[aria-label=\"Stop\"]');"
+                "  return JSON.stringify({text: text, done: !stopBtn && !!md});"
+                "})()"
+            )
             try:
                 data = json.loads(result)
             except (json.JSONDecodeError, TypeError):
                 await asyncio.sleep(0.5)
                 continue
 
-            current_text = data.get("text", "")
-            is_done = data.get("done", False)
-            is_thinking = data.get("thinking", False)
+            current = data.get("text", "")
+            done = data.get("done", False)
 
-            # Yield deltas from DOM if we have text
-            if not is_thinking and len(current_text) > len(last_dom_text):
-                delta = current_text[len(last_dom_text):]
-                last_dom_text = current_text
+            if len(current) > len(last_dom_text):
+                delta = current[len(last_dom_text):]
+                last_dom_text = current
                 yield StreamChunk(delta=delta)
 
-            if is_done and not is_thinking:
-                generation_done = True
+            if done:
                 break
 
             await asyncio.sleep(0.5)
 
-        if not generation_done:
-            logger.warning("Timed out waiting for generation to complete")
-
-        # Wait for URL to change to /c/{conversation_id}
-        url = ""
-        for _ in range(30):  # Wait up to 15s for URL change
+        # Wait for URL to become /c/{id}
+        conv_id = ""
+        for _ in range(30):
             url = await self._js("window.location.href")
             if "/c/" in url:
+                conv_id = url.split("/c/")[1].split("/")[0].split("?")[0]
                 break
             await asyncio.sleep(0.5)
-        self._conversation_url = url
 
-        if "/c/" in url:
-            conv_id = url.split("/c/")[1].split("/")[0].split("?")[0]
-            logger.info("Conversation ID: %s", conv_id)
-
-            # Wait for the response to be available in the API
-            # Retry up to 30s
-            for attempt in range(60):
-                final_text = await self._fetch_assistant_text(conv_id)
-                if final_text:
+        if conv_id:
+            logger.info("Conversation: %s", conv_id)
+            # Fetch final text from API (more reliable than DOM for thinking models)
+            for _ in range(60):
+                api_text = await self._fetch_text(conv_id)
+                if api_text and len(api_text) > len(last_dom_text):
+                    yield StreamChunk(delta=api_text[len(last_dom_text):])
+                    last_dom_text = api_text
+                    break
+                if api_text:
                     break
                 await asyncio.sleep(0.5)
-            else:
-                final_text = ""
-
-            if final_text and len(final_text) > len(last_dom_text):
-                delta = final_text[len(last_dom_text):]
-                yield StreamChunk(delta=delta)
-        else:
-            logger.warning("URL did not change to /c/ pattern: %s", url)
 
         yield StreamChunk(delta="", finish_reason="stop")
 
-    async def _fetch_assistant_text(self, conversation_id: str) -> str:
-        """Fetch the assistant's final text response from the conversation API."""
+    async def _fetch_text(self, conversation_id: str) -> str:
+        """Fetch assistant's text from the conversation API."""
         token = self._access_token
-        js_code = (
+        js = (
             "(async function() {"
             "  try {"
             "    var r = await fetch('/backend-api/conversation/' + '" + conversation_id + "' + '?offset=0&limit=5', {"
             "      headers: {'Authorization': 'Bearer ' + '" + token + "'}"
             "    });"
-            "    if (!r.ok) return 'FETCH_ERROR:' + r.status;"
+            "    if (!r.ok) return '';"
             "    var conv = await r.json();"
             "    var mapping = conv.mapping || {};"
             "    var lastText = '';"
             "    for (var id in mapping) {"
             "      var node = mapping[id];"
             "      if (node.message && node.message.author && node.message.author.role === 'assistant') {"
-            "        var ct = node.message.content.content_type;"
-            "        if (ct === 'text') {"
+            "        if (node.message.content.content_type === 'text') {"
             "          var parts = node.message.content.parts || [];"
             "          if (parts.length > 0 && parts[0]) lastText = parts[0];"
             "        }"
             "      }"
             "    }"
             "    return lastText;"
-            "  } catch(e) { return 'ERROR:' + e.message; }"
+            "  } catch(e) { return ''; }"
             "})()"
         )
-        result = await self._js(js_code, timeout=15)
-        logger.debug("_fetch_assistant_text result: %s", (result or "")[:200])
-        return result or ""
+        return await self._js(js, timeout=15) or ""
 
     # ── API helpers ───────────────────────────────────────────
 
     async def get_models(self) -> list[dict]:
-        """Get the model catalog."""
         token = self._access_token
         raw = await self._js(
             "(async () => {"
@@ -419,13 +335,11 @@ class CDPDriver:
             "})()"
         )
         try:
-            data = json.loads(raw)
-            return data.get("models", [])
+            return json.loads(raw).get("models", [])
         except json.JSONDecodeError:
             return []
 
     async def get_projects(self) -> list[dict]:
-        """Get the project/gizmo list."""
         token = self._access_token
         raw = await self._js(
             "(async () => {"
@@ -433,15 +347,9 @@ class CDPDriver:
             "    headers: {'Authorization': 'Bearer " + token + "'}"
             "  });"
             "  var data = await r.json();"
-            "  var items = data.items || [];"
-            "  return JSON.stringify(items.map(function(i) {"
+            "  return JSON.stringify((data.items || []).map(function(i) {"
             "    var g = (i.gizmo || {}).gizmo || {};"
-            "    return {"
-            "      id: g.id,"
-            "      name: (g.display || {}).name || '',"
-            "      memory_scope: g.memory_scope || '',"
-            "      short_url: g.short_url || ''"
-            "    };"
+            "    return {id: g.id, name: (g.display || {}).name || '', memory_scope: g.memory_scope || '', short_url: g.short_url || ''};"
             "  }));"
             "})()"
         )
@@ -450,30 +358,14 @@ class CDPDriver:
         except json.JSONDecodeError:
             return []
 
-    async def get_conversation(self, conversation_id: str) -> dict:
-        """Get conversation details."""
-        token = self._access_token
-        raw = await self._js(
-            "(async () => {"
-            "  var r = await fetch('/backend-api/conversation/" + conversation_id + "', {"
-            "    headers: {'Authorization': 'Bearer " + token + "'}"
-            "  });"
-            "  return await r.text();"
-            "})()"
-        )
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-
     # ── Lifecycle ─────────────────────────────────────────────
 
-    async def close(self):
-        if self.ws:
-            await self.ws.close()
-            self.ws = None
+    async def close(self) -> None:
+        if self._ws:
+            await self._ws.close()
+            self._ws = None
         logger.info("CDP driver closed")
 
     @property
     def is_connected(self) -> bool:
-        return self.ws is not None and self.ws.state.name == "OPEN"
+        return self._ws is not None and self._ws.state.name == "OPEN"

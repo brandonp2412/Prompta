@@ -1,123 +1,170 @@
-"""Configuration management for chatgpt-web2api."""
+"""Configuration for chatgpt-web2api."""
 
 from __future__ import annotations
 
 import json
 import os
+import platform
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 
+def _default_chrome_path() -> str:
+    """Find Chrome on the current system."""
+    system = platform.system()
+    candidates = []
+    if system == "Windows":
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        pfx86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        local = os.environ.get("LOCALAPPDATA", r"C:\Users\USER\AppData\Local")
+        candidates = [
+            f"{pf}\\Google\\Chrome\\Application\\chrome.exe",
+            f"{pfx86}\\Google\\Chrome\\Application\\chrome.exe",
+            f"{local}\\Google\\Chrome\\Application\\chrome.exe",
+        ]
+    elif system == "Darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+    else:
+        candidates = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+        ]
+    for c in candidates:
+        if Path(c).exists():
+            return c
+    # Fallback — rely on PATH
+    found = shutil.which("chrome") or shutil.which("google-chrome") or shutil.which("chromium")
+    return found or "chrome"
+
+
+def _default_user_data_dir() -> str:
+    """Default Chrome profile directory dedicated to this proxy."""
+    base = Path.home() / ".chatgpt-web2api"
+    return str(base / "chrome-profile")
+
+
+@dataclass
+class ChromeConfig:
+    chrome_path: str = field(default_factory=_default_chrome_path)
+    user_data_dir: str = field(default_factory=_default_user_data_dir)
+    cdp_port: int = 9222
+    headless: bool = False
+    extra_args: list[str] = field(default_factory=list)
+    restart_on_crash: bool = True
+
+
 @dataclass
 class ServerConfig:
-    port: int = 8082
-    host: str = "0.0.0.0"
+    port: int = 8080
+    host: str = "127.0.0.1"
+    api_keys: list[str] = field(default_factory=list)
+    request_timeout: int = 120
 
 
 @dataclass
 class ChatGPTConfig:
-    base_url: str = "https://chatgpt.com"
-    default_model: str = "gpt-4o"
+    default_model: str = "auto"
     default_project_id: Optional[str] = None
 
 
 @dataclass
-class BrowserConfig:
-    headless: bool = False
-    stealth_profile: str = "windows-chrome-stable"
-    proxy: Optional[str] = None
-
-
-@dataclass
-class SessionConfig:
-    cookie_file: Optional[str] = None
-    retry_attempts: int = 3
-    retry_delay_sec: float = 2.0
-    request_timeout_sec: int = 180
-
-
-@dataclass
 class LogConfig:
-    log_requests: bool = True
-    log_level: str = "INFO"
+    level: str = "INFO"
+    file: Optional[str] = None
 
 
 @dataclass
-class AppConfig:
+class Config:
+    chrome: ChromeConfig = field(default_factory=ChromeConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     chatgpt: ChatGPTConfig = field(default_factory=ChatGPTConfig)
-    browser: BrowserConfig = field(default_factory=BrowserConfig)
-    session: SessionConfig = field(default_factory=SessionConfig)
     log: LogConfig = field(default_factory=LogConfig)
-    api_keys: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_file(cls, path: str | Path) -> AppConfig:
-        """Load configuration from a JSON file."""
-        p = Path(path)
-        if not p.exists():
-            return cls()
-        with open(p) as f:
-            data = json.load(f)
-        return cls.from_dict(data)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> AppConfig:
-        """Build config from a dictionary."""
+    def load(cls, path: Optional[str] = None) -> Config:
+        """Load config from file + env overrides."""
         cfg = cls()
-        if "port" in data:
-            cfg.server.port = data["port"]
-        if "host" in data:
-            cfg.server.host = data["host"]
-        if "chatgpt_base_url" in data:
-            cfg.chatgpt.base_url = data["chatgpt_base_url"]
-        if "default_model" in data:
-            cfg.chatgpt.default_model = data["default_model"]
-        if "default_project_id" in data:
-            cfg.chatgpt.default_project_id = data["default_project_id"]
-        if "headless" in data:
-            cfg.browser.headless = data["headless"]
-        if "stealth_profile" in data:
-            cfg.browser.stealth_profile = data["stealth_profile"]
-        if "proxy" in data:
-            cfg.browser.proxy = data["proxy"]
-        if "cookie_file" in data:
-            cfg.session.cookie_file = data["cookie_file"]
-        if "retry_attempts" in data:
-            cfg.session.retry_attempts = data["retry_attempts"]
-        if "retry_delay_sec" in data:
-            cfg.session.retry_delay_sec = data["retry_delay_sec"]
-        if "request_timeout_sec" in data:
-            cfg.session.request_timeout_sec = data["request_timeout_sec"]
-        if "log_requests" in data:
-            cfg.log.log_requests = data["log_requests"]
-        if "log_level" in data:
-            cfg.log.log_level = data["log_level"]
-        if "api_keys" in data:
-            cfg.api_keys = data["api_keys"]
+        if path and Path(path).exists():
+            with open(path) as f:
+                data = json.load(f)
+            cfg._apply_dict(data)
+        cfg._apply_env()
         return cfg
 
-    @classmethod
-    def from_env(cls) -> AppConfig:
-        """Build config from environment variables."""
-        cfg = cls()
-        if v := os.environ.get("CHATGPT_W2A_PORT"):
-            cfg.server.port = int(v)
-        if v := os.environ.get("CHATGPT_W2A_HOST"):
-            cfg.server.host = v
-        if v := os.environ.get("CHATGPT_W2A_BASE_URL"):
-            cfg.chatgpt.base_url = v
-        if v := os.environ.get("CHATGPT_W2A_DEFAULT_MODEL"):
-            cfg.chatgpt.default_model = v
-        if v := os.environ.get("CHATGPT_W2A_DEFAULT_PROJECT"):
-            cfg.chatgpt.default_project_id = v
-        if v := os.environ.get("CHATGPT_W2A_HEADLESS"):
-            cfg.browser.headless = v.lower() in ("1", "true", "yes")
-        if v := os.environ.get("CHATGPT_W2A_PROXY"):
-            cfg.browser.proxy = v
-        if v := os.environ.get("CHATGPT_W2A_COOKIE_FILE"):
-            cfg.session.cookie_file = v
-        if v := os.environ.get("CHATGPT_W2A_API_KEYS"):
-            cfg.api_keys = [k.strip() for k in v.split(",") if k.strip()]
-        return cfg
+    def _apply_dict(self, data: dict) -> None:
+        c = data.get("chrome_path")
+        if c:
+            self.chrome.chrome_path = c
+        c = data.get("user_data_dir")
+        if c:
+            self.chrome.user_data_dir = c
+        c = data.get("cdp_port")
+        if c is not None:
+            self.chrome.cdp_port = int(c)
+        c = data.get("headless")
+        if c is not None:
+            self.chrome.headless = bool(c)
+        c = data.get("port")
+        if c is not None:
+            self.server.port = int(c)
+        c = data.get("host")
+        if c:
+            self.server.host = c
+        c = data.get("api_keys")
+        if c:
+            self.server.api_keys = list(c)
+        c = data.get("default_model")
+        if c:
+            self.chatgpt.default_model = c
+        c = data.get("default_project_id")
+        if c:
+            self.chatgpt.default_project_id = c
+        c = data.get("request_timeout")
+        if c is not None:
+            self.server.request_timeout = int(c)
+        c = data.get("log_level")
+        if c:
+            self.log.level = c
+        c = data.get("log_file")
+        if c:
+            self.log.file = c
+
+    def _apply_env(self) -> None:
+        _env = os.environ.get
+        if v := _env("W2A_CHROME_PATH"):
+            self.chrome.chrome_path = v
+        if v := _env("W2A_USER_DATA_DIR"):
+            self.chrome.user_data_dir = v
+        if v := _env("W2A_CDP_PORT"):
+            self.chrome.cdp_port = int(v)
+        if v := _env("W2A_PORT"):
+            self.server.port = int(v)
+        if v := _env("W2A_HOST"):
+            self.server.host = v
+        if v := _env("W2A_API_KEYS"):
+            self.server.api_keys = [k.strip() for k in v.split(",") if k.strip()]
+        if v := _env("W2A_DEFAULT_MODEL"):
+            self.chatgpt.default_model = v
+        if v := _env("W2A_LOG_LEVEL"):
+            self.log.level = v
+
+    def to_dict(self) -> dict:
+        return {
+            "chrome_path": self.chrome.chrome_path,
+            "user_data_dir": self.chrome.user_data_dir,
+            "cdp_port": self.chrome.cdp_port,
+            "headless": self.chrome.headless,
+            "port": self.server.port,
+            "host": self.server.host,
+            "api_keys": self.server.api_keys,
+            "default_model": self.chatgpt.default_model,
+            "default_project_id": self.chatgpt.default_project_id,
+            "request_timeout": self.server.request_timeout,
+            "log_level": self.log.level,
+        }
