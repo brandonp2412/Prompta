@@ -1,6 +1,5 @@
 FROM python:3.11-slim
 
-# Install Chrome
 RUN apt-get update && apt-get install -y \
     wget gnupg2 \
     && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
@@ -10,12 +9,22 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY . .
-
 RUN pip install --no-cache-dir .
 
-# Chrome runs headless in Docker
+# Persistent Chrome profile (stores login session)
+VOLUME /data/chrome-profile
+
+# Cookie file mount point (for headless auth)
+VOLUME /data/cookies
+
 ENV W2A_HEADLESS=true
+ENV W2A_USER_DATA_DIR=/data/chrome-profile
+ENV W2A_PORT=8080
 
 EXPOSE 8080 9222
 
-ENTRYPOINT ["chatgpt-web2api", "--headless"]
+# Start script handles cookie injection
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]

@@ -11,9 +11,11 @@ Owns the entire system:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
 import sys
+import time
 from typing import Optional
 
 from .chrome import ChromeProcess
@@ -45,10 +47,19 @@ class Service:
         await self._chrome.ensure_running()
         await self._chrome.start_monitor()
 
-        # 2. CDP driver
+        # 2. CDP driver (with login detection)
         logger.info("Connecting CDP driver...")
         self._driver = CDPDriver(cdp_port=cfg.chrome.cdp_port)
-        await self._driver.connect()
+
+        try:
+            await self._driver.connect()
+        except RuntimeError as e:
+            if "No access token" in str(e):
+                # Not logged in — wait for user to complete login
+                await self._wait_for_login()
+                await self._driver.connect()
+            else:
+                raise
 
         # 3. API server
         self._server = APIServer(cfg, self._driver)
@@ -58,6 +69,46 @@ class Service:
 
         # 4. Wait for shutdown signal
         await self._shutdown_event.wait()
+
+    async def _wait_for_login(self, timeout: int = 300) -> None:
+        """Wait for the user to log into ChatGPT in the Chrome window."""
+        print()
+        print("=" * 52)
+        print("  NOT LOGGED IN")
+        print("=" * 52)
+        print()
+        print("  Chrome is open. Log into ChatGPT in the browser window.")
+        print("  Waiting for login...")
+        print()
+
+        # Navigate to login page if not already there
+        try:
+            await self._driver._cdp("Page.navigate", {"url": "https://chatgpt.com/"})
+        except Exception:
+            pass
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                # Try to get an auth token
+                raw = await self._driver._js(
+                    "(async () => {"
+                    "  try {"
+                    "    const r = await fetch('/api/auth/session', {credentials:'include'});"
+                    "    const d = await r.json();"
+                    "    return d.accessToken || '';"
+                    "  } catch(e) { return ''; }"
+                    "})()"
+                )
+                if raw and len(raw) > 100:
+                    print("  Login detected!")
+                    print()
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+        raise TimeoutError(f"Login not completed within {timeout}s")
 
     async def stop(self) -> None:
         """Graceful shutdown."""
