@@ -49,6 +49,9 @@ class APIServer:
         self._driver = driver
         self._lock = asyncio.Lock()
         self._request_count = 0
+        # Track last conversation for multi-turn continuity
+        self._last_conv_id: Optional[str] = None
+        self._last_project_id: Optional[str] = None
 
         self.app = web.Application(client_max_size=10 * 1024 * 1024)
         self.app.router.add_post("/v1/chat/completions", self._handle_chat)
@@ -149,20 +152,26 @@ class APIServer:
             or (body.get("metadata", {}) or {}).get("project_id")
             or self._config.chatgpt.default_project_id
         )
+        conversation_id = body.get("conversation_id")
 
-        # Extract last user message
+        # Build the text to type: system messages prepended, then user message
+        system_parts = []
         user_msg = ""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, list):
-                    user_msg = "\n".join(
-                        p.get("text", "") if isinstance(p, dict) else str(p)
-                        for p in content
-                    )
-                else:
-                    user_msg = str(content)
-                break
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(
+                    p.get("text", "") if isinstance(p, dict) else str(p)
+                    for p in content
+                )
+            else:
+                content = str(content)
+
+            if role == "system":
+                system_parts.append(content)
+            elif role == "user":
+                user_msg = content
 
         if not user_msg:
             return web.json_response(
@@ -170,24 +179,43 @@ class APIServer:
                 status=400,
             )
 
+        # Compose final text: system instructions first, then user message
+        if system_parts:
+            full_text = "[System Instructions]\n" + "\n".join(system_parts) + "\n\n[User]\n" + user_msg
+        else:
+            full_text = user_msg
+
         model_slug = MODEL_MAP.get(model, model)
         timeout = self._config.server.request_timeout
 
         logger.info(
-            "Request #%d: model=%s→%s project=%s stream=%s msg=%.60s",
-            self._request_count, model, model_slug, project_id, stream, user_msg,
+            "Request #%d: model=%s->%s conv=%s project=%s stream=%s msg=%.60s",
+            self._request_count, model, model_slug, conversation_id, project_id, stream, full_text,
         )
 
         # Serialize — one request at a time through the browser
         async with self._lock:
             try:
-                # Navigate to fresh chat
-                await self._driver.navigate_new_chat(gizmo_id=project_id)
+                # Decide: continue existing conversation or start fresh?
+                if conversation_id:
+                    # Explicit conversation_id from client — navigate to it
+                    await self._driver.navigate_conversation(conversation_id)
+                elif (self._last_conv_id
+                      and self._driver._current_conv_id == self._last_conv_id
+                      and project_id == self._last_project_id
+                      and not system_parts):
+                    # Same session, same project, no system prompt override — continue
+                    logger.info("Continuing conversation: %s", self._last_conv_id)
+                    await asyncio.sleep(2)  # Let the page settle
+                else:
+                    # Fresh chat
+                    await self._driver.navigate_new_chat(gizmo_id=project_id)
+                    self._last_project_id = project_id
 
                 if stream:
-                    return await self._stream_response(request, model_slug, user_msg, timeout)
+                    return await self._stream_response(request, model_slug, full_text, timeout)
                 else:
-                    return await self._full_response(request, model_slug, user_msg, timeout)
+                    return await self._full_response(request, model_slug, full_text, timeout)
 
             except Exception as e:
                 logger.error("Chat error: %s", e, exc_info=True)
@@ -206,11 +234,15 @@ class APIServer:
         async for chunk in self._driver.send_and_stream(text, timeout=timeout):
             full_text += chunk.delta
 
+        conv_id = self._driver._current_conv_id or ""
+        self._last_conv_id = conv_id
+
         return web.json_response({
             "id": f"chatcmpl-{uuid.uuid4().hex[:29]}",
             "object": "chat.completion",
             "created": int(time.time()),
             "model": model,
+            "conversation_id": conv_id,
             "choices": [{
                 "index": 0,
                 "message": {"role": "assistant", "content": full_text},
@@ -246,8 +278,11 @@ class APIServer:
                         "choices": [{"index": 0, "delta": {"content": chunk.delta}, "finish_reason": None}],
                     })
                 if chunk.finish_reason:
+                    conv_id = self._driver._current_conv_id or ""
+                    self._last_conv_id = conv_id
                     await self._send_sse(resp, {
                         "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
+                        "conversation_id": conv_id,
                         "choices": [{"index": 0, "delta": {}, "finish_reason": chunk.finish_reason}],
                     })
         except Exception as e:

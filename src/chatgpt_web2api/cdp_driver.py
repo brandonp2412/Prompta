@@ -44,6 +44,7 @@ class CDPDriver:
         self._msg_id = 0
         self._access_token = ""
         self._user_name = ""
+        self._current_conv_id: Optional[str] = None
 
     # ── Connection ────────────────────────────────────────────
 
@@ -143,13 +144,43 @@ class CDPDriver:
 
         # Settle time for sentinel init
         await asyncio.sleep(2)
+        self._current_conv_id = None
+
+    async def navigate_conversation(self, conversation_id: str) -> None:
+        """Navigate to an existing conversation for multi-turn."""
+        url = f"https://chatgpt.com/c/{conversation_id}"
+        logger.info("Navigate to conversation: %s", url)
+        await self._cdp("Page.navigate", {"url": url})
+        await asyncio.sleep(3)
+
+        # Wait for textarea
+        for _ in range(30):
+            result = await self._js(
+                "(function() {"
+                "  return JSON.stringify({"
+                "    ready: !!document.querySelector('#prompt-textarea'),"
+                "    url: location.href"
+                "  });"
+                "})()"
+            )
+            try:
+                state = json.loads(result)
+                if state.get("ready"):
+                    logger.info("Conversation ready: %s", state.get("url"))
+                    break
+            except (json.JSONDecodeError, TypeError):
+                pass
+            await asyncio.sleep(0.5)
+
+        await asyncio.sleep(1)
+        self._current_conv_id = conversation_id
 
     # ── Message Input ─────────────────────────────────────────
 
     async def type_message(self, text: str) -> None:
         """Type text into the ChatGPT prompt textarea."""
         # Focus
-        await self._js(
+        focus_result = await self._js(
             "(function() {"
             "  var el = document.querySelector('#prompt-textarea');"
             "  if (!el) return 'no textarea';"
@@ -157,10 +188,17 @@ class CDPDriver:
             "  return 'focused';"
             "})()"
         )
+        if focus_result != 'focused':
+            raise RuntimeError("No textarea found")
+
+        # Clear existing text by selecting all first
+        await self._cdp("Input.dispatchKeyEvent", {"type": "keyDown", "key": "a", "code": "KeyA", "modifiers": 2})
+        await self._cdp("Input.dispatchKeyEvent", {"type": "keyUp", "key": "a", "code": "KeyA", "modifiers": 2})
+        await asyncio.sleep(0.1)
 
         # Insert text via CDP
         await self._cdp("Input.insertText", {"text": text})
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.5)
 
         # Verify
         content = await self._js(
@@ -206,21 +244,22 @@ class CDPDriver:
         """Send a message and yield streaming response chunks.
 
         This is the main high-level operation:
-        1. Type message
-        2. Click send
-        3. Wait for assistant message to appear
-        4. Poll DOM for streaming text
-        5. Fetch final text from conversation API
+        1. Count existing assistant messages
+        2. Type message
+        3. Click send
+        4. Wait for new assistant message to appear
+        5. Poll DOM for streaming text
+        6. Fetch final text from conversation API
         """
-        # Type and send
-        await self.type_message(text)
-        await self.click_send()
-
-        # Count existing assistant messages
+        # Count existing assistants BEFORE sending
         initial_raw = await self._js(
             "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
         )
         initial_count = int(initial_raw) if initial_raw else 0
+
+        # Type and send
+        await self.type_message(text)
+        await self.click_send()
 
         # Wait for a new assistant message (up to 60s)
         deadline = time.monotonic() + min(timeout, 60)
@@ -281,6 +320,7 @@ class CDPDriver:
 
         if conv_id:
             logger.info("Conversation: %s", conv_id)
+            self._current_conv_id = conv_id
             # Fetch final text from API (more reliable than DOM for thinking models)
             for _ in range(60):
                 api_text = await self._fetch_text(conv_id)
@@ -295,7 +335,7 @@ class CDPDriver:
         yield StreamChunk(delta="", finish_reason="stop")
 
     async def _fetch_text(self, conversation_id: str) -> str:
-        """Fetch assistant's text from the conversation API."""
+        """Fetch the latest assistant text from the conversation API."""
         token = self._access_token
         js = (
             "(async function() {"
@@ -306,17 +346,17 @@ class CDPDriver:
             "    if (!r.ok) return '';"
             "    var conv = await r.json();"
             "    var mapping = conv.mapping || {};"
-            "    var lastText = '';"
-            "    for (var id in mapping) {"
-            "      var node = mapping[id];"
+            "    var current = conv.current_node || '';"
+            "    if (current && mapping[current]) {"
+            "      var node = mapping[current];"
             "      if (node.message && node.message.author && node.message.author.role === 'assistant') {"
             "        if (node.message.content.content_type === 'text') {"
             "          var parts = node.message.content.parts || [];"
-            "          if (parts.length > 0 && parts[0]) lastText = parts[0];"
+            "          if (parts.length > 0 && parts[0]) return parts[0];"
             "        }"
             "      }"
             "    }"
-            "    return lastText;"
+            "    return '';"
             "  } catch(e) { return ''; }"
             "})()"
         )
