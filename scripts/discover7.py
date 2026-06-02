@@ -106,26 +106,18 @@ class BrowserFetchCDP:
 
         init_json = json.dumps(init).replace("</", "<\\/")
 
+        # Use text() instead of arrayBuffer/base64 to avoid 32KB truncation
         fn_decl = (
             "async function(urlArg, initJson) {"
             "  try {"
             "    const init = JSON.parse(initJson);"
             "    const r = await fetch(urlArg, init);"
-            "    const buf = await r.arrayBuffer();"
-            "    let b64 = '';"
-            "    const view = new Uint8Array(buf);"
-            "    const CHUNK = 0x8000;"
-            "    for (let i = 0; i < view.length; i += CHUNK) {"
-            "      let s = '';"
-            "      const end = Math.min(i + CHUNK, view.length);"
-            "      for (let j = i; j < end; j++) s += String.fromCharCode(view[j]);"
-            "      b64 += btoa(s);"
-            "    }"
+            "    const text = await r.text();"
             "    const headers = {};"
             "    r.headers.forEach((v, k) => { headers[k] = v; });"
-            "    return { status: r.status, headers, bodyB64: b64 };"
+            "    return JSON.stringify({status: r.status, ok: r.ok, headers: headers, body: text});"
             "  } catch(e) {"
-            "    return { status: 0, error: e.message, headers: {}, bodyB64: '' };"
+            "    return JSON.stringify({status: 0, ok: false, error: e.message, headers: {}, body: ''});"
             "  }"
             "}"
         )
@@ -155,22 +147,32 @@ class BrowserFetchCDP:
                     desc = exception.get("exception", {}).get("description", str(exception))
                     return {"status": 0, "ok": False, "error": desc, "body": ""}
 
-                val = result.get("result", {}).get("value", {})
+                val = result.get("result", {}).get("value", "")
                 if not val:
                     return {"status": 0, "ok": False, "error": "no value", "body": ""}
 
-                status = val.get("status", 0)
-                body_b64 = val.get("bodyB64", "")
-                body = base64.b64decode(body_b64).decode("utf-8", errors="replace") if body_b64 else ""
+                try:
+                    parsed = json.loads(val)
+                except json.JSONDecodeError:
+                    # Body might contain raw text that broke JSON
+                    return {"status": 0, "ok": False, "error": "json parse failed", "body": val[:500]}
+
+                status = parsed.get("status", 0)
+                body = parsed.get("body", "")
                 return {
                     "status": status,
                     "ok": 200 <= status < 400,
                     "body": body,
-                    "headers": val.get("headers", {}),
+                    "headers": parsed.get("headers", {}),
                 }
 
-    async def get(self, path: str) -> dict:
-        return await self.fetch(f"https://chatgpt.com{path}")
+    async def get(self, path: str, token: str = "") -> dict:
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return await self.fetch(f"https://chatgpt.com{path}", {
+            "headers": headers,
+        } if token else None)
 
     async def post(self, path: str, body: dict, token: str = "") -> dict:
         headers = {"Content-Type": "application/json"}
@@ -221,7 +223,7 @@ async def main():
 
         # 1. Models
         logger.info("=== Models ===")
-        models = await bf.get("/backend-api/models?iim=false&is_gizmo=false")
+        models = await bf.get("/backend-api/models?iim=false&is_gizmo=false", token)
         results["models"] = models
         if models.get("ok"):
             slugs = [m["slug"] for m in json.loads(models["body"]).get("models", [])]
@@ -229,27 +231,27 @@ async def main():
 
         # 2. Account
         logger.info("=== Account ===")
-        acct = await bf.get("/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-180")
+        acct = await bf.get("/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-180", token)
         results["account"] = acct
 
         # 3. Me
         logger.info("=== Me ===")
-        me = await bf.get("/backend-api/me")
+        me = await bf.get("/backend-api/me", token)
         results["me"] = me
 
         # 4. Settings
         logger.info("=== Settings ===")
-        settings = await bf.get("/backend-api/settings/user")
+        settings = await bf.get("/backend-api/settings/user", token)
         results["settings"] = settings
 
         # 5. Conversations
         logger.info("=== Conversations ===")
-        convs = await bf.get("/backend-api/conversations?offset=0&limit=5&order=updated")
+        convs = await bf.get("/backend-api/conversations?offset=0&limit=5&order=updated", token)
         results["conversations"] = convs
 
         # 6. Gizmos
         logger.info("=== Gizmos ===")
-        gizmos = await bf.get("/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20")
+        gizmos = await bf.get("/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20", token)
         results["gizmos_sidebar"] = gizmos
 
         # 7. Sentinel prepare
@@ -289,12 +291,12 @@ async def main():
 
         # 9. Memories
         logger.info("=== Memories ===")
-        mem = await bf.get("/backend-api/memories?exclusive_to_gizmo=false")
+        mem = await bf.get("/backend-api/memories?exclusive_to_gizmo=false", token)
         results["memories"] = mem
 
         # 10. Tasks
         logger.info("=== Tasks ===")
-        tasks = await bf.get("/backend-api/tasks")
+        tasks = await bf.get("/backend-api/tasks", token)
         results["tasks"] = tasks
 
     except Exception as e:
