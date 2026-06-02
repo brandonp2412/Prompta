@@ -113,32 +113,64 @@ Default: `auto`, Latest version: `5.5`
 }
 ```
 
-### Sentinel (Anti-Abuse)
-| Endpoint | Status | Notes |
-|----------|--------|-------|
-| `POST /backend-api/sentinel/chat-requirements/prepare` | 200 | Returns challenges |
-| `POST /backend-api/sentinel/chat-requirements/finalize` | ? | Submit solutions |
+### Sentinel Flow (Live-Captured + Solved)
 
-#### Sentinel Prepare Response
-```json
-{
-  "persona": "chatgpt-noauth",
-  "prepare_token": "gAAAAABq...",
-  "turnstile": {
-    "required": true,
-    "dx": "P2MJGxlSAkga..."   // encrypted Turnstile challenge
-  },
-  "proofofwork": {
-    "required": true,
-    "seed": "0.014308608738510697",
-    "difficulty": "069ae0"
-  },
-  "so": {
-    "required": true,
-    "collector_dx": "P2MJGxlXBEg..."   // encrypted so challenge
-  }
+### Step 1: Prepare
+```
+POST /backend-api/sentinel/chat-requirements/prepare
+Headers: Authorization: Bearer <token>
+Body: {}
+Response: {
+  persona: "chatgpt-paid",  // "chatgpt-noauth" when unauthenticated
+  prepare_token: "gAAAAABq...",
+  turnstile: {required: true, dx: "<29KB encrypted blob>"},
+  proofofwork: {required: true, seed: "0.559...", difficulty: "0689f6"},
+  so: {required: true, collector_dx: "<17KB>", snapshot_dx: "..."}
 }
 ```
+
+### Step 2: Solve PoW (SOLVED!)
+```javascript
+// Algorithm: SHA-256(seed + counter) where first 3 bytes < parseInt(difficulty, 16)
+const target = parseInt(difficulty, 16);
+for (let i = 0; i < 10000000; i++) {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed + i));
+    const bytes = new Uint8Array(hash);
+    const first3 = (bytes[0] << 16) | (bytes[1] << 8) | bytes[2];
+    if (first3 < target) return i.toString();  // Usually solves in <100 iterations
+}
+```
+
+### Step 3: Solve Turnstile (Cloudflare CAPTCHA)
+- Required, 29KB encrypted `dx` blob
+- Must be solved in-browser via Cloudflare's Turnstile widget
+- Super Browser v2.0 has auto-solve capability for invisible Turnstile
+
+### Step 4: Solve so challenge
+- Required, encrypted `collector_dx` (17KB) + `snapshot_dx`
+- Unknown algorithm — likely Kasada-based
+- Super Browser v2.0 has detection but not solving (deferred to v2.1)
+
+### Step 5: Finalize
+```
+POST /backend-api/sentinel/chat-requirements/finalize
+Body: {
+  prepare_token: "<from step 1>",
+  turnstile: "<solved token>",
+  proofofwork: {seed, difficulty, answer: "<from step 2>"},
+  so: {collector_dx: "<solved>", snapshot_dx: "<solved>"}
+}
+```
+
+### Full Sentinel Flow Captured from Real Session
+The ChatGPT frontend automatically solves all 3 challenges when sending a message.
+The conversation/prepare endpoint returns a conduit_token (JWT) used for the conversation.
+
+## PoW Solver — VERIFIED WORKING
+
+Seed: `0.559779845730002`, Difficulty: `0689f6` → Answer: `30` (solved in 31 iterations)
+
+The PoW is trivially solvable — typically requires <100 hash iterations.
 
 ### Connectors
 | Endpoint | Status | Notes |
@@ -156,29 +188,58 @@ Default: `auto`, Latest version: `5.5`
 
 ## Conversation Detail Structure
 
+Captured from real conversation: "Model Inquiry" (gpt-5-5-thinking)
+
+### Message Types in Response
+
+| Content Type | Role | Description |
+|-------------|------|-------------|
+| `text` | user | User's message text |
+| `text` | system | System prompts (hidden, empty parts) |
+| `user_editable_context` | user | Editable context (usually empty) |
+| `model_editable_context` | assistant | Model's editable context output |
+| `thoughts` | assistant | Thinking model's chain-of-thought |
+| `reasoning_recap` | assistant | Summary of reasoning process |
+| `text` | assistant | Final text response |
+
+### Thinking Model Message Sequence
+```
+1. [system] text: ""              # System prompt
+2. [system] text: ""              # Additional context
+3. [system] text: ""              # More context
+4. [user]   user_editable_context  # User context
+5. [system] text: ""              # Pre-injection
+6. [system] text: ""              # Post-injection
+7. [user]   text: "Hello..."       # USER MESSAGE
+8. [system] text: ""              # Model=thinking
+9. [assistant] model_editable_context  # Context injection
+10. [system] text: ""             # Separator
+11. [assistant] thoughts: []       # THINKING (empty = not captured)
+12. [assistant] reasoning_recap: [] # REASONING SUMMARY
+13. [assistant] text: "GPT-5.5 Thinking." # FINAL ANSWER
+```
+
+### Full Conversation JSON
 ```json
 {
-  "title": "Jet Black Paint Change",
-  "conversation_id": "6a1e7275-...",
-  "gizmo_id": "g-fTA4FQ7wj",
-  "gizmo_type": "gpt",
-  "default_model_slug": "gpt-5-5",
+  "title": "Model Inquiry",
+  "conversation_id": "6a1ed734-...",
+  "gizmo_id": null,
+  "default_model_slug": "gpt-5-5-thinking",
   "memory_scope": "global_enabled",
-  "is_temporary_chat": false,
-  "is_do_not_remember": false,
-  "current_node": "28990604-...",
+  "current_node": "<uuid>",
   "mapping": {
     "<uuid>": {
       "id": "<uuid>",
       "message": {
         "id": "<uuid>",
-        "author": {"role": "user|assistant|system|tool"},
+        "author": {"role": "user|assistant|system"},
         "content": {
-          "content_type": "text|multimodal_text|code|model_editable_context",
+          "content_type": "text|thoughts|reasoning_recap|model_editable_context",
           "parts": ["..."]
         },
         "status": "finished_successfully",
-        "metadata": {}
+        "metadata": {"model_slug": "gpt-5-5-thinking"}
       },
       "parent": "<parent_uuid>",
       "children": ["<child_uuid>"]
@@ -202,12 +263,20 @@ Default: `auto`, Latest version: `5.5`
 
 ## Key Findings
 
-1. **Auth**: JWT Bearer token from `/api/auth/session` — required for all `/backend-api/` calls
-2. **Sentinel is the gatekeeper**: 3 challenges required per message (Turnstile, PoW, so)
-3. **PoW**: seed + difficulty pattern captured; algorithm still unknown (hash-wasm based)
-4. **Turnstile**: encrypted `dx` blob — must be solved in-browser context
-5. **Projects ARE gizmos**: `gizmo_type: "snorlax"`, memory_scope differentiates shared vs dedicated
-6. **Message mapping is a tree**: each node has parent + children, supporting branching conversations
-7. **193 images** generated, **28 background tasks** active on this account
-8. **~162KB** of project/GPT catalog from sidebar endpoint
-9. **Conversation init** returns rate limits (file_upload: 3, paste_text_to_file: 3, dictation: 1)
+1. **Auth**: JWT Bearer token from `/api/auth/session` (~1983 chars) — required for all `/backend-api/` calls
+2. **PoW SOLVED**: SHA-256 hash comparison — seed + counter, first 3 bytes < difficulty. Trivially solvable (<100 iterations)
+3. **Sentinel gatekeeper**: 3 challenges (Turnstile + PoW + so) — PoW solved, Turnstile/so still need browser-based solving
+4. **Projects ARE gizmos**: `gizmo_type: "snorlax"`, `memory_scope` differentiates shared (`global`) vs dedicated (`project_v2`)
+5. **Message mapping is a tree**: each node has parent + children, supporting branching conversations
+6. **Thinking model content types**: `thoughts`, `reasoning_recap`, `model_editable_context`, `text`
+7. **Model slug with thinking**: `gpt-5-5-thinking` (derived from base model `gpt-5-5` + thinking mode)
+8. **Message sending works**: Via JS click with full MouseEvent sequence on send button
+9. **BrowserFetch pattern**: Dedicated `about:blank` scratch frame inherits browser auth (persona=`chatgpt-paid`)
+10. **Conversation/prepare**: Returns a `conduit_token` (JWT) for the session
+
+## Unblocked Path Forward
+
+The main remaining blocker is the **Turnstile + so challenges**. Options:
+1. **Intercept from real session**: The page solves these automatically — intercept the finalize request
+2. **Super Browser v2.0 Turnstile solver**: Has auto-solve for invisible Turnstile
+3. **Skip sentinel**: Use the page's own message sending (type + click) which handles sentinel internally
