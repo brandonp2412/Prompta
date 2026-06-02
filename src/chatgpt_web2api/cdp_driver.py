@@ -168,18 +168,17 @@ class CDPDriver:
         await self._cdp("Page.navigate", {"url": url})
         await asyncio.sleep(2)
 
-        # Wait for textarea AND send button to be ready
+        # Wait for textarea to be ready (send button appears only after typing)
         for i in range(30):
             result = await self._js(
                 "(function() {"
                 "  var ta = document.querySelector('#prompt-textarea');"
-                "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
-                "  return JSON.stringify({hasTA: !!ta, hasBtn: !!btn, url: location.href});"
+                "  return JSON.stringify({hasTA: !!ta, url: location.href});"
                 "})()"
             )
             try:
                 state = json.loads(result)
-                if state.get("hasTA") and state.get("hasBtn"):
+                if state.get("hasTA"):
                     logger.info("Page ready: %s", state.get("url", ""))
                     break
             except (json.JSONDecodeError, TypeError):
