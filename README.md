@@ -1,88 +1,169 @@
-![Project Banner](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/blob/7f5137bbf5dfae49154b92b48eef6821d9e281f2/Banner.png)
+<div align="center">
 
 # ChatGPT-Web2API
 
-OpenAI-compatible API proxy that drives a real ChatGPT browser session via Chrome DevTools Protocol.
+**Turn ChatGPT into an API. No API key. No token extraction. No sentinel solving.**
 
-**No API key. No sentinel solving. One command to start.**
+One command starts a Chrome browser, logs into ChatGPT, and exposes an OpenAI-compatible API + MCP server.
 
-## Architecture
+[![CI](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/actions/workflows/ci.yml/badge.svg)](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+
+</div>
+
+---
+
+## Why This Exists
+
+You have a **ChatGPT Plus subscription** but want to use it programmatically:
+
+- **Build AI agents** that chat with ChatGPT via MCP (Model Context Protocol)
+- **Use the OpenAI Python SDK** against your ChatGPT account — no separate API key
+- **Access ChatGPT Projects** for persistent memory and custom instructions
+- **Manage memories, conversations, and projects** from code
+
+Other reverse proxies require token extraction, sentinel challenge solving, or cookie management. This one **drives a real Chrome browser** — anti-bot challenges (Turnstile, PoW) are handled automatically.
+
+## How It Works
 
 ```
-┌──────────────┐     HTTP      ┌──────────────┐    CDP     ┌──────────────┐
-│  Your code   │ ────────────► │  API Server  │ ─────────► │    Chrome     │
-│  (SDK/curl)  │ ◄──────────── │  (aiohttp)   │ ◄───────── │  chatgpt.com  │
-└──────────────┘   JSON/SSE    └──────────────┘  commands  └──────────────┘
+┌──────────────┐   OpenAI API   ┌──────────────┐   CDP    ┌──────────────┐
+│  Your code   │ ──────────────► │  API Server  │ ────────► │    Chrome     │
+│  SDK / curl  │ ◄────────────── │  or MCP      │ ◄──────── │  chatgpt.com  │
+│  MCP client  │   JSON / SSE    │  Server      │  events   │  (logged in)  │
+└──────────────┘                 └──────────────┘           └──────────────┘
 ```
 
-The proxy launches and owns a dedicated Chrome instance. It types messages, clicks send, and reads responses — exactly like a human would. All anti-bot challenges (Turnstile, PoW, so) are handled automatically by the browser.
+The proxy types messages, clicks send, and reads responses — exactly like a human. The browser handles all anti-bot challenges transparently.
 
 ## Quick Start
 
 ```bash
-# Install
-pip install -e .
+pip install chatgpt-web2api
 
-# Start (launches Chrome + API server)
+# Start — opens Chrome, waits for login on first run
 chatgpt-web2api
 
-# Or with options
-chatgpt-web2api --port 9090 --log-level DEBUG
-```
-
-On first run, Chrome opens to `chatgpt.com` — **log in with your account**. The proxy waits until it detects a valid auth session, then the API is live.
-
-Subsequent starts reuse the saved Chrome profile (already logged in).
-
-## Usage
-
-```bash
-# Chat completion
+# Then use it:
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"auto","messages":[{"role":"user","content":"Hello!"}]}'
-
-# Streaming
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto","stream":true,"messages":[{"role":"user","content":"Hello!"}]}'
-
-# Models
-curl http://localhost:8080/v1/models
-
-# Projects
-curl http://localhost:8080/v1/projects
+  -d '{"model":"auto","messages":[{"role":"user","content":"What is 2+2?"}]}'
+# → {"choices":[{"message":{"content":"4"}}]}
 ```
 
-### Python (OpenAI SDK)
+That's it. **One install, one command, one endpoint.**
+
+## What You Get
+
+### 🌐 OpenAI-Compatible REST API
+
+Drop-in replacement for `api.openai.com`:
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://localhost:8080/v1", api_key="not-needed")
 
-# Non-streaming
-resp = client.chat.completions.create(
-    model="auto",
-    messages=[{"role": "user", "content": "What is 2+2?"}]
-)
-print(resp.choices[0].message.content)  # "4"
-
-# Streaming
-for chunk in client.chat.completions.create(
-    model="auto",
-    messages=[{"role": "user", "content": "Write a poem"}],
-    stream=True,
-):
-    if chunk.choices[0].delta.content:
-        print(chunk.choices[0].delta.content, end="")
-
-# With project memory
-resp = client.chat.completions.create(
+response = client.chat.completions.create(
     model="auto",
     messages=[{"role": "user", "content": "Hello!"}],
-    extra_body={"project_id": "g-p-abc123"}
+    stream=True,
 )
+for chunk in response:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+### 🤖 MCP Server (15 Tools for AI Agents)
+
+Expose ChatGPT to Claude Desktop, Cursor, Craft Agent, or any MCP client:
+
+```json
+{
+  "mcpServers": {
+    "chatgpt": {
+      "command": "chatgpt-web2api-mcp",
+      "args": ["--cdp-port", "9222"]
+    }
+  }
+}
+```
+
+**15 tools** give the agent full control:
+
+| Tool | What it does |
+|------|-------------|
+| `chat_completion` | Send message, get response (multi-turn, streaming) |
+| `list_models` | 17 live model slugs (GPT-5.5, 5.4 Thinking, etc.) |
+| `list_projects` | ChatGPT projects with persistent memory |
+| `create_project` | Create isolated workspace with dedicated memory |
+| `list_conversations` | Recent chats with pagination |
+| `get_conversation` | Full message history |
+| `archive_conversation` | Archive/unarchive (reversible) |
+| `delete_conversation` | Delete permanently |
+| `list_memories` | Facts ChatGPT remembers (41 found in testing) |
+| `create_memory` | Tell ChatGPT to remember something |
+| `delete_memory` | Remove a memory |
+| `list_gpts` | Discover Custom GPTs |
+| `chat_with_gpt` | Chat with a specific Custom GPT |
+| `update_project_instructions` | Change project system prompt |
+| `list_project_files` | Files in a project's knowledge base |
+
+Every tool includes rich descriptions with domain knowledge, Pydantic-validated input, structured output schemas, and proper `ToolAnnotations` — agents understand *how* and *when* to use each one without prompting.
+
+### 🔧 Three Interfaces, One Chrome Session
+
+```bash
+# Terminal 1: Start Chrome + API
+chatgpt-web2api
+
+# Terminal 2: MCP server (for AI agents)
+chatgpt-web2api-mcp
+
+# Terminal 3: Any OpenAI SDK, curl, or HTTP client
+curl http://localhost:8080/v1/chat/completions ...
+```
+
+## What Makes This Different
+
+| | ChatGPT-Web2API | chat2api | ChatGPTReversed | Official API |
+|---|---|---|---|---|
+| **Anti-bot handling** | ✅ Automatic (CDP) | ❌ Manual (PoW/Turnstile) | ❌ Manual | N/A |
+| **Token extraction** | ❌ None needed | ✅ Required | ✅ Required | N/A |
+| **Project memory** | ✅ Full CRUD | ❌ | ❌ | ❌ |
+| **MCP server** | ✅ 15 tools | ❌ | ❌ | ❌ |
+| **ChatGPT memories** | ✅ List/create/delete | ❌ | ❌ | ❌ |
+| **Custom GPTs** | ✅ Chat with any GPT | ❌ | ❌ | ❌ |
+| **OpenAI SDK compat** | ✅ Drop-in | ✅ | ❌ | ✅ (native) |
+| **Streaming** | ✅ SSE | ✅ | ❌ | ✅ |
+| **Multi-turn** | ✅ Auto-continue | ✅ | ❌ | ✅ |
+| **Installation** | `pip install` | Docker | npm | `pip install openai` |
+| **Cost** | Free (uses your subscription) | Free | Free | Pay-per-token |
+
+**Key insight**: Other proxies fight the anti-bot system. This one *uses the browser as the solution* — Chrome handles Turnstile, PoW, and session management automatically.
+
+## MCP Tools in Action
+
+An AI agent connected via MCP can:
+
+```python
+# Create an isolated project with dedicated memory
+create_project(name="Python Async Specialist", memory_scope="project_v2")
+
+# Chat within the project (persistent memory across conversations)
+chat_completion(message="What are Python coroutines?", project_id="g-p-abc123")
+
+# Manage memories
+list_memories()  # → 41 facts ChatGPT remembers
+create_memory(content="Always use type hints in Python code")
+delete_memory(memory_id="abc-123")
+
+# List and manage conversations
+list_conversations(limit=10)
+archive_conversation(conversation_id="xyz", archive=True)
+
+# Chat with a Custom GPT
+chat_with_gpt(gpt_id="g-hkJGhxxx", message="Analyze this data")
 ```
 
 ## Configuration
@@ -91,89 +172,98 @@ resp = client.chat.completions.create(
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--config` | — | Path to config JSON |
 | `--port` | 8080 | API server port |
-| `--host` | 127.0.0.1 | API server host |
-| `--cdp-port` | 9222 | Chrome CDP port |
-| `--chrome-path` | auto | Path to Chrome binary |
-| `--user-data-dir` | `~/.chatgpt-web2api/chrome-profile` | Chrome profile dir |
-| `--headless` | false | Run Chrome headless |
-| `--log-level` | INFO | Logging level |
+| `--cdp-port` | 9222 | Chrome debugging port |
+| `--headless` | false | Run Chrome headless (may trigger detection) |
+| `--log-level` | INFO | DEBUG, INFO, WARNING, ERROR |
 
-### Config File
+### Config File (`config.json`)
 
 ```json
 {
-  "port": 8080,
-  "host": "127.0.0.1",
-  "cdp_port": 9222,
-  "chrome_path": "auto",
-  "user_data_dir": "~/.chatgpt-web2api/chrome-profile",
-  "headless": false,
-  "default_model": "auto",
-  "api_keys": [],
-  "request_timeout": 120
+  "chrome": {"cdp_port": 9222},
+  "server": {"port": 8080, "host": "127.0.0.1"},
+  "chatgpt": {"default_project_id": null}
 }
 ```
 
 ### Environment Variables
 
-All config keys are available as `W2A_*` env vars:
-
 ```bash
-W2A_PORT=9090 W2A_LOG_LEVEL=DEBUG chatgpt-web2api
+W2A_PORT=8080 W2A_CDP_PORT=9222 chatgpt-web2api
 ```
 
-## Endpoints
+See [`.env.example`](.env.example) for all available variables.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/chat/completions` | Chat completion (streaming + non-streaming) |
-| GET | `/v1/models` | Model catalog from ChatGPT |
-| GET | `/v1/projects` | ChatGPT projects list |
-| GET | `/health` | Health + Chrome status |
+## Tested Models
 
-## Models
+Live models from a ChatGPT Plus account (June 2025):
 
-Live models from your ChatGPT account. Aliases for backward compatibility:
+| Slug | Type | Best For |
+|------|------|----------|
+| `auto` | Reasoning | General use (default) |
+| `gpt-5-5` | Reasoning, 34K context | Complex analysis |
+| `gpt-5-4-thinking` | Extended reasoning | Step-by-step logic |
+| `gpt-5-3-mini` | Fast, 34K context | Simple tasks, speed |
+| `gpt-5-mini` | Fast, 8K context | Quick answers |
 
-| Alias | Maps to |
-|-------|---------|
-| `gpt-4o` | `auto` |
-| `gpt-4` | `gpt-5` |
-| `gpt-3.5-turbo` | `gpt-5-mini` |
+Use `list_models` to get the current catalog.
 
-## Project Memory
+## Performance
 
-Use ChatGPT Projects for persistent context:
-
-```python
-resp = client.chat.completions.create(
-    model="auto",
-    messages=[{"role": "user", "content": "Hello!"}],
-    extra_body={"project_id": "g-p-abc123"}
-)
-```
-
-## How It Works
-
-1. **Chrome lifecycle** — The service finds or launches a Chrome instance with `--remote-debugging-port`. A dedicated user data dir keeps the proxy's Chrome separate from your daily browser.
-
-2. **CDP driver** — Connects to Chrome via WebSocket. Types messages with `Input.insertText`, clicks send via JS `MouseEvent` sequence (bypasses React synthetic events).
-
-3. **Response retrieval** — Hybrid approach: polls DOM for streaming text, then fetches the final response from ChatGPT's conversation API (`/backend-api/conversation/{id}`). This handles thinking models where the DOM is empty during the reasoning phase.
-
-4. **API server** — Standard aiohttp server with OpenAI-compatible JSON schema. Requests are serialized (one at a time through the single browser). SSE streaming support.
-
-5. **Health monitoring** — Background task pings Chrome CDP every 30s. Auto-restart on crash.
+| Operation | Time |
+|-----------|------|
+| Simple question ("2+2?") | 7s |
+| Complex reasoning | 15–36s |
+| Multi-turn follow-up | 3–6s faster (auto-continue) |
+| Model listing | <1s |
+| Memory listing | <1s |
 
 ## Requirements
 
 - Python 3.11+
 - Chrome or Chromium installed
-- ChatGPT Plus account
-- Dependencies: `websockets`, `aiohttp`
+- ChatGPT Plus subscription
+
+## Project Structure
+
+```
+src/chatgpt_web2api/
+├── __main__.py          CLI entrypoint (chatgpt-web2api)
+├── config.py            Configuration from file/env/CLI
+├── chrome.py            Chrome subprocess lifecycle
+├── cdp_driver.py        CDP primitives (24 methods)
+├── api_server.py        OpenAI-compatible HTTP server
+├── mcp_server.py        MCP server (15 tools, resources, prompts)
+└── service.py           Orchestrator: Chrome → CDP → API/MCP
+```
+
+## Documentation
+
+- [Protocol Reference](docs/protocol-reference.md) — captured ChatGPT web API endpoints
+- [Deployment Guide](docs/deployment.md) — Docker, cookie injection, multi-instance
+- [Contributing](CONTRIBUTING.md) — how to contribute
+- [Changelog](CHANGELOG.md) — version history
+
+## Limitations
+
+- **Single browser session** — one Chrome profile = one ChatGPT account (scale with nginx round-robin)
+- **No headless** — headless Chrome triggers ChatGPT's bot detection; use VNC on servers
+- **Cookie expiry** — auth cookies expire ~2 weeks; re-login needed
+- **Serial requests** — one chat at a time through the browser (concurrent reads are fine)
+- **Memory writes** — ChatGPT's `/backend-api/memories` is read-only; creating memories works via chat interface
+- **No image input** — text only (CDP file upload not yet implemented)
+
+## Roadmap
+
+- [ ] Image/file upload to conversations via CDP drag-and-drop
+- [ ] Headless mode with anti-detection patches
+- [ ] Concurrent chat pooling across multiple Chrome instances
+- [ ] Web search mode (trigger ChatGPT's built-in search)
+- [ ] DALL-E image generation via ChatGPT
+- [ ] Canvas/code execution support
+- [ ] Retry logic with exponential backoff for Chrome failures
 
 ## License
 
-MIT
+[MIT](LICENSE) © Elephant Rock Lab

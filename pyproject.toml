@@ -5,10 +5,31 @@ build-backend = "hatchling.build"
 [project]
 name = "chatgpt-web2api"
 version = "0.2.0"
-description = "OpenAI-compatible API proxy routing through ChatGPT web with project memory support"
+description = "OpenAI-compatible API proxy and MCP server for ChatGPT web — drives Chrome via CDP"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Elephant Rock Lab"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+]
+keywords = ["chatgpt", "openai", "mcp", "cdp", "proxy", "api"]
+
+[project.urls]
+Homepage = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API"
+Repository = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API"
+Issues = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/issues"
+Changelog = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/blob/master/CHANGELOG.md"
 dependencies = [
     "websockets>=12.0",
     "aiohttp>=3.9",
