@@ -636,19 +636,19 @@ class CDPDriver:
     async def get_memories(self) -> list[dict]:
         """List all ChatGPT memories."""
         token = self._access_token
-        raw = await self._js(
+        js = (
             "(async () => {"
             "  try {"
-            "    var r = await fetch('/backend-api/memory', {"
+            "    var r = await fetch('/backend-api/memories', {"
             "      headers: {'Authorization': 'Bearer ' + '" + token + "'}"
             "    });"
             "    if (!r.ok) return JSON.stringify({error: 'HTTP ' + r.status});"
             "    var data = await r.json();"
             "    return JSON.stringify(data);"
             "  } catch(e) { return JSON.stringify({error: e.message}); }"
-            "})()",
-            timeout=15,
+            "})()"
         )
+        raw = await self._js(js, timeout=15)
         try:
             data = json.loads(raw)
             if isinstance(data, dict) and "error" in data:
@@ -666,11 +666,11 @@ class CDPDriver:
     async def create_memory(self, content: str) -> dict:
         """Add a new memory to ChatGPT. Returns the created memory."""
         token = self._access_token
-        escaped = content.replace("'", "\\'").replace('"', '\\"')
-        raw = await self._js(
+        escaped = content.replace("'", "\'").replace('"', '\\"')
+        js = (
             "(async () => {"
             "  try {"
-            "    var r = await fetch('/backend-api/memory', {"
+            "    var r = await fetch('/backend-api/memories', {"
             "      method: 'POST',"
             "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
             "      body: JSON.stringify({content: '" + escaped + "'})"
@@ -678,9 +678,9 @@ class CDPDriver:
             "    if (!r.ok) return JSON.stringify({error: 'HTTP ' + r.status, body: await r.text()});"
             "    return await r.text();"
             "  } catch(e) { return JSON.stringify({error: e.message}); }"
-            "})()",
-            timeout=15,
+            "})()"
         )
+        raw = await self._js(js, timeout=15)
         try:
             result = json.loads(raw)
             if isinstance(result, dict) and "error" in result:
@@ -694,18 +694,18 @@ class CDPDriver:
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a ChatGPT memory by ID. Returns True on success."""
         token = self._access_token
-        result = await self._js(
+        js = (
             "(async () => {"
             "  try {"
-            "    var r = await fetch('/backend-api/memory/" + memory_id + "', {"
+            "    var r = await fetch('/backend-api/memories/" + memory_id + "', {"
             "      method: 'DELETE',"
             "      headers: {'Authorization': 'Bearer ' + '" + token + "'}"
             "    });"
             "    return r.ok ? 'true' : 'false';"
             "  } catch(e) { return 'error:' + e.message; }"
-            "})()",
-            timeout=15,
+            "})()"
         )
+        result = await self._js(js, timeout=15)
         if result == "true":
             logger.info("Deleted memory: %s", memory_id)
             return True

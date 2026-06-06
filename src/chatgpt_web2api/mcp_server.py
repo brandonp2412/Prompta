@@ -929,7 +929,8 @@ def _build_tools() -> list[mcp_types.Tool]:
             name=ToolName.CREATE_MEMORY.value,
             title="Create Memory",
             description=(
-                "Store a new fact in ChatGPT's persistent memory. "
+                "Instruct ChatGPT to remember a new fact. "
+                "This sends a message to ChatGPT asking it to store the information permanently. "
                 "ChatGPT will remember this across all future conversations. "
                 "Use this to teach ChatGPT preferences, context, or domain knowledge.\n\n"
                 "Examples: 'I prefer Python over JavaScript', 'My project uses PostgreSQL 16', "
