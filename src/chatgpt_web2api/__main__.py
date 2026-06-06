@@ -124,29 +124,32 @@ def inject_cookies(args) -> None:
 
 
 def main() -> None:
+    # Check if first arg looks like a subcommand
+    subcommands = {"start", "inject-cookies"}
+    has_subcommand = len(sys.argv) > 1 and sys.argv[1] in subcommands
+
     parser = argparse.ArgumentParser(
         prog="chatgpt-web2api",
         description="OpenAI-compatible API proxy through ChatGPT web via CDP",
     )
-    subparsers = parser.add_subparsers(dest="command")
 
-    # start (default)
-    start_parser = subparsers.add_parser("start", help="Start the proxy (default)")
-    _add_common_args(start_parser)
+    if has_subcommand:
+        subparsers = parser.add_subparsers(dest="command")
+        start_parser = subparsers.add_parser("start", help="Start the proxy (default)")
+        _add_common_args(start_parser)
+        cookie_parser = subparsers.add_parser("inject-cookies", help="Inject browser cookies for auth")
+        cookie_parser.add_argument("cookies", help="Path to cookies JSON file")
+        _add_common_args(cookie_parser)
+    else:
+        # No subcommand — parse as start with all args
+        _add_common_args(parser)
 
-    # inject-cookies
-    cookie_parser = subparsers.add_parser("inject-cookies", help="Inject browser cookies for auth")
-    cookie_parser.add_argument("cookies", help="Path to cookies JSON file")
-    _add_common_args(cookie_parser)
-
-    # If no subcommand, treat as "start"
     args = parser.parse_args()
-    if not args.command:
-        # Re-parse with implicit "start"
-        args = _parse_as_start(parser)
-    elif args.command == "start":
+    command = getattr(args, "command", "start") if has_subcommand else "start"
+
+    if command == "start":
         _run_start(args)
-    elif args.command == "inject-cookies":
+    elif command == "inject-cookies":
         inject_cookies(args)
 
 
@@ -164,12 +167,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
 
 def _parse_as_start(parser: argparse.ArgumentParser) -> argparse.Namespace:
     """When no subcommand is given, parse args as 'start'."""
-    # Create a temp parser with start args + common args
+    # Use the same parser but with common args
     start_parser = argparse.ArgumentParser()
     _add_common_args(start_parser)
     args = start_parser.parse_args()
     args.command = "start"
-    _run_start(args)
     return args
 
 

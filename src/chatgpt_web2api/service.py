@@ -53,13 +53,11 @@ class Service:
 
         try:
             await self._driver.connect()
-        except RuntimeError as e:
-            if "No access token" in str(e):
-                # Not logged in — wait for user to complete login
-                await self._wait_for_login()
-                await self._driver.connect()
-            else:
-                raise
+        except Exception as e:
+            logger.info("Auth failed: %s — waiting for login", e)
+            # Not logged in — wait for user to complete login
+            await self._wait_for_login()
+            await self._driver.connect()
 
         # 3. API server
         self._server = APIServer(cfg, self._driver)
