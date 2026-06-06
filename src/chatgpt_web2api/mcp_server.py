@@ -8,10 +8,9 @@ from the `modelcontextprotocol/servers` repository:
   - ToolAnnotations on every tool with all 4 hints
   - outputSchema + structuredContent on every tool
   - Resource templates for dynamic URIs
-  - Prompt argument completion support
+  - Rich descriptions with domain knowledge baked in
   - Pure business logic with thin tool handlers
   - raise_exceptions=True for proper error propagation
-  - Input validation via SDK (validate_input=True)
 
 Transports:
     stdio  — for Claude Desktop, Cursor, etc. (default)
@@ -58,25 +57,35 @@ class ChatCompletionInput(BaseModel):
         default=None,
         description=(
             "System instructions prepended to the message. "
-            "Changes to this value start a new conversation."
+            "Changing this value starts a new conversation. "
+            "For persistent instructions, use a project instead — "
+            "project instructions apply to all conversations in the project."
         ),
     )
     model: str = Field(
         default="auto",
-        description="Model slug: auto, gpt-5, gpt-5-mini, etc.",
+        description=(
+            "Model slug to use. Common values: auto (default), "
+            "gpt-5-5 (latest, reasoning), gpt-5-mini (fast, simple tasks). "
+            "Use list_models to see all available slugs."
+        ),
     )
     conversation_id: Optional[str] = Field(
         default=None,
         description=(
             "UUID of an existing conversation to continue. "
-            "Omit to start a new chat or auto-continue."
+            "When omitted, the tool auto-continues the last conversation "
+            "(if system_prompt and project_id haven't changed). "
+            "Pass a specific ID to resume a particular conversation."
         ),
     )
     project_id: Optional[str] = Field(
         default=None,
         description=(
-            "ChatGPT project gizmo ID (e.g. g-p-abc123) "
-            "for project-scoped persistent memory and instructions"
+            "ChatGPT project gizmo ID (e.g. g-p-abc123) for project-scoped "
+            "persistent memory, custom instructions, and file attachments. "
+            "Changing this value starts a new conversation. "
+            "Use list_projects to discover available projects."
         ),
     )
 
@@ -98,6 +107,66 @@ class GetConversationInput(BaseModel):
     )
 
 
+class ListConversationsInput(BaseModel):
+    """Input for listing recent conversations."""
+    limit: int = Field(
+        default=28,
+        description="Maximum number of conversations to return (default: 28)",
+    )
+    offset: int = Field(
+        default=0,
+        description="Number of conversations to skip for pagination",
+    )
+
+
+class DeleteConversationInput(BaseModel):
+    """Input for deleting a conversation."""
+    conversation_id: str = Field(
+        description="UUID of the conversation to delete",
+    )
+
+
+class CreateProjectInput(BaseModel):
+    """Input for creating a new ChatGPT project."""
+    name: str = Field(
+        description=(
+            "Display name for the project. This name appears in the ChatGPT sidebar."
+        ),
+    )
+    instructions: str = Field(
+        default="",
+        description=(
+            "Custom instructions (system prompt) for the project. "
+            "These instructions apply to ALL conversations created within this project. "
+            "Example: 'You are a specialist in Python async programming. Always provide "
+            "type hints and docstrings.'"
+        ),
+    )
+    memory_scope: str = Field(
+        default="project_v2",
+        description=(
+            "Memory scope for the project. "
+            "'project_v2' = dedicated memory (isolated, no shared memory from other chats) "
+            "'global' = shared memory (uses the global ChatGPT memory pool). "
+            "Use 'project_v2' when you want isolated context for a specific task."
+        ),
+    )
+
+
+class UpdateProjectInstructionsInput(BaseModel):
+    """Input for updating a project's custom instructions."""
+    project_id: str = Field(
+        description="Project gizmo ID (e.g. g-p-abc123)",
+    )
+    instructions: str = Field(
+        description=(
+            "New custom instructions for the project. "
+            "These replace any existing instructions. "
+            "They apply to all new conversations in the project."
+        ),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # Tool Name Enum — prevents typos (official pattern from mcp-server-git)
 # ═══════════════════════════════════════════════════════════════
@@ -107,6 +176,10 @@ class ToolName(str, Enum):
     LIST_MODELS = "list_models"
     LIST_PROJECTS = "list_projects"
     GET_CONVERSATION = "get_conversation"
+    LIST_CONVERSATIONS = "list_conversations"
+    DELETE_CONVERSATION = "delete_conversation"
+    CREATE_PROJECT = "create_project"
+    UPDATE_PROJECT_INSTRUCTIONS = "update_project_instructions"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -117,10 +190,10 @@ CHAT_COMPLETION_OUTPUT = {
     "type": "object",
     "properties": {
         "content": {"type": "string", "description": "The assistant response text"},
-        "model": {"type": "string", "description": "Model used for generation"},
+        "model": {"type": "string", "description": "Model slug used for generation"},
         "conversation_id": {
             "type": "string",
-            "description": "UUID of the conversation (for multi-turn)",
+            "description": "UUID of the conversation for multi-turn follow-up",
         },
     },
     "required": ["content", "model", "conversation_id"],
@@ -129,8 +202,8 @@ CHAT_COMPLETION_OUTPUT = {
 MODEL_ITEM = {
     "type": "object",
     "properties": {
-        "id": {"type": "string"},
-        "title": {"type": "string"},
+        "id": {"type": "string", "description": "Model slug for use in chat_completion"},
+        "title": {"type": "string", "description": "Human-readable model name"},
     },
     "required": ["id", "title"],
 }
@@ -138,10 +211,7 @@ MODEL_ITEM = {
 LIST_MODELS_OUTPUT = {
     "type": "object",
     "properties": {
-        "models": {
-            "type": "array",
-            "items": MODEL_ITEM,
-        },
+        "models": {"type": "array", "items": MODEL_ITEM},
     },
     "required": ["models"],
 }
@@ -149,9 +219,12 @@ LIST_MODELS_OUTPUT = {
 PROJECT_ITEM = {
     "type": "object",
     "properties": {
-        "id": {"type": "string"},
+        "id": {"type": "string", "description": "Project gizmo ID (use as project_id)"},
         "name": {"type": "string"},
-        "memory_scope": {"type": "string"},
+        "memory_scope": {
+            "type": "string",
+            "description": "'project_v2' (dedicated) or 'global' (shared)",
+        },
     },
     "required": ["id", "name"],
 }
@@ -159,10 +232,7 @@ PROJECT_ITEM = {
 LIST_PROJECTS_OUTPUT = {
     "type": "object",
     "properties": {
-        "projects": {
-            "type": "array",
-            "items": PROJECT_ITEM,
-        },
+        "projects": {"type": "array", "items": PROJECT_ITEM},
     },
     "required": ["projects"],
 }
@@ -187,6 +257,57 @@ GET_CONVERSATION_OUTPUT = {
     "required": ["id"],
 }
 
+CONVERSATION_ITEM = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Conversation UUID"},
+        "title": {"type": "string"},
+        "update_time": {"type": "number", "description": "Unix timestamp"},
+        "gizmo_id": {
+            "type": "string",
+            "description": "Project ID if conversation belongs to a project, null otherwise",
+        },
+    },
+    "required": ["id", "title"],
+}
+
+LIST_CONVERSATIONS_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "conversations": {"type": "array", "items": CONVERSATION_ITEM},
+    },
+    "required": ["conversations"],
+}
+
+DELETE_RESULT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "success": {"type": "boolean"},
+        "conversation_id": {"type": "string"},
+    },
+    "required": ["success", "conversation_id"],
+}
+
+CREATE_PROJECT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "New project gizmo ID"},
+        "name": {"type": "string"},
+        "memory_scope": {"type": "string"},
+        "instructions": {"type": "string"},
+    },
+    "required": ["id", "name"],
+}
+
+UPDATE_INSTRUCTIONS_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "success": {"type": "boolean"},
+        "project_id": {"type": "string"},
+    },
+    "required": ["success", "project_id"],
+}
+
 
 # ═══════════════════════════════════════════════════════════════
 # Global State
@@ -201,31 +322,22 @@ _config: Config | None = None
 # ═══════════════════════════════════════════════════════════════
 
 async def do_chat_completion(driver: CDPDriver, args: dict, config: Config) -> dict:
-    """Execute a chat completion through the CDP driver.
-
-    Returns a dict with structured output matching CHAT_COMPLETION_OUTPUT.
-    """
-    # Validate with Pydantic
+    """Execute a chat completion through the CDP driver."""
     validated = ChatCompletionInput(**args)
-    message = validated.message
-    system_prompt = validated.system_prompt
-    model = validated.model
-    conversation_id = validated.conversation_id
     project_id = validated.project_id or (
         config.chatgpt.default_project_id if config else None
     )
 
-    # Build the full text
-    if system_prompt:
-        full_text = f"[System Instructions]\n{system_prompt}\n\n[User]\n{message}"
+    # Build the full text with optional system prompt
+    if validated.system_prompt:
+        full_text = f"[System Instructions]\n{validated.system_prompt}\n\n[User]\n{validated.message}"
     else:
-        full_text = message
+        full_text = validated.message
 
-    # Navigate to correct conversation
-    if conversation_id:
-        await driver.navigate_conversation(conversation_id)
-    elif driver._current_conv_id and not system_prompt and not project_id:
-        # Auto-continue existing conversation
+    # Navigate to correct conversation context
+    if validated.conversation_id:
+        await driver.navigate_conversation(validated.conversation_id)
+    elif driver._current_conv_id and not validated.system_prompt and not project_id:
         logger.info("Auto-continuing conversation: %s", driver._current_conv_id)
     else:
         await driver.navigate_new_chat(gizmo_id=project_id)
@@ -241,13 +353,13 @@ async def do_chat_completion(driver: CDPDriver, args: dict, config: Config) -> d
 
     return {
         "content": full_response,
-        "model": model,
+        "model": validated.model,
         "conversation_id": conv_id,
     }
 
 
 async def do_list_models(driver: CDPDriver) -> dict:
-    """List available models. Returns dict matching LIST_MODELS_OUTPUT."""
+    """List available models."""
     models = await driver.get_models()
     return {
         "models": [
@@ -258,7 +370,7 @@ async def do_list_models(driver: CDPDriver) -> dict:
 
 
 async def do_list_projects(driver: CDPDriver) -> dict:
-    """List available projects. Returns dict matching LIST_PROJECTS_OUTPUT."""
+    """List available projects."""
     projects = await driver.get_projects()
     return {
         "projects": [
@@ -274,41 +386,89 @@ async def do_list_projects(driver: CDPDriver) -> dict:
 
 
 async def do_get_conversation(driver: CDPDriver, args: dict) -> dict:
-    """Retrieve conversation history. Returns dict matching GET_CONVERSATION_OUTPUT."""
+    """Retrieve conversation history."""
     validated = GetConversationInput(**args)
     data = await driver.get_conversation(validated.conversation_id)
 
-    # Extract messages from conversation mapping
-    messages = []
+    # Walk the conversation tree from current_node backwards
     mapping = data.get("mapping", {})
     current_node = data.get("current_node")
-
-    # Walk the conversation tree from current_node backwards
-    node_id = current_node
     chain = []
     visited = set()
+    node_id = current_node
+
     while node_id and node_id not in visited:
         visited.add(node_id)
         node_data = mapping.get(node_id, {})
         msg = node_data.get("message")
         if msg and msg.get("content"):
             role = msg.get("author", {}).get("role", "unknown")
-            # Extract text from content parts
             parts = msg.get("content", {}).get("parts", [])
-            text = " ".join(
-                p for p in parts if isinstance(p, str)
-            )
+            text = " ".join(p for p in parts if isinstance(p, str))
             if text and role in ("user", "assistant"):
                 chain.append({"role": role, "content": text})
         node_id = node_data.get("parent")
 
     chain.reverse()
-    messages = chain
 
     return {
         "id": data.get("id", validated.conversation_id),
         "title": data.get("title", ""),
-        "messages": messages[:50],  # Cap at 50 messages
+        "messages": chain[:50],
+    }
+
+
+async def do_list_conversations(driver: CDPDriver, args: dict) -> dict:
+    """List recent conversations."""
+    validated = ListConversationsInput(**args)
+    conversations = await driver.get_conversations(
+        offset=validated.offset,
+        limit=validated.limit,
+    )
+    return {
+        "conversations": [
+            {
+                "id": c.get("id", ""),
+                "title": c.get("title", "Untitled"),
+                "update_time": c.get("update_time"),
+                "gizmo_id": c.get("gizmo_id"),
+            }
+            for c in conversations
+        ],
+    }
+
+
+async def do_delete_conversation(driver: CDPDriver, args: dict) -> dict:
+    """Delete a conversation."""
+    validated = DeleteConversationInput(**args)
+    success = await driver.delete_conversation(validated.conversation_id)
+    return {
+        "success": success,
+        "conversation_id": validated.conversation_id,
+    }
+
+
+async def do_create_project(driver: CDPDriver, args: dict) -> dict:
+    """Create a new ChatGPT project."""
+    validated = CreateProjectInput(**args)
+    result = await driver.create_project(
+        name=validated.name,
+        instructions=validated.instructions,
+        memory_scope=validated.memory_scope,
+    )
+    return result
+
+
+async def do_update_project_instructions(driver: CDPDriver, args: dict) -> dict:
+    """Update a project's custom instructions."""
+    validated = UpdateProjectInstructionsInput(**args)
+    success = await driver.update_project_instructions(
+        project_id=validated.project_id,
+        instructions=validated.instructions,
+    )
+    return {
+        "success": success,
+        "project_id": validated.project_id,
     }
 
 
@@ -319,13 +479,21 @@ async def do_get_conversation(driver: CDPDriver, args: dict) -> dict:
 def _build_tools() -> list[mcp_types.Tool]:
     """Build the list of tool definitions with full annotations and output schemas."""
     return [
+        # ── Core: Chat ────────────────────────────────────────
         mcp_types.Tool(
             name=ToolName.CHAT_COMPLETION.value,
             title="ChatGPT Completion",
             description=(
-                "Send a message to ChatGPT and get a response. "
-                "Supports multi-turn conversation via conversation_id. "
-                "Supports project-scoped persistent memory via project_id."
+                "Send a message to ChatGPT and receive a response. "
+                "This is the primary tool for interacting with ChatGPT.\n\n"
+                "Context persistence levels:\n"
+                "• No project_id → ephemeral chat (or auto-continue last conversation)\n"
+                "• With project_id → project-scoped persistent memory and custom instructions\n"
+                "• With conversation_id → resume a specific conversation\n\n"
+                "Auto-continue behavior: if you omit conversation_id, the tool continues "
+                "the last conversation automatically (unless system_prompt or project_id changes). "
+                "This makes multi-turn conversations seamless — just call this tool again "
+                "with the next message."
             ),
             inputSchema=ChatCompletionInput.model_json_schema(),
             outputSchema=CHAT_COMPLETION_OUTPUT,
@@ -337,10 +505,19 @@ def _build_tools() -> list[mcp_types.Tool]:
                 openWorldHint=True,
             ),
         ),
+        # ── Core: Discovery ──────────────────────────────────
         mcp_types.Tool(
             name=ToolName.LIST_MODELS.value,
             title="List Models",
-            description="List all ChatGPT models available on the account",
+            description=(
+                "List all ChatGPT models available on your account. "
+                "Returns model slugs (like 'auto', 'gpt-5-5', 'gpt-5-mini') "
+                "that can be used as the 'model' parameter in chat_completion.\n\n"
+                "Model selection guide:\n"
+                "• auto — best for most tasks (system picks the right model)\n"
+                "• gpt-5-5 — latest with reasoning, 34K context\n"
+                "• gpt-5-mini — fast and cheap, no reasoning, 8K context"
+            ),
             inputSchema=ListModelsInput.model_json_schema(),
             outputSchema=LIST_MODELS_OUTPUT,
             annotations=mcp_types.ToolAnnotations(
@@ -355,8 +532,14 @@ def _build_tools() -> list[mcp_types.Tool]:
             name=ToolName.LIST_PROJECTS.value,
             title="List Projects",
             description=(
-                "List ChatGPT projects. Each project has persistent memory, "
-                "custom instructions, and file attachments."
+                "List all ChatGPT projects. Each project is an isolated workspace with:\n"
+                "• Persistent memory — ChatGPT remembers facts across conversations in the project\n"
+                "• Custom instructions — a system prompt that applies to all project conversations\n"
+                "• File attachments — a knowledge base for the project\n\n"
+                "Memory scopes:\n"
+                "• 'project_v2' — dedicated memory (isolated, no cross-contamination)\n"
+                "• 'global' — shared memory (uses global ChatGPT memory pool)\n\n"
+                "Use the project's 'id' as the 'project_id' parameter in chat_completion."
             ),
             inputSchema=ListProjectsInput.model_json_schema(),
             outputSchema=LIST_PROJECTS_OUTPUT,
@@ -368,10 +551,36 @@ def _build_tools() -> list[mcp_types.Tool]:
                 openWorldHint=False,
             ),
         ),
+        # ── Conversations ─────────────────────────────────────
+        mcp_types.Tool(
+            name=ToolName.LIST_CONVERSATIONS.value,
+            title="List Conversations",
+            description=(
+                "List recent ChatGPT conversations, ordered by last update. "
+                "Returns conversation IDs, titles, and timestamps. "
+                "Use this to find a conversation_id for resuming with chat_completion "
+                "or for retrieving full history with get_conversation.\n\n"
+                "Each conversation's 'gizmo_id' field indicates which project it belongs to "
+                "(null means it's a standalone conversation)."
+            ),
+            inputSchema=ListConversationsInput.model_json_schema(),
+            outputSchema=LIST_CONVERSATIONS_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="List Conversations",
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
         mcp_types.Tool(
             name=ToolName.GET_CONVERSATION.value,
             title="Get Conversation",
-            description="Retrieve the full message history of a conversation by ID",
+            description=(
+                "Retrieve the full message history of a conversation. "
+                "Returns a chronological list of user and assistant messages. "
+                "Useful for reviewing what was discussed before continuing a conversation."
+            ),
             inputSchema=GetConversationInput.model_json_schema(),
             outputSchema=GET_CONVERSATION_OUTPUT,
             annotations=mcp_types.ToolAnnotations(
@@ -379,6 +588,72 @@ def _build_tools() -> list[mcp_types.Tool]:
                 readOnlyHint=True,
                 destructiveHint=False,
                 idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        mcp_types.Tool(
+            name=ToolName.DELETE_CONVERSATION.value,
+            title="Delete Conversation",
+            description=(
+                "Delete a conversation permanently. The conversation is removed from "
+                "the ChatGPT sidebar and cannot be recovered. "
+                "Use list_conversations first to find the conversation_id."
+            ),
+            inputSchema=DeleteConversationInput.model_json_schema(),
+            outputSchema=DELETE_RESULT_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Delete Conversation",
+                readOnlyHint=False,
+                destructiveHint=True,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        # ── Projects (write) ──────────────────────────────────
+        mcp_types.Tool(
+            name=ToolName.CREATE_PROJECT.value,
+            title="Create Project",
+            description=(
+                "Create a new ChatGPT project — an isolated workspace with persistent memory, "
+                "custom instructions, and file attachments.\n\n"
+                "Memory scope options:\n"
+                "• 'project_v2' (default) — dedicated memory. ChatGPT only remembers facts "
+                "from conversations within this project. No cross-contamination with other chats. "
+                "Best for: isolated tasks, specific domains, sensitive contexts.\n"
+                "• 'global' — shared memory. Uses ChatGPT's global memory pool. "
+                "Best for: general-purpose projects that benefit from cross-chat context.\n\n"
+                "After creating a project, use its 'id' as the 'project_id' in chat_completion "
+                "to start conversations within the project."
+            ),
+            inputSchema=CreateProjectInput.model_json_schema(),
+            outputSchema=CREATE_PROJECT_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Create Project",
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=False,
+            ),
+        ),
+        mcp_types.Tool(
+            name=ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
+            title="Update Project Instructions",
+            description=(
+                "Update the custom instructions (system prompt) for an existing ChatGPT project. "
+                "The new instructions replace any existing ones and apply to all future "
+                "conversations created within the project. "
+                "Existing conversations are not retroactively affected.\n\n"
+                "Instructions act as a persistent system prompt for the project — "
+                "unlike the system_prompt parameter in chat_completion which is per-message, "
+                "project instructions persist across all conversations in the project."
+            ),
+            inputSchema=UpdateProjectInstructionsInput.model_json_schema(),
+            outputSchema=UPDATE_INSTRUCTIONS_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Update Project Instructions",
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=False,
                 openWorldHint=False,
             ),
         ),
@@ -404,37 +679,42 @@ def create_server() -> Server:
     async def call_tool(
         name: str, arguments: dict
     ) -> tuple[list[mcp_types.TextContent], dict] | list[mcp_types.TextContent] | dict:
-        """Route tool calls to business logic functions.
-
-        Returns:
-            - dict → structured content only (SDK wraps in text + structuredContent)
-            - list → unstructured content only
-            - tuple(list, dict) → both unstructured + structured content
-        """
+        """Route tool calls to business logic functions."""
         if _driver is None:
             raise ConnectionError(
                 "Not connected to Chrome. Run 'chatgpt-web2api' first."
             )
 
+        handlers = {
+            ToolName.CHAT_COMPLETION.value: lambda: do_chat_completion(_driver, arguments, _config),
+            ToolName.LIST_MODELS.value: lambda: do_list_models(_driver),
+            ToolName.LIST_PROJECTS.value: lambda: do_list_projects(_driver),
+            ToolName.GET_CONVERSATION.value: lambda: do_get_conversation(_driver, arguments),
+            ToolName.LIST_CONVERSATIONS.value: lambda: do_list_conversations(_driver, arguments),
+            ToolName.DELETE_CONVERSATION.value: lambda: do_delete_conversation(_driver, arguments),
+            ToolName.CREATE_PROJECT.value: lambda: do_create_project(_driver, arguments),
+            ToolName.UPDATE_PROJECT_INSTRUCTIONS.value: lambda: do_update_project_instructions(_driver, arguments),
+        }
+
+        handler = handlers.get(name)
+        if not handler:
+            raise ValueError(f"Unknown tool: {name}")
+
+        result = await handler()
+
+        # chat_completion returns both text + structured output
         if name == ToolName.CHAT_COMPLETION.value:
-            result = await do_chat_completion(_driver, arguments, _config)
             text_content = [mcp_types.TextContent(type="text", text=result["content"])]
             return text_content, result
 
-        elif name == ToolName.LIST_MODELS.value:
-            result = await do_list_models(_driver)
-            return result
+        # Delete and update return simple status
+        if name in (ToolName.DELETE_CONVERSATION.value, ToolName.UPDATE_PROJECT_INSTRUCTIONS.value):
+            status = "succeeded" if result.get("success") else "failed"
+            text_content = [mcp_types.TextContent(type="text", text=f"Operation {status}")]
+            return text_content, result
 
-        elif name == ToolName.LIST_PROJECTS.value:
-            result = await do_list_projects(_driver)
-            return result
-
-        elif name == ToolName.GET_CONVERSATION.value:
-            result = await do_get_conversation(_driver, arguments)
-            return result
-
-        else:
-            raise ValueError(f"Unknown tool: {name}")
+        # Everything else returns structured only (SDK auto-wraps as text JSON)
+        return result
 
     # ── Resources (application-controlled) ────────────────────
 
@@ -456,7 +736,6 @@ def create_server() -> Server:
             ),
         ]
 
-        # Add project resources dynamically
         if _driver:
             try:
                 projects = await _driver.get_projects()
@@ -500,13 +779,9 @@ def create_server() -> Server:
         if _driver is None:
             raise ConnectionError("Not connected to Chrome")
 
-        # Static resources
         if uri == "chatgpt://models":
             models = await _driver.get_models()
-            data = [
-                {"id": m.get("slug", ""), "title": m.get("title", "")}
-                for m in models
-            ]
+            data = [{"id": m.get("slug", ""), "title": m.get("title", "")} for m in models]
             return json.dumps(data, ensure_ascii=False, indent=2)
 
         elif uri == "chatgpt://account":
@@ -519,7 +794,6 @@ def create_server() -> Server:
                 indent=2,
             )
 
-        # Dynamic project resources
         elif uri.startswith("chatgpt://projects/"):
             project_id = uri.split("/")[-1]
             projects = await _driver.get_projects()
@@ -588,7 +862,6 @@ def create_server() -> Server:
 
             tool_args: dict[str, Any] = {"message": question}
 
-            # Resolve project name → ID
             if project and _driver:
                 try:
                     projects = await _driver.get_projects()
@@ -661,13 +934,10 @@ async def run_mcp(
 
     _config = config
 
-    # Connect to already-running Chrome
     _driver = CDPDriver(cdp_port=config.chrome.cdp_port)
     try:
         await _driver.connect()
-        logger.info(
-            "Connected to Chrome on CDP port %d", config.chrome.cdp_port
-        )
+        logger.info("Connected to Chrome on CDP port %d", config.chrome.cdp_port)
     except Exception as e:
         logger.error(
             "Cannot connect to Chrome on CDP port %d. "
@@ -683,7 +953,6 @@ async def run_mcp(
     try:
         if transport == "stdio":
             async with stdio_server() as (read, write):
-                # raise_exceptions=True — official pattern for proper error propagation
                 await server.run(read, write, init_options, raise_exceptions=True)
         elif transport == "sse":
             await _run_sse(server, init_options, config, port)
@@ -761,7 +1030,7 @@ def main() -> None:
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stderr,  # MCP stdio requires stdout for protocol only
+        stream=sys.stderr,
     )
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("mcp").setLevel(logging.WARNING)

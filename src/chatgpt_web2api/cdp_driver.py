@@ -398,6 +398,214 @@ class CDPDriver:
         except json.JSONDecodeError:
             return []
 
+    # ── Conversation Management ──────────────────────────────
+
+    async def get_conversations(
+        self,
+        offset: int = 0,
+        limit: int = 28,
+        order: str = "updated",
+    ) -> list[dict]:
+        """List recent conversations."""
+        token = self._access_token
+        raw = await self._js(
+            "(async () => {"
+            "  var r = await fetch('/backend-api/conversations?offset=' + " + str(offset) + " + '&limit=' + " + str(limit) + " + '&order=' + '" + order + "', {"
+            "    headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "  });"
+            "  var data = await r.json();"
+            "  return JSON.stringify((data.items || []).map(function(c) {"
+            "    return {id: c.id, title: c.title || 'Untitled', "
+            "      update_time: c.update_time, create_time: c.create_time,"
+            "      is_archived: !!c.is_archived, gizmo_id: c.gizmo_id || null};"
+            "  }));"
+            "})()"
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+
+    async def get_conversation(self, conversation_id: str) -> dict:
+        """Get full conversation detail with message mapping."""
+        token = self._access_token
+        raw = await self._js(
+            "(async () => {"
+            "  var r = await fetch('/backend-api/conversation/" + conversation_id + "', {"
+            "    headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "  });"
+            "  return await r.text();"
+            "})()",
+            timeout=30,
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+
+    async def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete a conversation. Returns True on success."""
+        token = self._access_token
+        result = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/conversation/" + conversation_id + "', {"
+            "      method: 'PATCH',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
+            "      body: JSON.stringify({is_visible: false})"
+            "    });"
+            "    return r.ok ? 'true' : 'false';"
+            "  } catch(e) { return 'error:' + e.message; }"
+            "})()"
+        )
+        if result == "true":
+            logger.info("Deleted conversation: %s", conversation_id)
+            # Reset current conv if it was the one deleted
+            if self._current_conv_id == conversation_id:
+                self._current_conv_id = None
+            return True
+        logger.warning("Failed to delete conversation %s: %s", conversation_id, result)
+        return False
+
+    async def rename_conversation(
+        self, conversation_id: str, title: str
+    ) -> bool:
+        """Rename a conversation. Returns True on success."""
+        token = self._access_token
+        escaped_title = title.replace("'", "\\'").replace('"', '\\"')
+        result = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/conversation/" + conversation_id + "', {"
+            "      method: 'PATCH',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
+            "      body: JSON.stringify({title: '" + escaped_title + "'})"
+            "    });"
+            "    return r.ok ? 'true' : 'false';"
+            "  } catch(e) { return 'error:' + e.message; }"
+            "})()"
+        )
+        if result == "true":
+            logger.info("Renamed conversation %s to: %s", conversation_id, title)
+            return True
+        logger.warning("Failed to rename conversation: %s", result)
+        return False
+
+    # ── Project Management ────────────────────────────────────
+
+    async def create_project(
+        self,
+        name: str,
+        instructions: str = "",
+        memory_scope: str = "project_v2",
+    ) -> dict:
+        """Create a new ChatGPT project (gizmo).
+
+        Args:
+            name: Project display name
+            instructions: Custom instructions for the project
+            memory_scope: 'project_v2' (dedicated) or 'global' (shared)
+
+        Returns:
+            Created project dict with id, name, etc.
+        """
+        token = self._access_token
+        escaped_name = name.replace("'", "\\'").replace('"', '\\"')
+        escaped_instructions = instructions.replace("'", "\\'").replace('"', '\\"')
+
+        raw = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var body = {"
+            "      gizmo: {"
+            "        display: {name: '" + escaped_name + "', description: ''},"
+            "        memory_scope: '" + memory_scope + "',"
+            "        memory_enabled: true,"
+            "        instructions: '" + escaped_instructions + "',"
+            "        gizmo_type: 'snorlax',"
+            "        tools: [],"
+            "        files: []"
+            "      }"
+            "    };"
+            "    var r = await fetch('/backend-api/gizmos', {"
+            "      method: 'POST',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
+            "      body: JSON.stringify(body)"
+            "    });"
+            "    if (!r.ok) return JSON.stringify({error: 'HTTP ' + r.status, body: await r.text()});"
+            "    var data = await r.json();"
+            "    var g = (data.gizmo || data);"
+            "    return JSON.stringify({"
+            "      id: g.id,"
+            "      name: (g.display || {}).name || '',"
+            "      memory_scope: g.memory_scope || '',"
+            "      instructions: g.instructions || ''"
+            "    });"
+            "  } catch(e) { return JSON.stringify({error: e.message}); }"
+            "})()",
+            timeout=20,
+        )
+        try:
+            result = json.loads(raw)
+            if "error" in result:
+                logger.error("Create project failed: %s", result["error"])
+                return result
+            logger.info("Created project: %s (%s)", result.get("name"), result.get("id"))
+            return result
+        except json.JSONDecodeError:
+            return {"error": "Invalid response"}
+
+    async def update_project_instructions(
+        self,
+        project_id: str,
+        instructions: str,
+    ) -> bool:
+        """Update a project's custom instructions. Returns True on success."""
+        token = self._access_token
+        escaped = instructions.replace("'", "\\'").replace('"', '\\"')
+
+        result = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var body = {"
+            "      gizmo: {"
+            "        display: {},"
+            "        instructions: '" + escaped + "'"
+            "      }"
+            "    };"
+            "    var r = await fetch('/backend-api/gizmos/" + project_id + "', {"
+            "      method: 'PATCH',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
+            "      body: JSON.stringify(body)"
+            "    });"
+            "    return r.ok ? 'true' : 'false';"
+            "  } catch(e) { return 'error:' + e.message; }"
+            "})()",
+            timeout=15,
+        )
+        if result == "true":
+            logger.info("Updated instructions for project: %s", project_id)
+            return True
+        logger.warning("Failed to update project instructions: %s", result)
+        return False
+
+    async def get_project_detail(self, project_id: str) -> dict:
+        """Get full project/gizmo detail."""
+        token = self._access_token
+        raw = await self._js(
+            "(async () => {"
+            "  var r = await fetch('/backend-api/gizmos/" + project_id + "', {"
+            "    headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "  });"
+            "  return await r.text();"
+            "})()",
+            timeout=15,
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+
     # ── Lifecycle ─────────────────────────────────────────────
 
     async def close(self) -> None:
