@@ -167,19 +167,85 @@ class UpdateProjectInstructionsInput(BaseModel):
     )
 
 
+class ArchiveConversationInput(BaseModel):
+    """Input for archiving or unarchiving a conversation."""
+    conversation_id: str = Field(description="UUID of the conversation")
+    archive: bool = Field(
+        default=True,
+        description="True to archive, False to unarchive",
+    )
+
+
+class ListMemoriesInput(BaseModel):
+    """No inputs needed."""
+    pass
+
+
+class CreateMemoryInput(BaseModel):
+    """Input for creating a new ChatGPT memory."""
+    content: str = Field(
+        description=(
+            "The fact or information to store in ChatGPT's memory. "
+            "ChatGPT will remember this across future conversations. "
+            "Example: 'The user prefers concise answers with code examples.'"
+        ),
+    )
+
+
+class DeleteMemoryInput(BaseModel):
+    """Input for deleting a ChatGPT memory."""
+    memory_id: str = Field(description="ID of the memory to delete")
+
+
+class ListGptsInput(BaseModel):
+    """No inputs needed."""
+    pass
+
+
+class ListProjectFilesInput(BaseModel):
+    """Input for listing project files."""
+    project_id: str = Field(
+        description="Project gizmo ID to list files for",
+    )
+
+
+class ChatWithGptInput(BaseModel):
+    """Input for chatting with a specific Custom GPT."""
+    gpt_id: str = Field(
+        description=(
+            "Custom GPT gizmo ID (e.g. g-hkJGhxxx). "
+            "Use list_gpts to discover available GPTs."
+        ),
+    )
+    message: str = Field(description="The message to send to the GPT")
+
+
 # ═══════════════════════════════════════════════════════════════
 # Tool Name Enum — prevents typos (official pattern from mcp-server-git)
 # ═══════════════════════════════════════════════════════════════
 
 class ToolName(str, Enum):
+    # Core chat
     CHAT_COMPLETION = "chat_completion"
+    # Discovery
     LIST_MODELS = "list_models"
     LIST_PROJECTS = "list_projects"
+    LIST_GPTS = "list_gpts"
+    # Conversations
     GET_CONVERSATION = "get_conversation"
     LIST_CONVERSATIONS = "list_conversations"
     DELETE_CONVERSATION = "delete_conversation"
+    ARCHIVE_CONVERSATION = "archive_conversation"
+    # Projects
     CREATE_PROJECT = "create_project"
     UPDATE_PROJECT_INSTRUCTIONS = "update_project_instructions"
+    LIST_PROJECT_FILES = "list_project_files"
+    # Memory
+    LIST_MEMORIES = "list_memories"
+    CREATE_MEMORY = "create_memory"
+    DELETE_MEMORY = "delete_memory"
+    # Custom GPTs
+    CHAT_WITH_GPT = "chat_with_gpt"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -306,6 +372,81 @@ UPDATE_INSTRUCTIONS_OUTPUT = {
         "project_id": {"type": "string"},
     },
     "required": ["success", "project_id"],
+}
+
+ARCHIVE_RESULT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "success": {"type": "boolean"},
+        "conversation_id": {"type": "string"},
+        "archived": {"type": "boolean"},
+    },
+    "required": ["success", "conversation_id", "archived"],
+}
+
+MEMORY_ITEM = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "content": {"type": "string"},
+        "created_at": {"type": "string"},
+    },
+    "required": ["id", "content"],
+}
+
+LIST_MEMORIES_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "memories": {"type": "array", "items": MEMORY_ITEM},
+    },
+    "required": ["memories"],
+}
+
+CREATE_MEMORY_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "content": {"type": "string"},
+    },
+    "required": ["content"],
+}
+
+GPT_ITEM = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+    },
+    "required": ["id", "name"],
+}
+
+LIST_GPTS_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "gpts": {"type": "array", "items": GPT_ITEM},
+    },
+    "required": ["gpts"],
+}
+
+PROJECT_FILE_ITEM = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "size": {"type": "number"},
+        "mime_type": {"type": "string"},
+    },
+    "required": ["id", "name"],
+}
+
+LIST_PROJECT_FILES_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "files": {"type": "array", "items": PROJECT_FILE_ITEM},
+        "project_id": {"type": "string"},
+    },
+    "required": ["files", "project_id"],
 }
 
 
@@ -469,6 +610,93 @@ async def do_update_project_instructions(driver: CDPDriver, args: dict) -> dict:
     return {
         "success": success,
         "project_id": validated.project_id,
+    }
+
+
+async def do_archive_conversation(driver: CDPDriver, args: dict) -> dict:
+    """Archive or unarchive a conversation."""
+    validated = ArchiveConversationInput(**args)
+    success = await driver.archive_conversation(
+        conversation_id=validated.conversation_id,
+        archive=validated.archive,
+    )
+    return {
+        "success": success,
+        "conversation_id": validated.conversation_id,
+        "archived": validated.archive,
+    }
+
+
+async def do_list_memories(driver: CDPDriver) -> dict:
+    """List all ChatGPT memories."""
+    memories = await driver.get_memories()
+    # Normalize memory items
+    result = []
+    for m in memories:
+        if isinstance(m, dict):
+            result.append({
+                "id": m.get("id", ""),
+                "content": m.get("content", m.get("text", "")),
+                "created_at": m.get("created_at", ""),
+            })
+    return {"memories": result}
+
+
+async def do_create_memory(driver: CDPDriver, args: dict) -> dict:
+    """Create a new ChatGPT memory."""
+    validated = CreateMemoryInput(**args)
+    result = await driver.create_memory(content=validated.content)
+    return result
+
+
+async def do_delete_memory(driver: CDPDriver, args: dict) -> dict:
+    """Delete a ChatGPT memory."""
+    validated = DeleteMemoryInput(**args)
+    success = await driver.delete_memory(memory_id=validated.memory_id)
+    return {"success": success, "memory_id": validated.memory_id}
+
+
+async def do_list_gpts(driver: CDPDriver) -> dict:
+    """List Custom GPTs."""
+    gpts = await driver.list_gpts()
+    return {
+        "gpts": [
+            {
+                "id": g.get("id", ""),
+                "name": g.get("name", ""),
+                "description": g.get("description", ""),
+            }
+            for g in gpts
+        ],
+    }
+
+
+async def do_list_project_files(driver: CDPDriver, args: dict) -> dict:
+    """List files in a project."""
+    validated = ListProjectFilesInput(**args)
+    files = await driver.get_project_files(project_id=validated.project_id)
+    return {
+        "files": files,
+        "project_id": validated.project_id,
+    }
+
+
+async def do_chat_with_gpt(driver: CDPDriver, args: dict) -> dict:
+    """Chat with a specific Custom GPT."""
+    validated = ChatWithGptInput(**args)
+    await driver.navigate_gpt(gizmo_id=validated.gpt_id)
+    full_response = ""
+    conv_id = ""
+    async for chunk in driver.send_and_stream(validated.message, timeout=120):
+        if chunk.delta:
+            full_response += chunk.delta
+        if chunk.finish_reason:
+            conv_id = driver._current_conv_id or ""
+    return {
+        "content": full_response,
+        "model": "gpt",
+        "conversation_id": conv_id,
+        "gpt_id": validated.gpt_id,
     }
 
 
@@ -657,6 +885,143 @@ def _build_tools() -> list[mcp_types.Tool]:
                 openWorldHint=False,
             ),
         ),
+        # ── Archive ────────────────────────────────────────────
+        mcp_types.Tool(
+            name=ToolName.ARCHIVE_CONVERSATION.value,
+            title="Archive Conversation",
+            description=(
+                "Archive or unarchive a conversation. "
+                "Archived conversations are hidden from the sidebar but not deleted. "
+                "Pass archive=false to unarchive. "
+                "This is reversible — use this instead of delete_conversation when unsure."
+            ),
+            inputSchema=ArchiveConversationInput.model_json_schema(),
+            outputSchema=ARCHIVE_RESULT_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Archive Conversation",
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        # ── Memory ─────────────────────────────────────────────
+        mcp_types.Tool(
+            name=ToolName.LIST_MEMORIES.value,
+            title="List Memories",
+            description=(
+                "List all facts ChatGPT remembers about the user. "
+                "ChatGPT's memory stores personal preferences, context, and facts "
+                "that persist across all conversations. "
+                "Memory is separate from conversation history — it survives even after conversations are deleted."
+            ),
+            inputSchema=ListMemoriesInput.model_json_schema(),
+            outputSchema=LIST_MEMORIES_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="List Memories",
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        mcp_types.Tool(
+            name=ToolName.CREATE_MEMORY.value,
+            title="Create Memory",
+            description=(
+                "Store a new fact in ChatGPT's persistent memory. "
+                "ChatGPT will remember this across all future conversations. "
+                "Use this to teach ChatGPT preferences, context, or domain knowledge.\n\n"
+                "Examples: 'I prefer Python over JavaScript', 'My project uses PostgreSQL 16', "
+                "'Always respond in markdown with code examples'."
+            ),
+            inputSchema=CreateMemoryInput.model_json_schema(),
+            outputSchema=CREATE_MEMORY_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Create Memory",
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=False,
+            ),
+        ),
+        mcp_types.Tool(
+            name=ToolName.DELETE_MEMORY.value,
+            title="Delete Memory",
+            description=(
+                "Delete a specific memory from ChatGPT's persistent memory. "
+                "Use list_memories first to find the memory_id. "
+                "Deletion is permanent — ChatGPT will no longer remember this fact."
+            ),
+            inputSchema=DeleteMemoryInput.model_json_schema(),
+            outputSchema=DELETE_RESULT_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Delete Memory",
+                readOnlyHint=False,
+                destructiveHint=True,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        # ── Custom GPTs ────────────────────────────────────────
+        mcp_types.Tool(
+            name=ToolName.LIST_GPTS.value,
+            title="List Custom GPTs",
+            description=(
+                "List all Custom GPTs available to the account. "
+                "Custom GPTs are specialized assistants created by users or OpenAI — "
+                "each has unique capabilities, knowledge, and personality. "
+                "Use chat_with_gpt to interact with a specific GPT."
+            ),
+            inputSchema=ListGptsInput.model_json_schema(),
+            outputSchema=LIST_GPTS_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="List Custom GPTs",
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=True,
+            ),
+        ),
+        mcp_types.Tool(
+            name=ToolName.CHAT_WITH_GPT.value,
+            title="Chat with Custom GPT",
+            description=(
+                "Send a message to a specific Custom GPT and receive a response. "
+                "Each GPT has its own system prompt, knowledge base, and capabilities. "
+                "Use list_gpts to discover available GPTs, then pass the gpt_id to this tool.\n\n"
+                "This navigates to the GPT's page in the browser, so it's slower than "
+                "chat_completion for simple tasks. Use it when you need GPT-specific capabilities."
+            ),
+            inputSchema=ChatWithGptInput.model_json_schema(),
+            outputSchema=CHAT_COMPLETION_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Chat with Custom GPT",
+                readOnlyHint=False,
+                destructiveHint=False,
+                idempotentHint=False,
+                openWorldHint=True,
+            ),
+        ),
+        # ── Project Files ──────────────────────────────────────
+        mcp_types.Tool(
+            name=ToolName.LIST_PROJECT_FILES.value,
+            title="List Project Files",
+            description=(
+                "List files attached to a ChatGPT project. "
+                "Projects can have uploaded documents that serve as a knowledge base. "
+                "ChatGPT references these files when answering questions in the project."
+            ),
+            inputSchema=ListProjectFilesInput.model_json_schema(),
+            outputSchema=LIST_PROJECT_FILES_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="List Project Files",
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
     ]
 
 
@@ -694,6 +1059,13 @@ def create_server() -> Server:
             ToolName.DELETE_CONVERSATION.value: lambda: do_delete_conversation(_driver, arguments),
             ToolName.CREATE_PROJECT.value: lambda: do_create_project(_driver, arguments),
             ToolName.UPDATE_PROJECT_INSTRUCTIONS.value: lambda: do_update_project_instructions(_driver, arguments),
+            ToolName.ARCHIVE_CONVERSATION.value: lambda: do_archive_conversation(_driver, arguments),
+            ToolName.LIST_MEMORIES.value: lambda: do_list_memories(_driver),
+            ToolName.CREATE_MEMORY.value: lambda: do_create_memory(_driver, arguments),
+            ToolName.DELETE_MEMORY.value: lambda: do_delete_memory(_driver, arguments),
+            ToolName.LIST_GPTS.value: lambda: do_list_gpts(_driver),
+            ToolName.CHAT_WITH_GPT.value: lambda: do_chat_with_gpt(_driver, arguments),
+            ToolName.LIST_PROJECT_FILES.value: lambda: do_list_project_files(_driver, arguments),
         }
 
         handler = handlers.get(name)
@@ -702,13 +1074,19 @@ def create_server() -> Server:
 
         result = await handler()
 
-        # chat_completion returns both text + structured output
-        if name == ToolName.CHAT_COMPLETION.value:
+        # chat_completion and chat_with_gpt return both text + structured output
+        if name in (ToolName.CHAT_COMPLETION.value, ToolName.CHAT_WITH_GPT.value):
             text_content = [mcp_types.TextContent(type="text", text=result["content"])]
             return text_content, result
 
-        # Delete and update return simple status
-        if name in (ToolName.DELETE_CONVERSATION.value, ToolName.UPDATE_PROJECT_INSTRUCTIONS.value):
+        # Status operations return status text + structured output
+        status_tools = (
+            ToolName.DELETE_CONVERSATION.value,
+            ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
+            ToolName.ARCHIVE_CONVERSATION.value,
+            ToolName.DELETE_MEMORY.value,
+        )
+        if name in status_tools:
             status = "succeeded" if result.get("success") else "failed"
             text_content = [mcp_types.TextContent(type="text", text=f"Operation {status}")]
             return text_content, result
@@ -917,6 +1295,34 @@ def create_server() -> Server:
             )
 
         raise ValueError(f"Unknown prompt: {name}")
+
+    # ── Completion (argument autocomplete) ────────────────────
+
+    @server.completion()
+    async def handle_completion(
+        ref: mcp_types.PromptReference | mcp_types.ResourceTemplateReference,
+        argument: mcp_types.CompletionArgument,
+        context: mcp_types.CompletionContext | None,
+    ) -> mcp_types.Completion | None:
+        """Provide autocomplete suggestions for prompt arguments."""
+        if isinstance(ref, mcp_types.PromptReference):
+            # Autocomplete 'project' argument in ask-chatgpt prompt
+            if ref.name == "ask-chatgpt" and argument.name == "project":
+                if _driver:
+                    try:
+                        projects = await _driver.get_projects()
+                        names = [p.get("name", "") for p in projects if p.get("name")]
+                        # Filter by what user has typed
+                        prefix = argument.value.lower()
+                        matches = [n for n in names if prefix in n.lower()]
+                        return mcp_types.Completion(
+                            values=matches[:20],
+                            total=len(matches),
+                            hasMore=len(matches) > 20,
+                        )
+                    except Exception:
+                        pass
+        return None
 
     return server
 

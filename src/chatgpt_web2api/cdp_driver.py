@@ -606,6 +606,200 @@ class CDPDriver:
         except json.JSONDecodeError:
             return {}
 
+    # ── Archive Conversation ────────────────────────────────
+
+    async def archive_conversation(
+        self, conversation_id: str, archive: bool = True
+    ) -> bool:
+        """Archive or unarchive a conversation. Returns True on success."""
+        token = self._access_token
+        result = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/conversation/" + conversation_id + "', {"
+            "      method: 'PATCH',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
+            "      body: JSON.stringify({is_archived: " + ("true" if archive else "false") + "})"
+            "    });"
+            "    return r.ok ? 'true' : 'false';"
+            "  } catch(e) { return 'error:' + e.message; }"
+            "})()"
+        )
+        if result == "true":
+            logger.info("%s conversation: %s", 'Archived' if archive else 'Unarchived', conversation_id)
+            return True
+        logger.warning("Failed to archive conversation: %s", result)
+        return False
+
+    # ── Memory Management ─────────────────────────────────────
+
+    async def get_memories(self) -> list[dict]:
+        """List all ChatGPT memories."""
+        token = self._access_token
+        raw = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/memory', {"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "    });"
+            "    if (!r.ok) return JSON.stringify({error: 'HTTP ' + r.status});"
+            "    var data = await r.json();"
+            "    return JSON.stringify(data);"
+            "  } catch(e) { return JSON.stringify({error: e.message}); }"
+            "})()",
+            timeout=15,
+        )
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict) and "error" in data:
+                logger.error("Get memories failed: %s", data["error"])
+                return []
+            if isinstance(data, list):
+                return data
+            for key in ("memories", "items", "data"):
+                if key in data and isinstance(data[key], list):
+                    return data[key]
+            return []
+        except json.JSONDecodeError:
+            return []
+
+    async def create_memory(self, content: str) -> dict:
+        """Add a new memory to ChatGPT. Returns the created memory."""
+        token = self._access_token
+        escaped = content.replace("'", "\\'").replace('"', '\\"')
+        raw = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/memory', {"
+            "      method: 'POST',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "', 'Content-Type': 'application/json'},"
+            "      body: JSON.stringify({content: '" + escaped + "'})"
+            "    });"
+            "    if (!r.ok) return JSON.stringify({error: 'HTTP ' + r.status, body: await r.text()});"
+            "    return await r.text();"
+            "  } catch(e) { return JSON.stringify({error: e.message}); }"
+            "})()",
+            timeout=15,
+        )
+        try:
+            result = json.loads(raw)
+            if isinstance(result, dict) and "error" in result:
+                logger.error("Create memory failed: %s", result["error"])
+            else:
+                logger.info("Created memory: %s", content[:50])
+            return result
+        except json.JSONDecodeError:
+            return {"error": "Invalid response"}
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        """Delete a ChatGPT memory by ID. Returns True on success."""
+        token = self._access_token
+        result = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/memory/" + memory_id + "', {"
+            "      method: 'DELETE',"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "    });"
+            "    return r.ok ? 'true' : 'false';"
+            "  } catch(e) { return 'error:' + e.message; }"
+            "})()",
+            timeout=15,
+        )
+        if result == "true":
+            logger.info("Deleted memory: %s", memory_id)
+            return True
+        logger.warning("Failed to delete memory %s: %s", memory_id, result)
+        return False
+
+    # ── Custom GPT Navigation ─────────────────────────────────
+
+    async def navigate_gpt(self, gizmo_id: str) -> None:
+        """Navigate to a Custom GPT for interaction."""
+        url = f"https://chatgpt.com/g/{gizmo_id}"
+        logger.info("Navigate to GPT: %s", url)
+        await self._cdp("Page.navigate", {"url": url})
+        await asyncio.sleep(3)
+        for _ in range(30):
+            result = await self._js(
+                "(function() {"
+                "  return JSON.stringify({"
+                "    ready: !!document.querySelector('#prompt-textarea'),"
+                "    url: location.href"
+                "  });"
+                "})()"
+            )
+            try:
+                state = json.loads(result)
+                if state.get("ready"):
+                    logger.info("GPT page ready: %s", state.get("url"))
+                    break
+            except (json.JSONDecodeError, TypeError):
+                pass
+            await asyncio.sleep(0.5)
+        await asyncio.sleep(2)
+        self._current_conv_id = None
+
+    async def list_gpts(self) -> list[dict]:
+        """List Custom GPTs (non-project gizmos) from the sidebar."""
+        token = self._access_token
+        raw = await self._js(
+            "(async () => {"
+            "  var r = await fetch('/backend-api/gizmos/snorlax/sidebar?owned_only=false&conversations_per_gizmo=0&limit=100', {"
+            "    headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "  });"
+            "  var data = await r.json();"
+            "  return JSON.stringify((data.items || []).map(function(i) {"
+            "    var g = (i.gizmo || {}).gizmo || {};"
+            "    if (g.gizmo_type === 'snorlax') return null;"
+            "    return {id: g.id, name: (g.display || {}).name || '', "
+            "      description: (g.display || {}).description || '',"
+            "      gizmo_type: g.gizmo_type || ''};"
+            "  }).filter(Boolean));"
+            "})()",
+            timeout=20,
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+
+    # ── Project Files ─────────────────────────────────────────
+
+    async def get_project_files(self, project_id: str) -> list[dict]:
+        """List files attached to a ChatGPT project."""
+        token = self._access_token
+        raw = await self._js(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/gizmos/" + project_id + "', {"
+            "      headers: {'Authorization': 'Bearer ' + '" + token + "'}"
+            "    });"
+            "    if (!r.ok) return '[]';"
+            "    var data = await r.json();"
+            "    var gizmo = data.gizmo || data;"
+            "    var files = gizmo.files || [];"
+            "    return JSON.stringify(files.map(function(f) {"
+            "      return {id: f.id || '', name: f.file_name || f.name || '', "
+            "        size: f.size || 0, mime_type: f.mime_type || ''};"
+            "    }));"
+            "  } catch(e) { return '[]'; }"
+            "})()",
+            timeout=15,
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+
+    # ── Token Management ──────────────────────────────────────
+
+    async def ensure_token(self) -> str:
+        """Ensure a valid access token, refreshing if needed. Returns the token."""
+        if not self._access_token:
+            await self._refresh_token()
+        return self._access_token
+
     # ── Lifecycle ─────────────────────────────────────────────
 
     async def close(self) -> None:
