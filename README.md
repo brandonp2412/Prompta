@@ -8,8 +8,10 @@
 One command starts a Chrome browser, logs into ChatGPT, and exposes an OpenAI-compatible API + MCP server.
 
 [![CI](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/actions/workflows/ci.yml/badge.svg)](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Elephant-Rock-Lab/ChatGPT-Web2API)](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen)](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/actions)
 
 </div>
 
@@ -25,6 +27,32 @@ You have a **ChatGPT Plus subscription** but want to use it programmatically:
 - **Manage memories, conversations, and projects** from code
 
 Other reverse proxies require token extraction, sentinel challenge solving, or cookie management. This one **drives a real Chrome browser** — anti-bot challenges (Turnstile, PoW) are handled automatically.
+
+## Demo
+
+```bash
+$ pip install chatgpt-web2api
+$ chatgpt-web2api
+✓ Chrome launched on port 9222
+✓ Navigating to chatgpt.com...
+✓ Ready on http://localhost:8080
+
+$ curl -s http://localhost:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model":"auto","messages":[{"role":"user","content":"What is 8+7?"}]}'
+{"choices":[{"message":{"content":"8 + 7 = 15"},"finish_reason":"stop"}]}
+```
+
+```python
+# OpenAI Python SDK — drop-in replacement
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8080/v1", api_key="not-needed")
+print(client.chat.completions.create(
+    model="auto",
+    messages=[{"role": "user", "content": "What is 8+7?"}]
+).choices[0].message.content)
+# → "8 + 7 = 15"
+```
 
 ## How It Works
 

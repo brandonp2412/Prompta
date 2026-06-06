@@ -20,9 +20,11 @@ jobs:
         run: python -c "from chatgpt_web2api import __version__; from chatgpt_web2api.mcp_server import create_server; print('OK v' + __version__)"
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
