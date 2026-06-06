@@ -1,3 +1,5 @@
+![Project Banner](https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/blob/7f5137bbf5dfae49154b92b48eef6821d9e281f2/Banner.png)
+
 # ChatGPT-Web2API
 
 OpenAI-compatible API proxy that drives a real ChatGPT browser session via Chrome DevTools Protocol.
