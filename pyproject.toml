@@ -31,10 +31,12 @@ Repository = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API"
 Issues = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/issues"
 Changelog = "https://github.com/Elephant-Rock-Lab/ChatGPT-Web2API/blob/master/CHANGELOG.md"
 
-[project.dependencies]
-websockets = ">=12.0"
-aiohttp = ">=3.9"
-mcp = ">=1.0"
+dependencies = [
+    "websockets>=12.0",
+    "aiohttp>=3.9",
+    "mcp>=1.0",
+]
+
 
 [project.scripts]
 chatgpt-web2api = "chatgpt_web2api.__main__:main"
