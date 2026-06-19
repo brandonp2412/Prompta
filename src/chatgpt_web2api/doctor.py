@@ -74,8 +74,8 @@ def run_doctor(args) -> None:
     base = _DIAG_DIR.base
 
     if getattr(args, "verify", None):
-        from .doctor_verify import verify_function
-        verify_function(args.verify)
+        from .doctor_verify import run_verify_cli
+        run_verify_cli(args.verify)
         return
 
     function = getattr(args, "function", None)

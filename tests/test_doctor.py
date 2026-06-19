@@ -63,3 +63,52 @@ def test_print_evidence_outputs_key_fields(capsys, tmp_path):
     assert "HTTP 422" in out
     assert "POST /backend-api/gizmos" in out
     assert "id" in out  # expected keys shown
+
+
+# ── doctor --verify (Task 6) ──────────────────────────────────
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from chatgpt_web2api import doctor_verify
+
+
+def test_verify_reports_pass_when_healthy(monkeypatch, capsys):
+    """verify runs the live function and reports PASS when the shape is healthy."""
+    driver = MagicMock()
+    driver.get_models = AsyncMock(return_value=[{"slug": "gpt-5", "title": "GPT-5"}])
+    driver.close = AsyncMock()
+    monkeypatch.setattr(doctor_verify, "_connect_driver", AsyncMock(return_value=driver))
+
+    code = asyncio.run(doctor_verify.verify_function("get_models"))
+    out = capsys.readouterr().out
+    assert "PASS" in out
+    assert code == 0
+
+
+def test_verify_reports_fail_when_still_broken(monkeypatch, capsys):
+    """verify reports FAIL when a read function returns a broken shape."""
+    driver = MagicMock()
+    # get_models has a runner; return a broken shape (string, not list)
+    driver.get_models = AsyncMock(return_value='{"models": [...]}')
+    driver.close = AsyncMock()
+    monkeypatch.setattr(doctor_verify, "_connect_driver", AsyncMock(return_value=driver))
+
+    code = asyncio.run(doctor_verify.verify_function("get_models"))
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    assert code == 1
+
+
+def test_verify_returns_no_runner_for_mutating_tools(monkeypatch, capsys):
+    """Functions without a safe verify runner report it (don't mutate account)."""
+    driver = MagicMock()
+    driver.close = AsyncMock()
+    monkeypatch.setattr(doctor_verify, "_connect_driver", AsyncMock(return_value=driver))
+
+    code = asyncio.run(doctor_verify.verify_function("create_project"))
+    out = capsys.readouterr().out
+    # create_project is mutating — no safe runner → pointer to E2E suite
+    assert "no safe verify runner" in out.lower() or "e2e" in out.lower()
