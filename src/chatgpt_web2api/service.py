@@ -41,6 +41,11 @@ class Service:
         """Start the full system."""
         cfg = self._config
 
+        # Enable reactive diagnostics capture if the operator opted in.
+        # Off by default; only writes artifacts when W2A_DIAGNOSE=1.
+        from .diagnostics import apply_env_enablement
+        apply_env_enablement()
+
         # 1. Chrome
         logger.info("Ensuring Chrome is running...")
         self._chrome = ChromeProcess(cfg)

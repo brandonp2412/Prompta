@@ -185,3 +185,21 @@ def test_diagnose_capture_failure_never_masks_original(monkeypatch, tmp_path):
     result = asyncio.run(Stub().get_models())  # must not raise
     assert result == "wrong type"
     set_capture_enabled(False)
+
+
+# ── env-gated enablement (Task 4) ─────────────────────────────
+
+def test_capture_enabled_by_env(monkeypatch):
+    """W2A_DIAGNOSE=1 enables capture; absent/untruthy leaves it off."""
+    import chatgpt_web2api.diagnostics as dmod
+    monkeypatch.setenv("W2A_DIAGNOSE", "1")
+    dmod.apply_env_enablement()
+    assert dmod._capture_enabled is True
+
+    monkeypatch.delenv("W2A_DIAGNOSE", raising=False)
+    dmod.apply_env_enablement()
+    assert dmod._capture_enabled is False
+
+    monkeypatch.setenv("W2A_DIAGNOSE", "false")
+    dmod.apply_env_enablement()
+    assert dmod._capture_enabled is False

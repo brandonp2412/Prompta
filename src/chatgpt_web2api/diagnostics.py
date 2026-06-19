@@ -11,6 +11,7 @@ import asyncio
 import functools
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -185,6 +186,12 @@ def set_capture_enabled(enabled: bool) -> None:
     """Toggle whether broken results trigger an artifact capture."""
     global _capture_enabled
     _capture_enabled = enabled
+
+
+def apply_env_enablement() -> None:
+    """Enable capture when W2A_DIAGNOSE is truthy (called at server startup)."""
+    global _capture_enabled
+    _capture_enabled = os.environ.get("W2A_DIAGNOSE", "").lower() in ("1", "true", "yes")
 
 
 def _safe_classify_and_capture(
