@@ -125,7 +125,7 @@ def inject_cookies(args) -> None:
 
 def main() -> None:
     # Check if first arg looks like a subcommand
-    subcommands = {"start", "inject-cookies"}
+    subcommands = {"start", "inject-cookies", "doctor"}
     has_subcommand = len(sys.argv) > 1 and sys.argv[1] in subcommands
 
     parser = argparse.ArgumentParser(
@@ -140,6 +140,9 @@ def main() -> None:
         cookie_parser = subparsers.add_parser("inject-cookies", help="Inject browser cookies for auth")
         cookie_parser.add_argument("cookies", help="Path to cookies JSON file")
         _add_common_args(cookie_parser)
+        doctor_parser = subparsers.add_parser("doctor", help="Diagnose a broken function from captured evidence")
+        doctor_parser.add_argument("function", nargs="?", help="Function to diagnose (omit to auto-discover)")
+        doctor_parser.add_argument("--verify", metavar="FUNCTION", help="Re-run a function live to verify a fix")
     else:
         # No subcommand — parse as start with all args
         _add_common_args(parser)
@@ -151,6 +154,9 @@ def main() -> None:
         _run_start(args)
     elif command == "inject-cookies":
         inject_cookies(args)
+    elif command == "doctor":
+        from .doctor import run_doctor
+        run_doctor(args)
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
