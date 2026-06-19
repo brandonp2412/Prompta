@@ -40,3 +40,64 @@ def test_expected_shapes_registry_covers_key_tools():
     """The registry must define shapes for the tools most likely to drift."""
     for fn in ("create_project", "get_models", "get_conversations", "get_memories"):
         assert fn in EXPECTED_SHAPES, f"{fn} missing from EXPECTED_SHAPES"
+
+
+# ── redaction + capture (Task 2) ──────────────────────────────
+
+import json
+from chatgpt_web2api.diagnostics import redact, DiagnosticsDir
+
+
+def test_redact_strips_auth_tokens_and_emails():
+    """Auth tokens, cookie values, and emails are replaced with <redacted>."""
+    s = redact({
+        "headers": {"Authorization": "Bearer eyJabc123.def"},
+        "cookie": "__Secure-next-auth.session-token=longvalue",
+        "email": "user@example.com",
+        "url": "https://chatgpt.com/backend-api/conversation/abc-123",
+    })
+    dumped = json.dumps(s)
+    assert "eyJabc123" not in dumped
+    assert "<redacted>" in dumped
+    # conversation IDs in URLs are NOT PII — keep them
+    assert "abc-123" in s["url"]
+
+
+def test_redact_truncates_long_bodies():
+    """Captured response bodies are truncated to a safe size."""
+    s = redact({"body": "x" * 10000})
+    assert len(s["body"]) <= 2000
+
+
+def test_capture_artifact_writes_redacted_json(tmp_path):
+    """capture writes a redacted JSON file named <func>-<ts>.json."""
+    diag = DiagnosticsDir(base=tmp_path)
+    path = diag.capture(
+        function="create_project",
+        request={"expression": "fetch(...)", "data": {"token": "secret"}},
+        response={"status": 422, "body": "validation error"},
+        expected={"kind": "dict", "required_keys": ["id", "name"]},
+        actual={"error": "HTTP 422"},
+        mismatch="returned error shape: HTTP 422",
+    )
+    assert path.exists()
+    data = json.loads(path.read_text())
+    assert data["function"] == "create_project"
+    assert data["mismatch"] == "returned error shape: HTTP 422"
+    assert data["request"]["data"]["token"] == "<redacted>"
+
+
+def test_capture_volume_cap_keeps_newest(tmp_path):
+    """Only the N most recent artifacts per function are kept."""
+    import time as _time
+    diag = DiagnosticsDir(base=tmp_path, max_per_function=3)
+    for i in range(5):
+        diag.capture(
+            function="get_models", request={}, response={}, expected={},
+            actual={}, mismatch=f"m{i}",
+        )
+        _time.sleep(0.01)  # ensure distinct timestamps in filenames
+    files = sorted(tmp_path.glob("get_models-*.json"))
+    assert len(files) == 3
+    kept = [json.loads(f.read_text())["mismatch"] for f in files]
+    assert "m4" in kept and "m0" not in kept  # newest kept, oldest evicted
