@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Run tests
-        run: pytest -v
+        run: pytest -v -m "not e2e"
 
   build:
     runs-on: ubuntu-latest

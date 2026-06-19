@@ -51,3 +51,6 @@ packages = ["src/chatgpt_web2api"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "e2e: end-to-end tests against a real ChatGPT account (opt-in via W2A_E2E_RUN=1; mutates the account)",
+]
