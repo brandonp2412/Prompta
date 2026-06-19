@@ -878,7 +878,7 @@ class CDPDriver:
     @diagnose(
         "update_project_instructions",
         capture_js=lambda self: (
-            "PATCH /backend-api/gizmos/{id}",
+            "PATCH /backend-api/projects/{id}",
             {"instructions": "<arg>"},
         ),
     )
@@ -887,17 +887,27 @@ class CDPDriver:
         project_id: str,
         instructions: str,
     ) -> bool:
-        """Update a project's custom instructions. Returns True on success."""
+        """Update a project's custom instructions. Returns True on success.
+
+        Projects are mutated via PATCH /backend-api/projects/{id} with a flat
+        body. The API requires the current ``name`` in the body (it's a full
+        project-shape PATCH, not a partial), so we fetch the project's name
+        first and include it alongside the new instructions. Captured from
+        ChatGPT's own UI via Super-Browser network capture.
+        """
         result = await self._js_with_data(
             "(async () => {"
             "  try {"
-            "    var body = {"
-            "      gizmo: {"
-            "        display: {},"
-            "        instructions: __D.instructions"
-            "      }"
-            "    };"
-            "    var r = await fetch('/backend-api/gizmos/' + __D.project_id, {"
+            "    var r0 = await fetch('/backend-api/gizmos/' + __D.project_id, {"
+            "      headers: {'Authorization': 'Bearer ' + __D.token}"
+            "    });"
+            "    var d0 = await r0.json();"
+            "    var g0 = d0.gizmo || d0;"
+            "    var name = ((g0.display) || {}).name || '';"
+            "    var emoji = ((g0.display) || {}).emoji || null;"
+            "    var theme = ((g0.display) || {}).theme || null;"
+            "    var body = {name: name, instructions: __D.instructions, emoji: emoji, theme: theme};"
+            "    var r = await fetch('/backend-api/projects/' + __D.project_id, {"
             "      method: 'PATCH',"
             "      headers: {'Authorization': 'Bearer ' + __D.token, 'Content-Type': 'application/json'},"
             "      body: JSON.stringify(body)"
@@ -906,7 +916,7 @@ class CDPDriver:
             "  } catch(e) { return 'error:' + e.message; }"
             "})()",
             {"token": self._access_token, "project_id": project_id, "instructions": instructions},
-            timeout=15,
+            timeout=20,
         )
         if result == "true":
             logger.info("Updated instructions for project: %s", project_id)
