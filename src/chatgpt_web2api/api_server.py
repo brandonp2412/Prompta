@@ -18,8 +18,9 @@ from typing import Optional
 
 from aiohttp import web
 
-from .cdp_driver import CDPDriver
+from .cdp_driver import CDPDriver, RateLimitError, is_rate_limited_text
 from .config import Config
+from .resilience import retry_on_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -240,20 +241,58 @@ class APIServer:
 
             except Exception as e:
                 logger.error("Chat error: %s", e, exc_info=True)
-                return web.json_response(
-                    {"error": {"message": str(e), "type": "server_error"}},
-                    status=500,
-                )
+                return self._error_response(e)
+
+    # ── Error mapping ─────────────────────────────────────────
+
+    def _error_response(self, exc: Exception) -> web.Response:
+        """Map a driver exception to an OpenAI-shaped error response.
+
+        RateLimitError → HTTP 429 with the canonical OpenAI
+        ``rate_limit_exceeded`` type/code and a ``Retry-After`` header, so any
+        OpenAI-aware agent framework (SDK, LangChain, LlamaIndex) automatically
+        backs off and retries with zero client integration. Every other
+        exception stays a 500 ``server_error`` (a real failure, not retriable).
+        """
+        if isinstance(exc, RateLimitError):
+            retry_after = str(int(exc.retry_after))
+            return web.json_response(
+                {
+                    "error": {
+                        "message": str(exc),
+                        "type": "rate_limit_exceeded",
+                        "param": None,
+                        "code": "rate_limit_exceeded",
+                    }
+                },
+                status=429,
+                headers={"Retry-After": retry_after},
+            )
+        return web.json_response(
+            {"error": {"message": str(exc), "type": "server_error"}},
+            status=500,
+        )
 
     # ── Response formatters ───────────────────────────────────
 
     async def _full_response(
         self, request: web.Request, model: str, text: str, timeout: float
     ) -> web.Response:
-        """Non-streaming: collect all chunks, return one JSON."""
-        full_text = ""
-        async for chunk in self._driver.send_and_stream(text, timeout=timeout):
-            full_text += chunk.delta
+        """Non-streaming: collect all chunks, return one JSON.
+
+        The send is wrapped in ``retry_on_rate_limit`` so a transient
+        ChatGPT "Too many requests" pop-up is dismissed and retried
+        transparently — the client only sees it (as a 429) if the limit
+        persists across all retries.
+        """
+
+        async def _send_and_collect() -> str:
+            collected = ""
+            async for chunk in self._driver.send_and_stream(text, timeout=timeout):
+                collected += chunk.delta
+            return collected
+
+        full_text = await retry_on_rate_limit(self._driver, _send_and_collect)
 
         conv_id = self._driver._current_conv_id or ""
         self._last_conv_id = conv_id
@@ -275,7 +314,42 @@ class APIServer:
     async def _stream_response(
         self, request: web.Request, model: str, text: str, timeout: float
     ) -> web.Response:
-        """Streaming: SSE chunks as they arrive."""
+        """Streaming: SSE chunks as they arrive.
+
+        Rate-limit handling for streaming is split, because once
+        ``resp.prepare()`` commits the HTTP 200 status we can no longer send a
+        429:
+
+        - **Pre-flight** (before prepare): a single DOM scan. If throttled, we
+          retry transparently (dismiss + backoff). If it persists, we return a
+          proper 429 here while the status is still changeable.
+        - **Mid-stream** (after prepare): a throttle is rare here (pre-flight
+          cleared it), but if one occurs it falls back to the inline
+          ``[Error: ...]`` SSE chunk — documented as a known limitation.
+        """
+
+        async def _preflight() -> None:
+            """Raise RateLimitError if the pop-up is present right now."""
+            scan = await self._driver._js(
+                "(function(){var t=(document.body&&document.body.innerText)||'';"
+                "return JSON.stringify({text:t.slice(0,4000)});})()",
+                timeout=10,
+            )
+            try:
+                body = json.loads(scan).get("text", "") if scan else ""
+            except (json.JSONDecodeError, TypeError):
+                body = ""
+            if is_rate_limited_text(body):
+                raise RateLimitError.from_text(body)
+
+        # Transparent pre-flight retry — dismisses the pop-up and retries so a
+        # transient limit never reaches the client as an error.
+        try:
+            await retry_on_rate_limit(self._driver, _preflight, max_attempts=3)
+        except RateLimitError:
+            # Persistent at pre-flight: still pre-prepare, so send a clean 429.
+            raise
+
         resp = web.StreamResponse()
         resp.content_type = "text/event-stream"
         resp.headers["Cache-Control"] = "no-cache"
@@ -306,6 +380,15 @@ class APIServer:
                         "conversation_id": conv_id,
                         "choices": [{"index": 0, "delta": {}, "finish_reason": chunk.finish_reason}],
                     })
+        except RateLimitError as e:
+            # Mid-stream throttle (rare after pre-flight). Status is locked at
+            # 200, so we can't upgrade to 429; surface as an inline error chunk
+            # with a recognizable marker so clients can detect it.
+            logger.warning("Mid-stream rate limit: %s", e)
+            await self._send_sse(resp, {
+                "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
+                "choices": [{"index": 0, "delta": {"content": f"\n\n[Error: rate_limit_exceeded — retry in {e.retry_after}s]"}, "finish_reason": "error"}],
+            })
         except Exception as e:
             logger.error("Stream error: %s", e)
             await self._send_sse(resp, {
