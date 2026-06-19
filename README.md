@@ -175,7 +175,7 @@ reads to propose the corrected payload/selector/parse. `--verify` confirms a
 read-path fix against the live account before you commit it. No AI is bundled —
 the project captures deterministic evidence; the fix is human-applied.
 
-### 🤖 MCP Server (15 Tools for AI Agents)
+### 🤖 MCP Server (16 Tools for AI Agents)
 
 Expose ChatGPT to Claude Desktop, Cursor, Craft Agent, or any MCP client:
 
@@ -190,7 +190,7 @@ Expose ChatGPT to Claude Desktop, Cursor, Craft Agent, or any MCP client:
 }
 ```
 
-**15 tools** give the agent full control:
+**16 tools** give the agent full control:
 
 | Tool | What it does |
 |------|-------------|
@@ -198,6 +198,7 @@ Expose ChatGPT to Claude Desktop, Cursor, Craft Agent, or any MCP client:
 | `list_models` | 17 live model slugs (GPT-5.5, 5.4 Thinking, etc.) |
 | `list_projects` | ChatGPT projects with persistent memory |
 | `create_project` | Create isolated workspace with dedicated memory |
+| `delete_project` | Permanently remove a project (gated: `W2A_ENABLE_DESTRUCTIVE`) |
 | `list_conversations` | Recent chats with pagination |
 | `get_conversation` | Full message history |
 | `archive_conversation` | Archive/unarchive (reversible) |
@@ -255,7 +256,7 @@ curl http://localhost:8080/v1/chat/completions ...
 | **Anti-bot handling** | ✅ Automatic (CDP) | ❌ Manual (PoW/Turnstile) | ❌ Manual | N/A |
 | **Token extraction** | ❌ None needed | ✅ Required | ✅ Required | N/A |
 | **Project memory** | ✅ Full CRUD | ❌ | ❌ | ❌ |
-| **MCP server** | ✅ 15 tools | ❌ | ❌ | ❌ |
+| **MCP server** | ✅ 16 tools | ❌ | ❌ | ❌ |
 | **ChatGPT memories** | ✅ List/create/delete | ❌ | ❌ | ❌ |
 | **Custom GPTs** | ✅ Chat with any GPT | ❌ | ❌ | ❌ |
 | **OpenAI SDK compat** | ✅ Drop-in | ✅ | ❌ | ✅ (native) |
@@ -365,7 +366,7 @@ src/chatgpt_web2api/
 ├── chrome.py            Chrome subprocess lifecycle
 ├── cdp_driver.py        CDP primitives (24 methods)
 ├── api_server.py        OpenAI-compatible HTTP server
-├── mcp_server.py        MCP server (15 tools, resources, prompts)
+├── mcp_server.py        MCP server (16 tools, resources, prompts)
 └── service.py           Orchestrator: Chrome → CDP → API/MCP
 ```
 
