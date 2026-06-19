@@ -113,23 +113,56 @@ Use `list_models` for the current live catalog.
 
 ## Error Handling
 
-All errors return standard OpenAI-compatible format:
+All errors return standard OpenAI-compatible JSON. Two error shapes exist:
+
+### Server errors (HTTP 500)
+
+Driver/processing failures — Chrome disconnects, timeouts, navigation or login
+problems. These are real failures, **not** retriable:
 
 ```json
+HTTP/1.1 500
 {
   "error": {
-    "message": "Chrome not connected. Start chatgpt-web2api first.",
-    "type": "connection_error",
-    "code": "chrome_disconnected"
+    "message": "<details>",
+    "type": "server_error"
   }
 }
 ```
 
-Common error codes:
+### Rate limits (HTTP 429) — retriable
 
-| Code | Meaning |
-|------|---------|
-| `chrome_disconnected` | Chrome process not running or CDP port unreachable |
-| `timeout` | ChatGPT did not respond within the timeout window |
-| `navigation_failed` | Could not navigate to chatgpt.com |
-| `login_required` | ChatGPT session expired — re-login needed |
+ChatGPT's "Too many requests" throttling. The server first tries to recover
+**transparently**: it dismisses the pop-up and retries your request up to 3
+times with backoff. Only if the limit *persists* does it surface this
+standard OpenAI `429`, which the OpenAI SDK / LangChain / LlamaIndex auto-retry:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+{
+  "error": {
+    "message": "ChatGPT rate limit reached (Too many requests). Retry in 60s.",
+    "type": "rate_limit_exceeded",
+    "param": null,
+    "code": "rate_limit_exceeded"
+  }
+}
+```
+
+`Retry-After` is parsed from the pop-up text when ChatGPT gives an exact
+number; otherwise it defaults to a conservative 60s.
+
+### Streaming caveat
+
+A 429 can be returned before streaming begins (a pre-flight rate-limit check
+runs before the SSE response is committed). A rate limit that appears
+*mid-stream* — after the `200 OK` is sent — cannot change status, so it is
+surfaced as an inline SSE chunk:
+
+```
+data: {"choices":[{"delta":{"content":"\n\n[Error: rate_limit_exceeded — retry in 60s]"},"finish_reason":"error"}]}
+data: [DONE]
+```
+
+Prefer **non-streaming** requests if your agent needs reliable 429 detection.
