@@ -801,7 +801,7 @@ class CDPDriver:
     @diagnose(
         "create_project",
         capture_js=lambda self: (
-            "POST /backend-api/gizmos",
+            "POST /backend-api/projects",
             {"name": "<arg>", "instructions": "<arg>", "memory_scope": "<arg>"},
         ),
     )
@@ -811,36 +811,43 @@ class CDPDriver:
         instructions: str = "",
         memory_scope: str = "project_v2",
     ) -> dict:
-        """Create a new ChatGPT project (gizmo).
+        """Create a new ChatGPT project.
 
         Args:
             name: Project display name
             instructions: Custom instructions for the project
-            memory_scope: 'project_v2' (dedicated) or 'global' (shared)
+            memory_scope: 'project_v2' (Project-only — isolated memory, the
+                dedicated scope) or 'global' (Default — shares memory with
+                outside chats, mapped to the API's 'unset' value).
 
         Returns:
-            Created project dict with id, name, etc.
+            Created project dict with id (g-p-...), name, memory_scope, etc.
+
+        Note: Projects and Custom GPTs are now separate endpoints. Projects
+        live at ``/backend-api/projects`` and create a ``snorlax`` gizmo (id
+        prefix ``g-p-``); the legacy ``/backend-api/gizmos`` endpoint creates a
+        ``gpt`` gizmo instead. The payload + endpoint here were captured from
+        ChatGPT's own UI via browser automation (Super-Browser network capture).
         """
+        # The UI sends "unset" for the Default (shared) memory option and
+        # "project_v2" for Project-only. Map our public values accordingly.
+        api_memory_scope = "project_v2" if memory_scope == "project_v2" else "unset"
         raw = await self._js_with_data(
             "(async () => {"
             "  try {"
             "    var body = {"
-            "      display: {name: __D.name, description: ''},"
-            "      memory_scope: __D.memory_scope,"
-            "      memory_enabled: true,"
+            "      name: __D.name,"
             "      instructions: __D.instructions,"
-            "      gizmo_type: 'snorlax',"
-            "      tools: [],"
-            "      files: []"
+            "      memory_scope: __D.api_memory_scope"
             "    };"
-            "    var r = await fetch('/backend-api/gizmos', {"
+            "    var r = await fetch('/backend-api/projects', {"
             "      method: 'POST',"
             "      headers: {'Authorization': 'Bearer ' + __D.token, 'Content-Type': 'application/json'},"
             "      body: JSON.stringify(body)"
             "    });"
             "    if (!r.ok) return JSON.stringify({error: 'HTTP ' + r.status, body: await r.text()});"
             "    var data = await r.json();"
-            "    var g = (data.gizmo || data);"
+            "    var g = ((data.resource || {}).gizmo) || data.gizmo || data;"
             "    return JSON.stringify({"
             "      id: g.id,"
             "      name: (g.display || {}).name || '',"
@@ -853,7 +860,7 @@ class CDPDriver:
                 "token": self._access_token,
                 "name": name,
                 "instructions": instructions,
-                "memory_scope": memory_scope,
+                "api_memory_scope": api_memory_scope,
             },
             timeout=20,
         )
