@@ -14,11 +14,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
+
+from .diagnostics import diagnose
 
 try:
     import websockets
@@ -33,6 +36,108 @@ class StreamChunk:
     """A single streaming chunk."""
     delta: str
     finish_reason: Optional[str] = None
+
+
+# Conservative fallback wait (seconds) when ChatGPT's pop-up gives no exact
+# number (it usually says "a few minutes"). Chosen to be long enough to let
+# a real cooldown clear but short enough that a transient blip recovers fast.
+RATE_LIMIT_DEFAULT_RETRY_AFTER = 60
+
+
+class RateLimitError(RuntimeError):
+    """Raised when ChatGPT shows its 'Too many requests' rate-limit pop-up.
+
+    Carries ``retry_after`` (seconds) so consumer layers can surface a
+    standard OpenAI 429 with a ``Retry-After`` header, or an MCP structured
+    result with a machine-readable wait. When the pop-up text is available,
+    construct via :meth:`from_text` to parse the duration automatically.
+
+    ChatGPT temporarily throttles rapid conversation access. When this fires
+    the assistant never responds, so without detection ``send_and_stream``
+    would spin for 60s and time out. Catching the pop-up lets callers fail
+    fast with a clear, actionable message.
+    """
+
+    def __init__(
+        self,
+        message: str | None = None,
+        retry_after: int = RATE_LIMIT_DEFAULT_RETRY_AFTER,
+    ) -> None:
+        if message is None:
+            message = (
+                f"ChatGPT rate limit reached (Too many requests). "
+                f"Retry in {retry_after}s."
+            )
+        super().__init__(message)
+        self.retry_after = int(retry_after)
+
+    @classmethod
+    def from_text(cls, text: str) -> "RateLimitError":
+        """Build a RateLimitError, parsing the wait from the pop-up *text*."""
+        retry_after = parse_retry_after(text)
+        return cls(retry_after=retry_after)
+
+
+# Phrases ChatGPT uses in its rate-limit pop-up. Matched case-insensitively
+# against scanned DOM text. Kept narrow to avoid false positives on normal
+# chat content (e.g. a user asking about "rate limits" in a message).
+_RATE_LIMIT_PHRASES = (
+    "too many requests",
+    "you're making requests too quickly",
+    "temporarily limited access to your conversations",
+    "you've reached the rate limit",
+)
+
+
+def is_rate_limited_text(text: str) -> bool:
+    """Return True if *text* looks like ChatGPT's rate-limit pop-up copy."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _RATE_LIMIT_PHRASES)
+
+
+def parse_retry_after(text: str, default: int = RATE_LIMIT_DEFAULT_RETRY_AFTER) -> int:
+    """Extract a retry-after duration in seconds from ChatGPT's pop-up text.
+
+    The pop-up usually says "Please wait a few minutes" with no exact number;
+    in that case we return *default*. When an explicit number is present
+    ("try again in 2 minutes", "wait 30 seconds"), parse and convert it.
+
+    Words like "a few minutes" are deliberately NOT parsed to a specific value
+    (they're vague); the conservative default is safer than guessing.
+    """
+    if not text:
+        return default
+    lowered = text.lower()
+
+    # Look for "<n> minute(s)" or "<n> min", "<n> second(s)" / "<n> sec(s)".
+    # Match digits or number words.
+    _NUM_WORDS = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    }
+
+    def _to_num(token: str) -> int | None:
+        if token.isdigit():
+            return int(token)
+        return _NUM_WORDS.get(token)
+
+    # "<n> minute(s)" → seconds = n * 60
+    m = re.search(r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:minutes?|mins?)", lowered)
+    if m:
+        n = _to_num(m.group(1))
+        if n is not None:
+            return n * 60
+
+    # "<n> second(s)" / "<n> sec(s)"
+    m = re.search(r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:seconds?|secs?)", lowered)
+    if m:
+        n = _to_num(m.group(1))
+        if n is not None:
+            return n
+
+    return default
 
 
 class CDPDriver:
@@ -118,12 +223,31 @@ class CDPDriver:
     async def _js_with_data(self, expr_template: str, data: dict, timeout: float = 15) -> str:
         """Evaluate JS with safely injected data variables.
 
-        Injects data as ``const __D = <json>;`` prefix, eliminating
-        all string-concatenation injection vectors.  The template can
-        reference ``__D.keyName`` for any key in *data*.
+        Injects *data* as the ``__D`` argument of an async IIFE so the
+        templates can reference ``__D.keyName`` for any key.  The data is
+        passed as a JSON-serialized call argument (never string-concatenated
+        into the body), which eliminates injection vectors entirely.
+
+        Earlier versions emitted a top-level ``const __D = ...;``, which
+        collides with the global ``__D`` that chatgpt.com's own page defines
+        and raised ``SyntaxError: Identifier '__D' has already been
+        declared`` — silently returning empty for every
+        memory/project/conversation read.  Passing ``__D`` as a function
+        parameter sidesteps the collision completely: there is no
+        declaration to conflict, and the parameter shadows the global
+        within the IIFE's scope.
+
+        *expr_template* is evaluated as an expression in a position where
+        its return value becomes the IIFE's result, so existing templates
+        (which are self-invoking like ``(async () => {...})()``) keep
+        working unchanged.
         """
-        prefix = f"const __D = {json.dumps(data)};"
-        return await self._js(prefix + expr_template, timeout=timeout)
+        # Pass __D as an argument. Using `void ` makes `__D=>(...)` an
+        # arrow expression body, so the template's value is returned.
+        wrapped = (
+            f"( (__D) => ({expr_template}) )({json.dumps(data)})"
+        )
+        return await self._js(wrapped, timeout=timeout)
 
     # ── Model Selection ───────────────────────────────────────
 
@@ -354,6 +478,25 @@ class CDPDriver:
         # Wait for a new assistant message (up to 60s)
         deadline = time.monotonic() + min(timeout, 60)
         while time.monotonic() < deadline:
+            # First check for ChatGPT's rate-limit pop-up — if present, fail
+            # fast with a clear error instead of waiting out the whole timeout.
+            # The pop-up blocks the assistant from responding, so the assistant
+            # count would never increase; without this check we'd hit a generic
+            # 60s timeout that hides the real cause.
+            dom_scan = await self._js(
+                "(function(){"
+                "  var t = (document.body && document.body.innerText) || '';"
+                "  return JSON.stringify({text: t.slice(0, 4000)});"
+                "})()"
+            )
+            try:
+                scanned_text = json.loads(dom_scan).get("text", "")
+            except (json.JSONDecodeError, TypeError):
+                scanned_text = ""
+            if is_rate_limited_text(scanned_text):
+                # from_text parses any explicit wait from the pop-up copy.
+                raise RateLimitError.from_text(scanned_text)
+
             raw = await self._js(
                 "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
             )
@@ -452,10 +595,75 @@ class CDPDriver:
             timeout=15,
         ) or ""
 
+    async def dismiss_rate_limit(self) -> bool:
+        """Dismiss ChatGPT's 'Too many requests' pop-up by clicking 'Got it'.
+
+        Targets the pop-up by its text ('Too many requests') rather than fragile
+        class names: find the ``[role=dialog]`` whose text matches, then click
+        the button inside it whose text is 'Got it'. After clicking, re-scan the
+        page to confirm the pop-up cleared.
+
+        Best-effort: never raises. Returns True if the pop-up is gone after the
+        attempt, False if it couldn't be dismissed (button missing, JS error,
+        or the limit persists). Callers should back off and retry regardless
+        when this returns False.
+        """
+        click_js = (
+            "(function(){"
+            "  try {"
+            "    var dlgs = document.querySelectorAll('[role=dialog]');"
+            "    var target = null;"
+            "    for (var i = 0; i < dlgs.length; i++) {"
+            "      if (/too many requests/i.test(dlgs[i].innerText || '')) { target = dlgs[i]; break; }"
+            "    }"
+            "    if (!target) return JSON.stringify({clicked: false});"
+            "    var btns = target.querySelectorAll('button');"
+            "    var btn = null;"
+            "    for (var j = 0; j < btns.length; j++) {"
+            "      if ((btns[j].innerText || '').trim().toLowerCase() === 'got it') { btn = btns[j]; break; }"
+            "    }"
+            "    if (!btn) return JSON.stringify({clicked: false});"
+            "    btn.click();"
+            "    return JSON.stringify({clicked: true});"
+            "  } catch(e) { return JSON.stringify({clicked: false, error: e.message}); }"
+            "})()"
+        )
+        try:
+            click_raw = await self._js(click_js, timeout=10)
+            clicked = json.loads(click_raw).get("clicked", False) if click_raw else False
+        except Exception:  # best-effort: never raise
+            logger.warning("dismiss_rate_limit: click failed", exc_info=True)
+            return False
+        if not clicked:
+            return False
+
+        # Re-scan to confirm the pop-up cleared.
+        try:
+            scan = await self._js(
+                "(function(){var t=(document.body&&document.body.innerText)||'';"
+                "return JSON.stringify({text:t.slice(0,4000)});})()",
+                timeout=10,
+            )
+            text = json.loads(scan).get("text", "") if scan else ""
+        except Exception:
+            # If the re-scan errors, assume not cleared.
+            return False
+        return not is_rate_limited_text(text)
+
     # ── API helpers ───────────────────────────────────────────
 
+    @diagnose("get_models")
     async def get_models(self) -> list[dict]:
-        return await self._js_with_data(
+        """List available models.
+
+        The ChatGPT API returns ``{"title":..., "models":[{"slug":..., ...}]}``
+        as a JSON string. Parse it and return just the models array so callers
+        get the ``list[dict]`` the signature promises (each with ``slug`` and
+        ``title``). Earlier this returned the raw string, which made
+        ``do_list_models`` crash on ``m.get('slug')`` — only live testing
+        caught it, since the mocked unit tests returned dicts.
+        """
+        raw = await self._js_with_data(
             "(async () => {"
             "  var r = await fetch('/backend-api/models?iim=false&is_gizmo=false', {"
             "    headers: {'Authorization': 'Bearer ' + __D.token}"
@@ -464,7 +672,17 @@ class CDPDriver:
             "})()",
             {"token": self._access_token},
         )
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if isinstance(data, dict):
+            return data.get("models", [])
+        if isinstance(data, list):
+            return data
+        return []
 
+    @diagnose("get_projects")
     async def get_projects(self) -> list[dict]:
         raw = await self._js_with_data(
             "(async () => {"
@@ -486,6 +704,7 @@ class CDPDriver:
 
     # ── Conversation Management ──────────────────────────────
 
+    @diagnose("get_conversations")
     async def get_conversations(
         self,
         offset: int = 0,
@@ -512,6 +731,7 @@ class CDPDriver:
         except json.JSONDecodeError:
             return []
 
+    @diagnose("get_conversation")
     async def get_conversation(self, conversation_id: str) -> dict:
         """Get full conversation detail with message mapping."""
         raw = await self._js_with_data(
@@ -529,6 +749,7 @@ class CDPDriver:
         except json.JSONDecodeError:
             return {}
 
+    @diagnose("delete_conversation")
     async def delete_conversation(self, conversation_id: str) -> bool:
         """Delete a conversation. Returns True on success."""
         result = await self._js_with_data(
@@ -577,6 +798,13 @@ class CDPDriver:
 
     # ── Project Management ────────────────────────────────────
 
+    @diagnose(
+        "create_project",
+        capture_js=lambda self: (
+            "POST /backend-api/gizmos",
+            {"name": "<arg>", "instructions": "<arg>", "memory_scope": "<arg>"},
+        ),
+    )
     async def create_project(
         self,
         name: str,
@@ -641,6 +869,13 @@ class CDPDriver:
         except json.JSONDecodeError:
             return {"error": "Invalid response"}
 
+    @diagnose(
+        "update_project_instructions",
+        capture_js=lambda self: (
+            "PATCH /backend-api/gizmos/{id}",
+            {"instructions": "<arg>"},
+        ),
+    )
     async def update_project_instructions(
         self,
         project_id: str,
@@ -692,6 +927,13 @@ class CDPDriver:
 
     # ── Archive Conversation ────────────────────────────────
 
+    @diagnose(
+        "archive_conversation",
+        capture_js=lambda self: (
+            "PATCH /backend-api/conversation/{id}",
+            {"archive": "<arg>"},
+        ),
+    )
     async def archive_conversation(
         self, conversation_id: str, archive: bool = True
     ) -> bool:
@@ -717,6 +959,7 @@ class CDPDriver:
 
     # ── Memory Management ─────────────────────────────────────
 
+    @diagnose("get_memories")
     async def get_memories(self) -> list[dict]:
         """List all ChatGPT memories."""
         raw = await self._js_with_data(
@@ -747,6 +990,7 @@ class CDPDriver:
         except json.JSONDecodeError:
             return []
 
+    @diagnose("create_memory")
     async def create_memory(self, content: str) -> dict:
         """Create a memory by sending a chat message asking ChatGPT to remember.
 
@@ -783,6 +1027,7 @@ class CDPDriver:
             ),
         }
 
+    @diagnose("delete_memory")
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a ChatGPT memory by ID. Returns True on success."""
         result = await self._js_with_data(
@@ -832,6 +1077,7 @@ class CDPDriver:
         await asyncio.sleep(2)
         self._current_conv_id = None
 
+    @diagnose("list_gpts")
     async def list_gpts(self) -> list[dict]:
         """List Custom GPTs (non-project gizmos).
 
@@ -863,6 +1109,7 @@ class CDPDriver:
 
     # ── Project Files ─────────────────────────────────────────
 
+    @diagnose("get_project_files")
     async def get_project_files(self, project_id: str) -> list[dict]:
         """List files attached to a ChatGPT project."""
         raw = await self._js_with_data(

@@ -101,3 +101,87 @@ def test_capture_volume_cap_keeps_newest(tmp_path):
     assert len(files) == 3
     kept = [json.loads(f.read_text())["mismatch"] for f in files]
     assert "m4" in kept and "m0" not in kept  # newest kept, oldest evicted
+
+
+# ── @diagnose decorator (Task 3) ──────────────────────────────
+
+import asyncio
+from chatgpt_web2api.diagnostics import diagnose, set_capture_enabled
+
+
+def test_diagnose_decorator_passes_through_healthy(monkeypatch, tmp_path):
+    """A healthy result is returned unchanged; no artifact written."""
+    from chatgpt_web2api.diagnostics import DiagnosticsDir, _DIAG_DIR
+    monkeypatch.setattr("chatgpt_web2api.diagnostics._DIAG_DIR",
+                        DiagnosticsDir(base=tmp_path))
+    set_capture_enabled(True)
+
+    class Stub:
+        @diagnose("get_models")
+        async def get_models(self_inner):
+            return [{"slug": "a", "title": "A"}]
+
+    result = asyncio.run(Stub().get_models())
+    assert result == [{"slug": "a", "title": "A"}]
+    assert not list(tmp_path.glob("*.json"))  # no artifact
+    set_capture_enabled(False)
+
+
+def test_diagnose_decorator_captures_on_broken(monkeypatch, tmp_path):
+    """A broken result is still returned, but an artifact is captured."""
+    from chatgpt_web2api.diagnostics import DiagnosticsDir
+    monkeypatch.setattr("chatgpt_web2api.diagnostics._DIAG_DIR",
+                        DiagnosticsDir(base=tmp_path))
+    set_capture_enabled(True)
+
+    class Stub:
+        @diagnose("create_project",
+                  capture_js=lambda self_inner: ("POST /backend-api/gizmos", {"token": "x"}))
+        async def create_project(self_inner, name="x"):
+            return {"error": "HTTP 422", "body": "bad"}
+
+    result = asyncio.run(Stub().create_project(name="Foo"))
+    assert result == {"error": "HTTP 422", "body": "bad"}  # caller sees original
+    files = list(tmp_path.glob("create_project-*.json"))
+    assert len(files) == 1
+    art = json.loads(files[0].read_text())
+    assert art["function"] == "create_project"
+    assert art["request"]["expression"] == "POST /backend-api/gizmos"
+    set_capture_enabled(False)
+
+
+def test_diagnose_capture_disabled_by_default_writes_nothing(monkeypatch, tmp_path):
+    """Capture is OFF unless enabled — no surprise disk writes."""
+    from chatgpt_web2api.diagnostics import DiagnosticsDir
+    monkeypatch.setattr("chatgpt_web2api.diagnostics._DIAG_DIR",
+                        DiagnosticsDir(base=tmp_path))
+    set_capture_enabled(False)
+
+    class Stub:
+        @diagnose("get_models")
+        async def get_models(self_inner):
+            return "wrong type"
+
+    asyncio.run(Stub().get_models())
+    assert not list(tmp_path.glob("*.json"))  # disabled → no capture
+
+
+def test_diagnose_capture_failure_never_masks_original(monkeypatch, tmp_path):
+    """If the capture itself errors, the original result is still returned."""
+    from chatgpt_web2api.diagnostics import DiagnosticsDir
+    # A DiagnosticsDir whose base can't be written to → capture raises internally
+    monkeypatch.setattr("chatgpt_web2api.diagnostics._DIAG_DIR",
+                        DiagnosticsDir(base=tmp_path))
+    set_capture_enabled(True)
+    # Make capture blow up by patching redact to raise.
+    monkeypatch.setattr("chatgpt_web2api.diagnostics.redact",
+                        lambda obj: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    class Stub:
+        @diagnose("get_models")
+        async def get_models(self_inner):
+            return "wrong type"
+
+    result = asyncio.run(Stub().get_models())  # must not raise
+    assert result == "wrong type"
+    set_capture_enabled(False)

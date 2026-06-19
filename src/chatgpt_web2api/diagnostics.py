@@ -7,11 +7,14 @@ is caught at the moment it happens, then (in later tasks) captures the evidence.
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
+import logging
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 # Expected shape per driver method. Each entry is a dict with:
 #   kind: "list" | "dict" | "bool" | "any"
@@ -163,3 +166,98 @@ class DiagnosticsDir:
     def latest(self, function: str) -> Path | None:
         files = sorted(self.base.glob(f"{function}-*.json"))
         return files[-1] if files else None
+
+
+# ═══════════════════════════════════════════════════════════════
+# @diagnose decorator — wire detection into driver methods
+# ═══════════════════════════════════════════════════════════════
+
+logger = logging.getLogger(__name__)
+
+# Single shared diagnostics directory. Capture only runs when enabled (default
+# off) so a fresh checkout never surprises the user with disk writes. Enabled
+# by the server at startup (Task 4) or by the doctor command.
+_DIAG_DIR = DiagnosticsDir()
+_capture_enabled = False
+
+
+def set_capture_enabled(enabled: bool) -> None:
+    """Toggle whether broken results trigger an artifact capture."""
+    global _capture_enabled
+    _capture_enabled = enabled
+
+
+def _safe_classify_and_capture(
+    function_name: str,
+    result: Any,
+    request_provider: Optional[Callable[[], Any]],
+) -> None:
+    """Classify result; if broken and capture enabled, write an artifact.
+
+    Best-effort: never raises. A capture failure is logged and swallowed so it
+    can never mask or worsen the original error.
+    """
+    try:
+        healthy, mismatch = classify_result(function_name, result)
+        if healthy:
+            return
+        if not _capture_enabled:
+            return
+        request: Any = {}
+        if request_provider is not None:
+            try:
+                raw_request = request_provider()
+                # Normalize: a (expression, data) tuple becomes a dict so the
+                # artifact is self-describing regardless of how capture_js returns.
+                if isinstance(raw_request, (tuple, list)) and len(raw_request) == 2:
+                    request = {"expression": raw_request[0], "data": raw_request[1]}
+                else:
+                    request = raw_request
+            except Exception:
+                request = {"note": "request capture failed"}
+        _DIAG_DIR.capture(
+            function=function_name,
+            request=request,
+            response={"result": result},
+            expected=EXPECTED_SHAPES.get(function_name, {"kind": "any"}),
+            actual=result,
+            mismatch=mismatch or "unknown",
+        )
+    except Exception:
+        logger.warning("diagnostic capture failed", exc_info=True)
+
+
+def diagnose(function_name: str, capture_js: Optional[Callable[[Any], Any]] = None):
+    """Decorator: classify a driver method's result + capture on breakage.
+
+    Args:
+        function_name: the name used in artifacts and the shape registry.
+        capture_js: optional callable(self) -> (expression_str, data_dict) that
+            returns the JS request that was sent, for inclusion in the artifact.
+            None if the method's request isn't reconstructable cheaply.
+
+    The wrapped method's return value / exception is always passed through
+    unchanged — detection is a side channel, never a behavior change.
+    """
+    def decorator(fn):
+        if asyncio.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def async_wrapper(self, *args, **kwargs):
+                result = await fn(self, *args, **kwargs)
+                _safe_classify_and_capture(
+                    function_name, result,
+                    (lambda: capture_js(self)) if capture_js else None,
+                )
+                return result
+            return async_wrapper
+
+        @functools.wraps(fn)
+        def sync_wrapper(self, *args, **kwargs):
+            result = fn(self, *args, **kwargs)
+            _safe_classify_and_capture(
+                function_name, result,
+                (lambda: capture_js(self)) if capture_js else None,
+            )
+            return result
+        return sync_wrapper
+    return decorator
