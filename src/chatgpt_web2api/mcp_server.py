@@ -31,6 +31,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from enum import Enum
 from typing import Any, Optional
@@ -41,7 +42,8 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from .config import Config
-from .cdp_driver import CDPDriver
+from .cdp_driver import CDPDriver, RateLimitError
+from .resilience import retry_on_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +199,11 @@ class DeleteMemoryInput(BaseModel):
     memory_id: str = Field(description="ID of the memory to delete")
 
 
+class DeleteProjectInput(BaseModel):
+    """Input for deleting a ChatGPT project."""
+    project_id: str = Field(description="ID of the project to delete (g-p-...)")
+
+
 class ListGptsInput(BaseModel):
     """No inputs needed."""
     pass
@@ -239,6 +246,7 @@ class ToolName(str, Enum):
     # Projects
     CREATE_PROJECT = "create_project"
     UPDATE_PROJECT_INSTRUCTIONS = "update_project_instructions"
+    DELETE_PROJECT = "delete_project"
     LIST_PROJECT_FILES = "list_project_files"
     # Memory
     LIST_MEMORIES = "list_memories"
@@ -354,6 +362,27 @@ DELETE_RESULT_OUTPUT = {
     "required": ["success", "conversation_id"],
 }
 
+# Distinct from DELETE_RESULT_OUTPUT: delete_memory returns memory_id,
+# not conversation_id. Previously the two shared a schema, which made
+# every delete_memory call fail MCP output validation.
+DELETE_MEMORY_RESULT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "success": {"type": "boolean"},
+        "memory_id": {"type": "string"},
+    },
+    "required": ["success", "memory_id"],
+}
+
+DELETE_PROJECT_RESULT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "success": {"type": "boolean"},
+        "project_id": {"type": "string"},
+    },
+    "required": ["success", "project_id"],
+}
+
 CREATE_PROJECT_OUTPUT = {
     "type": "object",
     "properties": {
@@ -451,6 +480,102 @@ LIST_PROJECT_FILES_OUTPUT = {
 
 
 # ═══════════════════════════════════════════════════════════════
+# Access Control — graduated gating (modeled on hermes-gpt)
+# ═══════════════════════════════════════════════════════════════
+#
+# Three risk tiers:
+#   SAFE         — reads + core chat. Always visible. This is the
+#                  out-of-box surface; the primary use case works
+#                  without any configuration.
+#   WRITE gated  — account mutation (create/alter projects, memories,
+#                  conversations). Hidden from list_tools unless
+#                  W2A_ENABLE_WRITE=1.
+#   DESTRUCTIVE  — irreversible deletes. Hidden unless
+#                  W2A_ENABLE_DESTRUCTIVE=1.
+#
+# Hidden tools are also refused at call time (defense-in-depth):
+# a client that calls a tool by name without it being listed still
+# gets a PermissionError, not silent execution.
+
+WRITE_ENV = "W2A_ENABLE_WRITE"
+DESTRUCTIVE_ENV = "W2A_ENABLE_DESTRUCTIVE"
+
+# Tools requiring W2A_ENABLE_WRITE=1 to be visible/callable
+_WRITE_GATED_TOOLS = frozenset({
+    ToolName.CREATE_PROJECT.value,
+    ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
+    ToolName.CREATE_MEMORY.value,
+    ToolName.ARCHIVE_CONVERSATION.value,
+})
+
+# Tools requiring W2A_ENABLE_DESTRUCTIVE=1 (irreversible account changes)
+_DESTRUCTIVE_TOOLS = frozenset({
+    ToolName.DELETE_CONVERSATION.value,
+    ToolName.DELETE_MEMORY.value,
+    ToolName.DELETE_PROJECT.value,
+})
+
+# Auth metadata advertised to clients. When api_keys is empty the
+# server genuinely has no authentication — saying so lets MCP clients
+# (ChatGPT, Claude Desktop) configure their connector correctly.
+NOAUTH_META = {"securitySchemes": [{"type": "noauth"}]}
+
+
+def _env_enabled(name: str) -> bool:
+    return os.environ.get(name) == "1"
+
+
+def tool_meta(extra: dict | None = None) -> dict:
+    """Return auth metadata, optionally merged with extras."""
+    meta = dict(NOAUTH_META)
+    if extra:
+        meta.update(extra)
+    return meta
+
+
+def is_loopback_host(host: str) -> bool:
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def warn_non_loopback(host: str, transport: str) -> None:
+    """Warn when a no-auth server binds to a non-loopback address.
+
+    The MCP server has no authentication of its own — any reachable host
+    can invoke exposed tools. Binding off loopback without configuring
+    ``api_keys`` exposes those tools to the network, so we surface that
+    loudly. Suppressed when the operator has set API keys.
+    """
+    if is_loopback_host(host):
+        return
+    if _config is not None and _config.server.api_keys:
+        return  # operator has added authentication
+    logger.warning(
+        "%s transport bound to %s with no authentication. Exposed tools "
+        "are reachable from the network. Bind to 127.0.0.1 or set api_keys.",
+        transport, host,
+    )
+
+
+def _tool_gate_env(tool_name: str) -> str | None:
+    """Return the env var gating this tool, or None if always visible."""
+    if tool_name in _DESTRUCTIVE_TOOLS:
+        return DESTRUCTIVE_ENV
+    if tool_name in _WRITE_GATED_TOOLS:
+        return WRITE_ENV
+    return None
+
+
+def _visible_tool_names() -> set[str]:
+    """Tool names visible given the current environment."""
+    visible = set()
+    for member in ToolName:
+        gate = _tool_gate_env(member.value)
+        if gate is None or _env_enabled(gate):
+            visible.add(member.value)
+    return visible
+
+
+# ═══════════════════════════════════════════════════════════════
 # Global State
 # ═══════════════════════════════════════════════════════════════
 
@@ -465,6 +590,7 @@ _MUTATING_TOOLS = frozenset({
     ToolName.DELETE_CONVERSATION.value,
     ToolName.CREATE_PROJECT.value,
     ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
+    ToolName.DELETE_PROJECT.value,
     ToolName.ARCHIVE_CONVERSATION.value,
     ToolName.CREATE_MEMORY.value,
     ToolName.DELETE_MEMORY.value,
@@ -622,6 +748,12 @@ async def do_create_project(driver: CDPDriver, args: dict) -> dict:
     return result
 
 
+async def do_delete_project(driver: CDPDriver, args: dict) -> dict:
+    """Delete a ChatGPT project."""
+    validated = DeleteProjectInput(**args)
+    return await driver.delete_project(validated.project_id)
+
+
 async def do_update_project_instructions(driver: CDPDriver, args: dict) -> dict:
     """Update a project's custom instructions."""
     validated = UpdateProjectInstructionsInput(**args)
@@ -727,7 +859,12 @@ async def do_chat_with_gpt(driver: CDPDriver, args: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════
 
 def _build_tools() -> list[mcp_types.Tool]:
-    """Build the list of tool definitions with full annotations and output schemas."""
+    """Build the FULL list of tool definitions (all 15), unfiltered.
+
+    Returns every tool regardless of access gates. Used by tests that
+    assert the complete catalog. Runtime tool exposure goes through
+    :func:`build_tools`, which applies the access gates.
+    """
     return [
         # ── Core: Chat ────────────────────────────────────────
         mcp_types.Tool(
@@ -886,6 +1023,25 @@ def _build_tools() -> list[mcp_types.Tool]:
             ),
         ),
         mcp_types.Tool(
+            name=ToolName.DELETE_PROJECT.value,
+            title="Delete Project",
+            description=(
+                "Permanently delete a ChatGPT project by ID. Use list_projects first to "
+                "find the project_id (g-p-...). Deletion is irreversible — the project, "
+                "its instructions, and its dedicated memory are removed. Hidden behind "
+                "W2A_ENABLE_DESTRUCTIVE=1."
+            ),
+            inputSchema=DeleteProjectInput.model_json_schema(),
+            outputSchema=DELETE_PROJECT_RESULT_OUTPUT,
+            annotations=mcp_types.ToolAnnotations(
+                title="Delete Project",
+                readOnlyHint=False,
+                destructiveHint=True,
+                idempotentHint=True,
+                openWorldHint=False,
+            ),
+        ),
+        mcp_types.Tool(
             name=ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
             title="Update Project Instructions",
             description=(
@@ -978,7 +1134,7 @@ def _build_tools() -> list[mcp_types.Tool]:
                 "Deletion is permanent — ChatGPT will no longer remember this fact."
             ),
             inputSchema=DeleteMemoryInput.model_json_schema(),
-            outputSchema=DELETE_RESULT_OUTPUT,
+            outputSchema=DELETE_MEMORY_RESULT_OUTPUT,
             annotations=mcp_types.ToolAnnotations(
                 title="Delete Memory",
                 readOnlyHint=False,
@@ -1049,6 +1205,26 @@ def _build_tools() -> list[mcp_types.Tool]:
     ]
 
 
+def build_tools() -> list[mcp_types.Tool]:
+    """Build the *visible* tool list, applying access gates.
+
+    Filters :func:`_build_tools` by the current environment:
+      - SAFE tools (reads + chat) are always returned.
+      - Write tools require ``W2A_ENABLE_WRITE=1``.
+      - Destructive tools require ``W2A_ENABLE_DESTRUCTIVE=1``.
+
+    This is the runtime entrypoint used by ``list_tools``. Every
+    returned tool carries honest ``noauth`` auth metadata when the
+    server has no API keys configured.
+    """
+    visible = _visible_tool_names()
+    gated = [t for t in _build_tools() if t.name in visible]
+    # Stamp auth metadata on every exposed tool
+    for tool in gated:
+        tool.meta = tool_meta()
+    return gated
+
+
 # ═══════════════════════════════════════════════════════════════
 # Server Factory
 # ═══════════════════════════════════════════════════════════════
@@ -1062,7 +1238,7 @@ def create_server() -> Server:
 
     @server.list_tools()
     async def list_tools() -> list[mcp_types.Tool]:
-        return _build_tools()
+        return build_tools()
 
     @server.call_tool()
     async def call_tool(
@@ -1082,6 +1258,7 @@ def create_server() -> Server:
             ToolName.LIST_CONVERSATIONS.value: lambda: do_list_conversations(_driver, arguments),
             ToolName.DELETE_CONVERSATION.value: lambda: do_delete_conversation(_driver, arguments),
             ToolName.CREATE_PROJECT.value: lambda: do_create_project(_driver, arguments),
+            ToolName.DELETE_PROJECT.value: lambda: do_delete_project(_driver, arguments),
             ToolName.UPDATE_PROJECT_INSTRUCTIONS.value: lambda: do_update_project_instructions(_driver, arguments),
             ToolName.ARCHIVE_CONVERSATION.value: lambda: do_archive_conversation(_driver, arguments),
             ToolName.LIST_MEMORIES.value: lambda: do_list_memories(_driver),
@@ -1096,12 +1273,61 @@ def create_server() -> Server:
         if not handler:
             raise ValueError(f"Unknown tool: {name}")
 
+        # Defense-in-depth: refuse gated tools even when called by name.
+        # A client could call a tool that isn't in list_tools; the call
+        # must be rejected rather than silently executed.
+        gate = _tool_gate_env(name)
+        if gate is not None and not _env_enabled(gate):
+            raise PermissionError(
+                f"Tool '{name}' is not enabled. Set {gate}=1 to expose it."
+            )
+
+        # Tools whose business logic drives ChatGPT chat (and can hit the rate
+        # limit). These get transparent retry: a transient "Too many requests"
+        # pop-up is dismissed and retried so the agent never sees it. Only a
+        # persistent limit surfaces — as a structured error result below.
+        _CHAT_TOOLS = frozenset({
+            ToolName.CHAT_COMPLETION.value, ToolName.CHAT_WITH_GPT.value,
+            ToolName.CREATE_MEMORY.value,  # uses send_and_stream internally
+        })
+
+        async def _run() -> dict:
+            """Execute the handler, with transparent rate-limit retry for chat tools."""
+            if name in _CHAT_TOOLS:
+                return await retry_on_rate_limit(_driver, handler)
+            return await handler()
+
         # Serialize mutating tools through the shared lock
-        if name in _MUTATING_TOOLS and _lock:
-            async with _lock:
-                result = await handler()
-        else:
-            result = await handler()
+        try:
+            if name in _MUTATING_TOOLS and _lock:
+                async with _lock:
+                    result = await _run()
+            else:
+                result = await _run()
+        except RateLimitError as e:
+            # Persistent limit (transparent retries exhausted). MCP has no
+            # transport-level retry-after, so signal it semantically: an error
+            # result with a machine-readable structuredContent payload an agent
+            # can parse to decide "pause, then retry this tool."
+            #
+            # We return a CallToolResult directly (rather than the usual
+            # (content, structuredDict) tuple) so it bypasses the tool's
+            # outputSchema validation — the rate-limit payload deliberately
+            # doesn't match any tool's success schema.
+            structured = {
+                "rate_limited": True,
+                "retry_after": e.retry_after,
+                "retry_after_human": f"{e.retry_after}s",
+                "error": "rate_limit_exceeded",
+            }
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(
+                    type="text",
+                    text=f"ChatGPT rate limit reached. Retry in {e.retry_after}s.",
+                )],
+                structuredContent=structured,
+                isError=True,
+            )
 
         # chat_completion and chat_with_gpt return both text + structured output
         if name in (ToolName.CHAT_COMPLETION.value, ToolName.CHAT_WITH_GPT.value):
@@ -1112,6 +1338,7 @@ def create_server() -> Server:
         status_tools = (
             ToolName.DELETE_CONVERSATION.value,
             ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
+            ToolName.DELETE_PROJECT.value,
             ToolName.ARCHIVE_CONVERSATION.value,
             ToolName.DELETE_MEMORY.value,
         )
@@ -1402,6 +1629,8 @@ async def _run_sse(
     """Run MCP server with SSE transport for remote/web clients."""
     from mcp.server.sse import SseServerTransport
     from aiohttp import web
+
+    warn_non_loopback(config.server.host, "SSE")
 
     sse = SseServerTransport("/messages")
 

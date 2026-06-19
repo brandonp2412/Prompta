@@ -1055,6 +1055,35 @@ class CDPDriver:
         logger.warning("Failed to delete memory %s: %s", memory_id, result)
         return False
 
+    @diagnose("delete_project")
+    async def delete_project(self, project_id: str) -> dict:
+        """Delete a ChatGPT project by ID. Returns {success, project_id}.
+
+        Projects are deleted via DELETE /backend-api/gizmos/{id} (the gizmos
+        endpoint serves both Projects (g-p-) and Custom GPTs (g-) for deletion;
+        creation is split across /projects and /gizmos, but deletion is shared).
+        Verified to return 200 against a live account.
+        """
+        result = await self._js_with_data(
+            "(async () => {"
+            "  try {"
+            "    var r = await fetch('/backend-api/gizmos/' + __D.project_id, {"
+            "      method: 'DELETE',"
+            "      headers: {'Authorization': 'Bearer ' + __D.token}"
+            "    });"
+            "    return r.ok ? 'true' : 'false';"
+            "  } catch(e) { return 'error:' + e.message; }"
+            "})()",
+            {"project_id": project_id, "token": self._access_token},
+            timeout=15,
+        )
+        success = result == "true"
+        if success:
+            logger.info("Deleted project: %s", project_id)
+        else:
+            logger.warning("Failed to delete project %s: %s", project_id, result)
+        return {"success": success, "project_id": project_id}
+
     # ── Custom GPT Navigation ─────────────────────────────────
 
     async def navigate_gpt(self, gizmo_id: str) -> None:

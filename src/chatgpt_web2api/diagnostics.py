@@ -43,6 +43,7 @@ EXPECTED_SHAPES: dict[str, dict] = {
     "archive_conversation": {"kind": "dict", "required_keys": ["success", "conversation_id"]},
     "delete_conversation": {"kind": "bool"},
     "delete_memory": {"kind": "bool"},
+    "delete_project": {"kind": "dict", "required_keys": ["success", "project_id"]},
     "create_memory": {"kind": "dict", "required_keys": ["content"]},
 }
 

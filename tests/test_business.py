@@ -157,6 +157,18 @@ async def test_delete_conversation(mock_driver):
     mock_driver.delete_conversation.assert_called_once_with("conv-1")
 
 
+# ── do_delete_project ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_delete_project(mock_driver):
+    from chatgpt_web2api.mcp_server import do_delete_project
+    mock_driver.delete_project = AsyncMock(return_value={"success": True, "project_id": "g-p-1"})
+    result = await do_delete_project(mock_driver, {"project_id": "g-p-1"})
+    assert result["success"] is True
+    assert result["project_id"] == "g-p-1"
+    mock_driver.delete_project.assert_called_once_with("g-p-1")
+
+
 # ── do_archive_conversation ──────────────────────────────────
 
 @pytest.mark.asyncio
@@ -225,6 +237,23 @@ async def test_delete_memory(mock_driver):
     result = await do_delete_memory(mock_driver, {"memory_id": "mem-1"})
     assert result["success"] is True
     assert result["memory_id"] == "mem-1"
+
+
+def test_delete_memory_output_schema_matches_returned_shape():
+    """delete_memory's outputSchema must match what do_delete_memory returns.
+
+    Regression guard: previously delete_memory shared DELETE_RESULT_OUTPUT
+    (which requires conversation_id), but the handler returns memory_id —
+    so any actual call failed MCP output validation.
+    """
+    from chatgpt_web2api.mcp_server import _build_tools, ToolName
+    tools = {t.name: t for t in _build_tools()}
+    schema = tools[ToolName.DELETE_MEMORY.value].outputSchema
+    required = set(schema["required"])
+    # The handler returns {success, memory_id}, so the schema must match
+    assert "success" in required
+    assert "memory_id" in required
+    assert "conversation_id" not in required
 
 
 # ── do_list_gpts ─────────────────────────────────────────────
