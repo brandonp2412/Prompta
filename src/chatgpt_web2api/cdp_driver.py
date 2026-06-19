@@ -852,7 +852,8 @@ class CDPDriver:
             "      id: g.id,"
             "      name: (g.display || {}).name || '',"
             "      memory_scope: g.memory_scope || '',"
-            "      instructions: g.instructions || ''"
+            "      instructions: g.instructions || '',"
+            "      gizmo_type: g.gizmo_type || ''"
             "    });"
             "  } catch(e) { return JSON.stringify({error: e.message}); }"
             "})()",

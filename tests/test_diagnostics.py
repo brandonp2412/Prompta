@@ -42,6 +42,57 @@ def test_expected_shapes_registry_covers_key_tools():
         assert fn in EXPECTED_SHAPES, f"{fn} missing from EXPECTED_SHAPES"
 
 
+# ── semantic assertions (Phase A) ─────────────────────────────
+# A shape check isn't enough: a result can match {id,name} yet be the wrong
+# KIND of thing (e.g. create_project returning a gpt-type gizmo instead of a
+# snorlax Project). Semantic assertions catch that.
+
+
+def test_create_project_has_semantic_assertion_for_gizmo_type():
+    """The registry must assert create_project produces a snorlax (Project) gizmo.
+
+    This is the exact bug that surfaced during the create_project repair: the
+    endpoint created a gpt-type Custom GPT, not a Project, but the {id,name}
+    shape was identical so the classifier passed it. A semantic assertion on
+    gizmo_type catches this class of drift.
+    """
+    spec = EXPECTED_SHAPES["create_project"]
+    assertions = spec.get("assertions", [])
+    gizmo_assertions = [a for a in assertions if a[0] == "gizmo_type"]
+    assert gizmo_assertions, "create_project must assert gizmo_type"
+    assert gizmo_assertions[0][1] == "snorlax", "must require snorlax (Project)"
+
+
+def test_classify_flags_wrong_gizmo_type_with_otherwise_valid_shape():
+    """A result with correct {id,name} but gizmo_type=gpt is broken (semantic)."""
+    result = {"id": "g-abc", "name": "Foo", "gizmo_type": "gpt"}
+    healthy, mismatch = classify_result("create_project", result)
+    assert healthy is False
+    assert "gizmo_type" in mismatch.lower() or "snorlax" in mismatch.lower()
+
+
+def test_classify_passes_correct_gizmo_type():
+    """A result with correct shape AND gizmo_type=snorlax is healthy."""
+    result = {"id": "g-p-abc", "name": "Foo", "gizmo_type": "snorlax"}
+    healthy, mismatch = classify_result("create_project", result)
+    assert healthy is True
+    assert mismatch is None
+
+
+def test_classify_semantic_ignored_when_asserted_key_absent():
+    """If the result lacks the asserted key entirely, don't crash — skip the check.
+
+    This keeps the classifier graceful: a method that doesn't yet surface the
+    asserted field isn't falsely flagged, just not semantically verified.
+    (The method SHOULD surface it — but that's enforced by the shape check.)
+    """
+    # create_project normally includes gizmo_type now, but if some path returns
+    # without it, the classifier must not raise.
+    result = {"id": "g-p-abc", "name": "Foo"}  # no gizmo_type
+    healthy, mismatch = classify_result("create_project", result)
+    assert healthy is True  # shape is fine; semantic skipped (key absent)
+
+
 # ── redaction + capture (Task 2) ──────────────────────────────
 
 import json

@@ -20,6 +20,12 @@ from typing import Any, Callable, Optional
 # Expected shape per driver method. Each entry is a dict with:
 #   kind: "list" | "dict" | "bool" | "any"
 #   required_keys / item_required_keys: list[str]
+#   assertions: list[(key, expected_value)] — semantic checks applied to a dict
+#       result AFTER the shape check passes. Used to catch "right shape, wrong
+#       thing" drift (e.g. create_project returning a gpt-type gizmo instead of
+#       a snorlax Project — the {id,name} shape is identical for both). An
+#       assertion is skipped (not failed) if the key is absent, so a method that
+#       doesn't surface the field isn't falsely flagged.
 EXPECTED_SHAPES: dict[str, dict] = {
     "get_models": {"kind": "list", "item_required_keys": ["slug", "title"]},
     "get_projects": {"kind": "list", "item_required_keys": ["id", "name"]},
@@ -28,7 +34,11 @@ EXPECTED_SHAPES: dict[str, dict] = {
     "get_memories": {"kind": "list", "item_required_keys": ["id", "content"]},
     "list_gpts": {"kind": "list", "item_required_keys": ["id", "name"]},
     "get_project_files": {"kind": "list", "item_required_keys": ["id", "name"]},
-    "create_project": {"kind": "dict", "required_keys": ["id", "name"]},
+    "create_project": {
+        "kind": "dict",
+        "required_keys": ["id", "name"],
+        "assertions": [("gizmo_type", "snorlax")],
+    },
     "update_project_instructions": {"kind": "dict", "required_keys": ["success", "project_id"]},
     "archive_conversation": {"kind": "dict", "required_keys": ["success", "conversation_id"]},
     "delete_conversation": {"kind": "bool"},
@@ -75,6 +85,14 @@ def classify_result(function_name: str, result: Any) -> tuple[bool, str | None]:
         missing = [k for k in spec.get("required_keys", []) if k not in result]
         if missing:
             return False, f"missing required keys: {missing}"
+        # Semantic assertions: check values after shape passes. Skipped (not
+        # failed) when the asserted key is absent, so a method that doesn't
+        # surface the field isn't falsely flagged.
+        for key, expected in spec.get("assertions", []):
+            if key in result and result[key] != expected:
+                return False, (
+                    f"semantic mismatch: {key}={result[key]!r}, expected {expected!r}"
+                )
         return True, None
     return True, None
 
