@@ -42,6 +42,7 @@ async def retry_on_rate_limit(
     max_attempts: int = 3,
     backoff: float = RATE_LIMIT_DEFAULT_RETRY_AFTER,
     cap: float = _DEFAULT_CAP,
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> T:
     """Run ``factory()``, transparently retrying on RateLimitError.
 
@@ -54,6 +55,13 @@ async def retry_on_rate_limit(
         cap: maximum seconds to wait in a single backoff, regardless of
             retry_after. Avoids very long reported waits stalling callers.
             Small jitter is added to avoid herd effects.
+        on_progress: optional notifier for the backoff pause. When supplied,
+            a single "Rate limited, retrying in Ns…" signal is emitted BEFORE
+            the sleep so an MCP client's idle timer is reset during what is
+            the longest silence in the system (up to ~120s). This is the same
+            callback the factory's captured closure uses inside the business
+            function — same object, two injection points. Best-effort: a
+            failed notification is swallowed (we're already on an error path).
 
     Returns:
         The result of ``factory()`` on the first non-throttled attempt.
@@ -62,6 +70,13 @@ async def retry_on_rate_limit(
         RateLimitError: if every attempt is throttled (carries the last
             ``retry_after``, so the caller can surface it as a 429).
         Any other exception from ``factory()`` propagates immediately.
+
+    Note on progress across retries: the on_progress counter is bound to the
+    outer call_tool invocation and persists across attempts, so the numeric
+    progress keeps climbing. But the business function re-streams the response
+    from scratch on each retry, so the message text may visually "reset"
+    (e.g. "Streaming… 847 chars" → "Assistant is responding…"). Expected —
+    see _make_progress_callback in mcp_server.py.
     """
     last_error: RateLimitError | None = None
     for attempt in range(1, max_attempts + 1):
@@ -85,6 +100,14 @@ async def retry_on_rate_limit(
                 "Rate limit on attempt %d/%d (dismissed=%s); backing off %.1fs",
                 attempt, max_attempts, dismissed, wait,
             )
+            # Signal BEFORE sleeping — the backoff is the longest silence in
+            # the system and the most likely thing to trip a client timeout.
+            # Ordering is asserted in tests (test_resilience progress ordering).
+            if on_progress is not None:
+                try:
+                    await on_progress(f"Rate limited, retrying in {wait:.0f}s…")
+                except Exception:
+                    pass  # don't compound an error-recovery path
             await asyncio.sleep(wait)
     # Unreachable: the loop either returns or re-raises on the last attempt.
     assert last_error is not None

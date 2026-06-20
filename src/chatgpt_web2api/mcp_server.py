@@ -34,7 +34,7 @@ import logging
 import os
 import sys
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import BaseModel, Field
 from mcp import types as mcp_types
@@ -46,6 +46,17 @@ from .cdp_driver import CDPDriver, RateLimitError
 from .resilience import retry_on_rate_limit
 
 logger = logging.getLogger(__name__)
+
+# How many streamed chunks between coalesced progress notifications. The
+# underlying DOM poll yields roughly one delta per ~0.5s, so notifying every
+# 10 chunks ≈ one progress signal every ~5s — enough to reset an MCP client's
+# idle/timeout timer without flooding it. Tunable.
+_PROGRESS_EVERY_N_CHUNKS = 10
+
+# A progress notifier built per-request from the MCP request context. Receives
+# a short human-readable status string; None means the client can't receive
+# progress (no token) and the business function must skip emitting.
+ProgressCallback = Callable[[str], Awaitable[None]]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -639,7 +650,26 @@ _MUTATING_TOOLS = frozenset({
 # Business Logic — pure functions (official pattern from mcp-server-git)
 # ═══════════════════════════════════════════════════════════════
 
-async def do_chat_completion(driver: CDPDriver, args: dict, config: Config) -> dict:
+async def _notify(on_progress: Optional[ProgressCallback], message: str) -> None:
+    """Invoke a progress callback if present, swallowing any error.
+
+    Defense-in-depth: even if the caller hands us a raw (non-helper-built)
+    callback that raises on a transport blip, we must never abort the tool
+    call — a dropped notification is not worth killing a 40s generation.
+    The helper-built _cb already guards internally; this wraps every call
+    site so the contract holds regardless of callback provenance.
+    """
+    if on_progress is None:
+        return
+    try:
+        await on_progress(message)
+    except Exception:
+        logger.debug("progress notification dropped", exc_info=True)
+
+async def do_chat_completion(
+    driver: CDPDriver, args: dict, config: Config,
+    on_progress: Optional[ProgressCallback] = None,
+) -> dict:
     """Execute a chat completion through the CDP driver."""
     validated = ChatCompletionInput(**args)
     project_id = validated.project_id or (
@@ -669,14 +699,26 @@ async def do_chat_completion(driver: CDPDriver, args: dict, config: Config) -> d
     else:
         await driver.navigate_new_chat(gizmo_id=project_id)
 
-    # Send and collect response
+    # Send and collect response. Progress notifications reset the MCP client's
+    # idle timer during long generations so the tool call isn't killed at
+    # ~30s. on_progress is None when the client can't receive progress.
+    # NOTE: across a rate-limit retry ChatGPT re-types and re-streams the
+    # response from scratch, so the message may visually "reset" even though
+    # the numeric progress counter keeps climbing — see _make_progress_callback.
     full_response = ""
     conv_id = ""
+    chunk_count = 0
     async for chunk in driver.send_and_stream(full_text, timeout=120):
         if chunk.delta:
             full_response += chunk.delta
+            chunk_count += 1
+            if chunk_count == 1:
+                await _notify(on_progress, "Assistant is responding…")
+            elif chunk_count % _PROGRESS_EVERY_N_CHUNKS == 0:
+                await _notify(on_progress, f"Streaming… {len(full_response)} chars")
         if chunk.finish_reason:
             conv_id = driver._current_conv_id or ""
+            await _notify(on_progress, "Finalizing…")
 
     return {
         "content": full_response,
@@ -841,9 +883,20 @@ async def do_list_memories(driver: CDPDriver) -> dict:
     return {"memories": result}
 
 
-async def do_create_memory(driver: CDPDriver, args: dict) -> dict:
-    """Create a new ChatGPT memory."""
+async def do_create_memory(
+    driver: CDPDriver, args: dict,
+    on_progress: Optional[ProgressCallback] = None,
+) -> dict:
+    """Create a new ChatGPT memory.
+
+    create_memory drives a short ChatGPT exchange internally (it uses
+    send_and_stream), so it accepts the same on_progress hook for parity.
+    The response is usually one sentence, so the hook rarely fires here —
+    but if it does, it keeps a slow confirmation from tripping the client
+    timeout just like a full chat_completion.
+    """
     validated = CreateMemoryInput(**args)
+    await _notify(on_progress, "Creating memory…")
     result = await driver.create_memory(content=validated.content)
     return result
 
@@ -880,17 +933,27 @@ async def do_list_project_files(driver: CDPDriver, args: dict) -> dict:
     }
 
 
-async def do_chat_with_gpt(driver: CDPDriver, args: dict) -> dict:
+async def do_chat_with_gpt(
+    driver: CDPDriver, args: dict,
+    on_progress: Optional[ProgressCallback] = None,
+) -> dict:
     """Chat with a specific Custom GPT."""
     validated = ChatWithGptInput(**args)
     await driver.navigate_gpt(gizmo_id=validated.gpt_id)
     full_response = ""
     conv_id = ""
+    chunk_count = 0
     async for chunk in driver.send_and_stream(validated.message, timeout=120):
         if chunk.delta:
             full_response += chunk.delta
+            chunk_count += 1
+            if chunk_count == 1:
+                await _notify(on_progress, "Assistant is responding…")
+            elif chunk_count % _PROGRESS_EVERY_N_CHUNKS == 0:
+                await _notify(on_progress, f"Streaming… {len(full_response)} chars")
         if chunk.finish_reason:
             conv_id = driver._current_conv_id or ""
+            await _notify(on_progress, "Finalizing…")
     return {
         "content": full_response,
         "model": "gpt",
@@ -1286,6 +1349,51 @@ def create_server() -> Server:
 
     server = Server("chatgpt-web2api")
 
+    def _make_progress_callback() -> ProgressCallback | None:
+        """Build a best-effort progress notifier from the in-flight MCP request.
+
+        Returns None when there is no usable progress channel: outside a
+        request (direct call / unit test) or when the client sent no
+        ``_meta.progressToken``. Business functions check for None and skip
+        emitting.
+
+        The returned counter is monotonic and persists across rate-limit
+        retries (it's bound to the outer call_tool invocation, and the retry
+        wrapper re-enters the business function without rebuilding it). Note
+        for future debugging: the *message* may visually "reset" across a
+        retry because ChatGPT re-types and re-streams the response from
+        scratch, while the numeric progress counter keeps climbing. This is
+        expected — the text genuinely restarts; only the counter is stable.
+        """
+        try:
+            ctx = server.request_context
+        except LookupError:
+            return None  # not inside a request (direct call / test)
+        token = ctx.meta.progressToken if ctx.meta else None
+        if token is None:
+            return None  # client didn't ask for progress
+        counter = 0
+
+        async def _cb(message: str) -> None:
+            nonlocal counter
+            counter += 1
+            # Best-effort: a dropped notification (network blip, session
+            # closed mid-stream) must NEVER abort the tool call — that would
+            # kill a 40s generation over a transient transport issue.
+            try:
+                await ctx.session.send_progress_notification(
+                    progress_token=token,
+                    progress=counter,
+                    message=message,
+                )
+            except Exception:
+                logger.debug(
+                    "progress notification dropped (transport error)",
+                    exc_info=True,
+                )
+
+        return _cb
+
     # ── Tools (model-controlled) ──────────────────────────────
 
     @server.list_tools()
@@ -1302,8 +1410,12 @@ def create_server() -> Server:
                 "Not connected to Chrome. Run 'chatgpt-web2api' first."
             )
 
+        # Build once per request: the callback reads server.request_context,
+        # which is request-scoped. None when the client can't receive progress.
+        on_progress = _make_progress_callback()
+
         handlers = {
-            ToolName.CHAT_COMPLETION.value: lambda: do_chat_completion(_driver, arguments, _config),
+            ToolName.CHAT_COMPLETION.value: lambda: do_chat_completion(_driver, arguments, _config, on_progress),
             ToolName.LIST_MODELS.value: lambda: do_list_models(_driver),
             ToolName.LIST_PROJECTS.value: lambda: do_list_projects(_driver),
             ToolName.GET_CONVERSATION.value: lambda: do_get_conversation(_driver, arguments),
@@ -1314,10 +1426,10 @@ def create_server() -> Server:
             ToolName.UPDATE_PROJECT_INSTRUCTIONS.value: lambda: do_update_project_instructions(_driver, arguments),
             ToolName.ARCHIVE_CONVERSATION.value: lambda: do_archive_conversation(_driver, arguments),
             ToolName.LIST_MEMORIES.value: lambda: do_list_memories(_driver),
-            ToolName.CREATE_MEMORY.value: lambda: do_create_memory(_driver, arguments),
+            ToolName.CREATE_MEMORY.value: lambda: do_create_memory(_driver, arguments, on_progress),
             ToolName.DELETE_MEMORY.value: lambda: do_delete_memory(_driver, arguments),
             ToolName.LIST_GPTS.value: lambda: do_list_gpts(_driver),
-            ToolName.CHAT_WITH_GPT.value: lambda: do_chat_with_gpt(_driver, arguments),
+            ToolName.CHAT_WITH_GPT.value: lambda: do_chat_with_gpt(_driver, arguments, on_progress),
             ToolName.LIST_PROJECT_FILES.value: lambda: do_list_project_files(_driver, arguments),
         }
 
@@ -1346,7 +1458,11 @@ def create_server() -> Server:
         async def _run() -> dict:
             """Execute the handler, with transparent rate-limit retry for chat tools."""
             if name in _CHAT_TOOLS:
-                return await retry_on_rate_limit(_driver, handler)
+                # on_progress is the same callback the lambda captures and
+                # passes into the business function; here it's also used by
+                # retry_on_rate_limit to signal the backoff pause. Same object
+                # by design — two injection points, one notifier.
+                return await retry_on_rate_limit(_driver, handler, on_progress=on_progress)
             return await handler()
 
         # Serialize mutating tools through the shared lock
