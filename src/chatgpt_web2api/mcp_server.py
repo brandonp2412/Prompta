@@ -103,9 +103,31 @@ class ListProjectsInput(BaseModel):
 
 
 class GetConversationInput(BaseModel):
-    """Input for retrieving conversation history."""
+    """Input for retrieving conversation history.
+
+    Messages are returned oldest-first. ``limit`` caps how many messages a
+    single call returns; ``offset`` skips earlier messages so the agent can
+    page through an arbitrarily long conversation in chunks that each fit a
+    tool-result budget. ``total`` + ``has_more`` in the response tell it when
+    to stop. Defaults (offset=0, limit=50) preserve the old behavior.
+    """
+
     conversation_id: str = Field(
         description="UUID of the conversation to retrieve",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Skip this many messages from the start. Page through by "
+        "increasing offset by `limit` each call until has_more is false.",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Max messages to return per call. Lower this (e.g. 15) if "
+        "the conversation has very long messages and the result is being "
+        "truncated before reaching you.",
     )
 
 
@@ -327,8 +349,24 @@ GET_CONVERSATION_OUTPUT = {
                 "required": ["role", "content"],
             },
         },
+        "offset": {
+            "type": "integer",
+            "description": "Number of messages skipped from the start (echoed from the request).",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Max messages requested per call (echoed from the request).",
+        },
+        "total": {
+            "type": "integer",
+            "description": "Total messages in the conversation (across all pages).",
+        },
+        "has_more": {
+            "type": "boolean",
+            "description": "True if more pages remain; page through by increasing offset by limit.",
+        },
     },
-    "required": ["id"],
+    "required": ["id", "total", "has_more"],
 }
 
 CONVERSATION_ITEM = {
@@ -675,7 +713,7 @@ async def do_list_projects(driver: CDPDriver) -> dict:
 
 
 async def do_get_conversation(driver: CDPDriver, args: dict) -> dict:
-    """Retrieve conversation history."""
+    """Retrieve conversation history (paginated, oldest-first)."""
     validated = GetConversationInput(**args)
     data = await driver.get_conversation(validated.conversation_id)
 
@@ -700,10 +738,17 @@ async def do_get_conversation(driver: CDPDriver, args: dict) -> dict:
 
     chain.reverse()
 
+    total = len(chain)
+    page = chain[validated.offset : validated.offset + validated.limit]
+
     return {
         "id": data.get("id", validated.conversation_id),
         "title": data.get("title", ""),
-        "messages": chain[:50],
+        "messages": page,
+        "offset": validated.offset,
+        "limit": validated.limit,
+        "total": total,
+        "has_more": validated.offset + len(page) < total,
     }
 
 
@@ -964,9 +1009,16 @@ def _build_tools() -> list[mcp_types.Tool]:
             name=ToolName.GET_CONVERSATION.value,
             title="Get Conversation",
             description=(
-                "Retrieve the full message history of a conversation. "
-                "Returns a chronological list of user and assistant messages. "
-                "Useful for reviewing what was discussed before continuing a conversation."
+                "Retrieve the message history of a conversation as a chronological "
+                "list of user and assistant messages (oldest-first). "
+                "Useful for reviewing what was discussed before continuing a conversation.\n\n"
+                "Pagination: returns `limit` messages starting at `offset` (defaults: "
+                "offset=0, limit=50). To read the ENTIRE conversation (not just the "
+                "most recent page), page through by increasing offset by limit each "
+                "call until has_more is false: "
+                "get_conversation(id, offset=0, limit=50), then offset=50, offset=100, … . "
+                "If a single page's result is truncated before reaching you, lower limit "
+                "(e.g. 15) and retry — long messages can overflow a tool-result budget."
             ),
             inputSchema=GetConversationInput.model_json_schema(),
             outputSchema=GET_CONVERSATION_OUTPUT,

@@ -146,6 +146,106 @@ async def test_get_conversation(mock_driver):
     assert result["id"] == "conv-1"
 
 
+def _long_conversation_driver(n_messages):
+    """Build a mock driver whose get_conversation returns a linear chain of
+    n_messages user/assistant messages (node-0 -> node-1 -> ... -> node-(n-1)),
+    current_node = the last node. Mirrors the real ChatGPT mapping shape."""
+    from unittest.mock import AsyncMock, MagicMock
+    from chatgpt_web2api.cdp_driver import CDPDriver
+
+    driver = MagicMock(spec=CDPDriver)
+    mapping = {}
+    prev = None
+    for i in range(n_messages):
+        nid = f"node-{i}"
+        role = "user" if i % 2 == 0 else "assistant"
+        mapping[nid] = {
+            "parent": prev,
+            "message": {
+                "author": {"role": role},
+                "content": {"parts": [f"msg {i}"]},
+            },
+        }
+        prev = nid
+    driver.get_conversation = AsyncMock(return_value={
+        "id": "conv-long", "title": "Long Chat",
+        "current_node": f"node-{n_messages - 1}",
+        "mapping": mapping,
+    })
+    return driver
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_default_backward_compat():
+    """Default call (no pagination args) returns all messages + pagination
+    metadata, and behaves like the old single-shot read for small threads."""
+    from chatgpt_web2api.mcp_server import do_get_conversation
+    driver = _long_conversation_driver(5)
+    result = await do_get_conversation(driver, {"conversation_id": "conv-long"})
+    assert result["total"] == 5
+    assert result["offset"] == 0
+    assert result["limit"] == 50
+    assert result["has_more"] is False
+    assert [m["content"] for m in result["messages"]] == [
+        "msg 0", "msg 1", "msg 2", "msg 3", "msg 4",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_offset_skips_first_page():
+    """offset skips earlier messages; page 2 starts where page 1 ended."""
+    from chatgpt_web2api.mcp_server import do_get_conversation
+    driver = _long_conversation_driver(12)
+    p1 = await do_get_conversation(driver, {"conversation_id": "conv-long", "offset": 0, "limit": 5})
+    p2 = await do_get_conversation(driver, {"conversation_id": "conv-long", "offset": 5, "limit": 5})
+    assert p1["messages"][0]["content"] == "msg 0"
+    assert p1["has_more"] is True
+    assert p2["messages"][0]["content"] == "msg 5"  # picks up exactly where p1 left off
+    assert p2["offset"] == 5
+    assert [m["content"] for m in p2["messages"]] == ["msg 5", "msg 6", "msg 7", "msg 8", "msg 9"]
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_last_page_has_more_false():
+    """The final page sets has_more=False and may be shorter than limit."""
+    from chatgpt_web2api.mcp_server import do_get_conversation
+    driver = _long_conversation_driver(12)
+    last = await do_get_conversation(driver, {"conversation_id": "conv-long", "offset": 10, "limit": 5})
+    assert last["total"] == 12
+    assert len(last["messages"]) == 2  # 12 - 10
+    assert last["has_more"] is False
+    assert [m["content"] for m in last["messages"]] == ["msg 10", "msg 11"]
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_offset_beyond_end_empty():
+    """offset >= total returns an empty page, has_more=False (no infinite loop)."""
+    from chatgpt_web2api.mcp_server import do_get_conversation
+    driver = _long_conversation_driver(5)
+    over = await do_get_conversation(driver, {"conversation_id": "conv-long", "offset": 100, "limit": 50})
+    assert over["total"] == 5
+    assert over["messages"] == []
+    assert over["has_more"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_full_page_through_assembles_whole_thread():
+    """Paging through offset 0,5,10,... reconstructs the entire conversation in
+    order — the actual goal: read the whole chat without truncation."""
+    from chatgpt_web2api.mcp_server import do_get_conversation
+    n = 23
+    driver = _long_conversation_driver(n)
+    assembled = []
+    offset = 0
+    while True:
+        page = await do_get_conversation(driver, {"conversation_id": "conv-long", "offset": offset, "limit": 5})
+        assembled.extend(m["content"] for m in page["messages"])
+        if not page["has_more"]:
+            break
+        offset += page["limit"]
+    assert assembled == [f"msg {i}" for i in range(n)]  # whole thread, in order
+
+
 # ── do_delete_conversation ───────────────────────────────────
 
 @pytest.mark.asyncio
