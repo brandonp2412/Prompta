@@ -17,10 +17,10 @@ from chatgpt_web2api.cdp_driver import CDPDriver
 
 
 def _driver_with_js_sequence(js_returns: list[str]):
-    """Build a mock driver whose _js returns the given sequence, then True.
+    """Build a mock driver whose _js_strict returns the given sequence.
 
-    Each call to _js pops the next canned return; once exhausted it returns
-    the sentinel 'OK'. This lets us script the click + the post-click re-scan.
+    Each call to _js_strict pops the next canned return; once exhausted it
+    returns 'OK'. This lets us script the click + the post-click re-scan.
     """
     driver = MagicMock()
     seq = list(js_returns)
@@ -30,7 +30,7 @@ def _driver_with_js_sequence(js_returns: list[str]):
             return seq.pop(0)
         return "OK"
 
-    driver._js = fake_js
+    driver._js_strict = fake_js
     return driver
 
 
@@ -81,14 +81,16 @@ async def test_dismiss_returns_false_when_no_got_it_button():
 
 @pytest.mark.asyncio
 async def test_dismiss_never_raises_on_js_error():
-    """A JS error during dismiss must not propagate — best-effort contract."""
+    """A JS error during dismiss must not propagate — best-effort contract.
+    Returns None (unknown status) per #19 tri-state: not False, to avoid
+    triggering a retry storm against an already-dismissed pop-up."""
     driver = MagicMock()
 
     async def failing_js(expr, timeout=15):
         raise RuntimeError("websocket closed")
 
-    driver._js = failing_js
+    driver._js_strict = failing_js
 
-    # Should swallow and return False, not raise.
+    # Should swallow and return None (not raise, not False).
     result = await CDPDriver.dismiss_rate_limit(driver)
-    assert result is False
+    assert result is None
