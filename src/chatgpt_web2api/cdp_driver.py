@@ -16,10 +16,10 @@ import json
 import logging
 import re
 import time
+import urllib.parse
 import urllib.request
-import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
 
 from .diagnostics import diagnose
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 class StreamChunk:
     """A single streaming chunk."""
     delta: str
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 # Conservative fallback wait (seconds) when ChatGPT's pop-up gives no exact
@@ -54,8 +54,51 @@ TOKEN_TTL_SECONDS = 3600
 # (image rendering, deep-research thinking) legitimately exceed this and
 # are allowed the full timeout; a true stall fails fast here instead of
 # hanging silently to the deadline. Applied to both Phase 1 (node appear)
-# and Phase 2 (text streaming).
-PHASE_STALL_SECONDS = 45
+# and Phase 2 (text streaming). 90s accommodates reasoning/thinking models,
+# whose ``result-thinking`` placeholder can hold the DOM static for a minute+
+# while the model reasons before the first answer token renders; the
+# is_thinking reset covers the labeled phase, but there is an unlabeled gap
+# between thinking-end and answer-start that also needs this headroom.
+PHASE_STALL_SECONDS = 90
+
+# How long to wait (seconds) for a freshly-created owned tab to settle on
+# chatgpt.com before refreshing the access token. ``_create_owned_tab`` only
+# waits for the target's webSocketDebuggerUrl to appear in /json/list, which
+# fires within milliseconds of Target.createTarget — well before the page has
+# navigated to chatgpt.com. Calling ``_refresh_token`` on that cold tab races:
+# the relative ``fetch('/api/auth/session')`` resolves against the wrong origin
+# (e.g. about:blank) and returns an empty accessToken, tripping the auth gate
+# and killing the whole MCP process on startup. Polling for readiness first
+# (page on chatgpt.com + readyState !== 'loading') lets the fetch resolve
+# correctly. 10s is generous for even a slow first load; the 0.5s poll cadence
+# matches ``navigate_new_chat``.
+_CONNECT_READY_TIMEOUT = 10
+
+# ChatGPT composer selectors (post-2026 composer redesign).
+#
+# The old composer was a real <textarea id="prompt-textarea">. The new
+# composer is a contenteditable ProseMirror div; the element that still
+# carries id="prompt-textarea" is a HIDDEN fallback (<textarea
+# class="wcDTda_fallbackTextarea">) that overlays the real composer when
+# JS is off. Typing into it does not reach the composer, so the message
+# never lands — every send then fails with "no send button" because the
+# composer is empty. These selectors target the real, interactive nodes.
+#
+# COMPOSER_SELECTOR is the primary target; the #prompt-textarea fallback
+# is kept as a last-resort so the driver still works if ChatGPT rolls
+# the composer back (or on an A/B holdout that hasn't shipped the new
+# UI). Both are tried in preference order by the helpers below.
+COMPOSER_SELECTOR = 'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror'
+COMPOSER_FALLBACK_SELECTOR = "textarea#prompt-textarea"
+
+# The send button. The new composer has no data-testid="send-button" —
+# its affordances are composer-plus-btn and dictation, plus a
+# stop-button while generating. The send affordance is the submit
+# <button> inside the composer form whose aria-label is "send" (and
+# which is not the stop button). We match by aria-label first, then by
+# the legacy testid for older deployments.
+SEND_BUTTON_SELECTOR = 'button[aria-label*="Send" i]:not([data-testid="stop-button"])'
+SEND_BUTTON_FALLBACK_SELECTOR = 'button[data-testid="send-button"]'
 
 
 class RateLimitError(RuntimeError):
@@ -86,7 +129,7 @@ class RateLimitError(RuntimeError):
         self.retry_after = int(retry_after)
 
     @classmethod
-    def from_text(cls, text: str) -> "RateLimitError":
+    def from_text(cls, text: str) -> RateLimitError:
         """Build a RateLimitError, parsing the wait from the pop-up *text*."""
         retry_after = parse_retry_after(text)
         return cls(retry_after=retry_after)
@@ -205,31 +248,245 @@ def parse_retry_after(text: str, default: int = RATE_LIMIT_DEFAULT_RETRY_AFTER) 
 class CDPDriver:
     """Chrome DevTools Protocol driver for ChatGPT automation."""
 
-    def __init__(self, cdp_port: int = 9222) -> None:
+    def __init__(
+        self,
+        cdp_port: int = 9222,
+        tab_mode: str = "owned",
+        instance_id: str | None = None,
+    ) -> None:
         self.port = cdp_port
+        # Tab isolation strategy: "owned" creates a dedicated chatgpt.com tab
+        # per driver (multi-session safe — two drivers get two DOMs). "adopt"
+        # reuses an existing chatgpt.com tab (single-process compat). The
+        # default is "owned" because adoption lets one session navigate
+        # another's shared tab out from under it. See connect().
+        self.tab_mode = tab_mode if tab_mode in ("owned", "adopt") else "owned"
+        # Owned-tab registry (R3): persists this instance's owned tab so a
+        # restarted process reclaims its OWN prior tab instead of orphaning it
+        # and creating a new one. Reclaim is instance-scoped (never cross-
+        # session adoption) and lease-protected (never steals a live owner's
+        # tab). None disables the registry (e.g. adopt mode, tests).
+        from .tab_registry import TabRegistry
+        self.instance_id = instance_id or TabRegistry.derive_instance_id(cdp_port=cdp_port)
+        self._tab_registry = (
+            TabRegistry(self.instance_id)
+            if tab_mode == "owned"
+            else None
+        )
+        self._heartbeat_task: asyncio.Task | None = None
         self._ws = None
         self._msg_id = 0
         self._access_token = ""
         self._user_name = ""
         self._token_fetched_at: float = 0.0
-        self._current_conv_id: Optional[str] = None
-        self._current_model: Optional[str] = None
+        # Observability for refresh attempts distinct from the last *accepted*
+        # token time. _token_fetched_at advances only on a non-empty token;
+        # _last_refresh_attempt_at advances on every fetch attempt (success
+        # or fail), so backoff/diagnostics can distinguish "stale token, last
+        # refresh tried Ns ago" from "never refreshed."
+        self._last_refresh_attempt_at: float = 0.0
+        self._current_conv_id: str | None = None
+        self._current_model: str | None = None
         # CDP response routing (#7): id-keyed futures + background reader
         self._pending: dict[int, asyncio.Future] = {}
-        self._reader_task: Optional[asyncio.Task] = None
+        self._reader_task: asyncio.Task | None = None
+        # Tab isolation: the targetId of the tab this driver is attached to.
+        # _owns_target records whether *we* created it: only tabs we created are
+        # closed in close(), so a driver that adopted an existing tab (e.g.
+        # Chrome's launch tab) never closes a tab it didn't open — preventing
+        # tab accumulation across service restarts while preserving the user's
+        # open tabs on clean shutdown.
+        self._target_id: str | None = None
+        self._owns_target: bool = False
 
     # ── Connection ────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """Connect to Chrome's CDP and authenticate."""
-        ws_url = await self._find_page_ws()
+        """Connect to Chrome's CDP and authenticate.
+
+        Tab isolation: creates a dedicated chatgpt.com tab via Target.createTarget
+        so this process owns its own DOM (no cross-process tab sharing). Falls back
+        to the shared-tab discover-and-grab pattern if createTarget fails.
+
+        If already connected (e.g. Service reconnects after login), reuses the
+        existing owned tab instead of creating a new one.
+        """
+        # If we already own a tab from a prior connect attempt, reuse it
+        if self._ws is not None:
+            await self._ws.close()
+            self._ws = None
+        if self._reader_task and not self._reader_task.done():
+            self._reader_task.cancel()
+            try:
+                await asyncio.wait_for(self._reader_task, timeout=2)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
+            self._reader_task = None
+
+        # Resolve which tab to attach to, in priority order. The strategy is
+        # governed by self.tab_mode:
+        #
+        #   "owned" (default, multi-session safe): each driver creates its own
+        #     chatgpt.com tab via Target.createTarget. Two simultaneous drivers
+        #     get two DOMs and cannot navigate each other's tab. Adoption is
+        #     skipped unless _target_id is already set (reconnect/restart).
+        #
+        #   "adopt" (single-process compat): reuse an existing chatgpt.com tab
+        #     when present (the pre-multi-session behavior). Cheaper on tab
+        #     count, but two drivers adopting the same tab will contend on the
+        #     shared DOM — only safe when you know there's a single driver.
+        #
+        #   1. Re-attach to a tab we already know about (_target_id set from a
+        #      prior connect), whether we created it or adopted it. Both modes.
+        #   2. owned mode → create a new owned tab.
+        #      adopt mode → adopt an existing chatgpt.com tab, else create.
+        #   3. Fallback (both modes): attach to any available page tab.
+        ws_url = None
+        if self._target_id:
+            # Reuse the tab we already attached to on a prior connect attempt.
+            ws_url = self._find_owned_tab_ws()
+            if ws_url:
+                logger.info("Reusing tab: %s", self._target_id)
+        if not ws_url and self.tab_mode == "adopt":
+            # Single-process compat: try to adopt an existing chatgpt.com tab.
+            ws_url = self._adopt_existing_chatgpt_tab()
+        if not ws_url:
+            # Registry reclaim (R3): before creating a new tab, check if THIS
+            # instance owned a tab in a prior run that's still alive. Reclaim
+            # is instance-scoped and lease-protected — never cross-session
+            # adoption, never steals a live owner's tab. Skipped in adopt mode.
+            if self._tab_registry:
+                try:
+                    live_ids = await self._live_target_ids()
+                    reclaimed = self._tab_registry.reclaim(live_ids)
+                    if reclaimed:
+                        self._target_id = reclaimed
+                        self._owns_target = True
+                        ws_url = self._find_owned_tab_ws()
+                        if ws_url:
+                            logger.info(
+                                "Reclaimed owned tab from registry: %s (instance %s)",
+                                reclaimed, self.instance_id,
+                            )
+                except Exception as e:
+                    logger.debug("Tab registry reclaim failed (will create new): %s", e)
+        if not ws_url:
+            # Default path (owned mode) and adopt-mode fallback: create a new
+            # dedicated tab so this driver owns its own DOM.
+            try:
+                ws_url = await self._create_owned_tab()
+                logger.info("Connected via owned tab: %s", self._target_id)
+                # Record the new tab in the registry so a restart can reclaim it.
+                if self._tab_registry and self._target_id:
+                    try:
+                        self._tab_registry.record(self._target_id)
+                    except Exception as e:
+                        logger.debug("Tab registry record failed: %s", e)
+            except Exception as e:
+                logger.warning("Tab isolation failed (%s) — falling back to shared tab", e)
+                self._target_id = None
+                self._owns_target = False
+                ws_url = await self._find_page_ws()
         self._ws = await websockets.connect(
             ws_url, max_size=100 * 1024 * 1024,
             ping_interval=20, ping_timeout=10,
         )
         self._reader_task = asyncio.create_task(self._reader_loop())
         logger.info("CDP connected to Chrome")
+        # Wait for the freshly-grabbed tab to actually be on chatgpt.com before
+        # fetching the token — see _wait_for_chatgpt_ready. Without this the
+        # fetch races the page load and returns an empty accessToken, killing
+        # the MCP process on startup. Best-effort: a False return falls through
+        # to _refresh_token, which has its own retry loop as a safety net.
+        await self._wait_for_chatgpt_ready()
         await self._refresh_token()
+        # Establish the send-readiness invariant before connect() returns: a
+        # connected driver must be able to type a message. connect() may have
+        # attached to a chatgpt.com/ home/landing tab (or adopted an arbitrary
+        # existing tab) that is auth-valid but lacks the composer — without
+        # this, the next type_message raises "No composer found" and surfaces
+        # as an opaque 500. Done AFTER auth so we never navigate on an
+        # unauthenticated page. Best-effort: a failure logs and falls through
+        # (send_and_stream has its own defensive check); it does not abort
+        # startup, since reads (list_models etc.) work without a composer.
+        try:
+            await self._ensure_send_ready()
+        except Exception as e:
+            logger.warning(
+                "connect(): send-readiness not established (%s) — reads still "
+                "work; sends will fail until the tab reaches a chat page", e
+            )
+        # Start the heartbeat lease for our owned tab (R3), so a long
+        # generation (60-90s) doesn't let the lease expire and let another
+        # process reclaim our tab mid-stream. Background task, cancelled in
+        # close(). Also opportunistically heartbeats on send/connect.
+        self._start_heartbeat()
+
+    def _start_heartbeat(self) -> None:
+        """Start the background heartbeat task for the owned-tab lease."""
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            return
+        if not self._tab_registry:
+            return
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _heartbeat_loop(self) -> None:
+        """Refresh this instance's tab lease every HEARTBEAT_INTERVAL_SECONDS.
+
+        Runs for the driver's lifetime so a 90s generation can't expire the
+        60s TTL. Self-healing: a single heartbeat exception is logged and the
+        loop continues — if the task died, the lease would expire and another
+        process could reclaim our tab mid-session (ensure_current_conversation
+        guards wrong-conversation sends, but not the tab being closed/reused).
+        Only CancelledError (close/shutdown) stops the loop.
+        """
+        from .tab_registry import HEARTBEAT_INTERVAL_SECONDS
+        try:
+            while True:
+                try:
+                    await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+                    self._tab_registry.heartbeat(self._target_id)
+                except asyncio.CancelledError:
+                    raise  # shutdown — let it propagate
+                except Exception as e:
+                    logger.warning("Heartbeat failed (will retry): %s", e)
+        except asyncio.CancelledError:
+            pass
+
+    async def _live_target_ids(self) -> set[str]:
+        """Return the set of currently-live page target IDs from /json/list."""
+        import urllib.request
+        try:
+            loop = asyncio.get_event_loop()
+            def _fetch():
+                with urllib.request.urlopen(
+                    f"http://localhost:{self.port}/json", timeout=5
+                ) as resp:
+                    import json as _json
+                    targets = _json.loads(resp.read())
+                return {t.get("id") for t in targets if t.get("type") == "page"}
+            return await loop.run_in_executor(None, _fetch)
+        except Exception:
+            return set()
+
+    def tab_status(self) -> dict:
+        """Snapshot of this driver's tab/session state (R6 observability).
+
+        Surfaced for logging at connect() and available for /health or
+        debugging. Includes the registry entry (instance_id, target_id,
+        heartbeat age) plus the live driver state (tab_mode, owns_target,
+        current conversation).
+        """
+        status = {
+            "tab_mode": self.tab_mode,
+            "target_id": self._target_id,
+            "owns_target": self._owns_target,
+            "instance_id": self.instance_id,
+            "conv_id": self._current_conv_id,
+        }
+        if self._tab_registry:
+            status["registry"] = self._tab_registry.status()
+        return status
 
     async def reconnect(self) -> None:
         """Reconnect after a socket drop (#4).
@@ -248,7 +505,7 @@ class CDPDriver:
             self._reader_task.cancel()
             try:
                 await asyncio.wait_for(self._reader_task, timeout=2)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
         self._reader_task = None
         # Close the dead socket if present
@@ -266,12 +523,29 @@ class CDPDriver:
         # Reconnect with backoff
         for attempt, delay in enumerate([2, 5, 10], 1):
             try:
-                ws_url = await self._find_page_ws()
+                ws_url = None
+                # Reuse priority mirrors connect(): re-attach to a known
+                # _target_id (both modes), then honor tab_mode for the
+                # create-vs-adopt decision.
+                if self._target_id:
+                    ws_url = self._find_owned_tab_ws()
+                    if ws_url:
+                        logger.info("Re-finding tab: %s", self._target_id)
+                if not ws_url and self.tab_mode == "adopt":
+                    ws_url = self._adopt_existing_chatgpt_tab()
+                if not ws_url:
+                    logger.info("No reusable tab — creating new one")
+                    ws_url = await self._create_owned_tab()
+                if not ws_url:
+                    ws_url = await self._find_page_ws()
                 self._ws = await websockets.connect(
                     ws_url, max_size=100 * 1024 * 1024,
                     ping_interval=20, ping_timeout=10,
                 )
                 self._reader_task = asyncio.create_task(self._reader_loop())
+                # Same settle wait as connect() — the reconnected tab (re-found
+                # or re-created) may have just navigated. See _wait_for_chatgpt_ready.
+                await self._wait_for_chatgpt_ready()
                 await self._refresh_token()
                 logger.info("CDP reconnected on attempt %d", attempt)
                 return
@@ -321,22 +595,248 @@ class CDPDriver:
         logger.info("Using page (fallback): %s", target.get("title", "")[:60])
         return target["webSocketDebuggerUrl"]
 
-    async def _refresh_token(self) -> None:
-        """Get a fresh access token from /api/auth/session."""
-        raw = await self._js(
-            "(async () => {"
-            "  const r = await fetch('/api/auth/session', {credentials:'include'});"
-            "  const d = await r.json();"
-            "  return JSON.stringify({token: d.accessToken || '', user: d.user?.name || ''});"
-            "})()"
+    async def _browser_cdp(self, method: str, params: dict = None, timeout: float = 10) -> dict:
+        """Send a browser-domain CDP command via a short-lived browser WS.
+
+        Used for Target.createTarget and Target.closeTarget. Opens a fresh
+        connection to the browser-level endpoint (/devtools/browser/...),
+        sends one command, awaits the response, closes. Does NOT use the
+        page-level _cdp/_reader_loop machinery — those are for the persistent
+        page WS only.
+        """
+        version = json.loads(
+            urllib.request.urlopen(
+                urllib.request.Request(f"http://127.0.0.1:{self.port}/json/version"),
+                timeout=5,
+            ).read()
         )
-        data = json.loads(raw)
-        self._access_token = data.get("token", "")
-        self._user_name = data.get("user", "")
-        self._token_fetched_at = time.time()
-        if not self._access_token:
-            raise RuntimeError("No access token — not logged into ChatGPT")
-        logger.info("Auth: %d chars, user: %s", len(self._access_token), self._user_name)
+        browser_ws_url = version["webSocketDebuggerUrl"]
+        mid = self._msg_id + 100000  # offset to avoid collision with page-level ids
+        async with websockets.connect(browser_ws_url, max_size=10 * 1024 * 1024) as bws:
+            await bws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                raw = await asyncio.wait_for(bws.recv(), timeout=max(1, deadline - time.monotonic()))
+                resp = json.loads(raw)
+                if resp.get("id") == mid:
+                    return resp
+            raise TimeoutError(f"Browser CDP timeout: {method}")
+
+    async def _create_owned_tab(self) -> str:
+        """Create a new chatgpt.com tab and return its page WS URL.
+
+        Calls Target.createTarget via the browser WS, stores the targetId,
+        then looks up the new tab's webSocketDebuggerUrl via /json/list.
+        Returns the page WS URL. Sets self._target_id.
+        """
+        resp = await self._browser_cdp("Target.createTarget", {"url": "https://chatgpt.com/"})
+        if "error" in resp:
+            raise RuntimeError(f"Target.createTarget failed: {resp['error']}")
+        self._target_id = resp.get("result", {}).get("targetId")
+        if not self._target_id:
+            raise RuntimeError("Target.createTarget returned no targetId")
+        self._owns_target = True  # we created it → close() will tear it down
+        logger.info("Created owned tab: %s", self._target_id)
+        # Wait for the tab to appear in /json/list, then get its WS URL
+        for _ in range(20):
+            targets = json.loads(
+                urllib.request.urlopen(
+                    urllib.request.Request(f"http://127.0.0.1:{self.port}/json/list"),
+                    timeout=5,
+                ).read()
+            )
+            for t in targets:
+                if t.get("id") == self._target_id:
+                    ws_url = t.get("webSocketDebuggerUrl")
+                    if ws_url:
+                        logger.info("Owned tab WS: %s", ws_url[:80])
+                        return ws_url
+            await asyncio.sleep(0.5)
+        raise RuntimeError(f"Created tab {self._target_id} but couldn't find its WS URL")
+
+    def _find_owned_tab_ws(self) -> str | None:
+        """Look up an owned tab's WS URL from /json/list. Returns None if gone."""
+        try:
+            targets = json.loads(
+                urllib.request.urlopen(
+                    urllib.request.Request(f"http://127.0.0.1:{self.port}/json/list"),
+                    timeout=5,
+                ).read()
+            )
+            for t in targets:
+                if t.get("id") == self._target_id:
+                    return t.get("webSocketDebuggerUrl")
+        except Exception:
+            pass
+        return None
+
+    def _adopt_existing_chatgpt_tab(self) -> str | None:
+        """Find an existing chatgpt.com tab in /json/list to adopt.
+
+        ``Target.createTarget`` always opens a new tab, but at startup Chrome
+        is typically already on chatgpt.com (the launch URL) and/or a prior
+        service run left an owned tab behind. Reusing one of those instead of
+        creating yet another keeps the tab count stable across restarts.
+
+        Adopts (in priority order):
+          1. A tab we previously owned (id == self._target_id).
+          2. The first chatgpt.com page target with a live WS URL.
+
+        Returns the WS URL and sets self._target_id / self._owns_target on a
+        hit; returns None when no suitable tab exists (caller should create
+        one). Never raises — a /json/list failure collapses to None.
+        """
+        try:
+            targets = json.loads(
+                urllib.request.urlopen(
+                    urllib.request.Request(f"http://127.0.0.1:{self.port}/json/list"),
+                    timeout=5,
+                ).read()
+            )
+        except Exception:
+            return None
+
+        # 1. A previously-owned tab we can re-attach to.
+        if self._target_id:
+            for t in targets:
+                if t.get("id") == self._target_id:
+                    ws_url = t.get("webSocketDebuggerUrl")
+                    if ws_url:
+                        # Ownership state is preserved — _owns_target unchanged.
+                        return ws_url
+
+        # 2. Any existing chatgpt.com page tab. Adopting it flips ownership to
+        #    False so close() will NOT close it (it's not ours to close).
+        for t in targets:
+            if t.get("type") != "page":
+                continue
+            url = t.get("url", "")
+            title = t.get("title", "")
+            if "chatgpt.com" not in url and "chatgpt.com" not in title:
+                continue
+            ws_url = t.get("webSocketDebuggerUrl")
+            if not ws_url:
+                continue
+            self._target_id = t.get("id")
+            self._owns_target = False
+            logger.info(
+                "Adopted existing chatgpt.com tab: %s (will not close on shutdown)",
+                self._target_id,
+            )
+            return ws_url
+
+        return None
+
+    async def _wait_for_chatgpt_ready(self) -> bool:
+        """Wait for the connected tab to actually be on chatgpt.com.
+
+        ``connect``/``reconnect`` grab a page websocket whose target exists
+        milliseconds after ``Target.createTarget`` — before the page has
+        navigated to chatgpt.com. A relative ``fetch('/api/auth/session')``
+        fired against that cold tab resolves against the wrong origin (e.g.
+        ``about:blank``) and returns an empty accessToken, tripping the auth
+        gate and killing the MCP process on startup.
+
+        Polls until ``location.href`` is on chatgpt.com AND ``readyState`` is
+        past 'loading'. The token fetch only needs the page to be on the right
+        origin with cookies attached — the full SPA (#prompt-textarea) is not
+        required, so this is lighter than the ``navigate_*`` readiness checks.
+
+        Mirrors ``_wait_for_login`` (conftest.py): uses the soft ``_js``
+        evaluator so a transient CDP error collapses to '' instead of aborting,
+        and never raises — a False return falls through to ``_refresh_token``,
+        whose own retry loop is the safety net.
+
+        Returns True if ready within the deadline, False on timeout.
+        """
+        deadline = time.monotonic() + _CONNECT_READY_TIMEOUT
+        while time.monotonic() < deadline:
+            try:
+                raw = await self._js(
+                    "(function(){"
+                    "  return JSON.stringify({"
+                    "    href: location.href,"
+                    "    ready: document.readyState"
+                    "  });"
+                    "})()"
+                )
+                state = json.loads(raw) if raw else {}
+                if (
+                    "chatgpt.com" in (state.get("href") or "")
+                    and state.get("ready") != "loading"
+                ):
+                    return True
+            except (ValueError, TypeError):
+                pass
+            await asyncio.sleep(0.5)
+        logger.warning(
+            "Owned tab did not report chatgpt.com ready within %ds — "
+            "proceeding (token refresh will retry)",
+            _CONNECT_READY_TIMEOUT,
+        )
+        return False
+
+    async def _refresh_token(self) -> None:
+        """Get a fresh access token from /api/auth/session, with retry.
+
+        The fetch can transiently return an empty accessToken when the page
+        hasn't fully settled (cold tab after createTarget, or a navigation in
+        flight). Retrying a few times with a short backoff lets the page catch
+        up rather than failing the whole connect/reconnect/ensure_token path.
+        This is the single chokepoint for all three callers, so the retry
+        covers startup and mid-session refresh alike.
+
+        On final failure raises the same RuntimeError every existing caller
+        already handles — error semantics are unchanged.
+        """
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            self._last_refresh_attempt_at = time.time()
+            try:
+                raw = await self._js(
+                    "(async () => {"
+                    "  const r = await fetch('/api/auth/session', {credentials:'include'});"
+                    "  const d = await r.json();"
+                    "  return JSON.stringify({token: d.accessToken || '', user: d.user?.name || ''});"
+                    "})()"
+                )
+                # _js may return a dict (CDP returnByValue parsed the JSON
+                # object) or a string (the JSON.stringify result). Handle both.
+                if isinstance(raw, dict):
+                    data = raw
+                elif isinstance(raw, str):
+                    data = json.loads(raw)
+                else:
+                    data = {"token": ""}
+                # Parse into locals FIRST. Only commit to instance state after
+                # a non-empty token is observed — a transient empty fetch (cold
+                # tab, navigation in flight, CDP blip) must not clobber a
+                # previously-valid token. The exception path already avoided
+                # clobbering; this closes the empty-SUCCESS path too. A real
+                # auth expiry surfaces as a typed 401 on the next backend call.
+                new_token = data.get("token", "")
+                new_user = data.get("user", "")
+                if new_token:
+                    self._access_token = new_token
+                    self._user_name = new_user
+                    self._token_fetched_at = time.time()
+                    logger.info(
+                        "Auth: %d chars, user: %s (attempt %d)",
+                        len(self._access_token), self._user_name, attempt,
+                    )
+                    return
+                last_error = RuntimeError(
+                    "No access token — not logged into ChatGPT"
+                )
+            except Exception as e:
+                # JSON parse error, CDP blip, etc. — record and retry. Don't
+                # clobber a partial _access_token from a prior good fetch.
+                last_error = e
+            if attempt < 3:
+                await asyncio.sleep(0.5)
+        raise last_error if last_error else RuntimeError(
+            "No access token — not logged into ChatGPT"
+        )
 
     # ── CDP primitives ────────────────────────────────────────
 
@@ -376,12 +876,20 @@ class CDPDriver:
                 if not fut.done():
                     fut.set_exception(e)
 
-    async def _cdp(self, method: str, params: dict = None, timeout: float = 15) -> dict:
+    async def _cdp(self, method: str, params: dict = None, timeout: float = 15, _retry: bool = True) -> dict:
         """Send a CDP command and await its response.
 
         Uses the background reader + id-keyed Future table (#7 fix) so
         concurrent _cdp calls each receive their own response without
         cross-eating each other's frames.
+
+        Auto-reconnect: if the underlying WebSocket is dead (ConnectionClosed
+        on send — the ``no close frame`` case), attempt ONE ``reconnect()``
+        then retry the call. Without this, a single mid-session socket drop
+        permanently bricks a long-running bridge: ``reconnect()`` exists but
+        nothing wired it in, so every subsequent call re-raised the dead
+        socket error forever. ``_retry`` guards against recursion: a call that
+        fails again after reconnect propagates instead of looping.
         """
         self._msg_id += 1
         mid = self._msg_id
@@ -389,14 +897,36 @@ class CDPDriver:
         self._pending[mid] = fut
         try:
             await self._ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
-        except Exception:
+        except Exception as e:
             self._pending.pop(mid, None)
+            if _retry and self._should_reconnect(e):
+                logger.warning("CDP send failed (%s); reconnecting and retrying once", e)
+                await self.reconnect()
+                return await self._cdp(method, params, timeout, _retry=False)
             raise
         try:
             return await asyncio.wait_for(fut, timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop(mid, None)
             raise TimeoutError(f"CDP timeout: {method}")
+
+    @staticmethod
+    def _should_reconnect(exc: Exception) -> bool:
+        """True for errors that mean the WebSocket is dead/tearing down.
+
+        ConnectionClosed (and its subclasses) and the ``no close frame``
+        InvalidState are the socket-death signatures; everything else
+        (TimeoutError, application errors) must NOT trigger a reconnect.
+        """
+        # websockets.ConnectionClosed + subclasses (ConnectionClosedError,
+        # ConnectionClosedOK). Imported lazily so a missing/renamed class in
+        # other websockets versions degrades to a name check instead of ImportError.
+        name = type(exc).__name__
+        if name in {"ConnectionClosed", "ConnectionClosedError", "ConnectionClosedOK"}:
+            return True
+        msg = str(exc).lower()
+        return "no close frame" in msg or "connection closed" in msg
+
 
     async def _js(self, expr: str, timeout: float = 15) -> str:
         resp = await self._cdp("Runtime.evaluate", {
@@ -578,17 +1108,30 @@ class CDPDriver:
 
     async def navigate_new_chat(self, gizmo_id: str = None) -> None:
         """Navigate to a fresh chat. Optionally scope to a project gizmo."""
-        url = f"https://chatgpt.com/g/{gizmo_id}/project" if gizmo_id else "https://chatgpt.com/"
+        if gizmo_id:
+            url = f"https://chatgpt.com/g/{gizmo_id}/project"
+        else:
+            # The bare ``chatgpt.com/`` home shell renders only the hidden
+            # fallback textarea (``name=prompt-textarea``, no id, not visible),
+            # so neither COMPOSER_SELECTOR nor COMPOSER_FALLBACK_SELECTOR matches
+            # and type_message fails with "No composer found". The
+            # ``?model=auto`` query triggers the SPA to render the real
+            # ProseMirror composer reliably. Verified live: bare home → no
+            # composer after 20s; ``?model=auto`` → composer present.
+            url = "https://chatgpt.com/?model=auto"
         logger.info("Navigate: %s", url)
         await self._cdp("Page.navigate", {"url": url})
         await asyncio.sleep(2)
 
-        # Wait for textarea
+        # Wait for the composer. The new composer is a contenteditable
+        # ProseMirror div (#prompt-textarea is now a hidden fallback);
+        # COMPOSER_SELECTOR matches the real textbox, with the legacy
+        # textarea as a last resort for older deployments.
         for _ in range(30):
             result = await self._js(
                 "(function() {"
                 "  return JSON.stringify({"
-                "    ready: !!document.querySelector('#prompt-textarea'),"
+                f"    ready: !!document.querySelector('{COMPOSER_SELECTOR}') || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}'),"
                 "    url: location.href"
                 "  });"
                 "})()"
@@ -613,86 +1156,358 @@ class CDPDriver:
         await asyncio.sleep(2)
         self._current_conv_id = None
 
+    async def _has_composer(self) -> bool:
+        """Is a send-capable composer present on the live tab?
+
+        True only when one of the known composer selectors matches. The home/
+        landing page is auth-valid but NOT send-valid: it has a different,
+        unnamed textarea that none of these selectors match, so a tab on
+        ``chatgpt.com/`` (or any non-chat page) returns False. Authentication
+        and send-readiness are separate invariants — this one is send-readiness.
+        """
+        try:
+            result = await self._js(
+                "(function(){"
+                f"  return JSON.stringify({{"
+                f"    ready: !!document.querySelector('{COMPOSER_SELECTOR}')"
+                f"         || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}')"
+                "  });"  # {{ opens the object literal; a single } closes it
+                "})()"
+            )
+            return json.loads(result).get("ready") is True
+        except (json.JSONDecodeError, TypeError, CDPJSError):
+            return False
+
+    async def _ensure_send_ready(self) -> None:
+        """Guarantee the live tab can accept a typed message.
+
+        ``connect()`` may attach to a ``chatgpt.com/`` home/landing tab (or
+        adopt an arbitrary existing ChatGPT tab). Such a tab is auth-valid but
+        not send-valid: it lacks the real composer, so the very next
+        ``type_message`` would raise "No composer found" and — through the REST
+        layer — surface as an opaque "no close frame received or sent" 500.
+        This normalizes the tab into a usable chat page before ``connect()``
+        returns, establishing the invariant the rest of the driver assumes:
+        a connected driver is a send-capable driver.
+
+        The composer renders lazily on the home shell (the sidebar hydrates
+        first, the composer seconds later), so a single ``_has_composer``
+        probe races the render. We poll briefly first; only if that window
+        passes without a composer do we navigate (to ``?model=auto``, which
+        renders the real composer — see ``navigate_new_chat``) and re-check.
+        """
+        if await self._wait_for_composer(timeout=8):
+            return
+        logger.info(
+            "Attached tab has no composer after waiting; navigating to a new chat "
+            "to become send-ready"
+        )
+        await self.navigate_new_chat()  # navigates to ?model=auto + polls composer
+        if not await self._wait_for_composer(timeout=5):
+            await self._capture_selector_diagnostic("composer (connect send-ready)")
+            raise RuntimeError("No composer found after navigating to a new chat")
+
+    async def _wait_for_composer(self, timeout: float = 8) -> bool:
+        """Poll until a composer appears, or *timeout* seconds elapse.
+
+        Returns True if a composer is present within the window, False on
+        timeout. Never raises — callers decide fail-closed behavior. The
+        composer on the home shell hydrates a few seconds after the sidebar,
+        so a single probe races it; this wait absorbs that render delay.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if await self._has_composer():
+                return True
+            await asyncio.sleep(0.5)
+        return False
+
     async def navigate_conversation(self, conversation_id: str) -> None:
-        """Navigate to an existing conversation for multi-turn."""
+        """Navigate to an existing conversation for multi-turn.
+
+        Sets ``self._current_conv_id`` ONLY after the live tab is verified
+        to be at ``/c/{conversation_id}`` with the composer ready. On a
+        verified failure (wrong landing URL, or readiness never observed)
+        clears any stale ``_current_conv_id`` matching the request and
+        raises — never admits an unverified conversation as current. This
+        is the invariant the auto-continue paths depend on: ``_current_conv_id``
+        means "the live tab is here", not "we attempted to go here".
+        """
         url = f"https://chatgpt.com/c/{conversation_id}"
         logger.info("Navigate to conversation: %s", url)
         await self._cdp("Page.navigate", {"url": url})
         await asyncio.sleep(3)
 
-        # Wait for textarea
+        # Wait for composer (new ProseMirror div, or legacy textarea) AND a
+        # verified landing. A for/else means: if the loop completes without
+        # `break` (never became ready at the right URL), the else runs and we
+        # fail rather than falling through to admit an unverified conversation.
         for _ in range(30):
             result = await self._js(
                 "(function() {"
                 "  return JSON.stringify({"
-                "    ready: !!document.querySelector('#prompt-textarea'),"
+                f"    ready: !!document.querySelector('{COMPOSER_SELECTOR}') || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}'),"
                 "    url: location.href"
                 "  });"
                 "})()"
             )
             try:
                 state = json.loads(result)
-                if state.get("ready"):
-                    actual_url = state.get("url", "")
-                    # #14: verify we landed on the right conversation
-                    if conversation_id not in actual_url:
-                        raise RuntimeError(
-                            f"Navigation to {conversation_id} landed on {actual_url}"
-                        )
-                    logger.info("Conversation ready: %s", actual_url)
-                    break
             except (json.JSONDecodeError, TypeError):
-                pass
+                state = {}
+            if state.get("ready") and self._is_url_at_conversation(
+                state.get("url", ""), conversation_id
+            ):
+                logger.info("Conversation ready: %s", state.get("url", ""))
+                break
             await asyncio.sleep(0.5)
+        else:
+            # Loop exhausted without a verified landing. Clear any stale
+            # state that might point here so a later auto-continue can't
+            # reuse a known-unverified id, then surface the failure.
+            if self._current_conv_id == conversation_id:
+                self._current_conv_id = None
+            raise RuntimeError(
+                f"Navigation to {conversation_id} did not reach a ready "
+                f"composer within the timeout"
+            )
 
         await asyncio.sleep(1)
         self._current_conv_id = conversation_id
 
+    @staticmethod
+    def _is_url_at_conversation(url: str, conversation_id: str) -> bool:
+        """Exact path-segment match: is *url* at ``/c/{conversation_id}``?
+
+        Uses urllib to parse the path and compare the second segment, so a
+        high-entropy id can't accidentally match as a substring of another
+        path. Query strings and trailing slashes are tolerated; a different
+        conversation id or a non-conversation URL returns False.
+        """
+        if not url or not conversation_id:
+            return False
+        try:
+            parsed = urllib.parse.urlparse(url)
+        except ValueError:
+            return False
+        if "chatgpt.com" not in (parsed.netloc or "").lower():
+            return False
+        parts = [p for p in parsed.path.split("/") if p]
+        # Expected shape: ["c", "<conversation_id>"]
+        return len(parts) >= 2 and parts[0] == "c" and parts[1] == conversation_id
+
+    async def _is_live_conversation_url(self, conversation_id: str) -> bool:
+        """Read ``location.href`` and check it is at *conversation_id*.
+
+        Returns False on any read/parse failure rather than raising — callers
+        that need fail-closed behavior use ``ensure_current_conversation``,
+        which turns an unreadable URL into a navigation attempt.
+        """
+        try:
+            url = await self._js_strict("location.href")
+        except CDPJSError:
+            return False
+        return self._is_url_at_conversation(url or "", conversation_id)
+
+    async def ensure_current_conversation(self, conversation_id: str) -> None:
+        """Guarantee the live tab is at *conversation_id* before sending.
+
+        If the live URL already matches, returns without navigating. Otherwise
+        navigates and verifies the landing. Raises if the tab cannot be brought
+        to the requested conversation — fail-closed, never silently proceeding
+        into an unknown tab state. ``_current_conv_id`` is only set on success
+        (by ``navigate_conversation``); on failure it is cleared if it matched.
+        """
+        if await self._is_live_conversation_url(conversation_id):
+            return
+        await self.navigate_conversation(conversation_id)
+        # navigate_conversation raises on failure, so reaching here means it
+        # verified the landing. Belt-and-braces: re-check before returning.
+        if not await self._is_live_conversation_url(conversation_id):
+            if self._current_conv_id == conversation_id:
+                self._current_conv_id = None
+            raise RuntimeError(
+                f"Failed to restore conversation context: {conversation_id}"
+            )
+
     # ── Message Input ─────────────────────────────────────────
 
     async def type_message(self, text: str) -> None:
-        """Type text into the ChatGPT prompt textarea."""
-        # Focus
+        """Type text into the ChatGPT composer.
+
+        The new composer is a contenteditable ProseMirror div; the legacy
+        composer was a <textarea id="prompt-textarea">. We focus the new
+        textbox first (COMPOSER_SELECTOR), falling back to the textarea
+        for older deployments. Once focused, ``Input.insertText`` routes
+        the text to whichever element holds focus, so the same insert
+        works for both layouts.
+        """
+        # Focus the composer. Try the ProseMirror textbox first, then the
+        # legacy textarea fallback. Returns which one was focused (or
+        # 'no composer') so the verify step reads the right element.
         focus_result = await self._js(
             "(function() {"
-            "  var el = document.querySelector('#prompt-textarea');"
-            "  if (!el) return 'no textarea';"
-            "  el.focus();"
-            "  return 'focused';"
+            f"  var el = document.querySelector('{COMPOSER_SELECTOR}');"
+            "  if (el) { el.focus(); return 'composer'; }"
+            f"  var fb = document.querySelector('{COMPOSER_FALLBACK_SELECTOR}');"
+            "  if (fb) { fb.focus(); return 'fallback'; }"
+            "  return 'no composer';"
             "})()"
         )
-        if focus_result != 'focused':
-            await self._capture_selector_diagnostic("#prompt-textarea (type_message)")
-            raise RuntimeError("No textarea found")
+        if focus_result == "no composer":
+            await self._capture_selector_diagnostic("composer (type_message)")
+            raise RuntimeError("No composer found")
+        focused_target = focus_result  # 'composer' or 'fallback'
 
-        # Clear existing text by selecting all first
-        await self._cdp("Input.dispatchKeyEvent", {"type": "keyDown", "key": "a", "code": "KeyA", "modifiers": 2})
-        await self._cdp("Input.dispatchKeyEvent", {"type": "keyUp", "key": "a", "code": "KeyA", "modifiers": 2})
+        # Clear existing text and insert. Prefer a platform-aware select-all
+        # via keyboard events (modifiers: 2 = Ctrl on Win/Linux, 4 = Cmd on
+        # macOS — detected at runtime so select-all doesn't silently no-op on
+        # Mac). Insert via CDP, dispatched to the focused composer.
+        select_all_mods = await self._detect_select_all_modifier()
+        await self._cdp("Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": "a", "code": "KeyA", "windowsVirtualKeyCode": 65, "modifiers": select_all_mods})
+        await self._cdp("Input.dispatchKeyEvent", {"type": "keyUp", "key": "a", "code": "KeyA", "windowsVirtualKeyCode": 65, "modifiers": select_all_mods})
         await asyncio.sleep(0.1)
-
-        # Insert text via CDP
         await self._cdp("Input.insertText", {"text": text})
         await asyncio.sleep(0.5)
 
-        # Verify — use _js_strict so a CDP/JS error surfaces as the real
-        # cause rather than a generic "Failed to insert text".
-        try:
-            content = await self._js_strict(
-                "document.querySelector('#prompt-textarea')?.textContent || ''"
+        # Verify the composer holds EXACTLY the intended input (canonicalized),
+        # not just "is non-empty". With ProseMirror contenteditable, a stale or
+        # partially-cleared composer passes a non-empty check while corrupting
+        # the prompt — so we compare canonical editor-visible text. On mismatch,
+        # retry once: clear via execCommand('selectAll') + delete (ProseMirror
+        # sees editor-like input events), re-insert, re-verify. Only then raise.
+        verify_selector = COMPOSER_SELECTOR if focused_target == "composer" else COMPOSER_FALLBACK_SELECTOR
+        if not await self._verify_composer_text(verify_selector, text):
+            logger.warning("Composer text mismatch on first insert; retrying with execCommand clear")
+            await self._js_strict(
+                "(function(){"
+                f"  var el = document.querySelector('{verify_selector}');"
+                "  if (el) {"
+                "    if (el.tagName === 'TEXTAREA') {"
+                "      el.focus(); el.select();"
+                "      try { document.execCommand('delete'); } catch(e) {}"
+                "    } else {"
+                "      el.focus();"
+                "      var sel = window.getSelection(); sel.removeAllRanges();"
+                "      var range = document.createRange(); range.selectNodeContents(el);"
+                "      sel.addRange(range);"
+                "      try { document.execCommand('delete'); } catch(e) {}"
+                "    }"
+                "  }"
+                "  return true;"
+                "})()"
             )
-        except CDPJSError as e:
-            raise RuntimeError(f"Failed to verify text insertion: {e}") from e
-        if not content:
-            raise RuntimeError("Failed to insert text into textarea")
+            await asyncio.sleep(0.1)
+            await self._cdp("Input.insertText", {"text": text})
+            await asyncio.sleep(0.5)
+            if not await self._verify_composer_text(verify_selector, text):
+                raise RuntimeError(
+                    f"Composer text verification failed after retry; "
+                    f"expected {text[:60]!r}"
+                )
         logger.info("Typed: %s", text[:80])
 
+    async def _detect_select_all_modifier(self) -> int:
+        """Return the CDP modifiers value for select-all on the live platform.
+
+        ``2`` = Ctrl (Windows/Linux), ``4`` = Cmd (macOS). Probed once via
+        ``navigator.userAgentData``/``navigator.platform`` so the keyboard
+        select-all doesn't silently no-op on macOS (where Cmd, not Ctrl,
+        selects all). Falls back to Ctrl (2) on any probe failure.
+        """
+        try:
+            ua = await self._js_strict(
+                "(navigator.userAgentData && navigator.userAgentData.platform)"
+                " || navigator.platform || ''"
+            )
+            if ua and "mac" in ua.lower():
+                return 4
+        except CDPJSError:
+            pass
+        return 2
+
+    async def _verify_composer_text(self, selector: str, expected: str) -> bool:
+        """Canonical-equality check: does the composer hold *expected*?
+
+        Compares editor-visible text with canonical normalization (CRLF→LF,
+        NBSP→space, tolerate a trailing block newline ProseMirror adds) — but
+        does NOT broadly collapse internal whitespace, since that would hide
+        real corruption of code/YAML/Markdown indentation.
+
+        For a contenteditable ProseMirror div, neither ``innerText`` nor
+        ``textContent`` reconstructs what the user typed across line breaks:
+        ``\n`` in the input becomes a new ``<p>`` block, and ProseMirror
+        renders blank-line paragraphs as ``<p><br></p>``. ``innerText`` then
+        emits *several* newlines per block boundary (measured: a 2-newline
+        input read back as 5), while ``textContent`` joins blocks with
+        *nothing* (0 newlines). Both fail canonical equality for any
+        multi-line prompt. The fix is a block-aware extractor: join each
+        top-level block child's text with a single ``\n``, and treat an
+        empty block (the ``<br>``-only paragraph from a blank line) as one
+        newline. This reconstructs the typed text faithfully for both
+        single-line and multi-line input. Legacy ``<textarea>`` still reads
+        ``.value``, which is already exact.
+        """
+        try:
+            actual = await self._js_strict(
+                "(function(){"
+                f"  var el = document.querySelector('{selector}');"
+                "  if (!el) return '';"
+                "  if (el.tagName === 'TEXTAREA') return el.value;"
+                # Block-aware read for contenteditable. Walk the immediate
+                # child nodes; each element block contributes its text plus
+                # one trailing newline, each text node contributes itself.
+                # An empty block (the <br>-only paragraph from a blank line)
+                # collapses to a single blank line, matching a typed "\n\n".
+                # This yields exactly the number of newlines the user typed.
+                "  var parts = [];"
+                "  function blockText(node) {"
+                "    return (node.textContent || '').replace(/\\u00a0/g, ' ');"
+                "  }"
+                "  for (var i = 0; i < el.childNodes.length; i++) {"
+                "    var child = el.childNodes[i];"
+                "    if (child.nodeType === 3) { parts.push(child.nodeValue || ''); }"
+                "    else if (child.nodeType === 1) {"
+                "      parts.push(blockText(child));"
+                "    }"
+                "  }"
+                "  var joined = parts.join('\\n');"
+                # ProseMirror may append a trailing empty <p>/<br> block that
+                # adds a stray trailing newline; strip at most one to mirror
+                # the single-trailing-newline tolerance below.
+                "  return joined.replace(/\\n$/, '');"
+                "})()"
+            )
+        except CDPJSError:
+            return False
+        if not actual:
+            return False
+        canon_actual = actual.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
+        canon_expected = expected.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
+        # ProseMirror wraps input in a <p> and may append a trailing block
+        # newline. Tolerate AT MOST ONE editor-added trailing newline — but
+        # never strip a user-intended trailing newline. So accept an exact
+        # match, OR actual == expected + one editor newline. (Stripping
+        # unconditionally would corrupt prompts that legitimately end in \n.)
+        return canon_actual == canon_expected or canon_actual == canon_expected + "\n"
+
     async def click_send(self) -> None:
-        """Click the send button via JS MouseEvent sequence."""
-        # Wait for button to be enabled
+        """Click the send button via JS MouseEvent sequence.
+
+        The new composer has no ``data-testid="send-button"``; its send
+        affordance is the submit ``<button aria-label="Send ...">`` inside
+        the composer form. We prefer that, falling back to the legacy
+        testid selector for older deployments. The stop button (which
+        appears during generation) is explicitly excluded — it also
+        carries an aria-label, but never "Send".
+        """
+        # Wait for the send button to appear and be enabled. Try the new
+        # aria-label selector first, then the legacy testid fallback.
         for _ in range(10):
             has_btn = await self._js(
                 "(function() {"
-                "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
+                f"  var btn = document.querySelector('{SEND_BUTTON_SELECTOR}')"
+                f"       || document.querySelector('{SEND_BUTTON_FALLBACK_SELECTOR}');"
                 "  return btn && !btn.disabled ? 'yes' : 'no';"
                 "})()"
             )
@@ -702,7 +1517,8 @@ class CDPDriver:
 
         result = await self._js(
             "(function() {"
-            "  var btn = document.querySelector('button[data-testid=\"send-button\"]');"
+            f"  var btn = document.querySelector('{SEND_BUTTON_SELECTOR}')"
+            f"       || document.querySelector('{SEND_BUTTON_FALLBACK_SELECTOR}');"
             "  if (!btn) return 'no send button';"
             "  if (btn.disabled) return 'button disabled';"
             "  var evts = ['pointerdown','mousedown','pointerup','mouseup','click'];"
@@ -715,22 +1531,6 @@ class CDPDriver:
         if result != "sent":
             await self._capture_selector_diagnostic("send-button (click_send)")
             raise RuntimeError(f"Send failed: {result}")
-        # #13: Verify the send actually landed — ChatGPT clears the textarea
-        # on successful send. If it's still populated, the click didn't
-        # register (modal overlay, React handler unmounted, etc.). Give it
-        # a brief moment to clear.
-        await asyncio.sleep(0.3)
-        try:
-            remaining = await self._js_strict(
-                "document.querySelector('#prompt-textarea')?.textContent || ''"
-            )
-        except Exception:
-            remaining = ""  # can't verify — proceed optimistically
-        if remaining.strip():
-            raise RuntimeError(
-                f"Send appeared to succeed but textarea still has content "
-                f"(len={len(remaining)}) — click may not have registered"
-            )
         logger.info("Message sent")
 
     # ── Response Retrieval ────────────────────────────────────
@@ -819,26 +1619,138 @@ class CDPDriver:
         logger.info("Assistant message appeared, waiting for completion...")
 
         # Poll until generation is done (Stop button gone). A stall detector
-        # (PHASE_STALL_SECONDS) catches a stuck generation: if the DOM text
-        # doesn't change at all for longer than the stall window while the Stop
-        # button is still present, we raise GenerationStuckError instead of
-        # falling through to a silent empty/truncated completion. Any DOM-text
-        # change resets the stall clock — including edits/reformats where length
-        # stays constant but content changes (current != last_dom_text).
+        # (PHASE_STALL_SECONDS) catches a stuck generation: if NO DOM progress
+        # occurs for longer than the stall window, we raise GenerationStuckError.
+        #
+        # Progress is tracked on THREE signals, not just text, so non-text
+        # responses (images, tool-use, code interpreter) don't falsely stall:
+        #   - text:       .markdown textContent (streamed as deltas for text)
+        #   - html_len:   assistant message innerHTML length (grows when img/
+        #                 canvas/tool-use elements are added)
+        #   - child_count: direct children count (grows when new blocks render)
+        # Any of these changing resets the stall clock.
+        #
+        # Done detection: Stop button gone AND there's meaningful content
+        # (either .markdown text OR non-trivial HTML footprint). The threshold
+        # (> 50 chars) prevents false 'done' from an empty/partial node.
         last_dom_text = ""
+        last_html_len = 0
+        last_child_count = 0
+        had_non_text_content = False
+        # saw_thinking: has the model shown a reasoning phase this turn? Used
+        # to unlock the R4 backend fallback DURING thinking (when last_dom_text
+        # is empty) — without this, a long reasoning response (>90s think time
+        # with no DOM text change) stalls before the answer ever streams.
+        saw_thinking = False
+        # Completion detection for Phase-2. The history here matters — three
+        # earlier signals each failed in live testing, all producing an
+        # off-by-one where request N returned request N-1's text:
+        #   1. ``done = !stopBtn && hasContent`` — broke on the FIRST poll.
+        #      Right after send the Stop button hasn't appeared yet (generation
+        #      not begun) but html_len > 50 (the message wrapper), so this was
+        #      True immediately, leaving last_dom_text empty.
+        #   2. ``generation_started && not is_generating`` — the Stop button
+        #      FLICKERS off between token batches, breaking mid-generation with
+        #      truncated text.
+        #   3. Text-stability alone — ``.markdown`` textContent is empty during
+        #      streaming (text renders elsewhere until the turn settles), so
+        #      "stable empty" never completes and the stall detector fires.
+        #
+        # The robust signal is the per-turn ACTION BUTTON. ChatGPT renders a
+        # copy/feedback action row (data-testid containing "copy" or
+        # "response-turn") on an assistant message ONLY once it has finished
+        # generating — it is absent while the message is streaming or thinking.
+        # Polling for that button on the NEW message is immune to the Stop
+        # flicker and to the empty-.markdown-during-streaming quirk. Text is
+        # captured from the message's innerText (which IS populated during
+        # streaming) rather than .markdown textContent (which lags).
         last_change_time = time.monotonic()
         deadline = time.monotonic() + timeout
+        # Backend end_turn fallback throttle (R4): if the DOM action-button
+        # selector drifts again, the conversation API's end_turn flag is a
+        # secondary completion signal. Throttled to once per 3s to respect the
+        # shared account rate budget, and only fires when has_action is false
+        # (so it never races the primary DOM signal). Never the sole signal.
+        last_backend_check = 0.0
+        conv_id_for_check = self._current_conv_id or ""
         while time.monotonic() < deadline:
             try:
                 result = await self._js_strict(
                     "(function() {"
                     "  var msgs = document.querySelectorAll('[data-message-author-role=\"assistant\"]');"
-                    "  if (!msgs.length) return JSON.stringify({text:'', done:false});"
+                    "  if (!msgs.length) return JSON.stringify({text:'', md_text:'', html_len:0, child_count:0, has_action:false, is_thinking:false});"
                     "  var last = msgs[msgs.length - 1];"
+                    # Text: the clean answer lives in ``.markdown`` textContent.
+                    # It's empty during streaming and populates as the turn
+                    # settles — so we ALSO capture ``innerText`` (populated
+                    # during streaming) as a fallback. innerText includes the
+                    # reasoning UI label ("Thinking.../Thought for N seconds"),
+                    # so md_text is captured SEPARATELY and Python prefers it;
+                    # the innerText fallback is trimmed of the leading label.
                     "  var md = last.querySelector('.markdown');"
-                    "  var text = md ? (md.textContent || '') : '';"
-                    "  var stopBtn = document.querySelector('button[aria-label=\"Stop\"]');"
-                    "  return JSON.stringify({text: text, done: !stopBtn && !!md});"
+                    "  var mdText = md ? (md.textContent || '') : '';"
+                    "  var rawText = (last.innerText || '').trim();"
+                    # Strip a leading "Thinking..." / "Thought for …" reasoning
+                    # label so the innerText fallback can't leak it as a delta.
+                    "  var text = mdText || rawText.replace(/^Think(ing|\\s+for)[^\\n]*\\n?/i, '');"
+                "  var html_len = last.innerHTML.length;"
+                "  var child_count = last.children.length;"
+                # has_action: the per-turn copy/feedback action row appears
+                # only on a COMPLETED message. ChatGPT's DOM layout puts these
+                # buttons in a SIBLING/UNCLE container, NOT as descendants of
+                # the assistant message node — so a plain
+                # ``last.querySelector(...)`` finds nothing and completion is
+                # never detected (every send stalled at the 90s ceiling). The
+                # fix: walk up to 4 ancestors, querying down at each scope,
+                # and require the button to be GEOMETRICALLY NEAR the message
+                # (below it, within ~240px) so an older turn's action row
+                # can't falsely complete a brand-new answer. New testid scheme
+                # is ``*-turn-action-button`` (copy/good-response/bad-response);
+                # the legacy ``response-turn`` selector is retained for older
+                # deployments but no longer matches anything on current ChatGPT.
+                "  var ACT = '[data-testid=\"copy-turn-action-button\"],"
+                "            [data-testid=\"good-response-turn-action-button\"],"
+                "            [data-testid=\"bad-response-turn-action-button\"],"
+                "            [data-testid*=\"turn-action-button\"],"
+                "            [data-testid*=\"copy\"],"
+                "            [data-testid*=\"response-turn\"]';"
+                "  var has_action = (function() {"
+                "    var lastRect = last.getBoundingClientRect();"
+                "    var scope = last;"
+                "    for (var d = 0; scope && d <= 4; d++, scope = scope.parentElement) {"
+                "      var btns = Array.prototype.filter.call("
+                "        scope.querySelectorAll(ACT),"
+                "        function(el){ return el.offsetParent !== null || el.getClientRects().length > 0; }"
+                "      );"
+                "      if (!btns.length) continue;"
+                "      for (var i = 0; i < btns.length; i++) {"
+                "        var r = btns[i].getBoundingClientRect();"
+                "        if (r.top >= lastRect.top - 8 && r.top <= lastRect.bottom + 240) {"
+                "          return true;"
+                "        }"
+                "      }"
+                "    }"
+                "    return false;"
+                "  })();"
+                    # is_thinking: the active-reasoning indicator. Narrowed to
+                    # ``.result-thinking`` AND ``!has_action`` — the action
+                    # button marks a finished turn, and ``.result-thinking``
+                    # lingers in the DOM after completion as a collapsed
+                    # "Thought process" section. WITHOUT the has_action gate
+                    # this stayed true forever, and the old ``/thinking/i``
+                    # word-match on innerText matched the persistent
+                    # "Thought for N seconds" summary label — together they
+                    # pinned is_thinking=true on every thinking-model turn
+                    # and on any answer that mentioned the word "thinking",
+                    # which suppressed all delta emission (see the elif below)
+                    # and produced empty responses when _fetch_text lagged.
+                    # Also recognize a plain "Thinking..." innerText placeholder
+                    # (some layouts show reasoning text without .result-thinking)
+                    # so the stall clock treats it as active generation, not a stall.
+                    "  var hasThinkingEl = !!last.querySelector('.result-thinking');"
+                    "  var visibleThinking = /^(thinking|reasoning)\\b/i.test(rawText.trim());"
+                    "  var is_thinking = !has_action && (hasThinkingEl || (visibleThinking && !mdText));"
+                    "  return JSON.stringify({text: text, md_text: mdText, html_len: html_len, child_count: child_count, has_action: has_action, is_thinking: is_thinking});"
                     "})()",
                 )
                 data = json.loads(result)
@@ -847,21 +1759,92 @@ class CDPDriver:
                 continue
 
             current = data.get("text", "")
-            done = data.get("done", False)
+            md_text = data.get("md_text", "")
+            html_len = data.get("html_len", 0)
+            child_count = data.get("child_count", 0)
+            has_action = data.get("has_action", False)
+            is_thinking = data.get("is_thinking", False)
 
+            # Streaming source: prefer the clean .markdown answer container
+            # over the innerText fallback (which carries the reasoning label).
+            # When md_text is empty (early streaming, before .markdown fills),
+            # the innerText fallback (with its leading label already stripped
+            # in JS) is what carries the streamed answer.
+            current = md_text or current
+
+            # is_thinking means the model is actively reasoning — the DOM is
+            # legitimately static for tens of seconds, which is NOT a stall.
+            # It MUST reset the stall clock. But — critically — it must NOT
+            # block delta emission: after reasoning ends there's a gap where
+            # is_thinking is still true (.result-thinking lingers as a
+            # collapsed "Thought process" section) yet the answer is actively
+            # streaming. The old ``if is_thinking / elif text-changed``
+            # structure made the two mutually exclusive, so is_thinking=true
+            # suppressed all deltas, freezing last_dom_text="" and yielding an
+            # empty response whenever _fetch_text lagged. The reset and the
+            # stream are independent concerns — handle them independently.
+            if is_thinking:
+                last_change_time = time.monotonic()
+                saw_thinking = True
             if current != last_dom_text:
                 last_change_time = time.monotonic()
                 if len(current) > len(last_dom_text):
-                    # Grew: yield just the newly appended chars.
                     delta = current[len(last_dom_text):]
                     yield StreamChunk(delta=delta)
-                # Else: text changed without growing (reformat/edit). Don't yield
-                # a delta here — the API reconcile path below corrects the final
-                # text. Just reset the stall clock (done above).
                 last_dom_text = current
 
-            if done:
+            # Non-text progress signals (images, tool-use, etc.)
+            if html_len != last_html_len or child_count != last_child_count:
+                last_change_time = time.monotonic()
+                if html_len > 50:
+                    had_non_text_content = True
+            last_html_len = html_len
+            last_child_count = child_count
+
+            # Done: the new message has its action button (copy/feedback),
+            # which ChatGPT renders only on a finished turn. This is immune to
+            # the Stop-button flicker and the empty-.markdown-during-streaming
+            # quirk that broke the earlier heuristics.
+            if has_action:
                 break
+
+            # Backend end_turn fallback (R4): when the DOM action-button
+            # selector drifts (it has, twice — composer redesign + the
+            # sibling-container layout), has_action stays false and the loop
+            # would stall. The conversation API's end_turn flag on the latest
+            # assistant text node is a stable secondary signal. Throttled to
+            # one fetch per 3s, only when has_action is false. Eligible when
+            # we have streamed text OR have seen a thinking phase — a long
+            # reasoning response has empty last_dom_text during thinking, but
+            # the backend can still report end_turn once the model finishes.
+            # Completion stays strict (end_turn AND usable content), so this
+            # unlock can't complete an empty answer. Fetch failures ignored.
+            if (
+                conv_id_for_check
+                and (last_dom_text or saw_thinking or is_thinking)
+                and time.monotonic() - last_backend_check > 3.0
+            ):
+                last_backend_check = time.monotonic()
+                try:
+                    if await self._fetch_end_turn(conv_id_for_check):
+                        # Completion stays STRICT: end_turn AND usable content.
+                        # The unlock (saw_thinking) lets us CONSULT the backend
+                        # during thinking, but we must not finish on a bare
+                        # end_turn with no answer text/non-text content — that
+                        # would complete an empty response.
+                        if last_dom_text or had_non_text_content:
+                            logger.info(
+                                "Backend end_turn=true (completion fallback) for %s",
+                                conv_id_for_check,
+                            )
+                            break
+                        logger.debug(
+                            "Backend end_turn=true but no content yet for %s — "
+                            "not completing (strict content guard)",
+                            conv_id_for_check,
+                        )
+                except Exception as e:
+                    logger.debug("end_turn fallback fetch failed (ignored): %s", e)
 
             if time.monotonic() - last_change_time > PHASE_STALL_SECONDS:
                 raise GenerationStuckError(
@@ -896,6 +1879,15 @@ class CDPDriver:
                 if api_text:
                     break
                 await asyncio.sleep(0.5)
+            # If no text was captured but Phase-2 detected non-text content
+            # (image, tool-use, etc.), surface a placeholder so the agent
+            # knows something was generated and where to find it.
+            if not last_dom_text and had_non_text_content:
+                placeholder = (
+                    "[Non-text response generated (image/tool-use/etc.) — "
+                    "use get_conversation to retrieve full content.]"
+                )
+                yield StreamChunk(delta=placeholder)
 
         yield StreamChunk(delta="", finish_reason="stop")
 
@@ -907,6 +1899,13 @@ class CDPDriver:
         AuthExpiredError) from a missing conversation (404) or a network
         error. This parse-and-raise happens here, before any return reaches
         the caller, so callers never see a raw status blob as text.
+
+        Picks the newest assistant text message by ``create_time`` rather than
+        trusting the API's ``current_node`` pointer: that pointer lags behind
+        on continued conversations (it still points at the previous turn right
+        after a send), which produced an off-by-one where request N returned
+        request N-1's text. The newest-by-create-time selection is immune to
+        that lag.
         """
         await self.ensure_token()
         try:
@@ -919,25 +1918,22 @@ class CDPDriver:
                 "    if (!r.ok) return JSON.stringify({__status: r.status});"
                 "    var conv = await r.json();"
                 "    var mapping = conv.mapping || {};"
-                "    var current = conv.current_node || '';"
-                "    // #12: Traverse backward from current_node to find the most"
-                "    // recent ASSISTANT node with text. current_node may point at a"
-                "    // user message or a wrong-branch leaf after regen/edit."
-                "    var n = current;"
-                "    var guard = 0;"
-                "    while (n && guard < 50) {"
-                "      guard++;"
-                "      var nd = mapping[n] || {};"
-                "      var msg = nd.message;"
-                "      if (msg && msg.author && msg.author.role === 'assistant') {"
-                "        if (msg.content && msg.content.content_type === 'text') {"
-                "          var parts = msg.content.parts || [];"
-                "          if (parts.length > 0 && parts[0]) return parts[0];"
-                "        }"
-                "      }"
-                "      n = nd.parent;"
+                # Find the NEWEST assistant text message by create_time.
+                # current_node lags on continued conversations, so we cannot
+                # trust it to point at the turn we just sent.
+                "    var best = null;"
+                "    var bestTime = -1;"
+                "    for (var k in mapping) {"
+                "      var n = mapping[k];"
+                "      var m = n.message;"
+                "      if (!m || !m.author || m.author.role !== 'assistant') continue;"
+                "      if (!m.content || m.content.content_type !== 'text') continue;"
+                "      var parts = m.content.parts || [];"
+                "      if (!parts.length || !parts.some(function(p){ return String(p).trim(); })) continue;"
+                "      var t = m.create_time || 0;"
+                "      if (t >= bestTime) { bestTime = t; best = parts.filter(function(p){ return String(p).trim(); }).join('\\n'); }"
                 "    }"
-                "    return '';"
+                "    return best || '';"
                 "  } catch(e) { return ''; }"
                 "})()",
                 {"conv_id": conversation_id, "token": self._access_token},
@@ -961,6 +1957,56 @@ class CDPDriver:
             if status is not None:
                 raise RuntimeError(f"_fetch_text HTTP {status} for {conversation_id}")
         return raw
+
+    async def _fetch_end_turn(self, conversation_id: str) -> bool:
+        """Backend secondary completion signal: is the latest assistant TEXT
+        node marked ``end_turn === true``?
+
+        A fallback for the Phase-2 DOM completion detector: if the action-
+        button selector drifts again (as it did when ChatGPT moved the buttons
+        to a sibling container), the DOM ``has_action`` stays false forever
+        and the loop stalls. This reads the conversation API and checks the
+        terminal flag on the newest assistant text node — the same
+        newest-by-create-time selection ``_fetch_text`` uses (NOT current_node,
+        which lags on continued conversations, and NOT reasoning_recap nodes,
+        which carry empty text).
+
+        Returns False on ANY failure (fetch error, parse error, no assistant
+        text node, end_turn falsy). Callers treat False as "not confirmed,
+        keep polling DOM" — this is defense-in-depth, never the sole signal.
+        """
+        await self.ensure_token()
+        try:
+            raw = await self._js_with_data_strict(
+                "(async function() {"
+                "  try {"
+                "    var r = await fetch('/backend-api/conversation/' + __D.conv_id + '?offset=0&limit=5', {"
+                "      headers: {'Authorization': 'Bearer ' + __D.token}"
+                "    });"
+                "    if (!r.ok) return 'false';"
+                "    var conv = await r.json();"
+                "    var mapping = conv.mapping || {};"
+                # Newest assistant TEXT node by create_time (mirrors
+                # _fetch_text: current_node lags; reasoning_recap has no text).
+                "    var bestTime = -1; var bestEnd = false;"
+                "    for (var k in mapping) {"
+                "      var n = mapping[k]; var m = n.message;"
+                "      if (!m || !m.author || m.author.role !== 'assistant') continue;"
+                "      if (!m.content || m.content.content_type !== 'text') continue;"
+                "      var parts = m.content.parts || [];"
+                "      if (!parts.length || !parts.some(function(p){ return String(p).trim(); })) continue;"
+                "      var t = m.create_time || 0;"
+                "      if (t >= bestTime) { bestTime = t; bestEnd = !!m.end_turn; }"
+                "    }"
+                "    return bestEnd ? 'true' : 'false';"
+                "  } catch(e) { return 'false'; }"
+                "})()",
+                {"conv_id": conversation_id, "token": self._access_token},
+                timeout=15,
+            )
+        except CDPJSError:
+            return False
+        return raw == "true"
 
     async def dismiss_rate_limit(self) -> bool:
         """Dismiss ChatGPT's 'Too many requests' pop-up by clicking 'Got it'.
@@ -1582,7 +2628,7 @@ class CDPDriver:
             result = await self._js(
                 "(function() {"
                 "  return JSON.stringify({"
-                "    ready: !!document.querySelector('#prompt-textarea'),"
+                f"    ready: !!document.querySelector('{COMPOSER_SELECTOR}') || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}'),"
                 "    url: location.href"
                 "  });"
                 "})()",
@@ -1689,9 +2735,27 @@ class CDPDriver:
             self._reader_task.cancel()
             try:
                 await asyncio.wait_for(self._reader_task, timeout=2)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
         self._reader_task = None
+        # Stop the heartbeat lease task and clear our registry entry so a
+        # future restart of THIS instance creates fresh rather than reclaiming
+        # a tab we just closed.
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await asyncio.wait_for(self._heartbeat_task, timeout=2)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
+        self._heartbeat_task = None
+        if self._tab_registry:
+            try:
+                # Only clear if the entry still belongs to us. If we crashed
+                # earlier, went stale, and another process reclaimed our
+                # instance's entry, unconditional clear would delete THEIR lease.
+                self._tab_registry.clear_if_owner(self._target_id)
+            except Exception as e:
+                logger.debug("Tab registry clear failed: %s", e)
         # Fail any pending futures so callers don't hang
         for mid, fut in list(self._pending.items()):
             if not fut.done():
@@ -1700,6 +2764,22 @@ class CDPDriver:
         if self._ws:
             await self._ws.close()
             self._ws = None
+        # Only close the attached tab if WE created it. An adopted tab
+        # (Chrome's launch tab, a leftover from a prior run, or a tab the
+        # user opened) is left alone — closing it would accumulate negative
+        # side-effects (killing a tab the user expects to stay open).
+        if self._target_id and self._owns_target:
+            try:
+                await self._browser_cdp(
+                    "Target.closeTarget", {"targetId": self._target_id}
+                )
+                logger.info("Closed owned tab: %s", self._target_id)
+            except Exception as e:
+                logger.debug("Could not close owned tab %s: %s", self._target_id, e)
+        elif self._target_id and not self._owns_target:
+            logger.info("Leaving adopted tab open: %s", self._target_id)
+        self._target_id = None
+        self._owns_target = False
         logger.info("CDP driver closed")
 
     @property

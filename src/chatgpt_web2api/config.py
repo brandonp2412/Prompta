@@ -8,7 +8,6 @@ import platform
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 def _default_chrome_path() -> str:
@@ -70,13 +69,20 @@ class ServerConfig:
 @dataclass
 class ChatGPTConfig:
     default_model: str = "auto"
-    default_project_id: Optional[str] = None
+    default_project_id: str | None = None
+    # Tab isolation strategy: "owned" (default) creates a dedicated chatgpt.com
+    # tab per driver/process via Target.createTarget so two simultaneous
+    # sessions don't contend on the same DOM. "adopt" reuses an existing
+    # chatgpt.com tab (the pre-multi-session behavior) for single-process
+    # compatibility. Owned tabs are the safe default because adoption lets one
+    # session navigate another's tab out from under it.
+    tab_mode: str = "owned"
 
 
 @dataclass
 class LogConfig:
     level: str = "INFO"
-    file: Optional[str] = None
+    file: str | None = None
 
 
 @dataclass
@@ -87,13 +93,36 @@ class Config:
     log: LogConfig = field(default_factory=LogConfig)
 
     @classmethod
-    def load(cls, path: Optional[str] = None) -> Config:
-        """Load config from file + env overrides."""
+    def load(cls, path: str | None = None) -> Config:
+        """Load config from file + env overrides.
+
+        If *path* is given, load that file. Otherwise auto-discover the
+        documented default at ``~/.chatgpt-web2api/config.json`` — the
+        deployment docs tell users to create it, and silently ignoring it
+        (the old behavior) was a footgun where following the docs yielded
+        defaults with no error. Auto-discovery is logged so it's never silent.
+        """
+        import logging
+        log = logging.getLogger("chatgpt_web2api.config")
         cfg = cls()
         if path and Path(path).exists():
             with open(path) as f:
                 data = json.load(f)
             cfg._apply_dict(data)
+            log.info("Loaded config from %s", path)
+        elif path is None:
+            # Auto-discover the documented default config location.
+            default_path = Path.home() / ".chatgpt_web2api" / "config.json"
+            if default_path.exists():
+                try:
+                    with open(default_path) as f:
+                        data = json.load(f)
+                    cfg._apply_dict(data)
+                    log.info("Loaded config from %s (auto-discovered)", default_path)
+                except (json.JSONDecodeError, OSError) as e:
+                    log.warning("Could not load default config %s: %s", default_path, e)
+            else:
+                log.debug("No default config at %s; using built-in defaults", default_path)
         cfg._apply_env()
         return cfg
 
@@ -125,6 +154,9 @@ class Config:
         c = data.get("default_project_id")
         if c:
             self.chatgpt.default_project_id = c
+        c = data.get("tab_mode")
+        if c in ("owned", "adopt"):
+            self.chatgpt.tab_mode = c
         c = data.get("request_timeout")
         if c is not None:
             self.server.request_timeout = int(c)
@@ -151,6 +183,9 @@ class Config:
             self.server.api_keys = [k.strip() for k in v.split(",") if k.strip()]
         if v := _env("W2A_DEFAULT_MODEL"):
             self.chatgpt.default_model = v
+        if v := _env("W2A_TAB_MODE"):
+            if v in ("owned", "adopt"):
+                self.chatgpt.tab_mode = v
         if v := _env("W2A_HEADLESS"):
             self.chrome.headless = v.lower() in ("true", "1", "yes")
         if v := _env("W2A_LOG_LEVEL"):
@@ -167,6 +202,7 @@ class Config:
             "api_keys": self.server.api_keys,
             "default_model": self.chatgpt.default_model,
             "default_project_id": self.chatgpt.default_project_id,
+            "tab_mode": self.chatgpt.tab_mode,
             "request_timeout": self.server.request_timeout,
             "log_level": self.log.level,
         }

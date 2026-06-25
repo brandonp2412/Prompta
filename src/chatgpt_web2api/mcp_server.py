@@ -33,23 +33,25 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field
 from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from pydantic import BaseModel, Field
 
-from .config import Config
 from .cdp_driver import (
     AuthExpiredError,
     CDPDriver,
     GenerationStuckError,
     RateLimitError,
 )
-from .resilience import retry_on_rate_limit
+from .config import Config
 from .cross_process_lock import CrossProcessLock, LockAcquisitionError
+from .resilience import retry_on_rate_limit
+from .tab_registry import TabRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +74,7 @@ ProgressCallback = Callable[[str], Awaitable[None]]
 class ChatCompletionInput(BaseModel):
     """Input schema for chat_completion tool."""
     message: str = Field(description="The user message to send to ChatGPT")
-    system_prompt: Optional[str] = Field(
+    system_prompt: str | None = Field(
         default=None,
         description=(
             "System instructions prepended to the message. "
@@ -89,7 +91,7 @@ class ChatCompletionInput(BaseModel):
             "Use list_models to see all available slugs."
         ),
     )
-    conversation_id: Optional[str] = Field(
+    conversation_id: str | None = Field(
         default=None,
         description=(
             "UUID of an existing conversation to continue. "
@@ -98,7 +100,7 @@ class ChatCompletionInput(BaseModel):
             "Pass a specific ID to resume a particular conversation."
         ),
     )
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         default=None,
         description=(
             "ChatGPT project gizmo ID (e.g. g-p-abc123) for project-scoped "
@@ -659,7 +661,7 @@ _MUTATING_TOOLS = frozenset({
 # Business Logic — pure functions (official pattern from mcp-server-git)
 # ═══════════════════════════════════════════════════════════════
 
-async def _notify(on_progress: Optional[ProgressCallback], message: str) -> None:
+async def _notify(on_progress: ProgressCallback | None, message: str) -> None:
     """Invoke a progress callback if present, swallowing any error.
 
     Defense-in-depth: even if the caller hands us a raw (non-helper-built)
@@ -677,7 +679,7 @@ async def _notify(on_progress: Optional[ProgressCallback], message: str) -> None
 
 async def do_chat_completion(
     driver: CDPDriver, args: dict, config: Config,
-    on_progress: Optional[ProgressCallback] = None,
+    on_progress: ProgressCallback | None = None,
 ) -> dict:
     """Execute a chat completion through the CDP driver."""
     validated = ChatCompletionInput(**args)
@@ -704,7 +706,13 @@ async def do_chat_completion(
     if validated.conversation_id:
         await driver.navigate_conversation(validated.conversation_id)
     elif driver._current_conv_id and not validated.system_prompt and not project_id:
+        # Auto-continue: reconcile against the live tab before sending. Another
+        # process sharing the Chrome tab may have navigated it, leaving
+        # _current_conv_id stale. ensure_current_conversation verifies the live
+        # URL and navigates back if needed (fail-closed). Raises rather than
+        # typing into the wrong conversation.
         logger.info("Auto-continuing conversation: %s", driver._current_conv_id)
+        await driver.ensure_current_conversation(driver._current_conv_id)
     else:
         await driver.navigate_new_chat(gizmo_id=project_id)
 
@@ -894,7 +902,7 @@ async def do_list_memories(driver: CDPDriver) -> dict:
 
 async def do_create_memory(
     driver: CDPDriver, args: dict,
-    on_progress: Optional[ProgressCallback] = None,
+    on_progress: ProgressCallback | None = None,
 ) -> dict:
     """Create a new ChatGPT memory.
 
@@ -944,7 +952,7 @@ async def do_list_project_files(driver: CDPDriver, args: dict) -> dict:
 
 async def do_chat_with_gpt(
     driver: CDPDriver, args: dict,
-    on_progress: Optional[ProgressCallback] = None,
+    on_progress: ProgressCallback | None = None,
 ) -> dict:
     """Chat with a specific Custom GPT."""
     validated = ChatWithGptInput(**args)
@@ -1526,13 +1534,13 @@ def create_server() -> Server:
                 )],
                 isError=True,
             )
-        except LockAcquisitionError as e:
+        except LockAcquisitionError:
             # Another process holds the cross-process lock for this Chrome tab
             # and didn't release it within the timeout. The caller should retry.
             return mcp_types.CallToolResult(
                 content=[mcp_types.TextContent(
                     type="text",
-                    text=f"Browser busy — another operation in progress. Retry later. (lock_timeout)",
+                    text="Browser busy — another operation in progress. Retry later. (lock_timeout)",
                 )],
                 isError=True,
             )
@@ -1805,7 +1813,13 @@ async def run_mcp(
     _config = config
     _lock_cdp_port = config.chrome.cdp_port
 
-    _driver = CDPDriver(cdp_port=config.chrome.cdp_port)
+    _driver = CDPDriver(
+        cdp_port=config.chrome.cdp_port,
+        tab_mode=config.chatgpt.tab_mode,
+        instance_id=TabRegistry.derive_instance_id(
+            cdp_port=config.chrome.cdp_port, server_identity="mcp",
+        ),
+    )
     try:
         await _driver.connect()
         logger.info("Connected to Chrome on CDP port %d", config.chrome.cdp_port)
@@ -1816,6 +1830,8 @@ async def run_mcp(
             config.chrome.cdp_port,
             e,
         )
+        # Clean up any tab that connect() may have created before failing
+        await _driver.close()
         return
 
     server = create_server()
@@ -1834,40 +1850,58 @@ async def run_mcp(
 async def _run_sse(
     server: Server, init_options, config: Config, port: int
 ) -> None:
-    """Run MCP server with SSE transport for remote/web clients."""
+    """Run MCP server with SSE transport via Starlette + uvicorn.
+
+    The MCP library's ``SseServerTransport`` is ASGI-native (built on
+    ``sse_starlette``, designed for Starlette). The previous
+    implementation tried to bridge aiohttp requests into ASGI scopes —
+    that was broken since inception (``request.scope`` doesn't exist on
+    aiohttp) and the aiohttp→ASGI rewrite couldn't flush SSE chunks to
+    the wire. Instead of fighting the framework mismatch, we run a
+    proper Starlette ASGI app under uvicorn for the SSE transport.
+
+    The stdio transport is unaffected — it stays on its existing path.
+    """
+    import uvicorn
     from mcp.server.sse import SseServerTransport
-    from aiohttp import web
+    from starlette.applications import Starlette
+    from starlette.responses import Response
+    from starlette.routing import Mount, Route
 
     warn_non_loopback(config.server.host, "SSE")
 
     sse = SseServerTransport("/messages")
 
-    async def handle_sse(request: web.Request):
+    async def handle_sse(request):
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
             await server.run(
                 streams[0], streams[1], init_options, raise_exceptions=True
             )
-        return web.Response()
+        return Response()
 
-    app = web.Application(client_max_size=10 * 1024 * 1024)
-    app.router.add_get("/sse", handle_sse)
-    app.router.add_post("/messages", sse.handle_post_message)
+    # handle_post_message is a raw ASGI app (scope, receive, send) that
+    # sends its own HTTP response. Mount it directly — not as a Starlette
+    # endpoint, which would try to wrap it in a second response.
+    app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse, methods=["GET"]),
+            Mount("/messages", app=sse.handle_post_message),
+        ]
+    )
 
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, config.server.host, port)
-    await site.start()
     logger.info("MCP SSE server on http://%s:%d/sse", config.server.host, port)
 
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await runner.cleanup()
+    uconfig = uvicorn.Config(
+        app,
+        host=config.server.host,
+        port=port,
+        log_level="warning",
+        loop="asyncio",
+    )
+    uvi = uvicorn.Server(uconfig)
+    await uvi.serve()
 
 
 # ═══════════════════════════════════════════════════════════════

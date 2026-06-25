@@ -12,13 +12,12 @@ limit is retried transparently first; only a persistent limit reaches
 the client.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from chatgpt_web2api.cdp_driver import RateLimitError
 import chatgpt_web2api.mcp_server as mod
+from chatgpt_web2api.cdp_driver import RateLimitError
 
 
 def _make_server_with_raising_driver(raises: Exception | None):
@@ -30,6 +29,7 @@ def _make_server_with_raising_driver(raises: Exception | None):
     driver.select_model = AsyncMock(return_value=True)
     driver.navigate_new_chat = AsyncMock()
     driver.navigate_conversation = AsyncMock()
+    driver.ensure_current_conversation = AsyncMock()
     driver._current_conv_id = ""
     driver._current_model = None
 
@@ -104,6 +104,7 @@ async def test_mcp_chat_transient_rate_limit_retries_transparently(monkeypatch):
     driver.dismiss_rate_limit = AsyncMock(return_value=True)
     driver.select_model = AsyncMock(return_value=True)
     driver.navigate_new_chat = AsyncMock()
+    driver.ensure_current_conversation = AsyncMock()
     driver._current_conv_id = "conv-1"
     driver._current_model = None
 

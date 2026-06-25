@@ -14,7 +14,6 @@ import json
 import logging
 import time
 import uuid
-from typing import Optional
 
 from aiohttp import web
 
@@ -57,9 +56,18 @@ class APIServer:
         self._driver = driver
         self._cdp_port = config.chrome.cdp_port
         self._request_count = 0
+        # Health telemetry (event-derived, not polled). These are the only
+        # fields that make sense to cache: they mark WHEN something happened,
+        # not whether something is alive right now (that's computed live in
+        # _handle_health). Without last_successful_send_at, a zombie process
+        # that never connected (cdp_connected=false, requests_served=0) looks
+        # identical to a freshly-started healthy one — both report "waiting".
+        self._started_at = time.time()
+        self._last_error: str | None = None
+        self._last_successful_send_at: float | None = None
         # Track last conversation for multi-turn continuity
-        self._last_conv_id: Optional[str] = None
-        self._last_project_id: Optional[str] = None
+        self._last_conv_id: str | None = None
+        self._last_project_id: str | None = None
 
         self.app = web.Application(client_max_size=10 * 1024 * 1024)
         self.app.router.add_post("/v1/chat/completions", self._handle_chat)
@@ -71,7 +79,7 @@ class APIServer:
 
     # ── Auth ──────────────────────────────────────────────────
 
-    def _check_auth(self, request: web.Request) -> Optional[web.Response]:
+    def _check_auth(self, request: web.Request) -> web.Response | None:
         """Check API key if configured. Returns error response or None."""
         keys = self._config.server.api_keys
         if not keys:
@@ -91,10 +99,65 @@ class APIServer:
     # ── Handlers ──────────────────────────────────────────────
 
     async def _handle_health(self, request: web.Request) -> web.Response:
+        """Honest health endpoint — observes current reality, not a stale mirror.
+
+        The old version returned ``"waiting"`` when CDP was disconnected, which
+        is indistinguishable from "freshly started, connecting now" — a zombie
+        process (HTTP listener up, CDP never connected) reported the same
+        status as a healthy one. This version distinguishes four states:
+
+        - ``starting``: listener up, driver not yet connected, never served
+        - ``healthy``: Chrome alive AND driver connected
+        - ``degraded``: Chrome alive but driver disconnected (zombie/recovering)
+        - ``broken``: Chrome itself unreachable
+
+        Live fields (chrome_running, driver_connected) are computed fresh on
+        each call — /health is infrequent (supervisor poll), and cached state
+        would lag reality. Event-derived fields (started_at, last_error,
+        last_successful_send_at, requests_served) are tracked on the instance.
+        """
+        import urllib.request
+
+        driver_connected = bool(self._driver.is_connected)
+
+        # Chrome liveness: cheap HTTP GET to /json/version. If Chrome is dead,
+        # this fails fast (connection refused). Run synchronously — /health is
+        # infrequent and the call is sub-millisecond on loopback.
+        chrome_running = False
+        try:
+            loop = asyncio.get_event_loop()
+            def _probe():
+                try:
+                    with urllib.request.urlopen(
+                        f"http://127.0.0.1:{self._cdp_port}/json/version", timeout=2
+                    ) as r:
+                        return r.status == 200
+                except Exception:
+                    return False
+            chrome_running = await loop.run_in_executor(None, _probe)
+        except Exception:
+            chrome_running = False
+
+        # Status logic — zombie case (Chrome up, driver dead) is "degraded",
+        # never "ok"/"waiting". The old "waiting" non-answer is gone.
+        if not chrome_running:
+            status = "broken"
+        elif not driver_connected:
+            status = "degraded"
+        elif self._last_successful_send_at is None and self._request_count == 0:
+            status = "starting"
+        else:
+            status = "healthy"
+
         return web.json_response({
-            "status": "ok" if self._driver.is_connected else "waiting",
-            "cdp_connected": self._driver.is_connected,
+            "status": status,
+            "chrome_running": chrome_running,
+            "cdp_connected": driver_connected,
+            "driver_connected": driver_connected,
             "requests_served": self._request_count,
+            "started_at": self._started_at,
+            "last_successful_send_at": self._last_successful_send_at,
+            "last_error": self._last_error,
         })
 
     async def _handle_models(self, request: web.Request) -> web.Response:
@@ -233,9 +296,13 @@ class APIServer:
                       and self._driver._current_conv_id == self._last_conv_id
                       and project_id == self._last_project_id
                       and not system_parts):
-                    # Same session, same project, no system prompt override — continue
+                    # Same session, same project, no system prompt override — continue.
+                    # Reconcile against the live tab before sending: another process
+                    # sharing the Chrome tab may have navigated it since our last turn,
+                    # which would leave _current_conv_id stale. ensure_current_conversation
+                    # verifies location.href and navigates back if needed (fail-closed).
                     logger.info("Continuing conversation: %s", self._last_conv_id)
-                    await asyncio.sleep(2)  # Let the page settle
+                    await self._driver.ensure_current_conversation(self._last_conv_id)
                 else:
                     # Fresh chat
                     await self._driver.navigate_new_chat(gizmo_id=project_id)
@@ -248,6 +315,7 @@ class APIServer:
 
             except Exception as e:
                 logger.error("Chat error: %s", e, exc_info=True)
+                self._last_error = f"{type(e).__name__}: {e}"
                 return self._error_response(e)
 
     # ── Error mapping ─────────────────────────────────────────
@@ -346,6 +414,7 @@ class APIServer:
 
         conv_id = self._driver._current_conv_id or ""
         self._last_conv_id = conv_id
+        self._last_successful_send_at = time.time()
 
         return web.json_response({
             "id": f"chatcmpl-{uuid.uuid4().hex[:29]}",
@@ -429,6 +498,8 @@ class APIServer:
                 if chunk.finish_reason:
                     conv_id = self._driver._current_conv_id or ""
                     self._last_conv_id = conv_id
+                    if chunk.finish_reason == "stop":
+                        self._last_successful_send_at = time.time()
                     await self._send_sse(resp, {
                         "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
                         "conversation_id": conv_id,

@@ -11,17 +11,16 @@ Owns the entire system:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import signal
 import sys
 import time
-from typing import Optional
 
-from .chrome import ChromeProcess
-from .cdp_driver import CDPDriver
 from .api_server import APIServer
+from .cdp_driver import CDPDriver
+from .chrome import ChromeProcess
 from .config import Config
+from .tab_registry import TabRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +30,9 @@ class Service:
 
     def __init__(self, config: Config) -> None:
         self._config = config
-        self._chrome: Optional[ChromeProcess] = None
-        self._driver: Optional[CDPDriver] = None
-        self._server: Optional[APIServer] = None
+        self._chrome: ChromeProcess | None = None
+        self._driver: CDPDriver | None = None
+        self._server: APIServer | None = None
         self._runner = None
         self._shutdown_event = asyncio.Event()
 
@@ -54,7 +53,14 @@ class Service:
 
         # 2. CDP driver (with login detection)
         logger.info("Connecting CDP driver...")
-        self._driver = CDPDriver(cdp_port=cfg.chrome.cdp_port)
+        self._driver = CDPDriver(
+            cdp_port=cfg.chrome.cdp_port,
+            tab_mode=cfg.chatgpt.tab_mode,
+            instance_id=TabRegistry.derive_instance_id(
+                cdp_port=cfg.chrome.cdp_port,
+                server_identity=f"rest:{cfg.server.port}",
+            ),
+        )
 
         try:
             await self._driver.connect()
@@ -131,14 +137,67 @@ class Service:
     async def _start_server(self):
         from aiohttp import web
 
+        cfg = self._config
+        self._check_bind_safety(cfg)  # fail-fast before binding
+
         runner = web.AppRunner(self._server.app)
         await runner.setup()
 
-        cfg = self._config
         site = web.TCPSite(runner, cfg.server.host, cfg.server.port)
         await site.start()
 
         return runner
+
+    @staticmethod
+    def _check_bind_safety(cfg: Config) -> None:
+        """Fail-fast guard against exposing an unauthenticated API remotely.
+
+        Behavior matrix (agreed in review):
+          loopback + no keys              → allow, banner "local no-auth"
+          non-loopback + keys             → allow, banner "remote with auth"
+          non-loopback + no keys, no env  → raise (fail startup)
+          non-loopback + no keys + env    → allow, LOUD warning
+
+        The env override is ``W2A_ALLOW_UNAUTH_REMOTE=1``. The error message
+        names it so a user who hits the failure knows the escape hatch.
+        """
+        import os
+        # Normalize empty/None to explicit loopback — security defaults must
+        # not rely on empty-string semantics (aiohttp's empty-host bind is
+        # loopback today, but making it explicit avoids ambiguity).
+        host = (cfg.server.host or "127.0.0.1").lower()
+        loopback = host in ("127.0.0.1", "::1", "localhost")
+        has_keys = bool(cfg.server.api_keys)
+        allow_unauth_remote = os.environ.get("W2A_ALLOW_UNAUTH_REMOTE", "").strip() == "1"
+
+        if loopback and not has_keys:
+            logger.warning(
+                "API bound to loopback (%s) with no api_keys — local no-auth "
+                "mode. Safe for single-user local use; do NOT bind remotely "
+                "without setting api_keys.", host or "127.0.0.1",
+            )
+        elif not loopback and has_keys:
+            logger.warning(
+                "API bound to non-loopback %s — network-reachable. Auth is "
+                "ENABLED (api_keys set). Confirm this interface is intended.",
+                host,
+            )
+        elif not loopback and not has_keys and not allow_unauth_remote:
+            raise RuntimeError(
+                f"Refusing to start: API bound to non-loopback {host} with no "
+                f"api_keys configured — this would expose an unauthenticated "
+                f"OpenAI-compatible API to the network. Set 'api_keys' in your "
+                f"config, bind to 127.0.0.1, or set W2A_ALLOW_UNAUTH_REMOTE=1 "
+                f"to override (NOT recommended)."
+            )
+        elif not loopback and not has_keys and allow_unauth_remote:
+            logger.warning(
+                "WARNING: API bound to non-loopback %s with no api_keys — "
+                "UNAUTHENTICATED REMOTE ACCESS enabled via "
+                "W2A_ALLOW_UNAUTH_REMOTE=1. Anyone who can reach this host "
+                "can use your ChatGPT account. This is strongly discouraged.",
+                host,
+            )
 
     def _print_banner(self) -> None:
         cfg = self._config
