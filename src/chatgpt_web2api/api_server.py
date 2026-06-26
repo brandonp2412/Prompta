@@ -17,7 +17,7 @@ import uuid
 
 from aiohttp import web
 
-from .breakers import BreakerRegistry
+from .breakers import BreakerKind, BreakerRegistry, CircuitOpenError
 from .cdp_driver import (
     AuthExpiredError,
     CDPDriver,
@@ -52,7 +52,9 @@ MODEL_MAP = {
 class APIServer:
     """OpenAI-compatible API backed by CDP automation."""
 
-    def __init__(self, config: Config, driver: CDPDriver) -> None:
+    def __init__(
+        self, config: Config, driver: CDPDriver, breakers: BreakerRegistry | None = None
+    ) -> None:
         self._config = config
         self._driver = driver
         self._cdp_port = config.chrome.cdp_port
@@ -66,10 +68,10 @@ class APIServer:
         self._started_at = time.time()
         self._last_error: str | None = None
         self._last_successful_send_at: float | None = None
-        # Non-rate-limit breaker registry (Phase 4, PR1). Snapshotted into
-        # /health below; no failure signals are recorded yet, so it always
-        # reports all breakers closed. PR2 wires the real trip signals.
-        self._breakers = BreakerRegistry()
+        # Non-rate-limit breaker registry (Phase 4). Injected by Service so the
+        # REST process shares one registry across Chrome + driver + server.
+        # Default-constructed for back-compat with tests that don't pass one.
+        self._breakers = breakers or BreakerRegistry()
         # Track last conversation for multi-turn continuity
         self._last_conv_id: str | None = None
         self._last_project_id: str | None = None
@@ -131,6 +133,7 @@ class APIServer:
         chrome_running = False
         try:
             loop = asyncio.get_event_loop()
+
             def _probe():
                 try:
                     with urllib.request.urlopen(
@@ -139,6 +142,7 @@ class APIServer:
                         return r.status == 200
                 except Exception:
                     return False
+
             chrome_running = await loop.run_in_executor(None, _probe)
         except Exception:
             chrome_running = False
@@ -154,17 +158,19 @@ class APIServer:
         else:
             status = "healthy"
 
-        return web.json_response({
-            "status": status,
-            "chrome_running": chrome_running,
-            "cdp_connected": driver_connected,
-            "driver_connected": driver_connected,
-            "requests_served": self._request_count,
-            "started_at": self._started_at,
-            "last_successful_send_at": self._last_successful_send_at,
-            "last_error": self._last_error,
-            "breakers": self._breakers.snapshot(),
-        })
+        return web.json_response(
+            {
+                "status": status,
+                "chrome_running": chrome_running,
+                "cdp_connected": driver_connected,
+                "driver_connected": driver_connected,
+                "requests_served": self._request_count,
+                "started_at": self._started_at,
+                "last_successful_send_at": self._last_successful_send_at,
+                "last_error": self._last_error,
+                "breakers": self._breakers.snapshot(),
+            }
+        )
 
     async def _handle_models(self, request: web.Request) -> web.Response:
         if err := self._check_auth(request):
@@ -177,16 +183,25 @@ class APIServer:
         models = []
         for m in raw:
             slug = m.get("slug", "")
-            models.append({
-                "id": slug,
-                "object": "model",
-                "created": 1700000000,
-                "owned_by": "chatgpt-web",
-            })
+            models.append(
+                {
+                    "id": slug,
+                    "object": "model",
+                    "created": 1700000000,
+                    "owned_by": "chatgpt-web",
+                }
+            )
 
         if not models:
             for slug in ["auto", "gpt-5-5", "gpt-5-mini"]:
-                models.append({"id": slug, "object": "model", "created": 1700000000, "owned_by": "chatgpt-web"})
+                models.append(
+                    {
+                        "id": slug,
+                        "object": "model",
+                        "created": 1700000000,
+                        "owned_by": "chatgpt-web",
+                    }
+                )
 
         return web.json_response({"object": "list", "data": models})
 
@@ -243,8 +258,7 @@ class APIServer:
             content = msg.get("content", "")
             if isinstance(content, list):
                 content = "\n".join(
-                    p.get("text", "") if isinstance(p, dict) else str(p)
-                    for p in content
+                    p.get("text", "") if isinstance(p, dict) else str(p) for p in content
                 )
             else:
                 content = str(content)
@@ -259,7 +273,7 @@ class APIServer:
 
         # Trim to last N turns if too many messages
         if len(conversation_lines) > MAX_HISTORY_TURNS * 2:
-            conversation_lines = conversation_lines[-(MAX_HISTORY_TURNS * 2):]
+            conversation_lines = conversation_lines[-(MAX_HISTORY_TURNS * 2) :]
 
         # Verify at least one user message exists
         if user_msg_count == 0:
@@ -279,12 +293,33 @@ class APIServer:
 
         logger.info(
             "Request #%d: model=%s->%s conv=%s project=%s stream=%s msg=%.60s",
-            self._request_count, model, model_slug, conversation_id, project_id, stream, full_text,
+            self._request_count,
+            model,
+            model_slug,
+            conversation_id,
+            project_id,
+            stream,
+            full_text,
         )
 
         # Serialize — cross-process lock so MCP + REST don't corrupt each other
-        async with CrossProcessLock(cdp_port=self._cdp_port):
-            try:
+        try:
+            # Circuit-open fail-fast (Phase 4 PR2): refuse before touching Chrome
+            # if a breaker is open. Placed inside the try so it flows through
+            # the except below → _error_response + _last_error, consistent with
+            # every other failure path. Checked before acquiring the lock so a
+            # process that already knows it will refuse doesn't block on the
+            # browser lock. If AUTH_EXPIRED is open, probes auth recovery first
+            # (the user may have logged back in).
+            await self._check_circuit_or_recover()
+
+            async with CrossProcessLock(cdp_port=self._cdp_port):
+                # Second circuit-open check, now that we hold the lock. A
+                # concurrent request may have tripped a breaker while we were
+                # waiting. Without this, we'd drive Chrome despite the process
+                # already knowing the circuit is open.
+                await self._check_circuit_or_recover()
+
                 # Select model if specified (non-fatal on failure)
                 if model_slug and model_slug != "auto":
                     selected = await self._driver.select_model(model_slug)
@@ -298,10 +333,12 @@ class APIServer:
                 if conversation_id:
                     # Explicit conversation_id from client — navigate to it
                     await self._driver.navigate_conversation(conversation_id)
-                elif (self._last_conv_id
-                      and self._driver._current_conv_id == self._last_conv_id
-                      and project_id == self._last_project_id
-                      and not system_parts):
+                elif (
+                    self._last_conv_id
+                    and self._driver._current_conv_id == self._last_conv_id
+                    and project_id == self._last_project_id
+                    and not system_parts
+                ):
                     # Same session, same project, no system prompt override — continue.
                     # Reconcile against the live tab before sending: another process
                     # sharing the Chrome tab may have navigated it since our last turn,
@@ -319,10 +356,32 @@ class APIServer:
                 else:
                     return await self._full_response(request, model_slug, full_text, timeout)
 
-            except Exception as e:
-                logger.error("Chat error: %s", e, exc_info=True)
-                self._last_error = f"{type(e).__name__}: {e}"
-                return self._error_response(e)
+        except Exception as e:
+            logger.error("Chat error: %s", e, exc_info=True)
+            self._last_error = f"{type(e).__name__}: {e}"
+            return self._error_response(e)
+
+    async def _check_circuit_or_recover(self) -> None:
+        """Fail-fast if a breaker is open, with one exception: if AUTH_EXPIRED
+        is the open breaker, probe auth recovery first (the user may have logged
+        back in via the browser since the trip). If recovery succeeds the breaker
+        is reset and the request proceeds; if it fails, or if a non-auth breaker
+        is open, raise CircuitOpenError.
+
+        Called at each fail-fast checkpoint (pre-lock, post-lock, streaming
+        pre-prepare). Does NOT drive a chat send — recovery is a lightweight
+        ``/api/auth/session`` token fetch via ``driver.recover_auth()``.
+        """
+        open_kind = self._breakers.first_open()
+        if open_kind is None:
+            return
+        if open_kind is BreakerKind.AUTH_EXPIRED:
+            if await self._driver.recover_auth():
+                # Auth restored — re-check in case another breaker is also open.
+                open_kind = self._breakers.first_open()
+                if open_kind is None:
+                    return
+        raise CircuitOpenError(open_kind)
 
     # ── Error mapping ─────────────────────────────────────────
 
@@ -392,6 +451,20 @@ class APIServer:
                 },
                 status=503,
             )
+        if isinstance(exc, CircuitOpenError):
+            return web.json_response(
+                {
+                    "error": {
+                        "message": (
+                            f"Circuit open for {exc.kind.value} — cooling down. Retry later."
+                        ),
+                        "type": "server_error",
+                        "param": None,
+                        "code": "circuit_open",
+                    }
+                },
+                status=503,
+            )
         return web.json_response(
             {"error": {"message": str(exc), "type": "server_error"}},
             status=500,
@@ -422,19 +495,23 @@ class APIServer:
         self._last_conv_id = conv_id
         self._last_successful_send_at = time.time()
 
-        return web.json_response({
-            "id": f"chatcmpl-{uuid.uuid4().hex[:29]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "conversation_id": conv_id,
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": full_text},
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        })
+        return web.json_response(
+            {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:29]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "conversation_id": conv_id,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": full_text},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        )
 
     async def _stream_response(
         self, request: web.Request, model: str, text: str, timeout: float
@@ -479,6 +556,12 @@ class APIServer:
             # Persistent at pre-flight: still pre-prepare, so send a clean 429.
             raise
 
+        # Circuit-open fail-fast (Phase 4 PR2): final check, after rate-limit
+        # preflight but still before prepare() commits HTTP 200. A breaker may
+        # have opened during model selection/navigation. After prepare() no
+        # status change is possible, so this must stay pre-prepare.
+        await self._check_circuit_or_recover()
+
         resp = web.StreamResponse()
         resp.content_type = "text/event-stream"
         resp.headers["Cache-Control"] = "no-cache"
@@ -489,59 +572,143 @@ class APIServer:
         created = int(time.time())
 
         # Role chunk
-        await self._send_sse(resp, {
-            "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-            "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
-        })
+        await self._send_sse(
+            resp,
+            {
+                "id": cid,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": ""},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+        )
 
         try:
             async for chunk in self._driver.send_and_stream(text, timeout=timeout):
                 if chunk.delta:
-                    await self._send_sse(resp, {
-                        "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-                        "choices": [{"index": 0, "delta": {"content": chunk.delta}, "finish_reason": None}],
-                    })
+                    await self._send_sse(
+                        resp,
+                        {
+                            "id": cid,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": chunk.delta},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        },
+                    )
                 if chunk.finish_reason:
                     conv_id = self._driver._current_conv_id or ""
                     self._last_conv_id = conv_id
                     if chunk.finish_reason == "stop":
                         self._last_successful_send_at = time.time()
-                    await self._send_sse(resp, {
-                        "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-                        "conversation_id": conv_id,
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": chunk.finish_reason}],
-                    })
+                    await self._send_sse(
+                        resp,
+                        {
+                            "id": cid,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "conversation_id": conv_id,
+                            "choices": [
+                                {"index": 0, "delta": {}, "finish_reason": chunk.finish_reason}
+                            ],
+                        },
+                    )
         except RateLimitError as e:
             # Mid-stream throttle (rare after pre-flight). Status is locked at
             # 200, so we can't upgrade to 429; surface as an inline error chunk
             # with a recognizable marker so clients can detect it.
             logger.warning("Mid-stream rate limit: %s", e)
-            await self._send_sse(resp, {
-                "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-                "choices": [{"index": 0, "delta": {"content": f"\n\n[Error: rate_limit_exceeded — retry in {e.retry_after}s]"}, "finish_reason": "error"}],
-            })
+            await self._send_sse(
+                resp,
+                {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": f"\n\n[Error: rate_limit_exceeded — retry in {e.retry_after}s]"
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
+                },
+            )
         except AuthExpiredError:
             # Session expired mid-stream (status locked at 200). Surface with a
             # recognizable marker so clients can prompt re-login.
             logger.warning("Mid-stream auth expiry")
-            await self._send_sse(resp, {
-                "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-                "choices": [{"index": 0, "delta": {"content": "\n\n[Error: auth_expired — re-login required]"}, "finish_reason": "error"}],
-            })
+            await self._send_sse(
+                resp,
+                {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "\n\n[Error: auth_expired — re-login required]"},
+                            "finish_reason": "error",
+                        }
+                    ],
+                },
+            )
         except GenerationStuckError as e:
             # Generation stalled mid-stream (status locked at 200). Surface the
             # phase + duration so the client can decide whether to retry.
             logger.warning("Mid-stream generation stuck: %s", e)
-            await self._send_sse(resp, {
-                "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-                "choices": [{"index": 0, "delta": {"content": f"\n\n[Error: generation_stuck — stalled in {e.phase} for {e.stalled_for_s:.0f}s]"}, "finish_reason": "error"}],
-            })
+            await self._send_sse(
+                resp,
+                {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": f"\n\n[Error: generation_stuck — stalled in {e.phase} for {e.stalled_for_s:.0f}s]"
+                            },
+                            "finish_reason": "error",
+                        }
+                    ],
+                },
+            )
         except Exception as e:
             logger.error("Stream error: %s", e)
-            await self._send_sse(resp, {
-                "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
-                "choices": [{"index": 0, "delta": {"content": f"\n\n[Error: {e}]"}, "finish_reason": "error"}],
-            })
+            await self._send_sse(
+                resp,
+                {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": f"\n\n[Error: {e}]"},
+                            "finish_reason": "error",
+                        }
+                    ],
+                },
+            )
 
         await resp.write(b"data: [DONE]\n\n")
         await resp.write_eof()
