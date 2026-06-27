@@ -143,6 +143,24 @@ resp = client.chat.completions.create(
 
 ---
 
+## Option 4: OS-level supervision (always-on / server)
+
+To run the proxy continuously under an OS supervisor (survives reboots,
+restarts on failure), see the dedicated **[OS-Level Supervision Guide](os-supervision.md)**.
+It covers systemd (Linux), launchd (macOS), and Task Scheduler / NSSM (Windows),
+with two supervisor styles:
+
+- **`ensure` on a timer** — mirrors the ZCode hook model; reconciles REST + SSE
+  on a schedule, no long-lived Python process.
+- **`start` + `chatgpt-web2api-mcp` as services** — classic always-on; the
+  supervisor owns restart policy for the two long-lived processes (REST owns
+  Chrome; MCP/SSE is a separate process that attaches to it).
+
+The guide is documentation only — no supervisor scripts are installed by the
+package. ZCode users should prefer the `ensure` hook over OS supervision.
+
+---
+
 ## Cookie Export Guide (Detailed)
 
 ### Chrome — EditThisCookie
