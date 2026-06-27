@@ -351,6 +351,59 @@ it and cause destructive browser flapping. See [os-supervision.md](os-supervisio
 2. **Chrome is wedged** (CDP port probe fails, `chrome_crash_loop` tripping).
 3. **After a code/config change** that requires a fresh process.
 
+### Code/package updates — restart the processes, do not just re-`ensure`
+
+> **`ensure` is a readiness reconciler, not a hot-reload or deploy mechanism.**
+> It reconciles REST + MCP/SSE to a healthy state and will cold-start a missing
+> process, but it will **not** restart an already-healthy process merely because
+> the source code changed. A post-merge process running stale code is healthy by
+> `ensure`'s definition, so it is left alone.
+
+After pulling a code/package update (e.g. `pip install -U`, a merged fix), the
+long-lived processes must be **restarted explicitly** to load the new code.
+**Do not restart REST and MCP back-to-back** — MCP exits during startup if it
+cannot reach Chrome/CDP (`run_mcp()` logs `"Cannot connect to Chrome"`, cleans
+up, and returns without starting the SSE listener), so a blind sequence leaves
+no MCP listener. Restart REST **first**, confirm REST/Chrome/CDP is ready,
+**then** restart MCP.
+
+**Split-service style** (the recommended always-on layout from
+[os-supervision.md](os-supervision.md)) — ordered, not back-to-back:
+
+```bash
+# 1. Restart REST (it owns Chrome, so this relaunches Chrome too).
+systemctl --user restart chatgpt-web2api.service
+
+# 2. Wait until REST/Chrome/CDP is actually ready. `ensure` reconciles and
+#    exits 0 only when REST is ready — or poll /health until
+#    chrome_running=true and driver_connected=true.
+chatgpt-web2api ensure --rest-port 8080 --mcp-sse-port 8090 --cdp-port 9222
+
+# 3. NOW restart MCP/SSE. It connects to the already-ready Chrome over CDP.
+systemctl --user restart chatgpt-web2api-mcp.service
+
+# 4. Re-run ensure (or an MCP tool call) to confirm the SSE listener came up.
+chatgpt-web2api ensure --rest-port 8080 --mcp-sse-port 8090 --cdp-port 9222
+```
+
+Why the ordering matters: MCP/SSE attaches to REST-owned Chrome over CDP and
+has **no Chrome of its own**. Restarting MCP while REST is mid-restart (Chrome
+not yet listening on the CDP port) causes MCP to exit with "Cannot connect to
+Chrome" and leaves no SSE listener — a silent failure under `Type=simple`.
+
+- **`ensure`-timer style** — there is no long-lived supervisor to restart;
+  kill the existing REST and MCP processes, then re-run `ensure` to cold-start
+  them in the correct order (REST first; `ensure` reconciles SSE only after
+  REST is ready, so the ordering is built in).
+- **General rule:** restart **both** REST and MCP/SSE after a code change, even
+  if you think only one surface was touched. The safer default avoids the
+  "REST looks healthy but MCP runs stale code" state (which silently broke
+  MCP-only fixes — see the #31 `list_conversations` schema fix, where the merged
+  code did not take effect until the MCP process was restarted).
+
+After the restart, run `ensure` once more to confirm readiness, then validate
+per [§8](#8-post-deploy--post-restart-validation).
+
 ### The safe restart
 ```bash
 # 1. Stop gracefully if you can (sends SIGTERM; REST drains).
@@ -365,6 +418,22 @@ If `ensure` exits 2, **stop and do auth recovery (§6)** — do not loop `ensure
 ---
 
 ## 8. Post-deploy / post-restart validation
+
+> **After a code/package update, restart in dependency order.** `ensure` does
+> not hot-reload code (see [§7](#7-safe-restart-sequence)), and REST/MCP must
+> not be restarted back-to-back (MCP exits if Chrome/CDP isn't ready when it
+> starts). The correct code-deploy order is:
+>
+> 1. restart **REST** (owns Chrome)
+> 2. reconcile/wait for **REST readiness** (`ensure`, or poll `/health` until
+>    `chrome_running=true` and `driver_connected=true`)
+> 3. restart **MCP/SSE** (now that Chrome is listening)
+> 4. run `ensure` to confirm both came up
+> 5. validate below
+>
+> The steps below assume the processes are running the code you intend to
+> validate. For a non-code restart (e.g. recovering from a crash), skip to
+> step 1 and let `ensure` reconcile.
 
 Run in order; stop at the first failure.
 
@@ -387,10 +456,40 @@ curl -s -X POST http://localhost:8080/v1/chat/completions \
 
 > Use **`Reply with exactly: ok`**, not bare `"ok"`. Plain `"ok"` is often
 > interpreted as an acknowledgement cue and returns `"Acknowledged."` — still a
-> valid 200, but not an exact-output sanity check.
+> valid 200, but not an exact-output sanity check. For runtime validation, the
+> hard pass is HTTP 200 + OpenAI-compatible shape + `finish_reason: stop`; the
+> exact content is a best-effort cue unless you add a stronger system instruction.
 
 Step 3 is the only signal that the composer DOM path, completion detection, and
 backend fetch all work end-to-end. Steps 1–2 are preconditions.
+
+### 4. (If MCP/SSE is used) One MCP tool call
+
+The REST send does **not** exercise MCP output-schema validation. After a
+change touching MCP tool schemas or the MCP server, call an affected MCP tool
+and confirm it returns `isError: false`. For example, `list_conversations`
+(which returns `update_time` as an ISO string and `gizmo_id` as null — the
+shape that broke structured-output validation in #31 before the fix):
+
+```python
+# python -m pip install mcp   (if not already installed)
+import asyncio
+from mcp import ClientSession
+from mcp.client.sse import sse_client
+
+async def main():
+    async with sse_client("http://localhost:8090/sse") as (r, w):
+        async with ClientSession(r, w) as s:
+            await s.initialize()
+            res = await s.call_tool("list_conversations", {"limit": 3})
+            print("isError:", res.isError)          # expect: False
+            print("count:", len((res.structuredContent or {}).get("conversations", [])))
+
+asyncio.run(main())
+```
+
+`isError: False` with conversations returned = the MCP path is healthy. Omit
+this step only if your deployment does not use MCP/SSE.
 
 ---
 
