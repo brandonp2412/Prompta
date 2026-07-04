@@ -671,6 +671,10 @@ def _visible_tool_names() -> set[str]:
 # ═══════════════════════════════════════════════════════════════
 
 _driver: CDPDriver | None = None
+# B1: MCP session-affine driver pool. When non-None, the pool owns driver
+# lifecycle; _driver is None and _breakers is None. Each MCP session gets
+# its own owned CDPDriver/tab on demand (lazy materialization).
+_driver_pool = None  # McpSessionDriverPool | None; set in run_mcp when pool enabled
 _config: Config | None = None
 # Phase 4 PR2: per-process breaker registry (MCP-local). MCP has no
 # ChromeProcess, so CHROME_CRASH_LOOP is never tripped here. Auth/composer/CDP
@@ -683,6 +687,8 @@ _breakers: BreakerRegistry | None = None
 _lock_cdp_port: int | None = None
 # PR4/5: parallel-tabs flag (mirrors _lock_cdp_port's lifecycle — set in run_mcp).
 _parallel_tabs: bool = False
+# B1: the MCP transport ("sse" or "stdio"), set in run_mcp.
+_transport: str = "stdio"
 
 # Tools that mutate browser state — must hold the lock
 _MUTATING_TOOLS = frozenset(
@@ -1410,6 +1416,87 @@ def build_tools() -> list[mcp_types.Tool]:
 # Server Factory
 # ═══════════════════════════════════════════════════════════════
 
+# ── Shared tool-result formatting + exception mapping ─────────────────────
+# Extracted from the singleton call_tool path so the pooled path reuses
+# exactly the same result shaping and error semantics. (PR #42 review fix #1/#2)
+
+_STATUS_TOOLS = frozenset({
+    ToolName.DELETE_CONVERSATION.value,
+    ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
+    ToolName.DELETE_PROJECT.value,
+    ToolName.ARCHIVE_CONVERSATION.value,
+    ToolName.DELETE_MEMORY.value,
+})
+
+
+def _format_tool_result(name: str, result) -> object:
+    """Shape the raw handler result into the MCP CallToolResult contract.
+
+    Shared between singleton and pooled paths so both return identical
+    payload shapes for the same tool + result.
+    """
+    # chat_completion and chat_with_gpt return both text + structured output
+    if name in (ToolName.CHAT_COMPLETION.value, ToolName.CHAT_WITH_GPT.value):
+        text_content = [mcp_types.TextContent(type="text", text=result["content"])]
+        return text_content, result
+    # Status operations return status text + structured output
+    if name in _STATUS_TOOLS:
+        status = "succeeded" if result.get("success") else "failed"
+        text_content = [mcp_types.TextContent(type="text", text=f"Operation {status}")]
+        return text_content, result
+    # Everything else returns structured only (SDK auto-wraps as text JSON)
+    return result
+
+
+def _map_tool_exception(exc: Exception) -> object:
+    """Map a tool-execution exception to an isError CallToolResult.
+
+    Shared between singleton and pooled paths. Returns None if the exception
+    type is not mapped (caller should re-raise).
+    """
+    # Lazy imports for circular-dependency avoidance.
+
+    if isinstance(exc, OwnedTabRequiredError):
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text",
+                text=f"{exc}. Retry later. (owned_tab_required)")],
+            isError=True,
+        )
+    if isinstance(exc, RateLimitError):
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text",
+                text=(f"ChatGPT rate limit reached. Retry in {exc.retry_after}s. "
+                      f"(rate_limit_exceeded, retry_after={exc.retry_after})"))],
+            isError=True,
+        )
+    if isinstance(exc, CircuitOpenError):
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text",
+                text=(f"Circuit open for {exc.kind.value} — cooling down. "
+                      f"Retry later. (circuit_open, kind={exc.kind.value})"))],
+            isError=True,
+        )
+    if isinstance(exc, AuthExpiredError):
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text",
+                text="ChatGPT session expired — re-login required. (auth_expired)")],
+            isError=True,
+        )
+    if isinstance(exc, GenerationStuckError):
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text",
+                text=(f"Generation stuck in {exc.phase} for {exc.stalled_for_s:.0f}s "
+                      "— no DOM progress. (generation_stuck)"))],
+            isError=True,
+        )
+    if isinstance(exc, LockAcquisitionError):
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text",
+                text="Browser busy — another operation in progress. Retry later. (lock_timeout)")],
+            isError=True,
+        )
+    return None
+
 
 def create_server() -> Server:
     """Create and configure the MCP server with all capabilities."""
@@ -1467,11 +1554,176 @@ def create_server() -> Server:
     async def list_tools() -> list[mcp_types.Tool]:
         return build_tools()
 
+    async def _call_tool_pooled(
+        name: str, arguments: dict, srv
+    ) -> tuple[list[mcp_types.TextContent], dict] | list[mcp_types.TextContent] | dict:
+        """B1: pooled tool execution — acquires a session-affine driver lease.
+
+        In pool mode, _driver is None and _breakers is None. This function
+        resolves the session key, acquires a lease from the pool, and runs
+        the tool against the leased driver. The call_lock serializes all
+        operations per session. The existing MutationLock is resolved against
+        lease.driver (not the global _driver).
+        """
+        from .mcp_driver_pool import PoolExhaustedError, PoolShuttingDownError
+        from .session_key import current_mcp_session_key
+
+        # Canary logging — distinguishes failure modes A/B/C/D (see PR #42 review).
+        logger.info("_call_tool_pooled entered: name=%s", name)
+
+        # Defense-in-depth: gated tool check (same as singleton path).
+        gate = _tool_gate_env(name)
+        if gate is not None and not _env_enabled(gate):
+            raise PermissionError(f"Tool '{name}' is not enabled. Set {gate}=1 to expose it.")
+
+        # Account throttle breaker: block mutations pool-wide.
+        is_mutation = name in _MUTATING_TOOLS
+        if is_mutation and _driver_pool.account_breaker.is_tripped():
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(
+                    type="text",
+                    text="ChatGPT account throttle detected; mutating requests are paused "
+                         "pool-wide until cooldown elapses. (mcp_account_throttled)",
+                )],
+                isError=True,
+            )
+
+        # Resolve session key (fail-closed for pool-enabled SSE with no session_id).
+        session_key = current_mcp_session_key(
+            srv, transport=_transport,
+            pool_enabled=True,
+        )
+        logger.info("_call_tool_pooled session_key=%s transport=%s", session_key, _transport)
+        # Fix: transport should come from the actual transport, not inferred from pool.
+        # But we don't have the transport in scope here — use the global _transport.
+        # For now, use a simpler approach: always try SSE first, fall back.
+        if session_key is None:
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(
+                    type="text",
+                    text="MCP session identity unavailable; cannot allocate session-affine tab. "
+                         "(mcp_session_identity_unavailable)",
+                )],
+                isError=True,
+            )
+
+        on_progress = _make_progress_callback()
+        _CHAT_TOOLS = frozenset({
+            ToolName.CHAT_COMPLETION.value,
+            ToolName.CHAT_WITH_GPT.value,
+            ToolName.CREATE_MEMORY.value,
+        })
+
+        try:
+            logger.info("pool.acquire entered: session_key=%s", session_key)
+            async with _driver_pool.acquire(session_key) as lease:
+                async with lease.call_lock:
+                    driver = lease.driver
+                    breakers = lease.breakers
+
+                    # Circuit-open fail-fast on the leased driver's breakers.
+                    if breakers is not None:
+                        open_kind = breakers.first_open()
+                        if open_kind is not None:
+                            if open_kind is BreakerKind.AUTH_EXPIRED:
+                                if await driver.recover_auth():
+                                    open_kind = breakers.first_open()
+                            if open_kind is not None:
+                                raise CircuitOpenError(open_kind)
+
+                    # Build handlers bound to the LEASED driver (not _driver).
+                    handler = _build_tool_handler(name, arguments, driver, on_progress)
+                    if handler is None:
+                        raise ValueError(f"Unknown tool: {name}")
+
+                    async def _run_pooled() -> dict:
+                        if name in _CHAT_TOOLS:
+                            return await retry_on_rate_limit(driver, handler, on_progress=on_progress)
+                        return await handler()
+
+                    if is_mutation and _lock_cdp_port is not None:
+                        if _parallel_tabs:
+                            _port, _key = resolve_mutation_lock(driver, True)
+                        else:
+                            _port, _key = _lock_cdp_port, None
+                        async with MutationLock(_port, _key):
+                            if _parallel_tabs:
+                                _, _current_key = resolve_mutation_lock(driver, True)
+                                if _current_key != _key:
+                                    raise OwnedTabRequiredError(
+                                        "owned target changed while waiting for mutation lock"
+                                    )
+                            result = await _run_pooled()
+                    else:
+                        result = await _run_pooled()
+
+                    # Account throttle detection.
+                    if is_mutation and _looks_like_account_throttle_warning(result):
+                        await _driver_pool.account_breaker.trip()
+
+                    # Shared result formatting (singleton parity, PR #42 fix #1).
+                    return _format_tool_result(name, result)
+        except (PoolExhaustedError, PoolShuttingDownError) as e:
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=f"{e}. Retry later.")],
+                isError=True,
+            )
+        except Exception as exc:
+            # Shared exception mapping (singleton parity, PR #42 fix #2).
+            mapped = _map_tool_exception(exc)
+            if mapped is not None:
+                return mapped
+            raise
+
+    def _build_tool_handler(name, arguments, driver, on_progress):
+        """Build a tool handler bound to a specific driver (singleton or leased)."""
+        handlers = {
+            ToolName.CHAT_COMPLETION.value: lambda: do_chat_completion(driver, arguments, _config, on_progress),
+            ToolName.LIST_MODELS.value: lambda: do_list_models(driver),
+            ToolName.LIST_PROJECTS.value: lambda: do_list_projects(driver),
+            ToolName.GET_CONVERSATION.value: lambda: do_get_conversation(driver, arguments),
+            ToolName.LIST_CONVERSATIONS.value: lambda: do_list_conversations(driver, arguments),
+            ToolName.DELETE_CONVERSATION.value: lambda: do_delete_conversation(driver, arguments),
+            ToolName.CREATE_PROJECT.value: lambda: do_create_project(driver, arguments),
+            ToolName.DELETE_PROJECT.value: lambda: do_delete_project(driver, arguments),
+            ToolName.UPDATE_PROJECT_INSTRUCTIONS.value: lambda: do_update_project_instructions(driver, arguments),
+            ToolName.ARCHIVE_CONVERSATION.value: lambda: do_archive_conversation(driver, arguments),
+            ToolName.LIST_MEMORIES.value: lambda: do_list_memories(driver),
+            ToolName.CREATE_MEMORY.value: lambda: do_create_memory(driver, arguments, on_progress),
+            ToolName.DELETE_MEMORY.value: lambda: do_delete_memory(driver, arguments),
+            ToolName.LIST_GPTS.value: lambda: do_list_gpts(driver),
+            ToolName.CHAT_WITH_GPT.value: lambda: do_chat_with_gpt(driver, arguments, on_progress),
+            ToolName.LIST_PROJECT_FILES.value: lambda: do_list_project_files(driver, arguments),
+        }
+        return handlers.get(name)
+
+    def _looks_like_account_throttle_warning(result) -> bool:
+        """Heuristic: does a tool result contain the ChatGPT excessive-consumption warning?"""
+        if result is None:
+            return False
+        # Check text content for the warning marker.
+        text = ""
+        if isinstance(result, dict):
+            text = str(result.get("content", ""))
+        elif hasattr(result, "__iter__"):
+            try:
+                for item in result:
+                    if hasattr(item, "text"):
+                        text += item.text
+            except TypeError:
+                pass
+        return "excessive consumption" in text.lower() or "too many requests" in text.lower()
+
     @server.call_tool()
     async def call_tool(
         name: str, arguments: dict
     ) -> tuple[list[mcp_types.TextContent], dict] | list[mcp_types.TextContent] | dict:
         """Route tool calls to business logic functions."""
+        # B1: in pool mode, acquire a session-affine driver lease.
+        # In singleton mode, use the global _driver directly (unchanged).
+        if _driver_pool is not None:
+            return await _call_tool_pooled(name, arguments, server)
+
         if _driver is None:
             raise ConnectionError("Not connected to Chrome. Run 'chatgpt-web2api' first.")
 
@@ -1570,118 +1822,16 @@ def create_server() -> Server:
                     result = await _run()
             else:
                 result = await _run()
-        except OwnedTabRequiredError as e:
-            # Parallel-mode fail-closed: surface as retryable isError with a
-            # machine-readable marker, mirroring the rate-limit/circuit style.
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type="text",
-                        text=f"{e}. Retry later. (owned_tab_required)",
-                    )
-                ],
-                isError=True,
-            )
-        except RateLimitError as e:
-            # Persistent limit (transparent retries exhausted). Signal it as an
-            # error result with a recognizable marker the agent can parse to
-            # decide "pause, then retry this tool." isError=True with text only
-            # — no structuredContent, because the MCP SDK validates
-            # structuredContent against the tool's outputSchema and this error
-            # payload deliberately doesn't match any tool's success schema.
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type="text",
-                        text=(
-                            f"ChatGPT rate limit reached. Retry in {e.retry_after}s. "
-                            f"(rate_limit_exceeded, retry_after={e.retry_after})"
-                        ),
-                    )
-                ],
-                isError=True,
-            )
-        except CircuitOpenError as e:
-            # A breaker is open on this process's driver — refuse fast with a
-            # structured error so the agent knows to back off. Mirrors the
-            # RateLimitError shape: isError=True, text only, machine token.
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type="text",
-                        text=(
-                            f"Circuit open for {e.kind.value} — cooling down. "
-                            f"Retry later. (circuit_open, kind={e.kind.value})"
-                        ),
-                    )
-                ],
-                isError=True,
-            )
-        except AuthExpiredError:
-            # The access token is stale/rejected. Surface a clear signal so the
-            # agent/user can prompt re-login instead of misdiagnosing the
-            # resulting empty reads as a different bug. isError=True with text
-            # content only — no structuredContent, because the MCP SDK validates
-            # structuredContent against the tool's outputSchema and this error
-            # payload deliberately doesn't match any tool's success schema.
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type="text",
-                        text="ChatGPT session expired — re-login required. (auth_expired)",
-                    )
-                ],
-                isError=True,
-            )
-        except GenerationStuckError as e:
-            # Generation hung (no DOM progress within the stall window). Distinct
-            # from a slow generation (which keeps progressing and is allowed the
-            # full timeout). Phase + duration in the text for diagnosis.
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type="text",
-                        text=(
-                            f"Generation stuck in {e.phase} for {e.stalled_for_s:.0f}s "
-                            f"— no DOM progress. (generation_stuck)"
-                        ),
-                    )
-                ],
-                isError=True,
-            )
-        except LockAcquisitionError:
-            # Another process holds the cross-process lock for this Chrome tab
-            # and didn't release it within the timeout. The caller should retry.
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type="text",
-                        text="Browser busy — another operation in progress. Retry later. (lock_timeout)",
-                    )
-                ],
-                isError=True,
-            )
+        except Exception as exc:
+            # Shared exception mapping (extracted from inline chain for
+            # singleton/pooled parity, PR #42 fix #2).
+            mapped = _map_tool_exception(exc)
+            if mapped is not None:
+                return mapped
+            raise
 
-        # chat_completion and chat_with_gpt return both text + structured output
-        if name in (ToolName.CHAT_COMPLETION.value, ToolName.CHAT_WITH_GPT.value):
-            text_content = [mcp_types.TextContent(type="text", text=result["content"])]
-            return text_content, result
-
-        # Status operations return status text + structured output
-        status_tools = (
-            ToolName.DELETE_CONVERSATION.value,
-            ToolName.UPDATE_PROJECT_INSTRUCTIONS.value,
-            ToolName.DELETE_PROJECT.value,
-            ToolName.ARCHIVE_CONVERSATION.value,
-            ToolName.DELETE_MEMORY.value,
-        )
-        if name in status_tools:
-            status = "succeeded" if result.get("success") else "failed"
-            text_content = [mcp_types.TextContent(type="text", text=f"Operation {status}")]
-            return text_content, result
-
-        # Everything else returns structured only (SDK auto-wraps as text JSON)
-        return result
+        # Shared result formatting (singleton/pooled parity, PR #42 fix #1).
+        return _format_tool_result(name, result)
 
     # ── Resources (application-controlled) ────────────────────
 
@@ -1742,6 +1892,16 @@ def create_server() -> Server:
     ) -> str | list[mcp_types.ResourceContents]:
         """Read a specific resource by URI."""
         uri = str(request.params.uri)
+
+        # B1: in pool mode, resources that need live data require a lease.
+        # For B1, return a clear error rather than materializing — resource
+        # reads are secondary to tool calls and should not eagerly create tabs.
+        if _driver is None and _driver_pool is not None:
+            raise ConnectionError(
+                "Resource reads are not available in pool mode without an "
+                "active session tab. Use a chat tool first to materialize a "
+                "session driver, then retry. (mcp_pool_resource_unavailable)"
+            )
 
         if _driver is None:
             raise ConnectionError("Not connected to Chrome")
@@ -1830,6 +1990,9 @@ def create_server() -> Server:
             tool_args: dict[str, Any] = {"message": question}
 
             if project and _driver:
+                # B1: in pool mode, project resolution needs live data but
+                # we don't allocate a tab for prompt resolution. Skip silently.
+                pass  # falls through to no-project path
                 try:
                     projects = await _driver.get_projects()
                     for p in projects:
@@ -1948,40 +2111,55 @@ def _mcp_server_identity(config: Config, transport: str, port: int) -> str:
 
 async def run_mcp(config: Config, transport: str = "stdio", port: int = 8090) -> None:
     """Connect to Chrome and run the MCP server."""
-    global _driver, _config, _lock_cdp_port, _breakers, _parallel_tabs
+    global _driver, _driver_pool, _config, _lock_cdp_port, _breakers, _parallel_tabs, _transport
 
     _config = config
     _lock_cdp_port = config.chrome.cdp_port
     _parallel_tabs = config.chatgpt.parallel_tabs
+    _transport = transport
 
-    # Phase 4 PR2: one MCP-local registry. Injected into MCP's own driver;
-    # auth/composer/CDP failures record here. CHROME_CRASH_LOOP is never
-    # tripped (MCP has no ChromeProcess). No cross-process propagation.
-    _breakers = BreakerRegistry()
+    if config.chatgpt.mcp_session_pool_enabled:
+        # B1: pool mode. Do NOT connect to Chrome at startup. The pool
+        # materializes one owned CDPDriver/tab per session on first request.
+        from .mcp_driver_pool import McpSessionDriverPool
 
-    _driver = CDPDriver(
-        cdp_port=config.chrome.cdp_port,
-        tab_mode=config.chatgpt.tab_mode,
-        instance_id=TabRegistry.derive_instance_id(
-            cdp_port=config.chrome.cdp_port,
-            server_identity=_mcp_server_identity(config, transport, port),
-        ),
-        breakers=_breakers,
-        parallel_tabs=config.chatgpt.parallel_tabs,
-    )
-    try:
-        await _driver.connect()
-        logger.info("Connected to Chrome on CDP port %d", config.chrome.cdp_port)
-    except Exception as e:
-        logger.error(
-            "Cannot connect to Chrome on CDP port %d. "
-            "Run 'chatgpt-web2api' first to start Chrome. Error: %s",
-            config.chrome.cdp_port,
-            e,
+        _driver = None
+        _breakers = None
+        _driver_pool = McpSessionDriverPool(
+            config, transport=transport, port=port,
         )
-        # Clean up any tab that connect() may have created before failing
-        await _driver.close()
-        return
+        await _driver_pool.start_sweeper()
+        logger.info(
+            "MCP session pool enabled (size=%d, ttl=%ds); drivers materialize on first request",
+            config.chatgpt.mcp_session_pool_size,
+            config.chatgpt.mcp_session_pool_ttl_seconds,
+        )
+    else:
+        # Singleton mode: connect immediately (unchanged pre-B1 behavior).
+        _driver_pool = None
+        _breakers = BreakerRegistry()
+        _driver = CDPDriver(
+            cdp_port=config.chrome.cdp_port,
+            tab_mode=config.chatgpt.tab_mode,
+            instance_id=TabRegistry.derive_instance_id(
+                cdp_port=config.chrome.cdp_port,
+                server_identity=_mcp_server_identity(config, transport, port),
+            ),
+            breakers=_breakers,
+            parallel_tabs=config.chatgpt.parallel_tabs,
+        )
+        try:
+            await _driver.connect()
+            logger.info("Connected to Chrome on CDP port %d", config.chrome.cdp_port)
+        except Exception as e:
+            logger.error(
+                "Cannot connect to Chrome on CDP port %d. "
+                "Run 'chatgpt-web2api' first to start Chrome. Error: %s",
+                config.chrome.cdp_port,
+                e,
+            )
+            await _driver.close()
+            return
 
     server = create_server()
     init_options = server.create_initialization_options()
@@ -1993,7 +2171,10 @@ async def run_mcp(config: Config, transport: str = "stdio", port: int = 8090) ->
         elif transport == "sse":
             await _run_sse(server, init_options, config, port)
     finally:
-        await _driver.close()
+        if _driver_pool is not None:
+            await _driver_pool.close_all()
+        elif _driver is not None:
+            await _driver.close()
 
 
 async def _run_sse(server: Server, init_options, config: Config, port: int) -> None:
