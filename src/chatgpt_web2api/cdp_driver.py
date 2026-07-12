@@ -84,6 +84,63 @@ from .chatgpt_dom import (  # noqa: E402,F401
     SEND_BUTTON_SELECTOR,
 )
 
+# ── P2: Navigation readiness probe ────────────────────────────────────────
+#
+# Co-designed with ChatGPT (vision-alignment cycle, conversation 6a4ebb2a).
+# Replaces the opaque "ready composer" poll with a staged probe that captures
+# WHICH readiness stage passed and which failed. When the poll fails, the
+# error message names the stage (e.g. "url correct but composer not present")
+# instead of the old "did not reach a ready composer within the timeout".
+#
+# Stages (each must pass for the next to matter):
+#   url_correct → document_ready → app_shell_present → composer_present
+
+@dataclass
+class NavigationReadinessProbe:
+    """Results of a single navigation-readiness probe poll.
+
+    Captured each poll iteration so the caller can build a diagnostic error
+    message naming the stage that failed. The JS probe evaluates all stages
+    in one ``Runtime.evaluate`` call (no extra round-trips).
+    """
+    url: str
+    ready_state: str
+    app_shell_present: bool
+    composer_present: bool
+
+    @property
+    def document_ready(self) -> bool:
+        return self.ready_state == "complete"
+
+    def is_ready(self, url_correct: bool) -> bool:
+        """All stages passed — page loaded AND composer ready AND URL matches.
+
+        ``url_correct`` is passed by the caller (it knows the target
+        conversation_id; the probe doesn't).
+        """
+        return (
+            url_correct
+            and self.document_ready
+            and self.app_shell_present
+            and self.composer_present
+        )
+
+    def diagnostic_summary(self, url_correct: bool) -> str:
+        """Human-readable description of which stage failed.
+
+        Names the first failing stage so the error message points at the
+        real problem instead of an opaque 'timeout'.
+        """
+        if not url_correct:
+            return f"url displaced (got {self.url[:80]})"
+        if not self.document_ready:
+            return f"document still loading (readyState={self.ready_state})"
+        if not self.app_shell_present:
+            return "app shell not present (ChatGPT nav/sidebar missing)"
+        if not self.composer_present:
+            return "composer not present (selector did not match after page loaded)"
+        return "all stages passed"
+
 
 class RateLimitError(RuntimeError):
     """Raised when ChatGPT shows its 'Too many requests' rate-limit pop-up.
@@ -142,13 +199,51 @@ class GenerationStuckError(RuntimeError):
 
     - ``phase == "phase_1_appear"``: assistant message node never appeared.
     - ``phase == "phase_2_stream"``: streaming started but text stopped changing.
+
+    P1 (2026-07-08): phase-2 stalls now carry richer structured fields for
+    observability and caller-side reconciliation decisions:
+
+    - ``stall_kind``: ``"first_content_timeout"`` (no text appeared within the
+      first-content budget — common for reasoning models in the thinking phase)
+      or ``"stream_idle_timeout"`` (text appeared then stopped progressing) or
+      ``"hard_timeout"`` (absolute wall-clock cap exceeded).
+    - ``model_class``: ``"reasoning"`` or ``"default"`` (from classify_model).
+    - ``elapsed_seconds``: total time spent in phase-2 observation.
+    - ``generation_active_signal``: whether a DOM thinking/generating indicator
+      was present at the moment of the stall (advisory — a liveness hint).
+    - ``turn_id``: the turn anchor's captured UUID if available, for caller-side
+      reconciliation/retry of OBSERVATION (never retry the send).
+
+    The structured fields are optional (keyword-only) so existing phase-1
+    construction sites remain compatible. Callers should NEVER auto-retry the
+    SEND on a phase-2 stall (the generation may still be running and would
+    duplicate the message). Safe retry is observation-only: re-read the
+    conversation and reconcile against the same turn.
     """
 
-    def __init__(self, phase: str, stalled_for_s: float) -> None:
+    def __init__(
+        self,
+        phase: str,
+        stalled_for_s: float,
+        *,
+        stall_kind: str | None = None,
+        model_class: str | None = None,
+        elapsed_seconds: float | None = None,
+        generation_active_signal: bool | None = None,
+        turn_id: str | None = None,
+    ) -> None:
         self.phase = phase
         self.stalled_for_s = float(stalled_for_s)
+        # P1 structured fields (optional for back-compat with phase-1 sites).
+        self.stall_kind = stall_kind
+        self.model_class = model_class
+        self.elapsed_seconds = float(elapsed_seconds) if elapsed_seconds is not None else None
+        self.generation_active_signal = generation_active_signal
+        self.turn_id = turn_id
+        # Human-readable message includes the stall kind if available.
+        kind_str = f" ({stall_kind})" if stall_kind else ""
         super().__init__(
-            f"Generation stalled in {phase} for {stalled_for_s:.0f}s — no DOM progress"
+            f"Generation stalled in {phase}{kind_str} for {stalled_for_s:.0f}s — no DOM progress"
         )
 
 
@@ -465,6 +560,18 @@ class CDPDriver:
                         f"Owned-tab creation failed in parallel mode; refusing "
                         f"shared-tab fallback: {e}"
                     ) from e
+                if self.tab_mode == "owned":
+                    # Owned mode: never adopt an arbitrary tab. The adopt
+                    # fallback (_find_page_ws) picks ANY chatgpt.com tab,
+                    # which could belong to another process — causing two
+                    # drivers to race on the same tab. Fail closed with
+                    # OwnedTabRequiredError (consistent with reconnect path)
+                    # so callers have one stable failure contract.
+                    # (ChatGPT design review, conv 6a507b4c + 6a526e19.)
+                    raise OwnedTabRequiredError(
+                        f"Owned-tab creation failed and shared-tab fallback "
+                        f"is disabled in owned mode: {e}"
+                    ) from e
                 logger.warning("Tab isolation failed (%s) — falling back to shared tab", e)
                 self._target_id = None
                 self._owns_target = False
@@ -651,6 +758,16 @@ class CDPDriver:
                                 f"Reconnect owned-tab creation failed in "
                                 f"parallel mode; refusing fallback: {create_err}"
                             ) from create_err
+                        if self.tab_mode == "owned":
+                            # Owned mode: tab creation failed and we must not
+                            # fall back to adopting an arbitrary tab. Raise
+                            # OwnedTabRequiredError so the reconnect retry
+                            # loop doesn't swallow it.
+                            raise OwnedTabRequiredError(
+                                f"Reconnect owned-tab creation failed and "
+                                f"shared-tab fallback is disabled in owned "
+                                f"mode: {create_err}"
+                            ) from create_err
                         raise
                 if not ws_url:
                     if self._parallel_tabs:
@@ -658,6 +775,17 @@ class CDPDriver:
                         raise OwnedTabRequiredError(
                             "Reconnect could not obtain an owned tab; refusing "
                             "shared-tab fallback in parallel mode"
+                        )
+                    if self.tab_mode == "owned":
+                        # Owned mode: never adopt an arbitrary tab on reconnect.
+                        # The adopt fallback could steal another process's tab,
+                        # causing two drivers to race on the same DOM. Fail
+                        # closed — raise OwnedTabRequiredError so the reconnect
+                        # retry loop doesn't swallow it (it's in the immediate-
+                        # raise list at line 802).
+                        raise OwnedTabRequiredError(
+                            "Reconnect could not obtain an owned tab and "
+                            "shared-tab fallback is disabled in owned mode"
                         )
                     ws_url = await self._find_page_ws()
                 self._ws = await websockets.connect(
@@ -1160,43 +1288,98 @@ class CDPDriver:
         raises — never admits an unverified conversation as current. This
         is the invariant the auto-continue paths depend on: ``_current_conv_id``
         means "the live tab is here", not "we attempted to go here".
+
+        P2 (2026-07-09): the readiness poll is now staged — it probes
+        url → document.readyState → app shell → composer in one JS call
+        and captures which stage failed. The error message names the stage
+        instead of the old opaque "did not reach a ready composer." Also
+        fast-fails with ``nav_displaced`` if the URL moves away from the
+        target mid-poll (detects SPA redirects / access-denied states).
         """
         url = f"https://chatgpt.com/c/{conversation_id}"
         logger.info("Navigate to conversation: %s", url)
         await self._cdp("Page.navigate", {"url": url})
         await asyncio.sleep(3)
 
-        # Wait for composer (new ProseMirror div, or legacy textarea) AND a
-        # verified landing. A for/else means: if the loop completes without
-        # `break` (never became ready at the right URL), the else runs and we
-        # fail rather than falling through to admit an unverified conversation.
+        # P2: staged readiness probe. Evaluates all stages in one JS call
+        # (no extra round-trips). Uses _js_strict so transient JS failures
+        # are visible (logged) rather than silently burning poll iterations.
+        probe_js = (
+            "(function() {"
+            "  return JSON.stringify({"
+            "    url: location.href,"
+            "    ready_state: document.readyState,"
+            f"    app_shell: !!document.querySelector('nav') || !!document.querySelector('[class*=\"sidebar\"]'),"
+            f"    composer: !!document.querySelector('{COMPOSER_SELECTOR}') || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}')"
+            "  });"
+            "})()"
+        )
+
+        last_probe: NavigationReadinessProbe | None = None
+        last_js_error: str | None = None
+        url_was_correct = False  # track if URL was ever correct (for displacement)
+        displacement_count = 0  # P2 review: debounce — require 2 consecutive wrong polls
+
         for _ in range(30):
-            result = await self._js(
-                "(function() {"
-                "  return JSON.stringify({"
-                f"    ready: !!document.querySelector('{COMPOSER_SELECTOR}') || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}'),"
-                "    url: location.href"
-                "  });"
-                "})()"
-            )
             try:
-                state = json.loads(result)
-            except (json.JSONDecodeError, TypeError):
-                state = {}
-            if state.get("ready") and self._is_url_at_conversation(
-                state.get("url", ""), conversation_id
-            ):
-                logger.info("Conversation ready: %s", state.get("url", ""))
+                result = await self._js_strict(probe_js)
+                data = json.loads(result)
+                last_js_error = None  # successful probe clears the error
+            except Exception as e:
+                # P2: log transient JS failures instead of silently swallowing.
+                # Distinguish "probe execution failed" from "stage failed" per
+                # ChatGPT review finding C.
+                last_js_error = str(e)
+                logger.debug("Navigation probe JS failed (will retry): %s", e)
+                await asyncio.sleep(0.5)
+                continue
+
+            probe = NavigationReadinessProbe(
+                url=data.get("url", ""),
+                ready_state=data.get("ready_state", ""),
+                app_shell_present=bool(data.get("app_shell")),
+                composer_present=bool(data.get("composer")),
+            )
+            last_probe = probe
+            url_correct = self._is_url_at_conversation(probe.url, conversation_id)
+
+            # P2: fast-fail on URL displacement with debounce (review finding B).
+            # If the URL was correct on a prior poll but is now wrong, the page
+            # may have navigated away (SPA redirect, access denied, conversation
+            # deleted). Require 2 CONSECUTIVE wrong-URL polls to avoid
+            # false-positive on SPA route normalization / param stripping.
+            if url_correct:
+                url_was_correct = True
+                displacement_count = 0
+            elif url_was_correct:
+                displacement_count += 1
+                if displacement_count >= 2:
+                    if self._current_conv_id == conversation_id:
+                        self._current_conv_id = None
+                    raise RuntimeError(
+                        f"Navigation to {conversation_id} displaced — URL moved "
+                        f"to {probe.url[:80]} after initially loading (nav_displaced)"
+                    )
+
+            if probe.is_ready(url_correct):
+                logger.info("Conversation ready: %s", probe.url)
                 break
             await asyncio.sleep(0.5)
         else:
             # Loop exhausted without a verified landing. Clear any stale
-            # state that might point here so a later auto-continue can't
-            # reuse a known-unverified id, then surface the failure.
+            # state and raise with P2 staged diagnostics.
             if self._current_conv_id == conversation_id:
                 self._current_conv_id = None
+            if last_probe is not None:
+                url_correct = self._is_url_at_conversation(last_probe.url, conversation_id)
+                stage = last_probe.diagnostic_summary(url_correct)
+                raise RuntimeError(
+                    f"Navigation to {conversation_id} failed after 15s — "
+                    f"stage: {stage}"
+                )
             raise RuntimeError(
-                f"Navigation to {conversation_id} did not reach a ready composer within the timeout"
+                f"Navigation to {conversation_id} failed — all probes errored "
+                f"(no readiness data obtained, last_js_error={last_js_error})"
             )
 
         await asyncio.sleep(1)
@@ -1206,9 +1389,10 @@ class CDPDriver:
     def _is_url_at_conversation(url: str, conversation_id: str) -> bool:
         """Exact path-segment match: is *url* at ``/c/{conversation_id}``?
 
-        Uses urllib to parse the path and compare the second segment, so a
-        high-entropy id can't accidentally match as a substring of another
-        path. Query strings and trailing slashes are tolerated; a different
+        Handles both non-project URLs (``/c/{id}``) and project-scoped URLs
+        (``/g/{gizmo_id}/c/{id}``). Finds the ``c`` path segment and checks
+        if the segment immediately after it matches the conversation ID.
+        Query strings and trailing slashes are tolerated; a different
         conversation id or a non-conversation URL returns False.
         """
         if not url or not conversation_id:
@@ -1220,8 +1404,15 @@ class CDPDriver:
         if "chatgpt.com" not in (parsed.netloc or "").lower():
             return False
         parts = [p for p in parsed.path.split("/") if p]
-        # Expected shape: ["c", "<conversation_id>"]
-        return len(parts) >= 2 and parts[0] == "c" and parts[1] == conversation_id
+        # Find the ("c", conversation_id) adjacent pair — the conversation
+        # route marker in both non-project (["c", "{id}"]) and project-scoped
+        # (["g", "{gizmo}", "c", "{id}"]) URL shapes. Using the adjacent pair
+        # (rather than just finding the first "c") avoids false-positives if
+        # a "c" segment appears earlier in a different context.
+        return any(
+            parts[i] == "c" and parts[i + 1] == conversation_id
+            for i in range(len(parts) - 1)
+        )
 
     async def _is_live_conversation_url(self, conversation_id: str) -> bool:
         """Read ``location.href`` and check it is at *conversation_id*.
@@ -1354,6 +1545,8 @@ class CDPDriver:
                     elapsed_ms,
                     self._current_conv_id or "(none)",
                 )
+                # Store for send-acknowledgment baseline (ChatGPT review A).
+                self._pre_send_user_count = user_count
                 return count
 
             # Retry or fail-closed.
@@ -1382,6 +1575,71 @@ class CDPDriver:
                 ) from err
         # Unreachable (the loop either returns or raises).
         raise SendReadinessError("send_baseline: exhausted retries unexpectedly")
+
+    async def _verify_send_acknowledged(self) -> bool | None:
+        """P0 send acknowledgment (ChatGPT review, conv 6a52f0f3).
+
+        After click_send dispatches synthetic mouse events, verify the message
+        was actually accepted by React — not just that the JS event loop ran.
+
+        Composite condition: user-message count increased AND composer cleared.
+        Uses the pre-send user count baseline (self._pre_send_user_count) to
+        detect the delta, not just "userCount > 0" (which is always true on
+        existing conversations).
+
+        Tri-state return:
+          - True: acknowledged (count increased AND composer cleared)
+          - False: conclusively NOT acknowledged (valid probes showed no delta)
+          - None: probe inconclusive (CDP errors, no valid probe obtained,
+            missing composer, or no pre-send baseline) — non-blocking
+
+        Polls briefly (3s at 0.5s intervals). Never raises.
+        """
+        import time as _time
+        from .chatgpt_dom import COMPOSER_SELECTOR, COMPOSER_FALLBACK_SELECTOR
+
+        pre_send_count = getattr(self, "_pre_send_user_count", None)
+        if pre_send_count is None:
+            # No baseline — can't verify a delta. Non-blocking.
+            return None
+
+        deadline = _time.monotonic() + 3.0
+        valid_probe_seen = False
+        while _time.monotonic() < deadline:
+            try:
+                result = await self._js_strict(
+                    "(function() {"
+                    "  var userMsgs = document.querySelectorAll("
+                    "    '[data-message-author-role=\"user\"]').length;"
+                    f"  var composer = document.querySelector('{COMPOSER_SELECTOR}')"
+                    f"       || document.querySelector('{COMPOSER_FALLBACK_SELECTOR}');"
+                    "  var composerPresent = !!composer;"
+                    "  var composerEmpty = composer ? !(composer.innerText || composer.value || '').trim() : false;"
+                    "  return JSON.stringify({userCount: userMsgs, composerPresent: composerPresent, composerEmpty: composerEmpty});"
+                    "})()"
+                )
+                if not result or not result.strip().startswith("{"):
+                    return None  # inconclusive — not a JSON object
+                state = json.loads(result)
+                if not isinstance(state, dict) or "userCount" not in state:
+                    return None  # inconclusive — unexpected shape
+                # Missing composer (composerPresent=False) is inconclusive —
+                # could be navigation, selector drift, wrong page. Don't count
+                # it as a valid probe; continue polling. (ChatGPT review C.)
+                if not state.get("composerPresent"):
+                    continue  # wait for next poll — might be transient
+                # Only count as a valid probe when the composer is present
+                # and we can actually evaluate the acknowledgment condition.
+                valid_probe_seen = True
+                current_count = state.get("userCount", 0)
+                if current_count > pre_send_count and state.get("composerEmpty"):
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        # If we got valid probes but none showed acknowledgment, return False.
+        # If no valid probe was ever obtained (all CDP errors), return None.
+        return False if valid_probe_seen else None
 
     async def _capture_pre_send_fallback_anchor(self, text: str):
         """A2: build the pre-send fallback TurnAnchor (NO captured UUID yet).
@@ -1459,7 +1717,14 @@ class CDPDriver:
                 conversation_id_at_capture=conv_id,
             )
 
-    async def send_and_stream(self, text: str, timeout: float = 120) -> AsyncIterator[StreamChunk]:
+    async def send_and_stream(
+        self,
+        text: str,
+        timeout: float = 120,
+        *,
+        budgets=None,
+        model: str | None = None,
+    ) -> AsyncIterator[StreamChunk]:
         """Send a message and yield streaming response chunks.
 
         A2 turn-correlation sequence (peer-reviewed, conv ``6a482cfd``):
@@ -1510,14 +1775,51 @@ class CDPDriver:
             if capture_scope is not None:
                 captured_uuid = await self._identity_listener.wait_for_captured_uuid(timeout=5.0)
 
+            # P0 send acknowledgment (ChatGPT review, conv 6a52f0f3):
+            # click_send dispatches synthetic mouse events — that proves the
+            # JS ran, not that React accepted the submission. Under load, the
+            # click can fire without producing a user message. Before entering
+            # completion detection, verify at least one acknowledgment signal:
+            #   1. UUID was captured, OR
+            #   2. user-message count increased AND composer cleared
+            # If none → raise before entering completion detection (which would
+            # waste time polling for a response that will never come).
+            #
+            # Graceful: if the acknowledgment probe fails (JS error, mock
+            # environment, unusual DOM), DON'T block the send. The check is a
+            # safety net for the overloaded-page case, not a hard gate that
+            # could prevent sends in edge cases we haven't seen.
+            if not captured_uuid:
+                try:
+                    acknowledged = await self._verify_send_acknowledged()
+                    if acknowledged is False:  # explicitly False, not None
+                        raise SendReadinessError(
+                            "Send not acknowledged — click dispatched but no user "
+                            "message appeared (no UUID captured, user count unchanged, "
+                            "composer not cleared). The page may be overloaded or the "
+                            "send was rejected. Do NOT retry automatically."
+                        )
+                except SendReadinessError:
+                    raise
+                except Exception as ack_err:
+                    # Probe failed (JS error, mock, unusual DOM). Don't block
+                    # the send — let completion detection proceed. Log so the
+                    # failure is traceable.
+                    logger.debug("Send acknowledgment probe failed (non-blocking): %s", ack_err)
+
             # A2 Step 7: build the final anchor (fallback + captured UUID).
             turn_anchor = fallback_anchor.with_captured_id(captured_uuid)
 
             # A2 Step 8: stream + completion with the anchored turn.
+            # P1: pass budgets + model for the model-aware two-state phase-2
+            # machine. When None (no config available), the detector uses the
+            # legacy single PHASE_STALL_SECONDS behavior.
             async for chunk in self._completion.stream_until_complete(
                 initial_count=initial_count,
                 timeout=timeout,
                 turn_anchor=turn_anchor,
+                budgets=budgets,
+                model=model,
             ):
                 yield chunk
 
@@ -1544,32 +1846,49 @@ class CDPDriver:
                 # or dual-anchor fallback); stale text from a prior turn is
                 # never accepted.
                 last_status = "not_ready"
+                last_diagnostic = {}
                 for _ in range(60):
                     result = await self._fetch_text_for_turn(conv_id, turn_anchor)
                     last_status = result.status
+                    last_diagnostic = result.diagnostic or {}
                     if result.status == "matched" and result.text:
                         if len(result.text) > len(last_dom_text):
                             yield StreamChunk(delta=result.text[len(last_dom_text):])
                             last_dom_text = result.text
                         break
                     if result.status == "non_text":
-                        break  # placeholder path below
+                        # P2.5 RCA fix: non_text is NOT terminal here. The backend
+                        # propagates intermediary nodes (reasoning_recap, thoughts,
+                        # model_editable_context) BEFORE the final text node.
+                        # Treating non_text as terminal caused an intermittent
+                        # race: the reconciliation saw the intermediaries,
+                        # concluded "non-text", and yielded the placeholder even
+                        # though the text node would appear within seconds.
+                        # Now: keep polling (like not_ready) — the text node may
+                        # still be propagating. Only after the loop exhausts do we
+                        # yield the placeholder.
+                        pass
                     if result.status in ("ambiguous", "degraded_not_fresh", "fetch_failed"):
                         # Keep polling — these may resolve as the backend settles.
                         pass
                     # not_ready → keep polling.
                     await asyncio.sleep(0.5)
                 else:
-                    # Loop exhausted without match — raise typed error.
-                    raise TurnReconciliationError(
-                        conversation_id=conv_id,
-                        anchor_mode=turn_anchor.mode,
-                        last_status=last_status,
-                        diagnostic={
-                            "captured_id": turn_anchor.captured_user_message_id,
-                            "had_non_text_content": had_non_text_content,
-                        },
-                    )
+                    # Loop exhausted without a text match.
+                    # If the last status was non_text (genuinely non-text
+                    # response after full polling), fall through to the
+                    # placeholder below. Otherwise raise a typed error.
+                    if last_status != "non_text":
+                        raise TurnReconciliationError(
+                            conversation_id=conv_id,
+                            anchor_mode=turn_anchor.mode,
+                            last_status=last_status,
+                            diagnostic={
+                                "captured_id": turn_anchor.captured_user_message_id,
+                                "had_non_text_content": had_non_text_content,
+                                "last_fetch_diagnostic": last_diagnostic,
+                            },
+                        )
                 # Non-text placeholder (unchanged from pre-A2).
                 if not last_dom_text and had_non_text_content:
                     placeholder = (

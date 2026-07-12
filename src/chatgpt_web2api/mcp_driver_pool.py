@@ -21,21 +21,48 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# P1.5: cap for lease history records (prevents unbounded growth).
+_LEASE_HISTORY_LIMIT = 100
+
 
 # ── Errors ────────────────────────────────────────────────────────────────
 
 class PoolExhaustedError(RuntimeError):
-    """Pool is full after acquire_timeout."""
+    """Pool is full after acquire_timeout.
+
+    Carries a default human-readable message (mirroring RateLimitError /
+    AuthExpiredError in cdp_driver.py) so the MCP error-formatter can't
+    surface an empty diagnostic. The bare ``raise PoolExhaustedError()``
+    sites below now render as
+    ``"PoolExhaustedError: no driver slot available within acquire_timeout.
+    Retry later."`` rather than ``": . Retry later."``.
+
+    P1.5: carries an optional ``active_leases`` dump so the error message
+    names the sessions holding slots at exhaustion time.
+    """
+
+    def __init__(self, message: str | None = None, active_leases: list[str] | None = None) -> None:
+        if message is None:
+            message = "no driver slot available within acquire_timeout"
+        if active_leases:
+            message = f"{message} (active: {', '.join(active_leases)})"
+        super().__init__(message)
 
 
 class PoolShuttingDownError(RuntimeError):
     """Pool is shutting down; no new slots can be created."""
+
+    def __init__(self, message: str | None = None) -> None:
+        if message is None:
+            message = "driver pool is shutting down; no new slots can be created"
+        super().__init__(message)
 
 
 class PoolSlotUnavailableError(RuntimeError):
@@ -100,6 +127,26 @@ class DriverSlot:
     closing: bool = False
 
 
+# ── P1.5: Lease accounting records ────────────────────────────────────────
+
+@dataclass
+class LeaseRecord:
+    """P1.5: per-lease lifecycle record for diagnostics.
+
+    Created at acquire time, completed at release time with hold duration
+    and release reason. Stored in the pool's ``_lease_history`` (capped)
+    for post-hoc RCA. This is pure instrumentation — it does NOT influence
+    pool behavior (capacity, eviction, blocking).
+    """
+    lease_id: str
+    session_key: str
+    acquired_at: float
+    released_at: float | None = None
+    hold_duration_s: float | None = None
+    release_reason: str | None = None  # "normal" | "exception" | "cancellation"
+
+
+
 # ── Lease ─────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -109,6 +156,7 @@ class DriverLease:
     driver: Any  # CDPDriver
     breakers: Any  # BreakerRegistry
     call_lock: asyncio.Lock
+    lease_id: str = ""  # P1.5: correlates to a LeaseRecord for diagnostics
 
 
 class _LeaseContext:
@@ -130,7 +178,14 @@ class _LeaseContext:
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         if self._lease is None:
             return
-        await self._pool._release(self._lease.slot)
+        # P1.5: classify the release reason for lease accounting.
+        if exc_type is None:
+            reason = "normal"
+        elif issubclass(exc_type, asyncio.CancelledError):
+            reason = "cancellation"
+        else:
+            reason = "exception"
+        await self._pool._release(self._lease.slot, lease_id=self._lease.lease_id, release_reason=reason)
         self._lease = None
 
 
@@ -174,6 +229,21 @@ class McpSessionDriverPool:
             cfg.mcp_account_throttle_cooldown_seconds
         )
         self._sweep_task: asyncio.Task | None = None
+        # P1.5: lease accounting. _active_leases maps lease_id → LeaseRecord
+        # for currently-held leases; _lease_history is a capped list of
+        # completed records. Pure diagnostics — no behavioral influence.
+        self._active_leases: dict[str, LeaseRecord] = {}
+        self._lease_history: list[LeaseRecord] = []
+
+    @property
+    def active_leases(self) -> dict[str, LeaseRecord]:
+        """Currently-held leases (lease_id → LeaseRecord)."""
+        return self._active_leases
+
+    @property
+    def lease_history(self) -> list[LeaseRecord]:
+        """Completed lease records (most recent last, capped at _history_cap)."""
+        return self._lease_history
 
     @property
     def account_breaker(self) -> AccountThrottleBreaker:
@@ -293,12 +363,7 @@ class McpSessionDriverPool:
                             else:
                                 slot.in_flight += 1
                                 slot.last_used_at = time.monotonic()
-                                return DriverLease(
-                                    slot=slot,
-                                    driver=slot.driver,
-                                    breakers=slot.breakers,
-                                    call_lock=slot.call_lock,
-                                )
+                                return self._make_lease(slot)
 
                 # Need a new slot.
                 if pending_slot is None and (
@@ -325,7 +390,7 @@ class McpSessionDriverPool:
 
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise PoolExhaustedError()
+                        raise PoolExhaustedError(active_leases=self._active_session_keys())
 
                     try:
                         await asyncio.wait_for(
@@ -338,7 +403,7 @@ class McpSessionDriverPool:
                             timeout=remaining,
                         )
                     except TimeoutError:
-                        raise PoolExhaustedError()
+                        raise PoolExhaustedError(active_leases=self._active_session_keys())
 
                     if self._shutting_down:
                         raise PoolShuttingDownError()
@@ -348,13 +413,13 @@ class McpSessionDriverPool:
             if pending_slot is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise PoolExhaustedError()
+                    raise PoolExhaustedError(active_leases=self._active_session_keys())
                 try:
                     await asyncio.wait_for(
                         pending_slot.ready_event.wait(), timeout=remaining
                     )
                 except TimeoutError:
-                    raise PoolExhaustedError()
+                    raise PoolExhaustedError(active_leases=self._active_session_keys())
                 continue
 
         assert materialize_slot is not None
@@ -365,7 +430,7 @@ class McpSessionDriverPool:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 await self._abandon_pending_slot(materialize_slot)
-                raise PoolExhaustedError()
+                raise PoolExhaustedError(active_leases=self._active_session_keys())
 
             try:
                 await asyncio.wait_for(
@@ -374,7 +439,7 @@ class McpSessionDriverPool:
                 sem_acquired = True
             except TimeoutError:
                 await self._abandon_pending_slot(materialize_slot)
-                raise PoolExhaustedError()
+                raise PoolExhaustedError(active_leases=self._active_session_keys())
 
             await self._materialize_slot(materialize_slot)
 
@@ -414,23 +479,76 @@ class McpSessionDriverPool:
         async with materialize_slot.meta_lock:
             if materialize_slot.driver is None:
                 raise PoolSlotUnavailableError()
-            return DriverLease(
-                slot=materialize_slot,
-                driver=materialize_slot.driver,
-                breakers=materialize_slot.breakers,
-                call_lock=materialize_slot.call_lock,
-            )
+            return self._make_lease(materialize_slot)
 
     def _make_breakers(self):
         """Create a fresh BreakerRegistry for a slot."""
         from .breakers import BreakerRegistry
         return BreakerRegistry()
 
-    async def _release(self, slot: DriverSlot) -> None:
-        """Release a lease: decrement in_flight, update last_used_at."""
-        async with slot.meta_lock:
-            slot.in_flight = max(0, slot.in_flight - 1)
-            slot.last_used_at = time.monotonic()
+    def _make_lease(self, slot: DriverSlot) -> DriverLease:
+        """P1.5: create a DriverLease + its LeaseRecord. Instruments the lease
+        lifecycle for diagnostics (hold duration, release reason)."""
+        lease_id = uuid.uuid4().hex[:12]
+        record = LeaseRecord(
+            lease_id=lease_id,
+            session_key=slot.session_key,
+            acquired_at=time.monotonic(),
+        )
+        self._active_leases[lease_id] = record
+        return DriverLease(
+            slot=slot,
+            driver=slot.driver,
+            breakers=slot.breakers,
+            call_lock=slot.call_lock,
+            lease_id=lease_id,
+        )
+
+    def _active_session_keys(self) -> list[str]:
+        """P1.5: session keys of currently-held leases (for exhaustion dumps)."""
+        return sorted({r.session_key for r in self._active_leases.values()})
+
+    async def _release(self, slot: DriverSlot, *, lease_id: str = "", release_reason: str = "normal") -> None:
+        """Release a lease: decrement in_flight, update last_used_at.
+
+        P1.5: also completes the LeaseRecord (hold duration + reason) and
+        detects double-releases (a correctness bug where the same lease is
+        released twice). Double-release logs a warning but does NOT re-decrement
+        in_flight (that would undercount).
+
+        Legacy callers without a ``lease_id`` (``lease_id=""``) skip tracking
+        but still get the correct in_flight decrement (review finding A).
+        """
+        # P1.5: lease tracking. For tracked leases (lease_id non-empty),
+        # complete the record or detect double-release.
+        skip_decrement = False
+        if lease_id:
+            record = self._active_leases.pop(lease_id, None)
+            if record is not None:
+                record.released_at = time.monotonic()
+                record.hold_duration_s = record.released_at - record.acquired_at
+                record.release_reason = release_reason
+                self._lease_history.append(record)
+                # Cap history to prevent unbounded growth.
+                if len(self._lease_history) > _LEASE_HISTORY_LIMIT:
+                    self._lease_history = self._lease_history[-_LEASE_HISTORY_LIMIT:]
+            else:
+                # Confirmed double-release: lease_id was provided but is not in
+                # active_leases. Log and do NOT re-decrement in_flight (review
+                # finding A — re-decrementing would undercount).
+                logger.warning(
+                    "Double-release detected: lease_id=%s not in active_leases "
+                    "(session=%s) — lease was already released; skipping "
+                    "in_flight decrement to avoid undercount",
+                    lease_id, slot.session_key,
+                )
+                skip_decrement = True
+        # For untracked releases (lease_id="" — legacy/direct callers) and
+        # normal tracked releases, decrement in_flight. Double-releases skip.
+        if not skip_decrement:
+            async with slot.meta_lock:
+                slot.in_flight = max(0, slot.in_flight - 1)
+                slot.last_used_at = time.monotonic()
 
     async def _sweep_idle(self) -> None:
         """Background loop: close idle slots past TTL.
@@ -479,9 +597,15 @@ class McpSessionDriverPool:
                     async with slot.meta_lock:
                         slot.in_flight = 0
                         slot.closing = True
+                    # Only delete the mapping and discard the active key if
+                    # this slot is STILL the current mapping for its session.
+                    # If a replacement was created while we were closing, the
+                    # identity check prevents us from deleting the replacement
+                    # OR discarding the key the replacement needs.
+                    # (ChatGPT review, conv 6a52a623 — closing-slot race.)
                     if self._slots.get(slot.session_key) is slot:
                         del self._slots[slot.session_key]
-                    self._active_keys.discard(slot.session_key)
+                        self._active_keys.discard(slot.session_key)
                     self._capacity_available.notify_all()
 
     async def close_all(self) -> None:
@@ -575,4 +699,20 @@ class McpSessionDriverPool:
             },
             "account_breaker_tripped": self._account_breaker.is_tripped(),
             "shutting_down": self._shutting_down,
+            # P1.5: lease accounting summary for RCA / diagnostics.
+            "leases": {
+                "active_count": len(self._active_leases),
+                "history_count": len(self._lease_history),
+                "active": [
+                    {"lease_id": r.lease_id, "session_key": r.session_key,
+                     "acquired_at": r.acquired_at}
+                    for r in self._active_leases.values()
+                ],
+                "recent": [
+                    {"lease_id": r.lease_id, "session_key": r.session_key,
+                     "hold_duration_s": r.hold_duration_s,
+                     "release_reason": r.release_reason}
+                    for r in self._lease_history[-10:]
+                ],
+            },
         }

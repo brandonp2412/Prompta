@@ -52,6 +52,7 @@ import asyncio
 import json
 import logging
 import time
+import unicodedata
 
 from .breakers import BreakerKind
 
@@ -83,6 +84,15 @@ COMPOSER_FALLBACK_SELECTOR = "textarea#prompt-textarea"
 # the legacy testid for older deployments.
 SEND_BUTTON_SELECTOR = 'button[aria-label*="Send" i]:not([data-testid="stop-button"])'
 SEND_BUTTON_FALLBACK_SELECTOR = 'button[data-testid="send-button"]'
+# P2.5: broader fallback — a submit-type button inside the COMPOSER FORM
+# (scoped to the form containing #prompt-textarea, not page-global, to avoid
+# hitting login/search/feedback forms if the page is displaced). If ChatGPT
+# changes the aria-label (selector drift), a submit-type button inside the
+# composer form is still the send affordance. This is the LAST resort.
+SEND_BUTTON_BROAD_SELECTOR = (
+    'form:has(#prompt-textarea) button[type="submit"],'
+    'form:has(.ProseMirror) button[type="submit"]'
+)
 
 # Send-button readiness poll. After a prior send completes (or under parallel
 # mode, where the MutationLock releases the instant a send finishes), ChatGPT's
@@ -319,24 +329,25 @@ class ChatGPTDom:
     async def _verify_composer_text(self, selector: str, expected: str) -> bool:
         """Canonical-equality check: does the composer hold *expected*?
 
-        Compares editor-visible text with canonical normalization (CRLF→LF,
-        NBSP→space, tolerate a trailing block newline ProseMirror adds) — but
-        does NOT broadly collapse internal whitespace, since that would hide
-        real corruption of code/YAML/Markdown indentation.
+        Compares editor-visible text with canonical normalization (NFC, CRLF→LF,
+        NBSP→space) and tolerates at most one editor-added trailing newline.
 
         For a contenteditable ProseMirror div, neither ``innerText`` nor
-        ``textContent`` reconstructs what the user typed across line breaks:
-        ``\\n`` in the input becomes a new ``<p>`` block, and ProseMirror
-        renders blank-line paragraphs as ``<p><br></p>``. ``innerText`` then
-        emits *several* newlines per block boundary (measured: a 2-newline
-        input read back as 5), while ``textContent`` joins blocks with
-        *nothing* (0 newlines). Both fail canonical equality for any
-        multi-line prompt. The fix is a block-aware extractor: join each
-        top-level block child's text with a single ``\\n``, and treat an
-        empty block (the ``<br>``-only paragraph from a blank line) as one
-        newline. This reconstructs the typed text faithfully for both
-        single-line and multi-line input. Legacy ``<textarea>`` still reads
-        ``.value``, which is already exact.
+        ``textContent`` reconstructs what the user typed across line breaks.
+        The fix is a recursive DOM extractor that:
+        - Walks all descendant nodes (not just immediate children)
+        - Emits ``\\n`` for ``<br>`` elements
+        - Joins top-level block children with ``\\n``
+        - Does NOT strip the user's trailing newline (the Python-side
+          tolerance handles editor-added trailing newlines)
+
+        Legacy ``<textarea>`` still reads ``.value``, which is already exact.
+
+        P0 (2026-07-12): ChatGPT code review (conv 6a52f0f3) found 4 defects:
+        1. <br> inside <p> was invisible to textContent (lost newlines)
+        2. Missing NFC normalization (combining accents failed)
+        3. Unconditional trailing-newline strip corrupted user's trailing \\n
+        4. Fixed 500ms delay instead of bounded polling
         """
         # Imported lazily to avoid a module-load circular dependency.
         from .cdp_driver import CDPJSError
@@ -348,41 +359,65 @@ class ChatGPTDom:
                 f"  var el = document.querySelector('{selector}');"
                 "  if (!el) return '';"
                 "  if (el.tagName === 'TEXTAREA') return el.value;"
-                # Block-aware read for contenteditable. Walk the immediate
-                # child nodes; each element block contributes its text plus
-                # one trailing newline, each text node contributes itself.
-                # An empty block (the <br>-only paragraph from a blank line)
-                # collapses to a single blank line, matching a typed "\n\n".
-                # This yields exactly the number of newlines the user typed.
-                "  var parts = [];"
-                "  function blockText(node) {"
-                "    return (node.textContent || '').replace(/\\u00a0/g, ' ');"
+                # Recursive DOM extractor: walks all descendant nodes,
+                # emitting \n for <br> elements. Correctly handles
+                # <p>line1<br>line2</p> which textContent renders as
+                # "line1line2". (ChatGPT review, conv 6a52f0f3.)
+                #
+                # Scope: handles root-level <p>/<div> blocks with inline
+                # descendants (what Input.insertText produces). Does NOT
+                # reconstruct nested block boundaries (blockquote, lists) —
+                # if ChatGPT changes its composer to nest blocks, this needs
+                # a block-aware recursion update.
+                "  function isPlaceholderBreakBlock(node) {"
+                "    return ("
+                "      node.nodeType === 1 &&"
+                "      node.childNodes.length === 1 &&"
+                "      node.firstChild.nodeType === 1 &&"
+                "      node.firstChild.tagName === 'BR'"
+                "    );"
                 "  }"
+                "  function extractText(node) {"
+                "    if (node.nodeType === 3) return (node.nodeValue || '').replace(/\\u00a0/g, ' ');"
+                "    if (node.nodeType !== 1) return '';"
+                "    if (node.tagName === 'BR') return '\\n';"
+                "    var text = '';"
+                "    for (var i = 0; i < node.childNodes.length; i++) {"
+                "      text += extractText(node.childNodes[i]);"
+                "    }"
+                "    return text;"
+                "  }"
+                # Walk immediate children of the composer element.
+                # Each block-level child contributes its extracted text.
+                # A placeholder <br>-only block (<p><br></p>) is treated as
+                # an empty string so the join produces the correct number of
+                # newlines (one from the join, not one from the <br> too).
+                "  var parts = [];"
                 "  for (var i = 0; i < el.childNodes.length; i++) {"
                 "    var child = el.childNodes[i];"
-                "    if (child.nodeType === 3) { parts.push(child.nodeValue || ''); }"
-                "    else if (child.nodeType === 1) {"
-                "      parts.push(blockText(child));"
+                "    if (child.nodeType === 3) {"
+                "      var t = (child.nodeValue || '').replace(/\\u00a0/g, ' ');"
+                "      if (t) parts.push(t);"
+                "    } else if (child.nodeType === 1) {"
+                "      parts.push(isPlaceholderBreakBlock(child) ? '' : extractText(child));"
                 "    }"
                 "  }"
-                "  var joined = parts.join('\\n');"
-                # ProseMirror may append a trailing empty <p>/<br> block that
-                # adds a stray trailing newline; strip at most one to mirror
-                # the single-trailing-newline tolerance below.
-                "  return joined.replace(/\\n$/, '');"
+                "  return parts.join('\\n');"
                 "})()"
             )
         except CDPJSError:
             return False
-        if not actual:
+        if not actual and expected:
             return False
-        canon_actual = actual.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
-        canon_expected = expected.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
+        # NFC normalization: handles composed/decomposed Unicode sequences
+        # (e.g., é as 'e'+U+0301 vs U+00E9). The turn-anchor matcher already
+        # uses NFC; this brings the verifier to parity.
+        canon_actual = unicodedata.normalize("NFC", actual.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " "))
+        canon_expected = unicodedata.normalize("NFC", expected.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " "))
         # ProseMirror wraps input in a <p> and may append a trailing block
         # newline. Tolerate AT MOST ONE editor-added trailing newline — but
         # never strip a user-intended trailing newline. So accept an exact
-        # match, OR actual == expected + one editor newline. (Stripping
-        # unconditionally would corrupt prompts that legitimately end in \n.)
+        # match, OR actual == expected + one editor newline.
         return canon_actual == canon_expected or canon_actual == canon_expected + "\n"
 
     async def click_send(self) -> None:
@@ -406,7 +441,8 @@ class ChatGPTDom:
             has_btn = await d._js(
                 "(function() {"
                 f"  var btn = document.querySelector('{SEND_BUTTON_SELECTOR}')"
-                f"       || document.querySelector('{SEND_BUTTON_FALLBACK_SELECTOR}');"
+                f"       || document.querySelector('{SEND_BUTTON_FALLBACK_SELECTOR}')"
+                f"       || document.querySelector('{SEND_BUTTON_BROAD_SELECTOR}');"
                 "  return btn && !btn.disabled ? 'yes' : 'no';"
                 "})()"
             )
@@ -417,7 +453,8 @@ class ChatGPTDom:
         result = await d._js(
             "(function() {"
             f"  var btn = document.querySelector('{SEND_BUTTON_SELECTOR}')"
-            f"       || document.querySelector('{SEND_BUTTON_FALLBACK_SELECTOR}');"
+            f"       || document.querySelector('{SEND_BUTTON_FALLBACK_SELECTOR}')"
+            f"       || document.querySelector('{SEND_BUTTON_BROAD_SELECTOR}');"
             "  if (!btn) return 'no send button';"
             "  if (btn.disabled) return 'button disabled';"
             "  var evts = ['pointerdown','mousedown','pointerup','mouseup','click'];"
@@ -507,23 +544,44 @@ class ChatGPTDom:
     # ── Diagnostics ───────────────────────────────────────────
 
     async def _capture_selector_diagnostic(self, selector_name: str) -> None:
-        """#5: Capture DOM state when a selector fails to match.
+        """#5 / P2.5: Capture DOM state when a selector fails to match.
 
-        Logs a diagnostic snapshot (URL, title, body text preview, button count)
-        so selector drift is diagnosable without W2A_DIAGNOSE=1. Called at the
-        point of selector failure (e.g. 'no send button', 'No textarea').
-        Best-effort — never raises.
+        Logs a rich diagnostic snapshot so selector drift and send-readiness
+        failures are diagnosable without W2A_DIAGNOSE=1. Called at the point of
+        selector failure (e.g. 'no send button', 'No textarea'). Best-effort —
+        never raises.
+
+        P2.5 (2026-07-09): expanded from url/title/body/button_count to include
+        send-readiness-specific fields (ChatGPT's proposed readiness snapshot):
+        - composer_found / composer_text_length / composer_enabled: distinguishes
+          "text didn't land" (injection failed) from "selector drifted"
+        - send_candidates_count / enabled_send_candidates_count: how many buttons
+          match a broad send heuristic, and how many are enabled
+        - stop_button_present / generating_indicator_present: is a generation
+          in progress (the send button is replaced by stop during generation)
         """
         d = self._driver
         try:
             snapshot = await d._js_strict(
                 "(function(){"
+                "  var composer = document.querySelector('" + COMPOSER_SELECTOR + "')"
+                "       || document.querySelector('" + COMPOSER_FALLBACK_SELECTOR + "');"
+                "  var sendCandidates = document.querySelectorAll('button[type=\"submit\"], button[aria-label*=\"Send\" i], button[data-testid=\"send-button\"]');"
+                "  var enabledSend = Array.prototype.filter.call(sendCandidates, function(b){ return !b.disabled; });"
+                "  var stopBtn = document.querySelector('[data-testid=\"stop-button\"], button[aria-label*=\"Stop\" i]');"
                 "  return JSON.stringify({"
                 "    url: location.href,"
                 "    title: document.title,"
                 "    body_preview: (document.body && document.body.innerText || '').slice(0, 300),"
                 "    button_count: document.querySelectorAll('button').length,"
-                "    textarea_count: document.querySelectorAll('textarea').length"
+                "    textarea_count: document.querySelectorAll('textarea').length,"
+                "    composer_found: !!composer,"
+                "    composer_text_length: composer ? (composer.innerText || composer.value || '').length : 0,"
+                "    composer_enabled: composer ? !composer.disabled : false,"
+                "    send_candidates_count: sendCandidates.length,"
+                "    enabled_send_candidates_count: enabledSend.length,"
+                "    stop_button_present: !!stopBtn,"
+                "    generating_indicator_present: !!document.querySelector('[class*=\"result-thinking\"], [class*=\"generating\"]')"
                 "  });"
                 "})()",
                 timeout=5,
