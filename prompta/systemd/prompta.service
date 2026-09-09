@@ -1,0 +1,18 @@
+[Unit]
+Description=Prompta periodic fresh-chat prompt sender
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/prompta/prompta
+Environment=PYTHONUNBUFFERED=1
+Environment=UV_NO_PROGRESS=1
+ExecStart=/usr/bin/uv run --frozen prompta run
+Restart=always
+RestartSec=10
+TimeoutStopSec=15
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
