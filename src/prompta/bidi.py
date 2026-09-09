@@ -323,44 +323,49 @@ class FirefoxBiDiDriver:
         await self._focus_composer()
         await self._key_text(text)
 
+    async def clear_composer(self, timeout: float = 3.0) -> None:
+        await self.wait_for_composer()
+        await self._focus_composer()
+        await self._call(
+            "input.performActions",
+            {
+                "context": self.context,
+                "actions": [
+                    {
+                        "type": "key",
+                        "id": "keyboard",
+                        "actions": [
+                            {"type": "keyDown", "value": "\ue009"},
+                            {"type": "keyDown", "value": "a"},
+                            {"type": "keyUp", "value": "a"},
+                            {"type": "keyUp", "value": "\ue009"},
+                            {"type": "keyDown", "value": "\ue003"},
+                            {"type": "keyUp", "value": "\ue003"},
+                        ],
+                    }
+                ],
+            },
+        )
+        await self._call("input.releaseActions", {"context": self.context})
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            state = await self.dom_state()
+            if not str(state.get("composer_text") or "").strip():
+                return
+            await asyncio.sleep(0.1)
+        raise RuntimeError("ChatGPT stale composer could not be cleared")
+
     async def click_send(self) -> None:
         selectors = ",".join(_SEND_SELECTORS)
         deadline = asyncio.get_running_loop().time() + 10.0
         while asyncio.get_running_loop().time() < deadline:
-            raw = await self.eval(
-                "JSON.stringify((()=>{"
+            clicked = await self.eval(
+                "(()=>{"
                 f"const buttons=[...document.querySelectorAll({json.dumps(selectors)})];"
                 "const b=buttons.find(e=>!e.disabled&&e.getClientRects().length>0);"
-                "if(!b)return null;const r=b.getBoundingClientRect();"
-                "return {x:r.left+r.width/2,y:r.top+r.height/2};})())"
+                "if(!b)return false;b.click();return true;})()"
             )
-            if raw and raw != "null":
-                point = json.loads(raw)
-                await self._call(
-                    "input.performActions",
-                    {
-                        "context": self.context,
-                        "actions": [
-                            {
-                                "type": "pointer",
-                                "id": "mouse",
-                                "parameters": {"pointerType": "mouse"},
-                                "actions": [
-                                    {
-                                        "type": "pointerMove",
-                                        "x": int(point["x"]),
-                                        "y": int(point["y"]),
-                                        "duration": 0,
-                                        "origin": "viewport",
-                                    },
-                                    {"type": "pointerDown", "button": 0},
-                                    {"type": "pointerUp", "button": 0},
-                                ],
-                            }
-                        ],
-                    },
-                )
-                await self._call("input.releaseActions", {"context": self.context})
+            if clicked:
                 return
             await asyncio.sleep(0.25)
         await self._focus_composer()
