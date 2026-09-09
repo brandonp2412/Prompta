@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/prompta/prompta
+WorkingDirectory=%h/prompta
 Environment=PYTHONUNBUFFERED=1
 Environment=UV_NO_PROGRESS=1
 ExecStart=/usr/bin/uv run --frozen prompta run
