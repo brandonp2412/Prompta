@@ -69,13 +69,15 @@ class FirefoxBiDiDriver:
         last_error: Exception | None = None
         while asyncio.get_running_loop().time() < deadline:
             try:
+                if await self.login_required():
+                    raise RuntimeError("Prompta Firefox profile is not logged into ChatGPT")
                 if await self.ensure_token():
                     return
             except Exception as exc:
                 last_error = exc
             await asyncio.sleep(0.5)
         raise RuntimeError(
-            "Prompta Firefox profile did not produce a ChatGPT session within 15s"
+            "Prompta Firefox profile did not produce an authenticated ChatGPT session within 15s"
         ) from last_error
 
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -249,6 +251,13 @@ class FirefoxBiDiDriver:
         await self._call(
             "browsingContext.navigate",
             {"context": self.context, "url": url, "wait": "complete"},
+        )
+
+    async def login_required(self) -> bool:
+        return bool(
+            await self.eval(
+                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};return visible(document.querySelector('button[data-testid="login-button"]'));})()"""
+            )
         )
 
     async def ensure_token(self) -> str:

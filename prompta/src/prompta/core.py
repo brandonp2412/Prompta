@@ -29,6 +29,7 @@ DEFAULT_FIREFOX_PORT = 9229
 DEFAULT_RETRY_AFTER = 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
+_EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _FAILURE_RETRY_SECONDS = 300.0
 _RATE_LIMIT_BACKOFF_CAP_SECONDS = 15 * 60.0
@@ -278,20 +279,27 @@ class Prompta:
         self,
         driver: FirefoxBiDiDriver,
         *,
-        timeout: float = 5.0,
+        timeout: float = _EFFORT_CONTROL_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             raw = await driver.eval(
                 """JSON.stringify((()=>{
                   const levels=['Instant','Medium','High','Extra high','Extra High'];
+                  const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
                   const visible=el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);
-                    return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
-                  const button=[...document.querySelectorAll('button[aria-haspopup="menu"]')]
-                    .find(el=>visible(el)&&levels.includes((el.innerText||'').trim()));
+                    return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+                  const composer=document.querySelector('main form[data-type="unified-composer"],main form,[data-composer-surface]');
+                  const roots=composer?[composer,document]:[document];
+                  let button=null;
+                  for(const root of roots){
+                    button=[...root.querySelectorAll('button[aria-haspopup="menu"]')]
+                      .find(el=>visible(el)&&levels.includes(normalise(el.innerText||el.textContent||'')));
+                    if(button)break;
+                  }
                   if(!button)return null;
                   const r=button.getBoundingClientRect();
-                  return {text:(button.innerText||'').trim(),x:r.left+r.width/2,y:r.top+r.height/2};
+                  return {text:normalise(button.innerText||button.textContent||''),x:r.left+r.width/2,y:r.top+r.height/2};
                 })())"""
             )
             if raw and raw != "null":
