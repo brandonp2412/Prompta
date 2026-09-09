@@ -1,0 +1,32 @@
+name: Prompta
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  prompta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v9
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - name: Sync
+        working-directory: prompta
+        run: uv sync --locked
+      - name: Test
+        working-directory: prompta
+        run: uv run pytest -q
+      - name: Ruff
+        working-directory: prompta
+        run: uv run ruff check src tests
+      - name: ty
+        working-directory: prompta
+        run: uv run ty check
