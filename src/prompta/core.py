@@ -393,7 +393,11 @@ class Prompta:
         await self._ensure_high_effort(driver)
         baseline = await driver.dom_state()
         if self._normalise(str(baseline.get("composer_text") or "")):
-            raise RuntimeError("ChatGPT new-chat composer was not empty")
+            logger.warning("Prompta found stale text in the dedicated new-chat composer; clearing it")
+            await driver.clear_composer()
+            baseline = await driver.dom_state()
+            if self._normalise(str(baseline.get("composer_text") or "")):
+                raise RuntimeError("ChatGPT stale new-chat composer could not be cleared")
         await driver.arm_page_send_probe()
         capture = driver.arm_send_capture()
         try:
@@ -411,7 +415,6 @@ class Prompta:
                 if is_rate_limited_text(rate_limit_text):
                     raise RateLimitError.from_text(rate_limit_text)
                 probe = await driver.page_send_probe()
-                send_response = driver.captured_send_response(capture)
                 path = str(await driver.eval("location.pathname") or "")
                 user_text = self._normalise(str(state.get("last_user_text") or ""))
                 message_id = str(probe.get("message_id") or state.get("last_user_id") or "")
@@ -426,7 +429,7 @@ class Prompta:
                     path.startswith("/c/")
                     and user_text == self._normalise(prompt)
                     and message_id
-                    and send_response is not None
+                    and not self._normalise(str(state.get("composer_text") or ""))
                 ):
                     conversation_id = path.removeprefix("/c/").split("/", 1)[0]
                     logger.info(

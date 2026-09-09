@@ -22,12 +22,13 @@ from prompta.core import (
 
 
 class FakeDriver:
-    def __init__(self, prompt: str) -> None:
+    def __init__(self, prompt: str, initial_composer: str = "") -> None:
         self.prompt = prompt
         self.is_connected = True
         self.context = "context-1"
-        self.typed = ""
+        self.typed = initial_composer
         self.sent = False
+        self.clear_composer_calls = 0
         self.capture: dict[str, object] = {
             "request_id": "request-1",
             "status": 200,
@@ -67,6 +68,10 @@ class FakeDriver:
     async def type_message(self, text: str) -> None:
         self.typed = text
 
+    async def clear_composer(self) -> None:
+        self.clear_composer_calls += 1
+        self.typed = ""
+
     async def click_send(self) -> None:
         self.sent = True
         self.typed = ""
@@ -103,6 +108,22 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
 
     assert conversation_id == "new-chat"
     assert fake.navigated == ["https://chatgpt.com/"]
+    assert fake.sent is True
+    assert fake.clear_composer_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver(prompt, initial_composer="stale draft from previous failed attempt")
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once(prompt)
+
+    assert conversation_id == "new-chat"
+    assert fake.clear_composer_calls == 1
     assert fake.sent is True
 
 
