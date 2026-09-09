@@ -11,6 +11,7 @@ Environment=UV_NO_PROGRESS=1
 ExecStart=/usr/bin/uv run --frozen prompta run
 Restart=always
 RestartSec=10
+SuccessExitStatus=143
 TimeoutStopSec=15
 NoNewPrivileges=true
 
