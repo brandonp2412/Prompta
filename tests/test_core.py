@@ -208,4 +208,5 @@ def test_backoff_round_trip() -> None:
 def test_retry_after_parser() -> None:
     assert parse_retry_after("Try again in 30 seconds") == 30
     assert parse_retry_after("Please wait 2 minutes") == 120
+    assert parse_retry_after("Try again in 1 hour") == 3600
     assert parse_retry_after("Wait a few minutes") == 300
