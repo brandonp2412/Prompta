@@ -48,6 +48,10 @@ class RateLimitError(RuntimeError):
         return cls(retry_after=parse_retry_after(text))
 
 
+class SendVerificationError(RuntimeError):
+    """The send action happened, but ChatGPT did not expose enough evidence to prove its outcome."""
+
+
 def parse_retry_after(text: str) -> int:
     lowered = text.casefold()
     if re.search(r"\b(?:a\s+)?few\s+(?:minutes?|mins?)\b", lowered):
@@ -236,12 +240,14 @@ class Prompta:
         state = self._job_state(job.name)
         try:
             last_sent_at = float(state.get("last_sent_at") or 0.0)
+            last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
         except (TypeError, ValueError):
             return 0.0
-        if last_sent_at <= 0:
+        last_attempt_at = max(last_sent_at, last_uncertain_send_at)
+        if last_attempt_at <= 0:
             return 0.0
         current = time.time() if now is None else now
-        return max(0.0, last_sent_at + max(0.0, job.interval_seconds) - current)
+        return max(0.0, last_attempt_at + max(0.0, job.interval_seconds) - current)
 
     async def _ensure_driver(self) -> FirefoxBiDiDriver:
         if self.driver is None:
@@ -431,15 +437,14 @@ class Prompta:
                 if (
                     path.startswith("/c/")
                     and user_text == self._normalise(prompt)
-                    and message_id
-                    and send_confirmed
                     and not self._normalise(str(state.get("composer_text") or ""))
                 ):
                     conversation_id = path.removeprefix("/c/").split("/", 1)[0]
                     logger.info(
-                        "Prompta sent prompt in new conversation=%s message_id=%s",
+                        "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s",
                         conversation_id,
-                        message_id,
+                        message_id or "unknown",
+                        send_confirmed,
                     )
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
@@ -449,7 +454,7 @@ class Prompta:
                 await driver.clear_page_send_probe()
             except Exception:
                 logger.debug("Could not clear page send probe", exc_info=True)
-        raise RuntimeError("prompta could not prove the prompt was sent in a new conversation")
+        raise SendVerificationError("prompta could not prove the prompt was sent in a new conversation")
 
     async def _run_job(self, job: PromptJob, *, now: float) -> bool:
         if self.due_in(job, now) > 0:
@@ -471,6 +476,19 @@ class Prompta:
                 delay,
             )
             return False
+        except SendVerificationError as exc:
+            attempted_at = time.time()
+            self._update_job_state(job.name, {"last_uncertain_send_at": attempted_at})
+            logger.warning(
+                "Prompta job=%s send outcome uncertain; suppressing retries for %.0fs: %s",
+                job.name,
+                job.interval_seconds,
+                exc,
+            )
+            if self.driver is not None:
+                await self.driver.close()
+                self.driver = None
+            return False
         except (ConnectionClosed, OSError, RuntimeError) as exc:
             logger.exception("Prompta job=%s send failed: %s", job.name, exc)
             if self.driver is not None:
@@ -486,6 +504,7 @@ class Prompta:
             {
                 "prompt_sha256": self._prompt_hash(job.prompt),
                 "last_sent_at": sent_at,
+                "last_uncertain_send_at": 0.0,
                 "last_conversation_id": conversation_id,
                 "rate_limit_backoff": backoff.snapshot(),
             },

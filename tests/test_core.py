@@ -13,6 +13,7 @@ from prompta.core import (
     PromptJob,
     RateLimitBackoff,
     RateLimitError,
+    SendVerificationError,
     add_job,
     clear_jobs,
     load_jobs,
@@ -29,15 +30,17 @@ class FakeDriver:
         *,
         committed: bool = True,
         capture_status: int = 200,
+        expose_user_message: bool = True,
     ) -> None:
         self.prompt = prompt
         self.committed = committed
+        self.expose_user_message = expose_user_message
         self.is_connected = True
         self.context = "context-1"
         self.typed = initial_composer
         self.sent = False
         self.clear_composer_calls = 0
-        self.capture: dict[str, object] = {
+        self.capture: dict[str, Any] = {
             "request_id": "request-1" if capture_status else "",
             "status": capture_status,
             "response_started": bool(capture_status),
@@ -56,8 +59,8 @@ class FakeDriver:
         if self.sent:
             return {
                 "composer_text": "",
-                "last_user_text": self.prompt,
-                "last_user_id": "message-1",
+                "last_user_text": self.prompt if self.expose_user_message else "",
+                "last_user_id": "message-1" if self.expose_user_message else "",
                 "rate_limit_text": "",
             }
         return {
@@ -70,7 +73,7 @@ class FakeDriver:
     async def arm_page_send_probe(self) -> None:
         return None
 
-    def arm_send_capture(self) -> dict[str, object]:
+    def arm_send_capture(self) -> dict[str, Any]:
         return self.capture
 
     async def type_message(self, text: str) -> None:
@@ -91,7 +94,7 @@ class FakeDriver:
             "committed": self.committed,
         }
 
-    def captured_send_response(self, capture: dict[str, object]) -> tuple[str, int] | None:
+    def captured_send_response(self, capture: dict[str, Any]) -> tuple[str, int] | None:
         status = int(capture["status"])
         if capture["request_id"] and capture["response_started"] and 200 <= status < 400:
             return str(capture["request_id"]), status
@@ -101,7 +104,7 @@ class FakeDriver:
         assert expression == "location.pathname"
         return "/c/new-chat"
 
-    def clear_send_capture(self, capture: dict[str, object]) -> None:
+    def clear_send_capture(self, capture: dict[str, Any]) -> None:
         return None
 
     async def clear_page_send_probe(self) -> dict[str, object]:
@@ -128,7 +131,20 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_once_requires_network_or_stream_confirmation(tmp_path: Path) -> None:
+async def test_send_once_accepts_visible_user_message_without_transport_confirmation(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver(prompt, committed=False, capture_status=0)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once(prompt)
+
+    assert conversation_id == "new-chat"
+
+
+@pytest.mark.asyncio
+async def test_send_once_requires_dom_or_transport_confirmation(tmp_path: Path) -> None:
     prompt = "PROMPTA TEST"
     prompta = Prompta(
         PromptaConfig(
@@ -137,11 +153,11 @@ async def test_send_once_requires_network_or_stream_confirmation(tmp_path: Path)
         ),
         "ws://unused",
     )
-    fake = FakeDriver(prompt, committed=False, capture_status=0)
+    fake = FakeDriver(prompt, committed=False, capture_status=0, expose_user_message=False)
     prompta.driver = cast(Any, fake)
     prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="could not prove"):
+    with pytest.raises(SendVerificationError, match="could not prove"):
         await prompta.send_once(prompt)
 
 
@@ -208,6 +224,33 @@ def test_due_in_uses_persisted_last_send(tmp_path: Path) -> None:
     )
     assert prompta.due_in(PromptJob("flux", "same", 1800), now=1900.0) == 900.0
     assert prompta.due_in(PromptJob("flux", "changed", 1800), now=1900.0) == 900.0
+
+
+def test_due_in_uses_uncertain_send_to_prevent_duplicate_retry(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"jobs": {"flux": {"last_uncertain_send_at": 1000.0}}}))
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+
+    assert prompta.due_in(PromptJob("flux", "same", 1800), now=1300.0) == 1500.0
+
+
+@pytest.mark.asyncio
+async def test_uncertain_send_is_persisted_instead_of_retried_rapidly(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(side_effect=SendVerificationError("uncertain"))  # type: ignore[method-assign]
+    job = PromptJob("github", "bug hunt", 1800)
+
+    with patch("prompta.core.time.time", return_value=1000.0):
+        assert await prompta._run_job(job, now=1000.0) is False
+
+    assert prompta.due_in(job, now=1001.0) == 1799.0
 
 
 @pytest.mark.asyncio
