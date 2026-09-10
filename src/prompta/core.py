@@ -421,6 +421,7 @@ class Prompta:
                 user_text = self._normalise(str(state.get("last_user_text") or ""))
                 message_id = str(probe.get("message_id") or state.get("last_user_id") or "")
                 status = int(probe.get("response_status") or capture.get("status") or 0)
+                send_confirmed = bool(probe.get("committed")) or driver.captured_send_response(capture) is not None
                 if status == 429:
                     raise RateLimitError("prompta send rate limited")
                 if status >= 400:
@@ -431,6 +432,7 @@ class Prompta:
                     path.startswith("/c/")
                     and user_text == self._normalise(prompt)
                     and message_id
+                    and send_confirmed
                     and not self._normalise(str(state.get("composer_text") or ""))
                 ):
                     conversation_id = path.removeprefix("/c/").split("/", 1)[0]
@@ -537,7 +539,12 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
         elif isinstance(value, dict):
             prompt = str(value.get("prompt") or "")
             try:
-                interval = float(value.get("interval_seconds") or DEFAULT_INTERVAL_SECONDS)
+                raw_interval = value.get("interval_seconds")
+                interval = (
+                    DEFAULT_INTERVAL_SECONDS
+                    if raw_interval is None
+                    else float(raw_interval)
+                )
             except (TypeError, ValueError):
                 interval = DEFAULT_INTERVAL_SECONDS
         else:
