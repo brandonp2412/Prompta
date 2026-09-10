@@ -22,17 +22,25 @@ from prompta.core import (
 
 
 class FakeDriver:
-    def __init__(self, prompt: str, initial_composer: str = "") -> None:
+    def __init__(
+        self,
+        prompt: str,
+        initial_composer: str = "",
+        *,
+        committed: bool = True,
+        capture_status: int = 200,
+    ) -> None:
         self.prompt = prompt
+        self.committed = committed
         self.is_connected = True
         self.context = "context-1"
         self.typed = initial_composer
         self.sent = False
         self.clear_composer_calls = 0
         self.capture: dict[str, object] = {
-            "request_id": "request-1",
-            "status": 200,
-            "response_started": True,
+            "request_id": "request-1" if capture_status else "",
+            "status": capture_status,
+            "response_started": bool(capture_status),
             "completed": False,
             "fetch_error": "",
         }
@@ -77,10 +85,17 @@ class FakeDriver:
         self.typed = ""
 
     async def page_send_probe(self) -> dict[str, object]:
-        return {"message_id": "message-1", "response_status": 200, "committed": True}
+        return {
+            "message_id": "message-1",
+            "response_status": int(self.capture["status"]),
+            "committed": self.committed,
+        }
 
     def captured_send_response(self, capture: dict[str, object]) -> tuple[str, int] | None:
-        return ("request-1", 200)
+        status = int(capture["status"])
+        if capture["request_id"] and capture["response_started"] and 200 <= status < 400:
+            return str(capture["request_id"]), status
+        return None
 
     async def eval(self, expression: str) -> str:
         assert expression == "location.pathname"
@@ -110,6 +125,24 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
     assert fake.navigated == ["https://chatgpt.com/"]
     assert fake.sent is True
     assert fake.clear_composer_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_send_once_requires_network_or_stream_confirmation(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            send_timeout_seconds=0.01,
+        ),
+        "ws://unused",
+    )
+    fake = FakeDriver(prompt, committed=False, capture_status=0)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="could not prove"):
+        await prompta.send_once(prompt)
 
 
 @pytest.mark.asyncio
@@ -155,11 +188,13 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     add_job(jobs_path, "flux", "Continue Flux", 1800)
     add_job(jobs_path, "tv", "Continue TV", 1800)
+    add_job(jobs_path, "immediate", "Run immediately", 0)
     jobs = load_jobs(jobs_path)
-    assert set(jobs) == {"flux", "tv"}
+    assert set(jobs) == {"flux", "tv", "immediate"}
     assert jobs["flux"].interval_seconds == 1800
+    assert jobs["immediate"].interval_seconds == 0
     remove_job(jobs_path, "tv")
-    assert set(load_jobs(jobs_path)) == {"flux"}
+    assert set(load_jobs(jobs_path)) == {"flux", "immediate"}
     clear_jobs(jobs_path)
     assert load_jobs(jobs_path) == {}
 
