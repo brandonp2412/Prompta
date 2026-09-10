@@ -52,11 +52,13 @@ def parse_retry_after(text: str) -> int:
     lowered = text.casefold()
     if re.search(r"\b(?:a\s+)?few\s+(?:minutes?|mins?)\b", lowered):
         return 5 * 60
-    match = re.search(r"\b(\d+)\s*(seconds?|secs?|minutes?|mins?)\b", lowered)
+    match = re.search(r"\b(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", lowered)
     if match is None:
         return DEFAULT_RETRY_AFTER
     value = int(match.group(1))
     unit = match.group(2)
+    if unit.startswith(("hour", "hr")):
+        return value * 60 * 60
     return value * 60 if unit.startswith(("min", "minute")) else value
 
 
