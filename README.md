@@ -2,6 +2,8 @@
 
 Prompta opens a brand-new ChatGPT conversation for each configured job on its own cadence. It verifies High thinking effort, sends the prompt, confirms the send, and persists exponential backoff when ChatGPT rate-limits it.
 
+Rate limits pause the entire scheduler rather than only the job that encountered them. The account-wide cooldown survives service restarts, ordinary browser/send failures retain their retry cooldown across restarts, and due jobs are spaced by at least one minute so a backlog cannot burst-send every prompt at once.
+
 It does not inspect existing chats and does not re-prompt unfinished conversations.
 
 ## Setup
@@ -15,6 +17,8 @@ The Firefox profile used by the service lives at `~/.local/state/prompta/firefox
 ## Manage jobs
 
 Jobs default to every 30 minutes:
+
+`list` and `show` display each prompt's status and next due time. Status icons are `●` healthy, `✗` failing, and `○` pending.
 
 ```bash
 # List jobs

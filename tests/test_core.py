@@ -254,22 +254,90 @@ async def test_uncertain_send_is_persisted_instead_of_retried_rapidly(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_backoff_is_exponential_and_job_scoped(tmp_path: Path) -> None:
+async def test_rate_limit_backoff_is_account_wide_persisted_and_exponential(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     prompta = Prompta(
         PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
         "ws://unused",
     )
     prompta.send_once = AsyncMock(side_effect=RateLimitError("limited", retry_after=0))  # type: ignore[method-assign]
-    job = PromptJob("flux", "continue flux", 1800)
+    first_job = PromptJob("flux", "continue flux", 1800)
+    second_job = PromptJob("other", "continue other", 1800)
+
     with patch("prompta.core.random.uniform", return_value=0.0):
+        await prompta._run_job(first_job, now=1000.0)
+        first = prompta._global_backoff.remaining()
+        assert first > 0
+
+        await prompta._run_job(second_job, now=1000.0)
+        assert prompta.send_once.await_count == 1
+
+        restarted = Prompta(
+            PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+            "ws://unused",
+        )
+        restarted.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+        await restarted._run_job(second_job, now=1000.0)
+        assert restarted.send_once.await_count == 0
+
+        prompta._global_backoff.blocked_until = 0.0
+        prompta._update_scheduler_state({"last_attempt_at": 0.0})
+        await prompta._run_job(first_job, now=1061.0)
+        second = prompta._global_backoff.remaining()
+
+    assert second >= first * 2 - 1
+
+
+@pytest.mark.asyncio
+async def test_generic_failure_cooldown_survives_restart(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    job = PromptJob("flux", "continue flux", 1800)
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(side_effect=RuntimeError("browser broke"))  # type: ignore[method-assign]
+
+    with patch("prompta.core.time.time", return_value=1000.0):
         await prompta._run_job(job, now=1000.0)
-        first = prompta._backoffs["flux"].remaining()
-        prompta._backoffs["flux"].blocked_until = 0.0
-        await prompta._run_job(job, now=1000.0)
-        second = prompta._backoffs["flux"].remaining()
-    assert second >= first * 2
-    assert "other" not in prompta._backoffs
+
+    restarted = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    restarted.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    await restarted._run_job(job, now=1100.0)
+    assert restarted.send_once.await_count == 0
+
+    await restarted._run_job(job, now=1301.0)
+    assert restarted.send_once.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_send_attempts_are_spaced_across_jobs_and_restarts(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    first_job = PromptJob("one", "first", 1800)
+    second_job = PromptJob("two", "second", 1800)
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+
+    with patch("prompta.core.time.time", return_value=1000.0):
+        assert await prompta._run_job(first_job, now=1000.0) is True
+
+    restarted = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    restarted.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    assert await restarted._run_job(second_job, now=1030.0) is False
+    assert restarted.send_once.await_count == 0
+
+    with patch("prompta.core.time.time", return_value=1061.0):
+        assert await restarted._run_job(second_job, now=1061.0) is True
+    assert restarted.send_once.await_count == 1
 
 
 def test_backoff_round_trip() -> None:
@@ -281,6 +349,18 @@ def test_backoff_round_trip() -> None:
     restored.restore(snapshot, now=200.0, wall_time=1000.0)
     assert restored.attempts == 1
     assert restored.remaining(now=200.0) == 120.0
+
+
+def test_backoff_resets_escalation_after_quiet_period() -> None:
+    backoff = RateLimitBackoff()
+    with patch("prompta.core.random.uniform", return_value=0.0):
+        first = backoff.record(0, now=100.0)
+        backoff.blocked_until = 0.0
+        second = backoff.record(0, now=200.0)
+        backoff.blocked_until = 0.0
+        reset = backoff.record(0, now=1200.0)
+    assert second == first * 2
+    assert reset == first
 
 
 def test_retry_after_parser() -> None:
