@@ -35,6 +35,9 @@ uv run prompta add my-job "Do the maximum amount of work possible."
 # Add or replace a job with another cadence
 uv run prompta add my-job "Do the maximum amount of work possible." --interval-minutes 60
 
+# Add or replace a job at an exact local clock time every day
+uv run prompta add daily-check "Check the thing." --daily-at 07:00
+
 # Remove one job
 uv run prompta remove my-job
 
