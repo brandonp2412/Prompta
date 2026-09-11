@@ -31,10 +31,12 @@ class FakeDriver:
         committed: bool = True,
         capture_status: int = 200,
         expose_user_message: bool = True,
+        route_after_send: bool = True,
     ) -> None:
         self.prompt = prompt
         self.committed = committed
         self.expose_user_message = expose_user_message
+        self.route_after_send = route_after_send
         self.is_connected = True
         self.context = "context-1"
         self.typed = initial_composer
@@ -102,7 +104,9 @@ class FakeDriver:
 
     async def eval(self, expression: str) -> str:
         assert expression == "location.pathname"
-        return "/c/new-chat"
+        if self.sent and self.route_after_send:
+            return "/c/new-chat"
+        return "/"
 
     def clear_send_capture(self, capture: dict[str, Any]) -> None:
         return None
@@ -153,12 +157,31 @@ async def test_send_once_requires_dom_or_transport_confirmation(tmp_path: Path) 
         ),
         "ws://unused",
     )
-    fake = FakeDriver(prompt, committed=False, capture_status=0, expose_user_message=False)
+    fake = FakeDriver(
+        prompt,
+        committed=False,
+        capture_status=0,
+        expose_user_message=False,
+        route_after_send=False,
+    )
     prompta.driver = cast(Any, fake)
     prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     with pytest.raises(SendVerificationError, match="could not prove"):
         await prompta.send_once(prompt)
+
+
+@pytest.mark.asyncio
+async def test_send_once_accepts_new_conversation_route_as_confirmation(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver(prompt, committed=False, capture_status=0, expose_user_message=False)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once(prompt)
+
+    assert conversation_id == "new-chat"
 
 
 @pytest.mark.asyncio

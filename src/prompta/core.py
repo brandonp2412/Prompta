@@ -453,6 +453,7 @@ class Prompta:
         await driver.wait_for_composer()
         await self._ensure_high_effort(driver)
         baseline = await driver.dom_state()
+        baseline_path = str(await driver.eval("location.pathname") or "")
         if self._normalise(str(baseline.get("composer_text") or "")):
             logger.warning("Prompta found stale text in the dedicated new-chat composer; clearing it")
             await driver.clear_composer()
@@ -487,17 +488,19 @@ class Prompta:
                     raise RuntimeError(f"prompta send failed with HTTP {status}")
                 if capture.get("fetch_error"):
                     raise RuntimeError(f"prompta send failed: {capture['fetch_error']}")
-                if (
-                    path.startswith("/c/")
-                    and user_text == self._normalise(prompt)
+                route_confirmed = path.startswith("/c/") and path != baseline_path
+                dom_confirmed = (
+                    user_text == self._normalise(prompt)
                     and not self._normalise(str(state.get("composer_text") or ""))
-                ):
+                )
+                if route_confirmed:
                     conversation_id = path.removeprefix("/c/").split("/", 1)[0]
                     logger.info(
-                        "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s",
+                        "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s dom_confirmed=%s",
                         conversation_id,
                         message_id or "unknown",
                         send_confirmed,
+                        dom_confirmed,
                     )
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
