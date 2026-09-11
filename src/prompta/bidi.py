@@ -276,8 +276,11 @@ class FirefoxBiDiDriver:
     async def wait_for_composer(self, timeout: float = 20.0) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
         expression = (
-            "!!document.querySelector('#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,"
-            "textarea#prompt-textarea')"
+            "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
+            "s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&"
+            "s.visibility!=='hidden';};return [...document.querySelectorAll("
+            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea'"
+            ")].some(visible)})()"
         )
         while asyncio.get_running_loop().time() < deadline:
             if await self.eval(expression):
@@ -287,8 +290,11 @@ class FirefoxBiDiDriver:
 
     async def _focus_composer(self) -> None:
         expression = (
-            "(()=>{const e=document.querySelector('#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,"
-            "textarea#prompt-textarea');if(!e)return false;e.focus();return true})()"
+            "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
+            "s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&"
+            "s.visibility!=='hidden';};const e=[...document.querySelectorAll("
+            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea'"
+            ")].find(visible);if(!e)return false;e.focus();return true})()"
         )
         if not await self.eval(expression):
             raise RuntimeError("ChatGPT composer could not be focused")
@@ -321,11 +327,66 @@ class FirefoxBiDiDriver:
     async def type_message(self, text: str) -> None:
         await self.wait_for_composer()
         await self._focus_composer()
+        await self.eval(
+            f"""(()=>{{
+              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea';
+              const visible=e=>{{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+                return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';}};
+              const e=[...document.querySelectorAll(selector)].find(visible);
+              if(!e)return false;e.focus();
+              const text={json.dumps(text)};
+              if('value' in e){{
+                const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')?.set;
+                if(setter)setter.call(e,text);else e.value=text;
+                e.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:text}}));
+              }}else{{
+                document.execCommand('insertText',false,text);
+              }}
+              return true;
+            }})()"""
+        )
+        state = await self.dom_state()
+        actual = " ".join(str(state.get("composer_text") or "").split()).strip()
+        expected = " ".join(text.split()).strip()
+        if actual == expected:
+            return
+        # Some editor versions ignore synthetic input; retry through real key events.
+        await self.clear_composer()
         await self._key_text(text)
 
     async def clear_composer(self, timeout: float = 3.0) -> None:
         await self.wait_for_composer()
         await self._focus_composer()
+        cleared = await self.eval(
+            """(()=>{
+              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea';
+              const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+                return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
+              const e=[...document.querySelectorAll(selector)].find(visible);
+              if(!e)return false;e.focus();
+              if('value' in e){
+                const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')?.set;
+                if(setter)setter.call(e,'');else e.value='';
+              }else{
+                const selection=window.getSelection(),range=document.createRange();
+                range.selectNodeContents(e);selection?.removeAllRanges();selection?.addRange(range);
+                document.execCommand('delete');
+                if((e.innerText||e.textContent||'').trim())e.replaceChildren();
+              }
+              e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward'}));
+              return true;
+            })()"""
+        )
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            state = await self.dom_state()
+            if not str(state.get("composer_text") or "").strip():
+                return
+            if cleared:
+                await asyncio.sleep(0.1)
+                continue
+            break
+        # Some editor versions ignore synthetic DOM input; use real key events as a fallback.
         await self._call(
             "input.performActions",
             {
@@ -374,10 +435,11 @@ class FirefoxBiDiDriver:
     async def dom_state(self) -> dict[str, Any]:
         raw = await self.eval(
             """JSON.stringify((()=>{
-              const composer=document.querySelector('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea');
+              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea';
+              const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
+              const composer=[...document.querySelectorAll(selector)].find(visible);
               const messages=[...document.querySelectorAll('[data-message-author-role]')];
               const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
-              const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
               const rateLimitText=[...document.querySelectorAll('[role="alert"],[aria-live="assertive"],[aria-live="polite"],[data-testid="conversation-fetch-error-toaster"],[data-testid*="rate-limit"]')]
                 .filter(visible).map(e=>e.innerText||'').filter(Boolean).join('\\n');
               return {

@@ -12,6 +12,7 @@ import random
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _FAILURE_RETRY_SECONDS = 300.0
+_MIN_SEND_GAP_SECONDS = 60.0
 _RATE_LIMIT_BACKOFF_CAP_SECONDS = 15 * 60.0
 _RATE_LIMIT_RESET_SECONDS = 15 * 60.0
 _RATE_LIMIT_JITTER_FRACTION = 0.10
@@ -126,6 +128,8 @@ class RateLimitBackoff:
 
     def record(self, retry_after: float = 0.0, *, now: float | None = None) -> float:
         now = time.monotonic() if now is None else now
+        if self.attempts and self.last_limited_at and now - self.last_limited_at >= _RATE_LIMIT_RESET_SECONDS:
+            self.reset()
         self.attempts += 1
         exponential = min(
             _RATE_LIMIT_BACKOFF_CAP_SECONDS,
@@ -168,6 +172,7 @@ class Prompta:
         self.bidi_url = bidi_url
         self.driver: FirefoxBiDiDriver | None = None
         self._backoffs: dict[str, RateLimitBackoff] = {}
+        self._global_backoff = RateLimitBackoff()
         self._failure_retry_until: dict[str, float] = {}
         self._restore_backoffs()
 
@@ -215,8 +220,27 @@ class Prompta:
         current.update(updates)
         self._write_state(state)
 
+    def _scheduler_state(self) -> dict[str, Any]:
+        value = self._load_state().get("scheduler")
+        return value if isinstance(value, dict) else {}
+
+    def _update_scheduler_state(self, updates: dict[str, Any]) -> None:
+        state = self._load_state()
+        scheduler = state.setdefault("scheduler", {})
+        if not isinstance(scheduler, dict):
+            scheduler = {}
+            state["scheduler"] = scheduler
+        scheduler.update(updates)
+        self._write_state(state)
+
     def _restore_backoffs(self) -> None:
-        jobs = self._load_state().get("jobs")
+        state = self._load_state()
+        scheduler = state.get("scheduler")
+        if isinstance(scheduler, dict):
+            snapshot = scheduler.get("rate_limit_backoff")
+            if isinstance(snapshot, dict):
+                self._global_backoff.restore(snapshot)
+        jobs = state.get("jobs")
         if not isinstance(jobs, dict):
             return
         for name, job_state in jobs.items():
@@ -232,6 +256,35 @@ class Prompta:
 
     def _persist_backoff(self, name: str, backoff: RateLimitBackoff) -> None:
         self._update_job_state(name, {"rate_limit_backoff": backoff.snapshot()})
+
+    def _persist_global_backoff(self) -> None:
+        self._update_scheduler_state({"rate_limit_backoff": self._global_backoff.snapshot()})
+
+    def _send_gap_remaining(self, now: float) -> float:
+        try:
+            last_attempt_at = float(self._scheduler_state().get("last_attempt_at") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, last_attempt_at + _MIN_SEND_GAP_SECONDS - now)
+
+    def _failure_retry_remaining(self, name: str, now: float) -> float:
+        state = self._job_state(name)
+        try:
+            persisted = float(state.get("failure_retry_until_epoch") or 0.0)
+        except (TypeError, ValueError):
+            persisted = 0.0
+        in_memory = self._failure_retry_until.get(name, 0.0)
+        return max(0.0, max(persisted, in_memory) - now)
+
+    def _mark_failure(self, name: str, message: str, *, retry_until: float | None = None) -> None:
+        updates: dict[str, Any] = {
+            "status": "failing",
+            "status_message": message,
+            "status_at": time.time(),
+        }
+        if retry_until is not None:
+            updates["failure_retry_until_epoch"] = retry_until
+        self._update_job_state(name, updates)
 
     def read_jobs(self) -> dict[str, PromptJob]:
         return load_jobs(self.config.jobs_file)
@@ -462,23 +515,37 @@ class Prompta:
         backoff = self._backoffs.setdefault(job.name, RateLimitBackoff())
         if backoff.remaining() > 0:
             return False
-        if self._failure_retry_until.get(job.name, 0.0) > now:
+        if self._global_backoff.remaining() > 0:
             return False
+        if self._failure_retry_remaining(job.name, now) > 0:
+            return False
+        if self._send_gap_remaining(now) > 0:
+            return False
+        self._update_scheduler_state({"last_attempt_at": now})
         try:
             conversation_id = await self.send_once(job.prompt)
         except RateLimitError as exc:
-            delay = backoff.record(float(exc.retry_after))
-            self._persist_backoff(job.name, backoff)
+            delay = self._global_backoff.record(float(exc.retry_after))
+            self._persist_global_backoff()
+            self._mark_failure(job.name, str(exc))
             logger.warning(
-                "Prompta job=%s rate limited; attempt=%d retrying in %.1fs",
+                "Prompta job=%s rate limited account-wide; attempt=%d pausing all jobs for %.1fs",
                 job.name,
-                backoff.attempts,
+                self._global_backoff.attempts,
                 delay,
             )
             return False
         except SendVerificationError as exc:
             attempted_at = time.time()
-            self._update_job_state(job.name, {"last_uncertain_send_at": attempted_at})
+            self._update_job_state(
+                job.name,
+                {
+                    "last_uncertain_send_at": attempted_at,
+                    "status": "failing",
+                    "status_message": str(exc),
+                    "status_at": attempted_at,
+                },
+            )
             logger.warning(
                 "Prompta job=%s send outcome uncertain; suppressing retries for %.0fs: %s",
                 job.name,
@@ -491,10 +558,12 @@ class Prompta:
             return False
         except (ConnectionClosed, OSError, RuntimeError) as exc:
             logger.exception("Prompta job=%s send failed: %s", job.name, exc)
+            retry_until = time.time() + _FAILURE_RETRY_SECONDS
+            self._mark_failure(job.name, str(exc), retry_until=retry_until)
             if self.driver is not None:
                 await self.driver.close()
                 self.driver = None
-            self._failure_retry_until[job.name] = time.time() + _FAILURE_RETRY_SECONDS
+            self._failure_retry_until[job.name] = retry_until
             return False
         sent_at = time.time()
         backoff.reset()
@@ -507,6 +576,10 @@ class Prompta:
                 "last_uncertain_send_at": 0.0,
                 "last_conversation_id": conversation_id,
                 "rate_limit_backoff": backoff.snapshot(),
+                "failure_retry_until_epoch": 0.0,
+                "status": "healthy",
+                "status_message": "",
+                "status_at": sent_at,
             },
         )
         logger.info(
@@ -529,6 +602,8 @@ class Prompta:
             for job in jobs.values():
                 if await self._run_job(job, now=now):
                     did_work = True
+                if self._global_backoff.remaining() > 0:
+                    break
             if once:
                 return
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
@@ -616,6 +691,69 @@ def clear_jobs(path: Path) -> None:
         pass
 
 
+def _format_duration(seconds: float) -> str:
+    if seconds <= 0:
+        return "now"
+    total_minutes = max(1, int(seconds / 60 + 0.5))
+    days, remainder = divmod(total_minutes, 60 * 24)
+    hours, minutes = divmod(remainder, 60)
+    if days:
+        return f"{days}d {hours}h" if hours else f"{days}d"
+    if hours:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return f"{minutes}m"
+
+
+def _format_next_due(prompta: Prompta, job: PromptJob, now: float | None = None) -> str:
+    current = time.time() if now is None else now
+    remaining = prompta.due_in(job, current)
+    when = datetime.fromtimestamp(current + remaining).astimezone().strftime("%Y-%m-%d %H:%M")
+    return f"now ({when})" if remaining <= 0 else f"in {_format_duration(remaining)} ({when})"
+
+
+def _job_status(prompta: Prompta, job: PromptJob) -> tuple[str, str]:
+    state = prompta._job_state(job.name)
+    status = str(state.get("status") or "pending")
+    message = str(state.get("status_message") or "").casefold()
+    if "rate limit" in message or "rate-limited" in message:
+        return "⏳", "rate-limited"
+    if status == "failing":
+        return "✗", "failing"
+    if status == "healthy":
+        return "●", "healthy"
+    backoff = state.get("rate_limit_backoff")
+    try:
+        backoff_attempts = int(backoff.get("attempts") or 0) if isinstance(backoff, dict) else 0
+    except (TypeError, ValueError):
+        backoff_attempts = 0
+    if state.get("last_uncertain_send_at") or backoff_attempts > 0:
+        return "✗", "failing"
+    if state.get("last_sent_at"):
+        return "●", "healthy"
+    return "○", "pending"
+
+
+def _prompt_preview(prompt: str, width: int = 52) -> str:
+    single_line = " ".join(prompt.split())
+    return single_line if len(single_line) <= width else single_line[: width - 1].rstrip() + "…"
+
+
+def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
+    if not jobs:
+        print("No prompts configured.")
+        return
+    rows = []
+    for job in jobs.values():
+        icon, status = _job_status(prompta, job)
+        rows.append((icon, status, job.name, _format_next_due(prompta, job), _prompt_preview(job.prompt)))
+    headers = ("", "STATUS", "NAME", "NEXT DUE", "PROMPT")
+    widths = [max(len(headers[i]), *(len(row[i]) for row in rows)) for i in range(len(headers))]
+    print("  ".join(header.ljust(widths[i]) for i, header in enumerate(headers)).rstrip())
+    print("  ".join("─" * width for width in widths).rstrip())
+    for row in rows:
+        print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)).rstrip())
+
+
 async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio.subprocess.Process:
     resolved = profile.expanduser().resolve()
     if not resolved.is_dir():
@@ -632,6 +770,7 @@ async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio
         str(resolved),
         "--remote-debugging-port",
         str(port),
+        "-remote-allow-system-access",
         "https://chatgpt.com/",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -656,8 +795,10 @@ def _parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="Show one named job")
     show_parser.add_argument("name")
     show_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    show_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     list_parser = subparsers.add_parser("list", help="List configured jobs")
     list_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     clear_parser = subparsers.add_parser("clear", help="Remove all jobs")
     clear_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     run_parser = subparsers.add_parser("run", help="Run the scheduler")
@@ -712,22 +853,35 @@ def main() -> None:
             args.prompt,
             max(0.0, args.interval_minutes * 60.0),
         )
+        print(f"✓ Added prompt '{args.name}' (next due in {_format_duration(args.interval_minutes * 60)})")
         return
     if args.command == "remove":
+        existed = args.name in load_jobs(args.jobs_file)
         remove_job(args.jobs_file, args.name)
+        print(f"✓ Removed prompt '{args.name}'" if existed else f"○ No prompt named '{args.name}'")
         return
     if args.command == "show":
         job = load_jobs(args.jobs_file).get(args.name)
         if job is None:
             raise SystemExit(f"No Prompta job named {args.name!r}")
-        print(job.prompt)
+        prompta = Prompta(PromptaConfig(jobs_file=args.jobs_file, state_path=args.state), "")
+        icon, status = _job_status(prompta, job)
+        state = prompta._job_state(job.name)
+        print(f"{icon} {job.name} · {status}")
+        print(f"Interval  {_format_duration(job.interval_seconds)}")
+        print(f"Next due  {_format_next_due(prompta, job)}")
+        if state.get("status_message"):
+            print(f"Issue     {state['status_message']}")
+        print(f"Prompt    {job.prompt}")
         return
     if args.command == "list":
-        for job in load_jobs(args.jobs_file).values():
-            print(f"{job.name}\t{job.interval_seconds / 60:g}m\t{job.prompt}")
+        prompta = Prompta(PromptaConfig(jobs_file=args.jobs_file, state_path=args.state), "")
+        _print_job_table(prompta, load_jobs(args.jobs_file))
         return
     if args.command == "clear":
+        count = len(load_jobs(args.jobs_file))
         clear_jobs(args.jobs_file)
+        print(f"✓ Cleared {count} prompt{'s' if count != 1 else ''}.")
         return
     asyncio.run(_run(args))
 
