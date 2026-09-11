@@ -2,7 +2,9 @@
 
 Prompta opens a brand-new ChatGPT conversation for each configured job on its own cadence. It verifies High thinking effort, sends the prompt, confirms the send, and persists exponential backoff when ChatGPT rate-limits it.
 
-Rate limits pause the entire scheduler rather than only the job that encountered them. The account-wide cooldown survives service restarts, ordinary browser/send failures retain their retry cooldown across restarts, and due jobs are spaced by at least one minute so a backlog cannot burst-send every prompt at once.
+Rate limits pause the entire scheduler rather than only the job that encountered them. The account-wide cooldown survives service restarts, ordinary browser/send failures retain their retry cooldown across restarts, and send attempts are spaced by at least five minutes. New jobs get a persisted random initial delay, while successful recurring jobs add up to five minutes of jitter to their normal cadence so equal-interval jobs do not keep bunching together.
+
+Observed rate-limit responses on the current High-effort workload have imposed roughly five-minute cooldowns after clustered sends. Prompta therefore starts account-wide exponential backoff at five minutes and escalates repeated limits to 10, 20, then 30 minutes, with a small random jitter.
 
 It does not inspect existing chats and does not re-prompt unfinished conversations.
 
