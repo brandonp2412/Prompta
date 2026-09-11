@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -228,14 +229,53 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
     add_job(jobs_path, "flux", "Continue Flux", 1800)
     add_job(jobs_path, "tv", "Continue TV", 1800)
     add_job(jobs_path, "immediate", "Run immediately", 0)
+    add_job(jobs_path, "daily", "Daily check", daily_at="07:00")
     jobs = load_jobs(jobs_path)
-    assert set(jobs) == {"flux", "tv", "immediate"}
+    assert set(jobs) == {"flux", "tv", "immediate", "daily"}
     assert jobs["flux"].interval_seconds == 1800
     assert jobs["immediate"].interval_seconds == 0
+    assert jobs["daily"].daily_at == "07:00"
     remove_job(jobs_path, "tv")
-    assert set(load_jobs(jobs_path)) == {"flux", "immediate"}
+    assert set(load_jobs(jobs_path)) == {"flux", "immediate", "daily"}
     clear_jobs(jobs_path)
     assert load_jobs(jobs_path) == {}
+
+
+def test_daily_job_rejects_invalid_time(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="HH:MM"):
+        add_job(tmp_path / "jobs.json", "daily", "Daily check", daily_at="7am")
+
+
+def test_daily_job_initial_schedule_uses_exact_local_time(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    job = PromptJob("daily", "Daily check", daily_at="07:00")
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    now = datetime(2026, 9, 12, 6, 30).timestamp()
+
+    prompta._ensure_initial_schedules([job], now)
+
+    assert prompta.due_in(job, now=now) == pytest.approx(30 * 60)
+
+
+@pytest.mark.asyncio
+async def test_daily_job_success_reschedules_for_next_local_day(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    job = PromptJob("daily", "Daily check", daily_at="07:00")
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    sent_at = datetime(2026, 9, 12, 7, 0).timestamp()
+    next_day = datetime(2026, 9, 13, 7, 0).timestamp()
+
+    with patch("prompta.core.time.time", return_value=sent_at):
+        assert await prompta._run_job(job, now=sent_at) is True
+
+    assert prompta.due_in(job, now=sent_at) == pytest.approx(next_day - sent_at)
 
 
 def test_due_in_uses_persisted_last_send(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ import random
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -155,11 +155,30 @@ class RateLimitBackoff:
         self.last_limited_at = 0.0
 
 
+def _normalise_daily_at(value: str) -> str:
+    candidate = value.strip()
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", candidate):
+        raise ValueError("daily time must be HH:MM in 24-hour local time")
+    return candidate
+
+
+def _next_daily_epoch(daily_at: str, now: float, *, include_now: bool = False) -> float:
+    hour, minute = (int(part) for part in _normalise_daily_at(daily_at).split(":"))
+    current = datetime.fromtimestamp(now)
+    candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    candidate_epoch = candidate.timestamp()
+    if candidate_epoch < now or (candidate_epoch == now and not include_now):
+        candidate = candidate + timedelta(days=1)
+        candidate_epoch = candidate.timestamp()
+    return candidate_epoch
+
+
 @dataclass(frozen=True)
 class PromptJob:
     name: str
     prompt: str
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS
+    daily_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -283,6 +302,15 @@ class Prompta:
                 )
             ):
                 continue
+            if job.daily_at is not None:
+                due_at = _next_daily_epoch(job.daily_at, now, include_now=True)
+                self._update_job_state(job.name, {"initial_due_at_epoch": due_at})
+                logger.info(
+                    "Prompta job=%s initial daily send scheduled for %s",
+                    job.name,
+                    datetime.fromtimestamp(due_at).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+                )
+                continue
             window = min(max(0.0, job.interval_seconds), _INITIAL_DELAY_CAP_SECONDS)
             delay = random.uniform(0.0, window) if window > 0 else 0.0
             self._update_job_state(job.name, {"initial_due_at_epoch": now + delay})
@@ -330,6 +358,8 @@ class Prompta:
         if next_due_at > 0 and last_sent_at >= last_uncertain_send_at:
             return max(0.0, next_due_at - current)
         if last_attempt_at > 0:
+            if job.daily_at is not None:
+                return max(0.0, _next_daily_epoch(job.daily_at, last_attempt_at) - current)
             return max(0.0, last_attempt_at + max(0.0, job.interval_seconds) - current)
         if initial_due_at > 0:
             return max(0.0, initial_due_at - current)
@@ -603,7 +633,12 @@ class Prompta:
             self._failure_retry_until[job.name] = retry_until
             return False
         sent_at = time.time()
-        next_delay = self._next_delay(job)
+        if job.daily_at is not None:
+            next_due_at = _next_daily_epoch(job.daily_at, sent_at)
+            next_delay = max(0.0, next_due_at - sent_at)
+        else:
+            next_delay = self._next_delay(job)
+            next_due_at = sent_at + next_delay
         backoff.reset()
         self._failure_retry_until.pop(job.name, None)
         self._update_job_state(
@@ -613,7 +648,7 @@ class Prompta:
                 "last_sent_at": sent_at,
                 "last_uncertain_send_at": 0.0,
                 "initial_due_at_epoch": 0.0,
-                "next_due_at_epoch": sent_at + next_delay,
+                "next_due_at_epoch": next_due_at,
                 "last_conversation_id": conversation_id,
                 "rate_limit_backoff": backoff.snapshot(),
                 "failure_retry_until_epoch": 0.0,
@@ -622,12 +657,19 @@ class Prompta:
                 "status_at": sent_at,
             },
         )
-        logger.info(
-            "Prompta job=%s completed; next send in %.0fs (includes %.0fs jitter)",
-            job.name,
-            next_delay,
-            max(0.0, next_delay - job.interval_seconds),
-        )
+        if job.daily_at is not None:
+            logger.info(
+                "Prompta job=%s completed; next daily send at %s",
+                job.name,
+                datetime.fromtimestamp(next_due_at).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+            )
+        else:
+            logger.info(
+                "Prompta job=%s completed; next send in %.0fs (includes %.0fs jitter)",
+                job.name,
+                next_delay,
+                max(0.0, next_delay - job.interval_seconds),
+            )
         return True
 
     async def run(self, *, once: bool = False) -> None:
@@ -686,8 +728,14 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
                 interval = DEFAULT_INTERVAL_SECONDS
         else:
             continue
+        daily_at = None
+        if isinstance(value, dict) and value.get("daily_at") is not None:
+            try:
+                daily_at = _normalise_daily_at(str(value["daily_at"]))
+            except ValueError:
+                logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
         if str(name).strip() and prompt.strip():
-            jobs[str(name)] = PromptJob(str(name), prompt, max(0.0, interval))
+            jobs[str(name)] = PromptJob(str(name), prompt, max(0.0, interval), daily_at)
     return jobs
 
 
@@ -696,7 +744,11 @@ def _write_jobs(path: Path, jobs: dict[str, PromptJob]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "jobs": {
-            name: {"prompt": job.prompt, "interval_seconds": job.interval_seconds}
+            name: {
+                "prompt": job.prompt,
+                "interval_seconds": job.interval_seconds,
+                **({"daily_at": job.daily_at} if job.daily_at is not None else {}),
+            }
             for name, job in sorted(jobs.items())
         }
     }
@@ -711,13 +763,15 @@ def add_job(
     name: str,
     prompt: str,
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
+    daily_at: str | None = None,
 ) -> None:
     if not name.strip():
         raise ValueError("prompta job name is empty")
     if not prompt.strip():
         raise ValueError("prompta prompt is empty")
     jobs = load_jobs(path)
-    jobs[name] = PromptJob(name, prompt, max(0.0, interval_seconds))
+    normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
+    jobs[name] = PromptJob(name, prompt, max(0.0, interval_seconds), normalised_daily_at)
     _write_jobs(path, jobs)
 
 
@@ -830,7 +884,9 @@ def _parser() -> argparse.ArgumentParser:
     add_parser = subparsers.add_parser("add", help="Add or replace a named job")
     add_parser.add_argument("name")
     add_parser.add_argument("prompt")
-    add_parser.add_argument("--interval-minutes", type=float, default=30.0)
+    schedule_group = add_parser.add_mutually_exclusive_group()
+    schedule_group.add_argument("--interval-minutes", type=float)
+    schedule_group.add_argument("--daily-at", metavar="HH:MM")
     add_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     remove_parser = subparsers.add_parser("remove", help="Remove a named job")
     remove_parser.add_argument("name")
@@ -890,13 +946,18 @@ def main() -> None:
     args = _parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if args.command == "add":
+        interval_minutes = 30.0 if args.interval_minutes is None else args.interval_minutes
         add_job(
             args.jobs_file,
             args.name,
             args.prompt,
-            max(0.0, args.interval_minutes * 60.0),
+            max(0.0, interval_minutes * 60.0),
+            args.daily_at,
         )
-        print(f"✓ Added prompt '{args.name}' (next due in {_format_duration(args.interval_minutes * 60)})")
+        if args.daily_at is not None:
+            print(f"✓ Added prompt '{args.name}' (daily at {_normalise_daily_at(args.daily_at)} local time)")
+        else:
+            print(f"✓ Added prompt '{args.name}' (next due in {_format_duration(interval_minutes * 60)})")
         return
     if args.command == "remove":
         existed = args.name in load_jobs(args.jobs_file)
@@ -911,7 +972,10 @@ def main() -> None:
         icon, status = _job_status(prompta, job)
         state = prompta._job_state(job.name)
         print(f"{icon} {job.name} · {status}")
-        print(f"Interval  {_format_duration(job.interval_seconds)}")
+        if job.daily_at is not None:
+            print(f"Schedule  daily at {job.daily_at} local time")
+        else:
+            print(f"Interval  {_format_duration(job.interval_seconds)}")
         print(f"Next due  {_format_next_due(prompta, job)}")
         if state.get("status_message"):
             print(f"Issue     {state['status_message']}")
