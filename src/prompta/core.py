@@ -27,17 +27,20 @@ DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
 DEFAULT_STATE_PATH = Path.home() / ".local" / "state" / "prompta" / "state.json"
 DEFAULT_FIREFOX_PROFILE = Path.home() / ".local" / "state" / "prompta" / "firefox-profile"
 DEFAULT_FIREFOX_PORT = 9229
-DEFAULT_RETRY_AFTER = 60
+DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _FAILURE_RETRY_SECONDS = 300.0
-_MIN_SEND_GAP_SECONDS = 60.0
-_RATE_LIMIT_BACKOFF_CAP_SECONDS = 15 * 60.0
-_RATE_LIMIT_RESET_SECONDS = 15 * 60.0
+_MIN_SEND_GAP_SECONDS = 5 * 60.0
+_INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
+_RECURRING_JITTER_FRACTION = 0.20
+_RECURRING_JITTER_CAP_SECONDS = 5 * 60.0
+_RATE_LIMIT_BACKOFF_CAP_SECONDS = 30 * 60.0
+_RATE_LIMIT_RESET_SECONDS = 30 * 60.0
 _RATE_LIMIT_JITTER_FRACTION = 0.10
-_RATE_LIMIT_JITTER_CAP_SECONDS = 30.0
+_RATE_LIMIT_JITTER_CAP_SECONDS = 60.0
 
 
 class RateLimitError(RuntimeError):
@@ -267,6 +270,30 @@ class Prompta:
             return 0.0
         return max(0.0, last_attempt_at + _MIN_SEND_GAP_SECONDS - now)
 
+    def _ensure_initial_schedules(self, jobs: list[PromptJob], now: float) -> None:
+        for job in jobs:
+            state = self._job_state(job.name)
+            if any(
+                state.get(key)
+                for key in (
+                    "last_sent_at",
+                    "last_uncertain_send_at",
+                    "initial_due_at_epoch",
+                    "next_due_at_epoch",
+                )
+            ):
+                continue
+            window = min(max(0.0, job.interval_seconds), _INITIAL_DELAY_CAP_SECONDS)
+            delay = random.uniform(0.0, window) if window > 0 else 0.0
+            self._update_job_state(job.name, {"initial_due_at_epoch": now + delay})
+            logger.info("Prompta job=%s initial start delayed by %.0fs", job.name, delay)
+
+    @staticmethod
+    def _next_delay(job: PromptJob) -> float:
+        interval = max(0.0, job.interval_seconds)
+        jitter_cap = min(_RECURRING_JITTER_CAP_SECONDS, interval * _RECURRING_JITTER_FRACTION)
+        return interval + (random.uniform(0.0, jitter_cap) if jitter_cap > 0 else 0.0)
+
     def _failure_retry_remaining(self, name: str, now: float) -> float:
         state = self._job_state(name)
         try:
@@ -291,16 +318,22 @@ class Prompta:
 
     def due_in(self, job: PromptJob, now: float | None = None) -> float:
         state = self._job_state(job.name)
+        current = time.time() if now is None else now
         try:
             last_sent_at = float(state.get("last_sent_at") or 0.0)
             last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
+            next_due_at = float(state.get("next_due_at_epoch") or 0.0)
+            initial_due_at = float(state.get("initial_due_at_epoch") or 0.0)
         except (TypeError, ValueError):
             return 0.0
         last_attempt_at = max(last_sent_at, last_uncertain_send_at)
-        if last_attempt_at <= 0:
-            return 0.0
-        current = time.time() if now is None else now
-        return max(0.0, last_attempt_at + max(0.0, job.interval_seconds) - current)
+        if next_due_at > 0 and last_sent_at >= last_uncertain_send_at:
+            return max(0.0, next_due_at - current)
+        if last_attempt_at > 0:
+            return max(0.0, last_attempt_at + max(0.0, job.interval_seconds) - current)
+        if initial_due_at > 0:
+            return max(0.0, initial_due_at - current)
+        return 0.0
 
     async def _ensure_driver(self) -> FirefoxBiDiDriver:
         if self.driver is None:
@@ -532,9 +565,10 @@ class Prompta:
             self._persist_global_backoff()
             self._mark_failure(job.name, str(exc))
             logger.warning(
-                "Prompta job=%s rate limited account-wide; attempt=%d pausing all jobs for %.1fs",
+                "Prompta job=%s rate limited account-wide; attempt=%d retry_after=%ds pausing all jobs for %.1fs",
                 job.name,
                 self._global_backoff.attempts,
+                exc.retry_after,
                 delay,
             )
             return False
@@ -569,6 +603,7 @@ class Prompta:
             self._failure_retry_until[job.name] = retry_until
             return False
         sent_at = time.time()
+        next_delay = self._next_delay(job)
         backoff.reset()
         self._failure_retry_until.pop(job.name, None)
         self._update_job_state(
@@ -577,6 +612,8 @@ class Prompta:
                 "prompt_sha256": self._prompt_hash(job.prompt),
                 "last_sent_at": sent_at,
                 "last_uncertain_send_at": 0.0,
+                "initial_due_at_epoch": 0.0,
+                "next_due_at_epoch": sent_at + next_delay,
                 "last_conversation_id": conversation_id,
                 "rate_limit_backoff": backoff.snapshot(),
                 "failure_retry_until_epoch": 0.0,
@@ -586,9 +623,10 @@ class Prompta:
             },
         )
         logger.info(
-            "Prompta job=%s completed; next send in %.0fs",
+            "Prompta job=%s completed; next send in %.0fs (includes %.0fs jitter)",
             job.name,
-            job.interval_seconds,
+            next_delay,
+            max(0.0, next_delay - job.interval_seconds),
         )
         return True
 
@@ -601,8 +639,10 @@ class Prompta:
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
                 continue
             now = time.time()
+            scheduled_jobs = list(jobs.values())
+            self._ensure_initial_schedules(scheduled_jobs, now)
             did_work = False
-            for job in jobs.values():
+            for job in scheduled_jobs:
                 if await self._run_job(job, now=now):
                     did_work = True
                 if self._global_backoff.remaining() > 0:

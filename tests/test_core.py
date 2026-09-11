@@ -358,9 +358,54 @@ async def test_send_attempts_are_spaced_across_jobs_and_restarts(tmp_path: Path)
     assert await restarted._run_job(second_job, now=1030.0) is False
     assert restarted.send_once.await_count == 0
 
-    with patch("prompta.core.time.time", return_value=1061.0):
-        assert await restarted._run_job(second_job, now=1061.0) is True
+    assert await restarted._run_job(second_job, now=1299.0) is False
+    with patch("prompta.core.time.time", return_value=1301.0):
+        assert await restarted._run_job(second_job, now=1301.0) is True
     assert restarted.send_once.await_count == 1
+
+
+def test_initial_schedules_are_randomised_and_persisted(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    jobs = [PromptJob("one", "first", 1800), PromptJob("two", "second", 1800)]
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+
+    with patch("prompta.core.random.uniform", side_effect=[120.0, 900.0]):
+        prompta._ensure_initial_schedules(jobs, 1000.0)
+
+    assert prompta.due_in(jobs[0], now=1000.0) == 120.0
+    assert prompta.due_in(jobs[1], now=1000.0) == 900.0
+
+    restarted = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    with patch("prompta.core.random.uniform") as random_uniform:
+        restarted._ensure_initial_schedules(jobs, 1100.0)
+    random_uniform.assert_not_called()
+    assert restarted.due_in(jobs[0], now=1100.0) == 20.0
+    assert restarted.due_in(jobs[1], now=1100.0) == 800.0
+
+
+@pytest.mark.asyncio
+async def test_success_persists_recurring_jitter(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    job = PromptJob("flux", "continue", 1800)
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+
+    with (
+        patch("prompta.core.time.time", return_value=1000.0),
+        patch("prompta.core.random.uniform", return_value=240.0),
+    ):
+        assert await prompta._run_job(job, now=1000.0) is True
+
+    assert prompta.due_in(job, now=1001.0) == 2039.0
 
 
 def test_backoff_round_trip() -> None:
@@ -371,7 +416,7 @@ def test_backoff_round_trip() -> None:
     restored = RateLimitBackoff()
     restored.restore(snapshot, now=200.0, wall_time=1000.0)
     assert restored.attempts == 1
-    assert restored.remaining(now=200.0) == 120.0
+    assert restored.remaining(now=200.0) == 300.0
 
 
 def test_backoff_resets_escalation_after_quiet_period() -> None:
@@ -381,7 +426,7 @@ def test_backoff_resets_escalation_after_quiet_period() -> None:
         backoff.blocked_until = 0.0
         second = backoff.record(0, now=200.0)
         backoff.blocked_until = 0.0
-        reset = backoff.record(0, now=1200.0)
+        reset = backoff.record(0, now=2200.0)
     assert second == first * 2
     assert reset == first
 
