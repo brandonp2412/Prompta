@@ -11,11 +11,6 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
-_SEND_SELECTORS = (
-    'button[aria-label*="Send" i]:not([data-testid="stop-button"])',
-    'button[data-testid="send-button"]',
-    'button[data-testid*="send" i]:not([data-testid="stop-button"])',
-)
 
 
 class FirefoxBiDiDriver:
@@ -417,45 +412,9 @@ class FirefoxBiDiDriver:
         raise RuntimeError("ChatGPT stale composer could not be cleared")
 
     async def click_send(self) -> None:
-        selectors = ",".join(_SEND_SELECTORS)
-        deadline = asyncio.get_running_loop().time() + 10.0
-        while asyncio.get_running_loop().time() < deadline:
-            raw = await self.eval(
-                "JSON.stringify((()=>{"
-                f"const buttons=[...document.querySelectorAll({json.dumps(selectors)})];"
-                "const b=buttons.find(e=>!e.disabled&&e.getClientRects().length>0);"
-                "if(!b)return null;const r=b.getBoundingClientRect();"
-                "return {x:r.left+r.width/2,y:r.top+r.height/2};})())"
-            )
-            if raw and raw != "null":
-                point = json.loads(raw)
-                await self._call(
-                    "input.performActions",
-                    {
-                        "context": self.context,
-                        "actions": [
-                            {
-                                "type": "pointer",
-                                "id": "mouse",
-                                "parameters": {"pointerType": "mouse"},
-                                "actions": [
-                                    {
-                                        "type": "pointerMove",
-                                        "x": int(point["x"]),
-                                        "y": int(point["y"]),
-                                        "duration": 0,
-                                        "origin": "viewport",
-                                    },
-                                    {"type": "pointerDown", "button": 0},
-                                    {"type": "pointerUp", "button": 0},
-                                ],
-                            }
-                        ],
-                    },
-                )
-                await self._call("input.releaseActions", {"context": self.context})
-                return
-            await asyncio.sleep(0.25)
+        # A WebDriver key action is trusted input just like a pointer action, but it does not
+        # depend on DOM coordinates matching Firefox's action viewport. ChatGPT's composer
+        # sends on Enter, so keep the trusted interaction anchored to the focused composer.
         await self._focus_composer()
         await self._key_text("", enter=True)
 
