@@ -39,6 +39,10 @@ uv run prompta remove my-job
 
 # Remove all jobs
 uv run prompta clear
+
+# Pause or resume a job
+uv run prompta pause my-job
+uv run prompta resume my-job
 ```
 
 Runtime data defaults to:

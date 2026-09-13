@@ -20,6 +20,7 @@ from prompta.core import (
     load_jobs,
     parse_retry_after,
     remove_job,
+    set_job_paused,
 )
 
 
@@ -287,6 +288,32 @@ def test_due_in_uses_persisted_last_send(tmp_path: Path) -> None:
     )
     assert prompta.due_in(PromptJob("flux", "same", 1800), now=1900.0) == 900.0
     assert prompta.due_in(PromptJob("flux", "changed", 1800), now=1900.0) == 900.0
+
+
+def test_pause_state_round_trip(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    add_job(jobs_path, "flux", "same")
+
+    assert set_job_paused(jobs_path, state_path, "flux", True) is True
+    assert json.loads(state_path.read_text())["jobs"]["flux"]["paused"] is True
+    assert set_job_paused(jobs_path, state_path, "flux", False) is True
+    assert json.loads(state_path.read_text())["jobs"]["flux"]["paused"] is False
+    assert set_job_paused(jobs_path, state_path, "missing", True) is False
+
+
+@pytest.mark.asyncio
+async def test_paused_job_is_not_run(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"jobs": {"flux": {"paused": True}}}))
+    prompta = Prompta(
+        PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=state_path),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+
+    assert await prompta._run_job(PromptJob("flux", "same"), now=1000.0) is False
+    assert prompta.send_once.await_count == 0
 
 
 def test_due_in_uses_uncertain_send_to_prevent_duplicate_retry(tmp_path: Path) -> None:

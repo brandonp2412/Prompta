@@ -576,6 +576,8 @@ class Prompta:
         raise SendVerificationError("prompta could not prove the prompt was sent in a new conversation")
 
     async def _run_job(self, job: PromptJob, *, now: float) -> bool:
+        if self._job_state(job.name).get("paused") is True:
+            return False
         if self.due_in(job, now) > 0:
             return False
         backoff = self._backoffs.setdefault(job.name, RateLimitBackoff())
@@ -788,6 +790,16 @@ def clear_jobs(path: Path) -> None:
         pass
 
 
+def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
+    """Set a job's paused state and return whether the job exists."""
+    jobs = load_jobs(path)
+    if name not in jobs:
+        return False
+    prompta = Prompta(PromptaConfig(jobs_file=path, state_path=state_path), "")
+    prompta._update_job_state(name, {"paused": paused})
+    return True
+
+
 def _format_duration(seconds: float) -> str:
     if seconds <= 0:
         return "now"
@@ -810,6 +822,8 @@ def _format_next_due(prompta: Prompta, job: PromptJob, now: float | None = None)
 
 def _job_status(prompta: Prompta, job: PromptJob) -> tuple[str, str]:
     state = prompta._job_state(job.name)
+    if state.get("paused") is True:
+        return "Ⅱ", "paused"
     status = str(state.get("status") or "pending")
     message = str(state.get("status_message") or "").casefold()
     if "rate limit" in message or "rate-limited" in message:
@@ -900,6 +914,11 @@ def _parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     clear_parser = subparsers.add_parser("clear", help="Remove all jobs")
     clear_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    for command, help_text in (("pause", "Pause a named job"), ("resume", "Resume a named job")):
+        job_parser = subparsers.add_parser(command, help=help_text)
+        job_parser.add_argument("name")
+        job_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+        job_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     run_parser = subparsers.add_parser("run", help="Run the scheduler")
     run_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     run_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
@@ -989,6 +1008,14 @@ def main() -> None:
         count = len(load_jobs(args.jobs_file))
         clear_jobs(args.jobs_file)
         print(f"✓ Cleared {count} prompt{'s' if count != 1 else ''}.")
+        return
+    if args.command in {"pause", "resume"}:
+        jobs = load_jobs(args.jobs_file)
+        if args.name not in jobs:
+            raise SystemExit(f"No Prompta job named {args.name!r}")
+        paused = args.command == "pause"
+        set_job_paused(args.jobs_file, args.state, args.name, paused)
+        print(f"✓ {'Paused' if paused else 'Resumed'} prompt '{args.name}'")
         return
     asyncio.run(_run(args))
 
