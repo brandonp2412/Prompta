@@ -42,6 +42,9 @@ uv run prompta add my-job "Do the maximum amount of work possible."
 # Add or replace a job with another cadence
 uv run prompta add my-job "Do the maximum amount of work possible." --interval-minutes 60
 
+# Disable recurrence jitter when the interval must be exact
+uv run prompta add my-job "Do the maximum amount of work possible." --interval-minutes 30 --exact-interval
+
 # Add or replace a job at an exact local clock time every day
 uv run prompta add daily-check "Check the thing." --daily-at 07:00
 

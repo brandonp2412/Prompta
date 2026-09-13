@@ -232,14 +232,16 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
     add_job(jobs_path, "flux", "Continue Flux", 1800)
     add_job(jobs_path, "tv", "Continue TV", 1800)
     add_job(jobs_path, "immediate", "Run immediately", 0)
+    add_job(jobs_path, "exact", "Run exactly", 1800, exact_interval=True)
     add_job(jobs_path, "daily", "Daily check", daily_at="07:00")
     jobs = load_jobs(jobs_path)
-    assert set(jobs) == {"flux", "tv", "immediate", "daily"}
+    assert set(jobs) == {"flux", "tv", "immediate", "exact", "daily"}
     assert jobs["flux"].interval_seconds == 1800
     assert jobs["immediate"].interval_seconds == 0
+    assert jobs["exact"].exact_interval is True
     assert jobs["daily"].daily_at == "07:00"
     remove_job(jobs_path, "tv")
-    assert set(load_jobs(jobs_path)) == {"flux", "immediate", "daily"}
+    assert set(load_jobs(jobs_path)) == {"flux", "immediate", "exact", "daily"}
     clear_jobs(jobs_path)
     assert load_jobs(jobs_path) == {}
 
@@ -247,6 +249,11 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
 def test_daily_job_rejects_invalid_time(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="HH:MM"):
         add_job(tmp_path / "jobs.json", "daily", "Daily check", daily_at="7am")
+
+
+def test_exact_interval_has_no_recurring_jitter() -> None:
+    with patch("prompta.core.random.uniform", return_value=300.0):
+        assert Prompta._next_delay(PromptJob("exact", "run", 1800, exact_interval=True)) == 1800
 
 
 def test_daily_job_initial_schedule_uses_exact_local_time(tmp_path: Path) -> None:
