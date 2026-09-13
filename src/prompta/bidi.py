@@ -420,13 +420,40 @@ class FirefoxBiDiDriver:
         selectors = ",".join(_SEND_SELECTORS)
         deadline = asyncio.get_running_loop().time() + 10.0
         while asyncio.get_running_loop().time() < deadline:
-            clicked = await self.eval(
-                "(()=>{"
+            raw = await self.eval(
+                "JSON.stringify((()=>{"
                 f"const buttons=[...document.querySelectorAll({json.dumps(selectors)})];"
                 "const b=buttons.find(e=>!e.disabled&&e.getClientRects().length>0);"
-                "if(!b)return false;b.click();return true;})()"
+                "if(!b)return null;const r=b.getBoundingClientRect();"
+                "return {x:r.left+r.width/2,y:r.top+r.height/2};})())"
             )
-            if clicked:
+            if raw and raw != "null":
+                point = json.loads(raw)
+                await self._call(
+                    "input.performActions",
+                    {
+                        "context": self.context,
+                        "actions": [
+                            {
+                                "type": "pointer",
+                                "id": "mouse",
+                                "parameters": {"pointerType": "mouse"},
+                                "actions": [
+                                    {
+                                        "type": "pointerMove",
+                                        "x": int(point["x"]),
+                                        "y": int(point["y"]),
+                                        "duration": 0,
+                                        "origin": "viewport",
+                                    },
+                                    {"type": "pointerDown", "button": 0},
+                                    {"type": "pointerUp", "button": 0},
+                                ],
+                            }
+                        ],
+                    },
+                )
+                await self._call("input.releaseActions", {"context": self.context})
                 return
             await asyncio.sleep(0.25)
         await self._focus_composer()
