@@ -180,6 +180,7 @@ class PromptJob:
     prompt: str
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS
     daily_at: str | None = None
+    exact_interval: bool = False
 
 
 @dataclass(frozen=True)
@@ -320,6 +321,8 @@ class Prompta:
     @staticmethod
     def _next_delay(job: PromptJob) -> float:
         interval = max(0.0, job.interval_seconds)
+        if job.exact_interval:
+            return interval
         jitter_cap = min(_RECURRING_JITTER_CAP_SECONDS, interval * _RECURRING_JITTER_FRACTION)
         return interval + (random.uniform(0.0, jitter_cap) if jitter_cap > 0 else 0.0)
 
@@ -732,13 +735,18 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
         else:
             continue
         daily_at = None
-        if isinstance(value, dict) and value.get("daily_at") is not None:
-            try:
-                daily_at = _normalise_daily_at(str(value["daily_at"]))
-            except ValueError:
-                logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
+        exact_interval = False
+        if isinstance(value, dict):
+            exact_interval = value.get("exact_interval") is True
+            if value.get("daily_at") is not None:
+                try:
+                    daily_at = _normalise_daily_at(str(value["daily_at"]))
+                except ValueError:
+                    logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
         if str(name).strip() and prompt.strip():
-            jobs[str(name)] = PromptJob(str(name), prompt, max(0.0, interval), daily_at)
+            jobs[str(name)] = PromptJob(
+                str(name), prompt, max(0.0, interval), daily_at, exact_interval
+            )
     return jobs
 
 
@@ -751,6 +759,7 @@ def _write_jobs(path: Path, jobs: dict[str, PromptJob]) -> None:
                 "prompt": job.prompt,
                 "interval_seconds": job.interval_seconds,
                 **({"daily_at": job.daily_at} if job.daily_at is not None else {}),
+                **({"exact_interval": True} if job.exact_interval else {}),
             }
             for name, job in sorted(jobs.items())
         }
@@ -767,6 +776,7 @@ def add_job(
     prompt: str,
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
     daily_at: str | None = None,
+    exact_interval: bool = False,
 ) -> None:
     if not name.strip():
         raise ValueError("prompta job name is empty")
@@ -774,7 +784,9 @@ def add_job(
         raise ValueError("prompta prompt is empty")
     jobs = load_jobs(path)
     normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
-    jobs[name] = PromptJob(name, prompt, max(0.0, interval_seconds), normalised_daily_at)
+    jobs[name] = PromptJob(
+        name, prompt, max(0.0, interval_seconds), normalised_daily_at, exact_interval
+    )
     _write_jobs(path, jobs)
 
 
@@ -957,6 +969,11 @@ def _parser() -> argparse.ArgumentParser:
     schedule_group = add_parser.add_mutually_exclusive_group()
     schedule_group.add_argument("--interval-minutes", type=float)
     schedule_group.add_argument("--daily-at", metavar="HH:MM")
+    add_parser.add_argument(
+        "--exact-interval",
+        action="store_true",
+        help="Run interval jobs without recurrence jitter",
+    )
     add_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     remove_parser = subparsers.add_parser("remove", help="Remove a named job")
     remove_parser.add_argument("name")
@@ -1060,11 +1077,14 @@ def main() -> None:
             args.prompt,
             max(0.0, interval_minutes * 60.0),
             args.daily_at,
+            args.exact_interval,
         )
         if args.daily_at is not None:
             detail = f"daily at {_normalise_daily_at(args.daily_at)} local time"
         else:
             detail = f"every {_format_duration(interval_minutes * 60)}"
+            if args.exact_interval:
+                detail += " exactly"
         _print_notice("✓", f"Saved {args.name}", detail, tone="32")
         return
     if args.command == "remove":
@@ -1087,7 +1107,10 @@ def main() -> None:
         if job.daily_at is not None:
             print(f"{_paint('Schedule', '2')}  daily at {job.daily_at} local time")
         else:
-            print(f"{_paint('Interval', '2')}  {_format_duration(job.interval_seconds)}")
+            interval = _format_duration(job.interval_seconds)
+            if job.exact_interval:
+                interval += " exactly"
+            print(f"{_paint('Interval', '2')}  {interval}")
         print(f"{_paint('Next due', '2')}  {_format_next_due(prompta, job)}")
         if state.get("status_message"):
             print(f"{_paint('Issue', '2')}     {_paint(str(state['status_message']), '31')}")
