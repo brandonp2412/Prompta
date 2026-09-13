@@ -1,6 +1,6 @@
 # Prompta
 
-Automatically schedule ChatGPT prompts.
+Send ChatGPT prompts once or on a schedule.
 
 ## Setup
 
@@ -11,12 +11,23 @@ uv sync --locked
 The Firefox profile used by the service lives at 
 `~/.local/state/prompta/firefox-profile` and must be logged in to ChatGPT.
 
+## One-shot tasks
+
+Run a prompt immediately without saving it or scheduling another run:
+
+```bash
+uv run prompta once "Review the latest build and report any regressions."
+```
+
+Each one-shot starts a fresh ChatGPT chat, sends exactly once, then exits.
+
 ## Manage jobs
 
-Jobs default to every 30 minutes:
+Repeating jobs default to every 30 minutes:
 
-`list` and `show` display each prompt's status and next due time. Status icons 
-are `●` healthy, `✗` failing, and `○` pending.
+`list` and `show` display each prompt's status and next due time with a compact,
+colour-aware terminal UI. Status icons are `●` healthy, `✗` failing, `○` pending,
+`Ⅱ` paused, and `⏳` rate-limited.
 
 ```bash
 # List jobs

@@ -15,6 +15,8 @@ from prompta.core import (
     RateLimitBackoff,
     RateLimitError,
     SendVerificationError,
+    _parser,
+    _run,
     add_job,
     clear_jobs,
     load_jobs,
@@ -503,3 +505,30 @@ def test_retry_after_parser() -> None:
     assert parse_retry_after("Please wait 2 minutes") == 120
     assert parse_retry_after("Try again in 1 hour") == 3600
     assert parse_retry_after("Wait a few minutes") == 300
+
+
+def test_once_command_parses_as_non_scheduled_prompt() -> None:
+    args = _parser().parse_args(["once", "Do exactly one thing", "--bidi-url", "ws://test"])
+
+    assert args.command == "once"
+    assert args.prompt == "Do exactly one thing"
+    assert args.bidi_url == "ws://test"
+    assert not hasattr(args, "jobs_file")
+
+
+@pytest.mark.asyncio
+async def test_once_command_sends_exactly_once_without_scheduler(capsys: pytest.CaptureFixture[str]) -> None:
+    args = _parser().parse_args(["once", "Do exactly one thing", "--bidi-url", "ws://test"])
+
+    with (
+        patch.object(Prompta, "send_once", AsyncMock(return_value="conversation-123")) as send_once,
+        patch.object(Prompta, "run", AsyncMock()) as run,
+        patch.object(Prompta, "close", AsyncMock()),
+    ):
+        await _run(args)
+
+    send_once.assert_awaited_once_with("Do exactly one thing")
+    run.assert_not_awaited()
+    output = capsys.readouterr().out
+    assert "One-shot" in output
+    assert "conversation conversation-123" in output
