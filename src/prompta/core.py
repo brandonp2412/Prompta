@@ -10,6 +10,7 @@ import logging
 import os
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -849,20 +850,64 @@ def _prompt_preview(prompt: str, width: int = 52) -> str:
     return single_line if len(single_line) <= width else single_line[: width - 1].rstrip() + "…"
 
 
+def _uses_color(stream: Any = None) -> bool:
+    stream = sys.stdout if stream is None else stream
+    return bool(
+        os.environ.get("NO_COLOR") is None
+        and os.environ.get("TERM") != "dumb"
+        and getattr(stream, "isatty", lambda: False)()
+    )
+
+
+def _paint(text: str, code: str, *, stream: Any = None) -> str:
+    return f"\033[{code}m{text}\033[0m" if _uses_color(stream) else text
+
+
+def _status_text(status: str) -> str:
+    code = {
+        "healthy": "1;32",
+        "failing": "1;31",
+        "rate-limited": "1;33",
+        "paused": "1;33",
+        "pending": "2",
+    }.get(status, "0")
+    return _paint(status, code)
+
+
+def _print_notice(icon: str, title: str, detail: str = "", *, tone: str = "36") -> None:
+    marker = _paint(icon, f"1;{tone}")
+    heading = _paint(title, "1")
+    suffix = f"  {_paint(detail, '2')}" if detail else ""
+    print(f"{marker} {heading}{suffix}")
+
+
 def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     if not jobs:
-        print("No prompts configured.")
+        _print_notice("○", "No jobs configured", "Add one with `prompta add …`", tone="33")
         return
-    rows = []
+    rows: list[tuple[str, str, str, str, str]] = []
     for job in jobs.values():
         icon, status = _job_status(prompta, job)
         rows.append((icon, status, job.name, _format_next_due(prompta, job), _prompt_preview(job.prompt)))
     headers = ("", "STATUS", "NAME", "NEXT DUE", "PROMPT")
     widths = [max(len(headers[i]), *(len(row[i]) for row in rows)) for i in range(len(headers))]
-    print("  ".join(header.ljust(widths[i]) for i, header in enumerate(headers)).rstrip())
-    print("  ".join("─" * width for width in widths).rstrip())
-    for row in rows:
-        print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)).rstrip())
+    line = "┼".join("─" * (width + 2) for width in widths)
+    top = "╭" + line.replace("┼", "┬") + "╮"
+    middle = "├" + line + "┤"
+    bottom = "╰" + line.replace("┼", "┴") + "╯"
+
+    print(f"{_paint('Prompta', '1;36')}  {_paint(f'{len(rows)} job' + ('s' if len(rows) != 1 else ''), '2')}")
+    print(top)
+    print("│" + "│".join(f" {header.ljust(widths[i])} " for i, header in enumerate(headers)) + "│")
+    print(middle)
+    for icon, status, name, due, prompt in rows:
+        values = (icon, status, name, due, prompt)
+        rendered = []
+        for i, value in enumerate(values):
+            shown = _status_text(value) if i == 1 else value
+            rendered.append(f" {shown}{' ' * (widths[i] - len(value))} ")
+        print("│" + "│".join(rendered) + "│")
+    print(bottom)
 
 
 async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio.subprocess.Process:
@@ -890,9 +935,20 @@ async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio
     return process
 
 
+def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    parser.add_argument(
+        "--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS
+    )
+    parser.add_argument("--bidi-url")
+    parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
+    parser.add_argument("--firefox-path", default="/usr/bin/firefox")
+    parser.add_argument("--firefox-port", type=int, default=DEFAULT_FIREFOX_PORT)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Send named prompts into fresh ChatGPT chats on a cadence"
+        description="Send prompts into fresh ChatGPT chats, once or on a schedule"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     add_parser = subparsers.add_parser("add", help="Add or replace a named job")
@@ -919,17 +975,19 @@ def _parser() -> argparse.ArgumentParser:
         job_parser.add_argument("name")
         job_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
         job_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    once_parser = subparsers.add_parser(
+        "once", help="Send one prompt immediately without creating a repeating job"
+    )
+    once_parser.add_argument("prompt")
+    _add_browser_arguments(once_parser)
     run_parser = subparsers.add_parser("run", help="Run the scheduler")
     run_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-    run_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    _add_browser_arguments(run_parser)
     run_parser.add_argument(
-        "--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS
+        "--once",
+        action="store_true",
+        help="Run one scheduler pass over currently due jobs, then exit",
     )
-    run_parser.add_argument("--once", action="store_true")
-    run_parser.add_argument("--bidi-url")
-    run_parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
-    run_parser.add_argument("--firefox-path", default="/usr/bin/firefox")
-    run_parser.add_argument("--firefox-port", type=int, default=DEFAULT_FIREFOX_PORT)
     return parser
 
 
@@ -942,14 +1000,19 @@ async def _run(args: argparse.Namespace) -> None:
         bidi_url = f"ws://127.0.0.1:{args.firefox_port}/session"
     prompta = Prompta(
         PromptaConfig(
-            jobs_file=args.jobs_file,
+            jobs_file=getattr(args, "jobs_file", DEFAULT_JOBS_PATH),
             state_path=args.state,
             send_timeout_seconds=max(1.0, args.send_timeout_seconds),
         ),
         bidi_url,
     )
     try:
-        await prompta.run(once=args.once)
+        if args.command == "once":
+            _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
+            conversation_id = await prompta.send_once(args.prompt)
+            _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+        else:
+            await prompta.run(once=args.once)
     finally:
         await prompta.close()
         if firefox is not None and firefox.returncode is None:
@@ -961,9 +1024,34 @@ async def _run(args: argparse.Namespace) -> None:
                 await firefox.wait()
 
 
+class _TerminalLogFormatter(logging.Formatter):
+    _tones = {
+        logging.DEBUG: ("·", "2"),
+        logging.INFO: ("›", "36"),
+        logging.WARNING: ("!", "33"),
+        logging.ERROR: ("×", "31"),
+        logging.CRITICAL: ("×", "1;31"),
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        icon, tone = self._tones.get(record.levelno, ("›", "0"))
+        timestamp = datetime.fromtimestamp(record.created).astimezone().strftime("%H:%M:%S")
+        message = record.getMessage().removeprefix("Prompta ").removeprefix("prompta ")
+        rendered = f"{_paint(icon, tone, stream=sys.stderr)} {_paint(timestamp, '2', stream=sys.stderr)} {message}"
+        if record.exc_info:
+            rendered += "\n" + self.formatException(record.exc_info)
+        return rendered
+
+
+def _configure_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(_TerminalLogFormatter())
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+
+
 def main() -> None:
     args = _parser().parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    _configure_logging()
     if args.command == "add":
         interval_minutes = 30.0 if args.interval_minutes is None else args.interval_minutes
         add_job(
@@ -974,14 +1062,18 @@ def main() -> None:
             args.daily_at,
         )
         if args.daily_at is not None:
-            print(f"✓ Added prompt '{args.name}' (daily at {_normalise_daily_at(args.daily_at)} local time)")
+            detail = f"daily at {_normalise_daily_at(args.daily_at)} local time"
         else:
-            print(f"✓ Added prompt '{args.name}' (next due in {_format_duration(interval_minutes * 60)})")
+            detail = f"every {_format_duration(interval_minutes * 60)}"
+        _print_notice("✓", f"Saved {args.name}", detail, tone="32")
         return
     if args.command == "remove":
         existed = args.name in load_jobs(args.jobs_file)
         remove_job(args.jobs_file, args.name)
-        print(f"✓ Removed prompt '{args.name}'" if existed else f"○ No prompt named '{args.name}'")
+        if existed:
+            _print_notice("✓", f"Removed {args.name}", tone="32")
+        else:
+            _print_notice("○", f"No job named {args.name}", tone="33")
         return
     if args.command == "show":
         job = load_jobs(args.jobs_file).get(args.name)
@@ -990,15 +1082,16 @@ def main() -> None:
         prompta = Prompta(PromptaConfig(jobs_file=args.jobs_file, state_path=args.state), "")
         icon, status = _job_status(prompta, job)
         state = prompta._job_state(job.name)
-        print(f"{icon} {job.name} · {status}")
+        print(f"{icon} {_paint(job.name, '1')}  {_status_text(status)}")
+        print(_paint("─" * max(24, len(job.name) + len(status) + 4), "2"))
         if job.daily_at is not None:
-            print(f"Schedule  daily at {job.daily_at} local time")
+            print(f"{_paint('Schedule', '2')}  daily at {job.daily_at} local time")
         else:
-            print(f"Interval  {_format_duration(job.interval_seconds)}")
-        print(f"Next due  {_format_next_due(prompta, job)}")
+            print(f"{_paint('Interval', '2')}  {_format_duration(job.interval_seconds)}")
+        print(f"{_paint('Next due', '2')}  {_format_next_due(prompta, job)}")
         if state.get("status_message"):
-            print(f"Issue     {state['status_message']}")
-        print(f"Prompt    {job.prompt}")
+            print(f"{_paint('Issue', '2')}     {_paint(str(state['status_message']), '31')}")
+        print(f"{_paint('Prompt', '2')}    {job.prompt}")
         return
     if args.command == "list":
         prompta = Prompta(PromptaConfig(jobs_file=args.jobs_file, state_path=args.state), "")
@@ -1007,7 +1100,7 @@ def main() -> None:
     if args.command == "clear":
         count = len(load_jobs(args.jobs_file))
         clear_jobs(args.jobs_file)
-        print(f"✓ Cleared {count} prompt{'s' if count != 1 else ''}.")
+        _print_notice("✓", f"Cleared {count} job{'s' if count != 1 else ''}", tone="32")
         return
     if args.command in {"pause", "resume"}:
         jobs = load_jobs(args.jobs_file)
@@ -1015,7 +1108,7 @@ def main() -> None:
             raise SystemExit(f"No Prompta job named {args.name!r}")
         paused = args.command == "pause"
         set_job_paused(args.jobs_file, args.state, args.name, paused)
-        print(f"✓ {'Paused' if paused else 'Resumed'} prompt '{args.name}'")
+        _print_notice("Ⅱ" if paused else "▶", f"{'Paused' if paused else 'Resumed'} {args.name}", tone="33" if paused else "32")
         return
     asyncio.run(_run(args))
 
