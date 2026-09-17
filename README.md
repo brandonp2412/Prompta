@@ -25,13 +25,15 @@ Each one-shot starts a fresh ChatGPT chat, sends exactly once, then exits.
 
 Repeating jobs default to every 30 minutes:
 
-`list` and `show` display each prompt's status and next due time with a compact,
-colour-aware terminal UI. Status icons are `●` healthy, `✗` failing, `○` pending,
-`Ⅱ` paused, and `⏳` rate-limited.
+`list` (`ls`) and `show` display each prompt's status and next due time with a
+compact, colour-aware terminal UI. Status icons are `●` healthy, `✗` failing,
+`○` pending, `Ⅱ` paused, and `⏳` rate-limited.
+
+![Sample output from `prompta ls`](docs/assets/prompta-ls.png)
 
 ```bash
 # List jobs
-uv run prompta list
+uv run prompta ls
 
 # Show one prompt
 uv run prompta show flux-roadmap
