@@ -31,6 +31,13 @@ compact, colour-aware terminal UI. Status icons are `●` healthy, `✗` failing
 
 ![Sample output from `prompta ls`](docs/assets/prompta-ls.png)
 
+The screenshot is generated from the real `prompta ls` formatter with isolated,
+deterministic sample jobs:
+
+```bash
+uv run python scripts/generate_readme_screenshot.py
+```
+
 ```bash
 # List jobs
 uv run prompta ls
@@ -84,8 +91,9 @@ The unit file is `systemd/prompta.service`.
 ```bash
 uv sync --locked
 uv run pytest
-uv run ruff check src tests
+uv run ruff check src tests scripts
 uv run ty check
+uv run python scripts/generate_readme_screenshot.py
 ```
 
 ## Upstream
