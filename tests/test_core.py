@@ -514,6 +514,14 @@ def test_retry_after_parser() -> None:
     assert parse_retry_after("Wait a few minutes") == 300
 
 
+def test_ls_alias_parses_as_list_command() -> None:
+    args = _parser().parse_args(["ls"])
+
+    assert args.command == "ls"
+    assert hasattr(args, "jobs_file")
+    assert hasattr(args, "state")
+
+
 def test_once_command_parses_as_non_scheduled_prompt() -> None:
     args = _parser().parse_args(["once", "Do exactly one thing", "--bidi-url", "ws://test"])
 

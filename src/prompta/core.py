@@ -982,7 +982,7 @@ def _parser() -> argparse.ArgumentParser:
     show_parser.add_argument("name")
     show_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     show_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
-    list_parser = subparsers.add_parser("list", help="List configured jobs")
+    list_parser = subparsers.add_parser("list", aliases=["ls"], help="List configured jobs")
     list_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     clear_parser = subparsers.add_parser("clear", help="Remove all jobs")
@@ -1116,7 +1116,7 @@ def main() -> None:
             print(f"{_paint('Issue', '2')}     {_paint(str(state['status_message']), '31')}")
         print(f"{_paint('Prompt', '2')}    {job.prompt}")
         return
-    if args.command == "list":
+    if args.command in {"list", "ls"}:
         prompta = Prompta(PromptaConfig(jobs_file=args.jobs_file, state_path=args.state), "")
         _print_job_table(prompta, load_jobs(args.jobs_file))
         return
