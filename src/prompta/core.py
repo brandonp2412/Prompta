@@ -45,7 +45,9 @@ _RATE_LIMIT_JITTER_CAP_SECONDS = 60.0
 
 
 class RateLimitError(RuntimeError):
-    def __init__(self, message: str = "ChatGPT rate limit reached", retry_after: int = DEFAULT_RETRY_AFTER) -> None:
+    def __init__(
+        self, message: str = "ChatGPT rate limit reached", retry_after: int = DEFAULT_RETRY_AFTER
+    ) -> None:
         super().__init__(message)
         self.retry_after = max(0, int(retry_after))
 
@@ -132,7 +134,11 @@ class RateLimitBackoff:
 
     def record(self, retry_after: float = 0.0, *, now: float | None = None) -> float:
         now = time.monotonic() if now is None else now
-        if self.attempts and self.last_limited_at and now - self.last_limited_at >= _RATE_LIMIT_RESET_SECONDS:
+        if (
+            self.attempts
+            and self.last_limited_at
+            and now - self.last_limited_at >= _RATE_LIMIT_RESET_SECONDS
+        ):
             self.reset()
         self.attempts += 1
         exponential = min(
@@ -460,7 +466,9 @@ class Prompta:
                 payload = json.loads(raw)
                 if isinstance(payload, dict):
                     if payload.get("error"):
-                        raise RuntimeError(f"ChatGPT High effort is unavailable: {payload['error']}")
+                        raise RuntimeError(
+                            f"ChatGPT High effort is unavailable: {payload['error']}"
+                        )
                     if "x" in payload and "y" in payload:
                         return {"x": float(payload["x"]), "y": float(payload["y"])}
             await asyncio.sleep(0.1)
@@ -522,7 +530,9 @@ class Prompta:
         baseline = await driver.dom_state()
         baseline_path = str(await driver.eval("location.pathname") or "")
         if self._normalise(str(baseline.get("composer_text") or "")):
-            logger.warning("Prompta found stale text in the dedicated new-chat composer; clearing it")
+            logger.warning(
+                "Prompta found stale text in the dedicated new-chat composer; clearing it"
+            )
             await driver.clear_composer()
             baseline = await driver.dom_state()
             if self._normalise(str(baseline.get("composer_text") or "")):
@@ -548,7 +558,10 @@ class Prompta:
                 user_text = self._normalise(str(state.get("last_user_text") or ""))
                 message_id = str(probe.get("message_id") or state.get("last_user_id") or "")
                 status = int(probe.get("response_status") or capture.get("status") or 0)
-                send_confirmed = bool(probe.get("committed")) or driver.captured_send_response(capture) is not None
+                send_confirmed = (
+                    bool(probe.get("committed"))
+                    or driver.captured_send_response(capture) is not None
+                )
                 if status == 429:
                     raise RateLimitError("prompta send rate limited")
                 if status >= 400:
@@ -556,9 +569,8 @@ class Prompta:
                 if capture.get("fetch_error"):
                     raise RuntimeError(f"prompta send failed: {capture['fetch_error']}")
                 route_confirmed = path.startswith("/c/") and path != baseline_path
-                dom_confirmed = (
-                    user_text == self._normalise(prompt)
-                    and not self._normalise(str(state.get("composer_text") or ""))
+                dom_confirmed = user_text == self._normalise(prompt) and not self._normalise(
+                    str(state.get("composer_text") or "")
                 )
                 if route_confirmed:
                     conversation_id = path.removeprefix("/c/").split("/", 1)[0]
@@ -577,7 +589,9 @@ class Prompta:
                 await driver.clear_page_send_probe()
             except Exception:
                 logger.debug("Could not clear page send probe", exc_info=True)
-        raise SendVerificationError("prompta could not prove the prompt was sent in a new conversation")
+        raise SendVerificationError(
+            "prompta could not prove the prompt was sent in a new conversation"
+        )
 
     async def _run_job(self, job: PromptJob, *, now: float) -> bool:
         if self._job_state(job.name).get("paused") is True:
@@ -725,11 +739,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             prompt = str(value.get("prompt") or "")
             try:
                 raw_interval = value.get("interval_seconds")
-                interval = (
-                    DEFAULT_INTERVAL_SECONDS
-                    if raw_interval is None
-                    else float(raw_interval)
-                )
+                interval = DEFAULT_INTERVAL_SECONDS if raw_interval is None else float(raw_interval)
             except (TypeError, ValueError):
                 interval = DEFAULT_INTERVAL_SECONDS
         else:
@@ -900,7 +910,9 @@ def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     rows: list[tuple[str, str, str, str, str]] = []
     for job in jobs.values():
         icon, status = _job_status(prompta, job)
-        rows.append((icon, status, job.name, _format_next_due(prompta, job), _prompt_preview(job.prompt)))
+        rows.append(
+            (icon, status, job.name, _format_next_due(prompta, job), _prompt_preview(job.prompt))
+        )
     headers = ("", "STATUS", "NAME", "NEXT DUE", "PROMPT")
     widths = [max(len(headers[i]), *(len(row[i]) for row in rows)) for i in range(len(headers))]
     line = "┼".join("─" * (width + 2) for width in widths)
@@ -908,7 +920,9 @@ def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     middle = "├" + line + "┤"
     bottom = "╰" + line.replace("┼", "┴") + "╯"
 
-    print(f"{_paint('Prompta', '1;36')}  {_paint(f'{len(rows)} job' + ('s' if len(rows) != 1 else ''), '2')}")
+    print(
+        f"{_paint('Prompta', '1;36')}  {_paint(f'{len(rows)} job' + ('s' if len(rows) != 1 else ''), '2')}"
+    )
     print(top)
     print("│" + "│".join(f" {header.ljust(widths[i])} " for i, header in enumerate(headers)) + "│")
     print(middle)
@@ -949,9 +963,7 @@ async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio
 
 def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
-    parser.add_argument(
-        "--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS
-    )
+    parser.add_argument("--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS)
     parser.add_argument("--bidi-url")
     parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
     parser.add_argument("--firefox-path", default="/usr/bin/firefox")
@@ -963,7 +975,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Send prompts into fresh ChatGPT chats, once or on a schedule"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    add_parser = subparsers.add_parser("add", aliases=['push'], help="Add or replace a named job")
+    add_parser = subparsers.add_parser("add", aliases=["push"], help="Add or replace a named job")
     add_parser.add_argument("name")
     add_parser.add_argument("prompt")
     schedule_group = add_parser.add_mutually_exclusive_group()
@@ -975,7 +987,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Run interval jobs without recurrence jitter",
     )
     add_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-    remove_parser = subparsers.add_parser("remove", aliases=['rm'], help="Remove a named job")
+    remove_parser = subparsers.add_parser("remove", aliases=["rm"], help="Remove a named job")
     remove_parser.add_argument("name")
     remove_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     show_parser = subparsers.add_parser("show", help="Show one named job")
@@ -985,7 +997,7 @@ def _parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", aliases=["ls"], help="List configured jobs")
     list_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
-    clear_parser = subparsers.add_parser("clear", aliases=['cls'],help="Remove all jobs")
+    clear_parser = subparsers.add_parser("clear", aliases=["cls"], help="Remove all jobs")
     clear_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     for command, help_text in (("pause", "Pause a named job"), ("resume", "Resume a named job")):
         job_parser = subparsers.add_parser(command, help=help_text)
@@ -1131,7 +1143,11 @@ def main() -> None:
             raise SystemExit(f"No Prompta job named {args.name!r}")
         paused = args.command == "pause"
         set_job_paused(args.jobs_file, args.state, args.name, paused)
-        _print_notice("Ⅱ" if paused else "▶", f"{'Paused' if paused else 'Resumed'} {args.name}", tone="33" if paused else "32")
+        _print_notice(
+            "Ⅱ" if paused else "▶",
+            f"{'Paused' if paused else 'Resumed'} {args.name}",
+            tone="33" if paused else "32",
+        )
         return
     asyncio.run(_run(args))
 

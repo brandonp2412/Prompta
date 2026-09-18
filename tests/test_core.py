@@ -139,7 +139,9 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_once_accepts_visible_user_message_without_transport_confirmation(tmp_path: Path) -> None:
+async def test_send_once_accepts_visible_user_message_without_transport_confirmation(
+    tmp_path: Path,
+) -> None:
     prompt = "PROMPTA TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt, committed=False, capture_status=0)
@@ -532,7 +534,9 @@ def test_once_command_parses_as_non_scheduled_prompt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_once_command_sends_exactly_once_without_scheduler(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_once_command_sends_exactly_once_without_scheduler(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     args = _parser().parse_args(["once", "Do exactly one thing", "--bidi-url", "ws://test"])
 
     with (
