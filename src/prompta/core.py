@@ -963,7 +963,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Send prompts into fresh ChatGPT chats, once or on a schedule"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    add_parser = subparsers.add_parser("add", help="Add or replace a named job")
+    add_parser = subparsers.add_parser("add", aliases=['push'], help="Add or replace a named job")
     add_parser.add_argument("name")
     add_parser.add_argument("prompt")
     schedule_group = add_parser.add_mutually_exclusive_group()
@@ -975,7 +975,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Run interval jobs without recurrence jitter",
     )
     add_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-    remove_parser = subparsers.add_parser("remove", help="Remove a named job")
+    remove_parser = subparsers.add_parser("remove", aliases=['rm'], help="Remove a named job")
     remove_parser.add_argument("name")
     remove_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     show_parser = subparsers.add_parser("show", help="Show one named job")
@@ -985,7 +985,7 @@ def _parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", aliases=["ls"], help="List configured jobs")
     list_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
-    clear_parser = subparsers.add_parser("clear", help="Remove all jobs")
+    clear_parser = subparsers.add_parser("clear", aliases=['cls'],help="Remove all jobs")
     clear_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     for command, help_text in (("pause", "Pause a named job"), ("resume", "Resume a named job")):
         job_parser = subparsers.add_parser(command, help=help_text)
