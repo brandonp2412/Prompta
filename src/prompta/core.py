@@ -1069,7 +1069,7 @@ def _configure_logging() -> None:
 def main() -> None:
     args = _parser().parse_args()
     _configure_logging()
-    if args.command == "add":
+    if args.command in {"add", "push"}:
         interval_minutes = 30.0 if args.interval_minutes is None else args.interval_minutes
         add_job(
             args.jobs_file,
@@ -1087,7 +1087,7 @@ def main() -> None:
                 detail += " exactly"
         _print_notice("✓", f"Saved {args.name}", detail, tone="32")
         return
-    if args.command == "remove":
+    if args.command in {"remove", "rm"}:
         existed = args.name in load_jobs(args.jobs_file)
         remove_job(args.jobs_file, args.name)
         if existed:
@@ -1120,7 +1120,7 @@ def main() -> None:
         prompta = Prompta(PromptaConfig(jobs_file=args.jobs_file, state_path=args.state), "")
         _print_job_table(prompta, load_jobs(args.jobs_file))
         return
-    if args.command == "clear":
+    if args.command in {"clear", "cls"}:
         count = len(load_jobs(args.jobs_file))
         clear_jobs(args.jobs_file)
         _print_notice("✓", f"Cleared {count} job{'s' if count != 1 else ''}", tone="32")
