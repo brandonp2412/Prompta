@@ -300,6 +300,14 @@ class FirefoxBiDiDriver:
             {"context": self.context, "url": url, "wait": "complete"},
         )
 
+    async def activate_history_link(self, path: str) -> bool:
+        target = json.dumps(path.rstrip("/"))
+        return bool(
+            await self.eval(
+                f"""(()=>{{const target={target};const link=[...document.querySelectorAll('a[href]')].find(a=>{{try{{return new URL(a.href,location.origin).pathname.replace(/\\/$/,'')===target;}}catch{{return false;}}}});if(!link)return false;link.click();return true;}})()"""
+            )
+        )
+
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         response = await self._call("browsingContext.create", {"type": "tab"})
         context = str(response.get("result", {}).get("context") or "")

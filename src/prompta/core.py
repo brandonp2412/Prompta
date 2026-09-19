@@ -404,6 +404,25 @@ class Prompta:
             await self.driver.connect()
         return self.driver
 
+    async def _ensure_conversation_route(
+        self,
+        driver: FirefoxBiDiDriver,
+        expected_path: str,
+    ) -> None:
+        expected = expected_path.rstrip("/")
+        deadline = asyncio.get_running_loop().time() + 10.0
+        activated_history = False
+        path = str(await driver.eval("location.pathname") or "").rstrip("/")
+        while path != expected and asyncio.get_running_loop().time() < deadline:
+            if path in {"", "/"} and not activated_history:
+                activated_history = await driver.activate_history_link(expected)
+            await asyncio.sleep(0.25)
+            path = str(await driver.eval("location.pathname") or "").rstrip("/")
+        if path != expected:
+            raise RuntimeError(
+                f"ChatGPT opened unexpected conversation path {path!r}; expected {expected!r}"
+            )
+
     async def _pointer_click(self, driver: FirefoxBiDiDriver, x: float, y: float) -> None:
         await driver._call(
             "input.performActions",
@@ -656,12 +675,9 @@ class Prompta:
         context = await driver.new_tab(target_url)
         try:
             await driver.wait_for_composer()
-            path = str(await driver.eval("location.pathname") or "")
             expected_path = urlsplit(target_url).path.rstrip("/")
-            if path.rstrip("/") != expected_path:
-                raise RuntimeError(
-                    f"ChatGPT opened unexpected conversation path {path!r}; expected {expected_path!r}"
-                )
+            await self._ensure_conversation_route(driver, expected_path)
+            await driver.wait_for_composer()
 
             self.cache.resume(conversation_id, context_id=context)
             deadline = asyncio.get_running_loop().time() + 15.0
@@ -704,6 +720,9 @@ class Prompta:
             raise ValueError("prompta prompt is empty")
 
         driver = await self._ensure_driver()
+        metadata = self.cache.metadata(conversation_id)
+        target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
+        expected_path = urlsplit(target_url).path.rstrip("/")
         existing = next(
             (
                 (context, active)
@@ -714,25 +733,18 @@ class Prompta:
         )
         created_context = existing is None
         if existing is None:
-            metadata = self.cache.metadata(conversation_id)
-            target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
             context = await driver.new_tab(target_url)
-            expected_path = urlsplit(target_url).path.rstrip("/")
             active: ActiveConversation | None = None
         else:
             context, active = existing
             driver.context = context
-            expected_path = f"/c/{conversation_id}"
 
         capture: dict[str, Any] | None = None
         probe_armed = False
         try:
             await driver.wait_for_composer()
-            path = str(await driver.eval("location.pathname") or "")
-            if path.rstrip("/") != expected_path:
-                raise RuntimeError(
-                    f"ChatGPT opened unexpected conversation path {path!r}; expected {expected_path!r}"
-                )
+            await self._ensure_conversation_route(driver, expected_path)
+            await driver.wait_for_composer()
 
             await self._ensure_high_effort(driver)
             baseline = await driver.dom_state()

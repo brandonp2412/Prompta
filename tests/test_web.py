@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from prompta.cache import ChatCache
-from prompta.web import ReadOnlyChatStore
+from prompta.web import ReadOnlyChatStore, _remote_control
 
 
 def _seed_cache(path: Path) -> None:
@@ -30,6 +31,21 @@ def _seed_cache(path: Path) -> None:
         },
     )
     cache.close()
+
+
+def test_remote_control_uses_user_ssh_config() -> None:
+    completed = MagicMock(returncode=0, stdout="chat-id\n", stderr="")
+    with patch("prompta.web.subprocess.run", return_value=completed) as run:
+        result = _remote_control(
+            "glass",
+            operation="reply",
+            conversation_id="chat-id",
+            message="Continue",
+        )
+
+    assert result == "chat-id"
+    argv = run.call_args.args[0]
+    assert argv[:3] == ["ssh", "-F", str(Path.home() / ".ssh" / "config")]
 
 
 def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
