@@ -313,7 +313,7 @@ async function fetchJson(url) {
 async function loadChats() {
   try {
     const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
-    const payload = await fetchJson(`/api/chats${query}`);
+    const payload = await fetchJson(`api/chats${query}`);
     state.chats = payload.chats || [];
     els.globalLiveOrb.classList.add("live");
 
@@ -355,7 +355,7 @@ async function loadChats() {
 async function loadSelectedChat() {
   if (!state.selectedId) return;
   try {
-    const chat = await fetchJson(`/api/chats/${encodeURIComponent(state.selectedId)}`);
+    const chat = await fetchJson(`api/chats/${encodeURIComponent(state.selectedId)}`);
     if (chat.id !== state.selectedId) return;
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
