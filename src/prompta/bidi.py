@@ -55,7 +55,6 @@ class FirefoxBiDiDriver:
                     "network.responseCompleted",
                     "network.fetchError",
                 ],
-                "contexts": [self.context],
             },
         )
         self._network_subscribed = True
@@ -228,12 +227,18 @@ class FirefoxBiDiDriver:
         if self._send_capture is capture:
             self._send_capture = None
 
-    async def eval(self, expression: str, *, await_promise: bool = False) -> Any:
+    async def eval(
+        self,
+        expression: str,
+        *,
+        await_promise: bool = False,
+        context: str | None = None,
+    ) -> Any:
         response = await self._call(
             "script.evaluate",
             {
                 "expression": expression,
-                "target": {"context": self.context},
+                "target": {"context": context or self.context},
                 "awaitPromise": await_promise,
             },
         )
@@ -247,6 +252,22 @@ class FirefoxBiDiDriver:
             "browsingContext.navigate",
             {"context": self.context, "url": url, "wait": "complete"},
         )
+
+    async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
+        response = await self._call("browsingContext.create", {"type": "tab"})
+        context = str(response.get("result", {}).get("context") or "")
+        if not context:
+            raise RuntimeError(f"Firefox BiDi did not create a browsing context: {response}")
+        self.context = context
+        await self.navigate(url)
+        return context
+
+    async def close_context(self, context: str) -> None:
+        try:
+            await self._call("browsingContext.close", {"context": context})
+        except RuntimeError as exc:
+            if "no such frame" not in str(exc).casefold():
+                raise
 
     async def login_required(self) -> bool:
         return bool(
@@ -435,6 +456,28 @@ class FirefoxBiDiDriver:
                 rate_limit_text:rateLimitText
               };
             })())"""
+        )
+        return json.loads(raw or "{}")
+
+    async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+        raw = await self.eval(
+            """JSON.stringify((()=>{
+              const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+              const messages=[...document.querySelectorAll('[data-message-author-role]')].map((e,index)=>({
+                id:e.getAttribute('data-message-id')||'',
+                role:e.getAttribute('data-message-author-role')||'',
+                content:(e.innerText||e.textContent||'').trim(),
+                ordinal:index
+              }));
+              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
+              return {
+                path:location.pathname,
+                title:document.title||'',
+                messages,
+                streaming:stop
+              };
+            })())""",
+            context=context,
         )
         return json.loads(raw or "{}")
 

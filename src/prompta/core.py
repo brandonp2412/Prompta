@@ -20,6 +20,7 @@ from typing import Any
 from websockets.exceptions import ConnectionClosed
 
 from .bidi import FirefoxBiDiDriver, wait_for_port
+from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,7 @@ class PromptJob:
 class PromptaConfig:
     jobs_file: Path = DEFAULT_JOBS_PATH
     state_path: Path = DEFAULT_STATE_PATH
+    cache_path: Path | None = None
     send_timeout_seconds: float = _SEND_CONFIRM_TIMEOUT_SECONDS
 
 
@@ -201,6 +203,15 @@ class Prompta:
         self.config = config
         self.bidi_url = bidi_url
         self.driver: FirefoxBiDiDriver | None = None
+        cache_path = config.cache_path
+        if cache_path is None:
+            cache_path = (
+                DEFAULT_CACHE_PATH
+                if config.jobs_file == DEFAULT_JOBS_PATH and config.state_path == DEFAULT_STATE_PATH
+                else config.jobs_file.expanduser().parent / "chats.sqlite3"
+            )
+        self.cache = ChatCache(cache_path)
+        self._active_conversations: dict[str, ActiveConversation] = {}
         self._backoffs: dict[str, RateLimitBackoff] = {}
         self._global_backoff = RateLimitBackoff()
         self._failure_retry_until: dict[str, float] = {}
@@ -520,31 +531,37 @@ class Prompta:
             )
         logger.info("Prompta set and verified thinking effort=High")
 
-    async def send_once(self, prompt: str) -> str:
+    async def send_once(self, prompt: str, *, job_name: str = "") -> str:
         if not prompt.strip():
             raise ValueError("prompta prompt is empty")
         driver = await self._ensure_driver()
-        await driver.navigate("https://chatgpt.com/")
-        await driver.wait_for_composer()
-        await self._ensure_high_effort(driver)
-        baseline = await driver.dom_state()
-        baseline_path = str(await driver.eval("location.pathname") or "")
-        if self._normalise(str(baseline.get("composer_text") or "")):
-            logger.warning(
-                "Prompta found stale text in the dedicated new-chat composer; clearing it"
-            )
-            await driver.clear_composer()
-            baseline = await driver.dom_state()
-            if self._normalise(str(baseline.get("composer_text") or "")):
-                raise RuntimeError("ChatGPT stale new-chat composer could not be cleared")
-        await driver.arm_page_send_probe()
-        capture = driver.arm_send_capture()
+        context = await driver.new_tab()
+        capture: dict[str, Any] | None = None
+        probe_armed = False
+        succeeded = False
         try:
+            await driver.wait_for_composer()
+            await self._ensure_high_effort(driver)
+            baseline = await driver.dom_state()
+            baseline_path = str(await driver.eval("location.pathname") or "")
+            if self._normalise(str(baseline.get("composer_text") or "")):
+                logger.warning(
+                    "Prompta found stale text in the dedicated new-chat composer; clearing it"
+                )
+                await driver.clear_composer()
+                baseline = await driver.dom_state()
+                if self._normalise(str(baseline.get("composer_text") or "")):
+                    raise RuntimeError("ChatGPT stale new-chat composer could not be cleared")
+
+            await driver.arm_page_send_probe()
+            probe_armed = True
+            capture = driver.arm_send_capture()
             await driver.type_message(prompt)
             typed = await driver.dom_state()
             if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
             await driver.click_send()
+
             deadline = asyncio.get_running_loop().time() + max(
                 1.0, self.config.send_timeout_seconds
             )
@@ -568,6 +585,7 @@ class Prompta:
                     raise RuntimeError(f"prompta send failed with HTTP {status}")
                 if capture.get("fetch_error"):
                     raise RuntimeError(f"prompta send failed: {capture['fetch_error']}")
+
                 route_confirmed = path.startswith("/c/") and path != baseline_path
                 dom_confirmed = user_text == self._normalise(prompt) and not self._normalise(
                     str(state.get("composer_text") or "")
@@ -581,17 +599,38 @@ class Prompta:
                         send_confirmed,
                         dom_confirmed,
                     )
+                    self.cache.start(
+                        conversation_id,
+                        context_id=context,
+                        job_name=job_name,
+                        prompt=prompt,
+                    )
+                    self._active_conversations[context] = ActiveConversation(
+                        conversation_id=conversation_id,
+                        context_id=context,
+                        job_name=job_name,
+                        prompt=prompt,
+                    )
+                    succeeded = True
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+
+            raise SendVerificationError(
+                "prompta could not prove the prompt was sent in a new conversation"
+            )
         finally:
-            driver.clear_send_capture(capture)
-            try:
-                await driver.clear_page_send_probe()
-            except Exception:
-                logger.debug("Could not clear page send probe", exc_info=True)
-        raise SendVerificationError(
-            "prompta could not prove the prompt was sent in a new conversation"
-        )
+            if capture is not None:
+                driver.clear_send_capture(capture)
+            if probe_armed:
+                try:
+                    await driver.clear_page_send_probe()
+                except Exception:
+                    logger.debug("Could not clear page send probe", exc_info=True)
+            if not succeeded:
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.debug("Could not close failed Prompta tab", exc_info=True)
 
     async def _run_job(self, job: PromptJob, *, now: float) -> bool:
         if self._job_state(job.name).get("paused") is True:
@@ -609,7 +648,7 @@ class Prompta:
             return False
         self._update_scheduler_state({"last_attempt_at": now})
         try:
-            conversation_id = await self.send_once(job.prompt)
+            conversation_id = await self.send_once(job.prompt, job_name=job.name)
         except RateLimitError as exc:
             delay = self._global_backoff.record(float(exc.retry_after))
             self._persist_global_backoff()
@@ -640,6 +679,7 @@ class Prompta:
                 exc,
             )
             if self.driver is not None:
+                self._interrupt_active_conversations()
                 await self.driver.close()
                 self.driver = None
             return False
@@ -648,6 +688,7 @@ class Prompta:
             retry_until = time.time() + _FAILURE_RETRY_SECONDS
             self._mark_failure(job.name, str(exc), retry_until=retry_until)
             if self.driver is not None:
+                self._interrupt_active_conversations()
                 await self.driver.close()
                 self.driver = None
             self._failure_retry_until[job.name] = retry_until
@@ -692,8 +733,63 @@ class Prompta:
             )
         return True
 
+    def _interrupt_active_conversations(self) -> None:
+        for active in self._active_conversations.values():
+            self.cache.mark_interrupted(active.conversation_id)
+        self._active_conversations.clear()
+
+    async def _poll_active_conversations(self) -> None:
+        if self.driver is None or not self._active_conversations:
+            return
+        for context, active in list(self._active_conversations.items()):
+            try:
+                snapshot = await self.driver.conversation_snapshot(context)
+            except Exception:
+                logger.exception(
+                    "Prompta cache capture failed conversation=%s", active.conversation_id
+                )
+                continue
+
+            digest = self.cache.digest(snapshot)
+            changed = digest != active.last_digest
+            messages = snapshot.get("messages")
+            if not isinstance(messages, list):
+                messages = []
+            has_assistant = any(
+                isinstance(message, dict)
+                and str(message.get("role") or "") == "assistant"
+                and bool(str(message.get("content") or "").strip())
+                for message in messages
+            )
+            streaming = bool(snapshot.get("streaming"))
+
+            if changed:
+                self.cache.write_snapshot(active.conversation_id, snapshot)
+                active.last_digest = digest
+                active.idle_polls = 0
+            elif has_assistant and not streaming:
+                active.idle_polls += 1
+            else:
+                active.idle_polls = 0
+
+            if active.idle_polls < 3:
+                continue
+
+            self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
+            try:
+                await self.driver.close_context(context)
+            except Exception:
+                logger.debug("Could not close completed Prompta tab", exc_info=True)
+            self._active_conversations.pop(context, None)
+            logger.info(
+                "Prompta cached completed conversation=%s messages=%d",
+                active.conversation_id,
+                len(messages),
+            )
+
     async def run(self, *, once: bool = False) -> None:
         while True:
+            await self._poll_active_conversations()
             jobs = self.read_jobs()
             if not jobs:
                 if once:
@@ -711,12 +807,23 @@ class Prompta:
                     break
             if once:
                 return
+            await self._poll_active_conversations()
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
 
     async def close(self) -> None:
         if self.driver is not None:
+            for context, active in list(self._active_conversations.items()):
+                try:
+                    snapshot = await self.driver.conversation_snapshot(context)
+                    self.cache.write_snapshot(active.conversation_id, snapshot)
+                except Exception:
+                    logger.debug("Could not flush Prompta cache during shutdown", exc_info=True)
+                finally:
+                    self.cache.mark_interrupted(active.conversation_id)
+            self._active_conversations.clear()
             await self.driver.close()
             self.driver = None
+        self.cache.close()
 
 
 def load_jobs(path: Path) -> dict[str, PromptJob]:
@@ -963,6 +1070,7 @@ async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio
 
 def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS)
     parser.add_argument("--bidi-url")
     parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
@@ -1031,10 +1139,17 @@ async def _run(args: argparse.Namespace) -> None:
         PromptaConfig(
             jobs_file=getattr(args, "jobs_file", DEFAULT_JOBS_PATH),
             state_path=args.state,
+            cache_path=args.cache,
             send_timeout_seconds=max(1.0, args.send_timeout_seconds),
         ),
         bidi_url,
     )
+    if args.command == "run":
+        orphaned = prompta.cache.mark_orphaned_active()
+        if orphaned:
+            logger.info(
+                "Prompta marked %d cached conversation(s) interrupted after restart", orphaned
+            )
     try:
         if args.command == "once":
             _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
