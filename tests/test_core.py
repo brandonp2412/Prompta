@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from prompta.cache import ActiveConversation
 from prompta.core import (
     Prompta,
     PromptaConfig,
@@ -549,13 +550,116 @@ async def test_once_command_sends_exactly_once_without_scheduler(
 
     with (
         patch.object(Prompta, "send_once", AsyncMock(return_value="conversation-123")) as send_once,
+        patch.object(
+            Prompta,
+            "wait_for_cached_response",
+            AsyncMock(return_value=True),
+        ) as wait_for_cached_response,
         patch.object(Prompta, "run", AsyncMock()) as run,
         patch.object(Prompta, "close", AsyncMock()),
     ):
         await _run(args)
 
     send_once.assert_awaited_once_with("Do exactly one thing")
+    wait_for_cached_response.assert_awaited_once_with("conversation-123")
     run.assert_not_awaited()
     output = capsys.readouterr().out
     assert "One-shot" in output
     assert "conversation conversation-123" in output
+    assert "assistant response complete" in output
+
+
+@pytest.mark.asyncio
+async def test_wait_for_cached_response_polls_until_conversation_completes(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta._active_conversations["context-1"] = ActiveConversation(
+        conversation_id="conversation-123",
+        context_id="context-1",
+        job_name="",
+        prompt="Do exactly one thing",
+    )
+
+    async def complete_on_poll() -> None:
+        prompta._active_conversations.clear()
+
+    prompta._poll_active_conversations = AsyncMock(side_effect=complete_on_poll)  # type: ignore[method-assign]
+
+    assert await prompta.wait_for_cached_response("conversation-123", timeout_seconds=1) is True
+    prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_once_waits_for_started_conversation_cache(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    job = PromptJob("e2e", "Do one thing", interval_seconds=0, exact_interval=True)
+    prompta.read_jobs = MagicMock(return_value={"e2e": job})  # type: ignore[method-assign]
+    prompta._ensure_initial_schedules = MagicMock()  # type: ignore[method-assign]
+
+    async def start_conversation(*args: Any, **kwargs: Any) -> bool:
+        prompta._active_conversations["context-1"] = ActiveConversation(
+            conversation_id="conversation-123",
+            context_id="context-1",
+            job_name="e2e",
+            prompt=job.prompt,
+        )
+        return True
+
+    prompta._run_job = AsyncMock(side_effect=start_conversation)  # type: ignore[method-assign]
+    prompta.wait_for_cached_response = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    await prompta.run(once=True)
+
+    prompta.wait_for_cached_response.assert_awaited_once_with("conversation-123")  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_one_shot_waits_for_stream_and_persists_messages_end_to_end(tmp_path: Path) -> None:
+    prompt = "Reply with exactly PROMPTA_CACHE_E2E_OK and nothing else."
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class StreamingFakeDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__(prompt)
+            self.snapshot_calls = 0
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            self.snapshot_calls += 1
+            messages: list[dict[str, str]] = [{"id": "u1", "role": "user", "content": prompt}]
+            streaming = self.snapshot_calls < 3
+            if self.snapshot_calls >= 2:
+                messages.append(
+                    {
+                        "id": "a1",
+                        "role": "assistant",
+                        "content": "PROMPTA_CACHE_E2E_OK",
+                    }
+                )
+            return {
+                "title": "Prompta cache E2E",
+                "path": "/c/new-chat",
+                "streaming": streaming,
+                "messages": messages,
+            }
+
+    fake = StreamingFakeDriver()
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    with patch("prompta.core.asyncio.sleep", AsyncMock()):
+        conversation_id = await prompta.send_once(prompt)
+        completed = await prompta.wait_for_cached_response(
+            conversation_id,
+            timeout_seconds=5,
+        )
+
+    assert completed is True
+    rows = prompta.cache.recent_conversations()
+    messages = prompta.cache.messages(conversation_id)
+    assert rows[0]["status"] == "complete"
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert messages[-1]["content"] == "PROMPTA_CACHE_E2E_OK"
+    assert messages[-1]["status"] == "complete"
+    assert fake.snapshot_calls >= 6
+    await prompta.close()

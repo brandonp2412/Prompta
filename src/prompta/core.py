@@ -34,6 +34,7 @@ _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
+_CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -787,6 +788,35 @@ class Prompta:
                 len(messages),
             )
 
+    async def wait_for_cached_response(
+        self,
+        conversation_id: str,
+        *,
+        timeout_seconds: float = _CACHE_COMPLETION_TIMEOUT_SECONDS,
+    ) -> bool:
+        """Keep passively caching one conversation until the assistant response is complete."""
+
+        deadline = asyncio.get_running_loop().time() + max(1.0, timeout_seconds)
+        while any(
+            active.conversation_id == conversation_id
+            for active in self._active_conversations.values()
+        ):
+            await self._poll_active_conversations()
+            if not any(
+                active.conversation_id == conversation_id
+                for active in self._active_conversations.values()
+            ):
+                return True
+            if asyncio.get_running_loop().time() >= deadline:
+                logger.warning(
+                    "Prompta cache completion timed out conversation=%s after %.0fs",
+                    conversation_id,
+                    timeout_seconds,
+                )
+                return False
+            await asyncio.sleep(_IDLE_POLL_SECONDS)
+        return True
+
     async def run(self, *, once: bool = False) -> None:
         while True:
             await self._poll_active_conversations()
@@ -806,6 +836,8 @@ class Prompta:
                 if self._global_backoff.remaining() > 0:
                     break
             if once:
+                for active in list(self._active_conversations.values()):
+                    await self.wait_for_cached_response(active.conversation_id)
                 return
             await self._poll_active_conversations()
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
@@ -1155,6 +1187,8 @@ async def _run(args: argparse.Namespace) -> None:
             _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
             conversation_id = await prompta.send_once(args.prompt)
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+            if await prompta.wait_for_cached_response(conversation_id):
+                _print_notice("✓", "Cached", "assistant response complete", tone="32")
         else:
             await prompta.run(once=args.once)
     finally:
