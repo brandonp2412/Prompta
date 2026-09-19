@@ -642,6 +642,55 @@ class Prompta:
                 except Exception:
                     logger.debug("Could not close failed Prompta tab", exc_info=True)
 
+    async def sync_conversation(self, conversation_id: str) -> int:
+        """Reload one cached conversation from ChatGPT without sending a message."""
+
+        if not conversation_id.strip():
+            raise ValueError("conversation id is empty")
+
+        driver = await self._ensure_driver()
+        context = await driver.new_tab(f"https://chatgpt.com/c/{conversation_id}")
+        try:
+            await driver.wait_for_composer()
+            path = str(await driver.eval("location.pathname") or "")
+            expected_path = f"/c/{conversation_id}"
+            if path.rstrip("/") != expected_path:
+                raise RuntimeError(
+                    f"ChatGPT opened unexpected conversation path {path!r}; expected {expected_path!r}"
+                )
+
+            self.cache.resume(conversation_id, context_id=context)
+            deadline = asyncio.get_running_loop().time() + 15.0
+            last_digest = ""
+            stable_polls = 0
+            latest: dict[str, Any] = {}
+            while asyncio.get_running_loop().time() < deadline:
+                latest = await driver.conversation_snapshot(context)
+                messages = latest.get("messages")
+                if not isinstance(messages, list):
+                    messages = []
+                digest = self.cache.digest(latest)
+                if messages and digest == last_digest and not bool(latest.get("streaming")):
+                    stable_polls += 1
+                else:
+                    stable_polls = 0
+                self.cache.write_snapshot(
+                    conversation_id,
+                    latest,
+                    complete=bool(messages) and not bool(latest.get("streaming")),
+                )
+                last_digest = digest
+                if stable_polls >= 2:
+                    return len(messages)
+                await asyncio.sleep(0.5)
+
+            messages = latest.get("messages")
+            if not isinstance(messages, list) or not messages:
+                raise RuntimeError("ChatGPT conversation did not expose any messages")
+            return len(messages)
+        finally:
+            await driver.close_context(context)
+
     async def send_reply(self, conversation_id: str, prompt: str) -> str:
         """Send into a cached conversation, reusing its live tab whenever possible."""
 
@@ -1572,6 +1621,11 @@ def _parser() -> argparse.ArgumentParser:
     reply_parser.add_argument("conversation_id")
     reply_parser.add_argument("prompt")
     _add_browser_arguments(reply_parser)
+    sync_parser = subparsers.add_parser(
+        "sync", help="Refresh one cached conversation from ChatGPT without sending"
+    )
+    sync_parser.add_argument("conversation_id")
+    _add_browser_arguments(sync_parser)
     run_parser = subparsers.add_parser("run", help="Run the scheduler")
     run_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     _add_browser_arguments(run_parser)
@@ -1648,6 +1702,14 @@ async def _run(args: argparse.Namespace) -> None:
         elif args.command == "reply":
             conversation_id = await prompta.send_reply(args.conversation_id, args.prompt)
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+        elif args.command == "sync":
+            message_count = await prompta.sync_conversation(args.conversation_id)
+            _print_notice(
+                "✓",
+                "Synced",
+                f"conversation {args.conversation_id} ({message_count} messages)",
+                tone="32",
+            )
         else:
             await prompta.run(once=args.once)
     finally:
