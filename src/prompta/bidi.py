@@ -523,7 +523,7 @@ class FirefoxBiDiDriver:
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
                 const content=(markdown.length
-                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\n\n')
+                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\\n\\n')
                   : (agent.innerText||agent.textContent||'').trim()
                 ).trim();
                 if(!content)continue;
