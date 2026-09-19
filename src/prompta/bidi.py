@@ -511,23 +511,44 @@ class FirefoxBiDiDriver:
                 content:(e.innerText||e.textContent||'').trim(),
                 ordinal:index
               }));
-              const hasAssistant=messages.some(message=>message.role==='assistant'&&message.content);
-              if(!hasAssistant){
-                const candidates=[
-                  ...document.querySelectorAll('.agent-turn,[data-role="assistant"],[data-message-author="assistant"]')
-                ];
-                const agent=[...new Set(candidates)].filter(visible).at(-1);
-                if(agent){
-                  const markdown=agent.querySelector('.markdown,.markdown-new-styling');
-                  const content=((markdown?.innerText||markdown?.textContent||agent.innerText||agent.textContent||'')).trim();
-                  if(content){
-                    const id=agent.getAttribute('data-message-id')
-                      ||agent.getAttribute('data-message-uuid')
-                      ||agent.closest('[data-message-id]')?.getAttribute('data-message-id')
-                      ||agent.closest('[data-message-uuid]')?.getAttribute('data-message-uuid')
-                      ||'__prompta_live_assistant__';
-                    messages.push({id,role:'assistant',content,ordinal:messages.length});
-                  }
+              const candidates=[...new Set([
+                ...document.querySelectorAll('.agent-turn,[data-role="assistant"],[data-message-author="assistant"]')
+              ])].filter(visible);
+              for(const [agentIndex,agent] of candidates.entries()){
+                const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
+                const content=(markdown.length
+                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\n\n')
+                  : (agent.innerText||agent.textContent||'').trim()
+                ).trim();
+                if(!content)continue;
+                const nested=agent.querySelector('[data-message-author-role="assistant"]');
+                const id=agent.getAttribute('data-message-id')
+                  ||agent.getAttribute('data-message-uuid')
+                  ||nested?.getAttribute('data-message-id')
+                  ||nested?.getAttribute('data-message-uuid')
+                  ||agent.closest('[data-message-id]')?.getAttribute('data-message-id')
+                  ||agent.closest('[data-message-uuid]')?.getAttribute('data-message-uuid')
+                  ||'';
+                let existing=id?messages.findIndex(message=>message.role==='assistant'&&message.id===id):-1;
+                if(existing<0&&nested){
+                  const roleIndex=roleNodes.indexOf(nested);
+                  if(roleIndex>=0&&messages[roleIndex]?.role==='assistant')existing=roleIndex;
+                }
+                if(existing<0){
+                  existing=messages.findIndex(message=>message.role==='assistant'&&message.content&&(
+                    content.startsWith(message.content)||message.content.startsWith(content)
+                  ));
+                }
+                if(existing>=0){
+                  if(content.length>=messages[existing].content.length)messages[existing].content=content;
+                  if(id&&!messages[existing].id)messages[existing].id=id;
+                }else{
+                  messages.push({
+                    id:id||`__prompta_live_assistant_${agentIndex}__`,
+                    role:'assistant',
+                    content,
+                    ordinal:messages.length
+                  });
                 }
               }
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
