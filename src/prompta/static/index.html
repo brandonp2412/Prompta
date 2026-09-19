@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <meta name="description" content="Read-only local viewer for Prompta conversation history.">
+  <meta name="description" content="Local Prompta conversation viewer and message composer.">
   <title>Prompta</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23ececec'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-family='Arial' font-size='34' font-weight='700' fill='%23171717'%3EP%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./app.css">
@@ -38,7 +38,7 @@
           <span class="summary-dot"></span>
           <span id="cacheSummary">Reading local cache</span>
         </div>
-        <span class="read-only-pill">read only</span>
+        <span class="read-only-pill">local UI</span>
       </div>
     </aside>
 
@@ -51,7 +51,7 @@
         </button>
         <div class="chat-heading" id="chatHeading">
           <div class="heading-title">Prompta</div>
-          <div class="heading-meta">Local read-only conversation history</div>
+          <div class="heading-meta">Local conversation history</div>
         </div>
         <div class="topbar-actions">
           <button type="button" class="view-button" id="logsButton">logs</button>
@@ -66,8 +66,8 @@
           <h1>Your Prompta chats, locally.</h1>
           <p>Active runs and completed history appear here as they are written to SQLite.</p>
           <div class="empty-features">
-            <span>Read only</span>
-            <span>No ChatGPT requests</span>
+            <span>Reply from here</span>
+            <span>No page refresh loop</span>
             <span>Live SQLite cache</span>
           </div>
         </div>
@@ -87,13 +87,14 @@
         </div>
       </section>
 
-      <footer class="readonly-footer">
-        <div class="readonly-bar">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-          <span>Read-only cache</span>
-          <span class="footer-separator">·</span>
-          <span>updates live from Prompta</span>
-        </div>
+      <footer class="composer-footer" id="composerFooter">
+        <form class="composer-bar" id="messageForm">
+          <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
+          <button type="submit" class="send-button" id="sendButton" aria-label="Send message" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+          </button>
+        </form>
+        <div class="composer-status" id="composerStatus">Select a chat to send a message.</div>
       </footer>
     </main>
   </div>

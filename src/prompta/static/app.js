@@ -8,6 +8,7 @@ const state = {
   refreshTimer: null,
   mode: "chats",
   logFingerprint: "",
+  sending: false,
 };
 
 const els = {
@@ -28,6 +29,10 @@ const els = {
   logsViewport: document.querySelector("#logsViewport"),
   logOutput: document.querySelector("#logOutput"),
   logsMeta: document.querySelector("#logsMeta"),
+  messageForm: document.querySelector("#messageForm"),
+  messageInput: document.querySelector("#messageInput"),
+  sendButton: document.querySelector("#sendButton"),
+  composerStatus: document.querySelector("#composerStatus"),
 };
 
 function escapeHtml(value) {
@@ -293,6 +298,13 @@ function renderConversation(chat) {
 
   els.emptyState.hidden = true;
   els.conversation.hidden = false;
+  els.messageInput.disabled = state.sending;
+  els.sendButton.disabled = state.sending;
+  if (!state.sending) {
+    els.composerStatus.textContent = chat.status === "active"
+      ? "Uses the existing live ChatGPT tab."
+      : "Sending will reopen this chat once if its retained tab has expired.";
+  }
 }
 
 function renderLogs(payload) {
@@ -345,6 +357,9 @@ function showMode(mode) {
     els.statusChip.textContent = "live";
     els.statusChip.className = "status-chip active";
     els.syncLabel.textContent = "Glass journal";
+    els.messageInput.disabled = true;
+    els.sendButton.disabled = true;
+    els.composerStatus.textContent = "Switch back to chats to send a message.";
     loadLogs();
     return;
   }
@@ -365,16 +380,33 @@ function clearConversation() {
   els.conversation.innerHTML = "";
   els.chatHeading.innerHTML = `
     <div class="heading-title">Prompta</div>
-    <div class="heading-meta">Local read-only conversation history</div>`;
+    <div class="heading-meta">Local conversation history</div>`;
   els.statusChip.textContent = "idle";
   els.statusChip.className = "status-chip neutral";
   els.syncLabel.textContent = "local cache";
+  els.messageInput.disabled = true;
+  els.sendButton.disabled = true;
+  els.composerStatus.textContent = "Select a chat to send a message.";
 }
 
 async function fetchJson(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
+}
+
+async function postJson(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `${response.status} ${response.statusText}`);
+  }
+  return data;
 }
 
 async function loadChats() {
@@ -463,7 +495,9 @@ els.searchInput.addEventListener("input", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "/" && document.activeElement !== els.searchInput) {
+  const typing = document.activeElement === els.searchInput
+    || document.activeElement === els.messageInput;
+  if (event.key === "/" && !typing) {
     event.preventDefault();
     els.searchInput.focus();
   }
@@ -478,6 +512,55 @@ els.closeSidebar.addEventListener("click", () => document.body.classList.remove(
 els.sidebarScrim.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
 els.logsButton.addEventListener("click", () => {
   showMode(state.mode === "logs" ? "chats" : "logs");
+});
+
+function resizeComposer() {
+  els.messageInput.style.height = "auto";
+  els.messageInput.style.height = `${Math.min(180, els.messageInput.scrollHeight)}px`;
+}
+
+async function sendSelectedMessage() {
+  const message = els.messageInput.value.trim();
+  if (!message || !state.selectedId || state.mode !== "chats" || state.sending) return;
+
+  state.sending = true;
+  els.messageInput.disabled = true;
+  els.sendButton.disabled = true;
+  els.composerStatus.textContent = "Sending through the existing Prompta browser session…";
+  try {
+    await postJson(
+      `api/chats/${encodeURIComponent(state.selectedId)}/messages`,
+      { message },
+    );
+    els.messageInput.value = "";
+    resizeComposer();
+    els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+    state.selectedUpdatedAt = null;
+    await loadSelectedChat();
+  } catch (error) {
+    els.composerStatus.textContent = String(error).replace(/^Error:\s*/, "");
+    console.error(error);
+  } finally {
+    state.sending = false;
+    if (state.selectedId && state.mode === "chats") {
+      els.messageInput.disabled = false;
+      els.sendButton.disabled = false;
+      els.messageInput.focus();
+    }
+  }
+}
+
+els.messageForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendSelectedMessage();
+});
+
+els.messageInput.addEventListener("input", resizeComposer);
+els.messageInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    sendSelectedMessage();
+  }
 });
 
 window.addEventListener("hashchange", () => {

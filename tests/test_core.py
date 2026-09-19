@@ -20,6 +20,7 @@ from prompta.core import (
     _parser,
     _run,
     _send_once_via_control,
+    _send_reply_via_control,
     _start_control_server,
     add_job,
     clear_jobs,
@@ -215,6 +216,55 @@ async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None
     assert conversation_id == "new-chat"
     assert fake.clear_composer_calls == 1
     assert fake.sent is True
+
+
+@pytest.mark.asyncio
+async def test_send_reply_reuses_retained_conversation_tab(tmp_path: Path) -> None:
+    prompt = "Continue from the UI"
+    conversation_id = "existing-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class ReplyFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-1"
+            return {
+                "title": "Existing chat",
+                "path": f"/c/{conversation_id}",
+                "streaming": True,
+                "messages": [
+                    {"id": "u1", "role": "user", "content": prompt},
+                ],
+            }
+
+    fake = ReplyFakeDriver(prompt)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="kite",
+        prompt="Original prompt",
+    )
+    prompta._active_conversations["context-1"] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id="context-1",
+        job_name="kite",
+        prompt="Original prompt",
+        settled_at=1.0,
+    )
+
+    result = await prompta.send_reply(conversation_id, prompt)
+
+    assert result == conversation_id
+    assert fake.navigated == []
+    assert fake.sent is True
+    assert prompta._active_conversations["context-1"].settled_at == 0.0
+    assert prompta.cache.recent_conversations()[0]["status"] == "active"
+    await prompta.close()
 
 
 @pytest.mark.asyncio
@@ -595,6 +645,38 @@ async def test_control_socket_routes_one_shot_through_scheduler(tmp_path: Path) 
         await prompta._drain_once_requests()
         assert await client == "conversation-via-daemon"
         prompta.send_once.assert_awaited_once_with("Do one thing")  # type: ignore[attr-defined]
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_reply = AsyncMock(return_value="existing-chat")  # type: ignore[method-assign]
+    server, socket_path = await _start_control_server(prompta, state_path)
+    try:
+        client = asyncio.create_task(
+            _send_reply_via_control(state_path, "existing-chat", "Continue here")
+        )
+        for _ in range(100):
+            if not prompta._reply_requests.empty():
+                break
+            await asyncio.sleep(0.01)
+        assert not prompta._reply_requests.empty()
+        await prompta._drain_reply_requests()
+        assert await client == "existing-chat"
+        prompta.send_reply.assert_awaited_once_with("existing-chat", "Continue here")  # type: ignore[attr-defined]
     finally:
         server.close()
         await server.wait_closed()

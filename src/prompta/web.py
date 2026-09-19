@@ -1,12 +1,14 @@
-"""Read-only web UI for Prompta's local conversation cache."""
+"""Local web UI for Prompta's cached conversations and live replies."""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import mimetypes
 import sqlite3
+import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +16,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .cache import DEFAULT_CACHE_PATH
+from .core import DEFAULT_STATE_PATH, _send_reply_via_control
 
 logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
@@ -187,9 +190,17 @@ class ReadOnlyChatStore:
 class PromptaUIServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], store: ReadOnlyChatStore) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        store: ReadOnlyChatStore,
+        state_path: Path = DEFAULT_STATE_PATH,
+        control_host: str = "",
+    ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
+        self.state_path = state_path.expanduser()
+        self.control_host = control_host.strip()
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -201,6 +212,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     @property
     def store(self) -> ReadOnlyChatStore:
         return cast(PromptaUIServer, self.server).store
+
+    @property
+    def state_path(self) -> Path:
+        return cast(PromptaUIServer, self.server).state_path
+
+    @property
+    def control_host(self) -> str:
+        return cast(PromptaUIServer, self.server).control_host
 
     def _headers(self, status: HTTPStatus, content_type: str) -> None:
         self.send_response(status)
@@ -280,12 +299,92 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        prefix = "/api/chats/"
+        suffix = "/messages"
+        if not (path.startswith(prefix) and path.endswith(suffix)):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
 
-def serve(cache_path: Path, log_path: Path | None, host: str, port: int) -> None:
+        conversation_id = unquote(path[len(prefix) : -len(suffix)]).strip("/")
+        if not conversation_id or self.store.conversation(conversation_id) is None:
+            self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+            return
+
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.casefold().startswith("application/json"):
+            self._json({"error": "Expected application/json"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            content_length = 0
+        if content_length <= 0 or content_length > 64 * 1024:
+            self._json({"error": "Invalid message size"}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = json.loads(self.rfile.read(content_length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._json({"error": "Invalid JSON body"}, HTTPStatus.BAD_REQUEST)
+            return
+        message = str(payload.get("message") or "") if isinstance(payload, dict) else ""
+        if not message.strip():
+            self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        try:
+            if self.control_host:
+                completed = subprocess.run(
+                    [
+                        "ssh",
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "ConnectTimeout=8",
+                        self.control_host,
+                        "/home/brandon/prompta/.venv/bin/prompta",
+                        "reply",
+                        conversation_id,
+                        message,
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if completed.returncode != 0:
+                    detail = (completed.stderr or completed.stdout or "remote reply failed").strip()
+                    raise RuntimeError(detail[-2000:])
+                result = conversation_id
+            else:
+                result = asyncio.run(
+                    _send_reply_via_control(self.state_path, conversation_id, message)
+                )
+        except Exception as exc:
+            logger.exception("Prompta UI reply failed conversation=%s", conversation_id)
+            self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+            return
+        self._json({"ok": True, "conversation_id": result}, HTTPStatus.ACCEPTED)
+
+
+def serve(
+    cache_path: Path,
+    log_path: Path | None,
+    host: str,
+    port: int,
+    state_path: Path = DEFAULT_STATE_PATH,
+    control_host: str = "",
+) -> None:
     store = ReadOnlyChatStore(cache_path, log_path)
-    server = PromptaUIServer((host, port), store)
+    server = PromptaUIServer((host, port), store, state_path, control_host)
     logger.info("Prompta UI listening on http://%s:%d", host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
+    if control_host:
+        logger.info("Sending replies through Prompta on SSH host %s", control_host)
+    else:
+        logger.info("Sending replies through Prompta control socket beside %s", state_path.expanduser())
     logger.info("Reading Glass logs from %s", store.log_path)
     try:
         server.serve_forever(poll_interval=0.25)
@@ -296,14 +395,23 @@ def serve(cache_path: Path, log_path: Path | None, host: str, port: int) -> None
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve Prompta's read-only conversation UI")
+    parser = argparse.ArgumentParser(description="Serve Prompta's local conversation UI")
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    parser.add_argument("--control-host", default="")
     parser.add_argument("--logs", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    serve(args.cache, args.logs, args.host, max(1, min(args.port, 65535)))
+    serve(
+        args.cache,
+        args.logs,
+        args.host,
+        max(1, min(args.port, 65535)),
+        args.state,
+        args.control_host,
+    )
 
 
 if __name__ == "__main__":
