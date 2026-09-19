@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
+_SEEDED_PROMPT_KEY = "__prompta_prompt__"
 
 
 @dataclass
@@ -76,6 +77,21 @@ class ChatCache:
                 ON messages(conversation_id, ordinal);
             """
         )
+        self.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            )
+            SELECT c.id, ?, 0, 'user', c.prompt, 'complete', c.created_at, c.updated_at
+            FROM conversations c
+            WHERE TRIM(c.prompt) <> ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM messages m WHERE m.conversation_id = c.id
+              )
+            """,
+            (_SEEDED_PROMPT_KEY,),
+        )
         self.connection.commit()
 
     def mark_orphaned_active(self) -> int:
@@ -102,32 +118,53 @@ class ChatCache:
         prompt: str,
     ) -> None:
         now = time.time()
-        self.connection.execute(
-            """
-            INSERT INTO conversations (
-                id, job_name, prompt, url, browser_context_id, status, created_at, updated_at
+        with self.connection:
+            self.connection.execute(
+                """
+                INSERT INTO conversations (
+                    id, job_name, prompt, url, browser_context_id, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    job_name = excluded.job_name,
+                    prompt = excluded.prompt,
+                    url = excluded.url,
+                    browser_context_id = excluded.browser_context_id,
+                    status = 'active',
+                    updated_at = excluded.updated_at,
+                    completed_at = NULL
+                """,
+                (
+                    conversation_id,
+                    job_name,
+                    prompt,
+                    f"https://chatgpt.com/c/{conversation_id}",
+                    context_id,
+                    now,
+                    now,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                job_name = excluded.job_name,
-                prompt = excluded.prompt,
-                url = excluded.url,
-                browser_context_id = excluded.browser_context_id,
-                status = 'active',
-                updated_at = excluded.updated_at,
-                completed_at = NULL
-            """,
-            (
-                conversation_id,
-                job_name,
-                prompt,
-                f"https://chatgpt.com/c/{conversation_id}",
-                context_id,
-                now,
-                now,
-            ),
-        )
-        self.connection.commit()
+            if prompt.strip():
+                self.connection.execute(
+                    """
+                    INSERT INTO messages (
+                        conversation_id, message_key, ordinal, role, content, status,
+                        created_at, updated_at
+                    )
+                    SELECT ?, ?, 0, 'user', ?, 'complete', ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM messages WHERE conversation_id = ?
+                    )
+                    """,
+                    (
+                        conversation_id,
+                        _SEEDED_PROMPT_KEY,
+                        prompt,
+                        now,
+                        now,
+                        conversation_id,
+                    ),
+                )
 
     @staticmethod
     def digest(snapshot: dict[str, Any]) -> str:
@@ -166,6 +203,7 @@ class ChatCache:
             messages = []
         status = "complete" if complete else "active"
         completed_at = now if complete else None
+        snapshot_keys: list[str] = []
         with self.connection:
             self.connection.execute(
                 """
@@ -190,6 +228,7 @@ class ChatCache:
                 content = str(message.get("content") or "")
                 raw_key = str(message.get("id") or "")
                 message_key = raw_key or f"{role}:{ordinal}"
+                snapshot_keys.append(message_key)
                 message_status = (
                     "streaming"
                     if not complete
@@ -222,6 +261,18 @@ class ChatCache:
                         now,
                         now,
                     ),
+                )
+
+            if snapshot_keys:
+                unique_keys = list(dict.fromkeys(snapshot_keys))
+                placeholders = ",".join("?" for _ in unique_keys)
+                self.connection.execute(
+                    f"""
+                    DELETE FROM messages
+                    WHERE conversation_id = ?
+                      AND message_key NOT IN ({placeholders})
+                    """,
+                    (conversation_id, *unique_keys),
                 )
 
     def recent_conversations(self, limit: int = 50) -> list[dict[str, Any]]:

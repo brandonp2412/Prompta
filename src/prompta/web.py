@@ -69,15 +69,26 @@ class ReadOnlyChatStore:
                         c.created_at,
                         c.updated_at,
                         c.completed_at,
-                        (
-                            SELECT m.content FROM messages m
-                            WHERE m.conversation_id = c.id
-                            ORDER BY m.ordinal DESC LIMIT 1
+                        COALESCE(
+                            (
+                                SELECT m.content FROM messages m
+                                WHERE m.conversation_id = c.id
+                                ORDER BY m.ordinal DESC LIMIT 1
+                            ),
+                            NULLIF(c.prompt, '')
                         ) AS preview,
-                        (
-                            SELECT COUNT(*) FROM messages m
-                            WHERE m.conversation_id = c.id
-                        ) AS message_count
+                        CASE
+                            WHEN EXISTS (
+                                SELECT 1 FROM messages m
+                                WHERE m.conversation_id = c.id
+                            )
+                            THEN (
+                                SELECT COUNT(*) FROM messages m
+                                WHERE m.conversation_id = c.id
+                            )
+                            WHEN TRIM(c.prompt) <> '' THEN 1
+                            ELSE 0
+                        END AS message_count
                     FROM conversations c
                     {where}
                     ORDER BY
@@ -118,7 +129,21 @@ class ReadOnlyChatStore:
         except FileNotFoundError:
             return None
         payload = dict(conversation)
-        payload["messages"] = [dict(message) for message in messages]
+        message_payloads = [dict(message) for message in messages]
+        prompt = str(payload.get("prompt") or "")
+        if not message_payloads and prompt.strip():
+            message_payloads = [
+                {
+                    "message_key": "__prompta_prompt__",
+                    "ordinal": 0,
+                    "role": "user",
+                    "content": prompt,
+                    "status": "complete",
+                    "created_at": payload["created_at"],
+                    "updated_at": payload["updated_at"],
+                }
+            ]
+        payload["messages"] = message_payloads
         return payload
 
     def stats(self) -> dict[str, Any]:
