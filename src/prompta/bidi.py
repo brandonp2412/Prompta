@@ -295,7 +295,7 @@ class FirefoxBiDiDriver:
             "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
             "s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&"
             "s.visibility!=='hidden';};return [...document.querySelectorAll("
-            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea'"
+            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt'"
             ")].some(visible)})()"
         )
         while asyncio.get_running_loop().time() < deadline:
@@ -309,7 +309,7 @@ class FirefoxBiDiDriver:
             "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
             "s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&"
             "s.visibility!=='hidden';};const e=[...document.querySelectorAll("
-            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea'"
+            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt'"
             ")].find(visible);if(!e)return false;e.focus();return true})()"
         )
         if not await self.eval(expression):
@@ -345,7 +345,7 @@ class FirefoxBiDiDriver:
         await self._focus_composer()
         await self.eval(
             f"""(()=>{{
-              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea';
+              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
               const visible=e=>{{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
                 return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';}};
               const e=[...document.querySelectorAll(selector)].find(visible);
@@ -375,7 +375,7 @@ class FirefoxBiDiDriver:
         await self._focus_composer()
         cleared = await self.eval(
             """(()=>{
-              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea';
+              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
               const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
                 return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
               const e=[...document.querySelectorAll(selector)].find(visible);
@@ -442,7 +442,7 @@ class FirefoxBiDiDriver:
     async def dom_state(self) -> dict[str, Any]:
         raw = await self.eval(
             """JSON.stringify((()=>{
-              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea';
+              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
               const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
               const composer=[...document.querySelectorAll(selector)].find(visible);
               const messages=[...document.querySelectorAll('[data-message-author-role]')];

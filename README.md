@@ -19,7 +19,7 @@ Run a prompt immediately without saving it or scheduling another run:
 uv run prompta once "Review the latest build and report any regressions."
 ```
 
-Each one-shot starts a fresh ChatGPT chat, sends exactly once, then exits.
+Each one-shot starts a fresh ChatGPT chat, sends exactly once, passively caches the response to completion, then exits.
 
 ## Manage jobs
 
