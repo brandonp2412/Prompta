@@ -61,3 +61,90 @@ def test_cache_marks_previous_active_conversations_interrupted(tmp_path: Path) -
     connection.close()
 
     assert status == "interrupted"
+
+
+def test_cache_seeds_prompt_before_first_browser_snapshot(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Keep this visible even if the browser dies",
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == "Keep this visible even if the browser dies"
+    assert messages[0]["status"] == "complete"
+
+
+def test_snapshot_replaces_seed_and_removes_transient_messages(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "thinking", "role": "assistant", "content": "Thinking"},
+            ],
+        },
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": "Finished"},
+            ],
+        },
+        complete=True,
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [(message["message_key"], message["content"]) for message in messages] == [
+        ("u1", "Do work"),
+        ("a1", "Finished"),
+    ]
+
+
+def test_cache_migration_backfills_prompt_for_legacy_empty_conversation(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Legacy prompt",
+    )
+    cache.connection.execute(
+        "DELETE FROM messages WHERE conversation_id = ?",
+        ("conversation-1",),
+    )
+    cache.connection.commit()
+    cache.close()
+
+    reopened = ChatCache(path)
+    messages = reopened.messages("conversation-1")
+    reopened.close()
+
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == "Legacy prompt"

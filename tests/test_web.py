@@ -66,3 +66,31 @@ def test_read_only_store_does_not_create_missing_database(tmp_path: Path) -> Non
     assert store.conversation("missing") is None
     assert store.stats() == {"exists": False, "total": 0, "active": 0}
     assert not path.exists()
+
+
+def test_read_only_store_falls_back_to_saved_prompt_for_empty_chat(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-empty",
+        context_id="context-empty",
+        job_name="",
+        prompt="This prompt must remain visible",
+    )
+    cache.connection.execute(
+        "DELETE FROM messages WHERE conversation_id = ?",
+        ("chat-empty",),
+    )
+    cache.connection.commit()
+
+    store = ReadOnlyChatStore(path)
+    chats = store.conversations()
+    chat = store.conversation("chat-empty")
+    cache.close()
+
+    assert chats[0]["message_count"] == 1
+    assert chats[0]["preview"] == "This prompt must remain visible"
+    assert chat is not None
+    assert [(message["role"], message["content"]) for message in chat["messages"]] == [
+        ("user", "This prompt must remain visible")
+    ]
