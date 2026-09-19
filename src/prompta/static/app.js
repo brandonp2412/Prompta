@@ -10,6 +10,7 @@ const state = {
   logFingerprint: "",
   sending: false,
   composingNew: false,
+  pendingNewId: null,
 };
 
 const els = {
@@ -467,7 +468,13 @@ async function loadChats() {
       state.selectedId = state.chats[0].id;
     }
 
-    if (state.selectedId && !state.composingNew && !state.chats.some((chat) => chat.id === state.selectedId) && !state.search) {
+    if (
+      state.selectedId
+      && !state.composingNew
+      && state.pendingNewId !== state.selectedId
+      && !state.chats.some((chat) => chat.id === state.selectedId)
+      && !state.search
+    ) {
       state.selectedId = state.chats[0]?.id || null;
       state.selectedFingerprint = "";
     }
@@ -500,11 +507,13 @@ async function loadSelectedChat() {
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(state.selectedId)}`);
     if (chat.id !== state.selectedId) return;
+    if (state.pendingNewId === chat.id) state.pendingNewId = null;
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
   } catch (error) {
-    if (String(error).startsWith("Error: 404")) clearConversation();
-    console.error(error);
+    const missing = String(error).startsWith("Error: 404");
+    if (missing && state.pendingNewId !== state.selectedId) clearConversation();
+    if (!missing || state.pendingNewId !== state.selectedId) console.error(error);
   }
 }
 
@@ -516,6 +525,7 @@ async function selectChat(id) {
     return;
   }
   state.composingNew = false;
+  state.pendingNewId = null;
   els.messageInput.placeholder = "Message Prompta…";
   state.selectedId = id;
   state.selectedUpdatedAt = null;
@@ -585,6 +595,7 @@ async function sendSelectedMessage() {
     if (creatingNew) {
       state.composingNew = false;
       state.selectedId = result.conversation_id;
+      state.pendingNewId = result.conversation_id;
       history.replaceState(null, "", `#/${encodeURIComponent(result.conversation_id)}`);
       els.messageInput.placeholder = "Message Prompta…";
     }
