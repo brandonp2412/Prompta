@@ -13,7 +13,20 @@ const state = {
   pendingNewId: null,
   pendingNewSend: null,
   pendingReplies: new Map(),
+  newChatFingerprint: "",
+  chatsRequestId: 0,
+  selectedRequestId: 0,
+  sidebarRefreshTimer: null,
 };
+
+function syncViewportHeight() {
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty("--app-height", `${Math.round(viewportHeight)}px`);
+}
+
+syncViewportHeight();
+window.addEventListener("resize", syncViewportHeight);
+window.visualViewport?.addEventListener("resize", syncViewportHeight);
 
 const els = {
   chatList: document.querySelector("#chatList"),
@@ -98,12 +111,22 @@ function groupChats(chats) {
 }
 
 function statusClass(status) {
-  return ["active", "complete", "interrupted"].includes(status) ? status : "neutral";
+  return ["active", "complete"].includes(status) ? status : "neutral";
+}
+
+function displayStatus(status) {
+  if (status === "active" || status === "complete") return status;
+  return "cached";
 }
 
 function renderSidebar(force = false) {
   const fingerprint = JSON.stringify(state.chats.map((chat) => [
-    chat.id, chat.status, chat.updated_at, chat.title, chat.preview, chat.message_count,
+    chat.id,
+    chat.status,
+    chat.status === "active" ? "" : chat.updated_at,
+    chat.title,
+    chat.status === "active" ? "" : chat.preview,
+    chat.message_count,
   ])) + state.selectedId;
 
   if (!force && fingerprint === state.sidebarFingerprint) return;
@@ -236,9 +259,9 @@ function renderMarkdown(raw) {
   return html || "<p></p>";
 }
 
-function renderMessageSection(message) {
+function renderMessageSection(message, allowStreaming = true) {
   const role = message.role === "user" ? "user" : "assistant";
-  const streaming = message.status === "streaming";
+  const streaming = allowStreaming && message.status === "streaming";
   const label = message.send_error ? "Send error" : "Prompta run";
   return `
     <section class="message ${role}${message.send_error ? " send-error" : ""}">
@@ -257,26 +280,53 @@ function renderMessageSection(message) {
     </section>`;
 }
 
+function cachedReplyState(cachedMessages, messageText) {
+  let userIndex = -1;
+  for (let index = 0; index < cachedMessages.length; index += 1) {
+    const message = cachedMessages[index];
+    if (
+      message.role === "user"
+      && String(message.content || "").trim() === messageText.trim()
+    ) {
+      userIndex = index;
+    }
+  }
+  const assistantSeen = userIndex >= 0 && cachedMessages.slice(userIndex + 1).some((message) => (
+    message.role === "assistant" && String(message.content || "").trim()
+  ));
+  return { userSeen: userIndex >= 0, assistantSeen };
+}
+
 function pendingReplyMessages(conversationId, cachedMessages) {
   const pending = state.pendingReplies.get(conversationId) || [];
   const remaining = pending.filter((item) => {
     if (item.status !== "succeeded") return true;
-    return !cachedMessages.some((message) => (
-      message.role === "user"
-      && String(message.content || "").trim() === item.message.trim()
-    ));
+    return !cachedReplyState(cachedMessages, item.message).assistantSeen;
   });
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
 
   return remaining.flatMap((item) => {
-    const messages = [{
-      message_key: `pending-user-${item.sendId}`,
-      role: "user",
-      content: item.message,
-      status: "complete",
-      updated_at: item.updatedAt,
-    }];
+    const cachedState = cachedReplyState(cachedMessages, item.message);
+    const messages = [];
+    if (!cachedState.userSeen) {
+      messages.push({
+        message_key: `pending-user-${item.sendId}`,
+        role: "user",
+        content: item.message,
+        status: "complete",
+        updated_at: item.updatedAt,
+      });
+    }
+    if (item.status === "succeeded") {
+      messages.push({
+        message_key: `pending-assistant-${item.sendId}`,
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        updated_at: item.updatedAt,
+      });
+    }
     if (item.status === "failed") {
       messages.push({
         message_key: `pending-error-${item.sendId}`,
@@ -293,10 +343,30 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 
 function renderConversation(chat) {
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
+  const pendingMessages = pendingReplyMessages(chat.id, messages);
   const visibleMessages = [
     ...messages,
-    ...pendingReplyMessages(chat.id, messages),
+    ...pendingMessages,
   ];
+  const lastCachedMessage = [...messages].reverse().find((message) => (
+    String(message.content || "").trim()
+  ));
+  const hasWaitingAssistant = pendingMessages.some((message) => (
+    message.role === "assistant" && message.status === "streaming"
+  ));
+  if (
+    chat.status === "active"
+    && lastCachedMessage?.role === "user"
+    && !hasWaitingAssistant
+  ) {
+    visibleMessages.push({
+      message_key: `waiting-assistant-${lastCachedMessage.message_key || lastCachedMessage.id || "latest"}`,
+      role: "assistant",
+      content: "",
+      status: "streaming",
+      updated_at: chat.updated_at,
+    });
+  }
   const fingerprint = JSON.stringify(visibleMessages.map((message) => [
     message.message_key, message.status, message.updated_at, message.content, message.send_error,
   ]));
@@ -305,7 +375,9 @@ function renderConversation(chat) {
   const isInitial = state.selectedFingerprint === "";
   if (fingerprint !== state.selectedFingerprint) {
     state.selectedFingerprint = fingerprint;
-    els.conversation.innerHTML = visibleMessages.map(renderMessageSection).join("");
+    els.conversation.innerHTML = visibleMessages
+      .map((message) => renderMessageSection(message, chat.status === "active"))
+      .join("");
 
     for (const button of els.conversation.querySelectorAll(".copy-code")) {
       button.addEventListener("click", async () => {
@@ -338,7 +410,7 @@ function renderConversation(chat) {
   els.chatHeading.innerHTML = `
     <div class="heading-title">${escapeHtml(title)}</div>
     <div class="heading-meta">${escapeHtml(meta)}</div>`;
-  els.statusChip.textContent = chat.status || "cached";
+  els.statusChip.textContent = displayStatus(chat.status);
   els.statusChip.className = `status-chip ${statusClass(chat.status)}`;
   els.syncLabel.textContent = chat.status === "active" ? "syncing from SQLite" : "cached locally";
 
@@ -348,9 +420,19 @@ function renderConversation(chat) {
   els.sendButton.disabled = state.sending;
   state.composingNew = false;
   if (!state.sending) {
-    els.composerStatus.textContent = chat.status === "active"
-      ? "Uses the existing live ChatGPT tab."
-      : "Sending will reopen this chat once if its retained tab has expired.";
+    const pendingForChat = state.pendingReplies.get(chat.id) || [];
+    const latestPending = pendingForChat.at(-1);
+    if (latestPending?.status === "failed") {
+      els.composerStatus.textContent = "Send failed. The error is shown in the chat.";
+    } else if (latestPending?.status === "succeeded") {
+      els.composerStatus.textContent = "Sent. Waiting for ChatGPT to reply…";
+    } else if (latestPending) {
+      els.composerStatus.textContent = "Queued. Prompta is sending it now…";
+    } else if (chat.status === "active" && lastCachedMessage?.role === "user") {
+      els.composerStatus.textContent = "Sent. Waiting for ChatGPT to reply…";
+    } else {
+      els.composerStatus.textContent = "";
+    }
   }
 }
 
@@ -408,7 +490,7 @@ function showMode(mode) {
     els.syncLabel.textContent = "Glass journal";
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
-    els.composerStatus.textContent = "Switch back to chats to send a message.";
+    els.composerStatus.textContent = "";
     loadLogs();
     return;
   }
@@ -439,70 +521,87 @@ function clearConversation() {
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
   els.messageInput.placeholder = "Message Prompta…";
-  els.composerStatus.textContent = "Select a chat to send a message.";
+  els.composerStatus.textContent = "";
 }
 
 function renderNewChat() {
+  const enteringNewChat = !state.composingNew;
   state.composingNew = true;
   state.selectedId = null;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
   state.mode = "chats";
-  els.viewport.hidden = false;
-  els.logsViewport.hidden = true;
-  if (els.logsButton) {
-    els.logsButton.textContent = "logs";
-    els.logsButton.classList.remove("active");
-  }
 
   const pending = state.pendingNewSend;
-  if (pending) {
-    const messages = [{
-      message_key: `pending-user-${pending.sendId}`,
-      role: "user",
-      content: pending.message,
-      status: "complete",
-      updated_at: pending.updatedAt,
-    }];
-    if (pending.status === "failed") {
-      messages.push({
-        message_key: `pending-error-${pending.sendId}`,
-        role: "assistant",
-        content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
+  const waiting = pending && !["failed", "succeeded"].includes(pending.status);
+  const fingerprint = JSON.stringify([
+    pending?.sendId || "",
+    pending?.message || "",
+    pending?.status || "",
+    pending?.error || "",
+    pending?.conversationId || "",
+  ]);
+
+  if (fingerprint !== state.newChatFingerprint) {
+    state.newChatFingerprint = fingerprint;
+    if (pending) {
+      const messages = [{
+        message_key: `pending-user-${pending.sendId}`,
+        role: "user",
+        content: pending.message,
         status: "complete",
         updated_at: pending.updatedAt,
-        send_error: true,
+      }];
+      if (pending.status === "failed") {
+        messages.push({
+          message_key: `pending-error-${pending.sendId}`,
+          role: "assistant",
+          content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
+          status: "complete",
+          updated_at: pending.updatedAt,
+          send_error: true,
+        });
+      }
+      els.emptyState.hidden = true;
+      els.conversation.hidden = false;
+      els.conversation.innerHTML = messages.map(renderMessageSection).join("");
+      requestAnimationFrame(() => {
+        els.viewport.scrollTop = els.viewport.scrollHeight;
       });
+    } else {
+      els.emptyState.hidden = false;
+      els.conversation.hidden = true;
+      els.conversation.innerHTML = "";
     }
-    els.emptyState.hidden = true;
-    els.conversation.hidden = false;
-    els.conversation.innerHTML = messages.map(renderMessageSection).join("");
-    requestAnimationFrame(() => {
-      els.viewport.scrollTop = els.viewport.scrollHeight;
-    });
-  } else {
-    els.emptyState.hidden = false;
-    els.conversation.hidden = true;
-    els.conversation.innerHTML = "";
+
+    els.chatHeading.innerHTML = `
+      <div class="heading-title">New chat</div>
+      <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
+    els.statusChip.textContent = pending?.status || "new";
+    els.statusChip.className = "status-chip neutral";
+    els.syncLabel.textContent = pending ? "send queued" : "fresh conversation";
+    els.messageInput.disabled = Boolean(waiting);
+    els.sendButton.disabled = Boolean(waiting);
+    els.messageInput.placeholder = "Start a new chat…";
+    els.composerStatus.textContent = pending
+      ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
+      : "";
   }
 
-  els.chatHeading.innerHTML = `
-    <div class="heading-title">New chat</div>
-    <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
-  els.statusChip.textContent = pending?.status || "new";
-  els.statusChip.className = `status-chip ${pending?.status === "failed" ? "interrupted" : "neutral"}`;
-  els.syncLabel.textContent = pending ? "send queued" : "fresh conversation";
-  const waiting = pending && !["failed", "succeeded"].includes(pending.status);
-  els.messageInput.disabled = Boolean(waiting);
-  els.sendButton.disabled = Boolean(waiting);
-  els.messageInput.placeholder = "Start a new chat…";
-  els.composerStatus.textContent = pending
-    ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
-    : "Your first message will open a fresh ChatGPT chat.";
-  history.replaceState(null, "", `${location.pathname}${location.search}`);
-  renderSidebar(true);
-  document.body.classList.remove("sidebar-open");
-  if (!waiting) requestAnimationFrame(() => els.messageInput.focus());
+  if (enteringNewChat) {
+    els.viewport.hidden = false;
+    els.logsViewport.hidden = true;
+    if (els.logsButton) {
+      els.logsButton.textContent = "logs";
+      els.logsButton.classList.remove("active");
+    }
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    renderSidebar(true);
+    document.body.classList.remove("sidebar-open");
+    if (!waiting && matchMedia("(pointer: fine)").matches) {
+      requestAnimationFrame(() => els.messageInput.focus());
+    }
+  }
 }
 
 async function fetchJson(url) {
@@ -525,10 +624,12 @@ async function postJson(url, payload) {
   return data;
 }
 
-async function loadChats() {
+async function loadChats({ refreshSelected = true } = {}) {
+  const requestId = ++state.chatsRequestId;
   try {
     const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
     const payload = await fetchJson(`api/chats${query}`);
+    if (requestId !== state.chatsRequestId) return;
     state.chats = payload.chats || [];
     els.globalLiveOrb.classList.add("live");
 
@@ -563,7 +664,7 @@ async function loadChats() {
           || summary.status === "active"
           || state.selectedUpdatedAt !== summary.updated_at
           || !state.selectedFingerprint;
-        if (shouldRefresh) await loadSelectedChat();
+        if (shouldRefresh && refreshSelected) await loadSelectedChat();
       } else if (!state.composingNew) {
         clearConversation();
       }
@@ -571,6 +672,7 @@ async function loadChats() {
       await loadLogs();
     }
   } catch (error) {
+    if (requestId !== state.chatsRequestId) return;
     els.globalLiveOrb.classList.remove("live");
     els.cacheSummary.textContent = "Cache unavailable";
     console.error(error);
@@ -579,9 +681,15 @@ async function loadChats() {
 
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
+  const selectedId = state.selectedId;
+  const requestId = ++state.selectedRequestId;
   try {
-    const chat = await fetchJson(`api/chats/${encodeURIComponent(state.selectedId)}`);
-    if (chat.id !== state.selectedId) return;
+    const chat = await fetchJson("api/chats/" + encodeURIComponent(selectedId));
+    if (
+      requestId !== state.selectedRequestId
+      || selectedId !== state.selectedId
+      || chat.id !== state.selectedId
+    ) return;
     if (state.pendingNewId === chat.id) {
       state.pendingNewId = null;
       if (state.pendingNewSend?.conversationId === chat.id) state.pendingNewSend = null;
@@ -589,6 +697,7 @@ async function loadSelectedChat() {
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
   } catch (error) {
+    if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
     const missing = String(error).startsWith("Error: 404");
     if (missing && state.pendingNewId !== state.selectedId) clearConversation();
     if (!missing || state.pendingNewId !== state.selectedId) console.error(error);
@@ -647,12 +756,18 @@ if (els.logsButton) {
 }
 els.newChatButton.addEventListener("click", () => {
   state.pendingNewSend = null;
+  state.newChatFingerprint = "";
   renderNewChat();
 });
 
 function resizeComposer() {
   els.messageInput.style.height = "auto";
-  els.messageInput.style.height = `${Math.min(180, els.messageInput.scrollHeight)}px`;
+  els.messageInput.style.overflowY = "hidden";
+  const nextHeight = Math.min(180, els.messageInput.scrollHeight);
+  els.messageInput.style.height = nextHeight + "px";
+  if (els.messageInput.scrollHeight > 180) {
+    els.messageInput.style.overflowY = "auto";
+  }
 }
 
 function pendingReply(conversationId, sendId) {
@@ -688,12 +803,17 @@ async function watchSend(sendId, creatingNew, conversationId) {
     const status = job.status || "running";
     if (creatingNew) {
       if (state.pendingNewSend?.sendId !== sendId) return;
+      const nextError = job.error || "";
+      const nextConversationId = job.conversation_id || state.pendingNewSend.conversationId || "";
+      const changed = state.pendingNewSend.status !== status
+        || state.pendingNewSend.error !== nextError
+        || state.pendingNewSend.conversationId !== nextConversationId;
       Object.assign(state.pendingNewSend, {
         status,
-        error: job.error || "",
-        conversationId: job.conversation_id || state.pendingNewSend.conversationId || "",
-        updatedAt: Date.now() / 1000,
+        error: nextError,
+        conversationId: nextConversationId,
       });
+      if (changed) state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
         if (!newId) {
@@ -717,7 +837,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderNewChat();
         return;
       }
-      renderNewChat();
+      if (changed) renderNewChat();
       continue;
     }
 
@@ -813,5 +933,65 @@ window.addEventListener("hashchange", () => {
   if (id && id !== state.selectedId) selectChat(id);
 });
 
-loadChats();
-state.refreshTimer = setInterval(loadChats, 1000);
+function queueSidebarRefresh() {
+  if (state.sidebarRefreshTimer || document.visibilityState === "hidden") return;
+  state.sidebarRefreshTimer = setTimeout(async () => {
+    state.sidebarRefreshTimer = null;
+    await loadChats({ refreshSelected: false });
+  }, 1500);
+}
+
+function queueLiveRefresh(event) {
+  if (document.visibilityState === "hidden") return;
+
+  let changedId = "";
+  try {
+    changedId = JSON.parse(event?.data || "{}").conversation_id || "";
+  } catch {
+    changedId = "";
+  }
+
+  if (changedId && changedId === state.selectedId && state.mode === "chats") {
+    loadSelectedChat();
+  }
+  queueSidebarRefresh();
+}
+
+function startFallbackPolling() {
+  if (state.refreshTimer) return;
+  state.refreshTimer = setInterval(() => {
+    if (document.visibilityState === "visible") loadChats();
+  }, 5000);
+}
+
+function stopFallbackPolling() {
+  if (!state.refreshTimer) return;
+  clearInterval(state.refreshTimer);
+  state.refreshTimer = null;
+}
+
+function startEventStream() {
+  if (!("EventSource" in window)) {
+    startFallbackPolling();
+    return;
+  }
+
+  const events = new EventSource("api/events");
+  events.addEventListener("open", () => {
+    stopFallbackPolling();
+    els.globalLiveOrb.classList.add("live");
+  });
+  events.addEventListener("refresh", queueLiveRefresh);
+  events.addEventListener("error", () => {
+    els.globalLiveOrb.classList.remove("live");
+    startFallbackPolling();
+  });
+  window.addEventListener("pagehide", () => events.close(), { once: true });
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") loadChats();
+});
+
+resizeComposer();
+loadChats().finally(startEventStream);

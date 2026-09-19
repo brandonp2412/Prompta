@@ -203,6 +203,35 @@ class ReadOnlyChatStore:
             "active": int(row["active"] or 0),
         }
 
+    def event_fingerprint(self) -> tuple[int, float, int, float, str]:
+        "Return a cheap cache revision for event-driven UI refreshes."
+        if not self.path.is_file():
+            return (0, 0.0, 0, 0.0, "")
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT "
+                    "(SELECT COUNT(*) FROM conversations) AS conversation_count, "
+                    "COALESCE((SELECT MAX(updated_at) FROM conversations), 0) "
+                    "AS conversation_updated, "
+                    "(SELECT COUNT(*) FROM messages "
+                    "WHERE message_key NOT LIKE 'request-placeholder-%') AS message_count, "
+                    "COALESCE((SELECT MAX(updated_at) FROM messages "
+                    "WHERE message_key NOT LIKE 'request-placeholder-%'), 0) "
+                    "AS message_updated, "
+                    "(SELECT id FROM conversations ORDER BY updated_at DESC LIMIT 1) "
+                    "AS latest_conversation_id"
+                ).fetchone()
+        except (FileNotFoundError, sqlite3.Error):
+            return (0, 0.0, 0, 0.0, "")
+        return (
+            int(row["conversation_count"] or 0),
+            float(row["conversation_updated"] or 0.0),
+            int(row["message_count"] or 0),
+            float(row["message_updated"] or 0.0),
+            str(row["latest_conversation_id"] or ""),
+        )
+
 
 _REMOTE_CONTROL_TIMEOUT_SECONDS = 11 * 60
 
@@ -477,6 +506,40 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self._headers(status, "application/json; charset=utf-8")
         self.wfile.write(body)
 
+    def _event_stream(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        last_fingerprint = self.store.event_fingerprint()
+        last_heartbeat = time.monotonic()
+        try:
+            while True:
+                fingerprint = self.store.event_fingerprint()
+                now = time.monotonic()
+                if fingerprint != last_fingerprint:
+                    payload = json.dumps(
+                        {
+                            "revision": fingerprint[:4],
+                            "conversation_id": fingerprint[4],
+                        },
+                        separators=(",", ":"),
+                    )
+                    body = "event: refresh\ndata: " + payload + "\n\n"
+                    self.wfile.write(body.encode())
+                    self.wfile.flush()
+                    last_fingerprint = fingerprint
+                    last_heartbeat = now
+                elif now - last_heartbeat >= 15.0:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    last_heartbeat = now
+                time.sleep(0.75)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
         target = (_STATIC_ROOT / relative_path).resolve()
         try:
@@ -507,6 +570,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/health":
             self._json(self.store.stats())
+            return
+        if path == "/api/events":
+            self._event_stream()
             return
         if path == "/api/chats":
             query = parse_qs(parsed.query)
