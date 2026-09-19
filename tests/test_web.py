@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.request import urlopen
 
 import pytest
 
@@ -331,3 +333,34 @@ def test_read_only_store_event_fingerprint_changes_with_cache(tmp_path: Path) ->
 
     assert after_start != before
     assert after_message != after_start
+
+
+def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        server_name="glass",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host = "127.0.0.1"
+    port = server.server_port
+    try:
+        with urlopen(f"http://{host}:{port}/", timeout=2) as response:
+            index = response.read().decode()
+        with urlopen(f"http://{host}:{port}/manifest.webmanifest", timeout=2) as response:
+            manifest = json.loads(response.read())
+            manifest_type = response.headers.get_content_type()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert "Prompta · Glass" in index
+    assert "__PROMPTA_SERVER_NAME__" not in index
+    assert manifest["name"] == "Prompta · Glass"
+    assert manifest["short_name"] == "Prompta · Glass"
+    assert manifest["start_url"] == "./"
+    assert manifest_type == "application/manifest+json"
