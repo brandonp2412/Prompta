@@ -68,6 +68,25 @@ def test_read_only_store_does_not_create_missing_database(tmp_path: Path) -> Non
     assert not path.exists()
 
 
+def test_read_only_store_reads_recent_glass_logs(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    logs = tmp_path / "prompta-glass.log"
+    logs.write_text("\n".join(f"line {index}" for index in range(8)) + "\n")
+    store = ReadOnlyChatStore(path, logs)
+
+    payload = store.logs(limit=3)
+
+    assert payload["exists"] is True
+    assert payload["lines"] == ["line 5", "line 6", "line 7"]
+    assert payload["updated_at"] is not None
+
+
+def test_read_only_store_reports_missing_glass_logs(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
+
+    assert store.logs() == {"exists": False, "lines": [], "updated_at": None}
+
+
 def test_read_only_store_falls_back_to_saved_prompt_for_empty_chat(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

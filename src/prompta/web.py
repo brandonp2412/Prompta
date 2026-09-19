@@ -20,10 +20,15 @@ _STATIC_ROOT = Path(__file__).with_name("static")
 
 
 class ReadOnlyChatStore:
-    """Open a fresh read-only SQLite connection for each web request."""
+    """Open fresh read-only data sources for each web request."""
 
-    def __init__(self, path: Path = DEFAULT_CACHE_PATH) -> None:
+    def __init__(self, path: Path = DEFAULT_CACHE_PATH, log_path: Path | None = None) -> None:
         self.path = path.expanduser()
+        self.log_path = (
+            log_path.expanduser()
+            if log_path is not None
+            else self.path.with_name("prompta-glass.log")
+        )
 
     def _connect(self) -> sqlite3.Connection:
         if not self.path.is_file():
@@ -146,6 +151,17 @@ class ReadOnlyChatStore:
         payload["messages"] = message_payloads
         return payload
 
+    def logs(self, *, limit: int = 500) -> dict[str, Any]:
+        if not self.log_path.is_file():
+            return {"exists": False, "lines": [], "updated_at": None}
+        try:
+            text = self.log_path.read_text(errors="replace")
+            updated_at = self.log_path.stat().st_mtime
+        except OSError:
+            return {"exists": False, "lines": [], "updated_at": None}
+        lines = text.splitlines()[-max(1, min(limit, 2000)) :]
+        return {"exists": True, "lines": lines, "updated_at": updated_at}
+
     def stats(self) -> dict[str, Any]:
         if not self.path.is_file():
             return {"exists": False, "total": 0, "active": 0}
@@ -245,6 +261,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 limit = 200
             self._json({"chats": self.store.conversations(limit=limit, query=search)})
             return
+        if path == "/api/logs":
+            query = parse_qs(parsed.query)
+            try:
+                limit = int(query.get("limit", ["500"])[0])
+            except ValueError:
+                limit = 500
+            self._json(self.store.logs(limit=limit))
+            return
         prefix = "/api/chats/"
         if path.startswith(prefix):
             conversation_id = unquote(path[len(prefix) :])
@@ -257,11 +281,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
 
-def serve(cache_path: Path, host: str, port: int) -> None:
-    store = ReadOnlyChatStore(cache_path)
+def serve(cache_path: Path, log_path: Path | None, host: str, port: int) -> None:
+    store = ReadOnlyChatStore(cache_path, log_path)
     server = PromptaUIServer((host, port), store)
     logger.info("Prompta UI listening on http://%s:%d", host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
+    logger.info("Reading Glass logs from %s", store.log_path)
     try:
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
@@ -273,11 +298,12 @@ def serve(cache_path: Path, host: str, port: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Serve Prompta's read-only conversation UI")
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
+    parser.add_argument("--logs", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    serve(args.cache, args.host, max(1, min(args.port, 65535)))
+    serve(args.cache, args.logs, args.host, max(1, min(args.port, 65535)))
 
 
 if __name__ == "__main__":
