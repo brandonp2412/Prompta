@@ -189,7 +189,9 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
         "ordinal": 1,
     }
     assert snapshot["streaming"] is True
-    expression = driver.eval.await_args.args[0]
+    call = driver.eval.await_args
+    assert call is not None
+    expression = call.args[0]
     assert ".agent-turn" in expression
     assert "for(const [agentIndex,agent] of candidates.entries())" in expression
     assert "content.length>=entries[existing].content.length" in expression
