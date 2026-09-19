@@ -11,6 +11,8 @@ const state = {
   sending: false,
   composingNew: false,
   pendingNewId: null,
+  pendingNewSend: null,
+  pendingReplies: new Map(),
 };
 
 const els = {
@@ -234,35 +236,76 @@ function renderMarkdown(raw) {
   return html || "<p></p>";
 }
 
+function renderMessageSection(message) {
+  const role = message.role === "user" ? "user" : "assistant";
+  const streaming = message.status === "streaming";
+  const label = message.send_error ? "Send error" : "Prompta run";
+  return `
+    <section class="message ${role}${message.send_error ? " send-error" : ""}">
+      <div class="message-inner">
+        ${role === "assistant" ? `
+          <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
+        ` : ""}
+        <div class="message-content">${renderMarkdown(message.content)}</div>
+        ${streaming ? `
+          <div class="streaming-indicator">
+            <span class="streaming-dots"><i></i><i></i><i></i></span>
+            writing
+          </div>
+        ` : ""}
+      </div>
+    </section>`;
+}
+
+function pendingReplyMessages(conversationId, cachedMessages) {
+  const pending = state.pendingReplies.get(conversationId) || [];
+  const remaining = pending.filter((item) => {
+    if (item.status !== "succeeded") return true;
+    return !cachedMessages.some((message) => (
+      message.role === "user"
+      && String(message.content || "").trim() === item.message.trim()
+    ));
+  });
+  if (remaining.length) state.pendingReplies.set(conversationId, remaining);
+  else state.pendingReplies.delete(conversationId);
+
+  return remaining.flatMap((item) => {
+    const messages = [{
+      message_key: `pending-user-${item.sendId}`,
+      role: "user",
+      content: item.message,
+      status: "complete",
+      updated_at: item.updatedAt,
+    }];
+    if (item.status === "failed") {
+      messages.push({
+        message_key: `pending-error-${item.sendId}`,
+        role: "assistant",
+        content: `Send failed: ${item.error || "Unknown Prompta send error"}`,
+        status: "complete",
+        updated_at: item.updatedAt,
+        send_error: true,
+      });
+    }
+    return messages;
+  });
+}
+
 function renderConversation(chat) {
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
-  const fingerprint = JSON.stringify(messages.map((message) => [
-    message.message_key, message.status, message.updated_at, message.content,
+  const visibleMessages = [
+    ...messages,
+    ...pendingReplyMessages(chat.id, messages),
+  ];
+  const fingerprint = JSON.stringify(visibleMessages.map((message) => [
+    message.message_key, message.status, message.updated_at, message.content, message.send_error,
   ]));
 
   const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
   const isInitial = state.selectedFingerprint === "";
   if (fingerprint !== state.selectedFingerprint) {
     state.selectedFingerprint = fingerprint;
-    els.conversation.innerHTML = messages.map((message) => {
-      const role = message.role === "user" ? "user" : "assistant";
-      const streaming = message.status === "streaming";
-      return `
-        <section class="message ${role}">
-          <div class="message-inner">
-            ${role === "assistant" ? `
-              <div class="message-label"><span class="assistant-avatar">P</span> Prompta run</div>
-            ` : ""}
-            <div class="message-content">${renderMarkdown(message.content)}</div>
-            ${streaming ? `
-              <div class="streaming-indicator">
-                <span class="streaming-dots"><i></i><i></i><i></i></span>
-                writing
-              </div>
-            ` : ""}
-          </div>
-        </section>`;
-    }).join("");
+    els.conversation.innerHTML = visibleMessages.map(renderMessageSection).join("");
 
     for (const button of els.conversation.querySelectorAll(".copy-code")) {
       button.addEventListener("click", async () => {
@@ -288,7 +331,7 @@ function renderConversation(chat) {
   const title = chatTitle(chat);
   const meta = [
     chat.job_name || "one-shot",
-    `${messages.length} message${messages.length === 1 ? "" : "s"}`,
+    `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
     chat.status === "active" ? "updating live" : formatRelativeTime(chat.updated_at),
   ].join(" · ");
 
@@ -411,23 +454,55 @@ function renderNewChat() {
     els.logsButton.textContent = "logs";
     els.logsButton.classList.remove("active");
   }
-  els.emptyState.hidden = false;
-  els.conversation.hidden = true;
-  els.conversation.innerHTML = "";
+
+  const pending = state.pendingNewSend;
+  if (pending) {
+    const messages = [{
+      message_key: `pending-user-${pending.sendId}`,
+      role: "user",
+      content: pending.message,
+      status: "complete",
+      updated_at: pending.updatedAt,
+    }];
+    if (pending.status === "failed") {
+      messages.push({
+        message_key: `pending-error-${pending.sendId}`,
+        role: "assistant",
+        content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
+        status: "complete",
+        updated_at: pending.updatedAt,
+        send_error: true,
+      });
+    }
+    els.emptyState.hidden = true;
+    els.conversation.hidden = false;
+    els.conversation.innerHTML = messages.map(renderMessageSection).join("");
+    requestAnimationFrame(() => {
+      els.viewport.scrollTop = els.viewport.scrollHeight;
+    });
+  } else {
+    els.emptyState.hidden = false;
+    els.conversation.hidden = true;
+    els.conversation.innerHTML = "";
+  }
+
   els.chatHeading.innerHTML = `
     <div class="heading-title">New chat</div>
-    <div class="heading-meta">Starts a fresh ChatGPT conversation</div>`;
-  els.statusChip.textContent = "new";
-  els.statusChip.className = "status-chip neutral";
-  els.syncLabel.textContent = "fresh conversation";
-  els.messageInput.disabled = false;
-  els.sendButton.disabled = false;
+    <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
+  els.statusChip.textContent = pending?.status || "new";
+  els.statusChip.className = `status-chip ${pending?.status === "failed" ? "interrupted" : "neutral"}`;
+  els.syncLabel.textContent = pending ? "send queued" : "fresh conversation";
+  const waiting = pending && !["failed", "succeeded"].includes(pending.status);
+  els.messageInput.disabled = Boolean(waiting);
+  els.sendButton.disabled = Boolean(waiting);
   els.messageInput.placeholder = "Start a new chat…";
-  els.composerStatus.textContent = "Your first message will open a fresh ChatGPT chat.";
+  els.composerStatus.textContent = pending
+    ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
+    : "Your first message will open a fresh ChatGPT chat.";
   history.replaceState(null, "", `${location.pathname}${location.search}`);
   renderSidebar(true);
   document.body.classList.remove("sidebar-open");
-  requestAnimationFrame(() => els.messageInput.focus());
+  if (!waiting) requestAnimationFrame(() => els.messageInput.focus());
 }
 
 async function fetchJson(url) {
@@ -507,7 +582,10 @@ async function loadSelectedChat() {
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(state.selectedId)}`);
     if (chat.id !== state.selectedId) return;
-    if (state.pendingNewId === chat.id) state.pendingNewId = null;
+    if (state.pendingNewId === chat.id) {
+      state.pendingNewId = null;
+      if (state.pendingNewSend?.conversationId === chat.id) state.pendingNewSend = null;
+    }
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
   } catch (error) {
@@ -567,49 +645,148 @@ if (els.logsButton) {
     showMode(state.mode === "logs" ? "chats" : "logs");
   });
 }
-els.newChatButton.addEventListener("click", renderNewChat);
+els.newChatButton.addEventListener("click", () => {
+  state.pendingNewSend = null;
+  renderNewChat();
+});
 
 function resizeComposer() {
   els.messageInput.style.height = "auto";
   els.messageInput.style.height = `${Math.min(180, els.messageInput.scrollHeight)}px`;
 }
 
+function pendingReply(conversationId, sendId) {
+  return (state.pendingReplies.get(conversationId) || [])
+    .find((item) => item.sendId === sendId);
+}
+
+function updatePendingReply(conversationId, sendId, updates) {
+  const item = pendingReply(conversationId, sendId);
+  if (!item) return;
+  Object.assign(item, updates, { updatedAt: Date.now() / 1000 });
+}
+
+async function watchSend(sendId, creatingNew, conversationId) {
+  let statusFailures = 0;
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    let job;
+    try {
+      job = await fetchJson(`api/sends/${encodeURIComponent(sendId)}`);
+      statusFailures = 0;
+    } catch (error) {
+      statusFailures += 1;
+      if (statusFailures < 4) continue;
+      job = {
+        status: "failed",
+        error: String(error).replace(/^Error:\s*/, ""),
+      };
+    }
+
+    const status = job.status || "running";
+    if (creatingNew) {
+      if (state.pendingNewSend?.sendId !== sendId) return;
+      Object.assign(state.pendingNewSend, {
+        status,
+        error: job.error || "",
+        conversationId: job.conversation_id || state.pendingNewSend.conversationId || "",
+        updatedAt: Date.now() / 1000,
+      });
+      if (status === "succeeded") {
+        const newId = job.conversation_id;
+        if (!newId) {
+          state.pendingNewSend.status = "failed";
+          state.pendingNewSend.error = "Prompta reported success without a conversation id";
+          renderNewChat();
+          return;
+        }
+        state.composingNew = false;
+        state.selectedId = newId;
+        state.pendingNewId = newId;
+        history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
+        els.messageInput.placeholder = "Message Prompta…";
+        els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+        state.selectedUpdatedAt = null;
+        await loadChats();
+        await loadSelectedChat();
+        return;
+      }
+      if (status === "failed") {
+        renderNewChat();
+        return;
+      }
+      renderNewChat();
+      continue;
+    }
+
+    updatePendingReply(conversationId, sendId, {
+      status,
+      error: job.error || "",
+    });
+    state.selectedFingerprint = "";
+    if (state.selectedId === conversationId) await loadSelectedChat();
+    if (status === "succeeded") {
+      els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+      await loadChats();
+      return;
+    }
+    if (status === "failed") {
+      els.composerStatus.textContent = "Send failed. The error is shown in the chat.";
+      return;
+    }
+  }
+}
+
 async function sendSelectedMessage() {
   const message = els.messageInput.value.trim();
   const creatingNew = state.composingNew;
-  if (!message || (!creatingNew && !state.selectedId) || state.mode !== "chats" || state.sending) return;
+  const conversationId = state.selectedId;
+  if (!message || (!creatingNew && !conversationId) || state.mode !== "chats" || state.sending) return;
 
   state.sending = true;
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
-  els.composerStatus.textContent = creatingNew
-    ? "Starting a fresh ChatGPT conversation…"
-    : "Sending through the existing Prompta browser session…";
+  els.composerStatus.textContent = "Queueing…";
   try {
     const result = creatingNew
       ? await postJson("api/chats", { message })
       : await postJson(
-        `api/chats/${encodeURIComponent(state.selectedId)}/messages`,
+        `api/chats/${encodeURIComponent(conversationId)}/messages`,
         { message },
       );
-    if (creatingNew) {
-      state.composingNew = false;
-      state.selectedId = result.conversation_id;
-      state.pendingNewId = result.conversation_id;
-      history.replaceState(null, "", `#/${encodeURIComponent(result.conversation_id)}`);
-      els.messageInput.placeholder = "Message Prompta…";
-    }
+    const pending = {
+      sendId: result.send_id,
+      message,
+      status: result.status || "queued",
+      error: "",
+      conversationId: conversationId || "",
+      updatedAt: Date.now() / 1000,
+    };
     els.messageInput.value = "";
     resizeComposer();
-    els.composerStatus.textContent = "Sent. Waiting for the cached response…";
-    state.selectedUpdatedAt = null;
-    await loadSelectedChat();
+
+    if (creatingNew) {
+      state.pendingNewSend = pending;
+      renderNewChat();
+    } else {
+      const items = state.pendingReplies.get(conversationId) || [];
+      items.push(pending);
+      state.pendingReplies.set(conversationId, items);
+      state.selectedFingerprint = "";
+      await loadSelectedChat();
+      els.composerStatus.textContent = "Queued. Prompta is sending it now…";
+    }
+    watchSend(result.send_id, creatingNew, conversationId);
   } catch (error) {
     els.composerStatus.textContent = String(error).replace(/^Error:\s*/, "");
     console.error(error);
   } finally {
     state.sending = false;
-    if ((state.selectedId || state.composingNew) && state.mode === "chats") {
+    if (!creatingNew && state.selectedId && state.mode === "chats") {
+      els.messageInput.disabled = false;
+      els.sendButton.disabled = false;
+      els.messageInput.focus();
+    } else if (creatingNew && !state.pendingNewSend && state.mode === "chats") {
       els.messageInput.disabled = false;
       els.sendButton.disabled = false;
       els.messageInput.focus();

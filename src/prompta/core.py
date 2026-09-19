@@ -1091,6 +1091,9 @@ class Prompta:
 
     async def run(self, *, once: bool = False) -> None:
         while True:
+            if self.driver is not None and not self.driver.is_connected:
+                self._interrupt_active_conversations()
+                raise RuntimeError("Prompta Firefox BiDi disconnected; restarting daemon")
             await self._poll_active_conversations()
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
@@ -1416,9 +1419,14 @@ async def _handle_control_client(
     try:
         writer.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
         await writer.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        logger.debug("Prompta control client disconnected before receiving its result")
     finally:
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
 async def _start_control_server(

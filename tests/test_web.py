@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
+from threading import Event
 from unittest.mock import MagicMock, patch
 
 from prompta.cache import ChatCache
-from prompta.web import ReadOnlyChatStore, _remote_control
+from prompta.web import ReadOnlyChatStore, SendJobRegistry, _remote_control
 
 
 def _seed_cache(path: Path) -> None:
@@ -46,6 +48,55 @@ def test_remote_control_uses_user_ssh_config() -> None:
     assert result == "chat-id"
     argv = run.call_args.args[0]
     assert argv[:3] == ["ssh", "-F", str(Path.home() / ".ssh" / "config")]
+
+
+def test_send_job_registry_returns_before_sender_finishes() -> None:
+    release = Event()
+
+    def sender(operation: str, message: str, conversation_id: str) -> str:
+        assert operation == "once"
+        assert message == "Hello"
+        assert conversation_id == ""
+        assert release.wait(timeout=1.0)
+        return "chat-new"
+
+    registry = SendJobRegistry(sender)
+    queued = registry.submit(operation="once", message="Hello")
+
+    assert queued["send_id"]
+    assert queued["status"] in {"queued", "running"}
+    assert queued["conversation_id"] == ""
+
+    release.set()
+    deadline = time.monotonic() + 1.0
+    result = registry.get(queued["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert result["conversation_id"] == "chat-new"
+    assert result["error"] == ""
+
+
+def test_send_job_registry_surfaces_background_error() -> None:
+    def sender(operation: str, message: str, conversation_id: str) -> str:
+        raise RuntimeError("browser session unavailable")
+
+    registry = SendJobRegistry(sender)
+    queued = registry.submit(operation="reply", message="Continue", conversation_id="chat-1")
+
+    deadline = time.monotonic() + 1.0
+    result = registry.get(queued["send_id"])
+    while result is not None and result["status"] != "failed" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "failed"
+    assert result["conversation_id"] == "chat-1"
+    assert result["error"] == "browser session unavailable"
 
 
 def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
