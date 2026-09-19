@@ -518,7 +518,7 @@ class FirefoxBiDiDriver:
         raw = await self.eval(
             """JSON.stringify((()=>{
               const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
-              const normalise=value=>(value||'').replace(/\s+/g,' ').trim();
+              const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
               const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const entries=roleNodes.map(e=>({
@@ -533,7 +533,7 @@ class FirefoxBiDiDriver:
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
                 const content=(markdown.length
-                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\n\n')
+                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\\n\\n')
                   : (agent.innerText||agent.textContent||'').trim()
                 ).trim();
                 if(!content)continue;
