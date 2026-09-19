@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark light">
   <meta name="description" content="Local Prompta conversation viewer and message composer.">
   <title>Prompta</title>
@@ -54,6 +54,7 @@
           <div class="heading-meta">Local conversation history</div>
         </div>
         <div class="topbar-actions">
+          <button type="button" class="view-button new-chat-button" id="newChatButton" aria-label="Start a new chat">+ new chat</button>
           <button type="button" class="view-button" id="logsButton">logs</button>
           <span class="sync-label" id="syncLabel">local cache</span>
           <span class="status-chip neutral" id="statusChip">idle</span>
