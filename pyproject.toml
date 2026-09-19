@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 prompta = "prompta.core:main"
+prompta-ui = "prompta.web:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/prompta"]
