@@ -1,0 +1,252 @@
+"""SQLite-backed passive cache for Prompta ChatGPT conversations."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
+
+
+@dataclass
+class ActiveConversation:
+    conversation_id: str
+    context_id: str
+    job_name: str
+    prompt: str
+    last_digest: str = ""
+    idle_polls: int = 0
+
+
+class ChatCache:
+    """Small WAL-mode database designed for one writer and concurrent UI readers."""
+
+    def __init__(self, path: Path = DEFAULT_CACHE_PATH) -> None:
+        self.path = path.expanduser()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.path.parent, 0o700)
+        self.connection = sqlite3.connect(self.path)
+        os.chmod(self.path, 0o600)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA synchronous=NORMAL")
+        self.connection.execute("PRAGMA foreign_keys=ON")
+        self.connection.execute("PRAGMA busy_timeout=5000")
+        self._migrate()
+
+    def _migrate(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                job_name TEXT NOT NULL DEFAULT '',
+                prompt TEXT NOT NULL DEFAULT '',
+                url TEXT NOT NULL,
+                browser_context_id TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                completed_at REAL
+            );
+
+            CREATE INDEX IF NOT EXISTS conversations_status_updated_idx
+                ON conversations(status, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS messages (
+                conversation_id TEXT NOT NULL,
+                message_key TEXT NOT NULL,
+                ordinal INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (conversation_id, message_key),
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS messages_conversation_ordinal_idx
+                ON messages(conversation_id, ordinal);
+            """
+        )
+        self.connection.commit()
+
+    def mark_orphaned_active(self) -> int:
+        """Mark tabs from a previous Prompta process as interrupted after restart."""
+
+        now = time.time()
+        cursor = self.connection.execute(
+            """
+            UPDATE conversations
+            SET status = 'interrupted', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+            WHERE status = 'active'
+            """,
+            (now, now),
+        )
+        self.connection.commit()
+        return cursor.rowcount
+
+    def start(
+        self,
+        conversation_id: str,
+        *,
+        context_id: str,
+        job_name: str,
+        prompt: str,
+    ) -> None:
+        now = time.time()
+        self.connection.execute(
+            """
+            INSERT INTO conversations (
+                id, job_name, prompt, url, browser_context_id, status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                job_name = excluded.job_name,
+                prompt = excluded.prompt,
+                url = excluded.url,
+                browser_context_id = excluded.browser_context_id,
+                status = 'active',
+                updated_at = excluded.updated_at,
+                completed_at = NULL
+            """,
+            (
+                conversation_id,
+                job_name,
+                prompt,
+                f"https://chatgpt.com/c/{conversation_id}",
+                context_id,
+                now,
+                now,
+            ),
+        )
+        self.connection.commit()
+
+    @staticmethod
+    def digest(snapshot: dict[str, Any]) -> str:
+        stable = {
+            "title": str(snapshot.get("title") or ""),
+            "path": str(snapshot.get("path") or ""),
+            "streaming": bool(snapshot.get("streaming")),
+            "messages": snapshot.get("messages") or [],
+        }
+        return hashlib.sha256(
+            json.dumps(stable, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+
+    def mark_interrupted(self, conversation_id: str) -> None:
+        now = time.time()
+        self.connection.execute(
+            """
+            UPDATE conversations
+            SET status = 'interrupted', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+            WHERE id = ?
+            """,
+            (now, now, conversation_id),
+        )
+        self.connection.commit()
+
+    def write_snapshot(
+        self,
+        conversation_id: str,
+        snapshot: dict[str, Any],
+        *,
+        complete: bool = False,
+    ) -> None:
+        now = time.time()
+        messages = snapshot.get("messages")
+        if not isinstance(messages, list):
+            messages = []
+        status = "complete" if complete else "active"
+        completed_at = now if complete else None
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE conversations
+                SET title = ?, status = ?, updated_at = ?,
+                    completed_at = CASE WHEN ? THEN ? ELSE completed_at END
+                WHERE id = ?
+                """,
+                (
+                    str(snapshot.get("title") or ""),
+                    status,
+                    now,
+                    int(complete),
+                    completed_at,
+                    conversation_id,
+                ),
+            )
+            for ordinal, message in enumerate(messages):
+                if not isinstance(message, dict):
+                    continue
+                role = str(message.get("role") or "")
+                content = str(message.get("content") or "")
+                raw_key = str(message.get("id") or "")
+                message_key = raw_key or f"{role}:{ordinal}"
+                message_status = (
+                    "streaming"
+                    if not complete
+                    and bool(snapshot.get("streaming"))
+                    and ordinal == len(messages) - 1
+                    and role == "assistant"
+                    else "complete"
+                )
+                self.connection.execute(
+                    """
+                    INSERT INTO messages (
+                        conversation_id, message_key, ordinal, role, content, status,
+                        created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(conversation_id, message_key) DO UPDATE SET
+                        ordinal = excluded.ordinal,
+                        role = excluded.role,
+                        content = excluded.content,
+                        status = excluded.status,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        conversation_id,
+                        message_key,
+                        ordinal,
+                        role,
+                        content,
+                        message_status,
+                        now,
+                        now,
+                    ),
+                )
+
+    def recent_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT id, job_name, url, title, status, created_at, updated_at, completed_at
+            FROM conversations
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (max(1, limit),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def messages(self, conversation_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT message_key, ordinal, role, content, status, created_at, updated_at
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY ordinal
+            """,
+            (conversation_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def close(self) -> None:
+        self.connection.close()

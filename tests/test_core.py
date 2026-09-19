@@ -58,6 +58,14 @@ class FakeDriver:
     async def navigate(self, url: str) -> None:
         self.navigated.append(url)
 
+    async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
+        self.context = "context-new"
+        self.navigated.append(url)
+        return self.context
+
+    async def close_context(self, context: str) -> None:
+        return None
+
     async def wait_for_composer(self) -> None:
         return None
 

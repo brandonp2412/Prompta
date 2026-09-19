@@ -73,6 +73,21 @@ Runtime data defaults to:
 - `~/.config/prompta/jobs.json`
 - `~/.local/state/prompta/state.json`
 - `~/.local/state/prompta/firefox-profile`
+- `~/.local/state/prompta/chats.sqlite3`
+
+## Conversation cache
+
+Scheduled conversations stay open in their own Firefox tabs while ChatGPT is producing
+the response. Prompta reads the already-rendered message DOM over WebDriver BiDi and
+writes changed snapshots to the SQLite cache roughly once per scheduler tick. Cache
+capture does not reload the page, poll ChatGPT HTTP APIs, or submit additional model
+requests.
+
+The database uses WAL mode so another local process, such as a future Prompta web UI,
+can read active conversations and completed history while the scheduler keeps writing.
+Once an assistant response is stable and no longer streaming, Prompta records it as
+complete and closes that Firefox tab. A service restart marks any previously active
+cache rows as interrupted.
 
 ## Service
 
