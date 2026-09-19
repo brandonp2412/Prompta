@@ -125,3 +125,24 @@ async def test_connect_navigates_only_when_no_chatgpt_context_exists(
 
     assert driver.context == "blank"
     driver.navigate.assert_awaited_once_with("https://chatgpt.com/")
+
+
+@pytest.mark.asyncio
+async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.eval = AsyncMock(  # type: ignore[method-assign]
+        return_value='{"path":"/c/WEB:test","title":"Live","messages":[{"id":"__prompta_live_assistant__","role":"assistant","content":"Working","ordinal":1}],"streaming":true}'
+    )
+
+    snapshot = await driver.conversation_snapshot("context-1")
+
+    assert snapshot["messages"][-1] == {
+        "id": "__prompta_live_assistant__",
+        "role": "assistant",
+        "content": "Working",
+        "ordinal": 1,
+    }
+    assert snapshot["streaming"] is True
+    expression = driver.eval.await_args.args[0]
+    assert ".agent-turn" in expression
+    assert "group-data-stream-active" in expression
