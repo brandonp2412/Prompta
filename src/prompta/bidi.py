@@ -547,6 +547,7 @@ class FirefoxBiDiDriver:
                   ||agent.closest('[data-message-id]')?.getAttribute('data-message-id')
                   ||agent.closest('[data-message-uuid]')?.getAttribute('data-message-uuid')
                   ||'';
+                if(id.startsWith('request-placeholder-'))continue;
                 let existing=id?entries.findIndex(message=>message.role==='assistant'&&message.id===id):-1;
                 if(existing<0&&nested){
                   existing=entries.findIndex(message=>message.node===nested);
