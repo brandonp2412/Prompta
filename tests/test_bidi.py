@@ -52,6 +52,23 @@ async def test_bidi_call_timeout_disconnects_wedged_session(
 
 
 @pytest.mark.asyncio
+async def test_eval_reports_browser_side_script_exception() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.context = "context-1"
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "result": {
+                "type": "exception",
+                "exceptionDetails": {"text": "ReferenceError: broken"},
+            }
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="ReferenceError: broken"):
+        await driver.eval("broken()")
+
+
+@pytest.mark.asyncio
 async def test_connect_reuses_existing_chatgpt_context_without_navigation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
