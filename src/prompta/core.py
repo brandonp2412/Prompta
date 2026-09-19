@@ -1006,7 +1006,7 @@ class Prompta:
                 continue
 
             try:
-                await self.driver.close_context(context)
+                await driver.close_context(context)
             except Exception:
                 logger.debug("Could not close retained Prompta tab", exc_info=True)
             self._active_conversations.pop(context, None)

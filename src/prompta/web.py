@@ -431,6 +431,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def control_host(self) -> str:
         return cast(PromptaUIServer, self.server).control_host
 
+    @property
+    def send_jobs(self) -> SendJobRegistry:
+        return cast(PromptaUIServer, self.server).send_jobs
+
     def _message_from_json_body(self) -> str | None:
         content_type = self.headers.get("Content-Type", "")
         if not content_type.casefold().startswith("application/json"):
@@ -524,7 +528,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         send_prefix = "/api/sends/"
         if path.startswith(send_prefix):
             send_id = unquote(path[len(send_prefix) :]).strip("/")
-            job = self.server.send_jobs.get(send_id)
+            job = self.send_jobs.get(send_id)
             if job is None:
                 self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -549,7 +553,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             message = self._message_from_json_body()
             if message is None:
                 return
-            job = self.server.send_jobs.submit(
+            job = self.send_jobs.submit(
                 operation="once",
                 message=message,
             )
@@ -571,7 +575,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if message is None:
             return
 
-        job = self.server.send_jobs.submit(
+        job = self.send_jobs.submit(
             operation="reply",
             conversation_id=conversation_id,
             message=message,
