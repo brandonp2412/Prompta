@@ -17,8 +17,10 @@ from prompta.core import (
     RateLimitBackoff,
     RateLimitError,
     SendVerificationError,
+    _daemon_is_running,
     _parser,
     _run,
+    _send_direct,
     _send_once_via_control,
     _send_reply_via_control,
     _start_control_server,
@@ -431,6 +433,40 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
 
     assert prompta._pointer_click.await_count == 2
     assert driver._call.await_count == 2
+
+
+def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+
+    assert _daemon_is_running(state_path) is False
+    assert not (tmp_path / "daemon.lock").exists()
+
+
+@pytest.mark.asyncio
+async def test_send_direct_waits_for_cached_response_and_stops_firefox(tmp_path: Path) -> None:
+    process = MagicMock()
+    process.returncode = None
+    process.wait = AsyncMock(return_value=0)
+    prompta = MagicMock()
+    prompta.send_once = AsyncMock(return_value="chat-direct")
+    prompta.wait_for_cached_response = AsyncMock(return_value=True)
+    prompta.close = AsyncMock()
+
+    with (
+        patch("prompta.core._spawn_firefox", AsyncMock(return_value=process)),
+        patch("prompta.core.Prompta", return_value=prompta),
+    ):
+        result = await _send_direct(
+            tmp_path / "state.json",
+            tmp_path / "chats.sqlite3",
+            "Hello",
+        )
+
+    assert result == "chat-direct"
+    prompta.send_once.assert_awaited_once_with("Hello")
+    prompta.wait_for_cached_response.assert_awaited_once_with("chat-direct")
+    prompta.close.assert_awaited_once()
+    process.terminate.assert_called_once()
 
 
 def test_named_jobs_round_trip(tmp_path: Path) -> None:

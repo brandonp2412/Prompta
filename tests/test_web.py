@@ -3,12 +3,12 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from threading import Event
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from prompta.cache import ChatCache
-from prompta.web import ReadOnlyChatStore, SendJobRegistry, _remote_control
+from prompta.web import PromptaUIServer, ReadOnlyChatStore, SendJobRegistry, _remote_control
 
 
 def _seed_cache(path: Path) -> None:
@@ -73,6 +73,48 @@ def test_remote_control_surfaces_concise_remote_error() -> None:
             conversation_id="chat-id",
             message="Continue",
         )
+
+
+def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with (
+            patch("prompta.web._daemon_is_running", return_value=False),
+            patch("prompta.web._send_direct", AsyncMock(return_value="chat-direct")) as direct,
+        ):
+            result = server._send("once", "Hello", "")
+    finally:
+        server.server_close()
+
+    assert result == "chat-direct"
+    direct.assert_awaited_once_with(
+        tmp_path / "state.json",
+        tmp_path / "chats.sqlite3",
+        "Hello",
+        conversation_id="",
+    )
+
+
+def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with (
+            patch("prompta.web._daemon_is_running", return_value=True),
+            patch(
+                "prompta.web._send_once_via_control",
+                AsyncMock(return_value="chat-control"),
+            ) as control,
+            patch("prompta.web._send_direct", AsyncMock()) as direct,
+        ):
+            result = server._send("once", "Hello", "")
+    finally:
+        server.server_close()
+
+    assert result == "chat-control"
+    control.assert_awaited_once_with(tmp_path / "state.json", "Hello")
+    direct.assert_not_awaited()
 
 
 def test_send_job_registry_returns_before_sender_finishes() -> None:

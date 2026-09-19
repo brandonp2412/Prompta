@@ -1380,8 +1380,10 @@ def _daemon_lock_path(state_path: Path) -> Path:
 
 def _daemon_is_running(state_path: Path) -> bool:
     path = _daemon_lock_path(state_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a+")
+    try:
+        handle = path.open("r")
+    except FileNotFoundError:
+        return False
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -1618,6 +1620,46 @@ async def _spawn_firefox(
     )
     await wait_for_port(port)
     return process
+
+
+async def _send_direct(
+    state_path: Path,
+    cache_path: Path,
+    prompt: str,
+    *,
+    conversation_id: str = "",
+    firefox_profile: Path = DEFAULT_FIREFOX_PROFILE,
+    firefox_path: str = "/usr/bin/firefox",
+    firefox_port: int = DEFAULT_FIREFOX_PORT,
+) -> str:
+    """Send without a resident scheduler, keeping Firefox alive until the reply is cached."""
+    firefox: asyncio.subprocess.Process | None = None
+    prompta: Prompta | None = None
+    try:
+        firefox = await _spawn_firefox(firefox_profile, firefox_path, firefox_port)
+        prompta = Prompta(
+            PromptaConfig(
+                state_path=state_path,
+                cache_path=cache_path,
+            ),
+            f"ws://127.0.0.1:{firefox_port}/session",
+        )
+        if conversation_id:
+            result = await prompta.send_reply(conversation_id, prompt)
+        else:
+            result = await prompta.send_once(prompt)
+        await prompta.wait_for_cached_response(result)
+        return result
+    finally:
+        if prompta is not None:
+            await prompta.close()
+        if firefox is not None and firefox.returncode is None:
+            firefox.terminate()
+            try:
+                await asyncio.wait_for(firefox.wait(), timeout=5)
+            except TimeoutError:
+                firefox.kill()
+                await firefox.wait()
 
 
 def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
