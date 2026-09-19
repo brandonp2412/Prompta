@@ -387,6 +387,26 @@ button {
   gap: 9px;
 }
 
+.view-button {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: transparent;
+  color: #858585;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.view-button:hover,
+.view-button.active {
+  background: var(--surface);
+  color: #d7d7d7;
+}
+
 .sync-label {
   color: #777;
   font-size: 10px;
@@ -451,12 +471,82 @@ button {
   display: none;
 }
 
-.conversation-viewport {
+.conversation-viewport,
+.logs-viewport {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #4a4a4a transparent;
+}
+
+.logs-shell {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 24px 24px 88px;
+}
+
+.logs-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(33, 33, 33, 0.94);
+  backdrop-filter: blur(12px);
+}
+
+.logs-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.logs-header strong {
+  color: #e5e5e5;
+  font-size: 12px;
+}
+
+.logs-header span {
+  color: #777;
+  font-size: 10px;
+}
+
+.logs-live {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.logs-live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.log-output {
+  min-height: 420px;
+  margin: 0;
+  padding: 16px;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #171717;
+  color: #c9c9c9;
+  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .conversation {
@@ -824,6 +914,15 @@ button {
     padding: 28px 15px 80px;
   }
 
+  .logs-shell {
+    padding: 16px 12px 72px;
+  }
+
+  .log-output {
+    padding: 12px;
+    font-size: 10px;
+  }
+
   .message.user .message-inner {
     max-width: 88%;
   }
@@ -864,6 +963,19 @@ button {
   .search-box,
   .search-box:focus-within {
     background: #ededee;
+  }
+
+  .logs-header {
+    background: rgba(255, 255, 255, 0.94);
+  }
+
+  .logs-header strong {
+    color: #242424;
+  }
+
+  .log-output {
+    background: #f6f6f6;
+    color: #2a2a2a;
   }
 
   .chat-title,

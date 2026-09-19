@@ -6,6 +6,8 @@ const state = {
   search: "",
   sidebarFingerprint: "",
   refreshTimer: null,
+  mode: "chats",
+  logFingerprint: "",
 };
 
 const els = {
@@ -22,6 +24,10 @@ const els = {
   openSidebar: document.querySelector("#openSidebar"),
   closeSidebar: document.querySelector("#closeSidebar"),
   sidebarScrim: document.querySelector("#sidebarScrim"),
+  logsButton: document.querySelector("#logsButton"),
+  logsViewport: document.querySelector("#logsViewport"),
+  logOutput: document.querySelector("#logOutput"),
+  logsMeta: document.querySelector("#logsMeta"),
 };
 
 function escapeHtml(value) {
@@ -289,6 +295,67 @@ function renderConversation(chat) {
   els.conversation.hidden = false;
 }
 
+function renderLogs(payload) {
+  const lines = Array.isArray(payload.lines) ? payload.lines : [];
+  const fingerprint = JSON.stringify([payload.updated_at, lines]);
+  const wasNearBottom = els.logsViewport.scrollHeight
+    - els.logsViewport.scrollTop
+    - els.logsViewport.clientHeight < 120;
+  const isInitial = !state.logFingerprint;
+
+  if (fingerprint !== state.logFingerprint) {
+    state.logFingerprint = fingerprint;
+    els.logOutput.textContent = lines.length
+      ? lines.join("\n")
+      : "No Glass Prompta logs have been synced yet.";
+    if (isInitial || wasNearBottom) {
+      requestAnimationFrame(() => {
+        els.logsViewport.scrollTop = els.logsViewport.scrollHeight;
+      });
+    }
+  }
+
+  els.logsMeta.textContent = payload.exists
+    ? lines.length + " lines · synced " + formatRelativeTime(payload.updated_at)
+    : "Waiting for synced journal";
+}
+
+async function loadLogs() {
+  try {
+    const payload = await fetchJson("api/logs?limit=800");
+    renderLogs(payload);
+  } catch (error) {
+    els.logsMeta.textContent = "Logs unavailable";
+    console.error(error);
+  }
+}
+
+function showMode(mode) {
+  state.mode = mode === "logs" ? "logs" : "chats";
+  const logsMode = state.mode === "logs";
+  els.viewport.hidden = logsMode;
+  els.logsViewport.hidden = !logsMode;
+  els.logsButton.textContent = logsMode ? "chats" : "logs";
+  els.logsButton.classList.toggle("active", logsMode);
+
+  if (logsMode) {
+    els.chatHeading.innerHTML =
+      '<div class="heading-title">Glass Prompta logs</div>'
+      + '<div class="heading-meta">journalctl · prompta.service · synced from Glass</div>';
+    els.statusChip.textContent = "live";
+    els.statusChip.className = "status-chip active";
+    els.syncLabel.textContent = "Glass journal";
+    loadLogs();
+    return;
+  }
+
+  if (state.selectedId) {
+    loadSelectedChat();
+  } else {
+    clearConversation();
+  }
+}
+
 function clearConversation() {
   state.selectedId = null;
   state.selectedUpdatedAt = null;
@@ -335,15 +402,19 @@ async function loadChats() {
 
     renderSidebar();
 
-    if (state.selectedId) {
-      const summary = state.chats.find((chat) => chat.id === state.selectedId);
-      const shouldRefresh = !summary
-        || summary.status === "active"
-        || state.selectedUpdatedAt !== summary.updated_at
-        || !state.selectedFingerprint;
-      if (shouldRefresh) await loadSelectedChat();
+    if (state.mode === "chats") {
+      if (state.selectedId) {
+        const summary = state.chats.find((chat) => chat.id === state.selectedId);
+        const shouldRefresh = !summary
+          || summary.status === "active"
+          || state.selectedUpdatedAt !== summary.updated_at
+          || !state.selectedFingerprint;
+        if (shouldRefresh) await loadSelectedChat();
+      } else {
+        clearConversation();
+      }
     } else {
-      clearConversation();
+      await loadLogs();
     }
   } catch (error) {
     els.globalLiveOrb.classList.remove("live");
@@ -353,7 +424,7 @@ async function loadChats() {
 }
 
 async function loadSelectedChat() {
-  if (!state.selectedId) return;
+  if (!state.selectedId || state.mode !== "chats") return;
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(state.selectedId)}`);
     if (chat.id !== state.selectedId) return;
@@ -366,7 +437,9 @@ async function loadSelectedChat() {
 }
 
 async function selectChat(id) {
-  if (!id || id === state.selectedId) {
+  if (!id) return;
+  if (state.mode !== "chats") showMode("chats");
+  if (id === state.selectedId) {
     document.body.classList.remove("sidebar-open");
     return;
   }
@@ -403,6 +476,9 @@ document.addEventListener("keydown", (event) => {
 els.openSidebar.addEventListener("click", () => document.body.classList.add("sidebar-open"));
 els.closeSidebar.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
 els.sidebarScrim.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
+els.logsButton.addEventListener("click", () => {
+  showMode(state.mode === "logs" ? "chats" : "logs");
+});
 
 window.addEventListener("hashchange", () => {
   const id = decodeURIComponent(location.hash.replace(/^#\/?/, ""));

@@ -54,6 +54,7 @@
           <div class="heading-meta">Local read-only conversation history</div>
         </div>
         <div class="topbar-actions">
+          <button type="button" class="view-button" id="logsButton">logs</button>
           <span class="sync-label" id="syncLabel">local cache</span>
           <span class="status-chip neutral" id="statusChip">idle</span>
         </div>
@@ -71,6 +72,19 @@
           </div>
         </div>
         <article class="conversation" id="conversation" hidden></article>
+      </section>
+
+      <section class="logs-viewport" id="logsViewport" hidden>
+        <div class="logs-shell">
+          <div class="logs-header">
+            <div>
+              <strong>Glass · prompta.service</strong>
+              <span id="logsMeta">Waiting for synced journal</span>
+            </div>
+            <span class="logs-live"><i></i> live</span>
+          </div>
+          <pre class="log-output" id="logOutput">Loading logs…</pre>
+        </div>
       </section>
 
       <footer class="readonly-footer">
