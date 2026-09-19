@@ -9,6 +9,7 @@ const state = {
   mode: "chats",
   logFingerprint: "",
   sending: false,
+  composingNew: false,
 };
 
 const els = {
@@ -26,6 +27,7 @@ const els = {
   closeSidebar: document.querySelector("#closeSidebar"),
   sidebarScrim: document.querySelector("#sidebarScrim"),
   logsButton: document.querySelector("#logsButton"),
+  newChatButton: document.querySelector("#newChatButton"),
   logsViewport: document.querySelector("#logsViewport"),
   logOutput: document.querySelector("#logOutput"),
   logsMeta: document.querySelector("#logsMeta"),
@@ -300,6 +302,7 @@ function renderConversation(chat) {
   els.conversation.hidden = false;
   els.messageInput.disabled = state.sending;
   els.sendButton.disabled = state.sending;
+  state.composingNew = false;
   if (!state.sending) {
     els.composerStatus.textContent = chat.status === "active"
       ? "Uses the existing live ChatGPT tab."
@@ -366,12 +369,15 @@ function showMode(mode) {
 
   if (state.selectedId) {
     loadSelectedChat();
+  } else if (state.composingNew) {
+    renderNewChat();
   } else {
     clearConversation();
   }
 }
 
 function clearConversation() {
+  state.composingNew = false;
   state.selectedId = null;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
@@ -386,7 +392,37 @@ function clearConversation() {
   els.syncLabel.textContent = "local cache";
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
+  els.messageInput.placeholder = "Message Prompta…";
   els.composerStatus.textContent = "Select a chat to send a message.";
+}
+
+function renderNewChat() {
+  state.composingNew = true;
+  state.selectedId = null;
+  state.selectedUpdatedAt = null;
+  state.selectedFingerprint = "";
+  state.mode = "chats";
+  els.viewport.hidden = false;
+  els.logsViewport.hidden = true;
+  els.logsButton.textContent = "logs";
+  els.logsButton.classList.remove("active");
+  els.emptyState.hidden = false;
+  els.conversation.hidden = true;
+  els.conversation.innerHTML = "";
+  els.chatHeading.innerHTML = `
+    <div class="heading-title">New chat</div>
+    <div class="heading-meta">Starts a fresh ChatGPT conversation</div>`;
+  els.statusChip.textContent = "new";
+  els.statusChip.className = "status-chip neutral";
+  els.syncLabel.textContent = "fresh conversation";
+  els.messageInput.disabled = false;
+  els.sendButton.disabled = false;
+  els.messageInput.placeholder = "Start a new chat…";
+  els.composerStatus.textContent = "Your first message will open a fresh ChatGPT chat.";
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  renderSidebar(true);
+  document.body.classList.remove("sidebar-open");
+  requestAnimationFrame(() => els.messageInput.focus());
 }
 
 async function fetchJson(url) {
@@ -423,11 +459,11 @@ async function loadChats() {
     if (!state.selectedId && hashId && state.chats.some((chat) => chat.id === hashId)) {
       state.selectedId = hashId;
     }
-    if (!state.selectedId && state.chats.length) {
+    if (!state.selectedId && state.chats.length && !state.composingNew) {
       state.selectedId = state.chats[0].id;
     }
 
-    if (state.selectedId && !state.chats.some((chat) => chat.id === state.selectedId) && !state.search) {
+    if (state.selectedId && !state.composingNew && !state.chats.some((chat) => chat.id === state.selectedId) && !state.search) {
       state.selectedId = state.chats[0]?.id || null;
       state.selectedFingerprint = "";
     }
@@ -442,7 +478,7 @@ async function loadChats() {
           || state.selectedUpdatedAt !== summary.updated_at
           || !state.selectedFingerprint;
         if (shouldRefresh) await loadSelectedChat();
-      } else {
+      } else if (!state.composingNew) {
         clearConversation();
       }
     } else {
@@ -475,6 +511,8 @@ async function selectChat(id) {
     document.body.classList.remove("sidebar-open");
     return;
   }
+  state.composingNew = false;
+  els.messageInput.placeholder = "Message Prompta…";
   state.selectedId = id;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
@@ -513,6 +551,7 @@ els.sidebarScrim.addEventListener("click", () => document.body.classList.remove(
 els.logsButton.addEventListener("click", () => {
   showMode(state.mode === "logs" ? "chats" : "logs");
 });
+els.newChatButton.addEventListener("click", renderNewChat);
 
 function resizeComposer() {
   els.messageInput.style.height = "auto";
@@ -521,17 +560,28 @@ function resizeComposer() {
 
 async function sendSelectedMessage() {
   const message = els.messageInput.value.trim();
-  if (!message || !state.selectedId || state.mode !== "chats" || state.sending) return;
+  const creatingNew = state.composingNew;
+  if (!message || (!creatingNew && !state.selectedId) || state.mode !== "chats" || state.sending) return;
 
   state.sending = true;
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
-  els.composerStatus.textContent = "Sending through the existing Prompta browser session…";
+  els.composerStatus.textContent = creatingNew
+    ? "Starting a fresh ChatGPT conversation…"
+    : "Sending through the existing Prompta browser session…";
   try {
-    await postJson(
-      `api/chats/${encodeURIComponent(state.selectedId)}/messages`,
-      { message },
-    );
+    const result = creatingNew
+      ? await postJson("api/chats", { message })
+      : await postJson(
+        `api/chats/${encodeURIComponent(state.selectedId)}/messages`,
+        { message },
+      );
+    if (creatingNew) {
+      state.composingNew = false;
+      state.selectedId = result.conversation_id;
+      history.replaceState(null, "", `#/${encodeURIComponent(result.conversation_id)}`);
+      els.messageInput.placeholder = "Message Prompta…";
+    }
     els.messageInput.value = "";
     resizeComposer();
     els.composerStatus.textContent = "Sent. Waiting for the cached response…";
@@ -542,7 +592,7 @@ async function sendSelectedMessage() {
     console.error(error);
   } finally {
     state.sending = false;
-    if (state.selectedId && state.mode === "chats") {
+    if ((state.selectedId || state.composingNew) && state.mode === "chats") {
       els.messageInput.disabled = false;
       els.sendButton.disabled = false;
       els.messageInput.focus();

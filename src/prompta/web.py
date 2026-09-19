@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
 import mimetypes
+import shlex
 import sqlite3
 import subprocess
 from http import HTTPStatus
@@ -16,7 +18,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .cache import DEFAULT_CACHE_PATH
-from .core import DEFAULT_STATE_PATH, _send_reply_via_control
+from .core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control
 
 logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
@@ -187,6 +189,70 @@ class ReadOnlyChatStore:
         }
 
 
+def _remote_control(
+    control_host: str,
+    *,
+    operation: str,
+    message: str,
+    conversation_id: str = "",
+) -> str:
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "operation": operation,
+                "message": message,
+                "conversation_id": conversation_id,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).decode("ascii")
+    code = """
+import asyncio
+import base64
+import json
+import sys
+from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control
+
+payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
+if payload["operation"] == "once":
+    result = asyncio.run(_send_once_via_control(DEFAULT_STATE_PATH, payload["message"]))
+else:
+    result = asyncio.run(
+        _send_reply_via_control(
+            DEFAULT_STATE_PATH,
+            payload["conversation_id"],
+            payload["message"],
+        )
+    )
+print(result)
+""".strip()
+    remote_command = shlex.join(
+        ["/home/brandon/prompta/.venv/bin/python", "-c", code, payload]
+    )
+    completed = subprocess.run(
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=8",
+            control_host,
+            remote_command,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "remote control failed").strip()
+        raise RuntimeError(detail[-2000:])
+    result = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+    if not result:
+        raise RuntimeError("remote Prompta control returned an empty conversation id")
+    return result
+
+
 class PromptaUIServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -220,6 +286,29 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     @property
     def control_host(self) -> str:
         return cast(PromptaUIServer, self.server).control_host
+
+    def _message_from_json_body(self) -> str | None:
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.casefold().startswith("application/json"):
+            self._json({"error": "Expected application/json"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            return None
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            content_length = 0
+        if content_length <= 0 or content_length > 64 * 1024:
+            self._json({"error": "Invalid message size"}, HTTPStatus.BAD_REQUEST)
+            return None
+        try:
+            payload = json.loads(self.rfile.read(content_length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._json({"error": "Invalid JSON body"}, HTTPStatus.BAD_REQUEST)
+            return None
+        message = str(payload.get("message") or "") if isinstance(payload, dict) else ""
+        if not message.strip():
+            self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
+            return None
+        return message
 
     def _headers(self, status: HTTPStatus, content_type: str) -> None:
         self.send_response(status)
@@ -302,6 +391,30 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/chats":
+            message = self._message_from_json_body()
+            if message is None:
+                return
+            try:
+                if self.control_host:
+                    result = _remote_control(
+                        self.control_host,
+                        operation="once",
+                        message=message,
+                    )
+                else:
+                    result = asyncio.run(_send_once_via_control(self.state_path, message))
+            except Exception as exc:
+                logger.exception("Prompta UI new chat failed")
+                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+                return
+            self._json(
+                {"ok": True, "conversation_id": result},
+                HTTPStatus.ACCEPTED,
+            )
+            return
+
         prefix = "/api/chats/"
         suffix = "/messages"
         if not (path.startswith(prefix) and path.endswith(suffix)):
@@ -313,51 +426,18 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
             return
 
-        content_type = self.headers.get("Content-Type", "")
-        if not content_type.casefold().startswith("application/json"):
-            self._json({"error": "Expected application/json"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            content_length = 0
-        if content_length <= 0 or content_length > 64 * 1024:
-            self._json({"error": "Invalid message size"}, HTTPStatus.BAD_REQUEST)
-            return
-        try:
-            payload = json.loads(self.rfile.read(content_length))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            self._json({"error": "Invalid JSON body"}, HTTPStatus.BAD_REQUEST)
-            return
-        message = str(payload.get("message") or "") if isinstance(payload, dict) else ""
-        if not message.strip():
-            self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
+        message = self._message_from_json_body()
+        if message is None:
             return
 
         try:
             if self.control_host:
-                completed = subprocess.run(
-                    [
-                        "ssh",
-                        "-o",
-                        "BatchMode=yes",
-                        "-o",
-                        "ConnectTimeout=8",
-                        self.control_host,
-                        "/home/brandon/prompta/.venv/bin/prompta",
-                        "reply",
-                        conversation_id,
-                        message,
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
+                result = _remote_control(
+                    self.control_host,
+                    operation="reply",
+                    conversation_id=conversation_id,
+                    message=message,
                 )
-                if completed.returncode != 0:
-                    detail = (completed.stderr or completed.stdout or "remote reply failed").strip()
-                    raise RuntimeError(detail[-2000:])
-                result = conversation_id
             else:
                 result = asyncio.run(
                     _send_reply_via_control(self.state_path, conversation_id, message)
