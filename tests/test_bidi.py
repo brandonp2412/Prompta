@@ -165,4 +165,5 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "for(const [agentIndex,agent] of candidates.entries())" in expression
     assert "content.length>=messages[existing].content.length" in expression
     assert "content.startsWith(message.content)" in expression
+    assert ".join('\\n\\n')" in expression
     assert "group-data-stream-active" in expression
