@@ -163,8 +163,10 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     expression = driver.eval.await_args.args[0]
     assert ".agent-turn" in expression
     assert "for(const [agentIndex,agent] of candidates.entries())" in expression
-    assert "content.length>=messages[existing].content.length" in expression
+    assert "content.length>=entries[existing].content.length" in expression
     assert "content.startsWith(message.content)" in expression
-    assert ".join('\\n\\n')" in expression
+    assert "hash(turnSeed)" in expression
+    assert "compareDocumentPosition" in expression
+    assert ".join('\n\n')" in expression
     assert '[data-streaming="active"]' in expression
     assert "group-data-stream-active" not in expression

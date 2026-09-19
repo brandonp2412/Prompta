@@ -663,7 +663,9 @@ function pendingReply(conversationId, sendId) {
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
   if (!item) return;
-  Object.assign(item, updates, { updatedAt: Date.now() / 1000 });
+  const previousError = item.error || "";
+  Object.assign(item, updates);
+  if ((item.error || "") !== previousError) item.updatedAt = Date.now() / 1000;
 }
 
 async function watchSend(sendId, creatingNew, conversationId) {
@@ -723,7 +725,6 @@ async function watchSend(sendId, creatingNew, conversationId) {
       status,
       error: job.error || "",
     });
-    state.selectedFingerprint = "";
     if (state.selectedId === conversationId) await loadSelectedChat();
     if (status === "succeeded") {
       els.composerStatus.textContent = "Sent. Waiting for the cached response…";

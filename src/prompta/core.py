@@ -35,7 +35,7 @@ DEFAULT_FIREFOX_PORT = 9229
 _CONTROL_SOCKET_NAME = "control.sock"
 _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 10.0
-_CONTROL_SEND_TIMEOUT_SECONDS = 90.0
+_CONTROL_SEND_TIMEOUT_SECONDS = 10 * 60.0
 DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
@@ -1096,9 +1096,6 @@ class Prompta:
 
     async def run(self, *, once: bool = False) -> None:
         while True:
-            if self.driver is not None and not self.driver.is_connected:
-                self._interrupt_active_conversations()
-                raise RuntimeError("Prompta Firefox BiDi disconnected; restarting daemon")
             await self._poll_active_conversations()
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
@@ -1128,12 +1125,27 @@ class Prompta:
     async def close(self) -> None:
         if self.driver is not None:
             for context, active in list(self._active_conversations.items()):
+                complete = active.settled_at > 0
                 try:
                     snapshot = await self.driver.conversation_snapshot(context)
-                    self.cache.write_snapshot(active.conversation_id, snapshot)
+                    messages = snapshot.get("messages")
+                    if not isinstance(messages, list):
+                        messages = []
+                    has_assistant = any(
+                        isinstance(message, dict)
+                        and str(message.get("role") or "") == "assistant"
+                        and bool(str(message.get("content") or "").strip())
+                        for message in messages
+                    )
+                    complete = complete or (has_assistant and not bool(snapshot.get("streaming")))
+                    self.cache.write_snapshot(
+                        active.conversation_id,
+                        snapshot,
+                        complete=complete,
+                    )
                 except Exception:
                     logger.debug("Could not flush Prompta cache during shutdown", exc_info=True)
-                finally:
+                if not complete:
                     self.cache.mark_interrupted(active.conversation_id)
             self._active_conversations.clear()
             await self.driver.close()

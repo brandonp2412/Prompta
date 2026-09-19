@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from prompta.cache import ActiveConversation
+from prompta.cache import ActiveConversation, ChatCache
 from prompta.core import (
     Prompta,
     PromptaConfig,
@@ -932,6 +932,69 @@ async def test_wait_for_cached_response_polls_until_conversation_completes(tmp_p
 
     assert await prompta.wait_for_cached_response("conversation-123", timeout_seconds=1) is True
     prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_run_does_not_abort_just_because_driver_disconnected(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.is_connected = False
+    prompta.driver = cast(Any, driver)
+    prompta._poll_active_conversations = AsyncMock()  # type: ignore[method-assign]
+    prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta.read_jobs = MagicMock(return_value={})  # type: ignore[method-assign]
+
+    await prompta.run(once=True)
+
+    prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_close_preserves_completed_retained_conversation(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        "conversation-123",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    active = ActiveConversation(
+        conversation_id="conversation-123",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+        settled_at=1.0,
+    )
+    prompta._active_conversations["context-1"] = active
+
+    driver = MagicMock()
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "title": "Completed",
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": "Done"},
+            ],
+            "streaming": False,
+        }
+    )
+    driver.close = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta.close()
+
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation = cache.recent_conversations()[0]
+    cache.close()
+    assert conversation["status"] == "complete"
 
 
 @pytest.mark.asyncio
