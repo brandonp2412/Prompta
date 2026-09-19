@@ -145,4 +145,7 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert snapshot["streaming"] is True
     expression = driver.eval.await_args.args[0]
     assert ".agent-turn" in expression
+    assert "for(const [agentIndex,agent] of candidates.entries())" in expression
+    assert "content.length>=messages[existing].content.length" in expression
+    assert "content.startsWith(message.content)" in expression
     assert "group-data-stream-active" in expression
