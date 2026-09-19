@@ -283,9 +283,15 @@ class FirefoxBiDiDriver:
                 "awaitPromise": await_promise,
             },
         )
-        result = response["result"]["result"]
-        if result.get("type") == "exception":
-            raise RuntimeError(str(result))
+        payload = response.get("result")
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"script.evaluate returned malformed response: {response}")
+        if payload.get("type") == "exception":
+            details = payload.get("exceptionDetails")
+            raise RuntimeError(f"script.evaluate failed: {details}")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError(f"script.evaluate returned no result: {response}")
         return result.get("value")
 
     async def navigate(self, url: str) -> None:
