@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from websockets.exceptions import ConnectionClosed
 
@@ -648,12 +649,14 @@ class Prompta:
         if not conversation_id.strip():
             raise ValueError("conversation id is empty")
 
+        metadata = self.cache.metadata(conversation_id)
+        target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
         driver = await self._ensure_driver()
-        context = await driver.new_tab(f"https://chatgpt.com/c/{conversation_id}")
+        context = await driver.new_tab(target_url)
         try:
             await driver.wait_for_composer()
             path = str(await driver.eval("location.pathname") or "")
-            expected_path = f"/c/{conversation_id}"
+            expected_path = urlsplit(target_url).path.rstrip("/")
             if path.rstrip("/") != expected_path:
                 raise RuntimeError(
                     f"ChatGPT opened unexpected conversation path {path!r}; expected {expected_path!r}"
@@ -710,18 +713,21 @@ class Prompta:
         )
         created_context = existing is None
         if existing is None:
-            context = await driver.new_tab(f"https://chatgpt.com/c/{conversation_id}")
+            metadata = self.cache.metadata(conversation_id)
+            target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
+            context = await driver.new_tab(target_url)
+            expected_path = urlsplit(target_url).path.rstrip("/")
             active: ActiveConversation | None = None
         else:
             context, active = existing
             driver.context = context
+            expected_path = f"/c/{conversation_id}"
 
         capture: dict[str, Any] | None = None
         probe_armed = False
         try:
             await driver.wait_for_composer()
             path = str(await driver.eval("location.pathname") or "")
-            expected_path = f"/c/{conversation_id}"
             if path.rstrip("/") != expected_path:
                 raise RuntimeError(
                     f"ChatGPT opened unexpected conversation path {path!r}; expected {expected_path!r}"
