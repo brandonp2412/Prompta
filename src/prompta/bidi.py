@@ -526,7 +526,9 @@ class FirefoxBiDiDriver:
                 id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
                 role:e.getAttribute('data-message-author-role')||'',
                 content:(e.innerText||e.textContent||'').trim()
-              })).filter(message=>message.role&&message.content);
+              })).filter(message=>message.role&&message.content&&!(
+                message.role==='assistant'&&message.id.startsWith('request-placeholder-')
+              ));
               const candidates=[...new Set([
                 ...document.querySelectorAll('.agent-turn,[data-role="assistant"],[data-message-author="assistant"]')
               ])].filter(visible);

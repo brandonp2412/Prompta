@@ -131,7 +131,7 @@ def test_snapshot_replaces_seed_and_removes_transient_messages(tmp_path: Path) -
             "messages": [
                 {"id": "u1", "role": "user", "content": "Do work"},
                 {
-                    "id": "__prompta_live_assistant_turn1__",
+                    "id": "request-placeholder-request-conversation-1-0",
                     "role": "assistant",
                     "content": "Thinking",
                 },
