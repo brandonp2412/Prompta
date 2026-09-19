@@ -948,11 +948,16 @@ class Prompta:
         self._active_conversations.clear()
 
     async def _poll_active_conversations(self) -> None:
-        if self.driver is None or not self._active_conversations:
+        if not self._active_conversations:
+            return
+        try:
+            driver = await self._ensure_driver()
+        except Exception:
+            logger.exception("Prompta cache capture could not reconnect Firefox BiDi")
             return
         for context, active in list(self._active_conversations.items()):
             try:
-                snapshot = await self.driver.conversation_snapshot(context)
+                snapshot = await driver.conversation_snapshot(context)
             except Exception:
                 logger.exception(
                     "Prompta cache capture failed conversation=%s", active.conversation_id
