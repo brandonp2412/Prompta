@@ -424,7 +424,10 @@ class ChatCache:
                     SELECT message_key, content
                     FROM messages
                     WHERE conversation_id = ?
-                      AND message_key LIKE '__prompta_live_assistant_%'
+                      AND (
+                        message_key LIKE '__prompta_live_assistant_%'
+                        OR message_key LIKE 'request-placeholder-%'
+                      )
                     """,
                     (conversation_id,),
                 ).fetchall()

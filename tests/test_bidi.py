@@ -166,6 +166,7 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "content.length>=entries[existing].content.length" in expression
     assert "content.startsWith(message.content)" in expression
     assert "hash(turnSeed)" in expression
+    assert "request-placeholder-" in expression
     assert "compareDocumentPosition" in expression
     assert ".join('\\n\\n')" in expression
     assert '[data-streaming="active"]' in expression
