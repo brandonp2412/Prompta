@@ -518,20 +518,22 @@ class FirefoxBiDiDriver:
         raw = await self.eval(
             """JSON.stringify((()=>{
               const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+              const normalise=value=>(value||'').replace(/\s+/g,' ').trim();
+              const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
-              const messages=roleNodes.map((e,index)=>({
+              const entries=roleNodes.map(e=>({
+                node:e,
                 id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
                 role:e.getAttribute('data-message-author-role')||'',
-                content:(e.innerText||e.textContent||'').trim(),
-                ordinal:index
-              }));
+                content:(e.innerText||e.textContent||'').trim()
+              })).filter(message=>message.role&&message.content);
               const candidates=[...new Set([
                 ...document.querySelectorAll('.agent-turn,[data-role="assistant"],[data-message-author="assistant"]')
               ])].filter(visible);
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
                 const content=(markdown.length
-                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\\n\\n')
+                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\n\n')
                   : (agent.innerText||agent.textContent||'').trim()
                 ).trim();
                 if(!content)continue;
@@ -543,28 +545,45 @@ class FirefoxBiDiDriver:
                   ||agent.closest('[data-message-id]')?.getAttribute('data-message-id')
                   ||agent.closest('[data-message-uuid]')?.getAttribute('data-message-uuid')
                   ||'';
-                let existing=id?messages.findIndex(message=>message.role==='assistant'&&message.id===id):-1;
+                let existing=id?entries.findIndex(message=>message.role==='assistant'&&message.id===id):-1;
                 if(existing<0&&nested){
-                  const roleIndex=roleNodes.indexOf(nested);
-                  if(roleIndex>=0&&messages[roleIndex]?.role==='assistant')existing=roleIndex;
+                  existing=entries.findIndex(message=>message.node===nested);
                 }
                 if(existing<0){
-                  existing=messages.findIndex(message=>message.role==='assistant'&&message.content&&(
+                  existing=entries.findIndex(message=>message.role==='assistant'&&message.content&&(
                     content.startsWith(message.content)||message.content.startsWith(content)
                   ));
                 }
                 if(existing>=0){
-                  if(content.length>=messages[existing].content.length)messages[existing].content=content;
-                  if(id&&!messages[existing].id)messages[existing].id=id;
-                }else{
-                  messages.push({
-                    id:id||`__prompta_live_assistant_${agentIndex}__`,
-                    role:'assistant',
-                    content,
-                    ordinal:messages.length
-                  });
+                  if(content.length>=entries[existing].content.length)entries[existing].content=content;
+                  if(id&&!entries[existing].id)entries[existing].id=id;
+                  continue;
                 }
+                const precedingUser=roleNodes
+                  .filter(node=>node.getAttribute('data-message-author-role')==='user'
+                    &&Boolean(node.compareDocumentPosition(agent)&Node.DOCUMENT_POSITION_FOLLOWING))
+                  .at(-1);
+                const turnSeed=precedingUser?.getAttribute('data-message-id')
+                  ||precedingUser?.getAttribute('data-message-uuid')
+                  ||normalise(precedingUser?.innerText||precedingUser?.textContent||'')
+                  ||('agent-'+agentIndex);
+                entries.push({
+                  node:agent,
+                  id:id||('__prompta_live_assistant_'+hash(turnSeed)+'__'),
+                  role:'assistant',
+                  content
+                });
               }
+              entries.sort((left,right)=>{
+                if(left.node===right.node)return 0;
+                return left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
+              });
+              const messages=entries.map((message,index)=>({
+                id:message.id,
+                role:message.role,
+                content:message.content,
+                ordinal:index
+              }));
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
               const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"],[aria-busy="true"]')].some(visible);
               return {

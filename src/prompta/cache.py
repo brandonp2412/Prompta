@@ -244,11 +244,50 @@ class ChatCache:
         completed_at = now if complete else None
         snapshot_path = str(snapshot.get("path") or "")
         snapshot_url = (
-            f"https://chatgpt.com{snapshot_path}"
-            if snapshot_path.startswith("/c/")
-            else ""
+            f"https://chatgpt.com{snapshot_path}" if snapshot_path.startswith("/c/") else ""
         )
+        existing_rows = self.connection.execute(
+            """
+            SELECT message_key, ordinal, role, content, status, created_at, updated_at
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY ordinal, created_at
+            """,
+            (conversation_id,),
+        ).fetchall()
+        existing_by_key = {str(row["message_key"]): dict(row) for row in existing_rows}
+        existing_history = [
+            dict(row) for row in existing_rows if str(row["message_key"]) != _SEEDED_PROMPT_KEY
+        ]
+
+        incoming: list[tuple[int, str, str, str]] = []
+        for snapshot_index, message in enumerate(messages):
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "")
+            content = str(message.get("content") or "")
+            raw_key = str(message.get("id") or "")
+            message_key = raw_key or f"{role}:{snapshot_index}"
+            incoming.append((snapshot_index, role, content, message_key))
+
+        first_incoming = incoming[0] if incoming else None
+        first_existing = existing_history[0] if existing_history else None
+        snapshot_is_full = first_existing is None
+        if first_incoming is not None and first_existing is not None:
+            _, incoming_role, incoming_content, incoming_key = first_incoming
+            snapshot_is_full = incoming_key == str(first_existing["message_key"]) or (
+                incoming_role == str(first_existing["role"])
+                and incoming_content.strip() == str(first_existing["content"]).strip()
+            )
+
+        max_existing_ordinal = max(
+            (int(row["ordinal"]) for row in existing_rows),
+            default=-1,
+        )
+        next_partial_ordinal = max_existing_ordinal + 1
         snapshot_keys: list[str] = []
+        current_by_key = dict(existing_by_key)
+
         with self.connection:
             self.connection.execute(
                 """
@@ -269,19 +308,54 @@ class ChatCache:
                     conversation_id,
                 ),
             )
-            for ordinal, message in enumerate(messages):
-                if not isinstance(message, dict):
-                    continue
-                role = str(message.get("role") or "")
-                content = str(message.get("content") or "")
-                raw_key = str(message.get("id") or "")
-                message_key = raw_key or f"{role}:{ordinal}"
+
+            preceding_user_key = ""
+            for snapshot_index, role, content, raw_message_key in incoming:
+                message_key = raw_message_key
+                if (
+                    role == "assistant"
+                    and message_key.startswith("__prompta_live_assistant_")
+                    and message_key not in current_by_key
+                    and preceding_user_key in current_by_key
+                ):
+                    preceding_user = current_by_key[preceding_user_key]
+                    target_ordinal = int(preceding_user["ordinal"]) + 1
+                    for candidate_key, candidate in current_by_key.items():
+                        if candidate_key.startswith("__prompta_live_assistant_"):
+                            continue
+                        if str(candidate["role"]) != "assistant":
+                            continue
+                        if int(candidate["ordinal"]) != target_ordinal:
+                            continue
+                        candidate_content = str(candidate["content"] or "").strip()
+                        incoming_content = content.strip()
+                        if (
+                            candidate_content
+                            and incoming_content
+                            and (
+                                candidate_content == incoming_content
+                                or candidate_content.startswith(incoming_content)
+                                or incoming_content.startswith(candidate_content)
+                            )
+                        ):
+                            message_key = candidate_key
+                            break
+
+                existing = current_by_key.get(message_key)
+                if snapshot_is_full:
+                    ordinal = snapshot_index
+                elif existing is not None:
+                    ordinal = int(existing["ordinal"])
+                else:
+                    ordinal = next_partial_ordinal
+                    next_partial_ordinal += 1
+
                 snapshot_keys.append(message_key)
                 message_status = (
                     "streaming"
                     if not complete
                     and bool(snapshot.get("streaming"))
-                    and ordinal == len(messages) - 1
+                    and snapshot_index == len(messages) - 1
                     and role == "assistant"
                     else "complete"
                 )
@@ -310,18 +384,70 @@ class ChatCache:
                         now,
                     ),
                 )
+                created_at = float(existing["created_at"]) if existing is not None else now
+                current_by_key[message_key] = {
+                    "message_key": message_key,
+                    "ordinal": ordinal,
+                    "role": role,
+                    "content": content,
+                    "status": message_status,
+                    "created_at": created_at,
+                    "updated_at": now,
+                }
+                if role == "user":
+                    preceding_user_key = message_key
 
             if snapshot_keys:
                 unique_keys = list(dict.fromkeys(snapshot_keys))
-                placeholders = ",".join("?" for _ in unique_keys)
-                self.connection.execute(
-                    f"""
-                    DELETE FROM messages
+                snapshot_user_contents = {
+                    content.strip()
+                    for _, role, content, _ in incoming
+                    if role == "user" and content.strip()
+                }
+                if snapshot_user_contents:
+                    self.connection.execute(
+                        """
+                        DELETE FROM messages
+                        WHERE conversation_id = ?
+                          AND message_key = ?
+                        """,
+                        (conversation_id, _SEEDED_PROMPT_KEY),
+                    )
+
+                current_assistants = [
+                    content.strip()
+                    for _, role, content, _ in incoming
+                    if role == "assistant" and content.strip()
+                ]
+                transient_rows = self.connection.execute(
+                    """
+                    SELECT message_key, content
+                    FROM messages
                     WHERE conversation_id = ?
-                      AND message_key NOT IN ({placeholders})
+                      AND message_key LIKE '__prompta_live_assistant_%'
                     """,
-                    (conversation_id, *unique_keys),
-                )
+                    (conversation_id,),
+                ).fetchall()
+                for row in transient_rows:
+                    transient_key = str(row["message_key"])
+                    if transient_key in unique_keys:
+                        continue
+                    transient_content = str(row["content"] or "").strip()
+                    superseded = any(
+                        candidate == transient_content
+                        or candidate.startswith(transient_content)
+                        or transient_content.startswith(candidate)
+                        for candidate in current_assistants
+                    )
+                    if snapshot_is_full and (complete or superseded):
+                        self.connection.execute(
+                            """
+                            DELETE FROM messages
+                            WHERE conversation_id = ?
+                              AND message_key = ?
+                            """,
+                            (conversation_id, transient_key),
+                        )
 
     def recent_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self.connection.execute(

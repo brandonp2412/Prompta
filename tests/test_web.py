@@ -5,6 +5,8 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from prompta.cache import ChatCache
 from prompta.web import ReadOnlyChatStore, SendJobRegistry, _remote_control
 
@@ -36,7 +38,11 @@ def _seed_cache(path: Path) -> None:
 
 
 def test_remote_control_uses_user_ssh_config() -> None:
-    completed = MagicMock(returncode=0, stdout="chat-id\n", stderr="")
+    completed = MagicMock(
+        returncode=0,
+        stdout='{"ok": true, "conversation_id": "chat-id"}\n',
+        stderr="",
+    )
     with patch("prompta.web.subprocess.run", return_value=completed) as run:
         result = _remote_control(
             "glass",
@@ -48,6 +54,25 @@ def test_remote_control_uses_user_ssh_config() -> None:
     assert result == "chat-id"
     argv = run.call_args.args[0]
     assert argv[:3] == ["ssh", "-F", str(Path.home() / ".ssh" / "config")]
+    assert run.call_args.kwargs["timeout"] > 10 * 60
+
+
+def test_remote_control_surfaces_concise_remote_error() -> None:
+    completed = MagicMock(
+        returncode=0,
+        stdout='{"ok": false, "error": "ChatGPT send timed out"}\n',
+        stderr="",
+    )
+    with (
+        patch("prompta.web.subprocess.run", return_value=completed),
+        pytest.raises(RuntimeError, match="ChatGPT send timed out"),
+    ):
+        _remote_control(
+            "glass",
+            operation="reply",
+            conversation_id="chat-id",
+            message="Continue",
+        )
 
 
 def test_send_job_registry_returns_before_sender_finishes() -> None:

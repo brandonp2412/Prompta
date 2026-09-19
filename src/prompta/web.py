@@ -193,6 +193,9 @@ class ReadOnlyChatStore:
         }
 
 
+_REMOTE_CONTROL_TIMEOUT_SECONDS = 11 * 60
+
+
 def _remote_control(
     control_host: str,
     *,
@@ -218,17 +221,21 @@ import sys
 from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control
 
 payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
-if payload["operation"] == "once":
-    result = asyncio.run(_send_once_via_control(DEFAULT_STATE_PATH, payload["message"]))
-else:
-    result = asyncio.run(
-        _send_reply_via_control(
-            DEFAULT_STATE_PATH,
-            payload["conversation_id"],
-            payload["message"],
+try:
+    if payload["operation"] == "once":
+        result = asyncio.run(_send_once_via_control(DEFAULT_STATE_PATH, payload["message"]))
+    else:
+        result = asyncio.run(
+            _send_reply_via_control(
+                DEFAULT_STATE_PATH,
+                payload["conversation_id"],
+                payload["message"],
+            )
         )
-    )
-print(result)
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+else:
+    print(json.dumps({"ok": True, "conversation_id": result}, ensure_ascii=False))
 """.strip()
     remote_command = shlex.join(
         ["/home/brandon/prompta/.venv/bin/python", "-c", code, payload]
@@ -248,7 +255,7 @@ print(result)
         check=False,
         capture_output=True,
         text=True,
-        timeout=110,
+        timeout=_REMOTE_CONTROL_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "remote control failed").strip()
@@ -256,7 +263,18 @@ print(result)
     result = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
     if not result:
         raise RuntimeError("remote Prompta control returned an empty conversation id")
-    return result
+    try:
+        response = json.loads(result)
+    except json.JSONDecodeError:
+        return result
+    if not isinstance(response, dict):
+        raise RuntimeError("remote Prompta control returned an invalid response")
+    if response.get("ok") is not True:
+        raise RuntimeError(str(response.get("error") or "remote Prompta control failed"))
+    conversation_id = str(response.get("conversation_id") or "")
+    if not conversation_id:
+        raise RuntimeError("remote Prompta control returned an empty conversation id")
+    return conversation_id
 
 
 class SendJobRegistry:
