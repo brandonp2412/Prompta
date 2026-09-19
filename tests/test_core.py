@@ -854,6 +854,68 @@ async def test_once_uses_running_scheduler_without_spawning_firefox(
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversations_reconnects_before_cache_capture(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        "conversation-123",
+        context_id="context-1",
+        job_name="",
+        prompt="Do exactly one thing",
+    )
+    prompta._active_conversations["context-1"] = ActiveConversation(
+        conversation_id="conversation-123",
+        context_id="context-1",
+        job_name="",
+        prompt="Do exactly one thing",
+    )
+
+    driver = MagicMock()
+    driver.is_connected = False
+
+    async def connect() -> None:
+        driver.is_connected = True
+
+    driver.connect = AsyncMock(side_effect=connect)
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "title": "Recovered chat",
+            "messages": [
+                {
+                    "id": "user-1",
+                    "role": "user",
+                    "content": "Do exactly one thing",
+                    "status": "complete",
+                },
+                {
+                    "id": "assistant-1",
+                    "role": "assistant",
+                    "content": "Done",
+                    "status": "complete",
+                },
+            ],
+            "streaming": False,
+        }
+    )
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    driver.connect.assert_awaited_once()
+    driver.conversation_snapshot.assert_awaited_once_with("context-1")
+    assert [message["content"] for message in prompta.cache.messages("conversation-123")] == [
+        "Do exactly one thing",
+        "Done",
+    ]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_wait_for_cached_response_polls_until_conversation_completes(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     prompta._active_conversations["context-1"] = ActiveConversation(
