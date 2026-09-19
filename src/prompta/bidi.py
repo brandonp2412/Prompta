@@ -33,12 +33,28 @@ class FirefoxBiDiDriver:
     async def connect(self) -> None:
         if self.is_connected:
             return
-        self.ws = await websockets.connect(
-            self.url,
-            max_size=16 * 1024 * 1024,
-            ping_interval=None,
-        )
-        response = await self._call("session.new", {"capabilities": {}})
+        session_deadline = asyncio.get_running_loop().time() + 5 * 60.0
+        while True:
+            self.ws = await websockets.connect(
+                self.url,
+                max_size=16 * 1024 * 1024,
+                ping_interval=None,
+            )
+            try:
+                response = await self._call("session.new", {"capabilities": {}})
+                break
+            except RuntimeError as exc:
+                if "maximum number of active sessions" not in str(exc).casefold():
+                    raise
+                try:
+                    await self.ws.close()
+                finally:
+                    self.ws = None
+                if asyncio.get_running_loop().time() >= session_deadline:
+                    raise RuntimeError(
+                        "Firefox BiDi session remained busy for 5 minutes"
+                    ) from exc
+                await asyncio.sleep(0.5)
         if response.get("type") != "success":
             raise RuntimeError(f"Firefox BiDi session failed: {response}")
         tree = await self._call("browsingContext.getTree", {})

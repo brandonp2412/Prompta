@@ -817,11 +817,18 @@ class Prompta:
             await asyncio.sleep(_IDLE_POLL_SECONDS)
         return True
 
+    async def _release_driver_if_idle(self) -> None:
+        if self.driver is None or self._active_conversations:
+            return
+        await self.driver.close()
+        self.driver = None
+
     async def run(self, *, once: bool = False) -> None:
         while True:
             await self._poll_active_conversations()
             jobs = self.read_jobs()
             if not jobs:
+                await self._release_driver_if_idle()
                 if once:
                     return
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
@@ -840,6 +847,7 @@ class Prompta:
                     await self.wait_for_cached_response(active.conversation_id)
                 return
             await self._poll_active_conversations()
+            await self._release_driver_if_idle()
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
 
     async def close(self) -> None:
@@ -1075,10 +1083,25 @@ def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     print(bottom)
 
 
-async def _spawn_firefox(profile: Path, firefox_path: str, port: int) -> asyncio.subprocess.Process:
+async def _firefox_port_is_open(port: int) -> bool:
+    try:
+        _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    except OSError:
+        return False
+    writer.close()
+    await writer.wait_closed()
+    return True
+
+
+async def _spawn_firefox(
+    profile: Path, firefox_path: str, port: int
+) -> asyncio.subprocess.Process | None:
     resolved = profile.expanduser().resolve()
     if not resolved.is_dir():
         raise RuntimeError(f"Firefox profile does not exist: {resolved}")
+    if await _firefox_port_is_open(port):
+        logger.info("Prompta reusing Firefox already listening on port %d", port)
+        return None
     for name in ("lock", ".parentlock"):
         try:
             os.unlink(resolved / name)
