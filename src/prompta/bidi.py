@@ -504,18 +504,39 @@ class FirefoxBiDiDriver:
         raw = await self.eval(
             """JSON.stringify((()=>{
               const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
-              const messages=[...document.querySelectorAll('[data-message-author-role]')].map((e,index)=>({
-                id:e.getAttribute('data-message-id')||'',
+              const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
+              const messages=roleNodes.map((e,index)=>({
+                id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
                 role:e.getAttribute('data-message-author-role')||'',
                 content:(e.innerText||e.textContent||'').trim(),
                 ordinal:index
               }));
+              const hasAssistant=messages.some(message=>message.role==='assistant'&&message.content);
+              if(!hasAssistant){
+                const candidates=[
+                  ...document.querySelectorAll('.agent-turn,[data-role="assistant"],[data-message-author="assistant"]')
+                ];
+                const agent=[...new Set(candidates)].filter(visible).at(-1);
+                if(agent){
+                  const markdown=agent.querySelector('.markdown,.markdown-new-styling');
+                  const content=((markdown?.innerText||markdown?.textContent||agent.innerText||agent.textContent||'')).trim();
+                  if(content){
+                    const id=agent.getAttribute('data-message-id')
+                      ||agent.getAttribute('data-message-uuid')
+                      ||agent.closest('[data-message-id]')?.getAttribute('data-message-id')
+                      ||agent.closest('[data-message-uuid]')?.getAttribute('data-message-uuid')
+                      ||'__prompta_live_assistant__';
+                    messages.push({id,role:'assistant',content,ordinal:messages.length});
+                  }
+                }
+              }
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
+              const streamActive=[...document.querySelectorAll('[class*="group-data-stream-active"]')].some(visible);
               return {
                 path:location.pathname,
                 title:document.title||'',
                 messages,
-                streaming:stop
+                streaming:stop||streamActive
               };
             })())""",
             context=context,
