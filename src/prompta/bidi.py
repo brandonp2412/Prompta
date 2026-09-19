@@ -31,6 +31,14 @@ class FirefoxBiDiDriver:
             and getattr(self.ws, "close_code", None) is None
         )
 
+    @staticmethod
+    def _is_chatgpt_url(url: str) -> bool:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").casefold()
+        return parsed.scheme in {"http", "https"} and (
+            host == "chatgpt.com" or host.endswith(".chatgpt.com")
+        )
+
     async def connect(self) -> None:
         if self.is_connected:
             return
@@ -46,7 +54,16 @@ class FirefoxBiDiDriver:
         contexts = tree.get("result", {}).get("contexts") or []
         if not contexts:
             raise RuntimeError("Firefox BiDi has no browsing context")
-        self.context = str(contexts[0]["context"])
+        chatgpt_context = next(
+            (
+                context
+                for context in contexts
+                if self._is_chatgpt_url(str(context.get("url") or ""))
+            ),
+            None,
+        )
+        selected_context = chatgpt_context or contexts[0]
+        self.context = str(selected_context["context"])
         await self._call(
             "session.subscribe",
             {
@@ -59,7 +76,8 @@ class FirefoxBiDiDriver:
             },
         )
         self._network_subscribed = True
-        await self.navigate("https://chatgpt.com/")
+        if chatgpt_context is None:
+            await self.navigate("https://chatgpt.com/")
         deadline = asyncio.get_running_loop().time() + 15.0
         last_error: Exception | None = None
         while asyncio.get_running_loop().time() < deadline:

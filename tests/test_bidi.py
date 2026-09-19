@@ -49,3 +49,79 @@ async def test_bidi_call_timeout_disconnects_wedged_session(
 
     assert driver.ws is None
     assert driver.context == ""
+
+
+@pytest.mark.asyncio
+async def test_connect_reuses_existing_chatgpt_context_without_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWebSocket:
+        close_code = None
+
+    async def fake_connect(*args: object, **kwargs: object) -> FakeWebSocket:
+        return FakeWebSocket()
+
+    monkeypatch.setattr(bidi_module.websockets, "connect", fake_connect)
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"type": "success"},
+            {
+                "type": "success",
+                "result": {
+                    "contexts": [
+                        {"context": "other", "url": "about:blank"},
+                        {
+                            "context": "live-chat",
+                            "url": "https://chatgpt.com/c/123",
+                        },
+                    ]
+                },
+            },
+            {"type": "success"},
+        ]
+    )
+    driver.navigate = AsyncMock()  # type: ignore[method-assign]
+    driver.login_required = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    driver.ensure_token = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    await driver.connect()
+
+    assert driver.context == "live-chat"
+    driver.navigate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_connect_navigates_only_when_no_chatgpt_context_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWebSocket:
+        close_code = None
+
+    async def fake_connect(*args: object, **kwargs: object) -> FakeWebSocket:
+        return FakeWebSocket()
+
+    monkeypatch.setattr(bidi_module.websockets, "connect", fake_connect)
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"type": "success"},
+            {
+                "type": "success",
+                "result": {
+                    "contexts": [
+                        {"context": "blank", "url": "about:blank"},
+                    ]
+                },
+            },
+            {"type": "success"},
+        ]
+    )
+    driver.navigate = AsyncMock()  # type: ignore[method-assign]
+    driver.login_required = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    driver.ensure_token = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    await driver.connect()
+
+    assert driver.context == "blank"
+    driver.navigate.assert_awaited_once_with("https://chatgpt.com/")
