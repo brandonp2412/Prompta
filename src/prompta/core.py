@@ -41,6 +41,7 @@ _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
+_ACTIVE_TAB_RETENTION_SECONDS = 30 * 60.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -223,6 +224,7 @@ class Prompta:
         self._global_backoff = RateLimitBackoff()
         self._failure_retry_until: dict[str, float] = {}
         self._once_requests: asyncio.Queue[tuple[str, asyncio.Future[str]]] = asyncio.Queue()
+        self._reply_requests: asyncio.Queue[tuple[str, str, asyncio.Future[str]]] = asyncio.Queue()
         self._restore_backoffs()
 
     @staticmethod
@@ -640,6 +642,127 @@ class Prompta:
                 except Exception:
                     logger.debug("Could not close failed Prompta tab", exc_info=True)
 
+    async def send_reply(self, conversation_id: str, prompt: str) -> str:
+        """Send into a cached conversation, reusing its live tab whenever possible."""
+
+        if not conversation_id.strip():
+            raise ValueError("conversation id is empty")
+        if not prompt.strip():
+            raise ValueError("prompta prompt is empty")
+
+        driver = await self._ensure_driver()
+        existing = next(
+            (
+                (context, active)
+                for context, active in self._active_conversations.items()
+                if active.conversation_id == conversation_id
+            ),
+            None,
+        )
+        created_context = existing is None
+        if existing is None:
+            context = await driver.new_tab(f"https://chatgpt.com/c/{conversation_id}")
+            active: ActiveConversation | None = None
+        else:
+            context, active = existing
+            driver.context = context
+
+        capture: dict[str, Any] | None = None
+        probe_armed = False
+        try:
+            await driver.wait_for_composer()
+            path = str(await driver.eval("location.pathname") or "")
+            expected_path = f"/c/{conversation_id}"
+            if path.rstrip("/") != expected_path:
+                raise RuntimeError(
+                    f"ChatGPT opened unexpected conversation path {path!r}; expected {expected_path!r}"
+                )
+
+            await self._ensure_high_effort(driver)
+            baseline = await driver.dom_state()
+            if self._normalise(str(baseline.get("composer_text") or "")):
+                raise RuntimeError("ChatGPT composer already contains unsent text")
+            baseline_user_id = str(baseline.get("last_user_id") or "")
+
+            await driver.arm_page_send_probe()
+            probe_armed = True
+            capture = driver.arm_send_capture()
+            await driver.type_message(prompt)
+            typed = await driver.dom_state()
+            if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(prompt):
+                raise RuntimeError("ChatGPT composer did not contain the requested reply")
+            await driver.click_send()
+
+            deadline = asyncio.get_running_loop().time() + max(
+                1.0, self.config.send_timeout_seconds
+            )
+            while asyncio.get_running_loop().time() < deadline:
+                state = await driver.dom_state()
+                rate_limit_text = str(state.get("rate_limit_text") or "")
+                if is_rate_limited_text(rate_limit_text):
+                    raise RateLimitError.from_text(rate_limit_text)
+                probe = await driver.page_send_probe()
+                status = int(probe.get("response_status") or capture.get("status") or 0)
+                if status == 429:
+                    raise RateLimitError("prompta send rate limited")
+                if status >= 400:
+                    raise RuntimeError(f"prompta send failed with HTTP {status}")
+                if capture.get("fetch_error"):
+                    raise RuntimeError(f"prompta send failed: {capture['fetch_error']}")
+
+                send_confirmed = (
+                    bool(probe.get("committed"))
+                    or driver.captured_send_response(capture) is not None
+                )
+                user_text = self._normalise(str(state.get("last_user_text") or ""))
+                user_id = str(state.get("last_user_id") or "")
+                dom_confirmed = (
+                    user_text == self._normalise(prompt)
+                    and not self._normalise(str(state.get("composer_text") or ""))
+                    and (bool(user_id and user_id != baseline_user_id) or send_confirmed)
+                )
+                if send_confirmed or dom_confirmed:
+                    metadata = self.cache.resume(conversation_id, context_id=context)
+                    if active is None:
+                        active = ActiveConversation(
+                            conversation_id=conversation_id,
+                            context_id=context,
+                            job_name=str(metadata.get("job_name") or ""),
+                            prompt=str(metadata.get("prompt") or ""),
+                        )
+                        self._active_conversations[context] = active
+                    active.idle_polls = 0
+                    active.settled_at = 0.0
+                    snapshot = await driver.conversation_snapshot(context)
+                    self.cache.write_snapshot(conversation_id, snapshot)
+                    active.last_digest = self.cache.digest(snapshot)
+                    logger.info(
+                        "Prompta sent reply conversation=%s reused_tab=%s",
+                        conversation_id,
+                        not created_context,
+                    )
+                    return conversation_id
+                await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+
+            raise SendVerificationError(
+                "prompta could not prove the reply was sent to the selected conversation"
+            )
+        finally:
+            if capture is not None:
+                driver.clear_send_capture(capture)
+            if probe_armed:
+                try:
+                    await driver.clear_page_send_probe()
+                except Exception:
+                    logger.debug("Could not clear page send probe", exc_info=True)
+            if created_context and not any(
+                active.context_id == context for active in self._active_conversations.values()
+            ):
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.debug("Could not close failed reply tab", exc_info=True)
+
     async def _run_job(self, job: PromptJob, *, now: float) -> bool:
         if self._job_state(job.name).get("paused") is True:
             return False
@@ -775,24 +898,39 @@ class Prompta:
                 self.cache.write_snapshot(active.conversation_id, snapshot)
                 active.last_digest = digest
                 active.idle_polls = 0
+                active.settled_at = 0.0
             elif has_assistant and not streaming:
                 active.idle_polls += 1
             else:
                 active.idle_polls = 0
+                active.settled_at = 0.0
 
             if active.idle_polls < 3:
                 continue
 
-            self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
+            if active.settled_at <= 0:
+                self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
+                active.settled_at = time.monotonic()
+                logger.info(
+                    "Prompta cached completed conversation=%s messages=%d; retaining tab for %.0fm",
+                    active.conversation_id,
+                    len(messages),
+                    _ACTIVE_TAB_RETENTION_SECONDS / 60.0,
+                )
+                continue
+
+            if time.monotonic() - active.settled_at < _ACTIVE_TAB_RETENTION_SECONDS:
+                continue
+
             try:
                 await self.driver.close_context(context)
             except Exception:
-                logger.debug("Could not close completed Prompta tab", exc_info=True)
+                logger.debug("Could not close retained Prompta tab", exc_info=True)
             self._active_conversations.pop(context, None)
             logger.info(
-                "Prompta cached completed conversation=%s messages=%d",
+                "Prompta closed retained conversation tab=%s after %.0fm",
                 active.conversation_id,
-                len(messages),
+                _ACTIVE_TAB_RETENTION_SECONDS / 60.0,
             )
 
     async def wait_for_cached_response(
@@ -809,10 +947,15 @@ class Prompta:
             for active in self._active_conversations.values()
         ):
             await self._poll_active_conversations()
-            if not any(
-                active.conversation_id == conversation_id
-                for active in self._active_conversations.values()
-            ):
+            matching = next(
+                (
+                    active
+                    for active in self._active_conversations.values()
+                    if active.conversation_id == conversation_id
+                ),
+                None,
+            )
+            if matching is None or matching.settled_at > 0:
                 return True
             if asyncio.get_running_loop().time() >= deadline:
                 logger.warning(
@@ -843,6 +986,25 @@ class Prompta:
             finally:
                 self._once_requests.task_done()
 
+    async def _drain_reply_requests(self) -> bool:
+        did_work = False
+        while True:
+            try:
+                conversation_id, prompt, future = self._reply_requests.get_nowait()
+            except asyncio.QueueEmpty:
+                return did_work
+            try:
+                result = await self.send_reply(conversation_id, prompt)
+            except Exception as exc:
+                if not future.done():
+                    future.set_exception(exc)
+            else:
+                if not future.done():
+                    future.set_result(result)
+                did_work = True
+            finally:
+                self._reply_requests.task_done()
+
     async def _release_driver_if_idle(self) -> None:
         if self.driver is None or self._active_conversations:
             return
@@ -852,7 +1014,8 @@ class Prompta:
     async def run(self, *, once: bool = False) -> None:
         while True:
             await self._poll_active_conversations()
-            did_work = await self._drain_once_requests()
+            did_work = await self._drain_reply_requests()
+            did_work = await self._drain_once_requests() or did_work
             jobs = self.read_jobs()
             if not jobs:
                 await self._release_driver_if_idle()
@@ -1152,13 +1315,22 @@ async def _handle_control_client(
     try:
         raw = await asyncio.wait_for(reader.readline(), timeout=10.0)
         payload = json.loads(raw.decode("utf-8"))
-        if not isinstance(payload, dict) or payload.get("op") != "once":
-            raise ValueError("unsupported Prompta control request")
+        if not isinstance(payload, dict):
+            raise ValueError("invalid Prompta control request")
+        op = str(payload.get("op") or "")
         prompt = str(payload.get("prompt") or "")
         if not prompt.strip():
             raise ValueError("prompta prompt is empty")
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        await prompta._once_requests.put((prompt, future))
+        if op == "once":
+            await prompta._once_requests.put((prompt, future))
+        elif op == "reply":
+            conversation_id = str(payload.get("conversation_id") or "")
+            if not conversation_id.strip():
+                raise ValueError("conversation id is empty")
+            await prompta._reply_requests.put((conversation_id, prompt, future))
+        else:
+            raise ValueError("unsupported Prompta control request")
         conversation_id = await future
         response = {"ok": True, "conversation_id": conversation_id}
     except Exception as exc:
@@ -1229,6 +1401,49 @@ async def _send_once_via_control(state_path: Path, prompt: str) -> str:
     if not conversation_id:
         raise RuntimeError("Prompta scheduler returned an empty conversation id")
     return conversation_id
+
+
+async def _send_reply_via_control(
+    state_path: Path,
+    conversation_id: str,
+    prompt: str,
+) -> str:
+    path = _control_socket_path(state_path)
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(path))
+    except OSError as exc:
+        raise RuntimeError(f"Prompta scheduler control socket is unavailable: {path}") from exc
+    try:
+        writer.write(
+            (
+                json.dumps(
+                    {
+                        "op": "reply",
+                        "conversation_id": conversation_id,
+                        "prompt": prompt,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+        )
+        await writer.drain()
+        raw = await asyncio.wait_for(
+            reader.readline(),
+            timeout=_CONTROL_SEND_TIMEOUT_SECONDS,
+        )
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    if not raw:
+        raise RuntimeError("Prompta scheduler closed the control connection without a response")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise RuntimeError(str(payload.get("error") or "Prompta scheduler rejected reply"))
+    result = str(payload.get("conversation_id") or "")
+    if not result:
+        raise RuntimeError("Prompta scheduler returned an empty conversation id")
+    return result
 
 
 async def _wait_for_cache_completion(
@@ -1351,6 +1566,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     once_parser.add_argument("prompt")
     _add_browser_arguments(once_parser)
+    reply_parser = subparsers.add_parser(
+        "reply", help="Send a message into an existing cached conversation"
+    )
+    reply_parser.add_argument("conversation_id")
+    reply_parser.add_argument("prompt")
+    _add_browser_arguments(reply_parser)
     run_parser = subparsers.add_parser("run", help="Run the scheduler")
     run_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     _add_browser_arguments(run_parser)
@@ -1371,6 +1592,16 @@ async def _run(args: argparse.Namespace) -> None:
             _print_notice("…", "Waiting", "assistant response", tone="36")
             if await _wait_for_cache_completion(args.cache, conversation_id):
                 _print_notice("✓", "Cached", "assistant response complete", tone="32")
+            return
+    elif args.command == "reply":
+        _print_notice("◆", "Reply", _prompt_preview(args.prompt, 72))
+        if not args.bidi_url and _daemon_is_running(args.state):
+            conversation_id = await _send_reply_via_control(
+                args.state,
+                args.conversation_id,
+                args.prompt,
+            )
+            _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
             return
 
     daemon_lock: Any = None
@@ -1414,6 +1645,9 @@ async def _run(args: argparse.Namespace) -> None:
             _print_notice("…", "Waiting", "assistant response", tone="36")
             if await prompta.wait_for_cached_response(conversation_id):
                 _print_notice("✓", "Cached", "assistant response complete", tone="32")
+        elif args.command == "reply":
+            conversation_id = await prompta.send_reply(args.conversation_id, args.prompt)
+            _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
         else:
             await prompta.run(once=args.once)
     finally:

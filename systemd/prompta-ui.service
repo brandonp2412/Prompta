@@ -1,5 +1,5 @@
 [Unit]
-Description=Prompta read-only conversation UI
+Description=Prompta conversation UI
 After=network.target prompta.service
 
 [Service]

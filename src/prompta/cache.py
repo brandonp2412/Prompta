@@ -23,6 +23,7 @@ class ActiveConversation:
     prompt: str
     last_digest: str = ""
     idle_polls: int = 0
+    settled_at: float = 0.0
 
 
 class ChatCache:
@@ -166,6 +167,31 @@ class ChatCache:
                     ),
                 )
 
+    def resume(self, conversation_id: str, *, context_id: str) -> dict[str, Any]:
+        """Mark an existing cached conversation active in a live browser context."""
+
+        row = self.connection.execute(
+            """
+            SELECT id, job_name, prompt
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown cached conversation: {conversation_id}")
+        now = time.time()
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE conversations
+                SET browser_context_id = ?, status = 'active', updated_at = ?, completed_at = NULL
+                WHERE id = ?
+                """,
+                (context_id, now, conversation_id),
+            )
+        return dict(row)
+
     @staticmethod
     def digest(snapshot: dict[str, Any]) -> str:
         stable = {
@@ -209,7 +235,7 @@ class ChatCache:
                 """
                 UPDATE conversations
                 SET title = ?, status = ?, updated_at = ?,
-                    completed_at = CASE WHEN ? THEN ? ELSE completed_at END
+                    completed_at = CASE WHEN ? THEN ? ELSE NULL END
                 WHERE id = ?
                 """,
                 (

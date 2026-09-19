@@ -85,27 +85,32 @@ requests.
 
 The database uses WAL mode so another local process can read active conversations and
 completed history while the scheduler keeps writing. Once an assistant response is
-stable and no longer streaming, Prompta records it as complete and closes that Firefox
-tab. A service restart marks any previously active cache rows as interrupted.
+stable and no longer streaming, Prompta records it as complete but retains the Firefox
+tab for 30 minutes so follow-up messages can reuse the same live page without a reload.
+A service restart marks any previously active cache rows as interrupted.
 
-## Read-only web UI
+## Web UI
 
 Prompta includes a local ChatGPT-style viewer for active runs and cached history:
 
-![Prompta read-only conversation UI](docs/assets/prompta-ui.png)
+![Prompta conversation UI](docs/assets/prompta-ui.png)
 
 ```bash
 uv run prompta-ui
 ```
 
 Open `http://127.0.0.1:8765`. The UI reads the SQLite database using
-`mode=ro` plus `PRAGMA query_only=ON`, exposes GET-only API routes, and refreshes
-the local cache once per second. It does not contact ChatGPT.
+`mode=ro` plus `PRAGMA query_only=ON` and refreshes that local cache once per
+second. Those refreshes never navigate or reload ChatGPT. Sending a message uses the
+scheduler control socket and reuses a retained live tab when one exists; an expired
+historical chat is opened only for an explicit send.
 
-Features include live active-chat updates, history grouped by recency, full-text
-search across cached prompts/messages, safe Markdown and code rendering, responsive
-mobile layout, deep links to cached chats, and dark/light appearance following the
-browser preference.
+Features include live active-chat updates, replies to existing chats, history grouped
+by recency, full-text search across cached prompts/messages, safe Markdown and code
+rendering, responsive mobile layout, deep links to cached chats, and dark/light
+appearance following the browser preference. A mirrored UI can pass
+`--control-host <ssh-host>` so replies are executed by the Prompta worker that owns
+the mirrored cache.
 
 The optional user service is `systemd/prompta-ui.service`.
 
@@ -118,7 +123,7 @@ systemctl --user stop prompta
 systemctl --user start prompta
 journalctl --user -u prompta -f
 
-# Read-only web UI
+# Web UI
 systemctl --user status prompta-ui
 ```
 
