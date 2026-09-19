@@ -33,13 +33,44 @@ def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> N
 
     conversations = cache.recent_conversations()
     messages = cache.messages("conversation-1")
+    metadata = cache.metadata("conversation-1")
     cache.close()
 
     assert conversations[0]["status"] == "complete"
     assert conversations[0]["job_name"] == "flux"
     assert messages[-1]["content"] == "Finished"
     assert messages[-1]["status"] == "complete"
+    assert metadata["url"] == "https://chatgpt.com/c/conversation-1"
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_snapshot_promotes_transient_web_route_to_canonical_url(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "WEB:transient",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+
+    cache.write_snapshot(
+        "WEB:transient",
+        {
+            "title": "Work",
+            "path": "/c/6aae32ba-f3b4-83ec-bdf9-d34b777de6ce",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": "Done"},
+            ],
+        },
+        complete=True,
+    )
+
+    metadata = cache.metadata("WEB:transient")
+    cache.close()
+
+    assert metadata["url"] == "https://chatgpt.com/c/6aae32ba-f3b4-83ec-bdf9-d34b777de6ce"
 
 
 def test_cache_marks_previous_active_conversations_interrupted(tmp_path: Path) -> None:

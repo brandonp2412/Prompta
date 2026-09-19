@@ -167,12 +167,25 @@ class ChatCache:
                     ),
                 )
 
+    def metadata(self, conversation_id: str) -> dict[str, Any]:
+        row = self.connection.execute(
+            """
+            SELECT id, job_name, prompt, url
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown cached conversation: {conversation_id}")
+        return dict(row)
+
     def resume(self, conversation_id: str, *, context_id: str) -> dict[str, Any]:
         """Mark an existing cached conversation active in a live browser context."""
 
         row = self.connection.execute(
             """
-            SELECT id, job_name, prompt
+            SELECT id, job_name, prompt, url
             FROM conversations
             WHERE id = ?
             """,
@@ -229,13 +242,20 @@ class ChatCache:
             messages = []
         status = "complete" if complete else "active"
         completed_at = now if complete else None
+        snapshot_path = str(snapshot.get("path") or "")
+        snapshot_url = (
+            f"https://chatgpt.com{snapshot_path}"
+            if snapshot_path.startswith("/c/")
+            else ""
+        )
         snapshot_keys: list[str] = []
         with self.connection:
             self.connection.execute(
                 """
                 UPDATE conversations
                 SET title = ?, status = ?, updated_at = ?,
-                    completed_at = CASE WHEN ? THEN ? ELSE NULL END
+                    completed_at = CASE WHEN ? THEN ? ELSE NULL END,
+                    url = CASE WHEN ? != '' THEN ? ELSE url END
                 WHERE id = ?
                 """,
                 (
@@ -244,6 +264,8 @@ class ChatCache:
                     now,
                     int(complete),
                     completed_at,
+                    snapshot_url,
+                    snapshot_url,
                     conversation_id,
                 ),
             )
