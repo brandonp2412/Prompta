@@ -52,6 +52,35 @@ async def test_bidi_call_timeout_disconnects_wedged_session(
 
 
 @pytest.mark.asyncio
+async def test_bidi_call_timeout_is_overall_even_with_event_traffic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class EventFloodWebSocket:
+        close_code = None
+
+        async def send(self, payload: str) -> None:
+            return None
+
+        async def recv(self) -> str:
+            await asyncio.sleep(0)
+            return '{"type":"event","method":"network.beforeRequestSent","params":{}}'
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(bidi_module, "_BIDI_CALL_TIMEOUT_SECONDS", 0.01)
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.ws = EventFloodWebSocket()
+    driver.context = "context-1"
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        await driver._call("session.new", {})
+
+    assert driver.ws is None
+    assert driver.context == ""
+
+
+@pytest.mark.asyncio
 async def test_eval_reports_browser_side_script_exception() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
     driver.context = "context-1"

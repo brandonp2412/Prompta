@@ -98,16 +98,21 @@ class FirefoxBiDiDriver:
             raise RuntimeError("Firefox BiDi is not connected")
         self.request_id += 1
         request_id = self.request_id
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _BIDI_CALL_TIMEOUT_SECONDS
         try:
             await asyncio.wait_for(
                 self.ws.send(json.dumps({"id": request_id, "method": method, "params": params})),
-                timeout=_BIDI_CALL_TIMEOUT_SECONDS,
+                timeout=max(0.001, deadline - loop.time()),
             )
             while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TimeoutError
                 message = json.loads(
                     await asyncio.wait_for(
                         self.ws.recv(),
-                        timeout=_BIDI_CALL_TIMEOUT_SECONDS,
+                        timeout=remaining,
                     )
                 )
                 if message.get("id") != request_id:

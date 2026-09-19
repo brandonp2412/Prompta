@@ -22,7 +22,13 @@ from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .cache import DEFAULT_CACHE_PATH
-from .core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control
+from .core import (
+    DEFAULT_STATE_PATH,
+    _daemon_is_running,
+    _send_direct,
+    _send_once_via_control,
+    _send_reply_via_control,
+)
 
 logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
@@ -378,6 +384,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.store = store
         self.state_path = state_path.expanduser()
         self.control_host = control_host.strip()
+        self._local_send_lock = threading.Lock()
         self.send_jobs = SendJobRegistry(self._send)
 
     def _send(self, operation: str, message: str, conversation_id: str) -> str:
@@ -388,11 +395,22 @@ class PromptaUIServer(ThreadingHTTPServer):
                 message=message,
                 conversation_id=conversation_id,
             )
-        if operation == "once":
-            return asyncio.run(_send_once_via_control(self.state_path, message))
-        return asyncio.run(
-            _send_reply_via_control(self.state_path, conversation_id, message)
-        )
+        with self._local_send_lock:
+            if _daemon_is_running(self.state_path):
+                if operation == "once":
+                    return asyncio.run(_send_once_via_control(self.state_path, message))
+                return asyncio.run(
+                    _send_reply_via_control(self.state_path, conversation_id, message)
+                )
+            logger.info("Prompta scheduler is stopped; using a direct local browser send")
+            return asyncio.run(
+                _send_direct(
+                    self.state_path,
+                    self.store.path,
+                    message,
+                    conversation_id=conversation_id if operation == "reply" else "",
+                )
+            )
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -576,8 +594,10 @@ def serve(
     if control_host:
         logger.info("Sending replies through Prompta on SSH host %s", control_host)
     else:
-        logger.info("Sending replies through Prompta control socket beside %s", state_path.expanduser())
-    logger.info("Reading Glass logs from %s", store.log_path)
+        logger.info(
+            "Sending replies locally via scheduler control when available, direct browser otherwise"
+        )
+    logger.info("Reading logs from %s", store.log_path)
     try:
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
