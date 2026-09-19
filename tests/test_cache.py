@@ -244,6 +244,43 @@ def test_partial_snapshot_does_not_delete_previous_canonical_turns(tmp_path: Pat
     ]
 
 
+def test_cache_migration_removes_request_placeholders(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    with cache.connection:
+        cache.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "conversation-1",
+                "request-placeholder-request-conversation-1-0",
+                1,
+                "assistant",
+                "Thinking",
+                "streaming",
+                1.0,
+                1.0,
+            ),
+        )
+    cache.close()
+
+    cache = ChatCache(path)
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert all(not message["message_key"].startswith("request-placeholder-") for message in messages)
+
+
 def test_cache_migration_backfills_prompt_for_legacy_empty_conversation(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

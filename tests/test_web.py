@@ -179,6 +179,59 @@ def test_read_only_store_reports_missing_glass_logs(tmp_path: Path) -> None:
     assert store.logs() == {"exists": False, "lines": [], "updated_at": None}
 
 
+def test_read_only_store_hides_request_placeholder_messages(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-placeholder",
+        context_id="context-placeholder",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        "chat-placeholder",
+        {
+            "title": "Work",
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+            ],
+            "streaming": True,
+        },
+    )
+    with cache.connection:
+        cache.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "chat-placeholder",
+                "request-placeholder-request-chat-placeholder-0",
+                1,
+                "assistant",
+                "Thinking",
+                "streaming",
+                1.0,
+                1.0,
+            ),
+        )
+
+    store = ReadOnlyChatStore(path)
+    chats = store.conversations()
+    chat = store.conversation("chat-placeholder")
+    cache.close()
+
+    assert chats[0]["message_count"] == 1
+    assert chats[0]["preview"] == "Do work"
+    assert store.conversations(query="Thinking") == []
+    assert chat is not None
+    assert [(message["role"], message["content"]) for message in chat["messages"]] == [
+        ("user", "Do work")
+    ]
+
+
 def test_read_only_store_falls_back_to_saved_prompt_for_empty_chat(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

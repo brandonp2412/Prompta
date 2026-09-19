@@ -64,6 +64,7 @@ class ReadOnlyChatStore:
                    OR EXISTS (
                        SELECT 1 FROM messages sm
                        WHERE sm.conversation_id = c.id
+                         AND sm.message_key NOT LIKE 'request-placeholder-%'
                          AND sm.content LIKE ? COLLATE NOCASE
                    )
             """
@@ -87,6 +88,7 @@ class ReadOnlyChatStore:
                             (
                                 SELECT m.content FROM messages m
                                 WHERE m.conversation_id = c.id
+                                  AND m.message_key NOT LIKE 'request-placeholder-%'
                                 ORDER BY m.ordinal DESC LIMIT 1
                             ),
                             NULLIF(c.prompt, '')
@@ -95,10 +97,12 @@ class ReadOnlyChatStore:
                             WHEN EXISTS (
                                 SELECT 1 FROM messages m
                                 WHERE m.conversation_id = c.id
+                                  AND m.message_key NOT LIKE 'request-placeholder-%'
                             )
                             THEN (
                                 SELECT COUNT(*) FROM messages m
                                 WHERE m.conversation_id = c.id
+                                  AND m.message_key NOT LIKE 'request-placeholder-%'
                             )
                             WHEN TRIM(c.prompt) <> '' THEN 1
                             ELSE 0
@@ -136,6 +140,7 @@ class ReadOnlyChatStore:
                            created_at, updated_at
                     FROM messages
                     WHERE conversation_id = ?
+                      AND message_key NOT LIKE 'request-placeholder-%'
                     ORDER BY ordinal
                     """,
                     (conversation_id,),

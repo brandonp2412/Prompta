@@ -80,6 +80,12 @@ class ChatCache:
         )
         self.connection.execute(
             """
+            DELETE FROM messages
+            WHERE message_key LIKE 'request-placeholder-%'
+            """
+        )
+        self.connection.execute(
+            """
             INSERT INTO messages (
                 conversation_id, message_key, ordinal, role, content, status,
                 created_at, updated_at
