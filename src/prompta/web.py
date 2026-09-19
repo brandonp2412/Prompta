@@ -11,6 +11,10 @@ import mimetypes
 import shlex
 import sqlite3
 import subprocess
+import threading
+import time
+import uuid
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -244,7 +248,7 @@ print(result)
         check=False,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=110,
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "remote control failed").strip()
@@ -253,6 +257,88 @@ print(result)
     if not result:
         raise RuntimeError("remote Prompta control returned an empty conversation id")
     return result
+
+
+class SendJobRegistry:
+    """Run UI sends off-request and expose their status for polling."""
+
+    def __init__(self, sender: Callable[[str, str, str], str]) -> None:
+        self._sender = sender
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def submit(
+        self,
+        *,
+        operation: str,
+        message: str,
+        conversation_id: str = "",
+    ) -> dict[str, Any]:
+        send_id = uuid.uuid4().hex
+        now = time.time()
+        job = {
+            "send_id": send_id,
+            "operation": operation,
+            "status": "queued",
+            "conversation_id": conversation_id,
+            "error": "",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._lock:
+            cutoff = now - 3600.0
+            self._jobs = {
+                key: value
+                for key, value in self._jobs.items()
+                if float(value.get("updated_at") or 0.0) >= cutoff
+            }
+            self._jobs[send_id] = job
+        threading.Thread(
+            target=self._run,
+            args=(send_id, operation, message, conversation_id),
+            name=f"prompta-ui-send-{send_id[:8]}",
+            daemon=True,
+        ).start()
+        return dict(job)
+
+    def get(self, send_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            job = self._jobs.get(send_id)
+            return dict(job) if job is not None else None
+
+    def _update(self, send_id: str, **updates: Any) -> None:
+        with self._lock:
+            job = self._jobs.get(send_id)
+            if job is None:
+                return
+            job.update(updates)
+            job["updated_at"] = time.time()
+
+    def _run(
+        self,
+        send_id: str,
+        operation: str,
+        message: str,
+        conversation_id: str,
+    ) -> None:
+        self._update(send_id, status="running")
+        try:
+            result = self._sender(operation, message, conversation_id)
+        except Exception as exc:
+            logger.exception(
+                "Prompta UI background send failed send_id=%s operation=%s conversation=%s",
+                send_id,
+                operation,
+                conversation_id or "new",
+            )
+            self._update(send_id, status="failed", error=str(exc))
+            return
+        self._update(
+            send_id,
+            status="succeeded",
+            conversation_id=result,
+            error="",
+        )
 
 
 class PromptaUIServer(ThreadingHTTPServer):
@@ -269,6 +355,21 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.store = store
         self.state_path = state_path.expanduser()
         self.control_host = control_host.strip()
+        self.send_jobs = SendJobRegistry(self._send)
+
+    def _send(self, operation: str, message: str, conversation_id: str) -> str:
+        if self.control_host:
+            return _remote_control(
+                self.control_host,
+                operation=operation,
+                message=message,
+                conversation_id=conversation_id,
+            )
+        if operation == "once":
+            return asyncio.run(_send_once_via_control(self.state_path, message))
+        return asyncio.run(
+            _send_reply_via_control(self.state_path, conversation_id, message)
+        )
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -379,6 +480,15 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 limit = 500
             self._json(self.store.logs(limit=limit))
             return
+        send_prefix = "/api/sends/"
+        if path.startswith(send_prefix):
+            send_id = unquote(path[len(send_prefix) :]).strip("/")
+            job = self.server.send_jobs.get(send_id)
+            if job is None:
+                self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self._json(job)
+            return
         prefix = "/api/chats/"
         if path.startswith(prefix):
             conversation_id = unquote(path[len(prefix) :])
@@ -398,23 +508,11 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             message = self._message_from_json_body()
             if message is None:
                 return
-            try:
-                if self.control_host:
-                    result = _remote_control(
-                        self.control_host,
-                        operation="once",
-                        message=message,
-                    )
-                else:
-                    result = asyncio.run(_send_once_via_control(self.state_path, message))
-            except Exception as exc:
-                logger.exception("Prompta UI new chat failed")
-                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
-                return
-            self._json(
-                {"ok": True, "conversation_id": result},
-                HTTPStatus.ACCEPTED,
+            job = self.server.send_jobs.submit(
+                operation="once",
+                message=message,
             )
+            self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
             return
 
         prefix = "/api/chats/"
@@ -432,23 +530,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if message is None:
             return
 
-        try:
-            if self.control_host:
-                result = _remote_control(
-                    self.control_host,
-                    operation="reply",
-                    conversation_id=conversation_id,
-                    message=message,
-                )
-            else:
-                result = asyncio.run(
-                    _send_reply_via_control(self.state_path, conversation_id, message)
-                )
-        except Exception as exc:
-            logger.exception("Prompta UI reply failed conversation=%s", conversation_id)
-            self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
-            return
-        self._json({"ok": True, "conversation_id": result}, HTTPStatus.ACCEPTED)
+        job = self.server.send_jobs.submit(
+            operation="reply",
+            conversation_id=conversation_id,
+            message=message,
+        )
+        self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
 
 
 def serve(
