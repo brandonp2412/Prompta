@@ -149,6 +149,20 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
     assert fake.navigated == ["https://chatgpt.com/"]
     assert fake.sent is True
     assert fake.clear_composer_calls == 0
+    prompta._ensure_high_effort.assert_not_awaited()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_send_requires_high_effort(tmp_path: Path) -> None:
+    prompt = "PROMPTA SCHEDULED TEST"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver(prompt)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    assert await prompta.send_once(prompt, job_name="scheduled-job") == "new-chat"
+
+    prompta._ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

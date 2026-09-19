@@ -552,7 +552,8 @@ class Prompta:
         succeeded = False
         try:
             await driver.wait_for_composer()
-            await self._ensure_high_effort(driver)
+            if job_name:
+                await self._ensure_high_effort(driver)
             baseline = await driver.dom_state()
             baseline_path = str(await driver.eval("location.pathname") or "")
             if self._normalise(str(baseline.get("composer_text") or "")):
