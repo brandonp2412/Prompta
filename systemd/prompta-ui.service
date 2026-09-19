@@ -1,0 +1,22 @@
+[Unit]
+Description=Prompta read-only conversation UI
+After=network.target prompta.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/prompta
+Environment=PYTHONUNBUFFERED=1
+Environment=UV_NO_PROGRESS=1
+ExecStart=%h/prompta/.venv/bin/prompta-ui --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=%h/.local/state/prompta
+MemoryHigh=192M
+MemoryMax=256M
+
+[Install]
+WantedBy=default.target

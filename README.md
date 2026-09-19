@@ -83,11 +83,31 @@ writes changed snapshots to the SQLite cache roughly once per scheduler tick. Ca
 capture does not reload the page, poll ChatGPT HTTP APIs, or submit additional model
 requests.
 
-The database uses WAL mode so another local process, such as a future Prompta web UI,
-can read active conversations and completed history while the scheduler keeps writing.
-Once an assistant response is stable and no longer streaming, Prompta records it as
-complete and closes that Firefox tab. A service restart marks any previously active
-cache rows as interrupted.
+The database uses WAL mode so another local process can read active conversations and
+completed history while the scheduler keeps writing. Once an assistant response is
+stable and no longer streaming, Prompta records it as complete and closes that Firefox
+tab. A service restart marks any previously active cache rows as interrupted.
+
+## Read-only web UI
+
+Prompta includes a local ChatGPT-style viewer for active runs and cached history:
+
+![Prompta read-only conversation UI](docs/assets/prompta-ui.png)
+
+```bash
+uv run prompta-ui
+```
+
+Open `http://127.0.0.1:8765`. The UI reads the SQLite database using
+`mode=ro` plus `PRAGMA query_only=ON`, exposes GET-only API routes, and refreshes
+the local cache once per second. It does not contact ChatGPT.
+
+Features include live active-chat updates, history grouped by recency, full-text
+search across cached prompts/messages, safe Markdown and code rendering, responsive
+mobile layout, deep links to cached chats, and dark/light appearance following the
+browser preference.
+
+The optional user service is `systemd/prompta-ui.service`.
 
 ## Service
 
@@ -97,9 +117,12 @@ systemctl --user restart prompta
 systemctl --user stop prompta
 systemctl --user start prompta
 journalctl --user -u prompta -f
+
+# Read-only web UI
+systemctl --user status prompta-ui
 ```
 
-The unit file is `systemd/prompta.service`.
+The unit files are `systemd/prompta.service` and `systemd/prompta-ui.service`.
 
 ## Development
 
