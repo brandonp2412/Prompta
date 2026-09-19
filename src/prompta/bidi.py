@@ -558,7 +558,7 @@ class FirefoxBiDiDriver:
                 }
               }
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
-              const streamActive=[...document.querySelectorAll('[class*="group-data-stream-active"]')].some(visible);
+              const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"],[aria-busy="true"]')].some(visible);
               return {
                 path:location.pathname,
                 title:document.title||'',
