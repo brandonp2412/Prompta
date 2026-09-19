@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from prompta.core import (
     SendVerificationError,
     _parser,
     _run,
+    _send_once_via_control,
+    _start_control_server,
     add_job,
     clear_jobs,
     load_jobs,
@@ -566,6 +569,63 @@ async def test_once_command_sends_exactly_once_without_scheduler(
     output = capsys.readouterr().out
     assert "One-shot" in output
     assert "conversation conversation-123" in output
+    assert "assistant response complete" in output
+
+
+@pytest.mark.asyncio
+async def test_control_socket_routes_one_shot_through_scheduler(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation-via-daemon")  # type: ignore[method-assign]
+    server, socket_path = await _start_control_server(prompta, state_path)
+    try:
+        client = asyncio.create_task(_send_once_via_control(state_path, "Do one thing"))
+        for _ in range(100):
+            if not prompta._once_requests.empty():
+                break
+            await asyncio.sleep(0.01)
+        assert not prompta._once_requests.empty()
+        await prompta._drain_once_requests()
+        assert await client == "conversation-via-daemon"
+        prompta.send_once.assert_awaited_once_with("Do one thing")  # type: ignore[attr-defined]
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_once_uses_running_scheduler_without_spawning_firefox(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = _parser().parse_args(["once", "Do exactly one thing"])
+    with (
+        patch("prompta.core._daemon_is_running", return_value=True),
+        patch(
+            "prompta.core._send_once_via_control",
+            AsyncMock(return_value="conversation-queued"),
+        ) as send_via_control,
+        patch(
+            "prompta.core._wait_for_cache_completion",
+            AsyncMock(return_value=True),
+        ) as wait_for_cache,
+        patch("prompta.core._spawn_firefox", AsyncMock()) as spawn_firefox,
+    ):
+        await _run(args)
+
+    send_via_control.assert_awaited_once_with(args.state, "Do exactly one thing")
+    wait_for_cache.assert_awaited_once_with(args.cache, "conversation-queued")
+    spawn_firefox.assert_not_awaited()
+    output = capsys.readouterr().out
+    assert "conversation conversation-queued" in output
     assert "assistant response complete" in output
 
 

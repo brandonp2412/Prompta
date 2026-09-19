@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fcntl
 import hashlib
 import json
 import logging
 import os
 import random
 import re
+import sqlite3
 import sys
 import time
 from dataclasses import dataclass
@@ -29,6 +31,10 @@ DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
 DEFAULT_STATE_PATH = Path.home() / ".local" / "state" / "prompta" / "state.json"
 DEFAULT_FIREFOX_PROFILE = Path.home() / ".local" / "state" / "prompta" / "firefox-profile"
 DEFAULT_FIREFOX_PORT = 9229
+_CONTROL_SOCKET_NAME = "control.sock"
+_DAEMON_LOCK_NAME = "daemon.lock"
+_CONTROL_CONNECT_TIMEOUT_SECONDS = 10.0
+_CONTROL_SEND_TIMEOUT_SECONDS = 90.0
 DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
@@ -216,6 +222,7 @@ class Prompta:
         self._backoffs: dict[str, RateLimitBackoff] = {}
         self._global_backoff = RateLimitBackoff()
         self._failure_retry_until: dict[str, float] = {}
+        self._once_requests: asyncio.Queue[tuple[str, asyncio.Future[str]]] = asyncio.Queue()
         self._restore_backoffs()
 
     @staticmethod
@@ -817,6 +824,25 @@ class Prompta:
             await asyncio.sleep(_IDLE_POLL_SECONDS)
         return True
 
+    async def _drain_once_requests(self) -> bool:
+        did_work = False
+        while True:
+            try:
+                prompt, future = self._once_requests.get_nowait()
+            except asyncio.QueueEmpty:
+                return did_work
+            try:
+                conversation_id = await self.send_once(prompt)
+            except Exception as exc:
+                if not future.done():
+                    future.set_exception(exc)
+            else:
+                if not future.done():
+                    future.set_result(conversation_id)
+                did_work = True
+            finally:
+                self._once_requests.task_done()
+
     async def _release_driver_if_idle(self) -> None:
         if self.driver is None or self._active_conversations:
             return
@@ -826,6 +852,7 @@ class Prompta:
     async def run(self, *, once: bool = False) -> None:
         while True:
             await self._poll_active_conversations()
+            did_work = await self._drain_once_requests()
             jobs = self.read_jobs()
             if not jobs:
                 await self._release_driver_if_idle()
@@ -836,7 +863,6 @@ class Prompta:
             now = time.time()
             scheduled_jobs = list(jobs.values())
             self._ensure_initial_schedules(scheduled_jobs, now)
-            did_work = False
             for job in scheduled_jobs:
                 if await self._run_job(job, now=now):
                     did_work = True
@@ -1083,6 +1109,159 @@ def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     print(bottom)
 
 
+def _control_socket_path(state_path: Path) -> Path:
+    return state_path.expanduser().parent / _CONTROL_SOCKET_NAME
+
+
+def _daemon_lock_path(state_path: Path) -> Path:
+    return state_path.expanduser().parent / _DAEMON_LOCK_NAME
+
+
+def _daemon_is_running(state_path: Path) -> bool:
+    path = _daemon_lock_path(state_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return True
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    handle.close()
+    return False
+
+
+def _acquire_daemon_lock(state_path: Path) -> Any:
+    path = _daemon_lock_path(state_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+")
+    os.chmod(path, 0o600)
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        handle.close()
+        raise RuntimeError("another Prompta scheduler is already running") from exc
+    return handle
+
+
+async def _handle_control_client(
+    prompta: Prompta,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+) -> None:
+    try:
+        raw = await asyncio.wait_for(reader.readline(), timeout=10.0)
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("op") != "once":
+            raise ValueError("unsupported Prompta control request")
+        prompt = str(payload.get("prompt") or "")
+        if not prompt.strip():
+            raise ValueError("prompta prompt is empty")
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        await prompta._once_requests.put((prompt, future))
+        conversation_id = await future
+        response = {"ok": True, "conversation_id": conversation_id}
+    except Exception as exc:
+        response = {"ok": False, "error": str(exc)}
+    try:
+        writer.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
+        await writer.drain()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def _start_control_server(
+    prompta: Prompta,
+    state_path: Path,
+) -> tuple[asyncio.AbstractServer, Path]:
+    path = _control_socket_path(state_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    server = await asyncio.start_unix_server(
+        lambda reader, writer: _handle_control_client(prompta, reader, writer),
+        path=str(path),
+    )
+    os.chmod(path, 0o600)
+    return server, path
+
+
+async def _send_once_via_control(state_path: Path, prompt: str) -> str:
+    path = _control_socket_path(state_path)
+    deadline = asyncio.get_running_loop().time() + _CONTROL_CONNECT_TIMEOUT_SECONDS
+    last_error: OSError | None = None
+    while True:
+        try:
+            reader, writer = await asyncio.open_unix_connection(str(path))
+            break
+        except OSError as exc:
+            last_error = exc
+            if asyncio.get_running_loop().time() >= deadline:
+                raise RuntimeError(
+                    f"Prompta scheduler is running but its control socket is unavailable: {path}"
+                ) from last_error
+            await asyncio.sleep(0.1)
+    try:
+        writer.write(
+            (json.dumps({"op": "once", "prompt": prompt}, ensure_ascii=False) + "\n").encode(
+                "utf-8"
+            )
+        )
+        await writer.drain()
+        raw = await asyncio.wait_for(
+            reader.readline(),
+            timeout=_CONTROL_SEND_TIMEOUT_SECONDS,
+        )
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    if not raw:
+        raise RuntimeError("Prompta scheduler closed the control connection without a response")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise RuntimeError(
+            str(payload.get("error") or "Prompta scheduler rejected one-shot request")
+        )
+    conversation_id = str(payload.get("conversation_id") or "")
+    if not conversation_id:
+        raise RuntimeError("Prompta scheduler returned an empty conversation id")
+    return conversation_id
+
+
+async def _wait_for_cache_completion(
+    cache_path: Path,
+    conversation_id: str,
+    *,
+    timeout_seconds: float = _CACHE_COMPLETION_TIMEOUT_SECONDS,
+) -> bool:
+    deadline = asyncio.get_running_loop().time() + max(1.0, timeout_seconds)
+    expanded = cache_path.expanduser()
+    while asyncio.get_running_loop().time() < deadline:
+        if expanded.exists():
+            try:
+                connection = sqlite3.connect(expanded, timeout=1.0)
+                try:
+                    row = connection.execute(
+                        "SELECT status FROM conversations WHERE id = ?",
+                        (conversation_id,),
+                    ).fetchone()
+                finally:
+                    connection.close()
+            except sqlite3.Error:
+                row = None
+            if row is not None:
+                status = str(row[0] or "")
+                if status == "complete":
+                    return True
+                if status == "interrupted":
+                    return False
+        await asyncio.sleep(_IDLE_POLL_SECONDS)
+    return False
+
+
 async def _firefox_port_is_open(port: int) -> bool:
     try:
         _reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -1184,38 +1363,70 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _run(args: argparse.Namespace) -> None:
+    if args.command == "once":
+        _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
+        if not args.bidi_url and _daemon_is_running(args.state):
+            conversation_id = await _send_once_via_control(args.state, args.prompt)
+            _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+            _print_notice("…", "Waiting", "assistant response", tone="36")
+            if await _wait_for_cache_completion(args.cache, conversation_id):
+                _print_notice("✓", "Cached", "assistant response complete", tone="32")
+            return
+
+    daemon_lock: Any = None
+    control_server: asyncio.AbstractServer | None = None
+    control_path: Path | None = None
     firefox: asyncio.subprocess.Process | None = None
-    if args.bidi_url:
-        bidi_url = args.bidi_url
-    else:
-        firefox = await _spawn_firefox(args.firefox_profile, args.firefox_path, args.firefox_port)
-        bidi_url = f"ws://127.0.0.1:{args.firefox_port}/session"
-    prompta = Prompta(
-        PromptaConfig(
-            jobs_file=getattr(args, "jobs_file", DEFAULT_JOBS_PATH),
-            state_path=args.state,
-            cache_path=args.cache,
-            send_timeout_seconds=max(1.0, args.send_timeout_seconds),
-        ),
-        bidi_url,
-    )
+    prompta: Prompta | None = None
+
     if args.command == "run":
-        orphaned = prompta.cache.mark_orphaned_active()
-        if orphaned:
-            logger.info(
-                "Prompta marked %d cached conversation(s) interrupted after restart", orphaned
-            )
+        daemon_lock = _acquire_daemon_lock(args.state)
+
     try:
+        if args.bidi_url:
+            bidi_url = args.bidi_url
+        else:
+            firefox = await _spawn_firefox(
+                args.firefox_profile, args.firefox_path, args.firefox_port
+            )
+            bidi_url = f"ws://127.0.0.1:{args.firefox_port}/session"
+
+        prompta = Prompta(
+            PromptaConfig(
+                jobs_file=getattr(args, "jobs_file", DEFAULT_JOBS_PATH),
+                state_path=args.state,
+                cache_path=args.cache,
+                send_timeout_seconds=max(1.0, args.send_timeout_seconds),
+            ),
+            bidi_url,
+        )
+        if args.command == "run":
+            orphaned = prompta.cache.mark_orphaned_active()
+            if orphaned:
+                logger.info(
+                    "Prompta marked %d cached conversation(s) interrupted after restart", orphaned
+                )
+            control_server, control_path = await _start_control_server(prompta, args.state)
+
         if args.command == "once":
-            _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
             conversation_id = await prompta.send_once(args.prompt)
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+            _print_notice("…", "Waiting", "assistant response", tone="36")
             if await prompta.wait_for_cached_response(conversation_id):
                 _print_notice("✓", "Cached", "assistant response complete", tone="32")
         else:
             await prompta.run(once=args.once)
     finally:
-        await prompta.close()
+        if control_server is not None:
+            control_server.close()
+            await control_server.wait_closed()
+        if control_path is not None:
+            try:
+                control_path.unlink()
+            except FileNotFoundError:
+                pass
+        if prompta is not None:
+            await prompta.close()
         if firefox is not None and firefox.returncode is None:
             firefox.terminate()
             try:
@@ -1223,6 +1434,9 @@ async def _run(args: argparse.Namespace) -> None:
             except TimeoutError:
                 firefox.kill()
                 await firefox.wait()
+        if daemon_lock is not None:
+            fcntl.flock(daemon_lock.fileno(), fcntl.LOCK_UN)
+            daemon_lock.close()
 
 
 class _TerminalLogFormatter(logging.Formatter):

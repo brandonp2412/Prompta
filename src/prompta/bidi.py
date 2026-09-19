@@ -11,6 +11,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
+_BIDI_CALL_TIMEOUT_SECONDS = 30.0
 
 
 class FirefoxBiDiDriver:
@@ -33,28 +34,12 @@ class FirefoxBiDiDriver:
     async def connect(self) -> None:
         if self.is_connected:
             return
-        session_deadline = asyncio.get_running_loop().time() + 5 * 60.0
-        while True:
-            self.ws = await websockets.connect(
-                self.url,
-                max_size=16 * 1024 * 1024,
-                ping_interval=None,
-            )
-            try:
-                response = await self._call("session.new", {"capabilities": {}})
-                break
-            except RuntimeError as exc:
-                if "maximum number of active sessions" not in str(exc).casefold():
-                    raise
-                try:
-                    await self.ws.close()
-                finally:
-                    self.ws = None
-                if asyncio.get_running_loop().time() >= session_deadline:
-                    raise RuntimeError(
-                        "Firefox BiDi session remained busy for 5 minutes"
-                    ) from exc
-                await asyncio.sleep(0.5)
+        self.ws = await websockets.connect(
+            self.url,
+            max_size=16 * 1024 * 1024,
+            ping_interval=None,
+        )
+        response = await self._call("session.new", {"capabilities": {}})
         if response.get("type") != "success":
             raise RuntimeError(f"Firefox BiDi session failed: {response}")
         tree = await self._call("browsingContext.getTree", {})
@@ -96,9 +81,17 @@ class FirefoxBiDiDriver:
         self.request_id += 1
         request_id = self.request_id
         try:
-            await self.ws.send(json.dumps({"id": request_id, "method": method, "params": params}))
+            await asyncio.wait_for(
+                self.ws.send(json.dumps({"id": request_id, "method": method, "params": params})),
+                timeout=_BIDI_CALL_TIMEOUT_SECONDS,
+            )
             while True:
-                message = json.loads(await self.ws.recv())
+                message = json.loads(
+                    await asyncio.wait_for(
+                        self.ws.recv(),
+                        timeout=_BIDI_CALL_TIMEOUT_SECONDS,
+                    )
+                )
                 if message.get("id") != request_id:
                     self._handle_bidi_event(message)
                     continue
@@ -107,6 +100,20 @@ class FirefoxBiDiDriver:
                         f"{method}: {message.get('error')}: {message.get('message')}"
                     )
                 return message
+        except TimeoutError as exc:
+            ws = self.ws
+            self.ws = None
+            self.context = ""
+            self._network_subscribed = False
+            self._send_capture = None
+            if ws is not None:
+                try:
+                    await asyncio.wait_for(ws.close(), timeout=2.0)
+                except Exception:
+                    pass
+            raise RuntimeError(
+                f"{method}: Firefox BiDi call timed out after {_BIDI_CALL_TIMEOUT_SECONDS:.0f}s"
+            ) from exc
         except ConnectionClosed:
             self.ws = None
             self.context = ""
