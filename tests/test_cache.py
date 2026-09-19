@@ -160,6 +160,39 @@ def test_snapshot_replaces_seed_and_removes_transient_messages(tmp_path: Path) -
     ]
 
 
+def test_request_placeholder_is_never_persisted(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "request-placeholder-request-conversation-1-0",
+                    "role": "assistant",
+                    "content": "Thinking",
+                },
+            ],
+        },
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [(message["message_key"], message["content"]) for message in messages] == [
+        ("u1", "Do work"),
+    ]
+
+
 def test_partial_snapshot_does_not_delete_previous_canonical_turns(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

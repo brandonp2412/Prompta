@@ -268,6 +268,8 @@ class ChatCache:
             content = str(message.get("content") or "")
             raw_key = str(message.get("id") or "")
             message_key = raw_key or f"{role}:{snapshot_index}"
+            if role == "assistant" and message_key.startswith("request-placeholder-"):
+                continue
             incoming.append((snapshot_index, role, content, message_key))
 
         first_incoming = incoming[0] if incoming else None
