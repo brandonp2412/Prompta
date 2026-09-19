@@ -6,7 +6,8 @@
   <meta name="theme-color" content="#212121">
   <meta name="color-scheme" content="dark light">
   <meta name="description" content="Local Prompta conversation viewer and message composer.">
-  <title>Prompta</title>
+  <title>Prompta · __PROMPTA_SERVER_NAME__</title>
+  <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23ececec'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-family='Arial' font-size='34' font-weight='700' fill='%23171717'%3EP%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./app.css">
 </head>
@@ -21,7 +22,7 @@
           <div class="brand-mark" aria-hidden="true">P</div>
           <div class="brand-copy">
             <strong>Prompta</strong>
-            <span>conversation cache</span>
+            <span>__PROMPTA_SERVER_NAME__</span>
           </div>
           <div class="live-orb" id="globalLiveOrb" title="Cache status"></div>
         </div>
@@ -102,5 +103,6 @@
     </main>
   </div>
   <script src="./app.js" defer></script>
+  <script src="./sidebar.js" defer></script>
 </body>
 </html>

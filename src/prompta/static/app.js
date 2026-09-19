@@ -53,6 +53,13 @@ const els = {
   composerStatus: document.querySelector("#composerStatus"),
 };
 
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("./sw.js").catch((error) => {
+    console.debug("Prompta service worker unavailable", error);
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -922,7 +929,8 @@ els.messageForm.addEventListener("submit", (event) => {
 
 els.messageInput.addEventListener("input", resizeComposer);
 els.messageInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+  const desktopKeyboard = matchMedia("(pointer: fine)").matches;
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && desktopKeyboard) {
     event.preventDefault();
     sendSelectedMessage();
   }
@@ -994,4 +1002,5 @@ document.addEventListener("visibilitychange", () => {
 });
 
 resizeComposer();
+registerServiceWorker();
 loadChats().finally(startEventStream);

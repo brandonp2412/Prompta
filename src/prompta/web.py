@@ -9,12 +9,14 @@ import json
 import logging
 import mimetypes
 import shlex
+import socket
 import sqlite3
 import subprocess
 import threading
 import time
 import uuid
 from collections.abc import Callable
+from html import escape as html_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -408,11 +410,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         store: ReadOnlyChatStore,
         state_path: Path = DEFAULT_STATE_PATH,
         control_host: str = "",
+        server_name: str = "",
     ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
         self.state_path = state_path.expanduser()
         self.control_host = control_host.strip()
+        raw_server_name = server_name.strip() or socket.gethostname().strip() or "local"
+        self.server_name = raw_server_name.replace("-", " ").title()
         self._local_send_lock = threading.Lock()
         self.send_jobs = SendJobRegistry(self._send)
 
@@ -464,6 +469,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def send_jobs(self) -> SendJobRegistry:
         return cast(PromptaUIServer, self.server).send_jobs
 
+    @property
+    def ui_server_name(self) -> str:
+        return cast(PromptaUIServer, self.server).server_name
+
     def _message_from_json_body(self) -> str | None:
         content_type = self.headers.get("Content-Type", "")
         if not content_type.casefold().startswith("application/json"):
@@ -504,6 +513,43 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def _json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
         self._headers(status, "application/json; charset=utf-8")
+        self.wfile.write(body)
+
+    def _index(self) -> None:
+        try:
+            body = (_STATIC_ROOT / "index.html").read_text().replace(
+                "__PROMPTA_SERVER_NAME__",
+                html_escape(self.ui_server_name),
+            ).encode()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._headers(HTTPStatus.OK, "text/html; charset=utf-8")
+        self.wfile.write(body)
+
+    def _manifest(self) -> None:
+        name = f"Prompta · {self.ui_server_name}"
+        payload = {
+            "id": "./",
+            "name": name,
+            "short_name": name,
+            "description": "Fast local-first Prompta conversation UI",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": "#212121",
+            "theme_color": "#212121",
+            "icons": [
+                {
+                    "src": "./icon.svg",
+                    "sizes": "any",
+                    "type": "image/svg+xml",
+                    "purpose": "any maskable",
+                }
+            ],
+        }
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        self._headers(HTTPStatus.OK, "application/manifest+json; charset=utf-8")
         self.wfile.write(body)
 
     def _event_stream(self) -> None:
@@ -560,13 +606,25 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/":
-            self._static("index.html", "text/html")
+            self._index()
             return
         if path == "/app.css":
             self._static("app.css", "text/css")
             return
         if path == "/app.js":
             self._static("app.js", "text/javascript")
+            return
+        if path == "/sidebar.js":
+            self._static("sidebar.js", "text/javascript")
+            return
+        if path == "/sw.js":
+            self._static("sw.js", "text/javascript")
+            return
+        if path == "/icon.svg":
+            self._static("icon.svg", "image/svg+xml")
+            return
+        if path == "/manifest.webmanifest":
+            self._manifest()
             return
         if path == "/api/health":
             self._json(self.store.stats())
@@ -656,10 +714,11 @@ def serve(
     port: int,
     state_path: Path = DEFAULT_STATE_PATH,
     control_host: str = "",
+    server_name: str = "",
 ) -> None:
     store = ReadOnlyChatStore(cache_path, log_path)
-    server = PromptaUIServer((host, port), store, state_path, control_host)
-    logger.info("Prompta UI listening on http://%s:%d", host, port)
+    server = PromptaUIServer((host, port), store, state_path, control_host, server_name)
+    logger.info("Prompta UI %s listening on http://%s:%d", server.server_name, host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
     if control_host:
         logger.info("Sending replies through Prompta on SSH host %s", control_host)
@@ -681,6 +740,7 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--control-host", default="")
+    parser.add_argument("--server-name", default="")
     parser.add_argument("--logs", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -693,6 +753,7 @@ def main() -> None:
         max(1, min(args.port, 65535)),
         args.state,
         args.control_host,
+        args.server_name,
     )
 
 
