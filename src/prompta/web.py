@@ -232,6 +232,8 @@ print(result)
     completed = subprocess.run(
         [
             "ssh",
+            "-F",
+            str(Path.home() / ".ssh" / "config"),
             "-o",
             "BatchMode=yes",
             "-o",
