@@ -350,8 +350,10 @@ function showMode(mode) {
   const logsMode = state.mode === "logs";
   els.viewport.hidden = logsMode;
   els.logsViewport.hidden = !logsMode;
-  els.logsButton.textContent = logsMode ? "chats" : "logs";
-  els.logsButton.classList.toggle("active", logsMode);
+  if (els.logsButton) {
+    els.logsButton.textContent = logsMode ? "chats" : "logs";
+    els.logsButton.classList.toggle("active", logsMode);
+  }
 
   if (logsMode) {
     els.chatHeading.innerHTML =
@@ -404,8 +406,10 @@ function renderNewChat() {
   state.mode = "chats";
   els.viewport.hidden = false;
   els.logsViewport.hidden = true;
-  els.logsButton.textContent = "logs";
-  els.logsButton.classList.remove("active");
+  if (els.logsButton) {
+    els.logsButton.textContent = "logs";
+    els.logsButton.classList.remove("active");
+  }
   els.emptyState.hidden = false;
   els.conversation.hidden = true;
   els.conversation.innerHTML = "";
@@ -548,9 +552,11 @@ document.addEventListener("keydown", (event) => {
 els.openSidebar.addEventListener("click", () => document.body.classList.add("sidebar-open"));
 els.closeSidebar.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
 els.sidebarScrim.addEventListener("click", () => document.body.classList.remove("sidebar-open"));
-els.logsButton.addEventListener("click", () => {
-  showMode(state.mode === "logs" ? "chats" : "logs");
-});
+if (els.logsButton) {
+  els.logsButton.addEventListener("click", () => {
+    showMode(state.mode === "logs" ? "chats" : "logs");
+  });
+}
 els.newChatButton.addEventListener("click", renderNewChat);
 
 function resizeComposer() {

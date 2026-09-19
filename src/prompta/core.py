@@ -1061,10 +1061,10 @@ class Prompta:
                 self._reply_requests.task_done()
 
     async def _release_driver_if_idle(self) -> None:
-        if self.driver is None or self._active_conversations:
-            return
-        await self.driver.close()
-        self.driver = None
+        # Keep one Firefox BiDi session for the daemon lifetime. Firefox only allows
+        # one active session, and cycling session.end/session.new can leave the
+        # remote agent reporting a stale active session after disconnects.
+        return
 
     async def run(self, *, once: bool = False) -> None:
         while True:
