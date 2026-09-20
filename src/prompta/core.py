@@ -944,11 +944,19 @@ class Prompta:
             logger.exception("Prompta job=%s send failed: %s", job.name, exc)
             retry_until = time.time() + _FAILURE_RETRY_SECONDS
             self._mark_failure(job.name, str(exc), retry_until=retry_until)
+            browser_restart_required = bool(
+                self.driver is not None and self.driver.needs_browser_restart is True
+            )
             if self.driver is not None:
                 self._interrupt_active_conversations()
-                await self.driver.close()
-                self.driver = None
+                if not browser_restart_required:
+                    await self.driver.close()
+                    self.driver = None
             self._failure_retry_until[job.name] = retry_until
+            if browser_restart_required:
+                raise RuntimeError(
+                    "Firefox BiDi session was lost; restarting Prompta to recycle Firefox"
+                ) from exc
             return False
         sent_at = time.time()
         if job.daily_at is not None:
@@ -1019,11 +1027,11 @@ class Prompta:
             messages = snapshot.get("messages")
             if not isinstance(messages, list):
                 messages = []
-            has_assistant = any(
-                isinstance(message, dict)
-                and str(message.get("role") or "") == "assistant"
-                and bool(str(message.get("content") or "").strip())
-                for message in messages
+            last_message = messages[-1] if messages else None
+            has_assistant = (
+                isinstance(last_message, dict)
+                and str(last_message.get("role") or "") == "assistant"
+                and bool(str(last_message.get("content") or "").strip())
             )
             streaming = bool(snapshot.get("streaming"))
 
@@ -1151,6 +1159,10 @@ class Prompta:
             await self._poll_active_conversations()
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
+            if self.driver is not None and self.driver.needs_browser_restart is True:
+                raise RuntimeError(
+                    "Firefox BiDi session was lost; restarting Prompta to recycle Firefox"
+                )
             jobs = self.read_jobs()
             if not jobs:
                 await self._release_driver_if_idle()
@@ -1183,11 +1195,11 @@ class Prompta:
                     messages = snapshot.get("messages")
                     if not isinstance(messages, list):
                         messages = []
-                    has_assistant = any(
-                        isinstance(message, dict)
-                        and str(message.get("role") or "") == "assistant"
-                        and bool(str(message.get("content") or "").strip())
-                        for message in messages
+                    last_message = messages[-1] if messages else None
+                    has_assistant = (
+                        isinstance(last_message, dict)
+                        and str(last_message.get("role") or "") == "assistant"
+                        and bool(str(last_message.get("content") or "").strip())
                     )
                     complete = complete or (has_assistant and not bool(snapshot.get("streaming")))
                     self.cache.write_snapshot(

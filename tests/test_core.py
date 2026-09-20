@@ -990,6 +990,79 @@ async def test_poll_active_conversations_reconnects_before_cache_capture(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-reply"
+    context_id = "context-reply"
+    waiting_snapshot = {
+        "title": "Existing chat",
+        "messages": [
+            {"id": "user-1", "role": "user", "content": "First request", "status": "complete"},
+            {"id": "assistant-1", "role": "assistant", "content": "First answer", "status": "complete"},
+            {"id": "user-2", "role": "user", "content": "Follow-up", "status": "complete"},
+        ],
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="First request",
+    )
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="First request",
+        last_digest=prompta.cache.digest(waiting_snapshot),
+        idle_polls=2,
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_snapshot = AsyncMock(return_value=waiting_snapshot)
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    assert active.idle_polls == 0
+    assert active.settled_at == 0.0
+    assert prompta.cache.recent_conversations()[0]["status"] == "active"
+
+    completed_snapshot = {
+        **waiting_snapshot,
+        "messages": [
+            *waiting_snapshot["messages"],
+            {
+                "id": "assistant-2",
+                "role": "assistant",
+                "content": "Follow-up answer",
+                "status": "complete",
+            },
+        ],
+    }
+    driver.conversation_snapshot.return_value = completed_snapshot
+
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+
+    assert active.settled_at > 0.0
+    assert prompta.cache.recent_conversations()[0]["status"] == "complete"
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_wait_for_cached_response_polls_until_conversation_completes(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     prompta._active_conversations["context-1"] = ActiveConversation(
@@ -1022,6 +1095,23 @@ async def test_run_does_not_abort_just_because_driver_disconnected(tmp_path: Pat
     await prompta.run(once=True)
 
     prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_run_restarts_owned_browser_after_poisoned_bidi_session(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.is_connected = False
+    driver.needs_browser_restart = True
+    prompta.driver = cast(Any, driver)
+    prompta._poll_active_conversations = AsyncMock()  # type: ignore[method-assign]
+    prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="recycle Firefox"):
+        await prompta.run(once=True)
+
     prompta.cache.close()
 
 
