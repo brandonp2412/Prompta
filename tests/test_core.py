@@ -53,6 +53,7 @@ class FakeDriver:
         self.typed = initial_composer
         self.sent = False
         self.send_button_clicked = False
+        self.attached_files: list[str] = []
         self.clear_composer_calls = 0
         self.capture: dict[str, Any] = {
             "request_id": "request-1" if capture_status else "",
@@ -104,6 +105,9 @@ class FakeDriver:
     async def clear_composer(self) -> None:
         self.clear_composer_calls += 1
         self.typed = ""
+
+    async def attach_files(self, paths: list[str]) -> None:
+        self.attached_files = list(paths)
 
     async def click_send(self) -> None:
         self.sent = True
@@ -268,14 +272,13 @@ async def test_send_once_with_attachment_clicks_send_button(tmp_path: Path) -> N
     prompt = "PROMPTA ATTACHMENT TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt)
-    fake.attach_files = AsyncMock()  # type: ignore[method-assign]
     prompta.driver = cast(Any, fake)
     prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt, attachments=["/tmp/sample.txt"])
 
     assert conversation_id == "new-chat"
-    fake.attach_files.assert_awaited_once_with(["/tmp/sample.txt"])  # type: ignore[attr-defined]
+    assert fake.attached_files == ["/tmp/sample.txt"]
     assert fake.send_button_clicked is True
     assert fake.sent is True
 
