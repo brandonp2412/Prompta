@@ -1147,6 +1147,13 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         )
         self.end_headers()
 
+    def _write_response(self, status: HTTPStatus, content_type: str, body: bytes) -> None:
+        try:
+            self._headers(status, content_type)
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            logger.debug("Prompta UI client disconnected before response completed")
+
     def _json(
         self,
         payload: Any,
@@ -1155,8 +1162,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         content_type: str = "application/json; charset=utf-8",
     ) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-        self._headers(status, content_type)
-        self.wfile.write(body)
+        self._write_response(status, content_type, body)
 
     def _manifest(self) -> None:
         server = cast(PromptaUIServer, self.server)
@@ -1197,8 +1203,11 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         mime = content_type or mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        self._headers(HTTPStatus.OK, f"{mime}; charset=utf-8" if mime.startswith("text/") else mime)
-        self.wfile.write(body)
+        self._write_response(
+            HTTPStatus.OK,
+            f"{mime}; charset=utf-8" if mime.startswith("text/") else mime,
+            body,
+        )
 
     def _events(self) -> None:
         server = cast(PromptaUIServer, self.server)
