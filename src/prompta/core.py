@@ -447,31 +447,7 @@ class Prompta:
             )
 
     async def _pointer_click(self, driver: FirefoxBiDiDriver, x: float, y: float) -> None:
-        await driver._call(
-            "input.performActions",
-            {
-                "context": driver.context,
-                "actions": [
-                    {
-                        "type": "pointer",
-                        "id": "mouse",
-                        "parameters": {"pointerType": "mouse"},
-                        "actions": [
-                            {
-                                "type": "pointerMove",
-                                "x": int(x),
-                                "y": int(y),
-                                "duration": 0,
-                                "origin": "viewport",
-                            },
-                            {"type": "pointerDown", "button": 0},
-                            {"type": "pointerUp", "button": 0},
-                        ],
-                    }
-                ],
-            },
-        )
-        await driver._call("input.releaseActions", {"context": driver.context})
+        await driver._click_viewport_point(driver.context, x, y)
 
     async def _effort_trigger_info(
         self,
@@ -496,8 +472,13 @@ class Prompta:
                     if(button)break;
                   }
                   if(!button)return null;
+                  button.scrollIntoView({block:'center',inline:'center'});
                   const r=button.getBoundingClientRect();
-                  return {text:normalise(button.innerText||button.textContent||''),x:r.left+r.width/2,y:r.top+r.height/2};
+                  const width=document.documentElement.clientWidth||window.innerWidth;
+                  const height=document.documentElement.clientHeight||window.innerHeight;
+                  const x=r.left+r.width/2,y=r.top+r.height/2;
+                  if(x<0||y<0||x>=width||y>=height)return null;
+                  return {text:normalise(button.innerText||button.textContent||''),x,y};
                 })())"""
             )
             if raw and raw != "null":
@@ -523,7 +504,11 @@ class Prompta:
                   const ticks=[...root.querySelectorAll('[data-locked]')];
                   if(ticks[target]?.getAttribute('data-locked')==='true')return {error:'high-locked'};
                   const r=root.getBoundingClientRect(),pad=13;
-                  return {x:r.left+pad+(r.width-pad*2)*(target-min)/(max-min),y:r.top+r.height/2};
+                  const width=document.documentElement.clientWidth||window.innerWidth;
+                  const height=document.documentElement.clientHeight||window.innerHeight;
+                  const x=r.left+pad+(r.width-pad*2)*(target-min)/(max-min),y=r.top+r.height/2;
+                  if(x<0||y<0||x>=width||y>=height)return null;
+                  return {x,y};
                 })())"""
             )
             if raw and raw != "null":
@@ -543,9 +528,22 @@ class Prompta:
         if str(trigger.get("text") or "").strip().casefold() == "high":
             logger.info("Prompta verified thinking effort=High")
             return
-        await self._pointer_click(driver, float(trigger["x"]), float(trigger["y"]))
-        point = await self._high_effort_slider_point(driver)
-        await self._pointer_click(driver, point["x"], point["y"])
+        for attempt in range(2):
+            try:
+                await self._pointer_click(driver, float(trigger["x"]), float(trigger["y"]))
+                break
+            except RuntimeError as exc:
+                if "out of bounds" not in str(exc).casefold() or attempt > 0:
+                    raise
+                trigger = await self._effort_trigger_info(driver)
+        for attempt in range(2):
+            point = await self._high_effort_slider_point(driver)
+            try:
+                await self._pointer_click(driver, point["x"], point["y"])
+                break
+            except RuntimeError as exc:
+                if "out of bounds" not in str(exc).casefold() or attempt > 0:
+                    raise
         deadline = asyncio.get_running_loop().time() + 2.0
         while asyncio.get_running_loop().time() < deadline:
             value = str(
@@ -559,23 +557,19 @@ class Prompta:
             await asyncio.sleep(0.1)
         else:
             raise RuntimeError("ChatGPT thinking-effort slider did not reach High")
-        await driver._call(
-            "input.performActions",
-            {
-                "context": driver.context,
-                "actions": [
-                    {
-                        "type": "key",
-                        "id": "keyboard",
-                        "actions": [
-                            {"type": "keyDown", "value": "\ue00c"},
-                            {"type": "keyUp", "value": "\ue00c"},
-                        ],
-                    }
-                ],
-            },
+        await driver._perform_actions(
+            driver.context,
+            [
+                {
+                    "type": "key",
+                    "id": "keyboard",
+                    "actions": [
+                        {"type": "keyDown", "value": "\ue00c"},
+                        {"type": "keyUp", "value": "\ue00c"},
+                    ],
+                }
+            ],
         )
-        await driver._call("input.releaseActions", {"context": driver.context})
         await asyncio.sleep(0.2)
         verified = await self._effort_trigger_info(driver)
         if str(verified.get("text") or "").strip().casefold() != "high":
