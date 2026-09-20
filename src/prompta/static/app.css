@@ -453,8 +453,11 @@ textarea:focus-visible {
 
 .heading-meta {
   margin-top: 2px;
+  overflow: hidden;
   color: #858585;
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-actions {
@@ -1404,7 +1407,16 @@ textarea:focus-visible {
   }
 
   .topbar-actions {
+    gap: 6px;
+  }
+
+  .topbar-actions #pinChatButton,
+  .topbar-actions #syncLabel {
     display: none;
+  }
+
+  .chat-row-pin {
+    display: grid;
   }
 
   .main-panel {
