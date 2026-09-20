@@ -1230,6 +1230,16 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
 
     assert active.settled_at > 0.0
     assert prompta.cache.recent_conversations()[0]["status"] == "complete"
+
+    # Completed tabs are only retained briefly for immediate replies; they must
+    # not accumulate for tens of minutes and push headless Firefox into cgroup
+    # memory reclaim while another send is starting.
+    active.settled_at -= 16.0
+    driver.close_context = AsyncMock()
+    await prompta._poll_active_conversations()
+
+    driver.close_context.assert_awaited_once_with(context_id)
+    assert context_id not in prompta._active_conversations
     prompta.cache.close()
 
 
