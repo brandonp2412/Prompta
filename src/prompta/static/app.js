@@ -68,7 +68,7 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = ne
   return -1;
 }
 function parseScheduleSlashCommand(message) {
-  if (!message.startsWith("/every"))
+  if (!/^\/every(?:\s|$)/i.test(message))
     return null;
   const match = message.match(/^\/every\s+(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\s+([\s\S]+)$/i);
   if (!match) {
@@ -91,7 +91,7 @@ function formatScheduleInterval(minutes) {
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 function parseAtSlashCommand(message, now = new Date) {
-  if (!message.startsWith("/at"))
+  if (!/^\/at(?:\s|$)/i.test(message))
     return null;
   const match = message.match(/^\/at\s+(today|tomorrow|\d{4}-\d{2}-\d{2})(?:[T\s]+)([01]\d|2[0-3]):([0-5]\d)\s+([\s\S]+)$/i);
   if (!match) {
@@ -174,7 +174,9 @@ var state = {
   chatStatuses: new Map,
   statusBaselineReady: false,
   attachments: [],
-  pinnedIds: loadPinnedIds()
+  pinnedIds: loadPinnedIds(),
+  eventSource: null,
+  liveUpdatesPaused: false
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -2143,12 +2145,22 @@ function startFallbackRefresh() {
     loadServerIdentity();
   }, 5000);
 }
+function stopEventStream() {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+  stopFallbackRefresh();
+}
 function startEventStream() {
+  if (state.eventSource)
+    return;
   if (!("EventSource" in window)) {
     startFallbackRefresh();
     return;
   }
   const events = new EventSource("api/events");
+  state.eventSource = events;
   events.addEventListener("refresh", (event) => {
     stopFallbackRefresh();
     try {
@@ -2163,11 +2175,19 @@ function startEventStream() {
     els.globalLiveOrb.classList.remove("live");
     startFallbackRefresh();
   });
-  window.addEventListener("pagehide", () => {
-    events.close();
-    stopFallbackRefresh();
-  }, { once: true });
 }
+window.addEventListener("pagehide", () => {
+  state.liveUpdatesPaused = true;
+  stopEventStream();
+});
+window.addEventListener("pageshow", () => {
+  if (!state.liveUpdatesPaused)
+    return;
+  state.liveUpdatesPaused = false;
+  loadServerIdentity();
+  loadChats();
+  startEventStream();
+});
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator))
     return;

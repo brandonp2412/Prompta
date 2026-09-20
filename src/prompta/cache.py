@@ -30,6 +30,8 @@ class ActiveConversation:
     last_live_snapshot_at: float = 0.0
     delivery_retry_attempts: int = 0
     delivery_retry_at: float = 0.0
+    transient_since_epoch: float = 0.0
+    recovered_cache_updated_at: float = 0.0
 
 
 class ChatCache:

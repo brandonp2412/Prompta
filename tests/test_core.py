@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -1321,6 +1322,115 @@ async def test_poll_active_conversations_caches_streaming_updates_without_snapsh
 
     await prompta._poll_active_conversations()
     assert driver.conversation_snapshot.await_count == 1
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_poll_active_conversation_keeps_brief_connection_interruption_live(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-transient"
+    context_id = "context-transient"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": False,
+            "transient": True,
+            "failed": False,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "title": "Interrupted temporarily",
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": "Partial answer"},
+            ],
+            "streaming": False,
+        }
+    )
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    assert active.transient_since_epoch > 0
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    driver.close_context.assert_not_awaited()
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_poll_active_conversation_interrupts_stale_recovered_connection_failure(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-stale-transient"
+    context_id = "context-stale-transient"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations[context_id] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+        recovered_cache_updated_at=time.time() - 16 * 60,
+    )
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": False,
+            "transient": True,
+            "failed": False,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock()
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert context_id not in prompta._active_conversations
+    driver.conversation_snapshot.assert_not_awaited()
+    driver.close_context.assert_awaited_once_with(context_id)
     prompta.cache.close()
 
 

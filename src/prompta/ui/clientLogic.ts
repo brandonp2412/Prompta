@@ -117,7 +117,7 @@ export function matchingPendingReplyMessageIndex(
 }
 
 export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {
-  if (!message.startsWith("/every")) return null;
+  if (!/^\/every(?:\s|$)/i.test(message)) return null;
 
   const match = message.match(
     /^\/every\s+(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\s+([\s\S]+)$/i,
@@ -148,7 +148,7 @@ export function formatScheduleInterval(minutes: number): string {
 
 
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
-  if (!message.startsWith("/at")) return null;
+  if (!/^\/at(?:\s|$)/i.test(message)) return null;
 
   const match = message.match(
     /^\/at\s+(today|tomorrow|\d{4}-\d{2}-\d{2})(?:[T\s]+)([01]\d|2[0-3]):([0-5]\d)\s+([\s\S]+)$/i,

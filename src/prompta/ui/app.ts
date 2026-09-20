@@ -52,6 +52,8 @@ const state = {
   statusBaselineReady: false,
   attachments: [],
   pinnedIds: loadPinnedIds(),
+  eventSource: null,
+  liveUpdatesPaused: false,
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -2043,12 +2045,21 @@ function startFallbackRefresh() {
     loadServerIdentity();
   }, 5000);
 }
+function stopEventStream() {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+  stopFallbackRefresh();
+}
 function startEventStream() {
+  if (state.eventSource) return;
   if (!("EventSource" in window)) {
     startFallbackRefresh();
     return;
   }
   const events = new EventSource("api/events");
+  state.eventSource = events;
   events.addEventListener("refresh", (event) => {
     stopFallbackRefresh();
     try {
@@ -2063,11 +2074,18 @@ function startEventStream() {
     els.globalLiveOrb.classList.remove("live");
     startFallbackRefresh();
   });
-  window.addEventListener("pagehide", () => {
-    events.close();
-    stopFallbackRefresh();
-  }, { once: true });
 }
+window.addEventListener("pagehide", () => {
+  state.liveUpdatesPaused = true;
+  stopEventStream();
+});
+window.addEventListener("pageshow", () => {
+  if (!state.liveUpdatesPaused) return;
+  state.liveUpdatesPaused = false;
+  loadServerIdentity();
+  loadChats();
+  startEventStream();
+});
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("./sw.js").catch((error) => {
