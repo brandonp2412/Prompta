@@ -1163,8 +1163,8 @@ async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
     setServerStatus(payload.server, payload.online);
-    const head = String(payload.head || "").trim();
-    setTextIfChanged(els.headLabel, head ? "HEAD " + head : "HEAD unknown");
+    const head = String(payload.head || "").trim().toLowerCase();
+    setTextIfChanged(els.headLabel, head ? head : "unknown");
     els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
   } catch (error) {
     setServerStatus(state.serverName || location.hostname, false);
