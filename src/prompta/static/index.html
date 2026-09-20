@@ -55,8 +55,9 @@
           <div class="heading-meta">Local conversation history</div>
         </div>
         <div class="topbar-actions">
+          <button type="button" class="view-button" id="logsButton" aria-pressed="false">logs</button>
           <span class="sync-label" id="syncLabel">local cache</span>
-          <span class="status-chip neutral" id="statusChip">idle</span>
+          <span class="status-chip neutral" id="statusChip" aria-live="polite">idle</span>
         </div>
       </header>
 
@@ -78,7 +79,7 @@
         <div class="logs-shell">
           <div class="logs-header">
             <div>
-              <strong>Glass · prompta.service</strong>
+              <strong>__PROMPTA_SERVER_NAME__ · prompta.service</strong>
               <span id="logsMeta">Waiting for synced journal</span>
             </div>
             <span class="logs-live"><i></i> live</span>
@@ -97,7 +98,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
           </button>
         </form>
-        <div class="composer-status" id="composerStatus"></div>
+        <div class="composer-status" id="composerStatus" aria-live="polite"></div>
       </footer>
     </main>
   </div>

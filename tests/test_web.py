@@ -216,12 +216,43 @@ def test_read_only_store_reads_recent_glass_logs(tmp_path: Path) -> None:
     assert payload["exists"] is True
     assert payload["lines"] == ["line 5", "line 6", "line 7"]
     assert payload["updated_at"] is not None
+    assert payload["source"] == "file"
 
 
 def test_read_only_store_reports_missing_glass_logs(tmp_path: Path) -> None:
-    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
+    store = ReadOnlyChatStore(
+        tmp_path / "chats.sqlite3",
+        tmp_path / "missing.log",
+        journal_unit="",
+    )
 
-    assert store.logs() == {"exists": False, "lines": [], "updated_at": None}
+    assert store.logs() == {
+        "exists": False,
+        "lines": [],
+        "updated_at": None,
+        "source": "none",
+    }
+
+
+def test_read_only_store_falls_back_to_prompta_journal(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
+    completed = MagicMock(
+        returncode=0,
+        stdout="line one\nline two\nline three\n",
+        stderr="",
+    )
+
+    with patch("prompta.web.subprocess.run", return_value=completed) as journal:
+        payload = store.logs(limit=2)
+
+    assert payload["exists"] is True
+    assert payload["source"] == "journal"
+    assert payload["lines"] == ["line two", "line three"]
+    assert payload["updated_at"] is not None
+    journal.assert_called_once()
+    argv = journal.call_args.args[0]
+    assert argv[:5] == ["journalctl", "--user", "-u", "prompta.service", "-n"]
+    assert journal.call_args.kwargs["timeout"] == 2.0
 
 
 def test_read_only_store_hides_request_placeholder_messages(tmp_path: Path) -> None:
@@ -361,6 +392,10 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
 
     assert "Prompta · Glass" in index
     assert "__PROMPTA_SERVER_NAME__" not in index
+    assert 'id="logsButton"' in index
+    assert "<strong>Glass · prompta.service</strong>" in index
+    assert 'id="composerStatus" aria-live="polite"' in index
+    assert 'id="statusChip" aria-live="polite"' in index
     assert manifest["name"] == "Prompta · Glass"
     assert manifest["short_name"] == "Prompta · Glass"
     assert manifest["start_url"] == "./"

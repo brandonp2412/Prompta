@@ -9,6 +9,7 @@ const state = {
   refreshTimer: null,
   mode: "chats",
   logFingerprint: "",
+  logRefreshTimer: null,
   sending: false,
   composingNew: false,
   pendingNewId: null,
@@ -47,6 +48,7 @@ const els = {
   logsButton: document.querySelector("#logsButton"),
   newChatButton: document.querySelector("#newChatButton"),
   logsViewport: document.querySelector("#logsViewport"),
+  composerFooter: document.querySelector("#composerFooter"),
   logOutput: document.querySelector("#logOutput"),
   logsMeta: document.querySelector("#logsMeta"),
   messageForm: document.querySelector("#messageForm"),
@@ -514,7 +516,7 @@ function renderLogs(payload) {
     state.logFingerprint = fingerprint;
     els.logOutput.textContent = lines.length
       ? lines.join("\n")
-      : "No Glass Prompta logs have been synced yet.";
+      : "No Prompta service logs are available yet.";
     if (isInitial || wasNearBottom) {
       requestAnimationFrame(() => {
         els.logsViewport.scrollTop = els.logsViewport.scrollHeight;
@@ -523,8 +525,10 @@ function renderLogs(payload) {
   }
 
   els.logsMeta.textContent = payload.exists
-    ? lines.length + " lines · synced " + formatRelativeTime(payload.updated_at)
-    : "Waiting for synced journal";
+    ? payload.source === "journal"
+      ? lines.length + " lines · live journal"
+      : lines.length + " lines · synced " + formatRelativeTime(payload.updated_at)
+    : "Waiting for Prompta service logs";
 }
 
 async function loadLogs() {
@@ -542,22 +546,31 @@ function showMode(mode) {
   const logsMode = state.mode === "logs";
   els.viewport.hidden = logsMode;
   els.logsViewport.hidden = !logsMode;
+  if (state.logRefreshTimer) {
+    clearInterval(state.logRefreshTimer);
+    state.logRefreshTimer = null;
+  }
   if (els.logsButton) {
     els.logsButton.textContent = logsMode ? "chats" : "logs";
     els.logsButton.classList.toggle("active", logsMode);
+    els.logsButton.setAttribute("aria-pressed", String(logsMode));
   }
+  els.composerFooter.hidden = logsMode;
 
   if (logsMode) {
     els.chatHeading.innerHTML =
-      '<div class="heading-title">Glass Prompta logs</div>'
-      + '<div class="heading-meta">journalctl · prompta.service · synced from Glass</div>';
+      '<div class="heading-title">Prompta service logs</div>'
+      + '<div class="heading-meta">journalctl · prompta.service</div>';
     els.statusChip.textContent = "live";
     els.statusChip.className = "status-chip active";
-    els.syncLabel.textContent = "Glass journal";
+    els.syncLabel.textContent = "service journal";
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
     els.composerStatus.textContent = "";
     loadLogs();
+    state.logRefreshTimer = setInterval(() => {
+      if (state.mode === "logs" && document.visibilityState === "visible") loadLogs();
+    }, 2000);
     return;
   }
 
@@ -1066,20 +1079,16 @@ function queueSidebarRefresh() {
   state.sidebarRefreshTimer = setTimeout(async () => {
     state.sidebarRefreshTimer = null;
     await loadChats({ refreshSelected: false });
-  }, 1500);
+  }, 180);
 }
 
-function queueLiveRefresh(event) {
+function queueLiveRefresh() {
   if (document.visibilityState === "hidden") return;
 
-  let changedId = "";
-  try {
-    changedId = JSON.parse(event?.data || "{}").conversation_id || "";
-  } catch {
-    changedId = "";
-  }
-
-  if (changedId && changedId === state.selectedId && state.mode === "chats") {
+  // The server coalesces cache changes into a cheap aggregate fingerprint.
+  // More than one conversation may change between samples, so always refresh
+  // the selected thread instead of trusting the single newest conversation id.
+  if (state.selectedId && state.mode === "chats") {
     loadSelectedChat();
   }
   queueSidebarRefresh();

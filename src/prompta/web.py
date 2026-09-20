@@ -39,13 +39,19 @@ _STATIC_ROOT = Path(__file__).with_name("static")
 class ReadOnlyChatStore:
     """Open fresh read-only data sources for each web request."""
 
-    def __init__(self, path: Path = DEFAULT_CACHE_PATH, log_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        path: Path = DEFAULT_CACHE_PATH,
+        log_path: Path | None = None,
+        journal_unit: str = "prompta.service",
+    ) -> None:
         self.path = path.expanduser()
         self.log_path = (
             log_path.expanduser()
             if log_path is not None
             else self.path.with_name("prompta-glass.log")
         )
+        self.journal_unit = journal_unit.strip()
 
     def _connect(self) -> sqlite3.Connection:
         if not self.path.is_file():
@@ -175,15 +181,68 @@ class ReadOnlyChatStore:
         return payload
 
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
-        if not self.log_path.is_file():
-            return {"exists": False, "lines": [], "updated_at": None}
+        bounded_limit = max(1, min(limit, 2000))
+        if self.log_path.is_file():
+            try:
+                text = self.log_path.read_text(errors="replace")
+                updated_at = self.log_path.stat().st_mtime
+            except OSError:
+                pass
+            else:
+                return {
+                    "exists": True,
+                    "lines": text.splitlines()[-bounded_limit:],
+                    "updated_at": updated_at,
+                    "source": "file",
+                }
+
+        if not self.journal_unit:
+            return {
+                "exists": False,
+                "lines": [],
+                "updated_at": None,
+                "source": "none",
+            }
+
         try:
-            text = self.log_path.read_text(errors="replace")
-            updated_at = self.log_path.stat().st_mtime
-        except OSError:
-            return {"exists": False, "lines": [], "updated_at": None}
-        lines = text.splitlines()[-max(1, min(limit, 2000)) :]
-        return {"exists": True, "lines": lines, "updated_at": updated_at}
+            completed = subprocess.run(
+                [
+                    "journalctl",
+                    "--user",
+                    "-u",
+                    self.journal_unit,
+                    "-n",
+                    str(bounded_limit),
+                    "--no-pager",
+                    "--output=short-iso",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return {
+                "exists": False,
+                "lines": [],
+                "updated_at": None,
+                "source": "none",
+            }
+
+        lines = completed.stdout.splitlines() if completed.returncode == 0 else []
+        if not lines:
+            return {
+                "exists": False,
+                "lines": [],
+                "updated_at": None,
+                "source": "none",
+            }
+        return {
+            "exists": True,
+            "lines": lines[-bounded_limit:],
+            "updated_at": time.time(),
+            "source": "journal",
+        }
 
     def stats(self) -> dict[str, Any]:
         if not self.path.is_file():
