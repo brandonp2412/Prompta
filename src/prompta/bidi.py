@@ -675,8 +675,13 @@ class FirefoxBiDiDriver:
                   const buttons=scopes.flatMap(scope=>[...scope.querySelectorAll('button')]).filter((button,index,all)=>visible(button)&&enabled(button)&&all.indexOf(button)===index);
                   const button=buttons.find(button=>/^(?:try again|retry|regenerate(?: response)?)$/i.test(label(button)))||buttons.find(button=>/(?:try again|retry)/i.test(label(button)));
                   if(!button)return null;
+                  button.scrollIntoView({block:'center',inline:'center'});
                   const r=button.getBoundingClientRect();
-                  return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};
+                  const width=document.documentElement.clientWidth||window.innerWidth;
+                  const height=document.documentElement.clientHeight||window.innerHeight;
+                  const x=r.left+r.width/2,y=r.top+r.height/2;
+                  if(x<0||y<0||x>=width||y>=height)return null;
+                  return {x,y,label:label(button)};
                 })())""",
                 context=context,
             )
@@ -687,7 +692,15 @@ class FirefoxBiDiDriver:
                     y = float(candidate["y"])
                 except (KeyError, TypeError, ValueError):
                     return False
-                await self._click_viewport_point(context, x, y)
+                try:
+                    await self._click_viewport_point(context, x, y)
+                except RuntimeError as exc:
+                    # Firefox rejects stale viewport coordinates if the page scrolls or
+                    # resizes between the DOM lookup and the trusted pointer action.
+                    if "out of bounds" not in str(exc).lower():
+                        raise
+                    await asyncio.sleep(0.1)
+                    continue
                 return True
             await asyncio.sleep(0.2)
         return False
