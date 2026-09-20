@@ -180,6 +180,23 @@ async def test_connect_retries_transient_firefox_handshake_failure(
 
 
 @pytest.mark.asyncio
+async def test_connect_marks_browser_restart_required_when_endpoint_never_opens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_connect(*args: object, **kwargs: object) -> object:
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(bidi_module.websockets, "connect", fake_connect)
+    monkeypatch.setattr(bidi_module, "_BIDI_CONNECT_RETRY_SECONDS", 0.0)
+    driver = FirefoxBiDiDriver("ws://unused")
+
+    with pytest.raises(RuntimeError, match="endpoint did not become ready"):
+        await driver.connect()
+
+    assert driver.needs_browser_restart is True
+
+
+@pytest.mark.asyncio
 async def test_connect_auth_failure_cleans_connection_before_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
