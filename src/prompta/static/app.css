@@ -527,11 +527,22 @@ textarea:focus-visible {
 }
 
 .composer-new-chat-button {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
   width: 34px;
   height: 34px;
-  flex: 0 0 auto;
-  align-self: flex-end;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
+  background: rgba(47, 47, 47, 0.94);
+  color: var(--muted-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.composer-new-chat-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .icon-button svg {
@@ -994,7 +1005,7 @@ textarea:focus-visible {
   margin: 0 auto;
   padding: 8px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 6px;
   border: 1px solid var(--border-strong);
   border-radius: 18px;
@@ -1016,7 +1027,7 @@ textarea:focus-visible {
   overflow-y: hidden;
   border: 0;
   outline: 0;
-  padding: 7px 3px 5px;
+  padding: 6px 3px;
   background: transparent;
   color: var(--text);
   line-height: 1.45;
@@ -1066,7 +1077,14 @@ textarea:focus-visible {
 .composer-tools {
   position: relative;
   flex: 0 0 auto;
-  align-self: flex-end;
+  align-self: center;
+}
+
+.composer-submit {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .attachment-button {
@@ -1313,6 +1331,10 @@ textarea:focus-visible {
     display: grid;
   }
 
+  .topbar-actions {
+    display: none;
+  }
+
   .main-panel {
     width: 100%;
   }
@@ -1429,6 +1451,10 @@ textarea:focus-visible {
 
   .composer-bar {
     background: rgba(247, 247, 247, 0.94);
+  }
+
+  .composer-new-chat-button {
+    background: rgba(247, 247, 247, 0.96);
   }
 
   .composer-bar:focus-within {
