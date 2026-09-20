@@ -1179,7 +1179,9 @@ class Prompta:
             try:
                 activity = await driver.conversation_activity(context)
                 streaming_hint = bool(activity.get("streaming"))
-                if streaming_hint:
+                completion_hint = bool(activity.get("complete", True))
+                transient_hint = bool(activity.get("transient"))
+                if streaming_hint or transient_hint:
                     active.idle_polls = 0
                     active.settled_at = 0.0
                     now = time.monotonic()
@@ -1214,7 +1216,7 @@ class Prompta:
                 active.idle_polls = 0
                 active.settled_at = 0.0
 
-            if streaming_hint:
+            if streaming_hint or transient_hint:
                 continue
 
             if not changed and has_assistant and not streaming:
@@ -1224,6 +1226,8 @@ class Prompta:
                 active.settled_at = 0.0
 
             if active.idle_polls < 3:
+                continue
+            if not completion_hint and active.idle_polls < 30:
                 continue
 
             if active.settled_at <= 0:

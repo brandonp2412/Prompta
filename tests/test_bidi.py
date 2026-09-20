@@ -242,14 +242,16 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert ".join('\\n\\n')" in expression
     assert "const markdownText=root=>" in expression
     assert "data-tool-call-id" in expression
-    assert 'data-testid*=\"search\" i' in expression
+    assert 'data-testid*="search" i' not in expression
+    assert "Open tool call list" in expression
+    assert "message delivery timed out" in expression.lower()
     assert "conversation-turn-" in expression
     assert "line.includes(text)" in expression
     assert "!node.querySelector(toolSelector)" in expression
     assert "blocks.indexOf(block)===index" in expression
     assert "const seenRoleKeys=new Set()" in expression
-    assert "const activity=!tools.length&&activityLines.length" in expression
-    assert "'```tool:'+name" in expression
+    assert "const activity=!richText.length&&!tools.length&&activityLines.length" in expression
+    assert "'```tool:'+label" in expression
     assert '[data-streaming="active"]' in expression
     assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression

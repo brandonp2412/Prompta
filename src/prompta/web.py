@@ -123,6 +123,14 @@ class ReadOnlyChatStore:
                         c.completed_at,
                         COALESCE(
                             (
+                                SELECT MAX(m.created_at) FROM messages m
+                                WHERE m.conversation_id = c.id
+                                  AND m.message_key NOT LIKE 'request-placeholder-%'
+                            ),
+                            c.created_at
+                        ) AS last_message_at,
+                        COALESCE(
+                            (
                                 SELECT m.content FROM messages m
                                 WHERE m.conversation_id = c.id
                                   AND m.message_key NOT LIKE 'request-placeholder-%'
@@ -489,6 +497,7 @@ class SendJobRegistry:
     def __init__(self, sender: Callable[[str, str, str, list[str]], str]) -> None:
         self._sender = sender
         self._jobs: dict[str, dict[str, Any]] = {}
+        self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
         self._revision = 0
 
@@ -499,9 +508,11 @@ class SendJobRegistry:
         message: str,
         conversation_id: str = "",
         attachments: list[str] | None = None,
+        client_id: str = "",
     ) -> dict[str, Any]:
-        send_id = uuid.uuid4().hex
         now = time.time()
+        normalized_client_id = client_id.strip()
+        send_id = uuid.uuid4().hex
         job = {
             "send_id": send_id,
             "operation": operation,
@@ -519,7 +530,18 @@ class SendJobRegistry:
                 for key, value in self._jobs.items()
                 if float(value.get("updated_at") or 0.0) >= cutoff
             }
+            live_send_ids = set(self._jobs)
+            self._client_jobs = {
+                key: value for key, value in self._client_jobs.items() if value in live_send_ids
+            }
+            if normalized_client_id:
+                existing_send_id = self._client_jobs.get(normalized_client_id)
+                existing = self._jobs.get(existing_send_id or "")
+                if existing is not None:
+                    return dict(existing)
             self._jobs[send_id] = job
+            if normalized_client_id:
+                self._client_jobs[normalized_client_id] = send_id
             self._revision += 1
         threading.Thread(
             target=self._run,
@@ -1082,7 +1104,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return None
         return payload
 
-    def _send_payload_from_json_body(self) -> tuple[str, list[str]] | None:
+    def _send_payload_from_json_body(self) -> tuple[str, list[str], str] | None:
         payload = self._json_body()
         if payload is None:
             return None
@@ -1097,7 +1119,8 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         except (ValueError, OSError) as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return None
-        return message, attachments
+        client_id = str(payload.get("client_id") or "").strip()
+        return message, attachments, client_id
 
     def _headers(self, status: HTTPStatus, content_type: str) -> None:
         self.send_response(status)
@@ -1344,11 +1367,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             send_payload = self._send_payload_from_json_body()
             if send_payload is None:
                 return
-            message, attachments = send_payload
+            message, attachments, client_id = send_payload
             job = cast(PromptaUIServer, self.server).send_jobs.submit(
                 operation="once",
                 message=message,
                 attachments=attachments,
+                client_id=client_id,
             )
             self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
             return
@@ -1369,13 +1393,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         send_payload = self._send_payload_from_json_body()
         if send_payload is None:
             return
-        message, attachments = send_payload
+        message, attachments, client_id = send_payload
 
         job = target.send_jobs.submit(
             operation="reply",
             conversation_id=actual_conversation_id,
             message=message,
             attachments=attachments,
+            client_id=client_id,
         )
         job["conversation_id"] = conversation_id
         job["node"] = target.host_name
