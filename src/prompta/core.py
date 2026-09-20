@@ -53,6 +53,7 @@ _DELIVERY_RETRY_DISCOVERY_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
 _DELIVERY_RETRY_GRACE_SECONDS = 15.0
 _TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
+_TRANSIENT_RECOVERY_GRACE_SECONDS = 15.0
 _FIREFOX_REUSE_POLL_SECONDS = 0.25
 _FIREFOX_REUSE_STABILITY_CHECKS = 12
 _FAILURE_RETRY_SECONDS = 300.0
@@ -437,16 +438,32 @@ class Prompta:
         self,
         driver: FirefoxBiDiDriver,
         expected_path: str,
+        *,
+        context: str | None = None,
     ) -> None:
         expected = expected_path.rstrip("/")
         deadline = asyncio.get_running_loop().time() + 10.0
         activated_history = False
-        path = str(await driver.eval("location.pathname") or "").rstrip("/")
+
+        async def current_path() -> str:
+            if context is None:
+                return str(await driver.eval("location.pathname") or "").rstrip("/")
+            return str(
+                await driver.eval("location.pathname", context=context) or ""
+            ).rstrip("/")
+
+        path = await current_path()
         while path != expected and asyncio.get_running_loop().time() < deadline:
             if path in {"", "/"} and not activated_history:
-                activated_history = await driver.activate_history_link(expected)
+                if context is None:
+                    activated_history = await driver.activate_history_link(expected)
+                else:
+                    activated_history = await driver.activate_history_link(
+                        expected,
+                        context=context,
+                    )
             await asyncio.sleep(0.25)
-            path = str(await driver.eval("location.pathname") or "").rstrip("/")
+            path = await current_path()
         if path != expected:
             raise RuntimeError(
                 f"ChatGPT opened unexpected conversation path {path!r}; expected {expected!r}"
@@ -1358,10 +1375,44 @@ class Prompta:
                         active.transient_since_epoch = (
                             min(now_epoch, recovered_at) if recovered_at > 0 else now_epoch
                         )
-                    if (
-                        now_epoch - active.transient_since_epoch
-                        >= _TRANSIENT_FAILURE_TIMEOUT_SECONDS
-                    ):
+                    transient_timeout = (
+                        _TRANSIENT_FAILURE_TIMEOUT_SECONDS
+                        if active.transient_recovery_attempts <= 0
+                        else _TRANSIENT_RECOVERY_GRACE_SECONDS
+                    )
+                    if now_epoch - active.transient_since_epoch >= transient_timeout:
+                        if active.transient_recovery_attempts <= 0:
+                            target_url = str(
+                                self.cache.metadata(active.conversation_id).get("url")
+                                or f"https://chatgpt.com/c/{active.conversation_id}"
+                            )
+                            expected_path = urlsplit(target_url).path.rstrip("/")
+                            active.transient_recovery_attempts = 1
+                            active.transient_since_epoch = now_epoch
+                            active.recovered_cache_updated_at = 0.0
+                            try:
+                                await driver.navigate(target_url, context=context)
+                                await self._ensure_conversation_route(
+                                    driver,
+                                    expected_path,
+                                    context=context,
+                                )
+                                await driver.wait_for_composer(
+                                    timeout=10.0,
+                                    context=context,
+                                )
+                                active.last_live_snapshot_at = 0.0
+                                logger.warning(
+                                    "Prompta reloaded persistently interrupted conversation=%s "
+                                    "before giving up",
+                                    active.conversation_id,
+                                )
+                                continue
+                            except Exception:
+                                logger.exception(
+                                    "Prompta recovery reload failed conversation=%s",
+                                    active.conversation_id,
+                                )
                         self.cache.mark_interrupted(active.conversation_id)
                         try:
                             await driver.close_context(context)
@@ -1372,14 +1423,14 @@ class Prompta:
                             )
                         self._active_conversations.pop(context, None)
                         logger.warning(
-                            "Prompta marked conversation=%s interrupted after %.0fs "
-                            "of persistent ChatGPT connection interruption",
+                            "Prompta marked conversation=%s interrupted after persistent "
+                            "ChatGPT connection interruption",
                             active.conversation_id,
-                            _TRANSIENT_FAILURE_TIMEOUT_SECONDS,
                         )
                         continue
                 else:
                     active.transient_since_epoch = 0.0
+                    active.transient_recovery_attempts = 0
                     active.recovered_cache_updated_at = 0.0
                 if streaming_hint or transient_hint:
                     active.idle_polls = 0
