@@ -88,6 +88,7 @@ class ReadOnlyChatStore:
                         c.job_name,
                         c.url,
                         c.title,
+                        c.prompt,
                         c.status,
                         c.created_at,
                         c.updated_at,
