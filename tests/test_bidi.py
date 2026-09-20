@@ -459,3 +459,31 @@ async def test_click_send_button_uses_trusted_pointer_action() -> None:
     assert actions["actions"][1] == {"type": "pointerDown", "button": 0}
     assert actions["actions"][2] == {"type": "pointerUp", "button": 0}
     assert calls[1].args[0] == "input.releaseActions"
+
+
+@pytest.mark.asyncio
+async def test_click_delivery_retry_uses_failed_turn_and_trusted_pointer_action() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.context = "context-default"
+    driver.eval = AsyncMock(return_value='{"x":321.4,"y":123.6,"label":"Try again"}')  # type: ignore[method-assign]
+    driver._call = AsyncMock(return_value={"type": "success"})  # type: ignore[method-assign]
+
+    retried = await driver.click_delivery_retry("context-failed")
+
+    assert retried is True
+    eval_call = driver.eval.await_args
+    assert eval_call is not None
+    assert eval_call.kwargs["context"] == "context-failed"
+    expression = eval_call.args[0]
+    assert "Message delivery timed out" in expression
+    assert "try again|retry" in expression.lower()
+
+    calls = driver._call.await_args_list  # type: ignore[attr-defined]
+    assert calls[0].args[0] == "input.performActions"
+    assert calls[0].args[1]["context"] == "context-failed"
+    actions = calls[0].args[1]["actions"][0]["actions"]
+    assert actions[0]["x"] == 321
+    assert actions[0]["y"] == 124
+    assert actions[1] == {"type": "pointerDown", "button": 0}
+    assert actions[2] == {"type": "pointerUp", "button": 0}
+    assert calls[1].args == ("input.releaseActions", {"context": "context-failed"})

@@ -28,6 +28,8 @@ class ActiveConversation:
     idle_polls: int = 0
     settled_at: float = 0.0
     last_live_snapshot_at: float = 0.0
+    delivery_retry_attempts: int = 0
+    delivery_retry_at: float = 0.0
 
 
 class ChatCache:

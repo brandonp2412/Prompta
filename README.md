@@ -85,9 +85,10 @@ requests.
 
 The database uses WAL mode so another local process can read active conversations and
 completed history while the scheduler keeps writing. Once an assistant response is
-stable and no longer streaming, Prompta records it as complete but retains the Firefox
-tab for 30 minutes so follow-up messages can reuse the same live page without a reload.
-A service restart marks any previously active cache rows as interrupted.
+stable and no longer streaming, Prompta records it as complete and retains the Firefox
+tab briefly (currently 15 seconds) for an immediate follow-up before closing it to keep
+headless Firefox memory bounded. On scheduler restart, Prompta attempts to reattach
+recent live conversations instead of discarding their progress.
 
 ## Web UI
 
@@ -134,8 +135,11 @@ The optional user service is `systemd/prompta-ui.service`.
 For the Nox public host, install `systemd/prompta-ui-nox.service` as
 `~/.config/systemd/user/prompta-ui.service`. Nox is the authoritative UI,
 conversation cache, and control host on port 8765, so the public UI continues to
-work with Glass offline. The former Glass-synced and 8766/8767 per-node UI
-services are retired.
+work with Glass offline. The Nox unit uses `--preserve-active` so restarting only
+the UI cannot mark scheduler-owned live conversations interrupted. The former
+Glass-synced and 8766/8767 per-node UI services are retired; after upgrading an
+older Nox installation, disable and remove any `prompta-cache-sync.timer` /
+`prompta-cache-sync.service` units that still pull state from Glass.
 
 ## Service
 

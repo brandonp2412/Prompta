@@ -24,6 +24,7 @@ from prompta.core import (
     _send_direct,
     _send_once_via_control,
     _send_reply_via_control,
+    _spawn_firefox,
     _start_control_server,
     _sync_via_control,
     add_job,
@@ -570,6 +571,34 @@ def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
 
     assert _daemon_is_running(state_path) is False
     assert not (tmp_path / "daemon.lock").exists()
+
+
+@pytest.mark.asyncio
+async def test_spawn_firefox_uses_profile_local_tmpdir(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    process = MagicMock()
+
+    with (
+        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
+        patch(
+            "prompta.core.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=process),
+        ) as create_process,
+        patch("prompta.core.wait_for_port", AsyncMock()) as wait_for_port,
+    ):
+        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
+
+    assert result is process
+    create_process.assert_awaited_once()
+    create_call = create_process.await_args
+    assert create_call is not None
+    kwargs = create_call.kwargs
+    firefox_tmp = tmp_path / "firefox-tmp"
+    assert kwargs["env"]["TMPDIR"] == str(firefox_tmp)
+    assert firefox_tmp.is_dir()
+    assert firefox_tmp.stat().st_mode & 0o777 == 0o700
+    wait_for_port.assert_awaited_once_with(9229)
 
 
 @pytest.mark.asyncio
@@ -1346,6 +1375,7 @@ async def test_poll_active_conversation_marks_persistent_delivery_timeout_interr
         return_value={"streaming": False, "complete": False, "transient": False, "failed": True}
     )
     driver.conversation_snapshot = AsyncMock(return_value=snapshot)
+    driver.click_delivery_retry = AsyncMock(return_value=False)
     driver.close_context = AsyncMock()
     prompta.driver = cast(Any, driver)
 
@@ -1358,6 +1388,81 @@ async def test_poll_active_conversation_marks_persistent_delivery_timeout_interr
 
     assert prompta.cache.status(conversation_id) == "interrupted"
     assert context_id not in prompta._active_conversations
+    driver.click_delivery_retry.assert_awaited_once_with(context_id, timeout=3.0)
+    driver.close_context.assert_awaited_once_with(context_id)
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_poll_active_conversation_retries_delivery_timeout_once_before_interrupting(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-timeout-retry"
+    context_id = "context-timeout-retry"
+    snapshot = {
+        "title": "Timed out chat",
+        "messages": [
+            {"id": "user-1", "role": "user", "content": "Do work"},
+            {"id": "assistant-1", "role": "assistant", "content": "Partial answer"},
+        ],
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta.cache.write_snapshot(conversation_id, snapshot)
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+        last_digest=prompta.cache.digest(snapshot),
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={"streaming": False, "complete": False, "transient": False, "failed": True}
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=snapshot)
+    driver.click_delivery_retry = AsyncMock(return_value=True)
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    assert active.delivery_retry_attempts == 1
+    assert active.delivery_retry_at > 0
+    assert active.idle_polls == 0
+    driver.click_delivery_retry.assert_awaited_once_with(context_id, timeout=3.0)
+    driver.close_context.assert_not_awaited()
+
+    # Give ChatGPT a grace period to replace the timeout UI after the trusted
+    # retry click. If the same failure remains after that period, Prompta must
+    # stop instead of endlessly clicking retry.
+    active.delivery_retry_at -= 16.0
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert context_id not in prompta._active_conversations
+    assert driver.click_delivery_retry.await_count == 1
     driver.close_context.assert_awaited_once_with(context_id)
     prompta.cache.close()
 

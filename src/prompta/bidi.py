@@ -608,29 +608,11 @@ class FirefoxBiDiDriver:
         await self._focus_composer()
         await self._key_text("", enter=True)
 
-    async def click_send_button(self, timeout: float = 120.0) -> None:
-        deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
-        point: dict[str, Any] | None = None
-        while asyncio.get_running_loop().time() < deadline:
-            raw = await self.eval(
-                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const composer=[...document.querySelectorAll('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt')].find(visible);const scope=composer?.closest('form')||composer?.parentElement?.parentElement||document;const buttons=[...scope.querySelectorAll('button')].filter(visible);const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>enabled(e)&&e.matches('button[type="submit"]'))||buttons.find(e=>enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>enabled(e)&&/send/i.test(label(e)));if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};})())"""
-            )
-            candidate = json.loads(raw or "null")
-            if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
-                point = candidate
-                break
-            await asyncio.sleep(0.2)
-        if point is None:
-            raise RuntimeError("ChatGPT send button did not become enabled")
-        try:
-            x = float(point["x"])
-            y = float(point["y"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError("ChatGPT send button position was invalid") from exc
+    async def _click_viewport_point(self, context: str, x: float, y: float) -> None:
         await self._call(
             "input.performActions",
             {
-                "context": self.context,
+                "context": context,
                 "actions": [
                     {
                         "type": "pointer",
@@ -651,7 +633,64 @@ class FirefoxBiDiDriver:
                 ],
             },
         )
-        await self._call("input.releaseActions", {"context": self.context})
+        await self._call("input.releaseActions", {"context": context})
+
+    async def click_send_button(self, timeout: float = 120.0) -> None:
+        deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
+        point: dict[str, Any] | None = None
+        while asyncio.get_running_loop().time() < deadline:
+            raw = await self.eval(
+                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const composer=[...document.querySelectorAll('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt')].find(visible);const scope=composer?.closest('form')||composer?.parentElement?.parentElement||document;const buttons=[...scope.querySelectorAll('button')].filter(visible);const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>enabled(e)&&e.matches('button[type="submit"]'))||buttons.find(e=>enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>enabled(e)&&/send/i.test(label(e)));if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};})())"""
+            )
+            candidate = json.loads(raw or "null")
+            if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
+                point = candidate
+                break
+            await asyncio.sleep(0.2)
+        if point is None:
+            raise RuntimeError("ChatGPT send button did not become enabled")
+        try:
+            x = float(point["x"])
+            y = float(point["y"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("ChatGPT send button position was invalid") from exc
+        await self._click_viewport_point(self.context, x, y)
+
+    async def click_delivery_retry(self, context: str, timeout: float = 3.0) -> bool:
+        """Retry one ChatGPT response after its delivery timeout UI appears."""
+
+        deadline = asyncio.get_running_loop().time() + max(0.1, timeout)
+        while asyncio.get_running_loop().time() < deadline:
+            raw = await self.eval(
+                r"""JSON.stringify((()=>{
+                  const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+                  const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
+                  const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+                  const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
+                  const assistant=assistants.at(-1);
+                  const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
+                  const turnText=(turn?.innerText||turn?.textContent||'').trim();
+                  if(!turn||!/Message delivery timed out\.?\s*Please try again/i.test(turnText))return null;
+                  const scopes=[turn,turn.parentElement].filter(Boolean);
+                  const buttons=scopes.flatMap(scope=>[...scope.querySelectorAll('button')]).filter((button,index,all)=>visible(button)&&enabled(button)&&all.indexOf(button)===index);
+                  const button=buttons.find(button=>/^(?:try again|retry|regenerate(?: response)?)$/i.test(label(button)))||buttons.find(button=>/(?:try again|retry)/i.test(label(button)));
+                  if(!button)return null;
+                  const r=button.getBoundingClientRect();
+                  return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};
+                })())""",
+                context=context,
+            )
+            candidate = json.loads(raw or "null")
+            if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
+                try:
+                    x = float(candidate["x"])
+                    y = float(candidate["y"])
+                except (KeyError, TypeError, ValueError):
+                    return False
+                await self._click_viewport_point(context, x, y)
+                return True
+            await asyncio.sleep(0.2)
+        return False
 
     async def dom_state(self) -> dict[str, Any]:
         raw = await self.eval(
