@@ -44,6 +44,8 @@ _IDLE_POLL_SECONDS = 1.0
 _LIVE_SNAPSHOT_INTERVAL_SECONDS = 2.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
 _RESTART_RECOVERY_INTERRUPTED_SECONDS = 15 * 60.0
+_RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 15.0
+_RESTART_RECOVERY_LOAD_ATTEMPTS = 2
 _ACTIVE_TAB_RETENTION_SECONDS = 15.0
 _DELIVERY_FAILURE_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
@@ -797,18 +799,34 @@ class Prompta:
                 context = await driver.new_tab(target_url)
                 expected_path = urlsplit(target_url).path.rstrip("/")
                 await self._ensure_conversation_route(driver, expected_path)
-                deadline = asyncio.get_running_loop().time() + 10.0
                 snapshot: dict[str, Any] = {}
                 messages: list[Any] = []
-                while asyncio.get_running_loop().time() < deadline:
-                    snapshot = await driver.conversation_snapshot(context)
-                    candidate_messages = snapshot.get("messages")
-                    if isinstance(candidate_messages, list) and candidate_messages:
-                        messages = candidate_messages
+                for load_attempt in range(_RESTART_RECOVERY_LOAD_ATTEMPTS):
+                    deadline = (
+                        asyncio.get_running_loop().time()
+                        + _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS
+                    )
+                    while asyncio.get_running_loop().time() < deadline:
+                        snapshot = await driver.conversation_snapshot(context)
+                        candidate_messages = snapshot.get("messages")
+                        if isinstance(candidate_messages, list) and candidate_messages:
+                            messages = candidate_messages
+                            break
+                        await asyncio.sleep(0.5)
+                    if messages:
                         break
-                    await asyncio.sleep(0.5)
+                    if load_attempt + 1 < _RESTART_RECOVERY_LOAD_ATTEMPTS:
+                        logger.warning(
+                            "Prompta recovery conversation=%s did not expose messages; "
+                            "reloading before retry",
+                            conversation_id,
+                        )
+                        await driver.navigate(target_url)
+                        await self._ensure_conversation_route(driver, expected_path)
                 if not messages:
-                    raise RuntimeError("ChatGPT conversation did not expose any messages")
+                    raise RuntimeError(
+                        "ChatGPT conversation did not expose any messages after recovery reload"
+                    )
 
                 # A daemon restart can happen while ChatGPT is still working server-side.
                 # Keep the row live until normal polling observes a stable completed turn.

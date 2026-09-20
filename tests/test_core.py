@@ -1956,6 +1956,77 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
 
 
 @pytest.mark.asyncio
+async def test_recover_cached_conversations_reloads_slow_chat_before_interrupting(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "slow-recover-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="prompta-bugs",
+        prompt="Keep checking Prompta",
+    )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {
+            "path": f"/c/{conversation_id}",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep checking Prompta"},
+                {"id": "a1", "role": "assistant", "content": "Still working"},
+            ],
+        },
+    )
+
+    class SlowRecoveryFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def activate_history_link(self, path: str) -> bool:
+            return False
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            messages: list[dict[str, str]] = []
+            if len(self.navigated) >= 2:
+                messages = [
+                    {"id": "u1", "role": "user", "content": "Keep checking Prompta"},
+                    {"id": "a1", "role": "assistant", "content": "Still working"},
+                ]
+            return {
+                "title": "Slow recovered chat",
+                "path": f"/c/{conversation_id}",
+                "streaming": True,
+                "messages": messages,
+            }
+
+    fake = SlowRecoveryFakeDriver("Keep checking Prompta")
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(_: float) -> None:
+        await original_sleep(0.002)
+
+    with (
+        patch("prompta.core._RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS", 0.001),
+        patch("prompta.core.asyncio.sleep", side_effect=fast_sleep),
+    ):
+        assert await prompta.recover_cached_conversations() == 1
+
+    assert fake.navigated == [
+        f"https://chatgpt.com/c/{conversation_id}",
+        f"https://chatgpt.com/c/{conversation_id}",
+    ]
+    assert list(prompta._active_conversations) == ["context-new"]
+    assert prompta.cache.status(conversation_id) == "active"
+    fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_close_preserves_streaming_chat_for_restart_recovery(tmp_path: Path) -> None:
     conversation_id = "restart-chat"
     cache_path = tmp_path / "chats.sqlite3"
