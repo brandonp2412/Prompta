@@ -12,6 +12,7 @@ import {
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
+  toolCallIsInvocationPlaceholder,
 } from "./clientLogic";
 
 describe("conversation hash parsing", () => {
@@ -402,6 +403,7 @@ describe("tool call display cleanup", () => {
     expect(toolCallDisplayName("Open tool call list")).toBe("");
     expect(toolCallDisplayName("cot-v5-tool-icon-pile")).toBe("");
     expect(toolCallHasUsefulDetail("Open tool call list\ncot-v5-tool-icon-pile")).toBe(false);
+    expect(toolCallIsInvocationPlaceholder("Called tool")).toBe(true);
   });
 
   test("keeps actual connector names and useful details", () => {

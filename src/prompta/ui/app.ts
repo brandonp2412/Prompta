@@ -11,6 +11,7 @@ import {
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
+  toolCallIsInvocationPlaceholder,
 } from "./clientLogic";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
 function loadPinnedIds() {
@@ -610,9 +611,10 @@ function renderCodeBlock(code, language) {
   const toolName = toolCallDisplayName(rawToolName);
   const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
   const trimmedCode = code.trim();
+  const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
-  if (toolish && !toolName && !hasUsefulToolDetail) return "";
-  const renderedCode = toolish && !hasUsefulToolDetail ? "" : code;
+  if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
+  const renderedCode = toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code;
   const highlightLanguage = toolish && toolFence
     ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
     : normalized;
