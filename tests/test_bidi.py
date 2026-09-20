@@ -246,3 +246,42 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert '[data-streaming="active"]' in expression
     assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression
+
+
+@pytest.mark.asyncio
+async def test_attach_files_ignores_persistent_upload_controls(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attachment = tmp_path / "sample.txt"
+    attachment.write_text("hello")
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.context = "context-1"
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {
+                "result": {
+                    "result": {
+                        "type": "node",
+                        "sharedId": "file-input-1",
+                    }
+                }
+            },
+            {"type": "success"},
+        ]
+    )
+    driver.eval = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            '{"attached":true,"busy":false}',
+            '{"attached":true,"busy":false}',
+            '{"attached":true,"busy":false}',
+        ]
+    )
+    monkeypatch.setattr(bidi_module.asyncio, "sleep", AsyncMock())
+
+    await driver.attach_files([str(attachment)])
+
+    assert driver.eval.await_count == 3
+    expression = driver.eval.await_args_list[0].args[0]
+    assert "uploading|processing|attaching|cancel upload" in expression
+    assert "progressBusy" in expression
