@@ -601,6 +601,9 @@ async def test_click_delivery_retry_uses_failed_turn_and_trusted_pointer_action(
     expression = eval_call.args[0]
     assert "Message delivery timed out" in expression
     assert "try again|retry" in expression.lower()
+    assert "button,[role=\"button\"]" in expression
+    assert "turn.parentElement?.parentElement" in expression
+    assert "document.querySelectorAll(actionSelector)" in expression
     assert "scrollIntoView" in expression
     assert "clientHeight" in expression
 

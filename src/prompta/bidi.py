@@ -690,9 +690,16 @@ class FirefoxBiDiDriver:
                   const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
                   const turnText=(turn?.innerText||turn?.textContent||'').trim();
                   if(!turn||!/Message delivery timed out\.?\s*Please try again/i.test(turnText))return null;
-                  const scopes=[turn,turn.parentElement].filter(Boolean);
-                  const buttons=scopes.flatMap(scope=>[...scope.querySelectorAll('button')]).filter((button,index,all)=>visible(button)&&enabled(button)&&all.indexOf(button)===index);
-                  const button=buttons.find(button=>/^(?:try again|retry|regenerate(?: response)?)$/i.test(label(button)))||buttons.find(button=>/(?:try again|retry)/i.test(label(button)));
+                  const scopes=[turn,turn.parentElement,turn.parentElement?.parentElement].filter(Boolean);
+                  const actionSelector='button,[role="button"]';
+                  const actions=scopes.flatMap(scope=>[...scope.querySelectorAll(actionSelector)]).filter((action,index,all)=>visible(action)&&enabled(action)&&all.indexOf(action)===index);
+                  const exactRetry=action=>/^(?:try again|retry|regenerate(?: response)?)$/i.test(label(action));
+                  const looseRetry=action=>/(?:try again|retry)/i.test(label(action));
+                  let button=actions.find(exactRetry)||actions.find(looseRetry);
+                  if(!button){
+                    const globalActions=[...document.querySelectorAll(actionSelector)].filter(action=>visible(action)&&enabled(action));
+                    button=globalActions.find(exactRetry)||globalActions.find(looseRetry);
+                  }
                   if(!button)return null;
                   button.scrollIntoView({block:'center',inline:'center'});
                   const r=button.getBoundingClientRect();

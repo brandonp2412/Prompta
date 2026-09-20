@@ -49,8 +49,10 @@ _RESTART_RECOVERY_LOAD_ATTEMPTS = 2
 _RESTART_RECOVERY_RETRY_SECONDS = 60.0
 _ACTIVE_TAB_RETENTION_SECONDS = 15.0
 _DELIVERY_FAILURE_POLLS = 3
+_DELIVERY_RETRY_DISCOVERY_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
 _DELIVERY_RETRY_GRACE_SECONDS = 15.0
+_FIREFOX_REUSE_STABILITY_SECONDS = 1.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -1410,6 +1412,18 @@ class Prompta:
                             active.delivery_retry_attempts,
                         )
                         continue
+                    discovery_deadline = (
+                        _DELIVERY_FAILURE_POLLS + _DELIVERY_RETRY_DISCOVERY_POLLS
+                    )
+                    if active.idle_polls < discovery_deadline:
+                        logger.warning(
+                            "Prompta delivery retry control not available conversation=%s "
+                            "poll=%d/%d; keeping tab alive",
+                            active.conversation_id,
+                            active.idle_polls,
+                            discovery_deadline,
+                        )
+                        continue
                 self.cache.mark_interrupted(active.conversation_id)
                 try:
                     await driver.close_context(context)
@@ -2169,8 +2183,18 @@ async def _spawn_firefox(
     if not resolved.is_dir():
         raise RuntimeError(f"Firefox profile does not exist: {resolved}")
     if await _firefox_port_is_open(port):
-        logger.info("Prompta reusing Firefox already listening on port %d", port)
-        return None
+        # A systemd restart can briefly leave the old Firefox listener alive while
+        # the previous service cgroup is still being torn down. Reusing that dying
+        # process makes the new daemon fail seconds later with connection refused.
+        await asyncio.sleep(_FIREFOX_REUSE_STABILITY_SECONDS)
+        if await _firefox_port_is_open(port):
+            logger.info("Prompta reusing Firefox already listening on port %d", port)
+            return None
+        logger.info(
+            "Prompta Firefox listener on port %d disappeared during reuse check; "
+            "starting a fresh browser",
+            port,
+        )
     for name in ("lock", ".parentlock"):
         try:
             os.unlink(resolved / name)
