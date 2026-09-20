@@ -2,6 +2,8 @@ import {
   conversationIdFromHash,
   formatScheduleInterval,
   matchingOptimisticConversation,
+  matchingPendingReplyMessageIndex,
+  messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   sidebarPreviewText,
@@ -610,8 +612,9 @@ function renderMarkdown(raw) {
   return html || "<p></p>";
 }
 function messageTimestamp(message) {
-  const raw = Number(message.created_at || message.updated_at || Date.now() / 1000);
-  const date = new Date(raw < 1e12 ? raw * 1000 : raw);
+  const millis = messageTimestampMillis(message.created_at, message.updated_at);
+  if (millis === null) return { text: "Time unavailable", iso: "" };
+  const date = new Date(millis);
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const hour24 = date.getHours();
@@ -817,28 +820,22 @@ function renderMessageNodes(messages, allowStreaming) {
 }
 function pendingReplyMessages(conversationId, cachedMessages) {
   const pending = state.pendingReplies.get(conversationId) || [];
-  const claimedCachedIndexes = new Set();
+  const claimedCachedIndexes = new Set<number>();
   for (const item of pending) {
-    const content = item.message.trim();
-    const earliestMatch = Number(item.createdAt || item.updatedAt || 0) - 3;
-    let matchedIndex = -1;
-    for (let index = cachedMessages.length - 1; index >= 0; index -= 1) {
-      if (claimedCachedIndexes.has(index)) continue;
-      const message = cachedMessages[index];
-      if (message.role !== "user" || String(message.content || "").trim() !== content) continue;
-      const messageTime = Number(message.created_at || message.updated_at || 0);
-      if (messageTime && earliestMatch && messageTime < earliestMatch) continue;
-      matchedIndex = index;
-      break;
-    }
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      cachedMessages,
+      item,
+      claimedCachedIndexes,
+    );
     if (matchedIndex >= 0) {
       claimedCachedIndexes.add(matchedIndex);
       item.observedInCache = true;
     }
   }
-  const remaining = pending.filter((item) => (
-    item.status !== "succeeded" || !item.observedInCache
-  ));
+  // The cache is durable evidence that ChatGPT accepted the user message.
+  // Drop the optimistic row even if the UI server restarted and forgot the
+  // ephemeral send job, or if that job later reported a transport-side error.
+  const remaining = pending.filter((item) => !item.observedInCache);
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
   return remaining.flatMap((item) => {
@@ -996,6 +993,13 @@ async function loadLogs() {
     console.error(error);
   }
 }
+function updateLogsButton(logsMode) {
+  if (!els.logsButton) return;
+  els.logsButton.classList.toggle("active", logsMode);
+  els.logsButton.setAttribute("aria-pressed", String(logsMode));
+  els.logsButton.setAttribute("aria-label", logsMode ? "View chats" : "View logs");
+  els.logsButton.title = logsMode ? "Chats" : "Logs";
+}
 function showMode(mode) {
   state.mode = mode === "logs" ? "logs" : "chats";
   const logsMode = state.mode === "logs";
@@ -1005,11 +1009,7 @@ function showMode(mode) {
     clearInterval(state.logRefreshTimer);
     state.logRefreshTimer = null;
   }
-  if (els.logsButton) {
-    els.logsButton.textContent = logsMode ? "chats" : "logs";
-    els.logsButton.classList.toggle("active", logsMode);
-    els.logsButton.setAttribute("aria-pressed", String(logsMode));
-  }
+  updateLogsButton(logsMode);
   els.composerFooter.hidden = logsMode;
   if (logsMode) {
     state.selectedMetaFingerprint = "";
@@ -1130,10 +1130,7 @@ function renderNewChat() {
   if (enteringNewChat) {
     els.viewport.hidden = false;
     els.logsViewport.hidden = true;
-    if (els.logsButton) {
-      els.logsButton.textContent = "logs";
-      els.logsButton.classList.remove("active");
-    }
+    updateLogsButton(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
     document.body.classList.remove("sidebar-open");
@@ -1142,10 +1139,19 @@ function renderNewChat() {
     }
   }
 }
-async function fetchJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+async function fetchJson(url, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 async function postJson(url, payload, attempts = 1) {
   let lastError = new Error("Request failed");
@@ -1398,8 +1404,6 @@ document.addEventListener("touchstart", (event) => {
   sidebarSwipe.directionLocked = false;
   sidebarSwipe.horizontal = false;
   sidebarSwipe.pendingX = sidebarOpen ? 0 : -sidebarSwipe.sidebarWidth;
-  els.sidebar.style.transition = "none";
-  els.sidebarScrim.style.transition = "none";
 }, { passive: true });
 function applySidebarDragPosition(x) {
   const width = sidebarSwipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
@@ -1423,6 +1427,10 @@ document.addEventListener("touchmove", (event) => {
   if (!sidebarSwipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
     sidebarSwipe.directionLocked = true;
     sidebarSwipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+    if (sidebarSwipe.horizontal) {
+      els.sidebar.style.transition = "none";
+      els.sidebarScrim.style.transition = "none";
+    }
   }
   if (!sidebarSwipe.horizontal) return;
   event.preventDefault();
@@ -2023,13 +2031,26 @@ function queueLiveRefresh() {
     await loadChats();
   });
 }
+function stopFallbackRefresh() {
+  if (state.refreshTimer === null) return;
+  clearInterval(state.refreshTimer);
+  state.refreshTimer = null;
+}
+function startFallbackRefresh() {
+  if (state.refreshTimer !== null) return;
+  state.refreshTimer = setInterval(() => {
+    loadChats();
+    loadServerIdentity();
+  }, 5000);
+}
 function startEventStream() {
   if (!("EventSource" in window)) {
-    state.refreshTimer = setInterval(loadChats, 5000);
+    startFallbackRefresh();
     return;
   }
   const events = new EventSource("api/events");
   events.addEventListener("refresh", (event) => {
+    stopFallbackRefresh();
     try {
       const payload = JSON.parse(event.data || "{}");
       setServerStatus(payload.server, payload.online);
@@ -2040,8 +2061,12 @@ function startEventStream() {
   });
   events.addEventListener("error", () => {
     els.globalLiveOrb.classList.remove("live");
+    startFallbackRefresh();
   });
-  window.addEventListener("pagehide", () => events.close(), { once: true });
+  window.addEventListener("pagehide", () => {
+    events.close();
+    stopFallbackRefresh();
+  }, { once: true });
 }
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;

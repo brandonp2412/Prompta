@@ -475,6 +475,7 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             index_html = response.read().decode()
             assert '<div class="composer-status" id="composerStatus">' in index_html
             assert 'id="composerStatus" hidden' not in index_html
+            assert 'id="logsButton"' in index_html
 
         with urlopen(Request(f"{base_url}/", method="HEAD"), timeout=2) as response:
             assert response.status == 200

@@ -52,7 +52,8 @@ _DELIVERY_FAILURE_POLLS = 3
 _DELIVERY_RETRY_DISCOVERY_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
 _DELIVERY_RETRY_GRACE_SECONDS = 15.0
-_FIREFOX_REUSE_STABILITY_SECONDS = 1.0
+_FIREFOX_REUSE_POLL_SECONDS = 0.25
+_FIREFOX_REUSE_STABILITY_CHECKS = 12
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -2184,10 +2185,16 @@ async def _spawn_firefox(
         raise RuntimeError(f"Firefox profile does not exist: {resolved}")
     if await _firefox_port_is_open(port):
         # A systemd restart can briefly leave the old Firefox listener alive while
-        # the previous service cgroup is still being torn down. Reusing that dying
-        # process makes the new daemon fail seconds later with connection refused.
-        await asyncio.sleep(_FIREFOX_REUSE_STABILITY_SECONDS)
-        if await _firefox_port_is_open(port):
+        # the previous service cgroup is still being torn down. A single delayed
+        # recheck still leaves a race if that process exits immediately afterwards,
+        # so require the listener to survive several consecutive polls before reuse.
+        listener_stable = True
+        for _ in range(_FIREFOX_REUSE_STABILITY_CHECKS):
+            await asyncio.sleep(_FIREFOX_REUSE_POLL_SECONDS)
+            if not await _firefox_port_is_open(port):
+                listener_stable = False
+                break
+        if listener_stable:
             logger.info("Prompta reusing Firefox already listening on port %d", port)
             return None
         logger.info(

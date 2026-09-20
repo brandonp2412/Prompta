@@ -641,7 +641,7 @@ async def test_spawn_firefox_reuses_only_a_stable_existing_listener(tmp_path: Pa
     with (
         patch(
             "prompta.core._firefox_port_is_open",
-            AsyncMock(side_effect=[True, True]),
+            AsyncMock(return_value=True),
         ) as port_is_open,
         patch("prompta.core.asyncio.sleep", AsyncMock()) as sleep,
         patch(
@@ -652,8 +652,8 @@ async def test_spawn_firefox_reuses_only_a_stable_existing_listener(tmp_path: Pa
         result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
 
     assert result is None
-    assert port_is_open.await_count == 2
-    sleep.assert_awaited_once()
+    assert port_is_open.await_count == 13
+    assert sleep.await_count == 12
     create_process.assert_not_awaited()
 
 
@@ -668,8 +668,8 @@ async def test_spawn_firefox_replaces_listener_that_dies_during_reuse_check(
     with (
         patch(
             "prompta.core._firefox_port_is_open",
-            AsyncMock(side_effect=[True, False]),
-        ),
+            AsyncMock(side_effect=[True, True, True, False]),
+        ) as port_is_open,
         patch("prompta.core.asyncio.sleep", AsyncMock()),
         patch(
             "prompta.core.asyncio.create_subprocess_exec",
@@ -680,6 +680,7 @@ async def test_spawn_firefox_replaces_listener_that_dies_during_reuse_check(
         result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
 
     assert result is process
+    assert port_is_open.await_count == 4
     create_process.assert_awaited_once()
     wait_for_port.assert_awaited_once_with(9229)
 
