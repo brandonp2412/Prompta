@@ -1624,6 +1624,23 @@ async def test_run_does_not_abort_just_because_driver_disconnected(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_run_checks_deferred_recovery_before_scheduler_work(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta._retry_cached_recovery_if_due = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    prompta._poll_active_conversations = AsyncMock()  # type: ignore[method-assign]
+    prompta._drain_sync_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta.read_jobs = MagicMock(return_value={})  # type: ignore[method-assign]
+
+    await prompta.run(once=True)
+
+    prompta._retry_cached_recovery_if_due.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_run_restarts_owned_browser_after_poisoned_bidi_session(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
@@ -2173,6 +2190,54 @@ async def test_recover_cached_conversations_uses_history_after_direct_loads_stay
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.status(conversation_id) == "active"
     fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_recover_cached_conversations_skips_already_attached_chat(tmp_path: Path) -> None:
+    conversation_id = "already-attached-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-live",
+        job_name="prompta-bugs",
+        prompt="Keep working",
+    )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {
+            "path": f"/c/{conversation_id}",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": "Still working"},
+            ],
+        },
+    )
+    prompta._active_conversations["context-live"] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id="context-live",
+        job_name="prompta-bugs",
+        prompt="Keep working",
+    )
+    prompta._ensure_driver = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("already attached chats must not be reopened")
+    )
+
+    assert await prompta.recover_cached_conversations(limit=1) == 0
+    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_deferred_recovery_retries_one_cached_chat_when_due(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta._next_recovery_retry_at = 0.0
+    prompta.recover_cached_conversations = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+    assert await prompta._retry_cached_recovery_if_due() is True
+    prompta.recover_cached_conversations.assert_awaited_once_with(limit=1)  # type: ignore[attr-defined]
+    assert prompta._next_recovery_retry_at > 0.0
     prompta.cache.close()
 
 

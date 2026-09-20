@@ -536,7 +536,9 @@ async def test_click_send_button_uses_trusted_pointer_action() -> None:
 
     await driver.click_send_button()
 
-    expression = driver.eval.await_args.args[0]  # type: ignore[union-attr]
+    await_args = driver.eval.await_args
+    assert await_args is not None
+    expression = await_args.args[0]
     assert "scrollIntoView" in expression
     assert "clientHeight" in expression
 
