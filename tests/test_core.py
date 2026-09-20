@@ -1493,6 +1493,10 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
     prompta.cache.mark_interrupted(conversation_id)
 
     class RecoveryFakeDriver(FakeDriver):
+        def __init__(self, prompt: str) -> None:
+            super().__init__(prompt)
+            self.snapshot_calls = 0
+
         async def eval(self, expression: str) -> str:
             assert expression == "location.pathname"
             return f"/c/{conversation_id}"
@@ -1502,20 +1506,25 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
 
         async def conversation_snapshot(self, context: str) -> dict[str, Any]:
             assert context == "context-new"
+            self.snapshot_calls += 1
+            messages = []
+            if self.snapshot_calls >= 3:
+                messages = [
+                    {"id": "u1", "role": "user", "content": "Keep working"},
+                    {"id": "a1", "role": "assistant", "content": "Still working"},
+                ]
             return {
                 "title": "Recovered chat",
                 "path": f"/c/{conversation_id}",
                 "streaming": False,
-                "messages": [
-                    {"id": "u1", "role": "user", "content": "Keep working"},
-                    {"id": "a1", "role": "assistant", "content": "Still working"},
-                ],
+                "messages": messages,
             }
 
     fake = RecoveryFakeDriver("Keep working")
     prompta.driver = cast(Any, fake)
 
     assert await prompta.recover_cached_conversations() == 1
+    assert fake.snapshot_calls == 3
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.recent_conversations()[0]["status"] == "active"
     assert prompta.cache.messages(conversation_id)[-1]["status"] == "streaming"
