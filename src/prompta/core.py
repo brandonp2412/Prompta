@@ -228,6 +228,7 @@ class Prompta:
         self._failure_retry_until: dict[str, float] = {}
         self._once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = asyncio.Queue()
         self._reply_requests: asyncio.Queue[tuple[str, str, list[str], asyncio.Future[str]]] = asyncio.Queue()
+        self._sync_requests: asyncio.Queue[tuple[str, asyncio.Future[int]]] = asyncio.Queue()
         self._restore_backoffs()
 
     @staticmethod
@@ -1242,6 +1243,25 @@ class Prompta:
             finally:
                 self._reply_requests.task_done()
 
+    async def _drain_sync_requests(self) -> bool:
+        did_work = False
+        while True:
+            try:
+                conversation_id, future = self._sync_requests.get_nowait()
+            except asyncio.QueueEmpty:
+                return did_work
+            try:
+                message_count = await self.sync_conversation(conversation_id)
+            except Exception as exc:
+                if not future.done():
+                    future.set_exception(exc)
+            else:
+                if not future.done():
+                    future.set_result(message_count)
+                did_work = True
+            finally:
+                self._sync_requests.task_done()
+
     async def _release_driver_if_idle(self) -> None:
         # Keep one Firefox BiDi session for the daemon lifetime. Firefox only allows
         # one active session, and cycling session.end/session.new can leave the
@@ -1251,7 +1271,8 @@ class Prompta:
     async def run(self, *, once: bool = False) -> None:
         while True:
             await self._poll_active_conversations()
-            did_work = await self._drain_reply_requests()
+            did_work = await self._drain_sync_requests()
+            did_work = await self._drain_reply_requests() or did_work
             did_work = await self._drain_once_requests() or did_work
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
@@ -1592,27 +1613,36 @@ async def _handle_control_client(
         if not isinstance(payload, dict):
             raise ValueError("invalid Prompta control request")
         op = str(payload.get("op") or "")
-        prompt = str(payload.get("prompt") or "")
-        raw_attachments = payload.get("attachments")
-        attachments = [
-            str(path)
-            for path in raw_attachments
-            if isinstance(path, str) and path.strip()
-        ] if isinstance(raw_attachments, list) else []
-        if not prompt.strip():
-            raise ValueError("prompta prompt is empty")
-        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        if op == "once":
-            await prompta._once_requests.put((prompt, attachments, future))
-        elif op == "reply":
+        if op == "sync":
             conversation_id = str(payload.get("conversation_id") or "")
             if not conversation_id.strip():
                 raise ValueError("conversation id is empty")
-            await prompta._reply_requests.put((conversation_id, prompt, attachments, future))
+            sync_future: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+            await prompta._sync_requests.put((conversation_id, sync_future))
+            message_count = await sync_future
+            response = {"ok": True, "message_count": message_count}
         else:
-            raise ValueError("unsupported Prompta control request")
-        conversation_id = await future
-        response = {"ok": True, "conversation_id": conversation_id}
+            prompt = str(payload.get("prompt") or "")
+            raw_attachments = payload.get("attachments")
+            attachments = [
+                str(path)
+                for path in raw_attachments
+                if isinstance(path, str) and path.strip()
+            ] if isinstance(raw_attachments, list) else []
+            if not prompt.strip():
+                raise ValueError("prompta prompt is empty")
+            future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+            if op == "once":
+                await prompta._once_requests.put((prompt, attachments, future))
+            elif op == "reply":
+                conversation_id = str(payload.get("conversation_id") or "")
+                if not conversation_id.strip():
+                    raise ValueError("conversation id is empty")
+                await prompta._reply_requests.put((conversation_id, prompt, attachments, future))
+            else:
+                raise ValueError("unsupported Prompta control request")
+            conversation_id = await future
+            response = {"ok": True, "conversation_id": conversation_id}
     except Exception as exc:
         response = {"ok": False, "error": str(exc)}
     try:
@@ -1735,6 +1765,41 @@ async def _send_reply_via_control(
     if not result:
         raise RuntimeError("Prompta scheduler returned an empty conversation id")
     return result
+
+
+async def _sync_via_control(state_path: Path, conversation_id: str) -> int:
+    path = _control_socket_path(state_path)
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(path))
+    except OSError as exc:
+        raise RuntimeError(f"Prompta scheduler control socket is unavailable: {path}") from exc
+    try:
+        writer.write(
+            (
+                json.dumps(
+                    {"op": "sync", "conversation_id": conversation_id},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+        )
+        await writer.drain()
+        raw = await asyncio.wait_for(
+            reader.readline(),
+            timeout=_CONTROL_SEND_TIMEOUT_SECONDS,
+        )
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    if not raw:
+        raise RuntimeError("Prompta scheduler closed the control connection without a response")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise RuntimeError(str(payload.get("error") or "Prompta scheduler rejected sync"))
+    message_count = payload.get("message_count")
+    if not isinstance(message_count, int) or message_count < 0:
+        raise RuntimeError("Prompta scheduler returned an invalid message count")
+    return message_count
 
 
 async def _wait_for_cache_completion(
@@ -1943,6 +2008,16 @@ async def _run(args: argparse.Namespace) -> None:
                 args.prompt,
             )
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+            return
+    elif args.command == "sync":
+        if not args.bidi_url and _daemon_is_running(args.state):
+            message_count = await _sync_via_control(args.state, args.conversation_id)
+            _print_notice(
+                "✓",
+                "Synced",
+                f"conversation {args.conversation_id} ({message_count} messages)",
+                tone="32",
+            )
             return
 
     daemon_lock: Any = None
