@@ -767,7 +767,17 @@ class FirefoxBiDiDriver:
                 return '```tool:'+label+'\\n'+(detail||label)+'\\n```';
               }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
-              const entries=roleNodes.map(e=>{
+              const agentRoot=node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement;
+              const seededAssistantTurns=new Set();
+              const entryNodes=roleNodes.filter(node=>{
+                if(node.getAttribute('data-message-author-role')!=='assistant')return true;
+                const turn=agentRoot(node);
+                if(!turn)return true;
+                if(seededAssistantTurns.has(turn))return false;
+                seededAssistantTurns.add(turn);
+                return true;
+              });
+              const entries=entryNodes.map(e=>{
                 const role=e.getAttribute('data-message-author-role')||'';
                 const rich=role==='assistant'
                   ? [...e.querySelectorAll('.markdown,.markdown-new-styling')].map(markdownText).filter(Boolean).join('\\n\\n').trim()
@@ -790,7 +800,7 @@ class FirefoxBiDiDriver:
               }
               const assistantNodes=roleNodes.filter(node=>node.getAttribute('data-message-author-role')==='assistant');
               const candidates=[...new Set([
-                ...assistantNodes.map(node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement).filter(Boolean),
+                ...assistantNodes.map(agentRoot).filter(Boolean),
                 ...document.querySelectorAll('.agent-turn')
               ])].filter(visible);
               for(const [agentIndex,agent] of candidates.entries()){

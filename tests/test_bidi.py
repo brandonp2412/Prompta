@@ -302,6 +302,11 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert call is not None
     expression = call.args[0]
     assert ".agent-turn" in expression
+    assert "const agentRoot=node=>" in expression
+    assert "const seededAssistantTurns=new Set()" in expression
+    assert "const entryNodes=roleNodes.filter" in expression
+    assert "const entries=entryNodes.map" in expression
+    assert "...assistantNodes.map(agentRoot).filter(Boolean)" in expression
     assert "for(const [agentIndex,agent] of candidates.entries())" in expression
     assert "content.length>=entries[existing].content.length" in expression
     assert "content.startsWith(message.content)" in expression
