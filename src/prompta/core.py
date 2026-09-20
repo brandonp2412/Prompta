@@ -52,6 +52,8 @@ _DELIVERY_FAILURE_POLLS = 3
 _DELIVERY_RETRY_DISCOVERY_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
 _DELIVERY_RETRY_GRACE_SECONDS = 15.0
+_DELIVERY_RECOVERY_MAX_ATTEMPTS = 1
+_DELIVERY_RECOVERY_GRACE_SECONDS = 15.0
 _TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
 _TRANSIENT_RECOVERY_GRACE_SECONDS = 15.0
 _FIREFOX_REUSE_POLL_SECONDS = 0.25
@@ -1484,6 +1486,11 @@ class Prompta:
                 active.settled_at = 0.0
                 now = time.monotonic()
                 if (
+                    active.delivery_recovery_at > 0
+                    and now - active.delivery_recovery_at < _DELIVERY_RECOVERY_GRACE_SECONDS
+                ):
+                    continue
+                if (
                     active.delivery_retry_at > 0
                     and now - active.delivery_retry_at < _DELIVERY_RETRY_GRACE_SECONDS
                 ):
@@ -1519,6 +1526,39 @@ class Prompta:
                             active.conversation_id,
                             active.idle_polls,
                             discovery_deadline,
+                        )
+                        continue
+                if active.delivery_recovery_attempts < _DELIVERY_RECOVERY_MAX_ATTEMPTS:
+                    target_url = str(
+                        self.cache.metadata(active.conversation_id).get("url")
+                        or f"https://chatgpt.com/c/{active.conversation_id}"
+                    )
+                    expected_path = urlsplit(target_url).path.rstrip("/")
+                    try:
+                        await driver.navigate(target_url, context=context)
+                        await self._ensure_conversation_route(
+                            driver,
+                            expected_path,
+                            context=context,
+                        )
+                        await driver.wait_for_composer(
+                            timeout=10.0,
+                            context=context,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Prompta delivery-failure recovery reload failed conversation=%s",
+                            active.conversation_id,
+                        )
+                    else:
+                        active.delivery_recovery_attempts += 1
+                        active.delivery_recovery_at = time.monotonic()
+                        active.delivery_retry_at = 0.0
+                        active.idle_polls = 0
+                        active.last_live_snapshot_at = 0.0
+                        logger.warning(
+                            "Prompta reloaded failed-delivery conversation=%s before giving up",
+                            active.conversation_id,
                         )
                         continue
                 self.cache.mark_interrupted(active.conversation_id)

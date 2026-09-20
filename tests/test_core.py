@@ -1759,13 +1759,14 @@ async def test_poll_active_conversation_marks_persistent_delivery_timeout_interr
         prompt="Do work",
     )
     prompta.cache.write_snapshot(conversation_id, snapshot)
-    prompta._active_conversations[context_id] = ActiveConversation(
+    active = ActiveConversation(
         conversation_id=conversation_id,
         context_id=context_id,
         job_name="",
         prompt="Do work",
         last_digest=prompta.cache.digest(snapshot),
     )
+    prompta._active_conversations[context_id] = active
 
     driver = MagicMock()
     driver.is_connected = True
@@ -1774,6 +1775,9 @@ async def test_poll_active_conversation_marks_persistent_delivery_timeout_interr
     )
     driver.conversation_snapshot = AsyncMock(return_value=snapshot)
     driver.click_delivery_retry = AsyncMock(return_value=False)
+    driver.navigate = AsyncMock()
+    driver.eval = AsyncMock(return_value=f"/c/{conversation_id}")
+    driver.wait_for_composer = AsyncMock()
     driver.close_context = AsyncMock()
     prompta.driver = cast(Any, driver)
 
@@ -1795,10 +1799,32 @@ async def test_poll_active_conversation_marks_persistent_delivery_timeout_interr
 
     await prompta._poll_active_conversations()
 
-    assert prompta.cache.status(conversation_id) == "interrupted"
-    assert context_id not in prompta._active_conversations
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    assert active.delivery_recovery_attempts == 1
+    assert active.delivery_recovery_at > 0
+    assert active.idle_polls == 0
     assert driver.click_delivery_retry.await_count == 4
     driver.click_delivery_retry.assert_awaited_with(context_id, timeout=3.0)
+    driver.navigate.assert_awaited_once_with(
+        f"https://chatgpt.com/c/{conversation_id}",
+        context=context_id,
+    )
+    driver.wait_for_composer.assert_awaited_once_with(
+        timeout=10.0,
+        context=context_id,
+    )
+    driver.close_context.assert_not_awaited()
+
+    # A reload is the last recovery step. If ChatGPT still shows the failed
+    # delivery state after that grace period and retry discovery window, stop.
+    active.delivery_recovery_at -= 16.0
+    for _ in range(6):
+        await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert context_id not in prompta._active_conversations
+    assert driver.navigate.await_count == 1
     driver.close_context.assert_awaited_once_with(context_id)
     prompta.cache.close()
 
@@ -1847,6 +1873,9 @@ async def test_poll_active_conversation_retries_delivery_timeout_once_before_int
     )
     driver.conversation_snapshot = AsyncMock(return_value=snapshot)
     driver.click_delivery_retry = AsyncMock(return_value=True)
+    driver.navigate = AsyncMock()
+    driver.eval = AsyncMock(return_value=f"/c/{conversation_id}")
+    driver.wait_for_composer = AsyncMock()
     driver.close_context = AsyncMock()
     prompta.driver = cast(Any, driver)
 
@@ -1870,9 +1899,26 @@ async def test_poll_active_conversation_retries_delivery_timeout_once_before_int
     await prompta._poll_active_conversations()
     await prompta._poll_active_conversations()
 
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    assert active.delivery_recovery_attempts == 1
+    assert active.delivery_recovery_at > 0
+    assert driver.click_delivery_retry.await_count == 1
+    driver.navigate.assert_awaited_once_with(
+        f"https://chatgpt.com/c/{conversation_id}",
+        context=context_id,
+    )
+    driver.close_context.assert_not_awaited()
+
+    active.delivery_recovery_at -= 16.0
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+
     assert prompta.cache.status(conversation_id) == "interrupted"
     assert context_id not in prompta._active_conversations
     assert driver.click_delivery_retry.await_count == 1
+    assert driver.navigate.await_count == 1
     driver.close_context.assert_awaited_once_with(context_id)
     prompta.cache.close()
 
