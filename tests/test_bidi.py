@@ -29,7 +29,9 @@ async def test_page_send_probe_captures_durable_conversation_id() -> None:
 
     await driver.arm_page_send_probe()
 
-    expression = driver.eval.await_args.args[0]  # type: ignore[union-attr]
+    call = driver.eval.await_args
+    assert call is not None
+    expression = call.args[0]
     assert "conversation_id:''" in expression
     assert """conversation_id["'][ ]*:[ ]*["']""" in expression
 
