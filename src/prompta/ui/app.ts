@@ -1,4 +1,5 @@
 import {
+  composerHasContent,
   conversationIdFromHash,
   formatScheduleInterval,
   matchingOptimisticConversation,
@@ -46,6 +47,7 @@ const state = {
   chatsRequestId: 0,
   selectedRequestId: 0,
   selectedChat: null,
+  selectedVisibleMessageCount: 0,
   optimisticSequence: 0,
   serverName: "",
   serverOnline: null,
@@ -55,6 +57,7 @@ const state = {
   pinnedIds: loadPinnedIds(),
   eventSource: null,
   liveUpdatesPaused: false,
+  timeRefreshTimer: null,
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -112,6 +115,20 @@ function setTextIfChanged(element: Element, value) {
 }
 function setHiddenIfChanged(element: HTMLElement, hidden) {
   if (element.hidden !== hidden) element.hidden = hidden;
+}
+function syncSendButton() {
+  const waitingNew = state.composingNew
+    && state.pendingNewSend
+    && !["failed", "succeeded"].includes(state.pendingNewSend.status);
+  const hasTarget = state.composingNew || Boolean(state.selectedId);
+  const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
+  els.sendButton.disabled = (
+    state.mode !== "chats"
+    || state.sending
+    || Boolean(waitingNew)
+    || !hasTarget
+    || !hasContent
+  );
 }
 function displayServerName(value) {
   const raw = String(value || "").trim();
@@ -225,6 +242,10 @@ function reconcileOptimisticNew(chats) {
   if (!matched) return;
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
+  if (!state.composingNew && state.selectedId !== matched.id) {
+    state.pendingNewSend = null;
+    state.pendingNewId = null;
+  }
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
@@ -277,11 +298,11 @@ function renderSidebar(force = false) {
     chat.status === "active" ? "" : chat.preview,
     chat.message_count,
     chat.job_name,
-    formatRelativeTime(chatActivityAt(chat)),
+    chatActivityAt(chat),
     Boolean(chat._optimisticNew),
     Boolean(chat._optimisticReply),
     state.pinnedIds.has(chat.id),
-  ])) + state.selectedId + state.composingNew;
+  ])) + state.selectedId + state.composingNew + new Date().toDateString();
   if (!force && fingerprint === state.sidebarFingerprint) return;
   state.sidebarFingerprint = fingerprint;
   if (!chats.length) {
@@ -310,7 +331,7 @@ function renderSidebar(force = false) {
             <div class="chat-preview">${escapeHtml(truncate(sidebarPreviewText(chat.preview) || "Waiting for messages…"))}</div>
             <div class="chat-meta">
               <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
-              <span class="chat-time">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
+              <span class="chat-time" data-activity-at="${escapeHtml(chatActivityAt(chat))}">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
             </div>
           </button>
           <button type="button"
@@ -327,7 +348,7 @@ function renderSidebar(force = false) {
   `).join("");
   for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
     item.addEventListener("click", () => {
-      if (item.dataset.optimisticNew === "true" && !state.pendingNewSend?.conversationId) {
+      if (item.dataset.optimisticNew === "true" && state.pendingNewSend) {
         renderNewChat();
         closeSidebar();
         return;
@@ -457,12 +478,13 @@ function highlightCode(raw, language) {
 }
 function inlineMarkdown(text) {
   const placeholders = [];
+  let source = String(text || "");
   const stash = (html) => {
-    const token = `PROMPTA_INLINE_${placeholders.length}_TOKEN`;
+    let token = `\uE000PROMPTA_INLINE_${placeholders.length}\uE001`;
+    while (source.includes(token)) token += "\uE002";
     placeholders.push([token, html]);
     return token;
   };
-  let source = String(text || "");
   source = source.replace(/`([^`\n]+)`/g, (_, code) => (
     stash(`<code class="inline-code">${escapeHtml(code)}</code>`)
   ));
@@ -593,7 +615,7 @@ function renderCodeBlock(code, language) {
       <div class="code-header">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        <button type="button" class="copy-code" data-code="${encodeURIComponent(code)}">copy</button>
+        <button type="button" class="copy-code">copy</button>
       </div>
       <pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(code, highlightLanguage)}</code></pre>
     </div>`;
@@ -686,7 +708,7 @@ function bindCopyButtons(root) {
     if (boundCopyButtons.has(button)) continue;
     boundCopyButtons.add(button);
     button.addEventListener("click", async () => {
-      const code = decodeURIComponent(button.dataset.code || "");
+      const code = button.closest(".code-block")?.querySelector("pre code")?.textContent || "";
       try {
         await navigator.clipboard.writeText(code);
         const previous = button.textContent;
@@ -767,10 +789,35 @@ function updateMessageNode(node, message, allowStreaming) {
     patchDomChildren(content, template.content);
     bindCopyButtons(content);
   }
+  const retryButton = node.querySelector(".retry-send-button") as HTMLButtonElement | null;
+  const shouldRetry = sendError && Boolean(message.retry_scope) && Boolean(message.retry_key);
+  if (shouldRetry) {
+    if (retryButton) {
+      retryButton.dataset.retryScope = String(message.retry_scope);
+      retryButton.dataset.retryKey = String(message.retry_key);
+    } else {
+      content.insertAdjacentHTML("afterend", `
+        <button type="button"
+                class="retry-send-button"
+                data-retry-scope="${escapeHtml(message.retry_scope)}"
+                data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
+      `);
+      bindRetryButtons(node);
+    }
+  } else if (retryButton) {
+    retryButton.remove();
+  }
+
+  const timestamp = node.querySelector(".message-timestamp") as HTMLTimeElement | null;
+  if (!timestamp) return false;
+  const nextTimestamp = messageTimestamp(message);
+  setTextIfChanged(timestamp, nextTimestamp.text);
+  if (timestamp.dateTime !== nextTimestamp.iso) timestamp.dateTime = nextTimestamp.iso;
+
   const shouldStream = allowStreaming && message.status === "streaming";
   const indicator = node.querySelector(".streaming-indicator");
   if (shouldStream && !indicator) {
-    node.querySelector(".message-inner")?.insertAdjacentHTML("beforeend", `
+    timestamp.insertAdjacentHTML("beforebegin", `
       <div class="streaming-indicator">
         <span class="streaming-dots"><i></i><i></i><i></i></span>
         writing
@@ -888,31 +935,7 @@ function toggleSelectedPin() {
   renderSidebar(true);
   updatePinButton();
 }
-function renderConversation(chat) {
-  state.selectedChat = chat;
-  const messages = Array.isArray(chat.messages) ? chat.messages : [];
-  const visibleMessages = [
-    ...messages,
-    ...pendingReplyMessages(chat.id, messages),
-  ];
-  const fingerprint = JSON.stringify([
-    chat.status,
-    visibleMessages.map((message) => [
-      message.message_key, message.status, message.content, message.send_error,
-    ]),
-  ]);
-  const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
-  const isInitial = state.selectedFingerprint === "";
-  if (fingerprint !== state.selectedFingerprint) {
-    state.selectedFingerprint = fingerprint;
-    const allowStreaming = chat.status === "active";
-    renderMessageNodes(visibleMessages, allowStreaming);
-    if (isInitial || wasNearBottom) {
-      requestAnimationFrame(() => {
-        els.viewport.scrollTop = els.viewport.scrollHeight;
-      });
-    }
-  }
+function renderConversationMeta(chat, visibleMessageCount) {
   const title = chatTitle(chat);
   const activityLabel = chat.status === "active"
     ? "updating live"
@@ -921,31 +944,59 @@ function renderConversation(chat) {
       : formatRelativeTime(chatActivityAt(chat));
   const meta = [
     chat.job_name || "one-shot",
-    `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
+    `${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
     activityLabel,
   ].join(" · ");
   const metaFingerprint = JSON.stringify([title, meta, chat.status]);
-  if (metaFingerprint !== state.selectedMetaFingerprint) {
-    state.selectedMetaFingerprint = metaFingerprint;
-    els.chatHeading.innerHTML = `
-      <div class="heading-title">${escapeHtml(title)}</div>
-      <div class="heading-meta">${escapeHtml(meta)}</div>`;
-    const syncStatus = chat.status === "active"
-      ? "active"
-      : chat.status === "interrupted"
-        ? "interrupted"
-        : "cached";
-    const syncLabel = chat.status === "active"
-      ? "Syncing from SQLite"
-      : chat.status === "interrupted"
-        ? "Last run was interrupted"
-        : "Cached in SQLite";
-    setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
+  if (metaFingerprint === state.selectedMetaFingerprint) return;
+  state.selectedMetaFingerprint = metaFingerprint;
+  els.chatHeading.innerHTML = `
+    <div class="heading-title">${escapeHtml(title)}</div>
+    <div class="heading-meta">${escapeHtml(meta)}</div>`;
+  const syncStatus = chat.status === "active"
+    ? "active"
+    : chat.status === "interrupted"
+      ? "interrupted"
+      : "cached";
+  const syncLabel = chat.status === "active"
+    ? "Syncing from SQLite"
+    : chat.status === "interrupted"
+      ? "Last run was interrupted"
+      : "Cached in SQLite";
+  setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
+}
+function renderConversation(chat) {
+  state.selectedChat = chat;
+  const messages = Array.isArray(chat.messages) ? chat.messages : [];
+  const visibleMessages = [
+    ...messages,
+    ...pendingReplyMessages(chat.id, messages),
+  ];
+  state.selectedVisibleMessageCount = visibleMessages.length;
+  const allowStreaming = chat.status === "active";
+  const fingerprint = JSON.stringify([
+    chat.status,
+    visibleMessages.map((message) => [
+      message.message_key,
+      messageNodeFingerprint(message, allowStreaming),
+    ]),
+  ]);
+  const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
+  const isInitial = state.selectedFingerprint === "";
+  if (fingerprint !== state.selectedFingerprint) {
+    state.selectedFingerprint = fingerprint;
+    renderMessageNodes(visibleMessages, allowStreaming);
+    if (isInitial || wasNearBottom) {
+      requestAnimationFrame(() => {
+        els.viewport.scrollTop = els.viewport.scrollHeight;
+      });
+    }
   }
+  renderConversationMeta(chat, visibleMessages.length);
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
   els.messageInput.disabled = false;
-  els.sendButton.disabled = state.sending;
+  syncSendButton();
   els.shareChatButton.disabled = false;
   state.composingNew = false;
   updatePinButton();
@@ -1122,7 +1173,7 @@ function renderNewChat() {
       "sync",
     );
     els.messageInput.disabled = false;
-    els.sendButton.disabled = Boolean(waiting);
+    syncSendButton();
     els.shareChatButton.disabled = true;
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
@@ -1198,7 +1249,6 @@ async function notifyChatFinished(chat) {
   }
 }
 function trackChatCompletions(chats) {
-  const nextStatuses = new Map(chats.map((chat) => [chat.id, chat.status]));
   if (state.statusBaselineReady) {
     for (const chat of chats) {
       if (state.chatStatuses.get(chat.id) === "active" && chat.status === "complete") {
@@ -1206,7 +1256,10 @@ function trackChatCompletions(chats) {
       }
     }
   }
-  state.chatStatuses = nextStatuses;
+  // Search results are only a filtered slice of the cache. Preserve statuses
+  // for conversations omitted by the current filter so clearing search can
+  // still observe an active -> complete transition that happened meanwhile.
+  for (const chat of chats) state.chatStatuses.set(chat.id, chat.status);
   state.statusBaselineReady = true;
 }
 async function loadChats() {
@@ -1334,6 +1387,8 @@ document.addEventListener("keydown", (event) => {
     els.searchInput.focus();
   }
   if (event.key === "Escape") {
+    els.attachmentMenu.hidden = true;
+    els.slashMenu.hidden = true;
     els.searchInput.blur();
     closeSidebar();
   }
@@ -1348,10 +1403,12 @@ function syncSidebarAccessibility() {
   els.openSidebar.setAttribute("aria-expanded", String(!hidden));
 }
 function openSidebar() {
+  resetSidebarDragStyles();
   document.body.classList.add("sidebar-open");
   syncSidebarAccessibility();
 }
 function closeSidebar() {
+  resetSidebarDragStyles();
   document.body.classList.remove("sidebar-open");
   syncSidebarAccessibility();
 }
@@ -1375,12 +1432,28 @@ const sidebarSwipe = {
   horizontal: false,
   frameId: 0,
   pendingX: 0,
+  cleanupTimer: 0,
 };
+function resetSidebarDragStyles() {
+  if (sidebarSwipe.frameId) {
+    cancelAnimationFrame(sidebarSwipe.frameId);
+    sidebarSwipe.frameId = 0;
+  }
+  if (sidebarSwipe.cleanupTimer) {
+    clearTimeout(sidebarSwipe.cleanupTimer);
+    sidebarSwipe.cleanupTimer = 0;
+  }
+  els.sidebar.style.removeProperty("transition");
+  els.sidebar.style.removeProperty("transform");
+  els.sidebarScrim.style.removeProperty("transition");
+  els.sidebarScrim.style.removeProperty("opacity");
+}
 function mobileSidebarEnabled() {
   return mobileSidebarMedia.matches;
 }
 document.addEventListener("touchstart", (event) => {
   if (!mobileSidebarEnabled() || event.touches.length !== 1) return;
+  resetSidebarDragStyles();
   const touch = event.touches[0];
   const sidebarOpen = document.body.classList.contains("sidebar-open");
   if (!sidebarOpen && touch.clientX > 96) return;
@@ -1454,7 +1527,9 @@ function settleSidebarDrag(open) {
   els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
   els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
   els.sidebarScrim.style.opacity = open ? "1" : "0";
-  window.setTimeout(() => {
+  if (sidebarSwipe.cleanupTimer) clearTimeout(sidebarSwipe.cleanupTimer);
+  sidebarSwipe.cleanupTimer = window.setTimeout(() => {
+    sidebarSwipe.cleanupTimer = 0;
     els.sidebar.style.removeProperty("transition");
     els.sidebar.style.removeProperty("transform");
     els.sidebarScrim.style.removeProperty("transition");
@@ -1507,6 +1582,7 @@ function renderAttachments() {
     + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>'
     + '</span>'
   )).join("");
+  syncSendButton();
 }
 function clearAttachments() {
   state.attachments = [];
@@ -1514,6 +1590,13 @@ function clearAttachments() {
   els.photoUploadInput.value = "";
   els.cameraUploadInput.value = "";
   renderAttachments();
+}
+function setAttachmentControlsDisabled(disabled) {
+  els.attachmentButton.disabled = disabled;
+  if (disabled) els.attachmentMenu.hidden = true;
+  for (const button of els.attachmentChips.querySelectorAll<HTMLButtonElement>("button")) {
+    button.disabled = disabled;
+  }
 }
 function addAttachments(files) {
   const current = state.attachments || [];
@@ -1598,7 +1681,9 @@ document.addEventListener("click", (event) => {
 });
 async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
+  els.messageInput.disabled = true;
   els.sendButton.disabled = true;
+  setAttachmentControlsDisabled(true);
   els.messageInput.value = "";
   resizeComposer();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
@@ -1625,13 +1710,16 @@ async function runScheduleSlashCommand(command, originalMessage) {
   } finally {
     state.sending = false;
     els.messageInput.disabled = false;
-    els.sendButton.disabled = false;
+    setAttachmentControlsDisabled(false);
+    syncSendButton();
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
 async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
+  els.messageInput.disabled = true;
   els.sendButton.disabled = true;
+  setAttachmentControlsDisabled(true);
   els.messageInput.value = "";
   resizeComposer();
   updateSlashMenu();
@@ -1658,7 +1746,8 @@ async function runAtSlashCommand(command, originalMessage) {
   } finally {
     state.sending = false;
     els.messageInput.disabled = false;
-    els.sendButton.disabled = false;
+    setAttachmentControlsDisabled(false);
+    syncSendButton();
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
@@ -1741,9 +1830,16 @@ async function watchSend(sendId, creatingNew, conversationId) {
           if (state.composingNew) renderNewChat();
           return;
         }
+        state.pendingNewSend.conversationId = newId;
+        state.pendingNewId = newId;
+        const stillViewingPending = state.composingNew && state.mode === "chats";
+        if (!stillViewingPending) {
+          renderSidebar();
+          await loadChats();
+          return;
+        }
         state.composingNew = false;
         state.selectedId = newId;
-        state.pendingNewId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
         els.messageInput.placeholder = "Message Prompta…";
         els.composerStatus.textContent = "Sent. Waiting for the cached response…";
@@ -1805,6 +1901,7 @@ async function retryFailedSend(scope, retryKey) {
   if (!pending) return;
   els.messageInput.value = pending.message || "";
   resizeComposer();
+  syncSendButton();
   if ((pending.attachmentNames || []).length) {
     setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
     els.messageInput.focus();
@@ -1849,13 +1946,17 @@ async function sendSelectedMessage() {
   let serializedAttachments = [];
   if (attachments.length) {
     state.sending = true;
+    els.messageInput.disabled = true;
     els.sendButton.disabled = true;
+    setAttachmentControlsDisabled(true);
     setTextIfChanged(els.composerStatus, "Preparing attachments…");
     try {
       serializedAttachments = await serializeAttachments();
     } catch (error) {
       state.sending = false;
-      els.sendButton.disabled = false;
+      els.messageInput.disabled = false;
+      setAttachmentControlsDisabled(false);
+      syncSendButton();
       setTextIfChanged(
         els.composerStatus,
         "Attachment failed: " + String(error).replace(/^Error:\s*/, ""),
@@ -1934,13 +2035,14 @@ async function sendSelectedMessage() {
     console.error(error);
   } finally {
     state.sending = false;
+    if (attachments.length) setAttachmentControlsDisabled(false);
     if (!creatingNew && state.selectedId && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
+      syncSendButton();
       if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
     } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
+      syncSendButton();
       if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
     }
   }
@@ -1959,9 +2061,12 @@ async function copySelectedChatUrl() {
     textarea.style.opacity = "0";
     document.body.append(textarea);
     textarea.select();
-    document.execCommand("copy");
+    const copied = document.execCommand("copy");
     textarea.remove();
-    setTextIfChanged(els.composerStatus, "Chat link copied.");
+    setTextIfChanged(
+      els.composerStatus,
+      copied ? "Chat link copied." : "Could not copy the chat link.",
+    );
   }
 }
 function updateSlashMenu() {
@@ -1984,6 +2089,7 @@ function insertSlashCommand(command) {
   els.messageInput.value = command;
   els.slashMenu.hidden = true;
   resizeComposer();
+  syncSendButton();
   els.messageInput.focus();
   els.messageInput.setSelectionRange(command.length, command.length);
 }
@@ -2001,6 +2107,7 @@ els.messageForm.addEventListener("submit", (event) => {
 els.messageInput.addEventListener("input", () => {
   resizeComposer();
   updateSlashMenu();
+  syncSendButton();
 });
 els.messageInput.addEventListener("keydown", (event) => {
   if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {
@@ -2029,6 +2136,29 @@ function queueLiveRefresh() {
     liveRefreshQueued = false;
     await loadChats();
   });
+}
+function refreshDisplayedTimes() {
+  renderSidebar();
+  for (const time of els.chatList.querySelectorAll<HTMLElement>(".chat-time[data-activity-at]")) {
+    setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
+  }
+  if (
+    state.mode === "chats"
+    && state.selectedChat
+    && state.selectedChat.id === state.selectedId
+    && !state.composingNew
+  ) {
+    renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
+  }
+}
+function stopTimeRefresh() {
+  if (state.timeRefreshTimer === null) return;
+  clearInterval(state.timeRefreshTimer);
+  state.timeRefreshTimer = null;
+}
+function startTimeRefresh() {
+  if (state.timeRefreshTimer !== null) return;
+  state.timeRefreshTimer = setInterval(refreshDisplayedTimes, 30_000);
 }
 function stopFallbackRefresh() {
   if (state.refreshTimer === null) return;
@@ -2075,6 +2205,7 @@ function startEventStream() {
 window.addEventListener("pagehide", () => {
   state.liveUpdatesPaused = true;
   stopEventStream();
+  stopTimeRefresh();
 });
 window.addEventListener("pageshow", () => {
   if (!state.liveUpdatesPaused) return;
@@ -2082,6 +2213,7 @@ window.addEventListener("pageshow", () => {
   loadServerIdentity();
   loadChats();
   startEventStream();
+  startTimeRefresh();
 });
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
@@ -2096,5 +2228,6 @@ async function startApp() {
   document.documentElement.classList.remove("booting");
   await loadChats();
   startEventStream();
+  startTimeRefresh();
 }
 startApp();

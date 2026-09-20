@@ -4,6 +4,7 @@ import concurrent.futures
 import json
 import subprocess
 import time
+from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -472,6 +473,8 @@ def test_read_only_store_searches_message_content(tmp_path: Path) -> None:
 
     assert [chat["id"] for chat in store.conversations(query="Implemented")] == ["chat-1"]
     assert store.conversations(query="not present") == []
+    assert store.conversations(query="%") == []
+    assert store.conversations(query="_") == []
 
 
 def test_read_only_store_does_not_create_missing_database(tmp_path: Path) -> None:
@@ -700,7 +703,11 @@ def test_read_only_store_falls_back_to_prompta_journal(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
     completed = MagicMock(
         returncode=0,
-        stdout="line one\nline two\nline three\n",
+        stdout=(
+            "2026-09-21T08:47:49+1200 nox prompta[1]: line one\n"
+            "2026-09-21T08:47:50+1200 nox prompta[1]: line two\n"
+            "2026-09-21T08:47:51+1200 nox prompta[1]: line three\n"
+        ),
         stderr="",
     )
 
@@ -709,12 +716,46 @@ def test_read_only_store_falls_back_to_prompta_journal(tmp_path: Path) -> None:
 
     assert payload["exists"] is True
     assert payload["source"] == "journal"
-    assert payload["lines"] == ["line two", "line three"]
-    assert payload["updated_at"] is not None
+    assert payload["lines"] == [
+        "2026-09-21T08:47:50+1200 nox prompta[1]: line two",
+        "2026-09-21T08:47:51+1200 nox prompta[1]: line three",
+    ]
+    assert payload["updated_at"] == datetime.fromisoformat("2026-09-21T08:47:51+1200").timestamp()
     journal.assert_called_once()
     argv = journal.call_args.args[0]
     assert argv[:5] == ["journalctl", "--user", "-u", "prompta.service", "-n"]
     assert journal.call_args.kwargs["timeout"] == 2.0
+
+
+def test_read_only_store_treats_empty_journal_as_missing(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
+    completed = MagicMock(returncode=0, stdout="-- No entries --\n", stderr="")
+
+    with patch("prompta.web.subprocess.run", return_value=completed):
+        payload = store.logs()
+
+    assert payload == {
+        "exists": False,
+        "lines": [],
+        "updated_at": None,
+        "source": "none",
+    }
+
+
+def test_read_only_store_keeps_unparseable_journal_poll_stable(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
+    completed = MagicMock(returncode=0, stdout="unexpected journal line\n", stderr="")
+
+    with patch("prompta.web.subprocess.run", return_value=completed):
+        first = store.logs()
+        second = store.logs()
+
+    assert first == second == {
+        "exists": True,
+        "lines": ["unexpected journal line"],
+        "updated_at": None,
+        "source": "journal",
+    }
 
 
 def test_read_only_store_hides_request_placeholder_messages(tmp_path: Path) -> None:

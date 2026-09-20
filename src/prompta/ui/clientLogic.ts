@@ -68,16 +68,20 @@ export function matchingOptimisticConversation(
   if (!prompt) return null;
 
   const createdAt = Number(pending.createdAt || 0);
-  return chats.find((chat) => {
-    if (String(chat.prompt || "").trim() !== prompt) return false;
+  if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
+
+  let best: ChatSummary | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const chat of chats) {
+    if (String(chat.prompt || "").trim() !== prompt) continue;
     const chatCreatedAt = Number(chat.created_at || 0);
-    if (Number.isFinite(createdAt) && createdAt > 0) {
-      return Number.isFinite(chatCreatedAt)
-        && chatCreatedAt > 0
-        && Math.abs(chatCreatedAt - createdAt) <= 30;
-    }
-    return true;
-  }) || null;
+    if (!Number.isFinite(chatCreatedAt) || chatCreatedAt <= 0) continue;
+    const distance = Math.abs(chatCreatedAt - createdAt);
+    if (distance > 30 || distance >= bestDistance) continue;
+    best = chat;
+    bestDistance = distance;
+  }
+  return best;
 }
 
 export function messageTimestampMillis(
@@ -105,15 +109,20 @@ export function matchingPendingReplyMessageIndex(
   if (!content || !Number.isFinite(pendingAt) || pendingAt <= 0) return -1;
 
   const earliestMatch = pendingAt - 3;
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (claimedIndexes.has(index)) continue;
     const message = messages[index];
     if (message.role !== "user" || String(message.content || "").trim() !== content) continue;
     const messageTime = Number(message.created_at || message.updated_at || 0);
     if (!Number.isFinite(messageTime) || messageTime < earliestMatch) continue;
-    return index;
+    const distance = Math.abs(messageTime - pendingAt);
+    if (distance >= bestDistance) continue;
+    bestIndex = index;
+    bestDistance = distance;
   }
-  return -1;
+  return bestIndex;
 }
 
 export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {
@@ -200,6 +209,10 @@ export async function postJsonRequest(
   throw lastError;
 }
 
+export function composerHasContent(message: string, attachmentCount: number): boolean {
+  return Boolean(String(message || "").trim()) || attachmentCount > 0;
+}
+
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
   if (!/^\/at(?:\s|$)/i.test(message)) return null;
 
@@ -218,20 +231,28 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
   const prompt = match[4].trim();
 
   let target: Date;
+  let expectedYear: number;
+  let expectedMonth: number;
+  let expectedDay: number;
   if (dateToken === "today" || dateToken === "tomorrow") {
     target = new Date(now);
     if (dateToken === "tomorrow") target.setDate(target.getDate() + 1);
+    expectedYear = target.getFullYear();
+    expectedMonth = target.getMonth();
+    expectedDay = target.getDate();
     target.setHours(hour, minute, 0, 0);
   } else {
     const parts = dateToken.split("-").map(Number);
-    target = new Date(parts[0], parts[1] - 1, parts[2], hour, minute, 0, 0);
-    if (
-      target.getFullYear() !== parts[0]
-      || target.getMonth() !== parts[1] - 1
-      || target.getDate() !== parts[2]
-    ) {
+    expectedYear = parts[0];
+    expectedMonth = parts[1] - 1;
+    expectedDay = parts[2];
+    target = new Date(expectedYear, expectedMonth, expectedDay, hour, minute, 0, 0);
+    if (target.getFullYear() !== expectedYear || target.getMonth() !== expectedMonth || target.getDate() !== expectedDay) {
       return { error: "Schedule date is invalid." };
     }
+  }
+  if (target.getFullYear() !== expectedYear || target.getMonth() !== expectedMonth || target.getDate() !== expectedDay || target.getHours() !== hour || target.getMinutes() !== minute) {
+    return { error: "Schedule time does not exist in the local timezone." };
   }
 
   if (!prompt) return { error: "Schedule prompt is required." };
