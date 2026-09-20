@@ -656,7 +656,7 @@ function renderNewChat() {
     els.statusChip.textContent = pending?.status || "new";
     els.statusChip.className = "status-chip neutral";
     els.syncLabel.textContent = pending ? "send queued" : "fresh conversation";
-    els.messageInput.disabled = Boolean(waiting);
+    els.messageInput.disabled = false;
     syncSendButton();
     els.messageInput.placeholder = "Start a new chat…";
     els.composerStatus.textContent = pending?.status === "failed"
@@ -855,10 +855,14 @@ function syncSendButton() {
     && (state.pendingReplies.get(state.selectedId) || [])
       .some((item) => item.status !== "failed");
   const assistantPending = !state.composingNew && state.selectedChat?.status === "active";
+  const newChatPending = state.composingNew
+    && state.pendingNewSend
+    && !["failed", "succeeded"].includes(state.pendingNewSend.status);
   els.sendButton.disabled = els.messageInput.disabled
     || state.sending
     || replyPending
     || assistantPending
+    || newChatPending
     || !els.messageInput.value.trim();
 }
 
@@ -967,7 +971,6 @@ async function sendSelectedMessage() {
   };
 
   state.sending = true;
-  if (creatingNew) els.messageInput.disabled = true;
   syncSendButton();
   els.messageInput.value = "";
   resizeComposer();
