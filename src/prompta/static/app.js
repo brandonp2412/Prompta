@@ -9,6 +9,14 @@ function conversationIdFromHash(hash) {
     return "";
   }
 }
+var TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
+function toolCallDisplayName(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  return name && !TOOL_UI_NOISE.test(name) ? name : "";
+}
+function toolCallHasUsefulDetail(value) {
+  return String(value || "").split(/\n+/).map((line) => line.trim()).some((line) => Boolean(toolCallDisplayName(line)));
+}
 function sidebarPreviewText(value) {
   return String(value || "").replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();
 }
@@ -809,9 +817,14 @@ function renderCodeBlock(code, language) {
   const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
   const inlineToolMatch = code.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
   const toolish = Boolean(toolMatch || inlineToolMatch);
-  const toolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
+  const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
+  const toolName = toolCallDisplayName(rawToolName);
   const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
   const trimmedCode = code.trim();
+  const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
+  if (toolish && !toolName && !hasUsefulToolDetail)
+    return "";
+  const renderedCode = toolish && !hasUsefulToolDetail ? "" : code;
   const highlightLanguage = toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
   const label = toolish ? "tool call" : rawLanguage || "code";
   return `
@@ -819,9 +832,9 @@ function renderCodeBlock(code, language) {
       <div class="code-header">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        <button type="button" class="copy-code">copy</button>
+        ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}
       </div>
-      <pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(code, highlightLanguage)}</code></pre>
+      ${renderedCode.trim() ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : ""}
     </div>`;
 }
 function renderMarkdown(raw) {

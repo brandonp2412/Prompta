@@ -43,6 +43,20 @@ export function conversationIdFromHash(hash: unknown): string {
   }
 }
 
+const TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
+
+export function toolCallDisplayName(value: unknown): string {
+  const name = String(value || "").replace(/\s+/g, " " ).trim();
+  return name && !TOOL_UI_NOISE.test(name) ? name : "";
+}
+
+export function toolCallHasUsefulDetail(value: unknown): boolean {
+  return String(value || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .some((line) => Boolean(toolCallDisplayName(line)));
+}
+
 export function sidebarPreviewText(value: unknown): string {
   return String(value || "")
     .replace(

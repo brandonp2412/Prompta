@@ -9,6 +9,8 @@ import {
   parseScheduleSlashCommand,
   postJsonRequest as postJson,
   sidebarPreviewText,
+  toolCallDisplayName,
+  toolCallHasUsefulDetail,
 } from "./clientLogic";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
 function loadPinnedIds() {
@@ -604,9 +606,13 @@ function renderCodeBlock(code, language) {
   const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
   const inlineToolMatch = code.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
   const toolish = Boolean(toolMatch || inlineToolMatch);
-  const toolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
+  const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
+  const toolName = toolCallDisplayName(rawToolName);
   const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
   const trimmedCode = code.trim();
+  const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
+  if (toolish && !toolName && !hasUsefulToolDetail) return "";
+  const renderedCode = toolish && !hasUsefulToolDetail ? "" : code;
   const highlightLanguage = toolish && toolFence
     ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
     : normalized;
@@ -616,9 +622,9 @@ function renderCodeBlock(code, language) {
       <div class="code-header">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        <button type="button" class="copy-code">copy</button>
+        ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}
       </div>
-      <pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(code, highlightLanguage)}</code></pre>
+      ${renderedCode.trim() ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : ""}
     </div>`;
 }
 function renderMarkdown(raw) {

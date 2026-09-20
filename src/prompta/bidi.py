@@ -852,20 +852,24 @@ class FirefoxBiDiDriver:
                 return walk(root).replace(/\\n{3,}/g,'\\n\\n').trim();
               };
               const toolSelector='[data-tool-call-id],[data-tool-name]';
+              const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\\w-]+)$/i;
+              const cleanToolName=value=>{const text=(value||'').replace(/\\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
               const toolBlocks=agent=>[...new Set([
                 ...agent.querySelectorAll(toolSelector)
               ])].filter(node=>!node.querySelector(toolSelector)).map(node=>{
-                const name=(node.getAttribute('data-tool-name')
-                  ||node.querySelector('[data-tool-name]')?.getAttribute('data-tool-name')
-                  ||'').trim();
-                const noise=/^(?:Open tool call list|Close tool call list|cot-v5-tool-icon-pile|Tool call|Expand|Collapse)$/i;
+                const name=[
+                  node.getAttribute('data-tool-name'),
+                  node.getAttribute('aria-label'),
+                  node.getAttribute('title')
+                ].map(cleanToolName).find(Boolean)||'';
                 const detail=(node.innerText||node.textContent||'').split(/\\n+/)
                   .map(line=>line.trim())
-                  .filter(line=>line&&!noise.test(line)&&!/^cot-v5-/i.test(line))
+                  .filter(line=>line&&cleanToolName(line))
                   .join('\\n').trim().slice(0,16000);
-                if(!detail&&!name)return '';
+                const body=normalise(detail)===normalise(name)?'':detail;
+                if(!body&&!name)return '';
                 const label=name||'tool';
-                return '```tool:'+label+'\\n'+(detail||label)+'\\n```';
+                return '```tool:'+label+'\\n'+body+'\\n```';
               }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const agentRoot=node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement;
