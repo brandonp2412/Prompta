@@ -58,6 +58,7 @@ _TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
 _TRANSIENT_RECOVERY_GRACE_SECONDS = 15.0
 _FIREFOX_REUSE_POLL_SECONDS = 0.25
 _FIREFOX_REUSE_STABILITY_CHECKS = 12
+_FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS = 30.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -2322,6 +2323,47 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         await process.wait()
 
 
+def _firefox_profile_owner_pid(profile: Path) -> int | None:
+    """Return Firefox's live-profile owner PID encoded in its lock symlink."""
+
+    try:
+        target = os.readlink(profile / "lock")
+    except (FileNotFoundError, OSError):
+        return None
+    match = re.search(r"\+(\d+)$", target)
+    return int(match.group(1)) if match is not None else None
+
+
+def _firefox_process_uses_profile(pid: int, profile: Path) -> bool:
+    """Conservatively identify a live Firefox process using this profile."""
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+    try:
+        arguments = [
+            value.decode("utf-8", errors="replace")
+            for value in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            if value
+        ]
+    except OSError:
+        # If the PID exists but procfs cannot be inspected, preserve the lock
+        # instead of risking two Firefox instances writing the same profile.
+        return True
+    if not arguments or Path(arguments[0]).name != "firefox":
+        return False
+    resolved = str(profile.resolve())
+    return any(
+        argument == resolved
+        for index, argument in enumerate(arguments)
+        if index > 0 and arguments[index - 1] == "--profile"
+    )
+
+
 async def _spawn_firefox(
     profile: Path, firefox_path: str, port: int
 ) -> asyncio.subprocess.Process | None:
@@ -2343,10 +2385,49 @@ async def _spawn_firefox(
             logger.info("Prompta reusing Firefox already listening on port %d", port)
             return None
         logger.info(
-            "Prompta Firefox listener on port %d disappeared during reuse check; "
-            "starting a fresh browser",
+            "Prompta Firefox listener on port %d disappeared during reuse check",
             port,
         )
+
+    owner_pid = _firefox_profile_owner_pid(resolved)
+    if owner_pid is not None and _firefox_process_uses_profile(owner_pid, resolved):
+        logger.info(
+            "Prompta Firefox profile is still owned by pid=%d; waiting for it to exit",
+            owner_pid,
+        )
+        deadline = (
+            asyncio.get_running_loop().time()
+            + _FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS
+        )
+        while _firefox_process_uses_profile(owner_pid, resolved):
+            if asyncio.get_running_loop().time() >= deadline:
+                raise RuntimeError(
+                    "Firefox profile is still in use after "
+                    f"{_FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS:.0f}s "
+                    f"(pid={owner_pid})"
+                )
+            await asyncio.sleep(_FIREFOX_REUSE_POLL_SECONDS)
+            if await _firefox_port_is_open(port):
+                listener_stable = True
+                for _ in range(_FIREFOX_REUSE_STABILITY_CHECKS):
+                    await asyncio.sleep(_FIREFOX_REUSE_POLL_SECONDS)
+                    if not await _firefox_port_is_open(port):
+                        listener_stable = False
+                        break
+                if listener_stable:
+                    logger.info(
+                        "Prompta reusing Firefox already listening on port %d",
+                        port,
+                    )
+                    return None
+        logger.info(
+            "Prompta previous Firefox pid=%d released the profile; starting a fresh browser",
+            owner_pid,
+        )
+
+    # Only remove lock artifacts after proving that their recorded Firefox
+    # owner is gone. Deleting a live profile lock can let two Firefox instances
+    # write cookies/session state concurrently.
     for name in ("lock", ".parentlock"):
         try:
             os.unlink(resolved / name)

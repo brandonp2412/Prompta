@@ -660,6 +660,67 @@ async def test_spawn_firefox_reuses_only_a_stable_existing_listener(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_spawn_firefox_preserves_lock_for_live_profile_owner(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    (profile / "lock").symlink_to("host:+1234")
+    (profile / ".parentlock").touch()
+
+    with (
+        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
+        patch("prompta.core._firefox_process_uses_profile", return_value=True),
+        patch("prompta.core._FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS", 0.0),
+        patch(
+            "prompta.core.asyncio.create_subprocess_exec",
+            AsyncMock(),
+        ) as create_process,
+        pytest.raises(RuntimeError, match="Firefox profile is still in use"),
+    ):
+        await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
+
+    assert (profile / "lock").is_symlink()
+    assert (profile / ".parentlock").exists()
+    create_process.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_spawn_firefox_waits_for_profile_owner_to_exit(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    (profile / "lock").symlink_to("host:+1234")
+    (profile / ".parentlock").touch()
+    process = MagicMock()
+
+    with (
+        patch(
+            "prompta.core._firefox_port_is_open",
+            AsyncMock(side_effect=[False, False]),
+        ) as port_is_open,
+        patch(
+            "prompta.core._firefox_process_uses_profile",
+            side_effect=[True, True, False],
+        ) as process_uses_profile,
+        patch("prompta.core.asyncio.sleep", AsyncMock()) as sleep,
+        patch(
+            "prompta.core.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=process),
+        ) as create_process,
+        patch("prompta.core.wait_for_port", AsyncMock()) as wait_for_port,
+    ):
+        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
+
+    assert result is process
+    assert port_is_open.await_count == 2
+    assert process_uses_profile.call_count == 3
+    process_uses_profile.assert_any_call(1234, profile.resolve())
+    sleep.assert_awaited_once()
+    create_process.assert_awaited_once()
+    wait_for_port.assert_awaited_once_with(9229)
+    assert not (profile / "lock").exists()
+    assert not (profile / ".parentlock").exists()
+
+
+@pytest.mark.asyncio
 async def test_spawn_firefox_replaces_listener_that_dies_during_reuse_check(
     tmp_path: Path,
 ) -> None:
