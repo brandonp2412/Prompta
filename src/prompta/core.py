@@ -35,7 +35,7 @@ DEFAULT_FIREFOX_PORT = 9229
 _CONTROL_SOCKET_NAME = "control.sock"
 _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
-_CONTROL_SEND_TIMEOUT_SECONDS = 10 * 60.0
+_CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0
 DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
@@ -1192,6 +1192,10 @@ class Prompta:
                 return did_work
             try:
                 result = await self.send_reply(conversation_id, prompt, attachments=attachments)
+                if not await self.wait_for_cached_response(result):
+                    raise RuntimeError(
+                        "Prompta reply was sent but its assistant response was not cached"
+                    )
             except Exception as exc:
                 if not future.done():
                     future.set_exception(exc)
