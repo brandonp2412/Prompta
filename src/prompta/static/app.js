@@ -1685,7 +1685,11 @@ els.attachmentMenu.addEventListener("click", (event) => {
     els.fileUploadInput.click();
 });
 for (const input of [els.fileUploadInput, els.photoUploadInput, els.cameraUploadInput]) {
-  input.addEventListener("change", () => addAttachments(Array.from(input.files || [])));
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    input.value = "";
+    addAttachments(files);
+  });
 }
 els.attachmentChips.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-attachment]");

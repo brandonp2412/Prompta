@@ -1579,7 +1579,13 @@ els.attachmentMenu.addEventListener("click", (event) => {
   else els.fileUploadInput.click();
 });
 for (const input of [els.fileUploadInput, els.photoUploadInput, els.cameraUploadInput]) {
-  input.addEventListener("change", () => addAttachments(Array.from(input.files || [])));
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    // Reset the native picker immediately so removing a chip and choosing the
+    // same file again still emits a change event.
+    input.value = "";
+    addAttachments(files);
+  });
 }
 els.attachmentChips.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-attachment]");

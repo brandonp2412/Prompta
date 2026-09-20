@@ -64,6 +64,7 @@ class FirefoxBiDiDriver:
                     break
                 except (InvalidMessage, OSError) as exc:
                     if loop.time() >= deadline:
+                        self.needs_browser_restart = True
                         raise RuntimeError(
                             "Firefox BiDi endpoint did not become ready "
                             f"within {_BIDI_CONNECT_RETRY_SECONDS:.0f}s"

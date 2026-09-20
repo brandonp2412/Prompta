@@ -1413,8 +1413,20 @@ class Prompta:
             if changed:
                 self.cache.write_snapshot(active.conversation_id, snapshot)
                 active.last_digest = digest
-                active.idle_polls = 0
-                active.settled_at = 0.0
+                # ChatGPT can mutate final-turn chrome (actions, ids, metadata)
+                # after Prompta has already declared the response complete. Do
+                # not restart the retention clock for those harmless changes or
+                # completed tabs can linger indefinitely. A response that
+                # actually resumes streaming/fails loses its settled state via
+                # the activity hints above/below.
+                if not (
+                    active.settled_at > 0
+                    and completion_hint
+                    and not streaming
+                    and not failure_hint
+                ):
+                    active.idle_polls = 0
+                    active.settled_at = 0.0
 
             if failure_hint:
                 active.idle_polls += 1
@@ -1474,7 +1486,11 @@ class Prompta:
             if streaming_hint or transient_hint:
                 continue
 
-            if not changed and has_assistant and not streaming:
+            if active.settled_at > 0 and completion_hint and not streaming:
+                # Preserve the original completion timestamp during the short
+                # retained-tab grace period, including across late DOM changes.
+                pass
+            elif not changed and has_assistant and not streaming:
                 active.idle_polls += 1
             else:
                 active.idle_polls = 0
@@ -2272,6 +2288,43 @@ async def _spawn_firefox(
     return process
 
 
+async def _recover_disappeared_reused_firefox(
+    prompta: Prompta,
+    profile: Path,
+    firefox_path: str,
+    port: int,
+) -> asyncio.subprocess.Process | None:
+    """Replace a Firefox listener that vanished after the reuse stability check."""
+
+    try:
+        await prompta._ensure_driver()
+        return None
+    except (ConnectionClosed, OSError, RuntimeError):
+        # Authentication/session errors can occur while a healthy Firefox listener
+        # remains available. Only replace a reused browser when the endpoint itself
+        # has actually disappeared; otherwise preserve the original error.
+        if await _firefox_port_is_open(port):
+            raise
+
+    logger.warning(
+        "Prompta reused Firefox on port %d but its BiDi endpoint disappeared; "
+        "starting a fresh browser",
+        port,
+    )
+    if prompta.driver is not None:
+        await prompta.driver.close()
+        prompta.driver = None
+
+    replacement = await _spawn_firefox(profile, firefox_path, port)
+    try:
+        await prompta._ensure_driver()
+    except BaseException:
+        if replacement is not None:
+            await _terminate_process(replacement)
+        raise
+    return replacement
+
+
 async def _send_direct(
     state_path: Path,
     cache_path: Path,
@@ -2295,6 +2348,13 @@ async def _send_direct(
             ),
             f"ws://127.0.0.1:{firefox_port}/session",
         )
+        if firefox is None:
+            firefox = await _recover_disappeared_reused_firefox(
+                prompta,
+                firefox_profile,
+                firefox_path,
+                firefox_port,
+            )
         if conversation_id:
             result = await prompta.send_reply(
                 conversation_id,
@@ -2446,11 +2506,26 @@ async def _run(args: argparse.Namespace) -> None:
             # already held at this point, so UI sends otherwise see a running scheduler
             # but can race a potentially slow recovery and fail before the socket exists.
             control_server, control_path = await _start_control_server(prompta, args.state)
+            if not args.bidi_url and firefox is None:
+                firefox = await _recover_disappeared_reused_firefox(
+                    prompta,
+                    args.firefox_profile,
+                    args.firefox_path,
+                    args.firefox_port,
+                )
             recovered = await prompta.recover_cached_conversations()
             if recovered:
                 logger.info(
                     "Prompta recovered %d live conversation(s) after restart", recovered
                 )
+
+        if args.command != "run" and not args.bidi_url and firefox is None:
+            firefox = await _recover_disappeared_reused_firefox(
+                prompta,
+                args.firefox_profile,
+                args.firefox_path,
+                args.firefox_port,
+            )
 
         if args.command == "once":
             conversation_id = await prompta.send_once(args.prompt)

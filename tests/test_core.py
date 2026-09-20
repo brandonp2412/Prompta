@@ -21,6 +21,7 @@ from prompta.core import (
     _daemon_is_running,
     _open_control_connection,
     _parser,
+    _recover_disappeared_reused_firefox,
     _run,
     _send_direct,
     _send_once_via_control,
@@ -684,6 +685,63 @@ async def test_spawn_firefox_replaces_listener_that_dies_during_reuse_check(
     assert port_is_open.await_count == 4
     create_process.assert_awaited_once()
     wait_for_port.assert_awaited_once_with(9229)
+
+
+@pytest.mark.asyncio
+async def test_reused_firefox_is_replaced_when_endpoint_disappears(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    replacement = MagicMock()
+    failed_driver = MagicMock()
+    failed_driver.close = AsyncMock()
+    prompta = MagicMock()
+    prompta.driver = failed_driver
+    prompta._ensure_driver = AsyncMock(
+        side_effect=[RuntimeError("Firefox BiDi endpoint did not become ready within 5s"), None]
+    )
+
+    with (
+        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
+        patch(
+            "prompta.core._spawn_firefox",
+            AsyncMock(return_value=replacement),
+        ) as spawn_firefox,
+    ):
+        result = await _recover_disappeared_reused_firefox(
+            prompta,
+            profile,
+            "/usr/bin/firefox",
+            9229,
+        )
+
+    assert result is replacement
+    assert prompta._ensure_driver.await_count == 2
+    failed_driver.close.assert_awaited_once()
+    spawn_firefox.assert_awaited_once_with(profile, "/usr/bin/firefox", 9229)
+
+
+@pytest.mark.asyncio
+async def test_reused_firefox_preserves_error_while_listener_is_alive(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    prompta = MagicMock()
+    prompta._ensure_driver = AsyncMock(
+        side_effect=RuntimeError("Prompta Firefox profile is not logged into ChatGPT")
+    )
+
+    with (
+        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=True)),
+        patch("prompta.core._spawn_firefox", AsyncMock()) as spawn_firefox,
+        pytest.raises(RuntimeError, match="not logged into ChatGPT"),
+    ):
+        await _recover_disappeared_reused_firefox(
+            prompta,
+            profile,
+            "/usr/bin/firefox",
+            9229,
+        )
+
+    spawn_firefox.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1574,6 +1632,12 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
     # memory reclaim while another send is starting.
     active.settled_at -= 16.0
     driver.close_context = AsyncMock()
+    # Final-turn chrome/title metadata can still change after completion. That
+    # must not restart the retention timer and keep the tab resident.
+    driver.conversation_snapshot.return_value = {
+        **completed_snapshot,
+        "title": "Existing chat · final metadata",
+    }
     await prompta._poll_active_conversations()
 
     driver.close_context.assert_awaited_once_with(context_id)
