@@ -132,9 +132,10 @@ SSH reachability.
 The optional user service is `systemd/prompta-ui.service`.
 
 For the Nox public host, install `systemd/prompta-ui-nox.service` as
-`~/.config/systemd/user/prompta-ui.service`. It serves the synced Glass cache and
-the local Nox cache through the single port 8765 UI; the former 8766/8767
-per-node UI services are retired.
+`~/.config/systemd/user/prompta-ui.service`. Nox is the authoritative UI,
+conversation cache, and control host on port 8765, so the public UI continues to
+work with Glass offline. The former Glass-synced and 8766/8767 per-node UI
+services are retired.
 
 ## Service
 
