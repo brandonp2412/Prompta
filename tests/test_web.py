@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import subprocess
 import time
 from http import HTTPStatus
 from pathlib import Path
@@ -19,6 +20,7 @@ from prompta.web import (
     SendJobRegistry,
     _reconcile_orphaned_local_chats,
     _remote_control,
+    _start_local_scheduler_service,
     _wait_for_local_scheduler,
 )
 
@@ -225,6 +227,7 @@ def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> 
     try:
         with (
             patch("prompta.web._wait_for_local_scheduler", return_value=False),
+            patch("prompta.web._start_local_scheduler_service", return_value=False),
             patch("prompta.web._send_direct", AsyncMock(return_value="chat-direct")) as direct,
         ):
             result = server._send("once", "Hello", "")
@@ -237,8 +240,51 @@ def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> 
         tmp_path / "chats.sqlite3",
         "Hello",
         conversation_id="",
-            attachments=[],
+        attachments=[],
     )
+
+
+def test_local_ui_starts_scheduler_before_direct_send(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with (
+            patch("prompta.web._wait_for_local_scheduler", side_effect=[False, True]) as wait,
+            patch("prompta.web._start_local_scheduler_service", return_value=True) as start,
+            patch(
+                "prompta.web._send_once_via_control",
+                AsyncMock(return_value="chat-control"),
+            ) as control,
+            patch("prompta.web._send_direct", AsyncMock()) as direct,
+        ):
+            result = server._send("once", "Hello", "")
+    finally:
+        server.server_close()
+
+    assert result == "chat-control"
+    assert wait.call_count == 2
+    start.assert_called_once_with()
+    control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
+    direct.assert_not_awaited()
+
+
+def test_local_ui_refuses_direct_send_when_started_scheduler_never_claims_lock(
+    tmp_path: Path,
+) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with (
+            patch("prompta.web._wait_for_local_scheduler", return_value=False),
+            patch("prompta.web._start_local_scheduler_service", return_value=True),
+            patch("prompta.web._send_direct", AsyncMock()) as direct,
+        ):
+            with pytest.raises(RuntimeError, match="refusing a competing direct browser"):
+                server._send("once", "Hello", "")
+    finally:
+        server.server_close()
+
+    direct.assert_not_awaited()
 
 
 def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) -> None:
@@ -553,6 +599,14 @@ def test_remote_host_status_is_based_on_fresh_ssh_reachability(tmp_path: Path) -
             assert server.host_online(force=True) is True
     finally:
         server.server_close()
+
+
+def test_start_local_scheduler_service_handles_systemctl_timeout() -> None:
+    with patch(
+        "prompta.web.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(["systemctl"], 10),
+    ):
+        assert _start_local_scheduler_service() is False
 
 
 def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
