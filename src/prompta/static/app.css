@@ -646,6 +646,21 @@ textarea:focus-visible {
   line-height: 1.55;
 }
 
+.message-timestamp {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.message.user .message-timestamp {
+  color: color-mix(in srgb, var(--text) 48%, transparent);
+  text-align: right;
+}
+
 .message-content > :first-child {
   margin-top: 0;
 }

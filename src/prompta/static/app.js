@@ -316,10 +316,26 @@ function renderMarkdown(raw) {
   return html || "<p></p>";
 }
 
+function messageTimestamp(message) {
+  const raw = Number(message.created_at || message.updated_at || Date.now() / 1000);
+  const date = new Date(raw < 1e12 ? raw * 1000 : raw);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hour24 = date.getHours();
+  const hour12 = hour24 % 12 || 12;
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const period = hour24 < 12 ? "am" : "pm";
+  return {
+    text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${hour12}:${minutes}${period}`,
+    iso: date.toISOString(),
+  };
+}
+
 function renderMessageSection(message, allowStreaming = true) {
   const role = message.role === "user" ? "user" : "assistant";
   const streaming = allowStreaming && message.status === "streaming";
   const label = message.send_error ? "Send error" : "Prompta run";
+  const timestamp = messageTimestamp(message);
   return `
     <section class="message ${role}${message.send_error ? " send-error" : ""}">
       <div class="message-inner">
@@ -332,6 +348,7 @@ function renderMessageSection(message, allowStreaming = true) {
             <span class="streaming-dots" aria-label="Waiting for response"><i></i><i></i><i></i></span>
           </div>
         ` : ""}
+        <time class="message-timestamp" datetime="${timestamp.iso}">${timestamp.text}</time>
       </div>
     </section>`;
 }
