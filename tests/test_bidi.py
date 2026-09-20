@@ -67,6 +67,50 @@ async def test_bidi_call_timeout_disconnects_wedged_session(
 
 
 @pytest.mark.asyncio
+async def test_connect_retries_transient_firefox_handshake_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWebSocket:
+        close_code = None
+
+    attempts = 0
+
+    async def fake_connect(*args: object, **kwargs: object) -> FakeWebSocket:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise bidi_module.InvalidMessage("connection closed while reading HTTP status line")
+        return FakeWebSocket()
+
+    monkeypatch.setattr(bidi_module.websockets, "connect", fake_connect)
+    monkeypatch.setattr(bidi_module, "_BIDI_CONNECT_RETRY_SECONDS", 0.05)
+    monkeypatch.setattr(bidi_module, "_BIDI_CONNECT_RETRY_INTERVAL_SECONDS", 0.001)
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"type": "success"},
+            {
+                "type": "success",
+                "result": {
+                    "contexts": [
+                        {"context": "live-chat", "url": "https://chatgpt.com/c/123"},
+                    ]
+                },
+            },
+            {"type": "success"},
+        ]
+    )
+    driver.login_required = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    driver.ensure_token = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    await driver.connect()
+
+    assert attempts == 3
+    assert driver.context == "live-chat"
+    assert driver.needs_browser_restart is False
+
+
+@pytest.mark.asyncio
 async def test_connect_marks_browser_restart_required_when_firefox_session_is_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
