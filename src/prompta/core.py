@@ -763,9 +763,17 @@ class Prompta:
                 expected_path = urlsplit(target_url).path.rstrip("/")
                 await self._ensure_conversation_route(driver, expected_path)
                 await driver.wait_for_composer()
-                snapshot = await driver.conversation_snapshot(context)
-                messages = snapshot.get("messages")
-                if not isinstance(messages, list) or not messages:
+                deadline = asyncio.get_running_loop().time() + 10.0
+                snapshot: dict[str, Any] = {}
+                messages: list[Any] = []
+                while asyncio.get_running_loop().time() < deadline:
+                    snapshot = await driver.conversation_snapshot(context)
+                    candidate_messages = snapshot.get("messages")
+                    if isinstance(candidate_messages, list) and candidate_messages:
+                        messages = candidate_messages
+                        break
+                    await asyncio.sleep(0.5)
+                if not messages:
                     raise RuntimeError("ChatGPT conversation did not expose any messages")
 
                 # A daemon restart can happen while ChatGPT is still working server-side.
