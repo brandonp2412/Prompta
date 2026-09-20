@@ -9,10 +9,12 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import websockets
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidMessage
 
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
 _BIDI_CALL_TIMEOUT_SECONDS = 30.0
+_BIDI_CONNECT_RETRY_SECONDS = 5.0
+_BIDI_CONNECT_RETRY_INTERVAL_SECONDS = 0.1
 
 
 class FirefoxBiDiDriver:
@@ -47,11 +49,24 @@ class FirefoxBiDiDriver:
         if self.needs_browser_restart:
             raise RuntimeError("Firefox BiDi session is poisoned; browser restart required")
         try:
-            self.ws = await websockets.connect(
-                self.url,
-                max_size=16 * 1024 * 1024,
-                ping_interval=None,
-            )
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + _BIDI_CONNECT_RETRY_SECONDS
+            while True:
+                try:
+                    self.ws = await websockets.connect(
+                        self.url,
+                        max_size=16 * 1024 * 1024,
+                        ping_interval=None,
+                        open_timeout=max(0.1, min(1.0, deadline - loop.time())),
+                    )
+                    break
+                except (InvalidMessage, OSError) as exc:
+                    if loop.time() >= deadline:
+                        raise RuntimeError(
+                            "Firefox BiDi endpoint did not become ready "
+                            f"within {_BIDI_CONNECT_RETRY_SECONDS:.0f}s"
+                        ) from exc
+                    await asyncio.sleep(_BIDI_CONNECT_RETRY_INTERVAL_SECONDS)
             response = await self._call("session.new", {"capabilities": {}})
         except TimeoutError:
             self.needs_browser_restart = True
