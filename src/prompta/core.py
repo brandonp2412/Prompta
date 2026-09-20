@@ -34,7 +34,7 @@ DEFAULT_FIREFOX_PROFILE = Path.home() / ".local" / "state" / "prompta" / "firefo
 DEFAULT_FIREFOX_PORT = 9229
 _CONTROL_SOCKET_NAME = "control.sock"
 _DAEMON_LOCK_NAME = "daemon.lock"
-_CONTROL_CONNECT_TIMEOUT_SECONDS = 10.0
+_CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 10 * 60.0
 DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
@@ -593,6 +593,8 @@ class Prompta:
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
             await driver.click_send()
 
+            provisional_conversation_id = ""
+            provisional_confirmed = False
             deadline = asyncio.get_running_loop().time() + max(
                 1.0, self.config.send_timeout_seconds
             )
@@ -621,8 +623,34 @@ class Prompta:
                 dom_confirmed = user_text == self._normalise(prompt) and not self._normalise(
                     str(state.get("composer_text") or "")
                 )
-                if route_confirmed:
-                    conversation_id = path.removeprefix("/c/").split("/", 1)[0]
+                route_conversation_id = (
+                    path.removeprefix("/c/").split("/", 1)[0] if route_confirmed else ""
+                )
+                probe_conversation_id = str(probe.get("conversation_id") or "")
+                durable_conversation_id = next(
+                    (
+                        candidate
+                        for candidate in (probe_conversation_id, route_conversation_id)
+                        if candidate and not candidate.startswith("WEB:")
+                    ),
+                    "",
+                )
+                provisional = next(
+                    (
+                        candidate
+                        for candidate in (probe_conversation_id, route_conversation_id)
+                        if candidate.startswith("WEB:")
+                    ),
+                    "",
+                )
+                if provisional:
+                    provisional_conversation_id = provisional
+                    provisional_confirmed = (
+                        provisional_confirmed or send_confirmed or dom_confirmed or route_confirmed
+                    )
+
+                if durable_conversation_id:
+                    conversation_id = durable_conversation_id
                     logger.info(
                         "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s dom_confirmed=%s",
                         conversation_id,
@@ -645,6 +673,26 @@ class Prompta:
                     succeeded = True
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+
+            if provisional_conversation_id and provisional_confirmed:
+                logger.warning(
+                    "Prompta only observed provisional conversation=%s before send confirmation timeout; continuing cache capture until ChatGPT publishes the durable route",
+                    provisional_conversation_id,
+                )
+                self.cache.start(
+                    provisional_conversation_id,
+                    context_id=context,
+                    job_name=job_name,
+                    prompt=prompt,
+                )
+                self._active_conversations[context] = ActiveConversation(
+                    conversation_id=provisional_conversation_id,
+                    context_id=context,
+                    job_name=job_name,
+                    prompt=prompt,
+                )
+                succeeded = True
+                return provisional_conversation_id
 
             raise SendVerificationError(
                 "prompta could not prove the prompt was sent in a new conversation"
@@ -896,11 +944,19 @@ class Prompta:
             logger.exception("Prompta job=%s send failed: %s", job.name, exc)
             retry_until = time.time() + _FAILURE_RETRY_SECONDS
             self._mark_failure(job.name, str(exc), retry_until=retry_until)
+            browser_restart_required = bool(
+                self.driver is not None and self.driver.needs_browser_restart is True
+            )
             if self.driver is not None:
                 self._interrupt_active_conversations()
-                await self.driver.close()
-                self.driver = None
+                if not browser_restart_required:
+                    await self.driver.close()
+                    self.driver = None
             self._failure_retry_until[job.name] = retry_until
+            if browser_restart_required:
+                raise RuntimeError(
+                    "Firefox BiDi session was lost; restarting Prompta to recycle Firefox"
+                ) from exc
             return False
         sent_at = time.time()
         if job.daily_at is not None:
@@ -969,11 +1025,11 @@ class Prompta:
             messages = snapshot.get("messages")
             if not isinstance(messages, list):
                 messages = []
-            has_assistant = any(
-                isinstance(message, dict)
-                and str(message.get("role") or "") == "assistant"
-                and bool(str(message.get("content") or "").strip())
-                for message in messages
+            last_message = messages[-1] if messages else None
+            has_assistant = (
+                isinstance(last_message, dict)
+                and str(last_message.get("role") or "") == "assistant"
+                and bool(str(last_message.get("content") or "").strip())
             )
             streaming = bool(snapshot.get("streaming"))
 
@@ -1006,7 +1062,7 @@ class Prompta:
                 continue
 
             try:
-                await self.driver.close_context(context)
+                await driver.close_context(context)
             except Exception:
                 logger.debug("Could not close retained Prompta tab", exc_info=True)
             self._active_conversations.pop(context, None)
@@ -1099,6 +1155,10 @@ class Prompta:
             await self._poll_active_conversations()
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
+            if self.driver is not None and self.driver.needs_browser_restart is True:
+                raise RuntimeError(
+                    "Firefox BiDi session was lost; restarting Prompta to recycle Firefox"
+                )
             jobs = self.read_jobs()
             if not jobs:
                 await self._release_driver_if_idle()
@@ -1131,11 +1191,11 @@ class Prompta:
                     messages = snapshot.get("messages")
                     if not isinstance(messages, list):
                         messages = []
-                    has_assistant = any(
-                        isinstance(message, dict)
-                        and str(message.get("role") or "") == "assistant"
-                        and bool(str(message.get("content") or "").strip())
-                        for message in messages
+                    last_message = messages[-1] if messages else None
+                    has_assistant = (
+                        isinstance(last_message, dict)
+                        and str(last_message.get("role") or "") == "assistant"
+                        and bool(str(last_message.get("content") or "").strip())
                     )
                     complete = complete or (has_assistant and not bool(snapshot.get("streaming")))
                     self.cache.write_snapshot(
