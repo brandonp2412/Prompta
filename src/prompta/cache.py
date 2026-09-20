@@ -34,14 +34,60 @@ class ChatCache:
         self.path = path.expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self.path.parent, 0o700)
-        self.connection = sqlite3.connect(self.path)
+        self.connection = self._open_connection()
+        try:
+            self._configure_connection()
+            self._migrate()
+        except sqlite3.DatabaseError as error:
+            try:
+                self.connection.close()
+            except sqlite3.Error:
+                pass
+            if not self._is_corruption_error(error):
+                raise
+            self._quarantine_corrupt_database()
+            self.connection = self._open_connection()
+            self._configure_connection()
+            self._migrate()
+
+    def _open_connection(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
         os.chmod(self.path, 0o600)
-        self.connection.row_factory = sqlite3.Row
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _configure_connection(self) -> None:
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=NORMAL")
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute("PRAGMA busy_timeout=5000")
-        self._migrate()
+
+    @staticmethod
+    def _is_corruption_error(error: sqlite3.DatabaseError) -> bool:
+        message = str(error).lower()
+        return "malformed" in message or "file is not a database" in message
+
+    def _quarantine_corrupt_database(self) -> None:
+        timestamp = int(time.time())
+        quarantine = self.path.with_name(f"{self.path.name}.corrupt-{timestamp}")
+        sequence = 0
+        while any(
+            candidate.exists()
+            for candidate in (
+                quarantine,
+                Path(f"{quarantine}-wal"),
+                Path(f"{quarantine}-shm"),
+            )
+        ):
+            sequence += 1
+            quarantine = self.path.with_name(
+                f"{self.path.name}.corrupt-{timestamp}-{sequence}"
+            )
+
+        for suffix in ("", "-wal", "-shm"):
+            source = Path(f"{self.path}{suffix}")
+            if source.exists():
+                source.replace(Path(f"{quarantine}{suffix}"))
 
     def _migrate(self) -> None:
         self.connection.executescript(
