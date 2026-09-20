@@ -901,14 +901,7 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
                 interval_seconds,
                 exact_interval=True,
             )
-            started = subprocess.run(
-                ["systemctl", "--user", "start", "prompta.service"],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            scheduler_started = started.returncode == 0
+            scheduler_started = _start_local_scheduler_service()
 
         return {
             "name": name,
@@ -995,14 +988,7 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
                 exact_interval=True,
                 run_at_epoch=run_at_epoch,
             )
-            started = subprocess.run(
-                ["systemctl", "--user", "start", "prompta.service"],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            scheduler_started = started.returncode == 0
+            scheduler_started = _start_local_scheduler_service()
 
         return {
             "name": name,
@@ -1029,13 +1015,24 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
                 attachments=attachment_paths,
             )
         with self._local_send_lock:
-            if _wait_for_local_scheduler(self.state_path):
+            scheduler_running = _wait_for_local_scheduler(self.state_path)
+            if not scheduler_running and _start_local_scheduler_service():
+                scheduler_running = _wait_for_local_scheduler(self.state_path)
+                if not scheduler_running:
+                    raise RuntimeError(
+                        "Prompta scheduler service started but did not become ready; "
+                        "refusing a competing direct browser session"
+                    )
+            if scheduler_running:
                 if operation == "once":
                     return asyncio.run(_send_once_via_control(self.state_path, message, attachment_paths))
                 return asyncio.run(
                     _send_reply_via_control(self.state_path, conversation_id, message, attachment_paths)
                 )
-            logger.info("Prompta scheduler is stopped; using a direct local browser send")
+            logger.info(
+                "Prompta scheduler is unavailable and its service could not be started; "
+                "using a direct local browser send"
+            )
             return asyncio.run(
                 _send_direct(
                     self.state_path,
@@ -1449,6 +1446,30 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         job["conversation_id"] = conversation_id
         job["node"] = target.host_name
         self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
+
+
+def _start_local_scheduler_service() -> bool:
+    """Ask systemd to own the local Firefox session when the service is available."""
+
+    try:
+        started = subprocess.run(
+            ["systemctl", "--user", "start", "prompta.service"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.warning("Could not start Prompta scheduler service", exc_info=True)
+        return False
+    if started.returncode != 0:
+        detail = (started.stderr or started.stdout or "").strip()
+        logger.info(
+            "Prompta scheduler service could not be started%s",
+            f": {detail[-500:]}" if detail else "",
+        )
+        return False
+    return True
 
 
 def _wait_for_local_scheduler(state_path: Path) -> bool:
