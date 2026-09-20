@@ -1089,6 +1089,11 @@ class Prompta:
             return
         for context, active in list(self._active_conversations.items()):
             try:
+                activity = await driver.conversation_activity(context)
+                if bool(activity.get("streaming")):
+                    active.idle_polls = 0
+                    active.settled_at = 0.0
+                    continue
                 snapshot = await driver.conversation_snapshot(context)
             except Exception:
                 logger.exception(
