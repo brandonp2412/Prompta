@@ -14,6 +14,9 @@ function toolCallDisplayName(value) {
   const name = String(value || "").replace(/\s+/g, " ").trim();
   return name && !TOOL_UI_NOISE.test(name) ? name : "";
 }
+function toolCallIsInvocationPlaceholder(value) {
+  return /^called tool$/i.test(String(value || "").trim());
+}
 function toolCallHasUsefulDetail(value) {
   return String(value || "").split(/\n+/).map((line) => line.trim()).some((line) => Boolean(toolCallDisplayName(line)));
 }
@@ -821,10 +824,11 @@ function renderCodeBlock(code, language) {
   const toolName = toolCallDisplayName(rawToolName);
   const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
   const trimmedCode = code.trim();
+  const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
-  if (toolish && !toolName && !hasUsefulToolDetail)
+  if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation)
     return "";
-  const renderedCode = toolish && !hasUsefulToolDetail ? "" : code;
+  const renderedCode = toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code;
   const highlightLanguage = toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
   const label = toolish ? "tool call" : rawLanguage || "code";
   return `

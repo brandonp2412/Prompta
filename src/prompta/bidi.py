@@ -854,23 +854,35 @@ class FirefoxBiDiDriver:
               const toolSelector='[data-tool-call-id],[data-tool-name]';
               const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\\w-]+)$/i;
               const cleanToolName=value=>{const text=(value||'').replace(/\\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
-              const toolBlocks=agent=>[...new Set([
-                ...agent.querySelectorAll(toolSelector)
-              ])].filter(node=>!node.querySelector(toolSelector)).map(node=>{
-                const name=[
-                  node.getAttribute('data-tool-name'),
-                  node.getAttribute('aria-label'),
-                  node.getAttribute('title')
-                ].map(cleanToolName).find(Boolean)||'';
-                const detail=(node.innerText||node.textContent||'').split(/\\n+/)
-                  .map(line=>line.trim())
-                  .filter(line=>line&&cleanToolName(line))
-                  .join('\\n').trim().slice(0,16000);
-                const body=normalise(detail)===normalise(name)?'':detail;
-                if(!body&&!name)return '';
-                const label=name||'tool';
-                return '```tool:'+label+'\\n'+body+'\\n```';
-              }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
+              const toolBlocks=agent=>{
+                const currentRows=[...agent.querySelectorAll('span.group\\/tool-message')];
+                const currentBlocks=currentRows.map(node=>{
+                  const lines=(node.innerText||node.textContent||'').split(/\\n+/)
+                    .map(line=>line.trim())
+                    .filter(Boolean);
+                  const name=lines.map(cleanToolName).find(line=>!/^Called tool$/i.test(line))||'';
+                  const body=name?'':'Called tool';
+                  return '```tool:'+(name||'tool')+'\\n'+body+'\\n```';
+                });
+                const legacyBlocks=[...new Set([
+                  ...agent.querySelectorAll(toolSelector)
+                ])].filter(node=>!node.closest('span.group\\/tool-message')&&!node.querySelector(toolSelector)).map(node=>{
+                  const name=[
+                    node.getAttribute('data-tool-name'),
+                    node.getAttribute('aria-label'),
+                    node.getAttribute('title')
+                  ].map(cleanToolName).find(Boolean)||'';
+                  const detail=(node.innerText||node.textContent||'').split(/\\n+/)
+                    .map(line=>line.trim())
+                    .filter(line=>line&&cleanToolName(line))
+                    .join('\\n').trim().slice(0,16000);
+                  const body=normalise(detail)===normalise(name)?'':detail;
+                  if(!body&&!name)return '';
+                  const label=name||'tool';
+                  return '```tool:'+label+'\\n'+body+'\\n```';
+                }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
+                return [...legacyBlocks,...currentBlocks];
+              };
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const agentRoot=node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement;
               const seededAssistantTurns=new Set();

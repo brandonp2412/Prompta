@@ -486,6 +486,8 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert 'data-testid*="search" i' not in expression
     assert "Open tool call list" in expression
     assert "const cleanToolName=value=>" in expression
+    assert "span.group\\/tool-message" in expression
+    assert "Called tool" in expression
     assert "node.getAttribute('aria-label')" in expression
     assert "normalise(detail)===normalise(name)" in expression
     assert "message delivery timed out" in expression.lower()

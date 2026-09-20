@@ -50,6 +50,10 @@ export function toolCallDisplayName(value: unknown): string {
   return name && !TOOL_UI_NOISE.test(name) ? name : "";
 }
 
+export function toolCallIsInvocationPlaceholder(value: unknown): boolean {
+  return /^called tool$/i.test(String(value || "").trim());
+}
+
 export function toolCallHasUsefulDetail(value: unknown): boolean {
   return String(value || "")
     .split(/\n+/)
