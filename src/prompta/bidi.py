@@ -22,6 +22,7 @@ class FirefoxBiDiDriver:
         self.request_id = 0
         self._network_subscribed = False
         self._send_capture: dict[str, Any] | None = None
+        self.needs_browser_restart = False
 
     @property
     def is_connected(self) -> bool:
@@ -42,12 +43,23 @@ class FirefoxBiDiDriver:
     async def connect(self) -> None:
         if self.is_connected:
             return
-        self.ws = await websockets.connect(
-            self.url,
-            max_size=16 * 1024 * 1024,
-            ping_interval=None,
-        )
-        response = await self._call("session.new", {"capabilities": {}})
+        if self.needs_browser_restart:
+            raise RuntimeError("Firefox BiDi session is poisoned; browser restart required")
+        try:
+            self.ws = await websockets.connect(
+                self.url,
+                max_size=16 * 1024 * 1024,
+                ping_interval=None,
+            )
+            response = await self._call("session.new", {"capabilities": {}})
+        except TimeoutError:
+            self.needs_browser_restart = True
+            raise
+        except RuntimeError as exc:
+            message = str(exc).casefold()
+            if "session not created" in message or "maximum number of active sessions" in message:
+                self.needs_browser_restart = True
+            raise
         if response.get("type") != "success":
             raise RuntimeError(f"Firefox BiDi session failed: {response}")
         tree = await self._call("browsingContext.getTree", {})
@@ -124,6 +136,7 @@ class FirefoxBiDiDriver:
                     )
                 return message
         except TimeoutError as exc:
+            self.needs_browser_restart = True
             ws = self.ws
             self.ws = None
             self.context = ""
@@ -138,6 +151,7 @@ class FirefoxBiDiDriver:
                 f"{method}: Firefox BiDi call timed out after {_BIDI_CALL_TIMEOUT_SECONDS:.0f}s"
             ) from exc
         except ConnectionClosed:
+            self.needs_browser_restart = True
             self.ws = None
             self.context = ""
             self._network_subscribed = False
