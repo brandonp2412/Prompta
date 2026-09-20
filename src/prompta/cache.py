@@ -404,7 +404,13 @@ class ChatCache:
         # ChatGPT virtualizes older turns. A DOM snapshot can begin at the first
         # cached message while still omitting a stable message in the middle.
         # Treat that as partial; otherwise snapshot indexes can reuse occupied
-        # ordinals and make legitimate messages render as duplicates.
+        # ordinals and make legitimate messages render as duplicates. The one
+        # safe exception is a stale assistant sibling within a user turn that
+        # still has another canonical assistant represented in the snapshot.
+        # Older Prompta extractors could persist multiple assistant DOM nodes
+        # from one ChatGPT agent turn; a corrected full snapshot should be able
+        # to collapse those rows without preserving the stale sibling forever.
+        superseded_stable_keys: set[str] = set()
         if snapshot_is_full and existing_history:
             unmatched_incoming = list(incoming)
             stable_existing = [
@@ -414,6 +420,8 @@ class ChatCache:
                 and not str(row["message_key"]).startswith("__prompta_live_assistant_")
                 and not str(row["message_key"]).startswith("request-placeholder-")
             ]
+            matched_stable_keys: set[str] = set()
+            missing_stable: list[dict[str, Any]] = []
             for existing in stable_existing:
                 existing_key = str(existing["message_key"])
                 existing_role = str(existing["role"])
@@ -436,9 +444,47 @@ class ChatCache:
                         -1,
                     )
                 if match_index < 0:
+                    missing_stable.append(existing)
+                    continue
+                matched_stable_keys.add(existing_key)
+                unmatched_incoming.pop(match_index)
+
+            stable_users = [
+                row for row in stable_existing if str(row["role"]) == "user"
+            ]
+            for missing in missing_stable:
+                if str(missing["role"]) != "assistant":
                     snapshot_is_full = False
                     break
-                unmatched_incoming.pop(match_index)
+                missing_ordinal = int(missing["ordinal"])
+                previous_user_ordinal = max(
+                    (
+                        int(row["ordinal"])
+                        for row in stable_users
+                        if int(row["ordinal"]) < missing_ordinal
+                    ),
+                    default=-1,
+                )
+                next_user_ordinal = min(
+                    (
+                        int(row["ordinal"])
+                        for row in stable_users
+                        if int(row["ordinal"]) > missing_ordinal
+                    ),
+                    default=2_147_483_647,
+                )
+                matched_assistant_sibling = any(
+                    str(row["role"]) == "assistant"
+                    and str(row["message_key"]) in matched_stable_keys
+                    and previous_user_ordinal
+                    < int(row["ordinal"])
+                    < next_user_ordinal
+                    for row in stable_existing
+                )
+                if not matched_assistant_sibling:
+                    snapshot_is_full = False
+                    break
+                superseded_stable_keys.add(str(missing["message_key"]))
 
         max_existing_ordinal = max(
             (int(row["ordinal"]) for row in existing_rows),
@@ -566,6 +612,19 @@ class ChatCache:
                 }
                 if role == "user":
                     preceding_user_key = message_key
+
+            if snapshot_is_full and superseded_stable_keys:
+                self.connection.executemany(
+                    """
+                    DELETE FROM messages
+                    WHERE conversation_id = ?
+                      AND message_key = ?
+                    """,
+                    [
+                        (conversation_id, message_key)
+                        for message_key in sorted(superseded_stable_keys)
+                    ],
+                )
 
             if snapshot_keys:
                 unique_keys = list(dict.fromkeys(snapshot_keys))
