@@ -180,6 +180,65 @@ async def test_connect_retries_transient_firefox_handshake_failure(
 
 
 @pytest.mark.asyncio
+async def test_connect_auth_failure_cleans_connection_before_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWebSocket:
+        close_code = None
+
+        def __init__(self) -> None:
+            self.close = AsyncMock()
+
+    sockets: list[FakeWebSocket] = []
+
+    async def fake_connect(*args: object, **kwargs: object) -> FakeWebSocket:
+        socket = FakeWebSocket()
+        sockets.append(socket)
+        return socket
+
+    async def fake_call(method: str, params: dict[str, object]) -> dict[str, object]:
+        del params
+        if method == "browsingContext.getTree":
+            return {
+                "type": "success",
+                "result": {
+                    "contexts": [
+                        {"context": "live-chat", "url": "https://chatgpt.com/c/123"},
+                    ]
+                },
+            }
+        return {"type": "success"}
+
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(_: float) -> None:
+        await original_sleep(0.002)
+
+    monkeypatch.setattr(bidi_module.websockets, "connect", fake_connect)
+    monkeypatch.setattr(bidi_module, "_BIDI_AUTH_TIMEOUT_SECONDS", 0.001)
+    monkeypatch.setattr(bidi_module.asyncio, "sleep", fast_sleep)
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver._call = AsyncMock(side_effect=fake_call)  # type: ignore[method-assign]
+    driver.login_required = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    driver.ensure_token = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="authenticated ChatGPT session"):
+        await driver.connect()
+
+    assert driver.is_connected is False
+    assert driver.ws is None
+    assert driver.context == ""
+    assert len(sockets) == 1
+    sockets[0].close.assert_awaited_once()
+
+    driver.ensure_token = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    await driver.connect()
+
+    assert len(sockets) == 2
+    assert driver.is_connected is True
+
+
+@pytest.mark.asyncio
 async def test_connect_marks_browser_restart_required_when_firefox_session_is_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

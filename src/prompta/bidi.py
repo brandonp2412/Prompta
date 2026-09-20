@@ -15,6 +15,7 @@ _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
 _BIDI_CALL_TIMEOUT_SECONDS = 30.0
 _BIDI_CONNECT_RETRY_SECONDS = 5.0
 _BIDI_CONNECT_RETRY_INTERVAL_SECONDS = 0.1
+_BIDI_AUTH_TIMEOUT_SECONDS = 30.0
 
 
 class FirefoxBiDiDriver:
@@ -107,7 +108,7 @@ class FirefoxBiDiDriver:
         self._network_subscribed = True
         if chatgpt_context is None:
             await self.navigate("https://chatgpt.com/")
-        deadline = asyncio.get_running_loop().time() + 15.0
+        deadline = asyncio.get_running_loop().time() + _BIDI_AUTH_TIMEOUT_SECONDS
         last_error: Exception | None = None
         while asyncio.get_running_loop().time() < deadline:
             try:
@@ -118,8 +119,13 @@ class FirefoxBiDiDriver:
             except Exception as exc:
                 last_error = exc
             await asyncio.sleep(0.5)
+        # A failed connect must not leave is_connected true. Otherwise the same
+        # driver instance can bypass authentication on its next use just because
+        # the BiDi websocket itself is still open.
+        await self.close()
         raise RuntimeError(
-            "Prompta Firefox profile did not produce an authenticated ChatGPT session within 15s"
+            "Prompta Firefox profile did not produce an authenticated ChatGPT "
+            f"session within {_BIDI_AUTH_TIMEOUT_SECONDS:.0f}s"
         ) from last_error
 
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
