@@ -634,6 +634,57 @@ def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_spawn_firefox_reuses_only_a_stable_existing_listener(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+
+    with (
+        patch(
+            "prompta.core._firefox_port_is_open",
+            AsyncMock(side_effect=[True, True]),
+        ) as port_is_open,
+        patch("prompta.core.asyncio.sleep", AsyncMock()) as sleep,
+        patch(
+            "prompta.core.asyncio.create_subprocess_exec",
+            AsyncMock(),
+        ) as create_process,
+    ):
+        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
+
+    assert result is None
+    assert port_is_open.await_count == 2
+    sleep.assert_awaited_once()
+    create_process.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_spawn_firefox_replaces_listener_that_dies_during_reuse_check(
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    process = MagicMock()
+
+    with (
+        patch(
+            "prompta.core._firefox_port_is_open",
+            AsyncMock(side_effect=[True, False]),
+        ),
+        patch("prompta.core.asyncio.sleep", AsyncMock()),
+        patch(
+            "prompta.core.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=process),
+        ) as create_process,
+        patch("prompta.core.wait_for_port", AsyncMock()) as wait_for_port,
+    ):
+        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
+
+    assert result is process
+    create_process.assert_awaited_once()
+    wait_for_port.assert_awaited_once_with(9229)
+
+
+@pytest.mark.asyncio
 async def test_spawn_firefox_uses_profile_local_tmpdir(tmp_path: Path) -> None:
     profile = tmp_path / "firefox-profile"
     profile.mkdir()
@@ -1470,11 +1521,23 @@ async def test_poll_active_conversation_marks_persistent_delivery_timeout_interr
     assert prompta.cache.status(conversation_id) == "active"
     assert context_id in prompta._active_conversations
 
+    # The retry control can appear a few polls after ChatGPT first renders the
+    # delivery-timeout text. Keep the tab alive while retry discovery catches up.
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    assert driver.click_delivery_retry.await_count == 3
+    driver.close_context.assert_not_awaited()
+
     await prompta._poll_active_conversations()
 
     assert prompta.cache.status(conversation_id) == "interrupted"
     assert context_id not in prompta._active_conversations
-    driver.click_delivery_retry.assert_awaited_once_with(context_id, timeout=3.0)
+    assert driver.click_delivery_retry.await_count == 4
+    driver.click_delivery_retry.assert_awaited_with(context_id, timeout=3.0)
     driver.close_context.assert_awaited_once_with(context_id)
     prompta.cache.close()
 
