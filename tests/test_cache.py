@@ -818,6 +818,16 @@ def test_cache_migration_backfills_prompt_for_legacy_empty_conversation(tmp_path
     assert messages[0]["content"] == "Legacy prompt"
 
 
+def test_cache_recognizes_sqlite_corruption_error_codes() -> None:
+    corrupt = sqlite3.DatabaseError("opaque sqlite failure")
+    corrupt.sqlite_errorcode = sqlite3.SQLITE_CORRUPT  # type: ignore[attr-defined]
+    notadb = sqlite3.DatabaseError("opaque sqlite failure")
+    notadb.sqlite_errorcode = sqlite3.SQLITE_NOTADB  # type: ignore[attr-defined]
+
+    assert ChatCache._is_corruption_error(corrupt) is True
+    assert ChatCache._is_corruption_error(notadb) is True
+
+
 def test_cache_quarantines_corrupt_database_and_recovers(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     corrupt_bytes = b"not a sqlite database\x00PROMPTA"

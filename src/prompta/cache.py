@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -13,6 +14,8 @@ from typing import Any
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,7 +38,11 @@ class ChatCache:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self.path.parent, 0o700)
         if self._database_header_is_invalid():
-            self._quarantine_corrupt_database()
+            archived = self._quarantine_corrupt_database()
+            logger.error(
+                "Prompta cache header was invalid; archived it at %s and created a fresh cache",
+                archived,
+            )
         self.connection = self._open_connection()
         try:
             self._configure_connection()
@@ -47,7 +54,11 @@ class ChatCache:
                 pass
             if not self._is_corruption_error(error):
                 raise
-            self._quarantine_corrupt_database()
+            archived = self._quarantine_corrupt_database()
+            logger.error(
+                "Prompta cache was corrupt; archived it at %s and created a fresh cache",
+                archived,
+            )
             self.connection = self._open_connection()
             self._configure_connection()
             self._migrate()
@@ -71,11 +82,24 @@ class ChatCache:
         self.connection.execute("PRAGMA busy_timeout=5000")
 
     @staticmethod
-    def _is_corruption_error(error: sqlite3.DatabaseError) -> bool:
-        message = str(error).lower()
-        return "malformed" in message or "file is not a database" in message
+    def _is_corruption_error(exc: sqlite3.DatabaseError) -> bool:
+        error_code = getattr(exc, "sqlite_errorcode", None)
+        if isinstance(error_code, int) and (error_code & 0xFF) in {
+            sqlite3.SQLITE_CORRUPT,
+            sqlite3.SQLITE_NOTADB,
+        }:
+            return True
+        message = str(exc).casefold()
+        return any(
+            marker in message
+            for marker in (
+                "database disk image is malformed",
+                "file is not a database",
+                "database corruption",
+            )
+        )
 
-    def _quarantine_corrupt_database(self) -> None:
+    def _quarantine_corrupt_database(self) -> Path:
         timestamp = int(time.time())
         quarantine = self.path.with_name(f"{self.path.name}.corrupt-{timestamp}")
         sequence = 0
@@ -96,6 +120,7 @@ class ChatCache:
             source = Path(f"{self.path}{suffix}")
             if source.exists():
                 source.replace(Path(f"{quarantine}{suffix}"))
+        return quarantine
 
     def _migrate(self) -> None:
         self.connection.executescript(
@@ -344,7 +369,7 @@ class ChatCache:
     def metadata(self, conversation_id: str) -> dict[str, Any]:
         row = self.connection.execute(
             """
-            SELECT id, job_name, prompt, url
+            SELECT id, job_name, prompt, url, status
             FROM conversations
             WHERE id = ?
             """,
@@ -353,6 +378,13 @@ class ChatCache:
         if row is None:
             raise ValueError(f"unknown cached conversation: {conversation_id}")
         return dict(row)
+
+    def status(self, conversation_id: str) -> str | None:
+        row = self.connection.execute(
+            "SELECT status FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        return str(row["status"]) if row is not None else None
 
     def resume(self, conversation_id: str, *, context_id: str) -> dict[str, Any]:
         """Mark an existing cached conversation active in a live browser context."""

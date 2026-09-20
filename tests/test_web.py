@@ -346,6 +346,16 @@ def test_read_only_store_does_not_create_missing_database(tmp_path: Path) -> Non
     assert not path.exists()
 
 
+def test_read_only_store_tolerates_corrupt_database(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    path.write_bytes(b"not a sqlite database\x00PROMPTA")
+    store = ReadOnlyChatStore(path)
+
+    assert store.conversations() == []
+    assert store.conversation("missing") is None
+    assert store.stats() == {"exists": False, "total": 0, "active": 0}
+
+
 def test_read_only_store_change_token_changes_after_cache_write(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
