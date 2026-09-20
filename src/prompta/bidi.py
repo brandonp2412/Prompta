@@ -584,6 +584,44 @@ class FirefoxBiDiDriver:
         await self._focus_composer()
         await self._key_text("", enter=True)
 
+    async def click_send_button(self) -> None:
+        raw = await self.eval(
+            """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const selectors=['button[data-testid="send-button"]','button[aria-label="Send prompt"]','button[aria-label="Send message"]','button[aria-label="Send"]'];let button=null;for(const selector of selectors){button=[...document.querySelectorAll(selector)].find(e=>visible(e)&&!e.disabled&&e.getAttribute('aria-disabled')!=='true');if(button)break;}if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})())"""
+        )
+        point = json.loads(raw or "null")
+        if not isinstance(point, dict):
+            raise RuntimeError("ChatGPT send button could not be found")
+        try:
+            x = float(point["x"])
+            y = float(point["y"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("ChatGPT send button position was invalid") from exc
+        await self._call(
+            "input.performActions",
+            {
+                "context": self.context,
+                "actions": [
+                    {
+                        "type": "pointer",
+                        "id": "mouse",
+                        "parameters": {"pointerType": "mouse"},
+                        "actions": [
+                            {
+                                "type": "pointerMove",
+                                "duration": 0,
+                                "origin": "viewport",
+                                "x": round(x),
+                                "y": round(y),
+                            },
+                            {"type": "pointerDown", "button": 0},
+                            {"type": "pointerUp", "button": 0},
+                        ],
+                    }
+                ],
+            },
+        )
+        await self._call("input.releaseActions", {"context": self.context})
+
     async def dom_state(self) -> dict[str, Any]:
         raw = await self.eval(
             """JSON.stringify((()=>{

@@ -614,7 +614,10 @@ class Prompta:
             typed = await driver.dom_state()
             if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
-            await driver.click_send()
+            if attachments:
+                await driver.click_send_button()
+            else:
+                await driver.click_send()
 
             provisional_conversation_id = ""
             provisional_confirmed = False
@@ -862,7 +865,10 @@ class Prompta:
             typed = await driver.dom_state()
             if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the requested reply")
-            await driver.click_send()
+            if attachments:
+                await driver.click_send_button()
+            else:
+                await driver.click_send()
 
             confirmation_timeout = max(1.0, self.config.send_timeout_seconds)
             if attachments:

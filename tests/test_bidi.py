@@ -285,3 +285,23 @@ async def test_attach_files_ignores_persistent_upload_controls(
     expression = driver.eval.await_args_list[0].args[0]
     assert "uploading|processing|attaching|cancel upload" in expression
     assert "progressBusy" in expression
+
+
+@pytest.mark.asyncio
+async def test_click_send_button_uses_trusted_pointer_action() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.context = "context-1"
+    driver.eval = AsyncMock(return_value='{"x":120.4,"y":240.6}')  # type: ignore[method-assign]
+    driver._call = AsyncMock(return_value={"type": "success"})  # type: ignore[method-assign]
+
+    await driver.click_send_button()
+
+    calls = driver._call.await_args_list  # type: ignore[attr-defined]
+    assert calls[0].args[0] == "input.performActions"
+    actions = calls[0].args[1]["actions"][0]
+    assert actions["type"] == "pointer"
+    assert actions["actions"][0]["x"] == 120
+    assert actions["actions"][0]["y"] == 241
+    assert actions["actions"][1] == {"type": "pointerDown", "button": 0}
+    assert actions["actions"][2] == {"type": "pointerUp", "button": 0}
+    assert calls[1].args[0] == "input.releaseActions"

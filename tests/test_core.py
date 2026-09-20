@@ -52,6 +52,7 @@ class FakeDriver:
         self.context = "context-1"
         self.typed = initial_composer
         self.sent = False
+        self.send_button_clicked = False
         self.clear_composer_calls = 0
         self.capture: dict[str, Any] = {
             "request_id": "request-1" if capture_status else "",
@@ -105,6 +106,11 @@ class FakeDriver:
         self.typed = ""
 
     async def click_send(self) -> None:
+        self.sent = True
+        self.typed = ""
+
+    async def click_send_button(self) -> None:
+        self.send_button_clicked = True
         self.sent = True
         self.typed = ""
 
@@ -255,6 +261,23 @@ async def test_send_once_ignores_provisional_web_route_until_durable_id(tmp_path
     assert fake.route_reads >= 3
     assert prompta.cache.metadata(conversation_id)["url"] == "https://chatgpt.com/c/durable-chat"
     prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_send_once_with_attachment_clicks_send_button(tmp_path: Path) -> None:
+    prompt = "PROMPTA ATTACHMENT TEST"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver(prompt)
+    fake.attach_files = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once(prompt, attachments=["/tmp/sample.txt"])
+
+    assert conversation_id == "new-chat"
+    fake.attach_files.assert_awaited_once_with(["/tmp/sample.txt"])  # type: ignore[attr-defined]
+    assert fake.send_button_clicked is True
+    assert fake.sent is True
 
 
 @pytest.mark.asyncio
