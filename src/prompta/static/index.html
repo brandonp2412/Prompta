@@ -62,9 +62,6 @@
           <div class="heading-meta">Local conversation history</div>
         </div>
         <div class="topbar-actions" aria-label="Prompta actions">
-          <button type="button" class="icon-button" id="logsButton" aria-label="View logs" title="Logs" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7l4 5-4 5M12 17h7"/></svg>
-          </button>
           <button class="icon-button" id="pinChatButton" aria-label="Pin chat" title="Pin chat" aria-pressed="false" disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"/></svg>
           </button>
@@ -123,6 +120,7 @@
             <div class="attachment-chips" id="attachmentChips" hidden></div>
             <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
             <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
+              <button type="button" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
               <button type="button" data-slash-command="/every "><strong>/every</strong><span>Repeat a prompt on an interval</span></button>
               <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
             </div>
