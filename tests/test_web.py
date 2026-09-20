@@ -7,7 +7,7 @@ from http import HTTPStatus
 from pathlib import Path
 from threading import Event, Lock, Thread
 from unittest.mock import AsyncMock, MagicMock, patch
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -60,7 +60,11 @@ def test_ui_response_ignores_disconnected_client(disconnect_error: OSError) -> N
 
     handler._write_response(HTTPStatus.OK, "application/json", b"{}")
 
-    handler._headers.assert_called_once_with(HTTPStatus.OK, "application/json")  # type: ignore[attr-defined]
+    handler._headers.assert_called_once_with(  # type: ignore[attr-defined]
+        HTTPStatus.OK,
+        "application/json",
+        2,
+    )
 
 
 def test_remote_control_uses_user_ssh_config() -> None:
@@ -459,6 +463,11 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert '<div class="composer-status" id="composerStatus">' in index_html
             assert 'id="composerStatus" hidden' not in index_html
 
+        with urlopen(Request(f"{base_url}/", method="HEAD"), timeout=2) as response:
+            assert response.status == 200
+            assert response.read() == b""
+            assert int(response.headers["Content-Length"]) == len(index_html.encode())
+
         with urlopen(f"{base_url}/manifest.json", timeout=2) as response:
             assert response.status == 200
             assert response.headers.get_content_type() == "application/manifest+json"
@@ -474,6 +483,11 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             health = json.loads(response.read().decode())
             assert "head" in health
             assert len(health["head"]) <= 8
+
+        with urlopen(Request(f"{base_url}/api/events", method="HEAD"), timeout=2) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "text/event-stream"
+            assert response.read() == b""
 
         with urlopen(f"{base_url}/api/events", timeout=2) as response:
             assert response.status == 200
