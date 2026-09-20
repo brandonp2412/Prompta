@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -418,6 +419,60 @@ class FirefoxBiDiDriver:
         )
         await self._call("input.releaseActions", {"context": self.context})
 
+    async def attach_files(self, files: list[str]) -> None:
+        paths = [str(Path(path).expanduser().resolve()) for path in files]
+        if not paths:
+            return
+        for path in paths:
+            if not Path(path).is_file():
+                raise RuntimeError(f"Prompta attachment does not exist: {path}")
+
+        async def file_input() -> dict[str, Any] | None:
+            response = await self._call(
+                "script.evaluate",
+                {
+                    "expression": "document.querySelector('input[type=file]')",
+                    "target": {"context": self.context},
+                    "awaitPromise": False,
+                    "resultOwnership": "root",
+                },
+            )
+            payload = response.get("result")
+            if not isinstance(payload, dict):
+                return None
+            result = payload.get("result")
+            return result if isinstance(result, dict) and result.get("sharedId") else None
+
+        remote = await file_input()
+        if remote is None:
+            opened = await self.eval(
+                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};const buttons=[...document.querySelectorAll('button')].filter(visible);const b=buttons.find(e=>/attach|upload|add (?:file|photo)/i.test((e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'')));if(!b)return false;b.click();return true})()"""
+            )
+            if opened:
+                await asyncio.sleep(0.25)
+                remote = await file_input()
+        if remote is None:
+            raise RuntimeError("ChatGPT attachment input could not be found")
+
+        await self._call(
+            "input.setFiles",
+            {
+                "context": self.context,
+                "element": {"sharedId": str(remote["sharedId"])},
+                "files": paths,
+            },
+        )
+
+        deadline = asyncio.get_running_loop().time() + 30.0
+        while asyncio.get_running_loop().time() < deadline:
+            uploading = await self.eval(
+                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};return [...document.querySelectorAll('[aria-busy=true],[data-testid*="upload" i],progress')].some(visible)})()"""
+            )
+            if not uploading:
+                return
+            await asyncio.sleep(0.2)
+        raise RuntimeError("ChatGPT attachment upload did not finish within 30s")
+
     async def type_message(self, text: str) -> None:
         await self.wait_for_composer()
         await self._focus_composer()
@@ -584,9 +639,10 @@ class FirefoxBiDiDriver:
                 };
                 return walk(root).replace(/\\n{3,}/g,'\\n\\n').trim();
               };
+              const toolSelector='[data-tool-call-id],[data-tool-name],[data-testid*="tool" i],[aria-label*="tool" i],[class*="tool-call" i],[data-testid*="computer" i],[data-testid*="browser" i]';
               const toolBlocks=agent=>[...new Set([
-                ...agent.querySelectorAll('[data-tool-call-id],[data-tool-name],[data-testid*="tool" i],[aria-label*="tool" i]')
-              ])].filter(node=>!node.parentElement?.closest('[data-tool-call-id],[data-tool-name],[data-testid*="tool" i]')).map(node=>{
+                ...agent.querySelectorAll(toolSelector)
+              ])].filter(node=>!node.parentElement?.closest(toolSelector)).map(node=>{
                 const name=(node.getAttribute('data-tool-name')
                   ||node.getAttribute('aria-label')
                   ||node.getAttribute('title')
@@ -611,10 +667,22 @@ class FirefoxBiDiDriver:
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
                 const richText=markdown.map(markdownText).filter(Boolean);
+                const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
-                const content=(richText.length||tools.length
-                  ? [...richText,...tools].join('\\n\\n')
-                  : (agent.innerText||agent.textContent||'').trim()
+                const rawVisible=(agent.innerText||agent.textContent||'').trim();
+                const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share)$/i;
+                const activityLines=rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
+                  line
+                  && !uiNoise.test(line)
+                  && !richPlain.some(text=>text===line||text.includes(line))
+                  && !tools.some(block=>block.includes(line))
+                ));
+                const activity=activityLines.length
+                  ? '**Tool activity**\\n\\n'+activityLines.join('\\n')
+                  : '';
+                const content=(richText.length||tools.length||activity
+                  ? [...richText,...tools,...(activity?[activity]:[])].join('\\n\\n')
+                  : rawVisible
                 ).trim();
                 if(!content)continue;
                 const nested=agent.querySelector('[data-message-author-role="assistant"]');

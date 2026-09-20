@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   matchingOptimisticConversation,
+  parseAtSlashCommand,
   parseScheduleSlashCommand,
 } from "./clientLogic";
 
@@ -76,6 +77,38 @@ describe("/every", () => {
   test("returns usage for malformed commands", () => {
     expect(parseScheduleSlashCommand("/every tomorrow fix bugs")).toEqual({
       error: "Use /every <minutes> <prompt>, for example: /every 30 fix bugs",
+    });
+  });
+});
+
+
+describe("/at", () => {
+  const now = new Date(2026, 8, 20, 16, 0, 0);
+
+  test("parses an absolute local date and time", () => {
+    expect(parseAtSlashCommand("/at 2026-09-21 09:30 review failures", now)).toEqual({
+      runAtEpoch: new Date(2026, 8, 21, 9, 30, 0).getTime() / 1000,
+      runAtLabel: new Date(2026, 8, 21, 9, 30, 0).toLocaleString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      prompt: "review failures",
+    });
+  });
+
+  test("supports tomorrow in local time", () => {
+    const parsed = parseAtSlashCommand("/at tomorrow 08:15 ship it", now);
+    expect(parsed && !("error" in parsed) ? parsed.runAtEpoch : 0).toBe(
+      new Date(2026, 8, 21, 8, 15, 0).getTime() / 1000,
+    );
+  });
+
+  test("rejects times in the past", () => {
+    expect(parseAtSlashCommand("/at today 15:00 too late", now)).toEqual({
+      error: "Schedule time must be in the future.",
     });
   });
 });

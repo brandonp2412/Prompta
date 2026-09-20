@@ -152,6 +152,7 @@ def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> 
         tmp_path / "chats.sqlite3",
         "Hello",
         conversation_id="",
+            attachments=[],
     )
 
 
@@ -172,14 +173,14 @@ def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) 
         server.server_close()
 
     assert result == "chat-control"
-    control.assert_awaited_once_with(tmp_path / "state.json", "Hello")
+    control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
     direct.assert_not_awaited()
 
 
 def test_send_job_registry_returns_before_sender_finishes() -> None:
     release = Event()
 
-    def sender(operation: str, message: str, conversation_id: str) -> str:
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
         assert operation == "once"
         assert message == "Hello"
         assert conversation_id == ""
@@ -207,7 +208,7 @@ def test_send_job_registry_returns_before_sender_finishes() -> None:
 
 
 def test_send_job_registry_surfaces_background_error() -> None:
-    def sender(operation: str, message: str, conversation_id: str) -> str:
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
         raise RuntimeError("browser session unavailable")
 
     registry = SendJobRegistry(sender)

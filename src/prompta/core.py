@@ -197,6 +197,7 @@ class PromptJob:
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS
     daily_at: str | None = None
     exact_interval: bool = False
+    run_at_epoch: float | None = None
 
 
 @dataclass(frozen=True)
@@ -224,8 +225,8 @@ class Prompta:
         self._backoffs: dict[str, RateLimitBackoff] = {}
         self._global_backoff = RateLimitBackoff()
         self._failure_retry_until: dict[str, float] = {}
-        self._once_requests: asyncio.Queue[tuple[str, asyncio.Future[str]]] = asyncio.Queue()
-        self._reply_requests: asyncio.Queue[tuple[str, str, asyncio.Future[str]]] = asyncio.Queue()
+        self._once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = asyncio.Queue()
+        self._reply_requests: asyncio.Queue[tuple[str, str, list[str], asyncio.Future[str]]] = asyncio.Queue()
         self._restore_backoffs()
 
     @staticmethod
@@ -332,6 +333,15 @@ class Prompta:
                 )
             ):
                 continue
+            if job.run_at_epoch is not None:
+                due_at = float(job.run_at_epoch)
+                self._update_job_state(job.name, {"initial_due_at_epoch": due_at})
+                logger.info(
+                    "Prompta job=%s one-time send scheduled for %s",
+                    job.name,
+                    datetime.fromtimestamp(due_at).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+                )
+                continue
             if job.daily_at is not None:
                 due_at = _next_daily_epoch(job.daily_at, now, include_now=True)
                 self._update_job_state(job.name, {"initial_due_at_epoch": due_at})
@@ -387,6 +397,11 @@ class Prompta:
         except (TypeError, ValueError):
             return 0.0
         last_attempt_at = max(last_sent_at, last_uncertain_send_at)
+        if job.run_at_epoch is not None:
+            if last_attempt_at > 0:
+                return float("inf")
+            due_at = initial_due_at if initial_due_at > 0 else float(job.run_at_epoch)
+            return max(0.0, due_at - current)
         if next_due_at > 0 and last_sent_at >= last_uncertain_send_at:
             return max(0.0, next_due_at - current)
         if last_attempt_at > 0:
@@ -561,7 +576,13 @@ class Prompta:
             )
         logger.info("Prompta set and verified thinking effort=High")
 
-    async def send_once(self, prompt: str, *, job_name: str = "") -> str:
+    async def send_once(
+        self,
+        prompt: str,
+        *,
+        job_name: str = "",
+        attachments: list[str] | None = None,
+    ) -> str:
         if not prompt.strip():
             raise ValueError("prompta prompt is empty")
         driver = await self._ensure_driver()
@@ -571,8 +592,10 @@ class Prompta:
         succeeded = False
         try:
             await driver.wait_for_composer()
-            if job_name:
-                await self._ensure_high_effort(driver)
+            await self._ensure_high_effort(driver)
+            if attachments:
+                await driver.attach_files(attachments)
+                await driver.wait_for_composer()
             baseline = await driver.dom_state()
             baseline_path = str(await driver.eval("location.pathname") or "")
             if self._normalise(str(baseline.get("composer_text") or "")):
@@ -759,7 +782,13 @@ class Prompta:
         finally:
             await driver.close_context(context)
 
-    async def send_reply(self, conversation_id: str, prompt: str) -> str:
+    async def send_reply(
+        self,
+        conversation_id: str,
+        prompt: str,
+        *,
+        attachments: list[str] | None = None,
+    ) -> str:
         """Send into a cached conversation, reusing its live tab whenever possible."""
 
         if not conversation_id.strip():
@@ -805,6 +834,9 @@ class Prompta:
             await driver.wait_for_composer()
 
             await self._ensure_high_effort(driver)
+            if attachments:
+                await driver.attach_files(attachments)
+                await driver.wait_for_composer()
             baseline = await driver.dom_state()
             if self._normalise(str(baseline.get("composer_text") or "")):
                 raise RuntimeError("ChatGPT composer already contains unsent text")
@@ -959,6 +991,28 @@ class Prompta:
                 ) from exc
             return False
         sent_at = time.time()
+        if job.run_at_epoch is not None:
+            backoff.reset()
+            self._failure_retry_until.pop(job.name, None)
+            self._update_job_state(
+                job.name,
+                {
+                    "prompt_sha256": self._prompt_hash(job.prompt),
+                    "last_sent_at": sent_at,
+                    "last_uncertain_send_at": 0.0,
+                    "initial_due_at_epoch": 0.0,
+                    "next_due_at_epoch": 0.0,
+                    "last_conversation_id": conversation_id,
+                    "rate_limit_backoff": backoff.snapshot(),
+                    "failure_retry_until_epoch": 0.0,
+                    "status": "healthy",
+                    "status_message": "",
+                    "status_at": sent_at,
+                },
+            )
+            remove_job(self.config.jobs_file, job.name)
+            logger.info("Prompta one-time job=%s completed and was removed", job.name)
+            return True
         if job.daily_at is not None:
             next_due_at = _next_daily_epoch(job.daily_at, sent_at)
             next_delay = max(0.0, next_due_at - sent_at)
@@ -1114,11 +1168,11 @@ class Prompta:
         did_work = False
         while True:
             try:
-                prompt, future = self._once_requests.get_nowait()
+                prompt, attachments, future = self._once_requests.get_nowait()
             except asyncio.QueueEmpty:
                 return did_work
             try:
-                conversation_id = await self.send_once(prompt)
+                conversation_id = await self.send_once(prompt, attachments=attachments)
             except Exception as exc:
                 if not future.done():
                     future.set_exception(exc)
@@ -1133,11 +1187,11 @@ class Prompta:
         did_work = False
         while True:
             try:
-                conversation_id, prompt, future = self._reply_requests.get_nowait()
+                conversation_id, prompt, attachments, future = self._reply_requests.get_nowait()
             except asyncio.QueueEmpty:
                 return did_work
             try:
-                result = await self.send_reply(conversation_id, prompt)
+                result = await self.send_reply(conversation_id, prompt, attachments=attachments)
             except Exception as exc:
                 if not future.done():
                     future.set_exception(exc)
@@ -1244,8 +1298,14 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             continue
         daily_at = None
         exact_interval = False
+        run_at_epoch: float | None = None
         if isinstance(value, dict):
             exact_interval = value.get("exact_interval") is True
+            if value.get("run_at_epoch") is not None:
+                try:
+                    run_at_epoch = float(value["run_at_epoch"])
+                except (TypeError, ValueError):
+                    logger.warning("Ignoring invalid run_at_epoch for Prompta job=%s", name)
             if value.get("daily_at") is not None:
                 try:
                     daily_at = _normalise_daily_at(str(value["daily_at"]))
@@ -1253,7 +1313,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
                     logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
         if str(name).strip() and prompt.strip():
             jobs[str(name)] = PromptJob(
-                str(name), prompt, max(0.0, interval), daily_at, exact_interval
+                str(name), prompt, max(0.0, interval), daily_at, exact_interval, run_at_epoch
             )
     return jobs
 
@@ -1268,6 +1328,7 @@ def _write_jobs(path: Path, jobs: dict[str, PromptJob]) -> None:
                 "interval_seconds": job.interval_seconds,
                 **({"daily_at": job.daily_at} if job.daily_at is not None else {}),
                 **({"exact_interval": True} if job.exact_interval else {}),
+                **({"run_at_epoch": job.run_at_epoch} if job.run_at_epoch is not None else {}),
             }
             for name, job in sorted(jobs.items())
         }
@@ -1285,6 +1346,7 @@ def add_job(
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
     daily_at: str | None = None,
     exact_interval: bool = False,
+    run_at_epoch: float | None = None,
 ) -> None:
     if not name.strip():
         raise ValueError("prompta job name is empty")
@@ -1292,8 +1354,16 @@ def add_job(
         raise ValueError("prompta prompt is empty")
     jobs = load_jobs(path)
     normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
+    normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
+    if normalised_run_at is not None and normalised_run_at <= 0:
+        raise ValueError("run_at_epoch must be a positive Unix timestamp")
     jobs[name] = PromptJob(
-        name, prompt, max(0.0, interval_seconds), normalised_daily_at, exact_interval
+        name,
+        prompt,
+        max(0.0, interval_seconds),
+        normalised_daily_at,
+        exact_interval,
+        normalised_run_at,
     )
     _write_jobs(path, jobs)
 
@@ -1483,16 +1553,22 @@ async def _handle_control_client(
             raise ValueError("invalid Prompta control request")
         op = str(payload.get("op") or "")
         prompt = str(payload.get("prompt") or "")
+        raw_attachments = payload.get("attachments")
+        attachments = [
+            str(path)
+            for path in raw_attachments
+            if isinstance(path, str) and path.strip()
+        ] if isinstance(raw_attachments, list) else []
         if not prompt.strip():
             raise ValueError("prompta prompt is empty")
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         if op == "once":
-            await prompta._once_requests.put((prompt, future))
+            await prompta._once_requests.put((prompt, attachments, future))
         elif op == "reply":
             conversation_id = str(payload.get("conversation_id") or "")
             if not conversation_id.strip():
                 raise ValueError("conversation id is empty")
-            await prompta._reply_requests.put((conversation_id, prompt, future))
+            await prompta._reply_requests.put((conversation_id, prompt, attachments, future))
         else:
             raise ValueError("unsupported Prompta control request")
         conversation_id = await future
@@ -1530,7 +1606,11 @@ async def _start_control_server(
     return server, path
 
 
-async def _send_once_via_control(state_path: Path, prompt: str) -> str:
+async def _send_once_via_control(
+    state_path: Path,
+    prompt: str,
+    attachments: list[str] | None = None,
+) -> str:
     path = _control_socket_path(state_path)
     deadline = asyncio.get_running_loop().time() + _CONTROL_CONNECT_TIMEOUT_SECONDS
     last_error: OSError | None = None
@@ -1547,7 +1627,7 @@ async def _send_once_via_control(state_path: Path, prompt: str) -> str:
             await asyncio.sleep(0.1)
     try:
         writer.write(
-            (json.dumps({"op": "once", "prompt": prompt}, ensure_ascii=False) + "\n").encode(
+            (json.dumps({"op": "once", "prompt": prompt, "attachments": attachments or []}, ensure_ascii=False) + "\n").encode(
                 "utf-8"
             )
         )
@@ -1576,6 +1656,7 @@ async def _send_reply_via_control(
     state_path: Path,
     conversation_id: str,
     prompt: str,
+    attachments: list[str] | None = None,
 ) -> str:
     path = _control_socket_path(state_path)
     try:
@@ -1590,6 +1671,7 @@ async def _send_reply_via_control(
                         "op": "reply",
                         "conversation_id": conversation_id,
                         "prompt": prompt,
+                        "attachments": attachments or [],
                     },
                     ensure_ascii=False,
                 )
@@ -1692,6 +1774,7 @@ async def _send_direct(
     prompt: str,
     *,
     conversation_id: str = "",
+    attachments: list[str] | None = None,
     firefox_profile: Path = DEFAULT_FIREFOX_PROFILE,
     firefox_path: str = "/usr/bin/firefox",
     firefox_port: int = DEFAULT_FIREFOX_PORT,
@@ -1709,9 +1792,13 @@ async def _send_direct(
             f"ws://127.0.0.1:{firefox_port}/session",
         )
         if conversation_id:
-            result = await prompta.send_reply(conversation_id, prompt)
+            result = await prompta.send_reply(
+                conversation_id,
+                prompt,
+                attachments=attachments,
+            )
         else:
-            result = await prompta.send_once(prompt)
+            result = await prompta.send_once(prompt, attachments=attachments)
         await prompta.wait_for_cached_response(result)
         return result
     finally:

@@ -1053,6 +1053,145 @@ textarea:focus-visible {
   stroke-width: 2.1;
 }
 
+.icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.composer-tools {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
+
+.attachment-button {
+  width: 34px;
+  height: 34px;
+  color: var(--muted-strong);
+}
+
+.composer-input-shell {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+
+.composer-input-shell textarea {
+  width: 100%;
+}
+
+.attachment-menu,
+.slash-menu {
+  position: absolute;
+  z-index: 30;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: #2f2f2f;
+  box-shadow: var(--shadow);
+}
+
+.attachment-menu[hidden],
+.slash-menu[hidden],
+.attachment-chips[hidden] {
+  display: none;
+}
+
+.attachment-menu {
+  left: 0;
+  bottom: 44px;
+  width: 168px;
+}
+
+.attachment-menu button,
+.slash-menu button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.attachment-menu button {
+  padding: 9px 10px;
+}
+
+.attachment-menu button:hover,
+.slash-menu button:hover,
+.slash-menu button:focus {
+  background: var(--surface);
+  outline: none;
+}
+
+.slash-menu {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+}
+
+.slash-menu button {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 10px;
+}
+
+.slash-menu strong {
+  min-width: 58px;
+  font-size: 12px;
+}
+
+.slash-menu span {
+  color: var(--muted-strong);
+  font-size: 11px;
+}
+
+.attachment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 2px 2px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 240px;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 5px 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: 10px;
+}
+
+.attachment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.attachment-chip button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
 .composer-status {
   width: min(760px, 100%);
   min-height: 15px;
