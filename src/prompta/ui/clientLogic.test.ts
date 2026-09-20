@@ -10,6 +10,8 @@ import {
   parseScheduleSlashCommand,
   postJsonRequest,
   sidebarPreviewText,
+  toolCallDisplayName,
+  toolCallHasUsefulDetail,
 } from "./clientLogic";
 
 describe("conversation hash parsing", () => {
@@ -391,5 +393,19 @@ describe("sidebar previews", () => {
     expect(sidebarPreviewText(
       "Before  ```tool-call: shell\n{\"cmd\":\"true\"}\n```  after",
     )).toBe("Before after");
+  });
+});
+
+
+describe("tool call display cleanup", () => {
+  test("drops ChatGPT tool-list chrome instead of presenting it as a tool", () => {
+    expect(toolCallDisplayName("Open tool call list")).toBe("");
+    expect(toolCallDisplayName("cot-v5-tool-icon-pile")).toBe("");
+    expect(toolCallHasUsefulDetail("Open tool call list\ncot-v5-tool-icon-pile")).toBe(false);
+  });
+
+  test("keeps actual connector names and useful details", () => {
+    expect(toolCallDisplayName("Nox Python MCP")).toBe("Nox Python MCP");
+    expect(toolCallHasUsefulDetail("execute_python\nHOST nox")).toBe(true);
   });
 });
