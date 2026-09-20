@@ -855,7 +855,7 @@ class FirefoxBiDiDriver:
               const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\\w-]+)$/i;
               const cleanToolName=value=>{const text=(value||'').replace(/\\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
               const toolBlocks=agent=>{
-                const currentRows=[...agent.querySelectorAll('span.group\\/tool-message')];
+                const currentRows=[...agent.querySelectorAll('span[class~="group/tool-message"]')];
                 const currentBlocks=currentRows.map(node=>{
                   const lines=(node.innerText||node.textContent||'').split(/\\n+/)
                     .map(line=>line.trim())
@@ -866,7 +866,7 @@ class FirefoxBiDiDriver:
                 });
                 const legacyBlocks=[...new Set([
                   ...agent.querySelectorAll(toolSelector)
-                ])].filter(node=>!node.closest('span.group\\/tool-message')&&!node.querySelector(toolSelector)).map(node=>{
+                ])].filter(node=>!node.closest('span[class~="group/tool-message"]')&&!node.querySelector(toolSelector)).map(node=>{
                   const name=[
                     node.getAttribute('data-tool-name'),
                     node.getAttribute('aria-label'),
