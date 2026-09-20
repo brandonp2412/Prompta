@@ -124,9 +124,14 @@
               <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
             </div>
           </div>
-          <button type="submit" class="send-button" id="sendButton" aria-label="Send message" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
-          </button>
+          <div class="composer-submit">
+            <button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19h14M7 16l9-9 2 2-9 9H7v-2Z"/></svg>
+            </button>
+            <button type="submit" class="send-button" id="sendButton" aria-label="Send message" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
+          </div>
         </form>
         <div class="composer-status" id="composerStatus" hidden>Select a chat to send a message.</div>
       </footer>
