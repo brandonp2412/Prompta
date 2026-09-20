@@ -26,6 +26,7 @@ class FirefoxBiDiDriver:
         self._network_subscribed = False
         self._send_capture: dict[str, Any] | None = None
         self.needs_browser_restart = False
+        self._call_lock = asyncio.Lock()
 
     @property
     def is_connected(self) -> bool:
@@ -122,6 +123,14 @@ class FirefoxBiDiDriver:
         ) from last_error
 
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        # WebDriver BiDi uses one request/response stream. Concurrent recv() calls
+        # are invalid, and a competing caller could otherwise consume this
+        # request's response as if it were an event. Serialize complete
+        # transactions while still dispatching unsolicited events in-band.
+        async with self._call_lock:
+            return await self._call_locked(method, params)
+
+    async def _call_locked(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.ws is None:
             raise RuntimeError("Firefox BiDi is not connected")
         self.request_id += 1
