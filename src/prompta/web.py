@@ -779,6 +779,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                             "token": token,
                             "server": server.host_name,
                             "online": True,
+                            "head": _UI_HEAD,
                         },
                         ensure_ascii=False,
                         separators=(",", ":"),

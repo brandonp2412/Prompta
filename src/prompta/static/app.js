@@ -249,7 +249,9 @@ var state = {
   pinnedIds: loadPinnedIds(),
   eventSource: null,
   liveUpdatesPaused: false,
-  timeRefreshTimer: null
+  timeRefreshTimer: null,
+  uiHead: "",
+  uiReloading: false
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -1361,11 +1363,39 @@ async function fetchJson(url, timeoutMs = 1e4) {
     window.clearTimeout(timeout);
   }
 }
+async function refreshForDeployment() {
+  if (state.uiReloading)
+    return;
+  state.uiReloading = true;
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration();
+      await registration?.update();
+    }
+  } catch (error) {
+    console.warn("Could not update Prompta service worker before refresh", error);
+  } finally {
+    window.location.reload();
+  }
+}
+function observeUiHead(value) {
+  const head = String(value || "").trim().toLowerCase();
+  if (!head)
+    return;
+  if (!state.uiHead) {
+    state.uiHead = head;
+    return;
+  }
+  if (head === state.uiHead || state.uiReloading)
+    return;
+  refreshForDeployment();
+}
 async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
     setServerStatus(payload.server, payload.online);
     const head = String(payload.head || "").trim().toLowerCase();
+    observeUiHead(head);
     setTextIfChanged(els.headLabel, head ? head : "unknown");
     els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
   } catch (error) {
@@ -2335,6 +2365,7 @@ function startEventStream() {
     try {
       const payload = JSON.parse(event.data || "{}");
       setServerStatus(payload.server, payload.online);
+      observeUiHead(payload.head);
     } catch (error) {
       console.warn("Could not parse Prompta SSE status", error);
     }
@@ -2362,7 +2393,7 @@ window.addEventListener("pageshow", () => {
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator))
     return;
-  navigator.serviceWorker.register("./sw.js").catch((error) => {
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch((error) => {
     console.warn("Could not register Prompta service worker", error);
   });
 }

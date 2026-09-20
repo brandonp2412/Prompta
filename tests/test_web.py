@@ -520,7 +520,9 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert response.headers.get_content_type() == "text/event-stream"
             lines = [response.readline().decode() for _ in range(5)]
             assert "event: refresh\n" in lines
-            assert any(line.startswith("data: ") for line in lines)
+            data_line = next(line for line in lines if line.startswith("data: "))
+            event_payload = json.loads(data_line.removeprefix("data: "))
+            assert event_payload["head"] == health["head"]
 
             store.log_path.write_text("changed\n")
             assert response.readline().decode() == "event: refresh\n"
