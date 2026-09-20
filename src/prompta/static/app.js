@@ -1596,6 +1596,7 @@ els.sidebarScrim.addEventListener("click", closeSidebar);
 mobileSidebarMedia.addEventListener("change", syncSidebarAccessibility);
 window.addEventListener("resize", syncSidebarAccessibility);
 syncSidebarAccessibility();
+var SIDEBAR_EDGE_SWIPE_WIDTH = 144;
 var sidebarSwipe = {
   startX: 0,
   startY: 0,
@@ -1635,7 +1636,7 @@ document.addEventListener("touchstart", (event) => {
   resetSidebarDragStyles();
   const touch = event.touches[0];
   const sidebarOpen = document.body.classList.contains("sidebar-open");
-  if (!sidebarOpen && touch.clientX > 96)
+  if (!sidebarOpen && touch.clientX > SIDEBAR_EDGE_SWIPE_WIDTH)
     return;
   sidebarSwipe.startX = touch.clientX;
   sidebarSwipe.startY = touch.clientY;
