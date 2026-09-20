@@ -7,6 +7,7 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  pendingSendActivity,
   postJsonRequest as postJson,
   sidebarPreviewText,
   toolCallDisplayName,
@@ -662,16 +663,19 @@ function messageTimestamp(message) {
 }
 function renderMessageSection(message, allowStreaming = true) {
   const role = message.role === "user" ? "user" : "assistant";
-  const streaming = allowStreaming && message.status === "streaming";
+  const streaming = Boolean(message.pending_activity)
+    || (allowStreaming && message.status === "streaming");
+  const activityLabel = message.pending_activity_label || "writing";
   const label = message.send_error ? "Send error" : "Prompta run";
   const timestamp = messageTimestamp(message);
+  const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content);
   return `
     <section class="message ${role}${message.send_error ? " send-error" : ""}">
       <div class="message-inner">
         ${role === "assistant" ? `
           <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
         ` : ""}
-        <div class="message-content">${renderMarkdown(message.content)}</div>
+        <div class="message-content">${contentHtml}</div>
         ${message.send_error && message.retry_scope && message.retry_key ? `
           <button type="button"
                   class="retry-send-button"
@@ -681,7 +685,7 @@ function renderMessageSection(message, allowStreaming = true) {
         ${streaming ? `
           <div class="streaming-indicator">
             <span class="streaming-dots"><i></i><i></i><i></i></span>
-            writing
+            ${escapeHtml(activityLabel)}
           </div>
         ` : ""}
         <time class="message-timestamp" datetime="${timestamp.iso}">${timestamp.text}</time>
@@ -694,6 +698,8 @@ function messageNodeFingerprint(message, allowStreaming) {
     message.status,
     message.content,
     Boolean(message.send_error),
+    Boolean(message.pending_activity),
+    message.pending_activity_label,
     message.retry_scope,
     message.retry_key,
     message.created_at,
@@ -791,7 +797,7 @@ function updateMessageNode(node, message, allowStreaming) {
   if (structuralMismatch) return false;
   const content = node.querySelector(".message-content");
   if (!content) return false;
-  const nextContent = renderMarkdown(message.content);
+  const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
   if (content.innerHTML !== nextContent) {
     const template = document.createElement("template");
     template.innerHTML = nextContent;
@@ -823,15 +829,20 @@ function updateMessageNode(node, message, allowStreaming) {
   setTextIfChanged(timestamp, nextTimestamp.text);
   if (timestamp.dateTime !== nextTimestamp.iso) timestamp.dateTime = nextTimestamp.iso;
 
-  const shouldStream = allowStreaming && message.status === "streaming";
+  const shouldStream = Boolean(message.pending_activity)
+    || (allowStreaming && message.status === "streaming");
+  const activityLabel = message.pending_activity_label || "writing";
   const indicator = node.querySelector(".streaming-indicator");
   if (shouldStream && !indicator) {
     timestamp.insertAdjacentHTML("beforebegin", `
       <div class="streaming-indicator">
         <span class="streaming-dots"><i></i><i></i><i></i></span>
-        writing
+        ${escapeHtml(activityLabel)}
       </div>
     `);
+  } else if (shouldStream && indicator) {
+    const labelNode = indicator.lastChild;
+    if (labelNode?.nodeType === Node.TEXT_NODE) labelNode.textContent = ` ${activityLabel}`;
   } else if (!shouldStream && indicator) {
     indicator.remove();
   }
@@ -908,7 +919,18 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt,
       });
     }
-    if (item.status === "failed") {
+    const activity = pendingSendActivity(item.status, Boolean(item.sendId));
+    if (activity) {
+      messages.push({
+        message_key: `pending-activity-${item.clientId || item.sendId}`,
+        role: "assistant",
+        content: "",
+        status: "pending",
+        updated_at: item.updatedAt,
+        pending_activity: true,
+        pending_activity_label: activity.label,
+      });
+    } else if (item.status === "failed") {
       messages.push({
         message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
@@ -1009,7 +1031,13 @@ function renderConversation(chat) {
   els.shareChatButton.disabled = false;
   state.composingNew = false;
   updatePinButton();
-  if (!state.sending) {
+  const pendingActivity = [...(state.pendingReplies.get(chat.id) || [])]
+    .reverse()
+    .map((item) => pendingSendActivity(item.status, Boolean(item.sendId)))
+    .find(Boolean);
+  if (pendingActivity) {
+    setTextIfChanged(els.composerStatus, pendingActivity.statusText);
+  } else if (!state.sending) {
     setTextIfChanged(
       els.composerStatus,
       chat.status === "active"
@@ -1139,7 +1167,18 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt,
       }];
-      if (pending.status === "failed") {
+      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId));
+      if (activity) {
+        messages.push({
+          message_key: `pending-activity-${pending.clientId || pending.sendId}`,
+          role: "assistant",
+          content: "",
+          status: "pending",
+          updated_at: pending.updatedAt,
+          pending_activity: true,
+          pending_activity_label: activity.label,
+        });
+      } else if (pending.status === "failed") {
         messages.push({
           message_key: `pending-error-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -1178,8 +1217,15 @@ function renderNewChat() {
     els.shareChatButton.disabled = true;
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
+    const activity = pending
+      ? pendingSendActivity(pending.status, Boolean(pending.sendId))
+      : null;
     els.composerStatus.textContent = pending
-      ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
+      ? (
+        pending.status === "failed"
+          ? "Send failed. The error is shown in the chat."
+          : activity?.statusText || "Sent. Waiting for the cached response…"
+      )
       : "Your first message will open a fresh ChatGPT chat.";
   }
   if (enteringNewChat) {

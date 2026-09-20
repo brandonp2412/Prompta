@@ -8,6 +8,7 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  pendingSendActivity,
   postJsonRequest,
   sidebarPreviewText,
   toolCallDisplayName,
@@ -124,6 +125,31 @@ describe("message timestamps", () => {
 
   test("rejects invalid and out-of-range timestamps without throwing", () => {
     expect(messageTimestampMillis("not-a-date", Number.MAX_VALUE)).toBeNull();
+  });
+});
+
+describe("pending send activity", () => {
+  test("shows immediate sending feedback before the server returns a send id", () => {
+    expect(pendingSendActivity("queued", false)).toEqual({
+      label: "sending",
+      statusText: "Sending…",
+    });
+  });
+
+  test("distinguishes queued work from a running ChatGPT send", () => {
+    expect(pendingSendActivity("queued", true)).toEqual({
+      label: "queued",
+      statusText: "Queued in Prompta…",
+    });
+    expect(pendingSendActivity("running", true)).toEqual({
+      label: "waiting",
+      statusText: "Waiting for ChatGPT…",
+    });
+  });
+
+  test("stops the activity indicator for terminal states", () => {
+    expect(pendingSendActivity("succeeded", true)).toBeNull();
+    expect(pendingSendActivity("failed", true)).toBeNull();
   });
 });
 
