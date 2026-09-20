@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 from prompta.cache import ChatCache
@@ -92,6 +93,64 @@ def test_cache_marks_previous_active_conversations_interrupted(tmp_path: Path) -
     connection.close()
 
     assert status == "interrupted"
+
+
+def test_cache_lists_active_and_recent_interrupted_streaming_conversations(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "active-chat",
+        context_id="context-active",
+        job_name="active-job",
+        prompt="Keep working",
+    )
+    cache.start(
+        "interrupted-chat",
+        context_id="context-interrupted",
+        job_name="",
+        prompt="Still working",
+    )
+    cache.write_snapshot(
+        "interrupted-chat",
+        {
+            "path": "/c/interrupted-chat",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Still working"},
+                {"id": "a1", "role": "assistant", "content": "Working"},
+            ],
+        },
+    )
+    cache.mark_interrupted("interrupted-chat")
+    cache.start(
+        "old-interrupted-chat",
+        context_id="context-old",
+        job_name="",
+        prompt="Old work",
+    )
+    cache.write_snapshot(
+        "old-interrupted-chat",
+        {
+            "path": "/c/old-interrupted-chat",
+            "streaming": True,
+            "messages": [
+                {"id": "u2", "role": "user", "content": "Old work"},
+                {"id": "a2", "role": "assistant", "content": "Working"},
+            ],
+        },
+    )
+    cache.mark_interrupted("old-interrupted-chat")
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET updated_at = 1 WHERE id = ?",
+            ("old-interrupted-chat",),
+        )
+
+    rows = cache.recoverable_conversations(interrupted_after=time.time() - 60)
+
+    assert {row["id"] for row in rows} == {"active-chat", "interrupted-chat"}
+    cache.close()
 
 
 def test_cache_seeds_prompt_before_first_browser_snapshot(tmp_path: Path) -> None:

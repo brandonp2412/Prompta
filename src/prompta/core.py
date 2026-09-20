@@ -740,6 +740,69 @@ class Prompta:
                 except Exception:
                     logger.debug("Could not close failed Prompta tab", exc_info=True)
 
+    async def recover_cached_conversations(self) -> int:
+        """Reattach live cache capture after a daemon/browser restart."""
+
+        recoverable = self.cache.recoverable_conversations(
+            interrupted_after=time.time() - _CACHE_COMPLETION_TIMEOUT_SECONDS
+        )
+        if not recoverable:
+            return 0
+
+        driver = await self._ensure_driver()
+        recovered = 0
+        for row in recoverable:
+            conversation_id = str(row.get("id") or "")
+            target_url = str(
+                row.get("url") or f"https://chatgpt.com/c/{conversation_id}"
+            )
+            context = ""
+            try:
+                context = await driver.new_tab(target_url)
+                await driver.wait_for_composer()
+                expected_path = urlsplit(target_url).path.rstrip("/")
+                await self._ensure_conversation_route(driver, expected_path)
+                await driver.wait_for_composer()
+                snapshot = await driver.conversation_snapshot(context)
+                messages = snapshot.get("messages")
+                if not isinstance(messages, list) or not messages:
+                    raise RuntimeError("ChatGPT conversation did not expose any messages")
+
+                # A daemon restart can happen while ChatGPT is still working server-side.
+                # Keep the row live until normal polling observes a stable completed turn.
+                snapshot["streaming"] = True
+                self.cache.resume(conversation_id, context_id=context)
+                self.cache.write_snapshot(conversation_id, snapshot)
+                self._active_conversations[context] = ActiveConversation(
+                    conversation_id=conversation_id,
+                    context_id=context,
+                    job_name=str(row.get("job_name") or ""),
+                    prompt=str(row.get("prompt") or ""),
+                    last_digest=self.cache.digest(snapshot),
+                    last_live_snapshot_at=time.monotonic(),
+                )
+                recovered += 1
+                logger.info(
+                    "Prompta reattached live conversation=%s after restart",
+                    conversation_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Prompta could not reattach conversation=%s after restart",
+                    conversation_id,
+                )
+                if context:
+                    try:
+                        await driver.close_context(context)
+                    except Exception:
+                        logger.debug(
+                            "Could not close failed Prompta recovery tab",
+                            exc_info=True,
+                        )
+                if str(row.get("status") or "") == "active":
+                    self.cache.mark_interrupted(conversation_id)
+        return recovered
+
     async def sync_conversation(self, conversation_id: str) -> int:
         """Reload one cached conversation from ChatGPT without sending a message."""
 
@@ -750,6 +813,7 @@ class Prompta:
         target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
         driver = await self._ensure_driver()
         context = await driver.new_tab(target_url)
+        retain_context = False
         try:
             await driver.wait_for_composer()
             expected_path = urlsplit(target_url).path.rstrip("/")
@@ -762,7 +826,10 @@ class Prompta:
             stable_polls = 0
             latest: dict[str, Any] = {}
             while asyncio.get_running_loop().time() < deadline:
+                activity = await driver.conversation_activity(context)
                 latest = await driver.conversation_snapshot(context)
+                if bool(activity.get("streaming")):
+                    latest["streaming"] = True
                 messages = latest.get("messages")
                 if not isinstance(messages, list):
                     messages = []
@@ -777,6 +844,17 @@ class Prompta:
                     complete=bool(messages) and not bool(latest.get("streaming")),
                 )
                 last_digest = digest
+                if bool(latest.get("streaming")):
+                    self._active_conversations[context] = ActiveConversation(
+                        conversation_id=conversation_id,
+                        context_id=context,
+                        job_name=str(metadata.get("job_name") or ""),
+                        prompt=str(metadata.get("prompt") or ""),
+                        last_digest=digest,
+                        last_live_snapshot_at=time.monotonic(),
+                    )
+                    retain_context = True
+                    return len(messages)
                 if stable_polls >= 2:
                     return len(messages)
                 await asyncio.sleep(0.5)
@@ -786,7 +864,8 @@ class Prompta:
                 raise RuntimeError("ChatGPT conversation did not expose any messages")
             return len(messages)
         finally:
-            await driver.close_context(context)
+            if not retain_context:
+                await driver.close_context(context)
 
     async def send_reply(
         self,
@@ -1325,7 +1404,10 @@ class Prompta:
                 except Exception:
                     logger.debug("Could not flush Prompta cache during shutdown", exc_info=True)
                 if not complete:
-                    self.cache.mark_interrupted(active.conversation_id)
+                    logger.info(
+                        "Prompta preserving live conversation=%s for restart recovery",
+                        active.conversation_id,
+                    )
             self._active_conversations.clear()
             await self.driver.close()
             self.driver = None
@@ -2048,10 +2130,10 @@ async def _run(args: argparse.Namespace) -> None:
             bidi_url,
         )
         if args.command == "run":
-            orphaned = prompta.cache.mark_orphaned_active()
-            if orphaned:
+            recovered = await prompta.recover_cached_conversations()
+            if recovered:
                 logger.info(
-                    "Prompta marked %d cached conversation(s) interrupted after restart", orphaned
+                    "Prompta recovered %d live conversation(s) after restart", recovered
                 )
             control_server, control_path = await _start_control_server(prompta, args.state)
 

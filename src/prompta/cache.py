@@ -546,6 +546,37 @@ class ChatCache:
 
             self._remove_superseded_transient_assistants(conversation_id)
 
+    def recoverable_conversations(
+        self,
+        *,
+        interrupted_after: float,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return conversations whose live capture should be reattached after restart."""
+
+        rows = self.connection.execute(
+            """
+            SELECT c.id, c.job_name, c.prompt, c.url, c.status,
+                   c.created_at, c.updated_at, c.completed_at
+            FROM conversations AS c
+            WHERE c.status = 'active'
+               OR (
+                    c.status = 'interrupted'
+                    AND c.updated_at >= ?
+                    AND EXISTS (
+                        SELECT 1
+                        FROM messages AS m
+                        WHERE m.conversation_id = c.id
+                          AND m.status = 'streaming'
+                    )
+               )
+            ORDER BY c.updated_at DESC
+            LIMIT ?
+            """,
+            (interrupted_after, max(1, limit)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def recent_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             """
