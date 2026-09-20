@@ -45,6 +45,58 @@ def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> N
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_snapshot_does_not_reopen_completed_conversation_without_resume(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    snapshot = {
+        "title": "Work",
+        "path": "/c/conversation-1",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Do work"},
+            {"id": "a1", "role": "assistant", "content": "Done"},
+        ],
+    }
+    cache.write_snapshot("conversation-1", snapshot, complete=True)
+    completed = cache.connection.execute(
+        "SELECT status, completed_at FROM conversations WHERE id = ?",
+        ("conversation-1",),
+    ).fetchone()
+    assert completed is not None
+    completed_at = completed["completed_at"]
+
+    # ChatGPT can mutate harmless DOM metadata immediately after a turn settles.
+    # A retained-tab refresh must not make the conversation look active again.
+    snapshot["title"] = "Work renamed"
+    cache.write_snapshot("conversation-1", snapshot)
+
+    retained = cache.connection.execute(
+        "SELECT status, completed_at FROM conversations WHERE id = ?",
+        ("conversation-1",),
+    ).fetchone()
+    assert retained is not None
+    assert retained["status"] == "complete"
+    assert retained["completed_at"] == completed_at
+
+    # An explicit reply/recovery resume is the only path that should reopen it.
+    cache.resume("conversation-1", context_id="context-2")
+    cache.write_snapshot("conversation-1", snapshot)
+    resumed = cache.connection.execute(
+        "SELECT status, completed_at FROM conversations WHERE id = ?",
+        ("conversation-1",),
+    ).fetchone()
+    cache.close()
+
+    assert resumed is not None
+    assert resumed["status"] == "active"
+    assert resumed["completed_at"] is None
+
+
 def test_snapshot_promotes_transient_web_route_to_canonical_url(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(
@@ -72,6 +124,36 @@ def test_snapshot_promotes_transient_web_route_to_canonical_url(tmp_path: Path) 
     cache.close()
 
     assert metadata["url"] == "https://chatgpt.com/c/6aae32ba-f3b4-83ec-bdf9-d34b777de6ce"
+
+
+def test_cache_migration_removes_seeded_prompt_after_real_user_message(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    with cache.connection:
+        cache.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, 'user', ?, 'complete', 2, 2)
+            """,
+            ("conversation-1", "real-user-message", 0, "Do work"),
+        )
+    cache.close()
+
+    reopened = ChatCache(path)
+    messages = reopened.messages("conversation-1")
+    reopened.close()
+
+    assert [(message["message_key"], message["role"]) for message in messages] == [
+        ("real-user-message", "user"),
+    ]
 
 
 def test_cache_marks_previous_active_conversations_interrupted(tmp_path: Path) -> None:
@@ -300,6 +382,55 @@ def test_partial_snapshot_does_not_delete_previous_canonical_turns(tmp_path: Pat
         ("a1", "First answer"),
         ("u2", "Second question"),
         ("a2", "Second answer, continuing"),
+    ]
+
+
+def test_final_assistant_replaces_streaming_row_when_message_id_changes(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "temporary-assistant-id",
+                    "role": "assistant",
+                    "content": "Working",
+                },
+            ],
+        },
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "final-assistant-id",
+                    "role": "assistant",
+                    "content": "Working and finished",
+                },
+            ],
+        },
+        complete=True,
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [(message["message_key"], message["status"]) for message in messages] == [
+        ("u1", "complete"),
+        ("final-assistant-id", "complete"),
     ]
 
 
