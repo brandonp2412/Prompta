@@ -1301,6 +1301,45 @@ async def test_control_socket_routes_one_shot_through_scheduler(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_control_send_retries_after_poisoned_scheduler_restart(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    request = AsyncMock(
+        side_effect=[
+            RuntimeError("Firefox BiDi session is poisoned; browser restart required"),
+            {"ok": True, "conversation_id": "conversation-after-restart"},
+        ]
+    )
+    restart = AsyncMock()
+
+    with (
+        patch("prompta.core._control_send_request", request),
+        patch("prompta.core._wait_for_scheduler_restart", restart),
+    ):
+        result = await _send_once_via_control(state_path, "Do one thing")
+
+    assert result == "conversation-after-restart"
+    assert request.await_count == 2
+    restart.assert_awaited_once_with(state_path)
+
+
+@pytest.mark.asyncio
+async def test_control_send_does_not_retry_unrelated_scheduler_error(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    request = AsyncMock(side_effect=RuntimeError("ChatGPT composer failed"))
+    restart = AsyncMock()
+
+    with (
+        patch("prompta.core._control_send_request", request),
+        patch("prompta.core._wait_for_scheduler_restart", restart),
+    ):
+        with pytest.raises(RuntimeError, match="composer failed"):
+            await _send_once_via_control(state_path, "Do one thing")
+
+    request.assert_awaited_once()
+    restart.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     prompta = Prompta(
