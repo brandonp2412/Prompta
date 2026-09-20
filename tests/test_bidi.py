@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -34,6 +35,47 @@ async def test_page_send_probe_captures_durable_conversation_id() -> None:
     expression = call.args[0]
     assert "conversation_id:''" in expression
     assert """conversation_id["'][ ]*:[ ]*["']""" in expression
+
+
+@pytest.mark.asyncio
+async def test_bidi_calls_are_serialized_on_shared_websocket() -> None:
+    class SerialWebSocket:
+        close_code = None
+
+        def __init__(self) -> None:
+            self.pending_ids: list[int] = []
+            self.recv_active = 0
+            self.max_recv_active = 0
+
+        async def send(self, payload: str) -> None:
+            self.pending_ids.append(int(json.loads(payload)["id"]))
+            await asyncio.sleep(0)
+
+        async def recv(self) -> str:
+            self.recv_active += 1
+            self.max_recv_active = max(self.max_recv_active, self.recv_active)
+            if self.recv_active > 1:
+                raise RuntimeError("concurrent recv")
+            try:
+                await asyncio.sleep(0.01)
+                request_id = self.pending_ids.pop(0)
+                return json.dumps({"id": request_id, "type": "success", "result": {}})
+            finally:
+                self.recv_active -= 1
+
+    websocket = SerialWebSocket()
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.ws = websocket
+    driver.context = "context-1"
+
+    first, second = await asyncio.gather(
+        driver._call("script.evaluate", {"expression": "1"}),
+        driver._call("script.evaluate", {"expression": "2"}),
+    )
+
+    assert first["id"] == 1
+    assert second["id"] == 2
+    assert websocket.max_recv_active == 1
 
 
 @pytest.mark.asyncio
