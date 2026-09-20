@@ -1133,9 +1133,16 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         client_id = str(payload.get("client_id") or "").strip()
         return message, attachments, client_id
 
-    def _headers(self, status: HTTPStatus, content_type: str) -> None:
+    def _headers(
+        self,
+        status: HTTPStatus,
+        content_type: str,
+        content_length: int | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        if content_length is not None:
+            self.send_header("Content-Length", str(content_length))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -1149,8 +1156,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
     def _write_response(self, status: HTTPStatus, content_type: str, body: bytes) -> None:
         try:
-            self._headers(status, content_type)
-            self.wfile.write(body)
+            self._headers(status, content_type, len(body))
+            if getattr(self, "command", "GET") != "HEAD":
+                self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             logger.debug("Prompta UI client disconnected before response completed")
 
@@ -1209,14 +1217,17 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             body,
         )
 
-    def _events(self) -> None:
-        server = cast(PromptaUIServer, self.server)
+    def _event_headers(self) -> None:
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
+
+    def _events(self) -> None:
+        server = cast(PromptaUIServer, self.server)
+        self._event_headers()
 
         last_token = ""
         last_heartbeat = 0.0
@@ -1247,6 +1258,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 time.sleep(0.2)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
+
+    def do_HEAD(self) -> None:
+        if urlparse(self.path).path == "/api/events":
+            self._event_headers()
+            return
+        self.do_GET()
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
