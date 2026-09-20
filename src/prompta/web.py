@@ -1217,17 +1217,23 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             body,
         )
 
-    def _event_headers(self) -> None:
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache, no-transform")
-        self.send_header("X-Accel-Buffering", "no")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
+    def _event_headers(self) -> bool:
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            logger.debug("Prompta UI event client disconnected before response headers completed")
+            return False
+        return True
 
     def _events(self) -> None:
         server = cast(PromptaUIServer, self.server)
-        self._event_headers()
+        if not self._event_headers():
+            return
 
         last_token = ""
         last_heartbeat = 0.0
