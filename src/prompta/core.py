@@ -593,6 +593,8 @@ class Prompta:
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
             await driver.click_send()
 
+            provisional_conversation_id = ""
+            provisional_confirmed = False
             deadline = asyncio.get_running_loop().time() + max(
                 1.0, self.config.send_timeout_seconds
             )
@@ -621,8 +623,34 @@ class Prompta:
                 dom_confirmed = user_text == self._normalise(prompt) and not self._normalise(
                     str(state.get("composer_text") or "")
                 )
-                if route_confirmed:
-                    conversation_id = path.removeprefix("/c/").split("/", 1)[0]
+                route_conversation_id = (
+                    path.removeprefix("/c/").split("/", 1)[0] if route_confirmed else ""
+                )
+                probe_conversation_id = str(probe.get("conversation_id") or "")
+                durable_conversation_id = next(
+                    (
+                        candidate
+                        for candidate in (probe_conversation_id, route_conversation_id)
+                        if candidate and not candidate.startswith("WEB:")
+                    ),
+                    "",
+                )
+                provisional = next(
+                    (
+                        candidate
+                        for candidate in (probe_conversation_id, route_conversation_id)
+                        if candidate.startswith("WEB:")
+                    ),
+                    "",
+                )
+                if provisional:
+                    provisional_conversation_id = provisional
+                    provisional_confirmed = (
+                        provisional_confirmed or send_confirmed or dom_confirmed or route_confirmed
+                    )
+
+                if durable_conversation_id:
+                    conversation_id = durable_conversation_id
                     logger.info(
                         "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s dom_confirmed=%s",
                         conversation_id,
@@ -645,6 +673,26 @@ class Prompta:
                     succeeded = True
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+
+            if provisional_conversation_id and provisional_confirmed:
+                logger.warning(
+                    "Prompta only observed provisional conversation=%s before send confirmation timeout; continuing cache capture until ChatGPT publishes the durable route",
+                    provisional_conversation_id,
+                )
+                self.cache.start(
+                    provisional_conversation_id,
+                    context_id=context,
+                    job_name=job_name,
+                    prompt=prompt,
+                )
+                self._active_conversations[context] = ActiveConversation(
+                    conversation_id=provisional_conversation_id,
+                    context_id=context,
+                    job_name=job_name,
+                    prompt=prompt,
+                )
+                succeeded = True
+                return provisional_conversation_id
 
             raise SendVerificationError(
                 "prompta could not prove the prompt was sent in a new conversation"

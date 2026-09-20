@@ -220,6 +220,44 @@ async def test_send_once_accepts_new_conversation_route_as_confirmation(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_send_once_ignores_provisional_web_route_until_durable_id(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+
+    class ProvisionalRouteDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__(prompt, committed=False, capture_status=0)
+            self.route_reads = 0
+
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            if not self.sent:
+                return "/"
+            self.route_reads += 1
+            if self.route_reads < 3:
+                return "/c/WEB:temporary"
+            return "/c/durable-chat"
+
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+            send_timeout_seconds=1.0,
+        ),
+        "ws://unused",
+    )
+    fake = ProvisionalRouteDriver()
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once(prompt)
+
+    assert conversation_id == "durable-chat"
+    assert fake.route_reads >= 3
+    assert prompta.cache.metadata(conversation_id)["url"] == "https://chatgpt.com/c/durable-chat"
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None:
     prompt = "PROMPTA TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")

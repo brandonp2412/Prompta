@@ -23,6 +23,18 @@ async def test_click_send_uses_trusted_enter_on_focused_composer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_page_send_probe_captures_durable_conversation_id() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.eval = AsyncMock()  # type: ignore[method-assign]
+
+    await driver.arm_page_send_probe()
+
+    expression = driver.eval.await_args.args[0]  # type: ignore[union-attr]
+    assert "conversation_id:''" in expression
+    assert """conversation_id["'][ ]*:[ ]*["']""" in expression
+
+
+@pytest.mark.asyncio
 async def test_bidi_call_timeout_disconnects_wedged_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
