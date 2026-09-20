@@ -329,6 +329,7 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression
     assert "clone.querySelectorAll('button,[role=\"button\"]')" in expression
+    assert "'Show moreShow less','Show lessShow more'" in expression
     assert "content:role==='assistant'?rich:messageText(e)" in expression
     assert "normalise(messageText(precedingUser))" in expression
 
@@ -347,6 +348,7 @@ async def test_dom_state_excludes_message_action_controls() -> None:
     assert call is not None
     expression = call.args[0]
     assert "clone.querySelectorAll('button,[role=\"button\"]')" in expression
+    assert "'Show moreShow less','Show lessShow more'" in expression
     assert "last_user_text:messageText(users.at(-1))" in expression
 
 

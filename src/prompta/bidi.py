@@ -654,7 +654,9 @@ class FirefoxBiDiDriver:
                 if(!root)return '';
                 const clone=root.cloneNode(true);
                 clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-                return (clone.textContent||'').trim();
+                const text=(clone.textContent||'').trim();
+                const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
+                return (actionSuffix?text.slice(0,-actionSuffix.length):text).trim();
               };
               const messages=[...document.querySelectorAll('[data-message-author-role]')];
               const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
@@ -703,7 +705,9 @@ class FirefoxBiDiDriver:
                 if(!root)return '';
                 const clone=root.cloneNode(true);
                 clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-                return (clone.textContent||'').trim();
+                const text=(clone.textContent||'').trim();
+                const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
+                return (actionSuffix?text.slice(0,-actionSuffix.length):text).trim();
               };
               const markdownText=root=>{
                 const walk=node=>{
