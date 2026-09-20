@@ -635,6 +635,12 @@ class FirefoxBiDiDriver:
               const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
               const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
               const composer=[...document.querySelectorAll(selector)].find(visible);
+              const messageText=root=>{
+                if(!root)return '';
+                const clone=root.cloneNode(true);
+                clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
+                return (clone.textContent||'').trim();
+              };
               const messages=[...document.querySelectorAll('[data-message-author-role]')];
               const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
               const rateLimitText=[...document.querySelectorAll('[role="alert"],[aria-live="assertive"],[aria-live="polite"],[data-testid="conversation-fetch-error-toaster"],[data-testid*="rate-limit"]')]
@@ -642,7 +648,7 @@ class FirefoxBiDiDriver:
               return {
                 composer_text:(composer&&(composer.innerText||composer.value)||''),
                 last_user_id:(users.at(-1)?.getAttribute('data-message-id')||''),
-                last_user_text:(users.at(-1)?.innerText||''),
+                last_user_text:messageText(users.at(-1)),
                 rate_limit_text:rateLimitText
               };
             })())"""
@@ -678,6 +684,12 @@ class FirefoxBiDiDriver:
               const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
               const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
               const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
+              const messageText=root=>{
+                if(!root)return '';
+                const clone=root.cloneNode(true);
+                clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
+                return (clone.textContent||'').trim();
+              };
               const markdownText=root=>{
                 const walk=node=>{
                   if(node.nodeType===Node.TEXT_NODE)return node.textContent||'';
@@ -745,7 +757,7 @@ class FirefoxBiDiDriver:
                   node:e,
                   id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
                   role,
-                  content:role==='assistant'?rich:(e.innerText||e.textContent||'').trim()
+                  content:role==='assistant'?rich:messageText(e)
                 };
               }).filter(message=>message.role&&message.content&&!(
                 message.role==='assistant'&&message.id.startsWith('request-placeholder-')
@@ -815,7 +827,7 @@ class FirefoxBiDiDriver:
                   .at(-1);
                 const turnSeed=precedingUser?.getAttribute('data-message-id')
                   ||precedingUser?.getAttribute('data-message-uuid')
-                  ||normalise(precedingUser?.textContent||precedingUser?.innerText||'')
+                  ||normalise(messageText(precedingUser))
                   ||('agent-'+agentIndex);
                 entries.push({
                   node:agent,

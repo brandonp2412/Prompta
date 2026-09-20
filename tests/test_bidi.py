@@ -284,6 +284,26 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert 'aria-label*="stop"' not in expression
     assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression
+    assert "clone.querySelectorAll('button,[role=\"button\"]')" in expression
+    assert "content:role==='assistant'?rich:messageText(e)" in expression
+    assert "normalise(messageText(precedingUser))" in expression
+
+
+@pytest.mark.asyncio
+async def test_dom_state_excludes_message_action_controls() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.eval = AsyncMock(
+        return_value='{"composer_text":"","last_user_id":"u1","last_user_text":"Long prompt","rate_limit_text":""}'
+    )  # type: ignore[method-assign]
+
+    state = await driver.dom_state()
+
+    assert state["last_user_text"] == "Long prompt"
+    call = driver.eval.await_args
+    assert call is not None
+    expression = call.args[0]
+    assert "clone.querySelectorAll('button,[role=\"button\"]')" in expression
+    assert "last_user_text:messageText(users.at(-1))" in expression
 
 
 @pytest.mark.asyncio
