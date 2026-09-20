@@ -91,6 +91,11 @@ A service restart marks any previously active cache rows as interrupted.
 
 ## Web UI
 
+A founding principle of the Prompta UI is to minimize interaction with ChatGPT. Navigation,
+presentation state, pinning, sharing, caching, search, scheduling metadata, and other work
+that can be handled locally should stay local; Prompta should contact or manipulate ChatGPT
+only when the requested action actually requires ChatGPT.
+
 Prompta includes a local ChatGPT-style viewer for active runs and cached history:
 
 ![Prompta conversation UI](docs/assets/prompta-ui.png)

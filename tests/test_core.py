@@ -989,7 +989,9 @@ async def test_once_uses_running_scheduler_without_spawning_firefox(
 
 
 @pytest.mark.asyncio
-async def test_poll_active_conversations_defers_rich_snapshot_while_streaming(tmp_path: Path) -> None:
+async def test_poll_active_conversations_caches_streaming_updates_without_snapshot_spam(
+    tmp_path: Path,
+) -> None:
     prompta = Prompta(
         PromptaConfig(
             jobs_file=tmp_path / "jobs.json",
@@ -1016,15 +1018,31 @@ async def test_poll_active_conversations_defers_rich_snapshot_while_streaming(tm
     driver = MagicMock()
     driver.is_connected = True
     driver.conversation_activity = AsyncMock(return_value={"streaming": True})
-    driver.conversation_snapshot = AsyncMock()
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "title": "Tool run",
+            "path": "/c/conversation-tool-run",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Search the web"},
+                {"id": "a1", "role": "assistant", "content": "Searching now"},
+            ],
+        }
+    )
     prompta.driver = cast(Any, driver)
 
     await prompta._poll_active_conversations()
 
     driver.conversation_activity.assert_awaited_once_with("context-tool-run")
-    driver.conversation_snapshot.assert_not_awaited()
+    driver.conversation_snapshot.assert_awaited_once_with("context-tool-run")
+    messages = prompta.cache.messages("conversation-tool-run")
+    assert messages[-1]["content"] == "Searching now"
+    assert messages[-1]["status"] == "streaming"
     assert active.idle_polls == 0
     assert active.settled_at == 0.0
+
+    await prompta._poll_active_conversations()
+    assert driver.conversation_snapshot.await_count == 1
     prompta.cache.close()
 
 
