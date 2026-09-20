@@ -52,6 +52,7 @@ _DELIVERY_FAILURE_POLLS = 3
 _DELIVERY_RETRY_DISCOVERY_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
 _DELIVERY_RETRY_GRACE_SECONDS = 15.0
+_TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
 _FIREFOX_REUSE_POLL_SECONDS = 0.25
 _FIREFOX_REUSE_STABILITY_CHECKS = 12
 _FAILURE_RETRY_SECONDS = 300.0
@@ -870,6 +871,7 @@ class Prompta:
                     prompt=str(row.get("prompt") or ""),
                     last_digest=self.cache.digest(snapshot),
                     last_live_snapshot_at=time.monotonic(),
+                    recovered_cache_updated_at=float(row.get("updated_at") or 0.0),
                 )
                 recovered += 1
                 logger.info(
@@ -1348,6 +1350,37 @@ class Prompta:
                 completion_hint = bool(activity.get("complete", True))
                 transient_hint = bool(activity.get("transient"))
                 failure_hint = bool(activity.get("failed"))
+                persistent_transient = transient_hint and not streaming_hint
+                if persistent_transient:
+                    now_epoch = time.time()
+                    if active.transient_since_epoch <= 0:
+                        recovered_at = active.recovered_cache_updated_at
+                        active.transient_since_epoch = (
+                            min(now_epoch, recovered_at) if recovered_at > 0 else now_epoch
+                        )
+                    if (
+                        now_epoch - active.transient_since_epoch
+                        >= _TRANSIENT_FAILURE_TIMEOUT_SECONDS
+                    ):
+                        self.cache.mark_interrupted(active.conversation_id)
+                        try:
+                            await driver.close_context(context)
+                        except Exception:
+                            logger.debug(
+                                "Could not close persistently interrupted Prompta tab",
+                                exc_info=True,
+                            )
+                        self._active_conversations.pop(context, None)
+                        logger.warning(
+                            "Prompta marked conversation=%s interrupted after %.0fs "
+                            "of persistent ChatGPT connection interruption",
+                            active.conversation_id,
+                            _TRANSIENT_FAILURE_TIMEOUT_SECONDS,
+                        )
+                        continue
+                else:
+                    active.transient_since_epoch = 0.0
+                    active.recovered_cache_updated_at = 0.0
                 if streaming_hint or transient_hint:
                     active.idle_polls = 0
                     active.settled_at = 0.0

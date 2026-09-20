@@ -201,6 +201,17 @@ describe("/every", () => {
       error: "Use /every <minutes> <prompt>, for example: /every 30 fix bugs",
     });
   });
+
+  test("accepts command names case-insensitively", () => {
+    expect(parseScheduleSlashCommand("/EVERY 45 review failures")).toEqual({
+      intervalMinutes: 45,
+      prompt: "review failures",
+    });
+  });
+
+  test("does not treat longer slash commands as /every", () => {
+    expect(parseScheduleSlashCommand("/everybody say hello")).toBeNull();
+  });
 });
 
 
@@ -232,6 +243,17 @@ describe("/at", () => {
     expect(parseAtSlashCommand("/at today 15:00 too late", now)).toEqual({
       error: "Schedule time must be in the future.",
     });
+  });
+
+  test("accepts command names case-insensitively", () => {
+    const parsed = parseAtSlashCommand("/AT tomorrow 08:15 ship it", now);
+    expect(parsed && !("error" in parsed) ? parsed.runAtEpoch : 0).toBe(
+      new Date(2026, 8, 21, 8, 15, 0).getTime() / 1000,
+    );
+  });
+
+  test("does not treat longer slash commands as /at", () => {
+    expect(parseAtSlashCommand("/atlas tomorrow 08:15", now)).toBeNull();
   });
 });
 
