@@ -1221,6 +1221,11 @@ class Prompta:
             return False
         if self.due_in(job, now) > 0:
             return False
+        if any(
+            active.job_name == job.name
+            for active in self._active_conversations.values()
+        ):
+            return False
         backoff = self._backoffs.setdefault(job.name, RateLimitBackoff())
         if backoff.remaining() > 0:
             return False
