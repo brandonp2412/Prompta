@@ -863,27 +863,42 @@ class Prompta:
             deadline = asyncio.get_running_loop().time() + 15.0
             last_digest = ""
             stable_polls = 0
+            failure_polls = 0
             latest: dict[str, Any] = {}
             while asyncio.get_running_loop().time() < deadline:
                 activity = await driver.conversation_activity(context)
+                streaming_hint = bool(activity.get("streaming"))
+                transient_hint = bool(activity.get("transient"))
+                failure_hint = bool(activity.get("failed"))
+                completion_hint = bool(activity.get("complete", True))
                 latest = await driver.conversation_snapshot(context)
-                if bool(activity.get("streaming")):
+                if streaming_hint:
                     latest["streaming"] = True
                 messages = latest.get("messages")
                 if not isinstance(messages, list):
                     messages = []
                 digest = self.cache.digest(latest)
-                if messages and digest == last_digest and not bool(latest.get("streaming")):
-                    stable_polls += 1
-                else:
+                streaming = bool(latest.get("streaming"))
+
+                # A sync is observational: never call a stable-but-failed or
+                # transient DOM a successful completion. Keep live states
+                # attached to normal background polling, and only persist
+                # "complete" after ChatGPT exposes its final-turn action.
+                self.cache.write_snapshot(conversation_id, latest)
+
+                if failure_hint:
+                    failure_polls += 1
                     stable_polls = 0
-                self.cache.write_snapshot(
-                    conversation_id,
-                    latest,
-                    complete=bool(messages) and not bool(latest.get("streaming")),
-                )
-                last_digest = digest
-                if bool(latest.get("streaming")):
+                    if failure_polls < 3:
+                        await asyncio.sleep(0.5)
+                        continue
+                    self.cache.mark_interrupted(conversation_id)
+                    raise RuntimeError(
+                        "ChatGPT conversation has a persistent delivery failure"
+                    )
+                failure_polls = 0
+
+                if streaming or transient_hint:
                     self._active_conversations[context] = ActiveConversation(
                         conversation_id=conversation_id,
                         context_id=context,
@@ -894,13 +909,41 @@ class Prompta:
                     )
                     retain_context = True
                     return len(messages)
-                if stable_polls >= 2:
+
+                if messages and digest == last_digest:
+                    stable_polls += 1
+                else:
+                    stable_polls = 0
+                last_digest = digest
+
+                if stable_polls >= 2 and completion_hint:
+                    self.cache.write_snapshot(conversation_id, latest, complete=True)
+                    return len(messages)
+                if stable_polls >= 2 and not completion_hint:
+                    self._active_conversations[context] = ActiveConversation(
+                        conversation_id=conversation_id,
+                        context_id=context,
+                        job_name=str(metadata.get("job_name") or ""),
+                        prompt=str(metadata.get("prompt") or ""),
+                        last_digest=digest,
+                        last_live_snapshot_at=time.monotonic(),
+                    )
+                    retain_context = True
                     return len(messages)
                 await asyncio.sleep(0.5)
 
             messages = latest.get("messages")
             if not isinstance(messages, list) or not messages:
                 raise RuntimeError("ChatGPT conversation did not expose any messages")
+            self._active_conversations[context] = ActiveConversation(
+                conversation_id=conversation_id,
+                context_id=context,
+                job_name=str(metadata.get("job_name") or ""),
+                prompt=str(metadata.get("prompt") or ""),
+                last_digest=last_digest,
+                last_live_snapshot_at=time.monotonic(),
+            )
+            retain_context = True
             return len(messages)
         finally:
             if not retain_context:

@@ -39,6 +39,8 @@ from .core import (
 
 logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
+_DAEMON_STARTUP_CHECKS = 10
+_DAEMON_STARTUP_POLL_SECONDS = 0.1
 
 
 def _git_short_head() -> str:
@@ -1416,8 +1418,13 @@ def _reconcile_orphaned_local_chats(
     state_path: Path,
     control_host: str,
 ) -> int:
-    if control_host or _daemon_is_running(state_path):
+    if control_host:
         return 0
+    for attempt in range(_DAEMON_STARTUP_CHECKS):
+        if _daemon_is_running(state_path):
+            return 0
+        if attempt + 1 < _DAEMON_STARTUP_CHECKS:
+            time.sleep(_DAEMON_STARTUP_POLL_SECONDS)
     cache = ChatCache(cache_path)
     try:
         return cache.mark_orphaned_active()

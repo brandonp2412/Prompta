@@ -95,7 +95,10 @@ def test_local_ui_startup_marks_old_active_chats_interrupted(tmp_path: Path) -> 
     )
     cache.close()
 
-    with patch("prompta.web._daemon_is_running", return_value=False):
+    with (
+        patch("prompta.web._daemon_is_running", return_value=False),
+        patch("prompta.web.time.sleep"),
+    ):
         orphaned = _reconcile_orphaned_local_chats(
             path,
             tmp_path / "state.json",
@@ -133,6 +136,36 @@ def test_local_ui_startup_leaves_active_chats_for_running_scheduler(tmp_path: Pa
     assert orphaned == 0
     assert chat is not None
     assert chat["status"] == "active"
+
+
+def test_local_ui_startup_waits_for_scheduler_lock(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-racing",
+        context_id="context-racing",
+        job_name="",
+        prompt="Still running",
+    )
+    cache.close()
+
+    with (
+        patch("prompta.web._daemon_is_running", side_effect=[False, True]) as running,
+        patch("prompta.web.time.sleep") as sleep,
+    ):
+        orphaned = _reconcile_orphaned_local_chats(
+            path,
+            tmp_path / "state.json",
+            "",
+        )
+
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-racing")
+    assert orphaned == 0
+    assert chat is not None
+    assert chat["status"] == "active"
+    assert running.call_count == 2
+    sleep.assert_called_once()
 
 
 def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> None:
