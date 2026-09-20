@@ -497,6 +497,14 @@ else:
 class SendJobRegistry:
     """Run UI sends off-request and expose their status for polling."""
 
+    @staticmethod
+    def _cleanup_attachments(attachments: list[str]) -> None:
+        for attachment in attachments:
+            try:
+                Path(attachment).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove Prompta UI upload %s", attachment, exc_info=True)
+
     def __init__(self, sender: Callable[[str, str, str, list[str]], str]) -> None:
         self._sender = sender
         self._jobs: dict[str, dict[str, Any]] = {}
@@ -541,6 +549,7 @@ class SendJobRegistry:
                 existing_send_id = self._client_jobs.get(normalized_client_id)
                 existing = self._jobs.get(existing_send_id or "")
                 if existing is not None:
+                    self._cleanup_attachments(list(attachments or []))
                     return dict(existing)
             self._jobs[send_id] = job
             if normalized_client_id:
@@ -594,11 +603,7 @@ class SendJobRegistry:
             self._update(send_id, status="failed", error=str(exc))
             return
         finally:
-            for attachment in attachments:
-                try:
-                    Path(attachment).unlink(missing_ok=True)
-                except OSError:
-                    logger.warning("Could not remove Prompta UI upload %s", attachment, exc_info=True)
+            self._cleanup_attachments(attachments)
         self._update(
             send_id,
             status="succeeded",
