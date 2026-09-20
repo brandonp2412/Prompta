@@ -507,7 +507,7 @@ function renderSidebar(force = false) {
     item.addEventListener("click", () => {
       if (item.dataset.optimisticNew === "true" && !state.pendingNewSend?.conversationId) {
         renderNewChat();
-        document.body.classList.remove("sidebar-open");
+        closeSidebar();
         return;
       }
       selectChat(item.dataset.chatId);
@@ -1281,7 +1281,7 @@ function renderNewChat() {
     updateLogsButton(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
-    document.body.classList.remove("sidebar-open");
+    closeSidebar();
     if (!waiting && matchMedia("(pointer: fine)").matches) {
       requestAnimationFrame(() => els.messageInput.focus());
     }
@@ -1443,7 +1443,7 @@ async function selectChat(id) {
     if (!state.selectedChat || state.selectedChat.id !== id) {
       await loadSelectedChat();
     }
-    document.body.classList.remove("sidebar-open");
+    closeSidebar();
     return;
   }
   state.composingNew = false;
@@ -1457,7 +1457,7 @@ async function selectChat(id) {
   history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
   renderSidebar();
   await loadSelectedChat();
-  document.body.classList.remove("sidebar-open");
+  closeSidebar();
 }
 var searchTimer;
 els.searchInput.addEventListener("input", () => {
@@ -1476,18 +1476,32 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape") {
     els.searchInput.blur();
-    document.body.classList.remove("sidebar-open");
+    closeSidebar();
   }
 });
+var mobileSidebarMedia = window.matchMedia("(max-width: 780px)");
+function syncSidebarAccessibility() {
+  const hidden = mobileSidebarMedia.matches && !document.body.classList.contains("sidebar-open");
+  els.sidebar.toggleAttribute("inert", hidden);
+  if (hidden)
+    els.sidebar.setAttribute("aria-hidden", "true");
+  else
+    els.sidebar.removeAttribute("aria-hidden");
+  els.openSidebar.setAttribute("aria-expanded", String(!hidden));
+}
 function openSidebar() {
   document.body.classList.add("sidebar-open");
+  syncSidebarAccessibility();
 }
 function closeSidebar() {
   document.body.classList.remove("sidebar-open");
+  syncSidebarAccessibility();
 }
 els.openSidebar.addEventListener("click", openSidebar);
 els.closeSidebar.addEventListener("click", closeSidebar);
 els.sidebarScrim.addEventListener("click", closeSidebar);
+mobileSidebarMedia.addEventListener("change", syncSidebarAccessibility);
+syncSidebarAccessibility();
 var sidebarSwipe = {
   startX: 0,
   startY: 0,
@@ -1504,7 +1518,7 @@ var sidebarSwipe = {
   pendingX: 0
 };
 function mobileSidebarEnabled() {
-  return window.matchMedia("(max-width: 780px)").matches;
+  return mobileSidebarMedia.matches;
 }
 document.addEventListener("touchstart", (event) => {
   if (!mobileSidebarEnabled() || event.touches.length !== 1)
@@ -1581,6 +1595,7 @@ function settleSidebarDrag(open) {
   const speed = Math.max(0.6, Math.abs(sidebarSwipe.velocityX));
   const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
   document.body.classList.toggle("sidebar-open", open);
+  syncSidebarAccessibility();
   els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
   els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
   els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
