@@ -24,6 +24,7 @@ from prompta.core import (
     _send_once_via_control,
     _send_reply_via_control,
     _start_control_server,
+    _stop_via_control,
     _sync_via_control,
     add_job,
     clear_jobs,
@@ -960,6 +961,79 @@ async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> 
         await server.wait_closed()
         socket_path.unlink(missing_ok=True)
         prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_conversation_clicks_stop_and_settles_cache(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        "chat-live",
+        context_id="context-live",
+        job_name="",
+        prompt="Keep working",
+    )
+    active = ActiveConversation(
+        conversation_id="chat-live",
+        context_id="context-live",
+        job_name="",
+        prompt="Keep working",
+    )
+    prompta._active_conversations["context-live"] = active
+    driver = MagicMock()
+    driver.conversation_activity = AsyncMock(
+        side_effect=[{"streaming": True}, {"streaming": False}]
+    )
+    driver.click_stop = AsyncMock(return_value=True)
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": "Partial answer"},
+            ],
+        }
+    )
+    prompta.driver = driver
+
+    result = await prompta.stop_conversation("chat-live")
+
+    assert result == "chat-live"
+    driver.click_stop.assert_awaited_once_with("context-live")
+    assert active.settled_at > 0
+    assert active.idle_polls >= 3
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_control_socket_routes_stop_directly_to_scheduler(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.stop_conversation = AsyncMock(return_value="existing-chat")  # type: ignore[method-assign]
+    server, socket_path = await _start_control_server(prompta, state_path)
+    try:
+        result = await _stop_via_control(state_path, "existing-chat")
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        prompta.cache.close()
+
+    assert result == "existing-chat"
+    prompta.stop_conversation.assert_awaited_once_with("existing-chat")  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

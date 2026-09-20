@@ -33,6 +33,7 @@ from .core import (
     _send_direct,
     _send_once_via_control,
     _send_reply_via_control,
+    _stop_via_control,
     add_job,
 )
 
@@ -324,7 +325,7 @@ def _remote_control(
     control_host: str,
     *,
     operation: str,
-    message: str,
+    message: str = "",
     conversation_id: str = "",
     attachments: list[str] | None = None,
 ) -> str:
@@ -401,7 +402,7 @@ import asyncio
 import base64
 import json
 import sys
-from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control
+from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control, _stop_via_control
 
 payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
 try:
@@ -413,7 +414,7 @@ try:
                 payload.get("attachments") or [],
             )
         )
-    else:
+    elif payload["operation"] == "reply":
         result = asyncio.run(
             _send_reply_via_control(
                 DEFAULT_STATE_PATH,
@@ -422,6 +423,12 @@ try:
                 payload.get("attachments") or [],
             )
         )
+    elif payload["operation"] == "stop":
+        result = asyncio.run(
+            _stop_via_control(DEFAULT_STATE_PATH, payload["conversation_id"])
+        )
+    else:
+        raise RuntimeError("unsupported remote Prompta control operation")
 except Exception as exc:
     print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
 else:
@@ -720,6 +727,12 @@ class PromptaUIServer(ThreadingHTTPServer):
         result["node_display"] = target.display_name
         return result
 
+    def stop_conversation(self, public_id: str) -> str:
+        target, actual_id = self.resolve_conversation(public_id)
+        if target.store.conversation(actual_id) is None:
+            raise KeyError(public_id)
+        return target._stop(actual_id)
+
     def send_job(self, send_id: str) -> dict[str, Any] | None:
         for target in self.iter_nodes():
             job = target.send_jobs.get(send_id)
@@ -978,6 +991,17 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
             "server": self.host_name,
         }
 
+    def _stop(self, conversation_id: str) -> str:
+        if self.control_host:
+            return _remote_control(
+                self.control_host,
+                operation="stop",
+                conversation_id=conversation_id,
+            )
+        if not _daemon_is_running(self.state_path):
+            raise RuntimeError("Prompta scheduler is not running; cannot stop an active chat")
+        return asyncio.run(_stop_via_control(self.state_path, conversation_id))
+
     def _send(
         self,
         operation: str,
@@ -1040,6 +1064,7 @@ class PromptaNodeTarget:
     schedule_every = PromptaUIServer.schedule_every
     schedule_at = PromptaUIServer.schedule_at
     _send = PromptaUIServer._send
+    _stop = PromptaUIServer._stop
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -1354,6 +1379,24 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
 
         prefix = "/api/chats/"
+        stop_suffix = "/stop"
+        if path.startswith(prefix) and path.endswith(stop_suffix):
+            conversation_id = unquote(path[len(prefix) : -len(stop_suffix)]).strip("/")
+            if not conversation_id:
+                self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                stopped_id = cast(PromptaUIServer, self.server).stop_conversation(conversation_id)
+            except KeyError:
+                self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+                return
+            except Exception as exc:
+                logger.exception("Prompta UI stop failed conversation=%s", conversation_id)
+                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+                return
+            self._json({"ok": True, "conversation_id": conversation_id, "stopped_id": stopped_id})
+            return
+
         suffix = "/messages"
         if not (path.startswith(prefix) and path.endswith(suffix)):
             self.send_error(HTTPStatus.NOT_FOUND)

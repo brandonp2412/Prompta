@@ -23,6 +23,24 @@ async def test_click_send_uses_trusted_enter_on_focused_composer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_click_stop_uses_trusted_pointer_in_requested_context() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.eval = AsyncMock(
+        return_value='{"x":120,"y":64,"label":"Stop generating"}'
+    )  # type: ignore[method-assign]
+    driver._call = AsyncMock(return_value={"type": "success"})  # type: ignore[method-assign]
+
+    assert await driver.click_stop("context-live") is True
+
+    driver.eval.assert_awaited_once()
+    assert driver.eval.await_args.kwargs["context"] == "context-live"
+    calls = driver._call.await_args_list
+    assert calls[0].args[0] == "input.performActions"
+    assert calls[0].args[1]["context"] == "context-live"
+    assert calls[1].args == ("input.releaseActions", {"context": "context-live"})
+
+
+@pytest.mark.asyncio
 async def test_page_send_probe_captures_durable_conversation_id() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
     driver.eval = AsyncMock()  # type: ignore[method-assign]

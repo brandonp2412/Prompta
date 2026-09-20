@@ -110,6 +110,7 @@ var state = {
   logFingerprint: "",
   logRefreshTimer: null,
   sending: false,
+  stopping: false,
   composingNew: false,
   pendingNewId: null,
   pendingNewSend: null,
@@ -186,6 +187,23 @@ function setTextIfChanged(element, value) {
 function setHiddenIfChanged(element, hidden) {
   if (element.hidden !== hidden)
     element.hidden = hidden;
+}
+var SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+var STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
+function updateComposerActionButton() {
+  const hasDraft = Boolean(els.messageInput.value.trim());
+  const pendingNewWaiting = Boolean(state.composingNew && state.pendingNewSend && !["failed", "succeeded"].includes(state.pendingNewSend.status));
+  const canCompose = state.mode === "chats" && !els.messageInput.disabled && Boolean(state.composingNew || state.selectedId);
+  const running = canCompose && !state.composingNew && state.selectedChat?.status === "active";
+  const stopMode = Boolean(running && !hasDraft);
+  const action = stopMode ? "stop" : "send";
+  if (els.sendButton.dataset.action !== action) {
+    els.sendButton.dataset.action = action;
+    els.sendButton.innerHTML = stopMode ? STOP_ICON : SEND_ICON;
+    els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
+    els.sendButton.title = stopMode ? "Stop response" : "Send message";
+  }
+  els.sendButton.disabled = !canCompose || state.sending || state.stopping || !stopMode && (!hasDraft || pendingNewWaiting);
 }
 function displayServerName(value) {
   const raw = String(value || "").trim();
@@ -976,6 +994,7 @@ function renderConversation(chat) {
   els.shareChatButton.disabled = false;
   state.composingNew = false;
   updatePinButton();
+  updateComposerActionButton();
   if (!state.sending) {
     setTextIfChanged(els.composerStatus, chat.status === "active" ? "Uses the existing live ChatGPT tab." : "Sending will reopen this chat once if its retained tab has expired.");
   }
@@ -1030,6 +1049,7 @@ function showMode(mode) {
     els.sendButton.disabled = true;
     els.shareChatButton.disabled = true;
     els.composerStatus.textContent = "Switch back to chats to send a message.";
+    updateComposerActionButton();
     loadLogs();
     state.logRefreshTimer = setInterval(() => {
       if (state.mode === "logs" && document.visibilityState === "visible")
@@ -1065,6 +1085,7 @@ function clearConversation() {
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
   els.composerStatus.textContent = "Select a chat to send a message.";
+  updateComposerActionButton();
 }
 function renderNewChat() {
   const enteringNewChat = !state.composingNew;
@@ -1125,6 +1146,7 @@ function renderNewChat() {
     els.messageInput.placeholder = "Start a new chat…";
     els.composerStatus.textContent = pending ? pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…" : "Your first message will open a fresh ChatGPT chat.";
   }
+  updateComposerActionButton();
   if (enteringNewChat) {
     els.viewport.hidden = false;
     els.logsViewport.hidden = true;
@@ -1567,9 +1589,9 @@ document.addEventListener("click", (event) => {
 });
 async function runScheduleSlashCommand(command) {
   state.sending = true;
-  els.sendButton.disabled = true;
   els.messageInput.value = "";
   resizeComposer();
+  updateComposerActionButton();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
   try {
     const result = await postJson("api/schedule", {
@@ -1709,6 +1731,28 @@ async function watchSend(sendId, creatingNew, conversationId) {
     }
   }
 }
+async function stopSelectedChat() {
+  const conversationId = state.selectedId;
+  if (!conversationId || state.mode !== "chats" || state.stopping)
+    return;
+  state.stopping = true;
+  updateComposerActionButton();
+  setTextIfChanged(els.composerStatus, "Stopping response…");
+  try {
+    await postJson("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
+    setTextIfChanged(els.composerStatus, "Stopped.");
+    state.selectedFingerprint = "";
+    state.selectedUpdatedAt = null;
+    await loadSelectedChat();
+    await loadChats();
+  } catch (error) {
+    setTextIfChanged(els.composerStatus, "Stop failed: " + String(error).replace(/^Error:\s*/, ""));
+    console.error(error);
+  } finally {
+    state.stopping = false;
+    updateComposerActionButton();
+  }
+}
 async function sendSelectedMessage() {
   const message = els.messageInput.value.trim();
   const creatingNew = state.composingNew;
@@ -1748,13 +1792,13 @@ async function sendSelectedMessage() {
   let serializedAttachments = [];
   if (attachments.length) {
     state.sending = true;
-    els.sendButton.disabled = true;
+    updateComposerActionButton();
     setTextIfChanged(els.composerStatus, "Preparing attachments…");
     try {
       serializedAttachments = await serializeAttachments();
     } catch (error) {
       state.sending = false;
-      els.sendButton.disabled = false;
+      updateComposerActionButton();
       setTextIfChanged(els.composerStatus, "Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
       return;
     }
@@ -1827,15 +1871,16 @@ async function sendSelectedMessage() {
     state.sending = false;
     if (!creatingNew && state.selectedId && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
+      updateComposerActionButton();
       if (matchMedia("(pointer: fine)").matches)
         els.messageInput.focus();
     } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
+      updateComposerActionButton();
       if (matchMedia("(pointer: fine)").matches)
         els.messageInput.focus();
     }
+    updateComposerActionButton();
   }
 }
 async function copySelectedChatUrl() {
@@ -1891,11 +1936,15 @@ els.slashMenu.addEventListener("click", (event) => {
 });
 els.messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  sendSelectedMessage();
+  if (els.sendButton.dataset.action === "stop")
+    stopSelectedChat();
+  else
+    sendSelectedMessage();
 });
 els.messageInput.addEventListener("input", () => {
   resizeComposer();
   updateSlashMenu();
+  updateComposerActionButton();
 });
 els.messageInput.addEventListener("keydown", (event) => {
   if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {

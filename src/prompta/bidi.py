@@ -21,6 +21,7 @@ class FirefoxBiDiDriver:
         self.ws: Any = None
         self.context = ""
         self.request_id = 0
+        self._call_lock = asyncio.Lock()
         self._network_subscribed = False
         self._send_capture: dict[str, Any] | None = None
         self.needs_browser_restart = False
@@ -107,6 +108,10 @@ class FirefoxBiDiDriver:
         ) from last_error
 
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        async with self._call_lock:
+            return await self._call_unlocked(method, params)
+
+    async def _call_unlocked(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.ws is None:
             raise RuntimeError("Firefox BiDi is not connected")
         self.request_id += 1
@@ -628,6 +633,53 @@ class FirefoxBiDiDriver:
             },
         )
         await self._call("input.releaseActions", {"context": self.context})
+
+    async def click_stop(self, context: str, timeout: float = 5.0) -> bool:
+        deadline = asyncio.get_running_loop().time() + max(0.2, timeout)
+        point: dict[str, Any] | None = None
+        while asyncio.get_running_loop().time() < deadline:
+            raw = await self.eval(
+                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const buttons=[...document.querySelectorAll('button')].filter(e=>visible(e)&&enabled(e));const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>e.matches('button[data-testid="stop-button"]'))||buttons.find(e=>/(?:^|[-_ ])stop(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>/stop (?:generating|response|streaming)/i.test(label(e)));if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};})())""",
+                context=context,
+            )
+            candidate = json.loads(raw or "null")
+            if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
+                point = candidate
+                break
+            await asyncio.sleep(0.1)
+        if point is None:
+            return False
+        try:
+            x = float(point["x"])
+            y = float(point["y"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("ChatGPT stop button position was invalid") from exc
+        await self._call(
+            "input.performActions",
+            {
+                "context": context,
+                "actions": [
+                    {
+                        "type": "pointer",
+                        "id": "mouse",
+                        "parameters": {"pointerType": "mouse"},
+                        "actions": [
+                            {
+                                "type": "pointerMove",
+                                "duration": 0,
+                                "origin": "viewport",
+                                "x": round(x),
+                                "y": round(y),
+                            },
+                            {"type": "pointerDown", "button": 0},
+                            {"type": "pointerUp", "button": 0},
+                        ],
+                    }
+                ],
+            },
+        )
+        await self._call("input.releaseActions", {"context": context})
+        return True
 
     async def dom_state(self) -> dict[str, Any]:
         raw = await self.eval(
