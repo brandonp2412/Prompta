@@ -463,15 +463,27 @@ class FirefoxBiDiDriver:
             },
         )
 
-        deadline = asyncio.get_running_loop().time() + 30.0
+        file_names = [Path(path).name for path in paths]
+        encoded_names = json.dumps(file_names)
+        await asyncio.sleep(0.5)
+        deadline = asyncio.get_running_loop().time() + 120.0
+        stable_ready_polls = 0
         while asyncio.get_running_loop().time() < deadline:
-            uploading = await self.eval(
-                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};return [...document.querySelectorAll('[aria-busy=true],[data-testid*="upload" i],progress')].some(visible)})()"""
+            raw_state = await self.eval(
+                f"""JSON.stringify((()=>{{const visible=e=>{{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';}};const names={encoded_names};const pageText=document.body?.innerText||'';const selected=[...document.querySelectorAll('input[type=file]')].flatMap(input=>[...(input.files||[])]).map(file=>file.name);const attached=names.every(name=>pageText.includes(name)||selected.includes(name));const progressBusy=[...document.querySelectorAll('[aria-busy="true"],progress,[role="progressbar"]')].some(visible);const labelledBusy=[...document.querySelectorAll('[data-testid*="upload" i],[aria-label*="upload" i],[title*="upload" i]')].some(e=>visible(e)&&/(?:uploading|processing|attaching|cancel upload)/i.test((e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'')));return {{attached,busy:progressBusy||labelledBusy}};}})())"""
             )
-            if not uploading:
-                return
+            try:
+                state = json.loads(raw_state or "{}")
+            except json.JSONDecodeError:
+                state = {}
+            if bool(state.get("attached")) and not bool(state.get("busy")):
+                stable_ready_polls += 1
+                if stable_ready_polls >= 3:
+                    return
+            else:
+                stable_ready_polls = 0
             await asyncio.sleep(0.2)
-        raise RuntimeError("ChatGPT attachment upload did not finish within 30s")
+        raise RuntimeError("ChatGPT attachment upload did not finish within 120s")
 
     async def type_message(self, text: str) -> None:
         await self.wait_for_composer()

@@ -1,5 +1,5 @@
 [Unit]
-Description=Prompta conversation UI for Nox
+Description=Prompta unified Glass and Nox conversation UI
 After=network.target
 
 [Service]
@@ -7,14 +7,15 @@ Type=simple
 WorkingDirectory=%h/prompta
 Environment=PYTHONUNBUFFERED=1
 Environment=UV_NO_PROGRESS=1
-ExecStart=%h/prompta/.venv/bin/prompta-ui --cache %h/.local/state/prompta/chats.sqlite3 --logs %h/.local/state/prompta/prompta-nox.log --host 127.0.0.1 --port 8766
+ExecStart=%h/prompta/.venv/bin/prompta-ui --cache %h/.local/state/prompta-glass/chats.sqlite3 --logs %h/.local/state/prompta-glass/prompta-glass.log --control-host glass --node nox=%h/.local/state/prompta/chats.sqlite3,,%h/.local/state/prompta/prompta-nox.log --host 127.0.0.1 --port 8765
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.local/state/prompta %h/.config/prompta
+ReadOnlyPaths=%h/.local/state/prompta-glass
+ReadWritePaths=%h/.local/state/prompta
 MemoryHigh=1G
 MemoryMax=2G
 
