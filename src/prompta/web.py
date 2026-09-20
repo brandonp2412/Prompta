@@ -12,8 +12,6 @@ import logging
 import math
 import mimetypes
 import re
-import shlex
-import socket
 import sqlite3
 import subprocess
 import threading
@@ -32,7 +30,6 @@ from .core import (
     DEFAULT_JOBS_PATH,
     DEFAULT_STATE_PATH,
     _daemon_is_running,
-    _send_direct,
     _send_once_via_control,
     _send_reply_via_control,
     add_job,
@@ -76,7 +73,7 @@ class ReadOnlyChatStore:
         self.log_path = (
             log_path.expanduser()
             if log_path is not None
-            else self.path.with_name("prompta-glass.log")
+            else self.path.with_name("prompta-nox.log")
         )
         self.journal_unit = journal_unit.strip()
 
@@ -337,179 +334,11 @@ class ReadOnlyChatStore:
         return "|".join(parts)
 
 
-_REMOTE_CONTROL_TIMEOUT_SECONDS = 2 * 60 * 60 + 10 * 60
-_HOST_STATUS_TTL_SECONDS = 5.0
-_HOST_CHECK_TIMEOUT_SECONDS = 3.0
-
-
 def _schedule_job_name(prompt: str) -> str:
     words = re.findall(r"[a-z0-9]+", prompt.casefold())[:6]
     slug = "-".join(words) or "job"
     digest = hashlib.sha256(prompt.strip().encode("utf-8")).hexdigest()[:6]
     return f"ui-{slug[:36]}-{digest}"
-
-
-def _remote_control(
-    control_host: str,
-    *,
-    operation: str,
-    message: str,
-    conversation_id: str = "",
-    attachments: list[str] | None = None,
-) -> str:
-    remote_attachments: list[str] = []
-    remote_dir = ""
-    if attachments:
-        remote_dir = f"/home/example/.local/state/prompta/ui-uploads/{uuid.uuid4().hex}"
-        mkdir = subprocess.run(
-            [
-                "ssh",
-                "-F",
-                str(Path.home() / ".ssh" / "config"),
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=8",
-                control_host,
-                "mkdir",
-                "-p",
-                remote_dir,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-        if mkdir.returncode != 0:
-            raise RuntimeError((mkdir.stderr or "remote upload directory creation failed").strip())
-        for index, attachment in enumerate(attachments):
-            name = Path(attachment).name
-            remote_path = f"{remote_dir}/{index}-{name}"
-            copied = subprocess.run(
-                [
-                    "scp",
-                    "-F",
-                    str(Path.home() / ".ssh" / "config"),
-                    "-q",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=8",
-                    attachment,
-                    f"{control_host}:{remote_path}",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if copied.returncode != 0:
-                subprocess.run(
-                    ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                raise RuntimeError((copied.stderr or "remote attachment transfer failed").strip())
-            remote_attachments.append(remote_path)
-
-    payload = base64.urlsafe_b64encode(
-        json.dumps(
-            {
-                "operation": operation,
-                "message": message,
-                "conversation_id": conversation_id,
-                "attachments": remote_attachments,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).decode("ascii")
-    code = """
-import asyncio
-import base64
-import json
-import sys
-from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control
-
-payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
-try:
-    if payload["operation"] == "once":
-        result = asyncio.run(
-            _send_once_via_control(
-                DEFAULT_STATE_PATH,
-                payload["message"],
-                payload.get("attachments") or [],
-            )
-        )
-    else:
-        result = asyncio.run(
-            _send_reply_via_control(
-                DEFAULT_STATE_PATH,
-                payload["conversation_id"],
-                payload["message"],
-                payload.get("attachments") or [],
-            )
-        )
-except Exception as exc:
-    print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-else:
-    print(json.dumps({"ok": True, "conversation_id": result}, ensure_ascii=False))
-""".strip()
-    remote_command = shlex.join(
-        ["/home/example/prompta/.venv/bin/python", "-c", code, payload]
-    )
-    completed = subprocess.run(
-        [
-            "ssh",
-            "-F",
-            str(Path.home() / ".ssh" / "config"),
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=8",
-            control_host,
-            remote_command,
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=_REMOTE_CONTROL_TIMEOUT_SECONDS,
-    )
-    if completed.returncode != 0:
-        if remote_dir:
-            subprocess.run(
-                ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        detail = (completed.stderr or completed.stdout or "remote control failed").strip()
-        raise RuntimeError(detail[-2000:])
-    if remote_dir:
-        subprocess.run(
-            ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    result = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
-    if not result:
-        raise RuntimeError("remote Prompta control returned an empty conversation id")
-    try:
-        response = json.loads(result)
-    except json.JSONDecodeError:
-        return result
-    if not isinstance(response, dict):
-        raise RuntimeError("remote Prompta control returned an invalid response")
-    if response.get("ok") is not True:
-        raise RuntimeError(str(response.get("error") or "remote Prompta control failed"))
-    conversation_id = str(response.get("conversation_id") or "")
-    if not conversation_id:
-        raise RuntimeError("remote Prompta control returned an empty conversation id")
-    return conversation_id
 
 
 class SendJobRegistry:
@@ -631,6 +460,8 @@ class SendJobRegistry:
 
 
 class PromptaUIServer(ThreadingHTTPServer):
+    """Single-host Prompta UI bound to the local Nox worker and cache."""
+
     daemon_threads = True
 
     def __init__(
@@ -638,168 +469,34 @@ class PromptaUIServer(ThreadingHTTPServer):
         address: tuple[str, int],
         store: ReadOnlyChatStore,
         state_path: Path = DEFAULT_STATE_PATH,
-        control_host: str = "",
         jobs_path: Path = DEFAULT_JOBS_PATH,
-        extra_nodes: list[tuple[str, ReadOnlyChatStore, str]] | None = None,
     ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
         self.state_path = state_path.expanduser()
         self.jobs_path = jobs_path.expanduser()
-        self.control_host = control_host.strip()
-        self.host_name = self.control_host or socket.gethostname().split(".", 1)[0]
+        self.host_name = "nox"
         self._local_send_lock = threading.Lock()
-        self._host_status_lock = threading.Lock()
-        self._host_status_checked_at = 0.0
-        self._host_status_online = not bool(self.control_host)
         self.send_jobs = SendJobRegistry(self._send)
-        self.extra_nodes: dict[str, PromptaNodeTarget] = {}
-        for node_name, node_store, node_control_host in extra_nodes or []:
-            key = node_name.strip().casefold()
-            if not key or key == self.host_name.casefold() or key in self.extra_nodes:
-                continue
-            self.extra_nodes[key] = PromptaNodeTarget(
-                node_name.strip(),
-                node_store,
-                state_path,
-                node_control_host,
-                jobs_path,
-            )
 
     @property
     def display_name(self) -> str:
-        return self.host_name.replace("-", " ").replace("_", " ").title()
-
-    def host_online(self, *, force: bool = False) -> bool:
-        if not self.control_host:
-            return True
-        now = time.monotonic()
-        with self._host_status_lock:
-            if not force and now - self._host_status_checked_at < _HOST_STATUS_TTL_SECONDS:
-                return self._host_status_online
-            try:
-                completed = subprocess.run(
-                    [
-                        "ssh",
-                        "-F",
-                        str(Path.home() / ".ssh" / "config"),
-                        "-o",
-                        "BatchMode=yes",
-                        "-o",
-                        "ConnectTimeout=2",
-                        "-o",
-                        "ConnectionAttempts=1",
-                        self.control_host,
-                        "true",
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=_HOST_CHECK_TIMEOUT_SECONDS,
-                )
-                online = completed.returncode == 0
-            except (OSError, subprocess.TimeoutExpired):
-                online = False
-            self._host_status_checked_at = time.monotonic()
-            self._host_status_online = online
-            return online
-
-    def own_event_token(self) -> str:
-        return (
-            f"{self.store.change_token()}|send:{self.send_jobs.revision}"
-            f"|online:{int(self.host_online())}"
-        )
-
-    def iter_nodes(self) -> list[Any]:
-        return [self, *self.extra_nodes.values()]
+        return "Nox"
 
     def event_token(self) -> str:
-        return "||".join(
-            f"{node.host_name}:{node.own_event_token()}"
-            for node in self.iter_nodes()
-        )
-
-    def resolve_conversation(self, public_id: str) -> tuple[Any, str]:
-        if "::" in public_id:
-            prefix, actual_id = public_id.split("::", 1)
-            target = self.extra_nodes.get(prefix.casefold())
-            if target is not None and actual_id:
-                return target, actual_id
-        return self, public_id
-
-    def public_conversation_id(self, target: Any, conversation_id: str) -> str:
-        if target is self:
-            return conversation_id
-        return f"{target.host_name}::{conversation_id}"
+        return f"{self.store.change_token()}|send:{self.send_jobs.revision}"
 
     def conversations(self, *, limit: int = 200, query: str = "") -> list[dict[str, Any]]:
-        merged: list[dict[str, Any]] = []
-        per_node_limit = max(1, min(limit, 500))
-        for target in self.iter_nodes():
-            try:
-                rows = target.store.conversations(limit=per_node_limit, query=query)
-            except (FileNotFoundError, sqlite3.Error):
-                logger.warning("Prompta UI node=%s cache unavailable", target.host_name, exc_info=True)
-                continue
-            for row in rows:
-                item = dict(row)
-                item["id"] = self.public_conversation_id(target, str(item.get("id") or ""))
-                item["node"] = target.host_name
-                item["node_display"] = target.display_name
-                merged.append(item)
-        merged.sort(
-            key=lambda item: (
-                str(item.get("status") or "") == "active",
-                float(item.get("updated_at") or 0.0),
-            ),
-            reverse=True,
-        )
-        return merged[:per_node_limit]
+        return self.store.conversations(limit=limit, query=query)
 
-    def conversation(self, public_id: str) -> dict[str, Any] | None:
-        target, actual_id = self.resolve_conversation(public_id)
-        chat = target.store.conversation(actual_id)
-        if chat is None:
-            return None
-        result = dict(chat)
-        result["id"] = self.public_conversation_id(target, actual_id)
-        result["source_id"] = actual_id
-        result["node"] = target.host_name
-        result["node_display"] = target.display_name
-        return result
+    def conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        return self.store.conversation(conversation_id)
 
     def send_job(self, send_id: str) -> dict[str, Any] | None:
-        for target in self.iter_nodes():
-            job = target.send_jobs.get(send_id)
-            if job is not None:
-                result = dict(job)
-                conversation_id = str(result.get("conversation_id") or "")
-                if conversation_id:
-                    result["conversation_id"] = self.public_conversation_id(target, conversation_id)
-                result["node"] = target.host_name
-                return result
-        return None
+        return self.send_jobs.get(send_id)
 
-    def combined_logs(self, *, limit: int = 500) -> dict[str, Any]:
-        lines: list[str] = []
-        updated_at = 0.0
-        exists = False
-        nodes = self.iter_nodes()
-        for target in nodes:
-            try:
-                payload = target.store.logs(limit=max(50, limit // max(1, len(nodes))))
-            except Exception:
-                continue
-            exists = exists or bool(payload.get("exists"))
-            updated_at = max(updated_at, float(payload.get("updated_at") or 0.0))
-            prefix = f"[{target.display_name}] "
-            lines.extend(prefix + str(line) for line in payload.get("lines") or [])
-        return {
-            "exists": exists,
-            "source": "nodes",
-            "lines": lines[-max(1, min(limit, 5000)):],
-            "updated_at": updated_at,
-        }
+    def logs(self, *, limit: int = 500) -> dict[str, Any]:
+        return self.store.logs(limit=limit)
 
     def save_attachments(self, raw_attachments: Any) -> list[str]:
         if raw_attachments is None:
@@ -844,82 +541,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         interval_minutes = max(0.1, min(interval_minutes, 60.0 * 24.0 * 30.0))
         name = _schedule_job_name(prompt)
         interval_seconds = interval_minutes * 60.0
-
-        if self.control_host:
-            payload = base64.urlsafe_b64encode(
-                json.dumps(
-                    {
-                        "name": name,
-                        "prompt": prompt,
-                        "interval_seconds": interval_seconds,
-                    },
-                    ensure_ascii=False,
-                ).encode("utf-8")
-            ).decode("ascii")
-            code = """
-import base64
-import json
-import subprocess
-import sys
-from prompta.core import DEFAULT_JOBS_PATH, add_job
-
-payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
-add_job(
-    DEFAULT_JOBS_PATH,
-    payload["name"],
-    payload["prompt"],
-    payload["interval_seconds"],
-    exact_interval=True,
-)
-started = subprocess.run(
-    ["systemctl", "--user", "start", "prompta.service"],
-    check=False,
-    capture_output=True,
-    text=True,
-).returncode == 0
-print(json.dumps({"ok": True, "scheduler_started": started}))
-""".strip()
-            remote_command = shlex.join(
-                ["/home/example/prompta/.venv/bin/python", "-c", code, payload]
-            )
-            completed = subprocess.run(
-                [
-                    "ssh",
-                    "-F",
-                    str(Path.home() / ".ssh" / "config"),
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=8",
-                    self.control_host,
-                    remote_command,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "remote scheduling failed").strip()
-                raise RuntimeError(detail[-2000:])
-            response_line = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
-            try:
-                response = json.loads(response_line)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError("remote Prompta scheduling returned an invalid response") from exc
-            if not isinstance(response, dict) or response.get("ok") is not True:
-                raise RuntimeError(str(response.get("error") or "remote Prompta scheduling failed"))
-            scheduler_started = response.get("scheduler_started") is True
-        else:
-            add_job(
-                self.jobs_path,
-                name,
-                prompt,
-                interval_seconds,
-                exact_interval=True,
-            )
-            scheduler_started = _start_local_scheduler_service()
-
+        add_job(
+            self.jobs_path,
+            name,
+            prompt,
+            interval_seconds,
+            exact_interval=True,
+        )
+        scheduler_started = _start_local_scheduler_service()
         return {
             "name": name,
             "prompt": prompt,
@@ -933,80 +562,15 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
         if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
             raise ValueError("Schedule time must be a finite timestamp in the future")
         name = f"at-{int(run_at_epoch)}-{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:10]}"
-
-        if self.control_host:
-            payload = base64.urlsafe_b64encode(
-                json.dumps(
-                    {"name": name, "prompt": prompt, "run_at_epoch": run_at_epoch},
-                    ensure_ascii=False,
-                ).encode("utf-8")
-            ).decode("ascii")
-            code = """
-import base64
-import json
-import subprocess
-import sys
-from prompta.core import DEFAULT_JOBS_PATH, add_job
-
-payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
-add_job(
-    DEFAULT_JOBS_PATH,
-    payload["name"],
-    payload["prompt"],
-    0.0,
-    exact_interval=True,
-    run_at_epoch=payload["run_at_epoch"],
-)
-started = subprocess.run(
-    ["systemctl", "--user", "start", "prompta.service"],
-    check=False,
-    capture_output=True,
-    text=True,
-).returncode == 0
-print(json.dumps({"ok": True, "scheduler_started": started}))
-""".strip()
-            remote_command = shlex.join(
-                ["/home/example/prompta/.venv/bin/python", "-c", code, payload]
-            )
-            completed = subprocess.run(
-                [
-                    "ssh",
-                    "-F",
-                    str(Path.home() / ".ssh" / "config"),
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=8",
-                    self.control_host,
-                    remote_command,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "remote scheduling failed").strip()
-                raise RuntimeError(detail[-2000:])
-            response_line = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
-            try:
-                response = json.loads(response_line)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError("remote Prompta scheduling returned an invalid response") from exc
-            if not isinstance(response, dict) or response.get("ok") is not True:
-                raise RuntimeError(str(response.get("error") or "remote Prompta scheduling failed"))
-            scheduler_started = response.get("scheduler_started") is True
-        else:
-            add_job(
-                self.jobs_path,
-                name,
-                prompt,
-                0.0,
-                exact_interval=True,
-                run_at_epoch=run_at_epoch,
-            )
-            scheduler_started = _start_local_scheduler_service()
-
+        add_job(
+            self.jobs_path,
+            name,
+            prompt,
+            0.0,
+            exact_interval=True,
+            run_at_epoch=run_at_epoch,
+        )
+        scheduler_started = _start_local_scheduler_service()
         return {
             "name": name,
             "prompt": prompt,
@@ -1023,71 +587,26 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
         attachments: list[str] | None = None,
     ) -> str:
         attachment_paths = list(attachments or [])
-        if self.control_host:
-            return _remote_control(
-                self.control_host,
-                operation=operation,
-                message=message,
-                conversation_id=conversation_id,
-                attachments=attachment_paths,
-            )
         with self._local_send_lock:
             scheduler_running = _wait_for_local_scheduler(self.state_path)
             if not scheduler_running and _start_local_scheduler_service():
                 scheduler_running = _wait_for_local_scheduler(self.state_path)
-                if not scheduler_running:
-                    raise RuntimeError(
-                        "Prompta scheduler service started but did not become ready; "
-                        "refusing a competing direct browser session"
-                    )
-            if scheduler_running:
-                if operation == "once":
-                    return asyncio.run(_send_once_via_control(self.state_path, message, attachment_paths))
+            if not scheduler_running:
+                raise RuntimeError(
+                    "Prompta backend is unavailable after starting prompta.service"
+                )
+            if operation == "once":
                 return asyncio.run(
-                    _send_reply_via_control(self.state_path, conversation_id, message, attachment_paths)
+                    _send_once_via_control(self.state_path, message, attachment_paths)
                 )
-            logger.info(
-                "Prompta scheduler is unavailable and its service could not be started; "
-                "using a direct local browser send"
-            )
             return asyncio.run(
-                _send_direct(
+                _send_reply_via_control(
                     self.state_path,
-                    self.store.path,
+                    conversation_id,
                     message,
-                    conversation_id=conversation_id if operation == "reply" else "",
-                    attachments=attachment_paths,
+                    attachment_paths,
                 )
             )
-
-
-class PromptaNodeTarget:
-    # Non-listening Prompta node exposed through the unified UI server.
-    def __init__(
-        self,
-        host_name: str,
-        store: ReadOnlyChatStore,
-        state_path: Path,
-        control_host: str,
-        jobs_path: Path,
-    ) -> None:
-        self.store = store
-        self.state_path = state_path.expanduser()
-        self.jobs_path = jobs_path.expanduser()
-        self.control_host = control_host.strip()
-        self.host_name = host_name.strip()
-        self._local_send_lock = threading.Lock()
-        self._host_status_lock = threading.Lock()
-        self._host_status_checked_at = 0.0
-        self._host_status_online = not bool(self.control_host)
-        self.send_jobs = SendJobRegistry(self._send)
-
-    display_name = PromptaUIServer.display_name
-    host_online = PromptaUIServer.host_online
-    own_event_token = PromptaUIServer.own_event_token
-    schedule_every = PromptaUIServer.schedule_every
-    schedule_at = PromptaUIServer.schedule_at
-    _send = PromptaUIServer._send
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -1103,10 +622,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     @property
     def state_path(self) -> Path:
         return cast(PromptaUIServer, self.server).state_path
-
-    @property
-    def control_host(self) -> str:
-        return cast(PromptaUIServer, self.server).control_host
 
     def _json_body(self) -> dict[str, Any] | None:
         content_type = self.headers.get("Content-Type", "")
@@ -1263,7 +778,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                         {
                             "token": token,
                             "server": server.host_name,
-                            "online": server.host_online(),
+                            "online": True,
                         },
                         ensure_ascii=False,
                         separators=(",", ":"),
@@ -1312,21 +827,11 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/health":
             server = cast(PromptaUIServer, self.server)
-            nodes = [
-                {
-                    "name": node.host_name,
-                    "display_name": node.display_name,
-                    "online": node.host_online(),
-                    **node.store.stats(),
-                }
-                for node in server.iter_nodes()
-            ]
             self._json({
                 **self.store.stats(),
                 "server": server.host_name,
-                "online": all(bool(node["online"]) for node in nodes),
+                "online": True,
                 "head": _UI_HEAD,
-                "nodes": nodes,
             })
             return
         if path == "/api/chats":
@@ -1344,7 +849,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 limit = int(query.get("limit", ["500"])[0])
             except ValueError:
                 limit = 500
-            self._json(cast(PromptaUIServer, self.server).combined_logs(limit=limit))
+            self._json(cast(PromptaUIServer, self.server).logs(limit=limit))
             return
         send_prefix = "/api/sends/"
         if path.startswith(send_prefix):
@@ -1443,8 +948,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
         conversation_id = unquote(path[len(prefix) : -len(suffix)]).strip("/")
         server = cast(PromptaUIServer, self.server)
-        target, actual_conversation_id = server.resolve_conversation(conversation_id)
-        if not conversation_id or target.store.conversation(actual_conversation_id) is None:
+        if not conversation_id or server.store.conversation(conversation_id) is None:
             self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
             return
 
@@ -1453,15 +957,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         message, attachments, client_id = send_payload
 
-        job = target.send_jobs.submit(
+        job = server.send_jobs.submit(
             operation="reply",
-            conversation_id=actual_conversation_id,
+            conversation_id=conversation_id,
             message=message,
             attachments=attachments,
             client_id=client_id,
         )
         job["conversation_id"] = conversation_id
-        job["node"] = target.host_name
         self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
 
 
@@ -1503,10 +1006,7 @@ def _wait_for_local_scheduler(state_path: Path) -> bool:
 def _reconcile_orphaned_local_chats(
     cache_path: Path,
     state_path: Path,
-    control_host: str,
 ) -> int:
-    if control_host:
-        return 0
     for attempt in range(_DAEMON_STARTUP_CHECKS):
         if _daemon_is_running(state_path):
             return 0
@@ -1525,15 +1025,13 @@ def serve(
     host: str,
     port: int,
     state_path: Path = DEFAULT_STATE_PATH,
-    control_host: str = "",
     jobs_path: Path = DEFAULT_JOBS_PATH,
     preserve_active: bool = False,
-    node_specs: list[str] | None = None,
 ) -> None:
     orphaned = (
         0
         if preserve_active
-        else _reconcile_orphaned_local_chats(cache_path, state_path, control_host)
+        else _reconcile_orphaned_local_chats(cache_path, state_path)
     )
     if orphaned:
         logger.info(
@@ -1541,32 +1039,15 @@ def serve(
             orphaned,
         )
     store = ReadOnlyChatStore(cache_path, log_path)
-    extra_nodes: list[tuple[str, ReadOnlyChatStore, str]] = []
-    for spec in node_specs or []:
-        name, separator, rest = spec.partition("=")
-        if not separator or not name.strip() or not rest.strip():
-            raise ValueError("--node must be NAME=CACHE[,CONTROL_HOST[,LOG_PATH]]")
-        parts = [part.strip() for part in rest.split(",", 2)]
-        node_cache = Path(parts[0]).expanduser()
-        node_control = parts[1] if len(parts) > 1 else ""
-        node_logs = Path(parts[2]).expanduser() if len(parts) > 2 and parts[2] else None
-        extra_nodes.append((name.strip(), ReadOnlyChatStore(node_cache, node_logs), node_control))
     server = PromptaUIServer(
         (host, port),
         store,
         state_path,
-        control_host,
         jobs_path,
-        extra_nodes=extra_nodes,
     )
     logger.info("Prompta UI listening on http://%s:%d", host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
-    if control_host:
-        logger.info("Sending replies through Prompta on SSH host %s", control_host)
-    else:
-        logger.info(
-            "Sending replies locally via scheduler control when available, direct browser otherwise"
-        )
+    logger.info("Sending replies through the local prompta.service control socket")
     logger.info("Reading logs from %s", store.log_path)
     try:
         server.serve_forever(poll_interval=0.25)
@@ -1577,25 +1058,17 @@ def serve(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve Prompta's local conversation UI")
+    parser = argparse.ArgumentParser(description="Serve Prompta's Nox conversation UI")
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
-    parser.add_argument("--control-host", default="")
     parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     parser.add_argument("--logs", type=Path)
-    parser.add_argument(
-        "--node",
-        action="append",
-        default=[],
-        metavar="NAME=CACHE[,CONTROL_HOST[,LOG_PATH]]",
-        help="Expose another Prompta node in this UI; may be repeated",
-    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
         "--preserve-active",
         action="store_true",
-        help="Leave active cache rows untouched when another Prompta UI owns them",
+        help="Leave scheduler-owned active cache rows untouched during UI-only restarts",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -1605,10 +1078,8 @@ def main() -> None:
         args.host,
         max(1, min(args.port, 65535)),
         args.state,
-        args.control_host,
         args.jobs_file,
         args.preserve_active,
-        args.node,
     )
 
 

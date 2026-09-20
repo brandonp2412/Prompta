@@ -112,8 +112,7 @@ active chats update without page polling or reload flicker. Sending a message us
 scheduler control socket and reuses a retained live tab when one exists; an expired
 historical chat is opened only for an explicit send.
 
-The UI is installable as a PWA with a service worker and a server-specific manifest
-name such as `Prompta · Nox` or `Prompta · Glass`. While the UI/PWA is running,
+The UI is installable as a PWA with a service worker and the `Prompta · Nox` manifest. While the UI/PWA is running,
 browser notification permission lets an active-to-complete transition produce a
 system notification. Recurring jobs can be created directly from the composer:
 
@@ -125,21 +124,19 @@ system notification. Recurring jobs can be created directly from the composer:
 Features also include client-first optimistic sends with SSE reconciliation, replies
 to existing chats, history grouped by recency, full-text search across cached
 prompts/messages, safe Markdown and code rendering, responsive mobile layout, deep
-links to cached chats, and dark/light appearance following the browser preference. A
-mirrored UI can pass `--control-host <ssh-host>` so replies are executed by the
-Prompta worker that owns the mirrored cache while host-online state is based on fresh
-SSH reachability.
+links to cached chats, and dark/light appearance following the browser preference.
 
-The optional user service is `systemd/prompta-ui.service`.
+Prompta has one deployment topology: Nox owns the browser worker, scheduler control
+socket, SQLite conversation cache, logs, and the UI on port 8765. The UI never forwards
+work over SSH, federates another node, or opens a competing direct browser session. If
+the local worker is unavailable, the UI starts `prompta.service` and fails the send if
+that single backend does not become ready.
 
-For the Nox public host, install `systemd/prompta-ui-nox.service` as
-`~/.config/systemd/user/prompta-ui.service`. Nox is the authoritative UI,
-conversation cache, and control host on port 8765, so the public UI continues to
-work with Glass offline. The Nox unit uses `--preserve-active` so restarting only
-the UI cannot mark scheduler-owned live conversations interrupted. The former
-Glass-synced and 8766/8767 per-node UI services are retired; after upgrading an
-older Nox installation, disable and remove any `prompta-cache-sync.timer` /
-`prompta-cache-sync.service` units that still pull state from Glass.
+Install `systemd/prompta.service` and `systemd/prompta-ui.service` under
+`~/.config/systemd/user/`. The UI unit requires the local worker and uses
+`--preserve-active` so a UI-only restart cannot mark worker-owned live conversations
+interrupted. Remove legacy `prompta-cache-sync.timer`, `prompta-cache-sync.service`,
+Glass UI units, and old 8766/8767 per-node units when upgrading.
 
 ## Service
 
