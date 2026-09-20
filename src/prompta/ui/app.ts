@@ -1,9 +1,9 @@
 import {
   formatScheduleInterval,
   matchingOptimisticConversation,
+  parseAtSlashCommand,
   parseScheduleSlashCommand,
 } from "./clientLogic";
-
 const state = {
   chats: [],
   selectedId: null,
@@ -22,7 +22,6 @@ const state = {
   pendingReplies: new Map(),
   newChatFingerprint: "",
   selectedMetaFingerprint: "",
-  browserCacheSummaryFingerprint: "",
   chatsRequestId: 0,
   selectedRequestId: 0,
   selectedChat: null,
@@ -31,177 +30,21 @@ const state = {
   serverOnline: null,
   chatStatuses: new Map(),
   statusBaselineReady: false,
+  attachments: [],
 };
-
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
   document.documentElement.style.setProperty("--app-height", `${Math.round(viewportHeight)}px`);
 }
-
 syncViewportHeight();
 window.setTimeout(() => document.documentElement.classList.remove("booting"), 1200);
 window.addEventListener("resize", syncViewportHeight);
 window.visualViewport?.addEventListener("resize", syncViewportHeight);
-
-const BROWSER_CACHE_DB = "prompta-ui-cache";
-const BROWSER_CACHE_VERSION = 1;
-let browserCacheDbPromise: Promise<IDBDatabase | null> | undefined;
-
-function openBrowserCache(): Promise<IDBDatabase | null> {
-  if (!("indexedDB" in window)) return Promise.resolve(null);
-  if (browserCacheDbPromise) return browserCacheDbPromise;
-
-  browserCacheDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(BROWSER_CACHE_DB, BROWSER_CACHE_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains("chatSummaries")) {
-        db.createObjectStore("chatSummaries", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("conversations")) {
-        db.createObjectStore("conversations", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("messages")) {
-        const messages = db.createObjectStore(
-          "messages",
-          { keyPath: ["conversationId", "message_key"] },
-        );
-        messages.createIndex("conversationId", "conversationId", { unique: false });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  }).catch((error) => {
-    console.warn("IndexedDB cache unavailable", error);
-    browserCacheDbPromise = Promise.resolve(null);
-    return null;
-  });
-  return browserCacheDbPromise;
-}
-
-function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function idbTransactionDone(transaction: IDBTransaction): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error);
-    transaction.onerror = () => reject(transaction.error);
-  });
-}
-
-function summaryCacheFingerprint(chats) {
-  return JSON.stringify(chats.map((chat) => [
-    chat.id,
-    chat.status,
-    chat.title,
-    chat.job_name,
-    chat.message_count,
-    chat.status === "active" ? "" : chat.preview,
-    chat.status === "active" ? "" : chat.updated_at,
-  ]));
-}
-
-async function cacheChatSummaries(chats) {
-  const fingerprint = summaryCacheFingerprint(chats);
-  if (fingerprint === state.browserCacheSummaryFingerprint) return;
-  const db = await openBrowserCache();
-  if (!db) return;
-
-  const transaction = db.transaction("chatSummaries", "readwrite");
-  const done = idbTransactionDone(transaction);
-  const store = transaction.objectStore("chatSummaries");
-  const cachedAt = Date.now();
-  for (const chat of chats) store.put({ ...chat, cachedAt });
-  await done;
-  state.browserCacheSummaryFingerprint = fingerprint;
-}
-
-async function readCachedChatSummaries(query = "") {
-  const db = await openBrowserCache();
-  if (!db) return [];
-
-  const transaction = db.transaction("chatSummaries", "readonly");
-  const done = idbTransactionDone(transaction);
-  let chats = await idbRequest(transaction.objectStore("chatSummaries").getAll());
-  await done;
-
-  const needle = query.trim().toLowerCase();
-  if (needle) {
-    chats = chats.filter((chat) => [
-      chat.title,
-      chat.job_name,
-      chat.preview,
-    ].some((value) => String(value || "").toLowerCase().includes(needle)));
-  }
-
-  return chats.sort((a, b) => {
-    if ((a.status === "active") !== (b.status === "active")) {
-      return a.status === "active" ? -1 : 1;
-    }
-    return Number(b.updated_at || 0) - Number(a.updated_at || 0);
-  }).slice(0, 200);
-}
-
-async function cacheConversation(chat) {
-  const db = await openBrowserCache();
-  if (!db || !chat?.id) return;
-
-  const metadata = { ...chat, cachedAt: Date.now() };
-  delete metadata.messages;
-
-  const transaction = db.transaction(["conversations", "messages"], "readwrite");
-  const done = idbTransactionDone(transaction);
-  transaction.objectStore("conversations").put(metadata);
-
-  const messageStore = transaction.objectStore("messages");
-  const index = messageStore.index("conversationId");
-  const cursorRequest = index.openKeyCursor(IDBKeyRange.only(chat.id));
-  cursorRequest.onsuccess = () => {
-    const cursor = cursorRequest.result;
-    if (cursor) {
-      messageStore.delete(cursor.primaryKey);
-      cursor.continue();
-      return;
-    }
-    for (const message of chat.messages || []) {
-      messageStore.put({ ...message, conversationId: chat.id });
-    }
-  };
-  await done;
-}
-
-async function readCachedConversation(conversationId) {
-  const db = await openBrowserCache();
-  if (!db) return null;
-
-  const transaction = db.transaction(["conversations", "messages"], "readonly");
-  const done = idbTransactionDone(transaction);
-  const conversationRequest = transaction.objectStore("conversations").get(conversationId);
-  const messagesRequest = transaction.objectStore("messages")
-    .index("conversationId")
-    .getAll(IDBKeyRange.only(conversationId));
-  const [conversation, messages] = await Promise.all([
-    idbRequest(conversationRequest),
-    idbRequest(messagesRequest),
-  ]);
-  await done;
-  if (!conversation) return null;
-
-  messages.sort((a, b) => Number(a.ordinal || 0) - Number(b.ordinal || 0));
-  return { ...conversation, messages };
-}
-
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing required UI element: ${selector}`);
   return element;
 }
-
 const els = {
   chatList: requiredElement<HTMLElement>("#chatList"),
   searchInput: requiredElement<HTMLInputElement>("#searchInput"),
@@ -219,6 +62,14 @@ const els = {
   sidebarScrim: requiredElement<HTMLElement>("#sidebarScrim"),
   logsButton: document.querySelector<HTMLButtonElement>("#logsButton"),
   newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
+  shareChatButton: requiredElement<HTMLButtonElement>("#shareChatButton"),
+  attachmentButton: requiredElement<HTMLButtonElement>("#attachmentButton"),
+  attachmentMenu: requiredElement<HTMLElement>("#attachmentMenu"),
+  fileUploadInput: requiredElement<HTMLInputElement>("#fileUploadInput"),
+  photoUploadInput: requiredElement<HTMLInputElement>("#photoUploadInput"),
+  cameraUploadInput: requiredElement<HTMLInputElement>("#cameraUploadInput"),
+  attachmentChips: requiredElement<HTMLElement>("#attachmentChips"),
+  slashMenu: requiredElement<HTMLElement>("#slashMenu"),
   logsViewport: requiredElement<HTMLElement>("#logsViewport"),
   composerFooter: requiredElement<HTMLElement>("#composerFooter"),
   logOutput: requiredElement<HTMLElement>("#logOutput"),
@@ -229,16 +80,13 @@ const els = {
   sendButton: requiredElement<HTMLButtonElement>("#sendButton"),
   composerStatus: requiredElement<HTMLElement>("#composerStatus"),
 };
-
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
   if (element.textContent !== text) element.textContent = text;
 }
-
 function setHiddenIfChanged(element: HTMLElement, hidden) {
   if (element.hidden !== hidden) element.hidden = hidden;
 }
-
 function displayServerName(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -248,12 +96,10 @@ function displayServerName(value) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
-
 function setServerStatus(server, online) {
   const raw = String(server || "").trim();
   if (raw) state.serverName = raw;
   if (typeof online === "boolean") state.serverOnline = online;
-
   const display = displayServerName(state.serverName || location.hostname);
   const knownOnline = state.serverOnline;
   setTextIfChanged(
@@ -264,13 +110,11 @@ function setServerStatus(server, online) {
   setTextIfChanged(els.logsServerTitle, `${display} · prompta.service`);
   const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (appleTitle) appleTitle.setAttribute("content", `Prompta ${display}`);
-
   els.globalLiveOrb.classList.toggle("live", knownOnline === true);
   els.globalLiveOrb.title = knownOnline === false
     ? `${display} is offline`
     : (knownOnline === true ? `${display} is online` : `${display} status unknown`);
 }
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -279,7 +123,6 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
 function formatRelativeTime(epochSeconds) {
   if (!epochSeconds) return "";
   const delta = Date.now() - epochSeconds * 1000;
@@ -291,7 +134,6 @@ function formatRelativeTime(epochSeconds) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
     .format(new Date(epochSeconds * 1000));
 }
-
 function sameLocalDay(epochSeconds, offsetDays = 0) {
   if (!epochSeconds) return false;
   const d = new Date(epochSeconds * 1000);
@@ -301,7 +143,6 @@ function sameLocalDay(epochSeconds, offsetDays = 0) {
     && d.getMonth() === target.getMonth()
     && d.getDate() === target.getDate();
 }
-
 function chatTitle(chat) {
   const title = (chat.title || "").replace(/^ChatGPT\s*[-–—:]?\s*/i, "").trim();
   if (title && title.toLowerCase() !== "chatgpt") return title;
@@ -310,12 +151,10 @@ function chatTitle(chat) {
   if (preview) return preview.slice(0, 72);
   return "Untitled conversation";
 }
-
 function truncate(value, length = 88) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
-
 function groupChats(chats) {
   const groups = [
     ["Active", chats.filter((chat) => chat.status === "active")],
@@ -327,26 +166,22 @@ function groupChats(chats) {
   ];
   return groups.filter(([, items]) => items.length);
 }
-
 function sidebarStatusDot(status) {
   if (status === "interrupted") return "";
   const statusClass = ["active", "complete"].includes(status) ? status : "neutral";
   return `<span class="item-status-dot ${statusClass}"></span>`;
 }
-
 const iconStatusClasses = new Set([
   "active", "running", "succeeded", "complete", "cached", "local",
   "interrupted", "queued", "pending", "failed", "live", "journal",
   "new", "idle",
 ]);
-
 function setStatusIcon(element, status, label, kind = "") {
   const statusClassName = iconStatusClasses.has(status) ? status : "neutral";
   element.className = ["status-icon", kind, statusClassName].filter(Boolean).join(" ");
   element.title = label;
   element.setAttribute("aria-label", label);
 }
-
 function reconcileOptimisticNew(chats) {
   const pending = state.pendingNewSend;
   if (!pending) return;
@@ -355,12 +190,10 @@ function reconcileOptimisticNew(chats) {
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
 }
-
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
     const pending = state.pendingReplies.get(chat.id) || [];
     if (!pending.length) return chat;
-
     const latest = pending[pending.length - 1];
     return {
       ...chat,
@@ -370,19 +203,15 @@ function sidebarChats() {
       _optimisticReply: true,
     };
   });
-
   const pending = state.pendingNewSend;
   if (!pending) return chats;
-
   const matched = matchingOptimisticConversation(chats, pending);
   if (matched) {
     pending.conversationId = matched.id;
     state.pendingNewId = matched.id;
     return chats;
   }
-
   const pendingId = pending.conversationId || `pending-new-${pending.clientId}`;
-
   const optimistic = {
     id: pendingId,
     status: pending.status === "failed" ? "failed" : "active",
@@ -403,7 +232,6 @@ function sidebarChats() {
   }
   return [optimistic, ...chats];
 }
-
 function renderSidebar(force = false) {
   const chats = sidebarChats();
   const fingerprint = JSON.stringify(chats.map((chat) => [
@@ -417,10 +245,8 @@ function renderSidebar(force = false) {
     Boolean(chat._optimisticNew),
     Boolean(chat._optimisticReply),
   ])) + state.selectedId + state.composingNew;
-
   if (!force && fingerprint === state.sidebarFingerprint) return;
   state.sidebarFingerprint = fingerprint;
-
   if (!chats.length) {
     els.chatList.innerHTML = `
       <div class="list-empty">
@@ -428,7 +254,6 @@ function renderSidebar(force = false) {
       </div>`;
     return;
   }
-
   els.chatList.innerHTML = groupChats(chats).map(([label, groupedChats]) => `
     <section class="chat-group">
       <div class="chat-group-label">${escapeHtml(label)}</div>
@@ -452,7 +277,6 @@ function renderSidebar(force = false) {
       }).join("")}
     </section>
   `).join("");
-
   for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
     item.addEventListener("click", () => {
       if (item.dataset.optimisticNew === "true") {
@@ -463,7 +287,6 @@ function renderSidebar(force = false) {
     });
   }
 }
-
 const LANGUAGE_ALIASES = {
   js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
   ts: "typescript", tsx: "typescript", py: "python",
@@ -471,7 +294,6 @@ const LANGUAGE_ALIASES = {
   c: "cpp", cxx: "cpp", h: "cpp", hpp: "cpp",
   html: "markup", xml: "markup", svg: "markup", md: "markdown",
 };
-
 const CODE_KEYWORDS = {
   javascript: new Set("as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(" ")),
   typescript: new Set("abstract any as async await boolean break case catch class const constructor continue declare default do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let namespace never new null number object of private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while yield".split(" ")),
@@ -482,16 +304,13 @@ const CODE_KEYWORDS = {
   sql: new Set("ADD ALL ALTER AND ANY AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY RIGHT SELECT SET TABLE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH".split(" ")),
   json: new Set(["true", "false", "null"]),
 };
-
 function normalizeLanguage(language) {
   const raw = String(language || "").trim().toLowerCase().split(/\s+/)[0];
   return LANGUAGE_ALIASES[raw] || raw || "code";
 }
-
 function syntaxToken(className, value) {
   return `<span class="syntax-${className}">${escapeHtml(value)}</span>`;
 }
-
 function highlightCode(raw, language) {
   const source = String(raw || "");
   const normalized = normalizeLanguage(language);
@@ -500,7 +319,6 @@ function highlightCode(raw, language) {
   const hashComments = ["python", "bash", "yaml"].includes(normalized);
   let html = "";
   let index = 0;
-
   while (index < source.length) {
     if (normalized === "markup" && source.startsWith("<!--", index)) {
       const end = source.indexOf("-->", index + 4);
@@ -530,7 +348,6 @@ function highlightCode(raw, language) {
       index = next;
       continue;
     }
-
     const quote = source[index];
     if (quote === '"' || quote === "'" || quote === "`") {
       let cursor = index + 1;
@@ -551,14 +368,12 @@ function highlightCode(raw, language) {
       index = cursor;
       continue;
     }
-
     const number = source.slice(index).match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
     if (number) {
       html += syntaxToken("number", number[0]);
       index += number[0].length;
       continue;
     }
-
     if (/[A-Za-z_$]/.test(source[index])) {
       let cursor = index + 1;
       while (/[A-Za-z0-9_$]/.test(source[cursor] || "")) cursor += 1;
@@ -570,16 +385,13 @@ function highlightCode(raw, language) {
       index = cursor;
       continue;
     }
-
     html += /[\[\]{}(),.:;]/.test(source[index])
       ? syntaxToken("punctuation", source[index])
       : escapeHtml(source[index]);
     index += 1;
   }
-
   return html;
 }
-
 function inlineMarkdown(text) {
   const placeholders = [];
   const stash = (html) => {
@@ -587,7 +399,6 @@ function inlineMarkdown(text) {
     placeholders.push([token, html]);
     return token;
   };
-
   let source = String(text || "");
   source = source.replace(/`([^`\n]+)`/g, (_, code) => (
     stash(`<code class="inline-code">${escapeHtml(code)}</code>`)
@@ -598,7 +409,6 @@ function inlineMarkdown(text) {
       `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
     ),
   );
-
   let html = escapeHtml(source);
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
@@ -607,23 +417,19 @@ function inlineMarkdown(text) {
   for (const [token, value] of placeholders) html = html.replaceAll(token, value);
   return html;
 }
-
 function splitTableRow(line) {
   return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
 }
-
 function renderListItem(content) {
   const task = content.match(/^\[([ xX])\]\s+(.+)$/);
   if (!task) return `<li>${inlineMarkdown(content)}</li>`;
   const checked = task[1].toLowerCase() === "x";
   return `<li class="task-item"><input type="checkbox" disabled${checked ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
 }
-
 function renderTextBlock(text) {
   const lines = String(text || "").replace(/\r/g, "").split("\n");
   const out = [];
   let index = 0;
-
   const startsBlock = (line, next = "") => (
     !line.trim()
     || /^(#{1,6})\s+/.test(line)
@@ -632,16 +438,13 @@ function renderTextBlock(text) {
     || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)
     || (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next))
   );
-
   while (index < lines.length) {
     const line = lines[index];
     const next = lines[index + 1] || "";
-
     if (!line.trim()) {
       index += 1;
       continue;
     }
-
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       const level = heading[1].length;
@@ -649,13 +452,11 @@ function renderTextBlock(text) {
       index += 1;
       continue;
     }
-
     if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
       out.push("<hr>");
       index += 1;
       continue;
     }
-
     if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next)) {
       const headers = splitTableRow(line);
       const aligns = splitTableRow(next).map((cell) => {
@@ -678,7 +479,6 @@ function renderTextBlock(text) {
       )).join("")}</tbody></table></div>`);
       continue;
     }
-
     if (/^\s*>\s?/.test(line)) {
       const quoted = [];
       while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
@@ -688,7 +488,6 @@ function renderTextBlock(text) {
       out.push(`<blockquote>${renderTextBlock(quoted.join("\n"))}</blockquote>`);
       continue;
     }
-
     const list = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
     if (list) {
       const ordered = /^\d/.test(list[2]);
@@ -703,7 +502,6 @@ function renderTextBlock(text) {
       out.push(`<${tag}>${items.join("")}</${tag}>`);
       continue;
     }
-
     const paragraph = [line.trim()];
     index += 1;
     while (index < lines.length && !startsBlock(lines[index], lines[index + 1] || "")) {
@@ -712,10 +510,8 @@ function renderTextBlock(text) {
     }
     out.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
   }
-
   return out.join("");
 }
-
 function renderCodeBlock(code, language) {
   const rawLanguage = String(language || "").trim();
   const normalized = normalizeLanguage(rawLanguage);
@@ -729,7 +525,6 @@ function renderCodeBlock(code, language) {
     ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
     : normalized;
   const label = toolish ? "tool call" : (rawLanguage || "code");
-
   return `
     <div class="code-block${toolish ? " tool-call-block" : ""}">
       <div class="code-header">
@@ -740,14 +535,12 @@ function renderCodeBlock(code, language) {
       <pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(code, highlightLanguage)}</code></pre>
     </div>`;
 }
-
 function renderMarkdown(raw) {
   const source = String(raw || "");
   const pattern = /```([^\n`]*)\n?([\s\S]*?)```/g;
   let lastIndex = 0;
   let html = "";
   let match;
-
   while ((match = pattern.exec(source)) !== null) {
     html += renderTextBlock(source.slice(lastIndex, match.index));
     const language = match[1].trim() || "code";
@@ -755,11 +548,9 @@ function renderMarkdown(raw) {
     html += renderCodeBlock(code, language);
     lastIndex = pattern.lastIndex;
   }
-
   html += renderTextBlock(source.slice(lastIndex));
   return html || "<p></p>";
 }
-
 function messageTimestamp(message) {
   const raw = Number(message.created_at || message.updated_at || Date.now() / 1000);
   const date = new Date(raw < 1e12 ? raw * 1000 : raw);
@@ -774,7 +565,6 @@ function messageTimestamp(message) {
     iso: date.toISOString(),
   };
 }
-
 function renderMessageSection(message, allowStreaming = true) {
   const role = message.role === "user" ? "user" : "assistant";
   const streaming = allowStreaming && message.status === "streaming";
@@ -797,7 +587,6 @@ function renderMessageSection(message, allowStreaming = true) {
       </div>
     </section>`;
 }
-
 function messageNodeFingerprint(message, allowStreaming) {
   return JSON.stringify([
     message.role,
@@ -809,9 +598,7 @@ function messageNodeFingerprint(message, allowStreaming) {
     allowStreaming,
   ]);
 }
-
 const boundCopyButtons = new WeakSet();
-
 function bindCopyButtons(root) {
   for (const button of root.querySelectorAll(".copy-code")) {
     if (boundCopyButtons.has(button)) continue;
@@ -829,7 +616,6 @@ function bindCopyButtons(root) {
     });
   }
 }
-
 function createMessageNode(message, allowStreaming, messageKey) {
   const template = document.createElement("template");
   template.innerHTML = renderMessageSection(message, allowStreaming).trim();
@@ -839,7 +625,6 @@ function createMessageNode(message, allowStreaming, messageKey) {
   bindCopyButtons(node);
   return node;
 }
-
 function patchDomNode(current, next) {
   if (
     current.nodeType !== next.nodeType
@@ -849,14 +634,11 @@ function patchDomNode(current, next) {
     current.replaceWith(replacement);
     return replacement;
   }
-
   if (current.nodeType === Node.TEXT_NODE) {
     if (current.data !== next.data) current.data = next.data;
     return current;
   }
-
   if (current.nodeType !== Node.ELEMENT_NODE) return current;
-
   for (const attribute of Array.from(current.attributes as NamedNodeMap) as Attr[]) {
     if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
   }
@@ -865,17 +647,14 @@ function patchDomNode(current, next) {
       current.setAttribute(attribute.name, attribute.value);
     }
   }
-
   patchDomChildren(current, next);
   return current;
 }
-
 function patchDomChildren(currentParent, nextParent) {
   let index = 0;
   while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
     const current = currentParent.childNodes[index];
     const next = nextParent.childNodes[index];
-
     if (!next) {
       current.remove();
       continue;
@@ -885,24 +664,19 @@ function patchDomChildren(currentParent, nextParent) {
       index += 1;
       continue;
     }
-
     patchDomNode(current, next);
     index += 1;
   }
 }
-
 function updateMessageNode(node, message, allowStreaming) {
   const role = message.role === "user" ? "user" : "assistant";
   const sendError = Boolean(message.send_error);
   const expectedRole = node.classList.contains("user") ? "user" : "assistant";
   const structuralMismatch = expectedRole !== role
     || node.classList.contains("send-error") !== sendError;
-
   if (structuralMismatch) return false;
-
   const content = node.querySelector(".message-content");
   if (!content) return false;
-
   const nextContent = renderMarkdown(message.content);
   if (content.innerHTML !== nextContent) {
     const template = document.createElement("template");
@@ -910,7 +684,6 @@ function updateMessageNode(node, message, allowStreaming) {
     patchDomChildren(content, template.content);
     bindCopyButtons(content);
   }
-
   const shouldStream = allowStreaming && message.status === "streaming";
   const indicator = node.querySelector(".streaming-indicator");
   if (shouldStream && !indicator) {
@@ -923,11 +696,9 @@ function updateMessageNode(node, message, allowStreaming) {
   } else if (!shouldStream && indicator) {
     indicator.remove();
   }
-
   node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
   return true;
 }
-
 function renderMessageNodes(messages, allowStreaming) {
   const existing = new Map(
     (Array.from(els.conversation.children) as HTMLElement[])
@@ -943,14 +714,12 @@ function renderMessageNodes(messages, allowStreaming) {
     && messages[lastAssistantIndex]?.status === "streaming"
     ? lastAssistantIndex
     : -1;
-
   messages.forEach((message, index) => {
     const messageKey = String(message.message_key || `${message.role || "message"}:${index}`);
     const streamThisMessage = index === streamingIndex;
     desiredKeys.add(messageKey);
     const fingerprint = messageNodeFingerprint(message, streamThisMessage);
     let node = existing.get(messageKey);
-
     if (!node) {
       node = createMessageNode(message, streamThisMessage, messageKey);
     } else if (node.dataset.renderFingerprint !== fingerprint) {
@@ -960,22 +729,18 @@ function renderMessageNodes(messages, allowStreaming) {
         node = replacement;
       }
     }
-
     const currentAtIndex = els.conversation.children[index];
     if (currentAtIndex !== node) {
       els.conversation.insertBefore(node, currentAtIndex || null);
     }
   });
-
   for (const node of Array.from(els.conversation.children) as HTMLElement[]) {
     if (!desiredKeys.has(node.dataset.messageKey)) node.remove();
   }
 }
-
 function pendingReplyMessages(conversationId, cachedMessages) {
   const pending = state.pendingReplies.get(conversationId) || [];
   const claimedCachedIndexes = new Set();
-
   for (const item of pending) {
     const content = item.message.trim();
     const earliestMatch = Number(item.createdAt || item.updatedAt || 0) - 3;
@@ -994,13 +759,11 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       item.observedInCache = true;
     }
   }
-
   const remaining = pending.filter((item) => (
     item.status !== "succeeded" || !item.observedInCache
   ));
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
-
   return remaining.flatMap((item) => {
     const messages = [];
     if (!item.observedInCache) {
@@ -1025,7 +788,6 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     return messages;
   });
 }
-
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
@@ -1039,28 +801,24 @@ function renderConversation(chat) {
       message.message_key, message.status, message.content, message.send_error,
     ]),
   ]);
-
   const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
   const isInitial = state.selectedFingerprint === "";
   if (fingerprint !== state.selectedFingerprint) {
     state.selectedFingerprint = fingerprint;
     const allowStreaming = chat.status === "active";
     renderMessageNodes(visibleMessages, allowStreaming);
-
     if (isInitial || wasNearBottom) {
       requestAnimationFrame(() => {
         els.viewport.scrollTop = els.viewport.scrollHeight;
       });
     }
   }
-
   const title = chatTitle(chat);
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
     chat.status === "active" ? "updating live" : formatRelativeTime(chat.updated_at),
   ].join(" · ");
-
   const metaFingerprint = JSON.stringify([title, meta, chat.status]);
   if (metaFingerprint !== state.selectedMetaFingerprint) {
     state.selectedMetaFingerprint = metaFingerprint;
@@ -1070,15 +828,15 @@ function renderConversation(chat) {
     setStatusIcon(
       els.syncLabel,
       chat.status === "active" ? "active" : "cached",
-      chat.status === "active" ? "Syncing from SQLite" : "Cached in IndexedDB",
+      chat.status === "active" ? "Syncing from SQLite" : "Cached in SQLite",
       "sync",
     );
   }
-
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
   els.messageInput.disabled = false;
   els.sendButton.disabled = state.sending;
+  els.shareChatButton.disabled = false;
   state.composingNew = false;
   if (!state.sending) {
     setTextIfChanged(
@@ -1089,7 +847,6 @@ function renderConversation(chat) {
     );
   }
 }
-
 function renderLogs(payload) {
   const lines = Array.isArray(payload.lines) ? payload.lines : [];
   const fingerprint = JSON.stringify([payload.updated_at, lines]);
@@ -1097,7 +854,6 @@ function renderLogs(payload) {
     - els.logsViewport.scrollTop
     - els.logsViewport.clientHeight < 120;
   const isInitial = !state.logFingerprint;
-
   if (fingerprint !== state.logFingerprint) {
     state.logFingerprint = fingerprint;
     els.logOutput.textContent = lines.length
@@ -1109,7 +865,6 @@ function renderLogs(payload) {
       });
     }
   }
-
   setTextIfChanged(
     els.logsMeta,
     payload.exists
@@ -1119,7 +874,6 @@ function renderLogs(payload) {
       : "Waiting for Prompta service logs",
   );
 }
-
 async function loadLogs() {
   try {
     const payload = await fetchJson("api/logs?limit=800");
@@ -1129,7 +883,6 @@ async function loadLogs() {
     console.error(error);
   }
 }
-
 function showMode(mode) {
   state.mode = mode === "logs" ? "logs" : "chats";
   const logsMode = state.mode === "logs";
@@ -1145,7 +898,6 @@ function showMode(mode) {
     els.logsButton.setAttribute("aria-pressed", String(logsMode));
   }
   els.composerFooter.hidden = logsMode;
-
   if (logsMode) {
     state.selectedMetaFingerprint = "";
     const display = displayServerName(state.serverName || location.hostname);
@@ -1155,6 +907,7 @@ function showMode(mode) {
     setStatusIcon(els.syncLabel, "journal", `${display} journal`, "sync");
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
+    els.shareChatButton.disabled = true;
     els.composerStatus.textContent = "Switch back to chats to send a message.";
     loadLogs();
     state.logRefreshTimer = setInterval(() => {
@@ -1162,7 +915,6 @@ function showMode(mode) {
     }, 2000);
     return;
   }
-
   if (state.selectedId) {
     loadSelectedChat();
   } else if (state.composingNew) {
@@ -1171,7 +923,6 @@ function showMode(mode) {
     clearConversation();
   }
 }
-
 function clearConversation() {
   state.composingNew = false;
   state.selectedId = null;
@@ -1188,10 +939,10 @@ function clearConversation() {
   setStatusIcon(els.syncLabel, "local", "Local cache", "sync");
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
+  els.shareChatButton.disabled = true;
   els.messageInput.placeholder = "Message Prompta…";
   els.composerStatus.textContent = "Select a chat to send a message.";
 }
-
 function renderNewChat() {
   const enteringNewChat = !state.composingNew;
   state.composingNew = true;
@@ -1200,7 +951,6 @@ function renderNewChat() {
   state.selectedFingerprint = "";
   state.selectedChat = null;
   state.mode = "chats";
-
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
@@ -1210,7 +960,6 @@ function renderNewChat() {
     pending?.error || "",
     pending?.conversationId || "",
   ]);
-
   if (fingerprint !== state.newChatFingerprint) {
     state.newChatFingerprint = fingerprint;
     if (pending) {
@@ -1242,7 +991,6 @@ function renderNewChat() {
       els.conversation.hidden = true;
       els.conversation.innerHTML = "";
     }
-
     els.chatHeading.innerHTML = `
       <div class="heading-title">New chat</div>
       <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
@@ -1254,12 +1002,12 @@ function renderNewChat() {
     );
     els.messageInput.disabled = false;
     els.sendButton.disabled = Boolean(waiting);
+    els.shareChatButton.disabled = true;
     els.messageInput.placeholder = "Start a new chat…";
     els.composerStatus.textContent = pending
       ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
       : "Your first message will open a fresh ChatGPT chat.";
   }
-
   if (enteringNewChat) {
     els.viewport.hidden = false;
     els.logsViewport.hidden = true;
@@ -1268,20 +1016,18 @@ function renderNewChat() {
       els.logsButton.classList.remove("active");
     }
     history.replaceState(null, "", `${location.pathname}${location.search}`);
-    renderSidebar(true);
+    renderSidebar();
     document.body.classList.remove("sidebar-open");
     if (!waiting && matchMedia("(pointer: fine)").matches) {
       requestAnimationFrame(() => els.messageInput.focus());
     }
   }
 }
-
 async function fetchJson(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
 }
-
 async function postJson(url, payload) {
   const response = await fetch(url, {
     method: "POST",
@@ -1295,7 +1041,6 @@ async function postJson(url, payload) {
   }
   return data;
 }
-
 async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
@@ -1305,7 +1050,6 @@ async function loadServerIdentity() {
     console.warn("Could not load Prompta server identity", error);
   }
 }
-
 async function requestNotificationPermissionFromGesture() {
   if (!("Notification" in window) || Notification.permission !== "default") return;
   try {
@@ -1314,7 +1058,6 @@ async function requestNotificationPermissionFromGesture() {
     console.warn("Could not request notification permission", error);
   }
 }
-
 async function notifyChatFinished(chat) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const display = displayServerName(state.serverName || location.hostname);
@@ -1336,7 +1079,6 @@ async function notifyChatFinished(chat) {
     console.warn("Could not show Prompta completion notification", error);
   }
 }
-
 function trackChatCompletions(chats) {
   const nextStatuses = new Map(chats.map((chat) => [chat.id, chat.status]));
   if (state.statusBaselineReady) {
@@ -1349,7 +1091,6 @@ function trackChatCompletions(chats) {
   state.chatStatuses = nextStatuses;
   state.statusBaselineReady = true;
 }
-
 async function loadChats() {
   const requestId = ++state.chatsRequestId;
   try {
@@ -1360,12 +1101,8 @@ async function loadChats() {
     reconcileOptimisticNew(chats);
     trackChatCompletions(chats);
     state.chats = chats;
-    cacheChatSummaries(state.chats).catch((error) => {
-      console.warn("Could not update IndexedDB chat summaries", error);
-    });
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
     setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
-
     const hashId = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
     if (!state.selectedId && hashId && state.chats.some((chat) => chat.id === hashId)) {
       state.selectedId = hashId;
@@ -1373,7 +1110,6 @@ async function loadChats() {
     if (!state.selectedId && state.chats.length && !state.composingNew) {
       state.selectedId = state.chats[0].id;
     }
-
     if (
       state.selectedId
       && !state.composingNew
@@ -1384,9 +1120,7 @@ async function loadChats() {
       state.selectedId = state.chats[0]?.id || null;
       state.selectedFingerprint = "";
     }
-
     renderSidebar();
-
     if (state.mode === "chats") {
       if (state.selectedId) {
         const summary = state.chats.find((chat) => chat.id === state.selectedId);
@@ -1410,7 +1144,6 @@ async function loadChats() {
     console.error(error);
   }
 }
-
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
   const selectedId = state.selectedId;
@@ -1422,9 +1155,6 @@ async function loadSelectedChat() {
       || selectedId !== state.selectedId
       || chat.id !== state.selectedId
     ) return;
-    cacheConversation(chat).catch((error) => {
-      console.warn("Could not update IndexedDB conversation cache", error);
-    });
     if (state.pendingNewId === chat.id) {
       state.pendingNewId = null;
       if (state.pendingNewSend?.conversationId === chat.id) state.pendingNewSend = null;
@@ -1438,7 +1168,6 @@ async function loadSelectedChat() {
     if (!missing || state.pendingNewId !== state.selectedId) console.error(error);
   }
 }
-
 async function selectChat(id) {
   if (!id) return;
   if (state.mode !== "chats") showMode("chats");
@@ -1455,20 +1184,10 @@ async function selectChat(id) {
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
   history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
-  renderSidebar(true);
-  try {
-    const cachedChat = await readCachedConversation(id);
-    if (cachedChat && state.selectedId === id) {
-      state.selectedUpdatedAt = cachedChat.updated_at;
-      renderConversation(cachedChat);
-    }
-  } catch (error) {
-    console.warn("Could not read IndexedDB conversation cache", error);
-  }
+  renderSidebar();
   await loadSelectedChat();
   document.body.classList.remove("sidebar-open");
 }
-
 let searchTimer;
 els.searchInput.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -1478,7 +1197,6 @@ els.searchInput.addEventListener("input", () => {
     loadChats();
   }, 140);
 });
-
 document.addEventListener("keydown", (event) => {
   const typing = document.activeElement === els.searchInput
     || document.activeElement === els.messageInput;
@@ -1491,19 +1209,15 @@ document.addEventListener("keydown", (event) => {
     document.body.classList.remove("sidebar-open");
   }
 });
-
 function openSidebar() {
   document.body.classList.add("sidebar-open");
 }
-
 function closeSidebar() {
   document.body.classList.remove("sidebar-open");
 }
-
 els.openSidebar.addEventListener("click", openSidebar);
 els.closeSidebar.addEventListener("click", closeSidebar);
 els.sidebarScrim.addEventListener("click", closeSidebar);
-
 const sidebarSwipe = {
   startX: 0,
   startY: 0,
@@ -1519,18 +1233,14 @@ const sidebarSwipe = {
   frameId: 0,
   pendingX: 0,
 };
-
 function mobileSidebarEnabled() {
   return window.matchMedia("(max-width: 780px)").matches;
 }
-
 document.addEventListener("touchstart", (event) => {
   if (!mobileSidebarEnabled() || event.touches.length !== 1) return;
-
   const touch = event.touches[0];
   const sidebarOpen = document.body.classList.contains("sidebar-open");
   if (!sidebarOpen && touch.clientX > 96) return;
-
   sidebarSwipe.startX = touch.clientX;
   sidebarSwipe.startY = touch.clientY;
   sidebarSwipe.lastX = touch.clientX;
@@ -1546,14 +1256,12 @@ document.addEventListener("touchstart", (event) => {
   els.sidebar.style.transition = "none";
   els.sidebarScrim.style.transition = "none";
 }, { passive: true });
-
 function applySidebarDragPosition(x) {
   const width = sidebarSwipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
   sidebarSwipe.progress = Math.max(0, Math.min(1, 1 + (x / width)));
   els.sidebar.style.transform = `translate3d(${x}px, 0, 0)`;
   els.sidebarScrim.style.opacity = String(sidebarSwipe.progress);
 }
-
 function queueSidebarDragPosition(x) {
   sidebarSwipe.pendingX = x;
   if (sidebarSwipe.frameId) return;
@@ -1562,36 +1270,27 @@ function queueSidebarDragPosition(x) {
     applySidebarDragPosition(sidebarSwipe.pendingX);
   });
 }
-
 document.addEventListener("touchmove", (event) => {
   if (!sidebarSwipe.tracking || event.touches.length !== 1) return;
-
   const touch = event.touches[0];
   const deltaX = touch.clientX - sidebarSwipe.startX;
   const deltaY = touch.clientY - sidebarSwipe.startY;
-
   if (!sidebarSwipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
     sidebarSwipe.directionLocked = true;
     sidebarSwipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
   }
-
   if (!sidebarSwipe.horizontal) return;
-
   event.preventDefault();
-
   const width = sidebarSwipe.sidebarWidth;
   const startX = sidebarSwipe.wasOpen ? 0 : -width;
   const x = Math.max(-width, Math.min(0, startX + deltaX));
-
   const now = performance.now();
   const elapsed = Math.max(1, now - sidebarSwipe.lastTime);
   sidebarSwipe.velocityX = (touch.clientX - sidebarSwipe.lastX) / elapsed;
   sidebarSwipe.lastX = touch.clientX;
   sidebarSwipe.lastTime = now;
-
   queueSidebarDragPosition(x);
 }, { passive: false });
-
 function settleSidebarDrag(open) {
   const width = sidebarSwipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
   if (sidebarSwipe.frameId) {
@@ -1604,13 +1303,11 @@ function settleSidebarDrag(open) {
   const remaining = Math.abs(targetX - currentX);
   const speed = Math.max(0.6, Math.abs(sidebarSwipe.velocityX));
   const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
-
   document.body.classList.toggle("sidebar-open", open);
   els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
   els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
   els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
   els.sidebarScrim.style.opacity = open ? "1" : "0";
-
   window.setTimeout(() => {
     els.sidebar.style.removeProperty("transition");
     els.sidebar.style.removeProperty("transform");
@@ -1618,27 +1315,22 @@ function settleSidebarDrag(open) {
     els.sidebarScrim.style.removeProperty("opacity");
   }, duration + 30);
 }
-
 document.addEventListener("touchend", () => {
   if (!sidebarSwipe.tracking) return;
-
   if (sidebarSwipe.horizontal) {
     const fastOpen = sidebarSwipe.velocityX > 0.35;
     const fastClose = sidebarSwipe.velocityX < -0.35;
     const shouldOpen = fastOpen || (!fastClose && sidebarSwipe.progress >= 0.5);
     settleSidebarDrag(shouldOpen);
   }
-
   sidebarSwipe.tracking = false;
 }, { passive: true });
-
 document.addEventListener("touchcancel", () => {
   if (sidebarSwipe.tracking && sidebarSwipe.horizontal) {
     settleSidebarDrag(sidebarSwipe.wasOpen);
   }
   sidebarSwipe.tracking = false;
 }, { passive: true });
-
 if (els.logsButton) {
   els.logsButton.addEventListener("click", () => {
     showMode(state.mode === "logs" ? "chats" : "logs");
@@ -1649,7 +1341,6 @@ els.newChatButton.addEventListener("click", () => {
   state.newChatFingerprint = "";
   renderNewChat();
 });
-
 function resizeComposer() {
   els.messageInput.style.overflowY = "hidden";
   if (!els.messageInput.value) {
@@ -1661,15 +1352,104 @@ function resizeComposer() {
   els.messageInput.style.height = `${Math.min(180, contentHeight)}px`;
   els.messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
 }
-
-
+function renderAttachments() {
+  const files = state.attachments || [];
+  els.attachmentChips.hidden = files.length === 0;
+  els.attachmentChips.innerHTML = files.map((file, index) => (
+    '<span class="attachment-chip">'
+    + '<span title="' + escapeHtml(file.name) + '">' + escapeHtml(truncate(file.name, 28)) + '</span>'
+    + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>'
+    + '</span>'
+  )).join("");
+}
+function clearAttachments() {
+  state.attachments = [];
+  els.fileUploadInput.value = "";
+  els.photoUploadInput.value = "";
+  els.cameraUploadInput.value = "";
+  renderAttachments();
+}
+function addAttachments(files) {
+  const current = state.attachments || [];
+  for (const file of files) {
+    if (current.length >= 5) break;
+    const duplicate = current.some((existing) => (
+      existing.name === file.name
+      && existing.size === file.size
+      && existing.lastModified === file.lastModified
+    ));
+    if (!duplicate) current.push(file);
+  }
+  state.attachments = current;
+  renderAttachments();
+  if (files.length && current.length >= 5) {
+    setTextIfChanged(els.composerStatus, "Prompta supports up to 5 attachments per message.");
+  }
+}
+async function attachmentPayload(file) {
+  if (file.size > 25 * 1024 * 1024) {
+    throw new Error(file.name + " is larger than 25 MB");
+  }
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Could not read " + file.name));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  });
+  const comma = dataUrl.indexOf(",");
+  return {
+    name: file.name,
+    type: file.type || "application/octet-stream",
+    data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+  };
+}
+async function serializeAttachments() {
+  const files = state.attachments || [];
+  const total = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  if (total > 25 * 1024 * 1024) {
+    throw new Error("Attachments exceed the 25 MB Prompta upload limit");
+  }
+  return Promise.all(files.map(attachmentPayload));
+}
+els.attachmentButton.addEventListener("click", () => {
+  els.attachmentMenu.hidden = !els.attachmentMenu.hidden;
+});
+els.attachmentMenu.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-attachment-kind]");
+  if (!button) return;
+  els.attachmentMenu.hidden = true;
+  const kind = button.dataset.attachmentKind;
+  if (kind === "photo") els.photoUploadInput.click();
+  else if (kind === "camera") els.cameraUploadInput.click();
+  else els.fileUploadInput.click();
+});
+for (const input of [els.fileUploadInput, els.photoUploadInput, els.cameraUploadInput]) {
+  input.addEventListener("change", () => addAttachments(Array.from(input.files || [])));
+}
+els.attachmentChips.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-attachment]");
+  if (!button) return;
+  const index = Number(button.dataset.removeAttachment);
+  if (!Number.isInteger(index)) return;
+  state.attachments.splice(index, 1);
+  renderAttachments();
+});
+document.addEventListener("click", (event) => {
+  const target = event.target as Node;
+  if (
+    !els.attachmentMenu.hidden
+    && !els.attachmentMenu.contains(target)
+    && !els.attachmentButton.contains(target)
+  ) {
+    els.attachmentMenu.hidden = true;
+  }
+});
 async function runScheduleSlashCommand(command) {
   state.sending = true;
   els.sendButton.disabled = true;
   els.messageInput.value = "";
   resizeComposer();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
-
   try {
     const result = await postJson("api/schedule", {
       interval_minutes: command.intervalMinutes,
@@ -1694,20 +1474,49 @@ async function runScheduleSlashCommand(command) {
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
-
+async function runAtSlashCommand(command) {
+  state.sending = true;
+  els.sendButton.disabled = true;
+  els.messageInput.value = "";
+  resizeComposer();
+  updateSlashMenu();
+  setTextIfChanged(els.composerStatus, "Saving one-time schedule…");
+  try {
+    const result = await postJson("api/schedule-at", {
+      run_at_epoch: command.runAtEpoch,
+      prompt: command.prompt,
+    });
+    const server = displayServerName(result.server || state.serverName || location.hostname);
+    setTextIfChanged(
+      els.composerStatus,
+      `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`,
+    );
+  } catch (error) {
+    setTextIfChanged(
+      els.composerStatus,
+      `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`,
+    );
+    console.error(error);
+  } finally {
+    state.sending = false;
+    els.messageInput.disabled = false;
+    els.sendButton.disabled = false;
+    if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+  }
+}
 function pendingReply(conversationId, sendId) {
   return (state.pendingReplies.get(conversationId) || [])
     .find((item) => item.sendId === sendId);
 }
-
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
-  if (!item) return;
-  const previousError = item.error || "";
+  if (!item) return false;
+  const previous = JSON.stringify([item.status || "", item.error || ""]);
   Object.assign(item, updates);
-  if ((item.error || "") !== previousError) item.updatedAt = Date.now() / 1000;
+  const changed = JSON.stringify([item.status || "", item.error || ""]) !== previous;
+  if (changed) item.updatedAt = Date.now() / 1000;
+  return changed;
 }
-
 async function watchSend(sendId, creatingNew, conversationId) {
   let statusFailures = 0;
   while (true) {
@@ -1724,7 +1533,6 @@ async function watchSend(sendId, creatingNew, conversationId) {
         error: String(error).replace(/^Error:\s*/, ""),
       };
     }
-
     const status = job.status || "running";
     if (creatingNew) {
       if (state.pendingNewSend?.sendId !== sendId) return;
@@ -1760,21 +1568,20 @@ async function watchSend(sendId, creatingNew, conversationId) {
       }
       if (status === "failed") {
         renderNewChat();
-        renderSidebar(true);
+        renderSidebar();
         return;
       }
       if (changed) {
         renderNewChat();
-        renderSidebar(true);
+        renderSidebar();
       }
       continue;
     }
-
-    updatePendingReply(conversationId, sendId, {
+    const changed = updatePendingReply(conversationId, sendId, {
       status,
       error: job.error || "",
     });
-    renderSidebar(true);
+    if (changed) renderSidebar();
     if (state.selectedId === conversationId) await loadSelectedChat();
     if (status === "succeeded") {
       els.composerStatus.textContent = "Sent. Waiting for the cached response…";
@@ -1787,17 +1594,19 @@ async function watchSend(sendId, creatingNew, conversationId) {
     }
   }
 }
-
 async function sendSelectedMessage() {
   const message = els.messageInput.value.trim();
   const creatingNew = state.composingNew;
   const conversationId = state.selectedId;
+  const attachments = [...(state.attachments || [])];
   if (!message || state.mode !== "chats" || state.sending) return;
-
   requestNotificationPermissionFromGesture();
-
   const scheduleCommand = parseScheduleSlashCommand(message);
   if (scheduleCommand) {
+    if (attachments.length) {
+      setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+      return;
+    }
     if ("error" in scheduleCommand) {
       setTextIfChanged(els.composerStatus, scheduleCommand.error);
       return;
@@ -1805,9 +1614,38 @@ async function sendSelectedMessage() {
     await runScheduleSlashCommand(scheduleCommand);
     return;
   }
-
+  const atCommand = parseAtSlashCommand(message);
+  if (atCommand) {
+    if (attachments.length) {
+      setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+      return;
+    }
+    if ("error" in atCommand) {
+      setTextIfChanged(els.composerStatus, atCommand.error);
+      return;
+    }
+    await runAtSlashCommand(atCommand);
+    return;
+  }
   if (!creatingNew && !conversationId) return;
-
+  let serializedAttachments = [];
+  if (attachments.length) {
+    state.sending = true;
+    els.sendButton.disabled = true;
+    setTextIfChanged(els.composerStatus, "Preparing attachments…");
+    try {
+      serializedAttachments = await serializeAttachments();
+    } catch (error) {
+      state.sending = false;
+      els.sendButton.disabled = false;
+      setTextIfChanged(
+        els.composerStatus,
+        "Attachment failed: " + String(error).replace(/^Error:\s*/, ""),
+      );
+      return;
+    }
+    state.sending = false;
+  }
   const now = Date.now() / 1000;
   const pending = {
     sendId: "",
@@ -1818,40 +1656,37 @@ async function sendSelectedMessage() {
     conversationId: conversationId || "",
     createdAt: now,
     updatedAt: now,
+    attachmentNames: attachments.map((file) => file.name),
   };
-
   state.sending = true;
   els.sendButton.disabled = true;
   els.messageInput.value = "";
   resizeComposer();
-
   if (creatingNew) {
     state.pendingNewSend = pending;
     state.newChatFingerprint = "";
     renderNewChat();
-    renderSidebar(true);
+    renderSidebar();
   } else {
     const items = state.pendingReplies.get(conversationId) || [];
     items.push(pending);
     state.pendingReplies.set(conversationId, items);
     state.selectedFingerprint = "";
     if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
-    renderSidebar(true);
+    renderSidebar();
   }
-
   try {
     const result = creatingNew
-      ? await postJson("api/chats", { message })
+      ? await postJson("api/chats", { message, attachments: serializedAttachments })
       : await postJson(
         `api/chats/${encodeURIComponent(conversationId)}/messages`,
-        { message },
+        { message, attachments: serializedAttachments },
       );
     if (!result.send_id) throw new Error("Prompta did not return a send id");
-
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
     pending.updatedAt = Date.now() / 1000;
-
+    if (attachments.length) clearAttachments();
     if (creatingNew) {
       state.newChatFingerprint = "";
       renderNewChat();
@@ -1859,7 +1694,7 @@ async function sendSelectedMessage() {
       state.selectedFingerprint = "";
       if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
     }
-    renderSidebar(true);
+    renderSidebar();
     watchSend(result.send_id, creatingNew, conversationId);
   } catch (error) {
     pending.status = "failed";
@@ -1872,7 +1707,7 @@ async function sendSelectedMessage() {
       state.selectedFingerprint = "";
       if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
     }
-    renderSidebar(true);
+    renderSidebar();
     console.error(error);
   } finally {
     state.sending = false;
@@ -1887,54 +1722,82 @@ async function sendSelectedMessage() {
     }
   }
 }
-
+async function copySelectedChatUrl() {
+  if (!state.selectedId) return;
+  const url = new URL(location.href);
+  url.hash = `/${encodeURIComponent(state.selectedId)}`;
+  try {
+    await navigator.clipboard.writeText(url.toString());
+    setTextIfChanged(els.composerStatus, "Chat link copied.");
+  } catch (error) {
+    const textarea = document.createElement("textarea");
+    textarea.value = url.toString();
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+    setTextIfChanged(els.composerStatus, "Chat link copied.");
+  }
+}
+function updateSlashMenu() {
+  const value = els.messageInput.value;
+  const firstToken = value.split(/\s/, 1)[0].toLowerCase();
+  const candidates = Array.from(
+    els.slashMenu.querySelectorAll<HTMLButtonElement>("[data-slash-command]"),
+  );
+  const show = value.startsWith("/") && !value.includes("\n") && !value.includes(" ");
+  let visible = 0;
+  for (const button of candidates) {
+    const command = String(button.dataset.slashCommand || "").trim().toLowerCase();
+    const matches = show && command.startsWith(firstToken);
+    button.hidden = !matches;
+    if (matches) visible += 1;
+  }
+  els.slashMenu.hidden = visible === 0;
+}
+function insertSlashCommand(command) {
+  els.messageInput.value = command;
+  els.slashMenu.hidden = true;
+  resizeComposer();
+  els.messageInput.focus();
+  els.messageInput.setSelectionRange(command.length, command.length);
+}
+els.shareChatButton.addEventListener("click", copySelectedChatUrl);
+els.slashMenu.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slash-command]");
+  if (!button) return;
+  insertSlashCommand(String(button.dataset.slashCommand || ""));
+});
 els.messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
   sendSelectedMessage();
 });
-
-els.messageInput.addEventListener("input", resizeComposer);
+els.messageInput.addEventListener("input", () => {
+  resizeComposer();
+  updateSlashMenu();
+});
 els.messageInput.addEventListener("keydown", (event) => {
+  if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {
+    const first = els.slashMenu.querySelector<HTMLButtonElement>("[data-slash-command]:not([hidden])");
+    if (first) {
+      event.preventDefault();
+      insertSlashCommand(String(first.dataset.slashCommand || ""));
+      return;
+    }
+  }
   const mobileInput = matchMedia("(pointer: coarse)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
     sendSelectedMessage();
   }
 });
-
 window.addEventListener("hashchange", () => {
   const id = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
   if (id && id !== state.selectedId) selectChat(id);
 });
-
-async function hydrateFromBrowserCache() {
-  try {
-    state.chats = await readCachedChatSummaries();
-    if (!state.chats.length) return;
-
-    const hashId = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
-    if (hashId && state.chats.some((chat) => chat.id === hashId)) {
-      state.selectedId = hashId;
-    } else if (!state.composingNew) {
-      state.selectedId = state.chats[0].id;
-    }
-
-    renderSidebar(true);
-    els.cacheSummary.textContent = `${state.chats.length} browser cached`;
-    if (state.selectedId) {
-      const cachedChat = await readCachedConversation(state.selectedId);
-      if (cachedChat && cachedChat.id === state.selectedId) {
-        state.selectedUpdatedAt = cachedChat.updated_at;
-        renderConversation(cachedChat);
-      }
-    }
-  } catch (error) {
-    console.warn("Could not hydrate Prompta from IndexedDB", error);
-  }
-}
-
 let liveRefreshQueued = false;
-
 function queueLiveRefresh() {
   if (liveRefreshQueued) return;
   liveRefreshQueued = true;
@@ -1943,13 +1806,11 @@ function queueLiveRefresh() {
     await loadChats();
   });
 }
-
 function startEventStream() {
   if (!("EventSource" in window)) {
     state.refreshTimer = setInterval(loadChats, 5000);
     return;
   }
-
   const events = new EventSource("api/events");
   events.addEventListener("refresh", (event) => {
     try {
@@ -1965,25 +1826,18 @@ function startEventStream() {
   });
   window.addEventListener("pagehide", () => events.close(), { once: true });
 }
-
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("./sw.js").catch((error) => {
     console.warn("Could not register Prompta service worker", error);
   });
 }
-
 async function startApp() {
   registerServiceWorker();
   loadServerIdentity();
   resizeComposer();
-  try {
-    await hydrateFromBrowserCache();
-  } finally {
-    document.documentElement.classList.remove("booting");
-  }
+  document.documentElement.classList.remove("booting");
   await loadChats();
   startEventStream();
 }
-
 startApp();

@@ -100,7 +100,7 @@ uv run prompta-ui
 ```
 
 Open `http://127.0.0.1:8765`. The UI reads the SQLite database using
-`mode=ro` plus `PRAGMA query_only=ON`. Browser state hydrates from IndexedDB first,
+`mode=ro` plus `PRAGMA query_only=ON`. The browser reads SQLite-backed API state directly,
 then an SSE stream tells the client when the SQLite cache or send state changed, so
 active chats update without page polling or reload flicker. Sending a message uses the
 scheduler control socket and reuses a retained live tab when one exists; an expired

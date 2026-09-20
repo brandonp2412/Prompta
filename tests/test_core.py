@@ -151,7 +151,7 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
     assert fake.navigated == ["https://chatgpt.com/"]
     assert fake.sent is True
     assert fake.clear_composer_calls == 0
-    prompta._ensure_high_effort.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta._ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -501,7 +501,7 @@ async def test_send_direct_waits_for_cached_response_and_stops_firefox(tmp_path:
         )
 
     assert result == "chat-direct"
-    prompta.send_once.assert_awaited_once_with("Hello")
+    prompta.send_once.assert_awaited_once_with("Hello", attachments=None)
     prompta.wait_for_cached_response.assert_awaited_once_with("chat-direct")
     prompta.close.assert_awaited_once()
     process.terminate.assert_called_once()
@@ -524,6 +524,35 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
     assert set(load_jobs(jobs_path)) == {"flux", "immediate", "exact", "daily"}
     clear_jobs(jobs_path)
     assert load_jobs(jobs_path) == {}
+
+
+def test_one_time_job_round_trips_exact_epoch(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    add_job(
+        jobs_path,
+        "at-test",
+        "Run once",
+        0,
+        exact_interval=True,
+        run_at_epoch=1_800_000_000.0,
+    )
+
+    job = load_jobs(jobs_path)["at-test"]
+    assert job.run_at_epoch == 1_800_000_000.0
+    assert job.exact_interval is True
+
+
+def test_one_time_job_due_in_uses_exact_epoch(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    job = PromptJob(
+        "at-test",
+        "Run once",
+        0,
+        exact_interval=True,
+        run_at_epoch=2_000.0,
+    )
+    assert prompta.due_in(job, now=1_500.0) == 500.0
+    assert prompta.due_in(job, now=2_100.0) == 0.0
 
 
 def test_daily_job_rejects_invalid_time(tmp_path: Path) -> None:
@@ -860,7 +889,7 @@ async def test_control_socket_routes_one_shot_through_scheduler(tmp_path: Path) 
         assert not prompta._once_requests.empty()
         await prompta._drain_once_requests()
         assert await client == "conversation-via-daemon"
-        prompta.send_once.assert_awaited_once_with("Do one thing")  # type: ignore[attr-defined]
+        prompta.send_once.assert_awaited_once_with("Do one thing", attachments=[])  # type: ignore[attr-defined]
     finally:
         server.close()
         await server.wait_closed()
@@ -892,7 +921,7 @@ async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> 
         assert not prompta._reply_requests.empty()
         await prompta._drain_reply_requests()
         assert await client == "existing-chat"
-        prompta.send_reply.assert_awaited_once_with("existing-chat", "Continue here")  # type: ignore[attr-defined]
+        prompta.send_reply.assert_awaited_once_with("existing-chat", "Continue here", attachments=[])  # type: ignore[attr-defined]
     finally:
         server.close()
         await server.wait_closed()

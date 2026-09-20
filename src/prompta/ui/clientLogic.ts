@@ -15,6 +15,11 @@ export type ScheduleSlashCommand =
   | { error: string }
   | { intervalMinutes: number; prompt: string };
 
+export type AtSlashCommand =
+  | null
+  | { error: string }
+  | { runAtEpoch: number; runAtLabel: string; prompt: string };
+
 export function matchingOptimisticConversation(
   chats: ChatSummary[],
   pending: PendingNewSend | null | undefined,
@@ -65,4 +70,55 @@ export function formatScheduleInterval(minutes: number): string {
     return `${hours} hour${hours === 1 ? "" : "s"}`;
   }
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+
+export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
+  if (!message.startsWith("/at")) return null;
+
+  const match = message.match(
+    /^\/at\s+(today|tomorrow|\d{4}-\d{2}-\d{2})(?:[T\s]+)([01]\d|2[0-3]):([0-5]\d)\s+([\s\S]+)$/i,
+  );
+  if (!match) {
+    return {
+      error: "Use /at <date> <time> <prompt>, for example: /at 2026-09-21 09:30 review failures",
+    };
+  }
+
+  const dateToken = match[1].toLowerCase();
+  const hour = Number(match[2]);
+  const minute = Number(match[3]);
+  const prompt = match[4].trim();
+
+  let target: Date;
+  if (dateToken === "today" || dateToken === "tomorrow") {
+    target = new Date(now);
+    if (dateToken === "tomorrow") target.setDate(target.getDate() + 1);
+    target.setHours(hour, minute, 0, 0);
+  } else {
+    const parts = dateToken.split("-").map(Number);
+    target = new Date(parts[0], parts[1] - 1, parts[2], hour, minute, 0, 0);
+    if (
+      target.getFullYear() !== parts[0]
+      || target.getMonth() !== parts[1] - 1
+      || target.getDate() !== parts[2]
+    ) {
+      return { error: "Schedule date is invalid." };
+    }
+  }
+
+  if (!prompt) return { error: "Schedule prompt is required." };
+  const runAtEpoch = target.getTime() / 1000;
+  if (!Number.isFinite(runAtEpoch) || runAtEpoch <= now.getTime() / 1000) {
+    return { error: "Schedule time must be in the future." };
+  }
+
+  const runAtLabel = target.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return { runAtEpoch, runAtLabel, prompt };
 }
