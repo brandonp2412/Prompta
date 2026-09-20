@@ -1501,6 +1501,7 @@ els.openSidebar.addEventListener("click", openSidebar);
 els.closeSidebar.addEventListener("click", closeSidebar);
 els.sidebarScrim.addEventListener("click", closeSidebar);
 mobileSidebarMedia.addEventListener("change", syncSidebarAccessibility);
+window.addEventListener("resize", syncSidebarAccessibility);
 syncSidebarAccessibility();
 var sidebarSwipe = {
   startX: 0,
