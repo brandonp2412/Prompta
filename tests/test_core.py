@@ -24,6 +24,7 @@ from prompta.core import (
     _send_once_via_control,
     _send_reply_via_control,
     _start_control_server,
+    _sync_via_control,
     add_job,
     clear_jobs,
     load_jobs,
@@ -959,6 +960,55 @@ async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> 
         await server.wait_closed()
         socket_path.unlink(missing_ok=True)
         prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_control_socket_routes_sync_through_scheduler(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.sync_conversation = AsyncMock(return_value=4)  # type: ignore[method-assign]
+    server, socket_path = await _start_control_server(prompta, state_path)
+    try:
+        client = asyncio.create_task(_sync_via_control(state_path, "existing-chat"))
+        for _ in range(100):
+            if not prompta._sync_requests.empty():
+                break
+            await asyncio.sleep(0.01)
+        assert not prompta._sync_requests.empty()
+        await prompta._drain_sync_requests()
+        assert await client == 4
+        prompta.sync_conversation.assert_awaited_once_with("existing-chat")  # type: ignore[attr-defined]
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_uses_running_scheduler_without_spawning_firefox(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = _parser().parse_args(["sync", "existing-chat"])
+    with (
+        patch("prompta.core._daemon_is_running", return_value=True),
+        patch("prompta.core._sync_via_control", AsyncMock(return_value=4)) as sync_control,
+        patch("prompta.core._spawn_firefox", AsyncMock()) as spawn_firefox,
+    ):
+        await _run(args)
+
+    sync_control.assert_awaited_once_with(args.state, "existing-chat")
+    spawn_firefox.assert_not_awaited()
+    output = capsys.readouterr().out
+    assert "Synced" in output
+    assert "4 messages" in output
 
 
 @pytest.mark.asyncio
