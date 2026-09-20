@@ -808,13 +808,25 @@ class Prompta:
             ),
             None,
         )
-        created_context = existing is None
-        if existing is None:
-            context = await driver.new_tab(target_url)
-            active: ActiveConversation | None = None
-        else:
-            context, active = existing
-            driver.context = context
+        if existing is not None:
+            retained_context, retained_active = existing
+            if retained_active.settled_at <= 0:
+                if not await self.wait_for_cached_response(conversation_id):
+                    raise RuntimeError(
+                        "Prompta cannot reply before the current assistant response is cached"
+                    )
+            self._active_conversations.pop(retained_context, None)
+            try:
+                await driver.close_context(retained_context)
+            except Exception:
+                logger.debug(
+                    "Could not close retained Prompta tab before reply",
+                    exc_info=True,
+                )
+
+        context = await driver.new_tab(target_url)
+        active: ActiveConversation | None = None
+        created_context = True
 
         capture: dict[str, Any] | None = None
         probe_armed = False
@@ -1953,6 +1965,9 @@ async def _run(args: argparse.Namespace) -> None:
         elif args.command == "reply":
             conversation_id = await prompta.send_reply(args.conversation_id, args.prompt)
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
+            _print_notice("…", "Waiting", "assistant response", tone="36")
+            if await prompta.wait_for_cached_response(conversation_id):
+                _print_notice("✓", "Cached", "assistant response complete", tone="32")
         elif args.command == "sync":
             message_count = await prompta.sync_conversation(args.conversation_id)
             _print_notice(

@@ -273,7 +273,7 @@ async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_send_reply_reuses_retained_conversation_tab(tmp_path: Path) -> None:
+async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) -> None:
     prompt = "Continue from the UI"
     conversation_id = "existing-chat"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
@@ -284,7 +284,7 @@ async def test_send_reply_reuses_retained_conversation_tab(tmp_path: Path) -> No
             return f"/c/{conversation_id}"
 
         async def conversation_snapshot(self, context: str) -> dict[str, Any]:
-            assert context == "context-1"
+            assert context == "context-new"
             return {
                 "title": "Existing chat",
                 "path": f"/c/{conversation_id}",
@@ -314,9 +314,10 @@ async def test_send_reply_reuses_retained_conversation_tab(tmp_path: Path) -> No
     result = await prompta.send_reply(conversation_id, prompt)
 
     assert result == conversation_id
-    assert fake.navigated == []
+    assert fake.navigated == [f"https://chatgpt.com/c/{conversation_id}"]
     assert fake.sent is True
-    assert prompta._active_conversations["context-1"].settled_at == 0.0
+    assert "context-1" not in prompta._active_conversations
+    assert prompta._active_conversations["context-new"].settled_at == 0.0
     assert prompta.cache.recent_conversations()[0]["status"] == "active"
     await prompta.close()
 
