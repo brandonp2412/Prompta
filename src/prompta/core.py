@@ -1234,10 +1234,10 @@ class Prompta:
                 self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
                 active.settled_at = time.monotonic()
                 logger.info(
-                    "Prompta cached completed conversation=%s messages=%d; retaining tab for %.0fm",
+                    "Prompta cached completed conversation=%s messages=%d; retaining tab for %.0fs",
                     active.conversation_id,
                     len(messages),
-                    _ACTIVE_TAB_RETENTION_SECONDS / 60.0,
+                    _ACTIVE_TAB_RETENTION_SECONDS,
                 )
                 continue
 
@@ -1252,9 +1252,9 @@ class Prompta:
                     logger.debug("Could not close retained Prompta tab", exc_info=True)
             self._active_conversations.pop(context, None)
             logger.info(
-                "Prompta closed retained conversation tab=%s after %.0fm",
+                "Prompta closed retained conversation tab=%s after %.0fs",
                 active.conversation_id,
-                _ACTIVE_TAB_RETENTION_SECONDS / 60.0,
+                _ACTIVE_TAB_RETENTION_SECONDS,
             )
 
     async def wait_for_cached_response(
