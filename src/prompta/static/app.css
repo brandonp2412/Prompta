@@ -227,15 +227,12 @@ textarea:focus-visible {
 }
 
 .chat-item {
+  position: relative;
   width: 100%;
   min-width: 0;
-  padding: 10px 10px 9px;
   display: block;
-  border: 0;
   border-radius: 10px;
   background: transparent;
-  text-align: left;
-  cursor: pointer;
   transition: background 120ms ease;
 }
 
@@ -247,20 +244,39 @@ textarea:focus-visible {
   background: var(--panel-active);
 }
 
+.chat-item-select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 10px 9px;
+  display: block;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .chat-item-top {
   display: flex;
   align-items: center;
   gap: 7px;
+  padding-right: 24px;
 }
 
 .chat-row-pin {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
   width: 24px;
   height: 24px;
-  margin: -4px -4px -4px 0;
+  padding: 0;
   display: none;
-  flex: 0 0 auto;
   place-items: center;
+  border: 0;
   border-radius: 7px;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
 }
@@ -281,9 +297,13 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
+.chat-row-pin.active,
+.chat-item:focus-within .chat-row-pin {
+  display: grid;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .chat-item:hover .chat-row-pin,
-  .chat-row-pin.active {
+  .chat-item:hover .chat-row-pin {
     display: grid;
   }
 }

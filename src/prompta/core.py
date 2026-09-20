@@ -621,9 +621,20 @@ class Prompta:
                 await driver.click_send_button()
             else:
                 await driver.click_send()
+                await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+                post_submit = await driver.dom_state()
+                if self._normalise(str(post_submit.get("composer_text") or "")) == self._normalise(prompt):
+                    logger.warning(
+                        "Prompta Enter submit left the prompt in the composer; retrying with the send button"
+                    )
+                    await driver.click_send_button(timeout=5.0)
 
             provisional_conversation_id = ""
             provisional_confirmed = False
+            last_state: dict[str, Any] = post_submit if not attachments else {}
+            last_probe: dict[str, Any] = {}
+            last_path = baseline_path
+            last_send_confirmed = False
             confirmation_timeout = max(1.0, self.config.send_timeout_seconds)
             if attachments:
                 confirmation_timeout = max(confirmation_timeout, 120.0)
@@ -635,6 +646,9 @@ class Prompta:
                     raise RateLimitError.from_text(rate_limit_text)
                 probe = await driver.page_send_probe()
                 path = str(await driver.eval("location.pathname") or "")
+                last_state = state
+                last_probe = probe
+                last_path = path
                 user_text = self._normalise(str(state.get("last_user_text") or ""))
                 message_id = str(probe.get("message_id") or state.get("last_user_id") or "")
                 status = int(probe.get("response_status") or capture.get("status") or 0)
@@ -642,6 +656,7 @@ class Prompta:
                     bool(probe.get("committed"))
                     or driver.captured_send_response(capture) is not None
                 )
+                last_send_confirmed = send_confirmed
                 if status == 429:
                     raise RateLimitError("prompta send rate limited")
                 if status >= 400:
@@ -724,8 +739,25 @@ class Prompta:
                 succeeded = True
                 return provisional_conversation_id
 
+            final_composer = self._normalise(str(last_state.get("composer_text") or ""))
+            final_user_text = self._normalise(str(last_state.get("last_user_text") or ""))
+            if (
+                final_composer == self._normalise(prompt)
+                and final_user_text != self._normalise(prompt)
+                and not last_send_confirmed
+                and not provisional_conversation_id
+                and last_path == baseline_path
+            ):
+                raise RuntimeError(
+                    "ChatGPT did not accept the prompt; it remained in the composer after submit"
+                )
             raise SendVerificationError(
-                "prompta could not prove the prompt was sent in a new conversation"
+                "prompta could not prove the prompt was sent in a new conversation "
+                f"(composer_empty={not bool(final_composer)}, "
+                f"last_user_matches={final_user_text == self._normalise(prompt)}, "
+                f"transport_confirmed={last_send_confirmed}, "
+                f"probe_status={int(last_probe.get('response_status') or 0)}, "
+                f"path={last_path or '/'})"
             )
         finally:
             if capture is not None:
@@ -957,6 +989,13 @@ class Prompta:
                 await driver.click_send_button()
             else:
                 await driver.click_send()
+                await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+                post_submit = await driver.dom_state()
+                if self._normalise(str(post_submit.get("composer_text") or "")) == self._normalise(prompt):
+                    logger.warning(
+                        "Prompta Enter reply left the prompt in the composer; retrying with the send button"
+                    )
+                    await driver.click_send_button(timeout=5.0)
 
             confirmation_timeout = max(1.0, self.config.send_timeout_seconds)
             if attachments:
