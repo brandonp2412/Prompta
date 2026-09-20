@@ -584,13 +584,20 @@ class FirefoxBiDiDriver:
         await self._focus_composer()
         await self._key_text("", enter=True)
 
-    async def click_send_button(self) -> None:
-        raw = await self.eval(
-            """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const selectors=['button[data-testid="send-button"]','button[aria-label="Send prompt"]','button[aria-label="Send message"]','button[aria-label="Send"]'];let button=null;for(const selector of selectors){button=[...document.querySelectorAll(selector)].find(e=>visible(e)&&!e.disabled&&e.getAttribute('aria-disabled')!=='true');if(button)break;}if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})())"""
-        )
-        point = json.loads(raw or "null")
-        if not isinstance(point, dict):
-            raise RuntimeError("ChatGPT send button could not be found")
+    async def click_send_button(self, timeout: float = 120.0) -> None:
+        deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
+        point: dict[str, Any] | None = None
+        while asyncio.get_running_loop().time() < deadline:
+            raw = await self.eval(
+                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const composer=[...document.querySelectorAll('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt')].find(visible);const scope=composer?.closest('form')||composer?.parentElement?.parentElement||document;const buttons=[...scope.querySelectorAll('button')].filter(visible);const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>enabled(e)&&e.matches('button[type="submit"]'))||buttons.find(e=>enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>enabled(e)&&/send/i.test(label(e)));if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};})())"""
+            )
+            candidate = json.loads(raw or "null")
+            if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
+                point = candidate
+                break
+            await asyncio.sleep(0.2)
+        if point is None:
+            raise RuntimeError("ChatGPT send button did not become enabled")
         try:
             x = float(point["x"])
             y = float(point["y"])
