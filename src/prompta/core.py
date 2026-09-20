@@ -36,6 +36,8 @@ _CONTROL_SOCKET_NAME = "control.sock"
 _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0
+_CONTROL_RESTART_POLL_SECONDS = 0.1
+_BIDI_RESTART_REQUIRED_ERROR = "Firefox BiDi session is poisoned; browser restart required"
 DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
@@ -2158,18 +2160,32 @@ async def _open_control_connection(
             await asyncio.sleep(0.1)
 
 
-async def _send_once_via_control(
+async def _wait_for_scheduler_restart(state_path: Path) -> None:
+    """Wait for the poisoned scheduler process to release and then reacquire its daemon lock."""
+
+    deadline = asyncio.get_running_loop().time() + _CONTROL_CONNECT_TIMEOUT_SECONDS
+    saw_stopped = False
+    while asyncio.get_running_loop().time() < deadline:
+        running = _daemon_is_running(state_path)
+        if not running:
+            saw_stopped = True
+        elif saw_stopped:
+            return
+        await asyncio.sleep(_CONTROL_RESTART_POLL_SECONDS)
+    raise RuntimeError(
+        "Prompta scheduler did not restart after Firefox BiDi session became poisoned"
+    )
+
+
+async def _control_send_request(
     state_path: Path,
-    prompt: str,
-    attachments: list[str] | None = None,
-) -> str:
+    request: dict[str, Any],
+    *,
+    rejected_message: str,
+) -> dict[str, Any]:
     reader, writer = await _open_control_connection(state_path)
     try:
-        writer.write(
-            (json.dumps({"op": "once", "prompt": prompt, "attachments": attachments or []}, ensure_ascii=False) + "\n").encode(
-                "utf-8"
-            )
-        )
+        writer.write((json.dumps(request, ensure_ascii=False) + "\n").encode("utf-8"))
         await writer.drain()
         raw = await asyncio.wait_for(
             reader.readline(),
@@ -2182,9 +2198,46 @@ async def _send_once_via_control(
         raise RuntimeError("Prompta scheduler closed the control connection without a response")
     payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict) or payload.get("ok") is not True:
-        raise RuntimeError(
-            str(payload.get("error") or "Prompta scheduler rejected one-shot request")
+        raise RuntimeError(str(payload.get("error") or rejected_message))
+    return payload
+
+
+async def _control_send_request_with_restart_retry(
+    state_path: Path,
+    request: dict[str, Any],
+    *,
+    rejected_message: str,
+) -> dict[str, Any]:
+    try:
+        return await _control_send_request(
+            state_path,
+            request,
+            rejected_message=rejected_message,
         )
+    except RuntimeError as exc:
+        if str(exc) != _BIDI_RESTART_REQUIRED_ERROR:
+            raise
+    logger.info(
+        "Prompta control send hit a poisoned Firefox BiDi session; waiting for scheduler restart"
+    )
+    await _wait_for_scheduler_restart(state_path)
+    return await _control_send_request(
+        state_path,
+        request,
+        rejected_message=rejected_message,
+    )
+
+
+async def _send_once_via_control(
+    state_path: Path,
+    prompt: str,
+    attachments: list[str] | None = None,
+) -> str:
+    payload = await _control_send_request_with_restart_retry(
+        state_path,
+        {"op": "once", "prompt": prompt, "attachments": attachments or []},
+        rejected_message="Prompta scheduler rejected one-shot request",
+    )
     conversation_id = str(payload.get("conversation_id") or "")
     if not conversation_id:
         raise RuntimeError("Prompta scheduler returned an empty conversation id")
@@ -2197,35 +2250,16 @@ async def _send_reply_via_control(
     prompt: str,
     attachments: list[str] | None = None,
 ) -> str:
-    reader, writer = await _open_control_connection(state_path)
-    try:
-        writer.write(
-            (
-                json.dumps(
-                    {
-                        "op": "reply",
-                        "conversation_id": conversation_id,
-                        "prompt": prompt,
-                        "attachments": attachments or [],
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            ).encode("utf-8")
-        )
-        await writer.drain()
-        raw = await asyncio.wait_for(
-            reader.readline(),
-            timeout=_CONTROL_SEND_TIMEOUT_SECONDS,
-        )
-    finally:
-        writer.close()
-        await writer.wait_closed()
-    if not raw:
-        raise RuntimeError("Prompta scheduler closed the control connection without a response")
-    payload = json.loads(raw.decode("utf-8"))
-    if not isinstance(payload, dict) or payload.get("ok") is not True:
-        raise RuntimeError(str(payload.get("error") or "Prompta scheduler rejected reply"))
+    payload = await _control_send_request_with_restart_retry(
+        state_path,
+        {
+            "op": "reply",
+            "conversation_id": conversation_id,
+            "prompt": prompt,
+            "attachments": attachments or [],
+        },
+        rejected_message="Prompta scheduler rejected reply",
+    )
     result = str(payload.get("conversation_id") or "")
     if not result:
         raise RuntimeError("Prompta scheduler returned an empty conversation id")
