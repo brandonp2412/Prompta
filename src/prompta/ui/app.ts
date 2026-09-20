@@ -6,6 +6,7 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  postJsonRequest as postJson,
   sidebarPreviewText,
 } from "./clientLogic";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
@@ -1154,31 +1155,6 @@ async function fetchJson(url, timeoutMs = 10_000) {
   } finally {
     window.clearTimeout(timeout);
   }
-}
-async function postJson(url, payload, attempts = 1) {
-  let lastError = new Error("Request failed");
-  for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
-    let response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt + 1 >= attempts) throw lastError;
-      await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
-      continue;
-    }
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) return data;
-    lastError = new Error(data.error || `${response.status} ${response.statusText}`);
-    if (response.status < 500 || attempt + 1 >= attempts) throw lastError;
-    await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
-  }
-  throw lastError;
 }
 async function loadServerIdentity() {
   try {

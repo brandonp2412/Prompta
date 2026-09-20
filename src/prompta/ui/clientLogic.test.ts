@@ -7,6 +7,7 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  postJsonRequest,
   sidebarPreviewText,
 } from "./clientLogic";
 
@@ -104,6 +105,60 @@ describe("message timestamps", () => {
 
   test("rejects invalid and out-of-range timestamps without throwing", () => {
     expect(messageTimestampMillis("not-a-date", Number.MAX_VALUE)).toBeNull();
+  });
+});
+
+describe("POST request recovery", () => {
+  test("times out a stalled request instead of hanging forever", async () => {
+    const stalledFetch = ((_: RequestInfo | URL, init?: RequestInit) => (
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      })
+    )) as typeof fetch;
+
+    await expect(
+      postJsonRequest("api/chats", { message: "hello" }, 1, 10, stalledFetch),
+    ).rejects.toThrow("Request timed out");
+  });
+
+  test("retries transient fetch failures and returns the successful JSON body", async () => {
+    let calls = 0;
+    const retryingFetch = (async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("network unavailable");
+      return new Response(JSON.stringify({ ok: true, send_id: "send-1" }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const result = await postJsonRequest(
+      "api/chats",
+      { message: "hello" },
+      2,
+      1_000,
+      retryingFetch,
+    );
+
+    expect(calls).toBe(2);
+    expect(result.send_id).toBe("send-1");
+  });
+
+  test("rejects malformed JSON from a successful response", async () => {
+    const malformedFetch = (async () => (
+      new Response("not json", {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      })
+    )) as typeof fetch;
+
+    await expect(
+      postJsonRequest("api/chats", { message: "hello" }, 1, 1_000, malformedFetch),
+    ).rejects.toThrow("Prompta returned an invalid response");
   });
 });
 

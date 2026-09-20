@@ -90,6 +90,48 @@ function formatScheduleInterval(minutes) {
   }
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
+async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45000, fetchImpl = fetch) {
+  let lastError = new Error("Request failed");
+  for (let attempt = 0;attempt < Math.max(1, attempts); attempt += 1) {
+    const controller = new AbortController;
+    const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    let data = {};
+    try {
+      response = await fetchImpl(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      try {
+        data = await response.json();
+      } catch (error) {
+        if (controller.signal.aborted)
+          throw new Error("Request timed out");
+        if (response.ok)
+          throw new Error("Prompta returned an invalid response");
+      }
+    } catch (error) {
+      lastError = controller.signal.aborted ? new Error("Request timed out") : error instanceof Error ? error : new Error(String(error));
+      if (attempt + 1 >= attempts)
+        throw lastError;
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
+      continue;
+    } finally {
+      globalThis.clearTimeout(timeout);
+    }
+    if (response.ok)
+      return data;
+    const errorMessage = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string" ? data.error : "";
+    lastError = new Error(errorMessage || `${response.status} ${response.statusText}`);
+    if (response.status < 500 || attempt + 1 >= attempts)
+      throw lastError;
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
+  }
+  throw lastError;
+}
 function parseAtSlashCommand(message, now = new Date) {
   if (!/^\/at(?:\s|$)/i.test(message))
     return null;
@@ -1260,34 +1302,6 @@ async function fetchJson(url, timeoutMs = 1e4) {
     window.clearTimeout(timeout);
   }
 }
-async function postJson(url, payload, attempts = 1) {
-  let lastError = new Error("Request failed");
-  for (let attempt = 0;attempt < Math.max(1, attempts); attempt += 1) {
-    let response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt + 1 >= attempts)
-        throw lastError;
-      await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
-      continue;
-    }
-    const data = await response.json().catch(() => ({}));
-    if (response.ok)
-      return data;
-    lastError = new Error(data.error || `${response.status} ${response.statusText}`);
-    if (response.status < 500 || attempt + 1 >= attempts)
-      throw lastError;
-    await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
-  }
-  throw lastError;
-}
 async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
@@ -1714,7 +1728,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
   resizeComposer();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
   try {
-    const result = await postJson("api/schedule", {
+    const result = await postJsonRequest("api/schedule", {
       interval_minutes: command.intervalMinutes,
       prompt: command.prompt
     });
@@ -1743,7 +1757,7 @@ async function runAtSlashCommand(command, originalMessage) {
   updateSlashMenu();
   setTextIfChanged(els.composerStatus, "Saving one-time schedule…");
   try {
-    const result = await postJson("api/schedule-at", {
+    const result = await postJsonRequest("api/schedule-at", {
       run_at_epoch: command.runAtEpoch,
       prompt: command.prompt
     });
@@ -1999,7 +2013,7 @@ async function sendSelectedMessage() {
     renderSidebar();
   }
   try {
-    const result = creatingNew ? await postJson("api/chats", { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3) : await postJson(`api/chats/${encodeURIComponent(conversationId)}/messages`, { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3);
+    const result = creatingNew ? await postJsonRequest("api/chats", { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3) : await postJsonRequest(`api/chats/${encodeURIComponent(conversationId)}/messages`, { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3);
     if (!result.send_id)
       throw new Error("Prompta did not return a send id");
     pending.sendId = result.send_id;

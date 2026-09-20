@@ -146,6 +146,59 @@ export function formatScheduleInterval(minutes: number): string {
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
+export async function postJsonRequest(
+  url: string,
+  payload: unknown,
+  attempts = 1,
+  timeoutMs = 45_000,
+  fetchImpl: typeof fetch = fetch,
+): Promise<any> {
+  let lastError = new Error("Request failed");
+  for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    let data: any = {};
+    try {
+      response = await fetchImpl(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      try {
+        data = await response.json();
+      } catch (error) {
+        if (controller.signal.aborted) throw new Error("Request timed out");
+        if (response.ok) throw new Error("Prompta returned an invalid response");
+      }
+    } catch (error) {
+      lastError = controller.signal.aborted
+        ? new Error("Request timed out")
+        : error instanceof Error
+          ? error
+          : new Error(String(error));
+      if (attempt + 1 >= attempts) throw lastError;
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
+      continue;
+    } finally {
+      globalThis.clearTimeout(timeout);
+    }
+
+    if (response.ok) return data;
+    const errorMessage = (
+      typeof data === "object"
+      && data !== null
+      && "error" in data
+      && typeof data.error === "string"
+    ) ? data.error : "";
+    lastError = new Error(errorMessage || `${response.status} ${response.statusText}`);
+    if (response.status < 500 || attempt + 1 >= attempts) throw lastError;
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
+  }
+  throw lastError;
+}
 
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
   if (!/^\/at(?:\s|$)/i.test(message)) return null;
