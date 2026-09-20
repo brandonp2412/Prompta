@@ -45,6 +45,39 @@ def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> N
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_cache_quarantines_corrupt_database_and_recreates_cache(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    path.write_bytes(b"not a sqlite database")
+    wal_path = Path(f"{path}-wal")
+    shm_path = Path(f"{path}-shm")
+    wal_path.write_bytes(b"stale wal")
+    shm_path.write_bytes(b"stale shm")
+
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Recovered",
+    )
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    quarantined = sorted(tmp_path.glob("chats.sqlite3.corrupt-*"))
+    quarantined_databases = [
+        candidate
+        for candidate in quarantined
+        if not candidate.name.endswith(("-wal", "-shm"))
+    ]
+    assert len(quarantined_databases) == 1
+    quarantine = quarantined_databases[0]
+    assert quarantine.read_bytes() == b"not a sqlite database"
+    assert Path(f"{quarantine}-wal").read_bytes() == b"stale wal"
+    assert Path(f"{quarantine}-shm").read_bytes() == b"stale shm"
+    assert path.exists()
+    assert messages[0]["content"] == "Recovered"
+
+
 def test_snapshot_does_not_reopen_completed_conversation_without_resume(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(
