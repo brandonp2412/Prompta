@@ -1,4 +1,5 @@
 import {
+  conversationIdFromHash,
   formatScheduleInterval,
   matchingOptimisticConversation,
   parseAtSlashCommand,
@@ -1236,8 +1237,10 @@ async function loadChats() {
     state.chats = chats;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
     setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
-    const hashId = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
-    if (!state.selectedId && hashId && state.chats.some((chat) => chat.id === hashId)) {
+    const hashId = conversationIdFromHash(location.hash);
+    if (!state.selectedId && hashId) {
+      // Deep links must work even when the conversation is older than the
+      // sidebar's bounded /api/chats result set.
       state.selectedId = hashId;
     }
     if (!state.selectedId && state.chats.length && !state.composingNew) {
@@ -1249,6 +1252,7 @@ async function loadChats() {
       && state.pendingNewId !== state.selectedId
       && !state.chats.some((chat) => chat.id === state.selectedId)
       && !state.search
+      && hashId !== state.selectedId
     ) {
       state.selectedId = state.chats[0]?.id || null;
       state.selectedFingerprint = "";
@@ -1297,7 +1301,12 @@ async function loadSelectedChat() {
   } catch (error) {
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
     const missing = String(error).startsWith("Error: 404");
-    if (missing && state.pendingNewId !== state.selectedId) clearConversation();
+    if (missing && state.pendingNewId !== state.selectedId) {
+      if (conversationIdFromHash(location.hash) === selectedId) {
+        history.replaceState(null, "", `${location.pathname}${location.search}`);
+      }
+      clearConversation();
+    }
     if (!missing || state.pendingNewId !== state.selectedId) console.error(error);
   }
 }
@@ -1663,14 +1672,39 @@ async function watchSend(sendId, creatingNew, conversationId) {
       statusFailures = 0;
     } catch (error) {
       statusFailures += 1;
-      if (statusFailures < 8) {
-        await new Promise((resolve) => setTimeout(resolve, Math.min(2500, 250 * statusFailures)));
-        continue;
+
+      // A failed status read is not evidence that the send itself failed. The
+      // UI server may have restarted or the connection may only be transient;
+      // offering Retry here can duplicate a prompt that ChatGPT is still
+      // processing. Reconcile against the cache and keep observing instead.
+      if (statusFailures >= 3) {
+        await loadChats();
+        if (creatingNew) {
+          const pending = state.pendingNewSend;
+          if (!pending || pending.sendId !== sendId) return;
+          if (pending.conversationId) {
+            state.composingNew = false;
+            state.selectedId = pending.conversationId;
+            state.pendingNewId = pending.conversationId;
+            history.replaceState(null, "", `#/${encodeURIComponent(pending.conversationId)}`);
+            await loadSelectedChat();
+            return;
+          }
+        } else {
+          if (!pendingReply(conversationId, sendId)) return;
+          if (state.selectedId === conversationId) await loadSelectedChat();
+          if (!pendingReply(conversationId, sendId)) return;
+        }
+        setTextIfChanged(
+          els.composerStatus,
+          "Send status unavailable. Prompta may still be running it; reconnecting…",
+        );
       }
-      job = {
-        status: "failed",
-        error: String(error).replace(/^Error:\s*/, ""),
-      };
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        Math.min(5000, 250 * statusFailures),
+      ));
+      continue;
     }
     const status = job.status || "running";
     if (creatingNew) {
@@ -1971,7 +2005,7 @@ els.messageInput.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("hashchange", () => {
-  const id = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
+  const id = conversationIdFromHash(location.hash);
   if (id && id !== state.selectedId) selectChat(id);
 });
 let liveRefreshQueued = false;
