@@ -162,7 +162,7 @@ class ReadOnlyChatStore:
                     """,
                     parameters,
                 ).fetchall()
-        except FileNotFoundError:
+        except (FileNotFoundError, sqlite3.DatabaseError):
             return []
         return [dict(row) for row in rows]
 
@@ -191,7 +191,7 @@ class ReadOnlyChatStore:
                     """,
                     (conversation_id,),
                 ).fetchall()
-        except FileNotFoundError:
+        except (FileNotFoundError, sqlite3.DatabaseError):
             return None
         payload = dict(conversation)
         message_payloads = [dict(message) for message in messages]
