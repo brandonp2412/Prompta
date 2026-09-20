@@ -1691,10 +1691,6 @@ class Prompta:
                 return did_work
             try:
                 result = await self.send_reply(conversation_id, prompt, attachments=attachments)
-                if not await self.wait_for_cached_response(result):
-                    raise RuntimeError(
-                        "Prompta reply was sent but its assistant response was not cached"
-                    )
             except Exception as exc:
                 if not future.done():
                     future.set_exception(exc)
