@@ -45,6 +45,9 @@ _LIVE_SNAPSHOT_INTERVAL_SECONDS = 2.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
 _RESTART_RECOVERY_INTERRUPTED_SECONDS = 15 * 60.0
 _ACTIVE_TAB_RETENTION_SECONDS = 15.0
+_DELIVERY_FAILURE_POLLS = 3
+_DELIVERY_RETRY_MAX_ATTEMPTS = 1
+_DELIVERY_RETRY_GRACE_SECONDS = 15.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -1319,8 +1322,33 @@ class Prompta:
             if failure_hint:
                 active.idle_polls += 1
                 active.settled_at = 0.0
-                if active.idle_polls < 3:
+                now = time.monotonic()
+                if (
+                    active.delivery_retry_at > 0
+                    and now - active.delivery_retry_at < _DELIVERY_RETRY_GRACE_SECONDS
+                ):
                     continue
+                if active.idle_polls < _DELIVERY_FAILURE_POLLS:
+                    continue
+                if active.delivery_retry_attempts < _DELIVERY_RETRY_MAX_ATTEMPTS:
+                    try:
+                        retried = await driver.click_delivery_retry(context, timeout=3.0)
+                    except Exception:
+                        logger.exception(
+                            "Prompta could not retry failed ChatGPT delivery conversation=%s",
+                            active.conversation_id,
+                        )
+                        retried = False
+                    if retried:
+                        active.delivery_retry_attempts += 1
+                        active.delivery_retry_at = time.monotonic()
+                        active.idle_polls = 0
+                        logger.warning(
+                            "Prompta retried failed ChatGPT delivery conversation=%s attempt=%d",
+                            active.conversation_id,
+                            active.delivery_retry_attempts,
+                        )
+                        continue
                 self.cache.mark_interrupted(active.conversation_id)
                 try:
                     await driver.close_context(context)
@@ -1333,6 +1361,7 @@ class Prompta:
                 )
                 continue
 
+            active.delivery_retry_at = 0.0
             if streaming_hint or transient_hint:
                 continue
 
@@ -2066,6 +2095,14 @@ async def _spawn_firefox(
             os.unlink(resolved / name)
         except FileNotFoundError:
             pass
+    # Keep Firefox independent from the host's shared /tmp quota. Prompta can
+    # have plenty of state-disk space while a busy user tmpfs is exhausted,
+    # which otherwise makes a clean daemon restart fail before BiDi starts.
+    firefox_tmp = resolved.parent / "firefox-tmp"
+    firefox_tmp.mkdir(parents=True, exist_ok=True)
+    os.chmod(firefox_tmp, 0o700)
+    environment = os.environ.copy()
+    environment["TMPDIR"] = str(firefox_tmp)
     process = await asyncio.create_subprocess_exec(
         firefox_path,
         "--headless",
@@ -2077,6 +2114,7 @@ async def _spawn_firefox(
         "https://chatgpt.com/",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
+        env=environment,
     )
     await wait_for_port(port)
     return process
