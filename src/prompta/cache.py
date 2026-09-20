@@ -136,6 +136,20 @@ class ChatCache:
             """,
             (_SEEDED_PROMPT_KEY,),
         )
+        self.connection.execute(
+            """
+            DELETE FROM messages
+            WHERE message_key = ?
+              AND EXISTS (
+                SELECT 1
+                FROM messages actual
+                WHERE actual.conversation_id = messages.conversation_id
+                  AND actual.role = 'user'
+                  AND actual.message_key != ?
+              )
+            """,
+            (_SEEDED_PROMPT_KEY, _SEEDED_PROMPT_KEY),
+        )
         self._remove_superseded_transient_assistants()
         self.connection.commit()
 
@@ -155,29 +169,45 @@ class ChatCache:
                 SELECT transient.rowid
                 FROM messages transient
                 WHERE transient.role = 'assistant'
-                  AND transient.message_key LIKE '__prompta_live_assistant_%'
                   {conversation_filter}
-                  AND EXISTS (
-                      SELECT 1
-                      FROM messages canonical
-                      WHERE canonical.conversation_id = transient.conversation_id
-                        AND canonical.role = 'assistant'
-                        AND canonical.message_key NOT LIKE '__prompta_live_assistant_%'
-                        AND canonical.message_key NOT LIKE 'request-placeholder-%'
-                        AND canonical.ordinal > COALESCE((
-                            SELECT MAX(previous_user.ordinal)
-                            FROM messages previous_user
-                            WHERE previous_user.conversation_id = transient.conversation_id
-                              AND previous_user.role = 'user'
-                              AND previous_user.ordinal < transient.ordinal
-                        ), -1)
-                        AND canonical.ordinal < COALESCE((
-                            SELECT MIN(next_user.ordinal)
-                            FROM messages next_user
-                            WHERE next_user.conversation_id = transient.conversation_id
-                              AND next_user.role = 'user'
-                              AND next_user.ordinal > transient.ordinal
-                        ), 2147483647)
+                  AND (
+                    (
+                      transient.status = 'streaming'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM messages canonical
+                        WHERE canonical.conversation_id = transient.conversation_id
+                          AND canonical.role = 'assistant'
+                          AND canonical.status = 'complete'
+                          AND canonical.rowid != transient.rowid
+                          AND canonical.ordinal = transient.ordinal
+                      )
+                    )
+                    OR (
+                      transient.message_key LIKE '__prompta_live_assistant_%'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM messages canonical
+                        WHERE canonical.conversation_id = transient.conversation_id
+                          AND canonical.role = 'assistant'
+                          AND canonical.message_key NOT LIKE '__prompta_live_assistant_%'
+                          AND canonical.message_key NOT LIKE 'request-placeholder-%'
+                          AND canonical.ordinal > COALESCE((
+                              SELECT MAX(previous_user.ordinal)
+                              FROM messages previous_user
+                              WHERE previous_user.conversation_id = transient.conversation_id
+                                AND previous_user.role = 'user'
+                                AND previous_user.ordinal < transient.ordinal
+                          ), -1)
+                          AND canonical.ordinal < COALESCE((
+                              SELECT MIN(next_user.ordinal)
+                              FROM messages next_user
+                              WHERE next_user.conversation_id = transient.conversation_id
+                                AND next_user.role = 'user'
+                                AND next_user.ordinal > transient.ordinal
+                          ), 2147483647)
+                      )
+                    )
                   )
             )
             """,
@@ -330,7 +360,6 @@ class ChatCache:
         messages = snapshot.get("messages")
         if not isinstance(messages, list):
             messages = []
-        status = "complete" if complete else "active"
         completed_at = now if complete else None
         snapshot_path = str(snapshot.get("path") or "")
         snapshot_url = (
@@ -384,14 +413,24 @@ class ChatCache:
             self.connection.execute(
                 """
                 UPDATE conversations
-                SET title = ?, status = ?, updated_at = ?,
-                    completed_at = CASE WHEN ? THEN ? ELSE NULL END,
+                SET title = ?,
+                    status = CASE
+                        WHEN ? THEN 'complete'
+                        WHEN status = 'complete' THEN 'complete'
+                        ELSE 'active'
+                    END,
+                    updated_at = ?,
+                    completed_at = CASE
+                        WHEN ? THEN ?
+                        WHEN status = 'complete' THEN completed_at
+                        ELSE NULL
+                    END,
                     url = CASE WHEN ? != '' THEN ? ELSE url END
                 WHERE id = ?
                 """,
                 (
                     str(snapshot.get("title") or ""),
-                    status,
+                    int(complete),
                     now,
                     int(complete),
                     completed_at,
