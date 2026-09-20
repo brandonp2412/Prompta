@@ -334,6 +334,58 @@ def test_request_placeholder_is_never_persisted(tmp_path: Path) -> None:
     ]
 
 
+def test_snapshot_with_middle_gap_is_treated_as_partial(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="First question",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Virtualized chat",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First question"},
+                {"id": "a1", "role": "assistant", "content": "First answer"},
+                {"id": "u2", "role": "user", "content": "Second question"},
+            ],
+        },
+    )
+
+    # The DOM still starts with the first message, but virtualization dropped u2
+    # before a newer turn appeared. This is not a complete history snapshot.
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Virtualized chat",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First question"},
+                {"id": "a1", "role": "assistant", "content": "First answer"},
+                {"id": "u3", "role": "user", "content": "Third question"},
+                {"id": "a3", "role": "assistant", "content": "Third answer"},
+            ],
+        },
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [
+        (message["message_key"], message["ordinal"])
+        for message in messages
+    ] == [
+        ("u1", 0),
+        ("a1", 1),
+        ("u2", 2),
+        ("u3", 3),
+        ("a3", 4),
+    ]
+
+
 def test_partial_snapshot_does_not_delete_previous_canonical_turns(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

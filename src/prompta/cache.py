@@ -401,6 +401,45 @@ class ChatCache:
                 and incoming_content.strip() == str(first_existing["content"]).strip()
             )
 
+        # ChatGPT virtualizes older turns. A DOM snapshot can begin at the first
+        # cached message while still omitting a stable message in the middle.
+        # Treat that as partial; otherwise snapshot indexes can reuse occupied
+        # ordinals and make legitimate messages render as duplicates.
+        if snapshot_is_full and existing_history:
+            unmatched_incoming = list(incoming)
+            stable_existing = [
+                row
+                for row in existing_history
+                if str(row["status"]) == "complete"
+                and not str(row["message_key"]).startswith("__prompta_live_assistant_")
+                and not str(row["message_key"]).startswith("request-placeholder-")
+            ]
+            for existing in stable_existing:
+                existing_key = str(existing["message_key"])
+                existing_role = str(existing["role"])
+                existing_content = str(existing["content"] or "").strip()
+                match_index = next(
+                    (
+                        index
+                        for index, (_, role, content, key) in enumerate(unmatched_incoming)
+                        if key == existing_key
+                    ),
+                    -1,
+                )
+                if match_index < 0:
+                    match_index = next(
+                        (
+                            index
+                            for index, (_, role, content, _) in enumerate(unmatched_incoming)
+                            if role == existing_role and content.strip() == existing_content
+                        ),
+                        -1,
+                    )
+                if match_index < 0:
+                    snapshot_is_full = False
+                    break
+                unmatched_incoming.pop(match_index)
+
         max_existing_ordinal = max(
             (int(row["ordinal"]) for row in existing_rows),
             default=-1,
@@ -634,7 +673,7 @@ class ChatCache:
             SELECT message_key, ordinal, role, content, status, created_at, updated_at
             FROM messages
             WHERE conversation_id = ?
-            ORDER BY ordinal
+            ORDER BY ordinal, created_at, rowid
             """,
             (conversation_id,),
         ).fetchall()
