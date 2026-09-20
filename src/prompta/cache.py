@@ -56,7 +56,7 @@ class ChatCache:
         if not self.path.exists() or self.path.stat().st_size == 0:
             return False
         with self.path.open("rb") as database:
-            return database.read(16) != b"SQLite format 3\\x00"
+            return database.read(16) != b"SQLite format 3\x00"
 
     def _open_connection(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
