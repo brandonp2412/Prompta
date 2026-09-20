@@ -33,6 +33,22 @@ export type AtSlashCommand =
   | { error: string }
   | { runAtEpoch: number; runAtLabel: string; prompt: string };
 
+export type PendingSendActivity = {
+  label: "sending" | "queued" | "waiting";
+  statusText: string;
+};
+
+export function pendingSendActivity(
+  status: unknown,
+  hasSendId: boolean,
+): PendingSendActivity | null {
+  const normalized = String(status || "queued").trim().toLowerCase();
+  if (normalized === "failed" || normalized === "succeeded") return null;
+  if (!hasSendId) return { label: "sending", statusText: "Sending…" };
+  if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
+  return { label: "waiting", statusText: "Waiting for ChatGPT…" };
+}
+
 export function conversationIdFromHash(hash: unknown): string {
   const encoded = String(hash || "").replace(/^#\/?/, "").trim();
   if (!encoded) return "";
