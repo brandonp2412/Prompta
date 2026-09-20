@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
 _DAEMON_STARTUP_CHECKS = 10
 _DAEMON_STARTUP_POLL_SECONDS = 0.1
+_DAEMON_RESTART_GRACE_CHECKS = 120
 
 
 def _git_short_head() -> str:
@@ -1028,7 +1029,7 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
                 attachments=attachment_paths,
             )
         with self._local_send_lock:
-            if _daemon_is_running(self.state_path):
+            if _wait_for_local_scheduler(self.state_path):
                 if operation == "once":
                     return asyncio.run(_send_once_via_control(self.state_path, message, attachment_paths))
                 return asyncio.run(
@@ -1448,6 +1449,17 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         job["conversation_id"] = conversation_id
         job["node"] = target.host_name
         self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
+
+
+def _wait_for_local_scheduler(state_path: Path) -> bool:
+    """Allow a systemd-style scheduler restart to reclaim its daemon lock."""
+
+    for attempt in range(_DAEMON_RESTART_GRACE_CHECKS):
+        if _daemon_is_running(state_path):
+            return True
+        if attempt + 1 < _DAEMON_RESTART_GRACE_CHECKS:
+            time.sleep(_DAEMON_STARTUP_POLL_SECONDS)
+    return False
 
 
 def _reconcile_orphaned_local_chats(

@@ -19,6 +19,7 @@ from prompta.web import (
     SendJobRegistry,
     _reconcile_orphaned_local_chats,
     _remote_control,
+    _wait_for_local_scheduler,
 )
 
 
@@ -202,12 +203,28 @@ def test_local_ui_startup_waits_for_scheduler_lock(tmp_path: Path) -> None:
     sleep.assert_called_once()
 
 
+def test_wait_for_local_scheduler_tolerates_restart_gap(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+
+    with (
+        patch(
+            "prompta.web._daemon_is_running",
+            side_effect=[False, False, True],
+        ) as running,
+        patch("prompta.web.time.sleep") as sleep,
+    ):
+        assert _wait_for_local_scheduler(state_path) is True
+
+    assert running.call_count == 3
+    assert sleep.call_count == 2
+
+
 def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
         with (
-            patch("prompta.web._daemon_is_running", return_value=False),
+            patch("prompta.web._wait_for_local_scheduler", return_value=False),
             patch("prompta.web._send_direct", AsyncMock(return_value="chat-direct")) as direct,
         ):
             result = server._send("once", "Hello", "")
@@ -229,7 +246,7 @@ def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) 
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
         with (
-            patch("prompta.web._daemon_is_running", return_value=True),
+            patch("prompta.web._wait_for_local_scheduler", return_value=True),
             patch(
                 "prompta.web._send_once_via_control",
                 AsyncMock(return_value="chat-control"),
