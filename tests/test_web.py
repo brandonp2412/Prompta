@@ -178,6 +178,7 @@ def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
 
     assert chats[0]["id"] == "chat-1"
     assert chats[0]["status"] == "active"
+    assert chats[0]["prompt"] == "Keep working on Kite"
     assert chats[0]["message_count"] == 2
     assert "Implemented" in chats[0]["preview"]
     assert chat is not None

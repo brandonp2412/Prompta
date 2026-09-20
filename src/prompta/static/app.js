@@ -3,6 +3,7 @@ const state = {
   selectedId: null,
   selectedUpdatedAt: null,
   selectedFingerprint: "",
+  selectedChat: null,
   search: "",
   sidebarFingerprint: "",
   refreshTimer: null,
@@ -17,6 +18,7 @@ const state = {
   chatsRequestId: 0,
   selectedRequestId: 0,
   sidebarRefreshTimer: null,
+  clientSequence: 0,
 };
 
 function syncViewportHeight() {
@@ -105,12 +107,48 @@ function truncate(value, length = 88) {
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
 
+function nextClientSendId() {
+  state.clientSequence += 1;
+  return `client-${Date.now()}-${state.clientSequence}`;
+}
+
+function pendingNewMatchesChat(chat, pending) {
+  if (!pending) return false;
+  if (pending.conversationId && chat.id === pending.conversationId) return true;
+  const prompt = String(chat.prompt || "").trim();
+  const preview = String(chat.preview || "").trim();
+  const message = String(pending.message || "").trim();
+  if (!message || (prompt !== message && preview !== message)) return false;
+  const createdAt = Number(chat.created_at || chat.updated_at || 0);
+  return Math.abs(createdAt - Number(pending.updatedAt || 0)) <= 15;
+}
+
+function sidebarChats() {
+  const pending = state.pendingNewSend;
+  if (!pending || state.chats.some((chat) => pendingNewMatchesChat(chat, pending))) {
+    return state.chats;
+  }
+  if (state.search && !pending.message.toLowerCase().includes(state.search.toLowerCase())) {
+    return state.chats;
+  }
+  return [{
+    id: `__pending-new-${pending.clientId}`,
+    title: "",
+    job_name: "",
+    preview: pending.message,
+    status: "pending",
+    updated_at: pending.updatedAt,
+    message_count: 1,
+    pending_new: true,
+  }, ...state.chats];
+}
+
 function groupChats(chats) {
   const groups = [
-    ["Active", chats.filter((chat) => chat.status === "active")],
-    ["Today", chats.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at))],
-    ["Yesterday", chats.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at, 1))],
-    ["Previous", chats.filter((chat) => chat.status !== "active"
+    ["Active", chats.filter((chat) => chat.status === "active" || chat.pending_new)],
+    ["Today", chats.filter((chat) => chat.status !== "active" && !chat.pending_new && sameLocalDay(chat.updated_at))],
+    ["Yesterday", chats.filter((chat) => chat.status !== "active" && !chat.pending_new && sameLocalDay(chat.updated_at, 1))],
+    ["Previous", chats.filter((chat) => chat.status !== "active" && !chat.pending_new
       && !sameLocalDay(chat.updated_at)
       && !sameLocalDay(chat.updated_at, 1))],
   ];
@@ -127,19 +165,21 @@ function displayStatus(status) {
 }
 
 function renderSidebar(force = false) {
-  const fingerprint = JSON.stringify(state.chats.map((chat) => [
+  const chats = sidebarChats();
+  const fingerprint = JSON.stringify(chats.map((chat) => [
     chat.id,
     chat.status,
     chat.status === "active" ? "" : chat.updated_at,
     chat.title,
     chat.status === "active" ? "" : chat.preview,
     chat.message_count,
-  ])) + state.selectedId;
+    chat.pending_new,
+  ])) + state.selectedId + state.composingNew;
 
   if (!force && fingerprint === state.sidebarFingerprint) return;
   state.sidebarFingerprint = fingerprint;
 
-  if (!state.chats.length) {
+  if (!chats.length) {
     els.chatList.innerHTML = `
       <div class="list-empty">
         ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
@@ -147,12 +187,13 @@ function renderSidebar(force = false) {
     return;
   }
 
-  els.chatList.innerHTML = groupChats(state.chats).map(([label, chats]) => `
+  els.chatList.innerHTML = groupChats(chats).map(([label, chats]) => `
     <section class="chat-group">
       <div class="chat-group-label">${escapeHtml(label)}</div>
       ${chats.map((chat) => `
-        <button class="chat-item ${chat.id === state.selectedId ? "selected" : ""}"
-                data-chat-id="${escapeHtml(chat.id)}">
+        <button class="chat-item ${(chat.pending_new ? state.composingNew : chat.id === state.selectedId || (state.composingNew && pendingNewMatchesChat(chat, state.pendingNewSend))) ? "selected" : ""}"
+                data-chat-id="${escapeHtml(chat.id)}"
+                data-pending-new="${chat.pending_new ? "true" : "false"}">
           <div class="chat-item-top">
             <span class="item-status-dot ${statusClass(chat.status)}"></span>
             <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
@@ -168,7 +209,14 @@ function renderSidebar(force = false) {
   `).join("");
 
   for (const item of els.chatList.querySelectorAll("[data-chat-id]")) {
-    item.addEventListener("click", () => selectChat(item.dataset.chatId));
+    item.addEventListener("click", () => {
+      if (item.dataset.pendingNew === "true") {
+        renderNewChat();
+        document.body.classList.remove("sidebar-open");
+        return;
+      }
+      selectChat(item.dataset.chatId);
+    });
   }
 }
 
@@ -279,8 +327,7 @@ function renderMessageSection(message, allowStreaming = true) {
         <div class="message-content">${renderMarkdown(message.content)}</div>
         ${streaming ? `
           <div class="streaming-indicator">
-            <span class="streaming-dots"><i></i><i></i><i></i></span>
-            writing
+            <span class="streaming-dots" aria-label="Waiting for response"><i></i><i></i><i></i></span>
           </div>
         ` : ""}
       </div>
@@ -318,16 +365,16 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     const messages = [];
     if (!cachedState.userSeen) {
       messages.push({
-        message_key: `pending-user-${item.sendId}`,
+        message_key: `pending-user-${item.clientId || item.sendId}`,
         role: "user",
         content: item.message,
         status: "complete",
         updated_at: item.updatedAt,
       });
     }
-    if (item.status === "succeeded") {
+    if (item.status !== "failed") {
       messages.push({
-        message_key: `pending-assistant-${item.sendId}`,
+        message_key: `pending-assistant-${item.clientId || item.sendId}`,
         role: "assistant",
         content: "",
         status: "streaming",
@@ -336,7 +383,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     }
     if (item.status === "failed") {
       messages.push({
-        message_key: `pending-error-${item.sendId}`,
+        message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
         content: `Send failed: ${item.error || "Unknown Prompta send error"}`,
         status: "complete",
@@ -349,6 +396,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 }
 
 function renderConversation(chat) {
+  state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
   const pendingMessages = pendingReplyMessages(chat.id, messages);
   const visibleMessages = [
@@ -383,7 +431,10 @@ function renderConversation(chat) {
   if (fingerprint !== state.selectedFingerprint) {
     state.selectedFingerprint = fingerprint;
     els.conversation.innerHTML = visibleMessages
-      .map((message) => renderMessageSection(message, chat.status === "active"))
+      .map((message) => renderMessageSection(
+        message,
+        chat.status === "active" || String(message.message_key || "").startsWith("pending-assistant-"),
+      ))
       .join("");
 
     for (const button of els.conversation.querySelectorAll(".copy-code")) {
@@ -424,22 +475,14 @@ function renderConversation(chat) {
   els.emptyState.hidden = true;
   els.conversation.hidden = false;
   els.messageInput.disabled = state.sending;
-  els.sendButton.disabled = state.sending;
+  syncSendButton();
   state.composingNew = false;
   if (!state.sending) {
     const pendingForChat = state.pendingReplies.get(chat.id) || [];
     const latestPending = pendingForChat.at(-1);
-    if (latestPending?.status === "failed") {
-      els.composerStatus.textContent = "Send failed. The error is shown in the chat.";
-    } else if (latestPending?.status === "succeeded") {
-      els.composerStatus.textContent = "Sent. Waiting for ChatGPT to reply…";
-    } else if (latestPending) {
-      els.composerStatus.textContent = "Queued. Prompta is sending it now…";
-    } else if (chat.status === "active" && lastCachedMessage?.role === "user") {
-      els.composerStatus.textContent = "Sent. Waiting for ChatGPT to reply…";
-    } else {
-      els.composerStatus.textContent = "";
-    }
+    els.composerStatus.textContent = latestPending?.status === "failed"
+      ? "Send failed. The error is shown in the chat."
+      : "";
   }
 }
 
@@ -516,6 +559,7 @@ function clearConversation() {
   state.selectedId = null;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
+  state.selectedChat = null;
   els.emptyState.hidden = false;
   els.conversation.hidden = true;
   els.conversation.innerHTML = "";
@@ -526,7 +570,7 @@ function clearConversation() {
   els.statusChip.className = "status-chip neutral";
   els.syncLabel.textContent = "local cache";
   els.messageInput.disabled = true;
-  els.sendButton.disabled = true;
+  syncSendButton();
   els.messageInput.placeholder = "Message Prompta…";
   els.composerStatus.textContent = "";
 }
@@ -537,12 +581,13 @@ function renderNewChat() {
   state.selectedId = null;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
+  state.selectedChat = null;
   state.mode = "chats";
 
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
-    pending?.sendId || "",
+    pending?.clientId || pending?.sendId || "",
     pending?.message || "",
     pending?.status || "",
     pending?.error || "",
@@ -553,7 +598,7 @@ function renderNewChat() {
     state.newChatFingerprint = fingerprint;
     if (pending) {
       const messages = [{
-        message_key: `pending-user-${pending.sendId}`,
+        message_key: `pending-user-${pending.clientId || pending.sendId}`,
         role: "user",
         content: pending.message,
         status: "complete",
@@ -561,12 +606,20 @@ function renderNewChat() {
       }];
       if (pending.status === "failed") {
         messages.push({
-          message_key: `pending-error-${pending.sendId}`,
+          message_key: `pending-error-${pending.clientId || pending.sendId}`,
           role: "assistant",
           content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
           status: "complete",
           updated_at: pending.updatedAt,
           send_error: true,
+        });
+      } else {
+        messages.push({
+          message_key: `pending-assistant-${pending.clientId || pending.sendId}`,
+          role: "assistant",
+          content: "",
+          status: "streaming",
+          updated_at: pending.updatedAt,
         });
       }
       els.emptyState.hidden = true;
@@ -588,10 +641,10 @@ function renderNewChat() {
     els.statusChip.className = "status-chip neutral";
     els.syncLabel.textContent = pending ? "send queued" : "fresh conversation";
     els.messageInput.disabled = Boolean(waiting);
-    els.sendButton.disabled = Boolean(waiting);
+    syncSendButton();
     els.messageInput.placeholder = "Start a new chat…";
-    els.composerStatus.textContent = pending
-      ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
+    els.composerStatus.textContent = pending?.status === "failed"
+      ? "Send failed. The error is shown in the chat."
       : "";
   }
 
@@ -702,6 +755,7 @@ async function loadSelectedChat() {
       if (state.pendingNewSend?.conversationId === chat.id) state.pendingNewSend = null;
     }
     state.selectedUpdatedAt = chat.updated_at;
+    state.selectedChat = chat;
     renderConversation(chat);
   } catch (error) {
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
@@ -724,6 +778,7 @@ async function selectChat(id) {
   state.selectedId = id;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
+  state.selectedChat = null;
   history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
   renderSidebar(true);
   await loadSelectedChat();
@@ -775,6 +830,12 @@ function resizeComposer() {
   if (els.messageInput.scrollHeight > 180) {
     els.messageInput.style.overflowY = "auto";
   }
+}
+
+function syncSendButton() {
+  els.sendButton.disabled = els.messageInput.disabled
+    || state.sending
+    || !els.messageInput.value.trim();
 }
 
 function pendingReply(conversationId, sendId) {
@@ -834,7 +895,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         state.pendingNewId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
         els.messageInput.placeholder = "Message Prompta…";
-        els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+        els.composerStatus.textContent = "";
         state.selectedUpdatedAt = null;
         await loadChats();
         await loadSelectedChat();
@@ -854,7 +915,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
     });
     if (state.selectedId === conversationId) await loadSelectedChat();
     if (status === "succeeded") {
-      els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+      els.composerStatus.textContent = "";
       await loadChats();
       return;
     }
@@ -871,10 +932,37 @@ async function sendSelectedMessage() {
   const conversationId = state.selectedId;
   if (!message || (!creatingNew && !conversationId) || state.mode !== "chats" || state.sending) return;
 
+  const pending = {
+    clientId: nextClientSendId(),
+    sendId: "",
+    message,
+    status: "queueing",
+    error: "",
+    conversationId: conversationId || "",
+    updatedAt: Date.now() / 1000,
+  };
+
   state.sending = true;
   els.messageInput.disabled = true;
-  els.sendButton.disabled = true;
-  els.composerStatus.textContent = "Queueing…";
+  syncSendButton();
+  els.messageInput.value = "";
+  resizeComposer();
+  els.composerStatus.textContent = "";
+
+  if (creatingNew) {
+    state.pendingNewSend = pending;
+    state.newChatFingerprint = "";
+    renderNewChat();
+    renderSidebar(true);
+  } else {
+    const items = state.pendingReplies.get(conversationId) || [];
+    items.push(pending);
+    state.pendingReplies.set(conversationId, items);
+    if (state.selectedChat?.id === conversationId) {
+      renderConversation(state.selectedChat);
+    }
+  }
+
   try {
     const result = creatingNew
       ? await postJson("api/chats", { message })
@@ -882,42 +970,44 @@ async function sendSelectedMessage() {
         `api/chats/${encodeURIComponent(conversationId)}/messages`,
         { message },
       );
-    const pending = {
-      sendId: result.send_id,
-      message,
-      status: result.status || "queued",
-      error: "",
-      conversationId: conversationId || "",
-      updatedAt: Date.now() / 1000,
-    };
-    els.messageInput.value = "";
-    resizeComposer();
+    if (!result.send_id) throw new Error("Prompta did not return a send id");
+
+    pending.sendId = result.send_id;
+    pending.status = result.status || "queued";
+    pending.updatedAt = Date.now() / 1000;
 
     if (creatingNew) {
-      state.pendingNewSend = pending;
+      state.newChatFingerprint = "";
       renderNewChat();
-    } else {
-      const items = state.pendingReplies.get(conversationId) || [];
-      items.push(pending);
-      state.pendingReplies.set(conversationId, items);
-      state.selectedFingerprint = "";
-      await loadSelectedChat();
-      els.composerStatus.textContent = "Queued. Prompta is sending it now…";
+      renderSidebar(true);
+    } else if (state.selectedChat?.id === conversationId) {
+      renderConversation(state.selectedChat);
     }
+    els.composerStatus.textContent = "";
     watchSend(result.send_id, creatingNew, conversationId);
   } catch (error) {
-    els.composerStatus.textContent = String(error).replace(/^Error:\s*/, "");
+    pending.status = "failed";
+    pending.error = String(error).replace(/^Error:\s*/, "");
+    pending.updatedAt = Date.now() / 1000;
+    if (creatingNew) {
+      state.newChatFingerprint = "";
+      renderNewChat();
+      renderSidebar(true);
+    } else if (state.selectedChat?.id === conversationId) {
+      renderConversation(state.selectedChat);
+    }
+    els.composerStatus.textContent = "Send failed. The error is shown in the chat.";
     console.error(error);
   } finally {
     state.sending = false;
     if (!creatingNew && state.selectedId && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
-      els.messageInput.focus();
-    } else if (creatingNew && !state.pendingNewSend && state.mode === "chats") {
+      syncSendButton();
+      if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+    } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
-      els.messageInput.focus();
+      syncSendButton();
+      if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
     }
   }
 }
@@ -927,7 +1017,10 @@ els.messageForm.addEventListener("submit", (event) => {
   sendSelectedMessage();
 });
 
-els.messageInput.addEventListener("input", resizeComposer);
+els.messageInput.addEventListener("input", () => {
+  resizeComposer();
+  syncSendButton();
+});
 els.messageInput.addEventListener("keydown", (event) => {
   const desktopKeyboard = matchMedia("(pointer: fine)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && desktopKeyboard) {
