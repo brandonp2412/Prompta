@@ -22,6 +22,7 @@ class FirefoxBiDiDriver:
         self.request_id = 0
         self._network_subscribed = False
         self._send_capture: dict[str, Any] | None = None
+        self.needs_browser_restart = False
 
     @property
     def is_connected(self) -> bool:
@@ -42,12 +43,23 @@ class FirefoxBiDiDriver:
     async def connect(self) -> None:
         if self.is_connected:
             return
-        self.ws = await websockets.connect(
-            self.url,
-            max_size=16 * 1024 * 1024,
-            ping_interval=None,
-        )
-        response = await self._call("session.new", {"capabilities": {}})
+        if self.needs_browser_restart:
+            raise RuntimeError("Firefox BiDi session is poisoned; browser restart required")
+        try:
+            self.ws = await websockets.connect(
+                self.url,
+                max_size=16 * 1024 * 1024,
+                ping_interval=None,
+            )
+            response = await self._call("session.new", {"capabilities": {}})
+        except TimeoutError:
+            self.needs_browser_restart = True
+            raise
+        except RuntimeError as exc:
+            message = str(exc).casefold()
+            if "session not created" in message or "maximum number of active sessions" in message:
+                self.needs_browser_restart = True
+            raise
         if response.get("type") != "success":
             raise RuntimeError(f"Firefox BiDi session failed: {response}")
         tree = await self._call("browsingContext.getTree", {})
@@ -119,6 +131,7 @@ class FirefoxBiDiDriver:
                     )
                 return message
         except TimeoutError as exc:
+            self.needs_browser_restart = True
             ws = self.ws
             self.ws = None
             self.context = ""
@@ -133,6 +146,7 @@ class FirefoxBiDiDriver:
                 f"{method}: Firefox BiDi call timed out after {_BIDI_CALL_TIMEOUT_SECONDS:.0f}s"
             ) from exc
         except ConnectionClosed:
+            self.needs_browser_restart = True
             self.ws = None
             self.context = ""
             self._network_subscribed = False
@@ -188,7 +202,7 @@ class FirefoxBiDiDriver:
             """(()=>{
               const previous=window.__promptaSendProbeOriginalFetch||window.fetch;
               window.__promptaSendProbeOriginalFetch=previous;
-              const probe={message_id:'',parent_message_id:'',response_status:0,committed:false,stream_error:''};
+              const probe={message_id:'',parent_message_id:'',conversation_id:'',response_status:0,committed:false,stream_error:''};
               window.__promptaSendProbe=probe;
               const captureBody=text=>{try{const body=JSON.parse(text||'{}');probe.message_id=body.messages?.[0]?.id||'';probe.parent_message_id=body.parent_message_id||'';}catch(_){}};
               window.fetch=function(input,init){
@@ -215,6 +229,10 @@ class FirefoxBiDiDriver:
                           while(chunks<24&&buffer.length<65536){
                             const item=await reader.read(); if(item.done)break; chunks+=1;
                             buffer+=decoder.decode(item.value,{stream:true});
+                            if(!probe.conversation_id){
+                              const match=buffer.match(/["']conversation_id["'][ ]*:[ ]*["']([^"']+)["']/);
+                              if(match)probe.conversation_id=match[1];
+                            }
                             const id=probe.message_id;
                             if(id&&buffer.includes('\\"type\\":\\"input_message\\"')&&buffer.includes('\\"id\\":\\"'+id+'\\"')){
                               probe.committed=true;

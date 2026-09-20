@@ -9,12 +9,14 @@ import json
 import logging
 import mimetypes
 import shlex
+import socket
 import sqlite3
 import subprocess
 import threading
 import time
 import uuid
 from collections.abc import Callable
+from html import escape as html_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -197,6 +199,35 @@ class ReadOnlyChatStore:
             "active": int(row["active"] or 0),
         }
 
+    def event_fingerprint(self) -> tuple[int, float, int, float, str]:
+        "Return a cheap cache revision for event-driven UI refreshes."
+        if not self.path.is_file():
+            return (0, 0.0, 0, 0.0, "")
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT "
+                    "(SELECT COUNT(*) FROM conversations) AS conversation_count, "
+                    "COALESCE((SELECT MAX(updated_at) FROM conversations), 0) "
+                    "AS conversation_updated, "
+                    "(SELECT COUNT(*) FROM messages "
+                    "WHERE message_key NOT LIKE 'request-placeholder-%') AS message_count, "
+                    "COALESCE((SELECT MAX(updated_at) FROM messages "
+                    "WHERE message_key NOT LIKE 'request-placeholder-%'), 0) "
+                    "AS message_updated, "
+                    "(SELECT id FROM conversations ORDER BY updated_at DESC LIMIT 1) "
+                    "AS latest_conversation_id"
+                ).fetchone()
+        except (FileNotFoundError, sqlite3.Error):
+            return (0, 0.0, 0, 0.0, "")
+        return (
+            int(row["conversation_count"] or 0),
+            float(row["conversation_updated"] or 0.0),
+            int(row["message_count"] or 0),
+            float(row["message_updated"] or 0.0),
+            str(row["latest_conversation_id"] or ""),
+        )
+
 
 _REMOTE_CONTROL_TIMEOUT_SECONDS = 11 * 60
 
@@ -373,11 +404,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         store: ReadOnlyChatStore,
         state_path: Path = DEFAULT_STATE_PATH,
         control_host: str = "",
+        server_name: str = "",
     ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
         self.state_path = state_path.expanduser()
         self.control_host = control_host.strip()
+        raw_server_name = server_name.strip() or socket.gethostname().strip() or "local"
+        self.server_name = raw_server_name.replace("-", " ").title()
         self.send_jobs = SendJobRegistry(self._send)
 
     def _send(self, operation: str, message: str, conversation_id: str) -> str:
@@ -412,6 +446,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     @property
     def control_host(self) -> str:
         return cast(PromptaUIServer, self.server).control_host
+
+    @property
+    def send_jobs(self) -> SendJobRegistry:
+        return cast(PromptaUIServer, self.server).send_jobs
+
+    @property
+    def ui_server_name(self) -> str:
+        return cast(PromptaUIServer, self.server).server_name
 
     def _message_from_json_body(self) -> str | None:
         content_type = self.headers.get("Content-Type", "")
@@ -455,6 +497,77 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self._headers(status, "application/json; charset=utf-8")
         self.wfile.write(body)
 
+    def _index(self) -> None:
+        try:
+            body = (_STATIC_ROOT / "index.html").read_text().replace(
+                "__PROMPTA_SERVER_NAME__",
+                html_escape(self.ui_server_name),
+            ).encode()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._headers(HTTPStatus.OK, "text/html; charset=utf-8")
+        self.wfile.write(body)
+
+    def _manifest(self) -> None:
+        name = f"Prompta · {self.ui_server_name}"
+        payload = {
+            "id": "./",
+            "name": name,
+            "short_name": name,
+            "description": "Fast local-first Prompta conversation UI",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": "#212121",
+            "theme_color": "#212121",
+            "icons": [
+                {
+                    "src": "./icon.svg",
+                    "sizes": "any",
+                    "type": "image/svg+xml",
+                    "purpose": "any maskable",
+                }
+            ],
+        }
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        self._headers(HTTPStatus.OK, "application/manifest+json; charset=utf-8")
+        self.wfile.write(body)
+
+    def _event_stream(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        last_fingerprint = self.store.event_fingerprint()
+        last_heartbeat = time.monotonic()
+        try:
+            while True:
+                fingerprint = self.store.event_fingerprint()
+                now = time.monotonic()
+                if fingerprint != last_fingerprint:
+                    payload = json.dumps(
+                        {
+                            "revision": fingerprint[:4],
+                            "conversation_id": fingerprint[4],
+                        },
+                        separators=(",", ":"),
+                    )
+                    body = "event: refresh\ndata: " + payload + "\n\n"
+                    self.wfile.write(body.encode())
+                    self.wfile.flush()
+                    last_fingerprint = fingerprint
+                    last_heartbeat = now
+                elif now - last_heartbeat >= 15.0:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    last_heartbeat = now
+                time.sleep(0.75)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
         target = (_STATIC_ROOT / relative_path).resolve()
         try:
@@ -475,7 +588,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/":
-            self._static("index.html", "text/html")
+            self._index()
             return
         if path == "/app.css":
             self._static("app.css", "text/css")
@@ -483,8 +596,23 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if path == "/app.js":
             self._static("app.js", "text/javascript")
             return
+        if path == "/sidebar.js":
+            self._static("sidebar.js", "text/javascript")
+            return
+        if path == "/sw.js":
+            self._static("sw.js", "text/javascript")
+            return
+        if path == "/icon.svg":
+            self._static("icon.svg", "image/svg+xml")
+            return
+        if path == "/manifest.webmanifest":
+            self._manifest()
+            return
         if path == "/api/health":
             self._json(self.store.stats())
+            return
+        if path == "/api/events":
+            self._event_stream()
             return
         if path == "/api/chats":
             query = parse_qs(parsed.query)
@@ -506,7 +634,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         send_prefix = "/api/sends/"
         if path.startswith(send_prefix):
             send_id = unquote(path[len(send_prefix) :]).strip("/")
-            job = self.server.send_jobs.get(send_id)
+            job = self.send_jobs.get(send_id)
             if job is None:
                 self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -531,7 +659,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             message = self._message_from_json_body()
             if message is None:
                 return
-            job = self.server.send_jobs.submit(
+            job = self.send_jobs.submit(
                 operation="once",
                 message=message,
             )
@@ -553,7 +681,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if message is None:
             return
 
-        job = self.server.send_jobs.submit(
+        job = self.send_jobs.submit(
             operation="reply",
             conversation_id=conversation_id,
             message=message,
@@ -568,10 +696,11 @@ def serve(
     port: int,
     state_path: Path = DEFAULT_STATE_PATH,
     control_host: str = "",
+    server_name: str = "",
 ) -> None:
     store = ReadOnlyChatStore(cache_path, log_path)
-    server = PromptaUIServer((host, port), store, state_path, control_host)
-    logger.info("Prompta UI listening on http://%s:%d", host, port)
+    server = PromptaUIServer((host, port), store, state_path, control_host, server_name)
+    logger.info("Prompta UI %s listening on http://%s:%d", server.server_name, host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
     if control_host:
         logger.info("Sending replies through Prompta on SSH host %s", control_host)
@@ -591,6 +720,7 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--control-host", default="")
+    parser.add_argument("--server-name", default="")
     parser.add_argument("--logs", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -603,6 +733,7 @@ def main() -> None:
         max(1, min(args.port, 65535)),
         args.state,
         args.control_host,
+        args.server_name,
     )
 
 

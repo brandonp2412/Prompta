@@ -49,6 +49,31 @@ async def test_bidi_call_timeout_disconnects_wedged_session(
 
     assert driver.ws is None
     assert driver.context == ""
+    assert driver.needs_browser_restart is True
+
+
+@pytest.mark.asyncio
+async def test_connect_marks_browser_restart_required_when_firefox_session_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWebSocket:
+        close_code = None
+
+    async def fake_connect(*args: object, **kwargs: object) -> FakeWebSocket:
+        return FakeWebSocket()
+
+    monkeypatch.setattr(bidi_module.websockets, "connect", fake_connect)
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError(
+            "session.new: session not created: Maximum number of active sessions"
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="Maximum number of active sessions"):
+        await driver.connect()
+
+    assert driver.needs_browser_restart is True
 
 
 @pytest.mark.asyncio
