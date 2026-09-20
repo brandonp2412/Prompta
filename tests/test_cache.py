@@ -437,6 +437,119 @@ def test_partial_snapshot_does_not_delete_previous_canonical_turns(tmp_path: Pat
     ]
 
 
+def test_full_snapshot_collapses_stale_same_turn_assistant_sibling(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "a1-tool-state",
+                    "role": "assistant",
+                    "content": "Called tool",
+                },
+                {
+                    "id": "a1-final",
+                    "role": "assistant",
+                    "content": "Finished with the tool result",
+                },
+            ],
+        },
+        complete=True,
+    )
+
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "a1-final",
+                    "role": "assistant",
+                    "content": "Finished with the tool result",
+                },
+            ],
+        },
+        complete=True,
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [
+        (message["message_key"], message["ordinal"], message["content"])
+        for message in messages
+    ] == [
+        ("u1", 0, "Do work"),
+        ("a1-final", 1, "Finished with the tool result"),
+    ]
+
+
+def test_missing_only_assistant_in_user_turn_still_marks_snapshot_partial(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="First question",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Virtualized chat",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First question"},
+                {"id": "a1", "role": "assistant", "content": "First answer"},
+                {"id": "u2", "role": "user", "content": "Second question"},
+                {"id": "a2", "role": "assistant", "content": "Second answer"},
+            ],
+        },
+        complete=True,
+    )
+
+    # The first turn's only assistant is absent. That is virtualization, not a
+    # duplicate sibling, so it must stay cached.
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Virtualized chat",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First question"},
+                {"id": "u2", "role": "user", "content": "Second question"},
+                {"id": "a2", "role": "assistant", "content": "Second answer"},
+            ],
+        },
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [
+        (message["message_key"], message["ordinal"])
+        for message in messages
+    ] == [
+        ("u1", 0),
+        ("a1", 1),
+        ("u2", 2),
+        ("a2", 3),
+    ]
+
+
 def test_final_assistant_replaces_streaming_row_when_message_id_changes(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(
