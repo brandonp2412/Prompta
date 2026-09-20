@@ -450,6 +450,10 @@ async def test_click_send_button_uses_trusted_pointer_action() -> None:
 
     await driver.click_send_button()
 
+    expression = driver.eval.await_args.args[0]  # type: ignore[union-attr]
+    assert "scrollIntoView" in expression
+    assert "clientHeight" in expression
+
     calls = driver._call.await_args_list  # type: ignore[attr-defined]
     assert calls[0].args[0] == "input.performActions"
     actions = calls[0].args[1]["actions"][0]
@@ -459,6 +463,38 @@ async def test_click_send_button_uses_trusted_pointer_action() -> None:
     assert actions["actions"][1] == {"type": "pointerDown", "button": 0}
     assert actions["actions"][2] == {"type": "pointerUp", "button": 0}
     assert calls[1].args[0] == "input.releaseActions"
+
+
+@pytest.mark.asyncio
+async def test_click_send_button_rechecks_after_stale_viewport_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.context = "context-1"
+    driver.eval = AsyncMock(
+        side_effect=[
+            '{"x":655,"y":870,"label":"Send"}',
+            '{"x":655,"y":341,"label":"Send"}',
+        ]
+    )  # type: ignore[method-assign]
+    driver._click_viewport_point = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            RuntimeError(
+                "input.performActions: move target out of bounds: "
+                "Move target (655, 870) is out of bounds of viewport dimensions (1050, 682)"
+            ),
+            None,
+        ]
+    )
+    monkeypatch.setattr(bidi_module.asyncio, "sleep", AsyncMock())
+
+    await driver.click_send_button()
+
+    assert driver.eval.await_count == 2
+    assert driver._click_viewport_point.await_count == 2  # type: ignore[attr-defined]
+    driver._click_viewport_point.assert_awaited_with(  # type: ignore[attr-defined]
+        "context-1", 655.0, 341.0
+    )
 
 
 @pytest.mark.asyncio

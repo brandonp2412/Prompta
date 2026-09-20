@@ -637,24 +637,29 @@ class FirefoxBiDiDriver:
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
-        point: dict[str, Any] | None = None
         while asyncio.get_running_loop().time() < deadline:
             raw = await self.eval(
-                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const composer=[...document.querySelectorAll('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt')].find(visible);const scope=composer?.closest('form')||composer?.parentElement?.parentElement||document;const buttons=[...scope.querySelectorAll('button')].filter(visible);const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>enabled(e)&&e.matches('button[type="submit"]'))||buttons.find(e=>enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>enabled(e)&&/send/i.test(label(e)));if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};})())"""
+                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const composer=[...document.querySelectorAll('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt')].find(visible);const scope=composer?.closest('form')||composer?.parentElement?.parentElement||document;const buttons=[...scope.querySelectorAll('button')].filter(visible);const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>enabled(e)&&e.matches('button[type="submit"]'))||buttons.find(e=>enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>enabled(e)&&/send/i.test(label(e)));if(!button)return null;button.scrollIntoView({block:'center',inline:'center'});const r=button.getBoundingClientRect();const width=document.documentElement.clientWidth||window.innerWidth;const height=document.documentElement.clientHeight||window.innerHeight;const x=r.left+r.width/2,y=r.top+r.height/2;if(x<0||y<0||x>=width||y>=height)return null;return {x,y,label:label(button)};})())"""
             )
             candidate = json.loads(raw or "null")
             if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
-                point = candidate
-                break
+                try:
+                    x = float(candidate["x"])
+                    y = float(candidate["y"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise RuntimeError("ChatGPT send button position was invalid") from exc
+                try:
+                    await self._click_viewport_point(self.context, x, y)
+                except RuntimeError as exc:
+                    # Re-read the button after any scroll/resize race changes the
+                    # viewport between DOM measurement and the trusted click.
+                    if "out of bounds" not in str(exc).lower():
+                        raise
+                    await asyncio.sleep(0.1)
+                    continue
+                return
             await asyncio.sleep(0.2)
-        if point is None:
-            raise RuntimeError("ChatGPT send button did not become enabled")
-        try:
-            x = float(point["x"])
-            y = float(point["y"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError("ChatGPT send button position was invalid") from exc
-        await self._click_viewport_point(self.context, x, y)
+        raise RuntimeError("ChatGPT send button did not become enabled")
 
     async def click_delivery_retry(self, context: str, timeout: float = 3.0) -> bool:
         """Retry one ChatGPT response after its delivery timeout UI appears."""
