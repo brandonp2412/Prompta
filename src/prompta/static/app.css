@@ -270,6 +270,10 @@ button {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.item-status-dot.interrupted {
+  background: var(--warning);
+}
+
 
 .chat-preview {
   margin-top: 5px;
@@ -336,16 +340,6 @@ button {
   background: var(--accent);
 }
 
-.read-only-pill {
-  padding: 4px 7px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
 
 .main-panel {
   min-width: 0;
@@ -441,6 +435,10 @@ button {
   color: #aaa;
 }
 
+.status-chip.interrupted {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: #e6bd57;
+}
 
 .status-chip.neutral {
   background: rgba(255, 255, 255, 0.05);
@@ -577,7 +575,6 @@ button {
   width: 100%;
   margin: 0 0 29px;
   display: flex;
-  animation: message-in 180ms ease both;
 }
 
 .message.user {
@@ -934,12 +931,6 @@ button {
   }
 }
 
-@keyframes message-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
 
 @media (max-width: 780px) {
   .app-shell {
