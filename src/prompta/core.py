@@ -818,8 +818,28 @@ class Prompta:
                         await driver.navigate(target_url)
                         await self._ensure_conversation_route(driver, expected_path)
                 if not messages:
+                    logger.warning(
+                        "Prompta recovery conversation=%s still has no messages; "
+                        "retrying through ChatGPT history",
+                        conversation_id,
+                    )
+                    await driver.navigate("https://chatgpt.com/")
+                    await self._ensure_conversation_route(driver, expected_path)
+                    deadline = (
+                        asyncio.get_running_loop().time()
+                        + _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS
+                    )
+                    while asyncio.get_running_loop().time() < deadline:
+                        snapshot = await driver.conversation_snapshot(context)
+                        candidate_messages = snapshot.get("messages")
+                        if isinstance(candidate_messages, list) and candidate_messages:
+                            messages = candidate_messages
+                            break
+                        await asyncio.sleep(0.5)
+                if not messages:
                     raise RuntimeError(
-                        "ChatGPT conversation did not expose any messages after recovery reload"
+                        "ChatGPT conversation did not expose any messages after "
+                        "direct reload and history recovery"
                     )
 
                 # A daemon restart can happen while ChatGPT is still working server-side.

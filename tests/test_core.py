@@ -2087,6 +2087,96 @@ async def test_recover_cached_conversations_reloads_slow_chat_before_interruptin
 
 
 @pytest.mark.asyncio
+async def test_recover_cached_conversations_uses_history_after_direct_loads_stay_empty(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "history-recover-chat"
+    target_url = f"https://chatgpt.com/c/{conversation_id}"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="quitter-translations",
+        prompt="Keep translating",
+    )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {
+            "path": f"/c/{conversation_id}",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep translating"},
+                {"id": "a1", "role": "assistant", "content": "Still translating"},
+            ],
+        },
+    )
+    prompta.cache.mark_interrupted(conversation_id)
+
+    class HistoryRecoveryFakeDriver(FakeDriver):
+        def __init__(self, prompt: str) -> None:
+            super().__init__(prompt)
+            self.current_path = "/"
+            self.history_activated = False
+            self.history_activations: list[str] = []
+
+        async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
+            self.context = "context-new"
+            self.navigated.append(url)
+            self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
+            return self.context
+
+        async def navigate(self, url: str) -> None:
+            self.navigated.append(url)
+            self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
+
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return self.current_path
+
+        async def activate_history_link(self, path: str) -> bool:
+            self.history_activations.append(path)
+            self.history_activated = True
+            self.current_path = path
+            return True
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            messages: list[dict[str, str]] = []
+            if self.history_activated:
+                messages = [
+                    {"id": "u1", "role": "user", "content": "Keep translating"},
+                    {"id": "a1", "role": "assistant", "content": "Still translating"},
+                ]
+            return {
+                "title": "History recovered chat",
+                "path": self.current_path,
+                "streaming": True,
+                "messages": messages,
+            }
+
+    fake = HistoryRecoveryFakeDriver("Keep translating")
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(_: float) -> None:
+        await original_sleep(0.002)
+
+    with (
+        patch("prompta.core._RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS", 0.001),
+        patch("prompta.core.asyncio.sleep", side_effect=fast_sleep),
+    ):
+        assert await prompta.recover_cached_conversations() == 1
+
+    assert fake.navigated == [target_url, target_url, "https://chatgpt.com/"]
+    assert fake.history_activations == [f"/c/{conversation_id}"]
+    assert list(prompta._active_conversations) == ["context-new"]
+    assert prompta.cache.status(conversation_id) == "active"
+    fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_close_preserves_streaming_chat_for_restart_recovery(tmp_path: Path) -> None:
     conversation_id = "restart-chat"
     cache_path = tmp_path / "chats.sqlite3"
