@@ -1114,9 +1114,16 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     if (matchedIndex >= 0) {
       claimedCachedIndexes.add(matchedIndex);
       item.observedInCache = true;
+      item.responseObservedInCache = cachedMessages.slice(matchedIndex + 1).some((message) => message.role === "assistant" && !message.send_error);
     }
   }
-  const remaining = pending.filter((item) => !item.observedInCache);
+  const remaining = pending.filter((item) => {
+    if (!item.observedInCache)
+      return true;
+    if (item.responseObservedInCache)
+      return false;
+    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId)));
+  });
   if (remaining.length)
     state.pendingReplies.set(conversationId, remaining);
   else

@@ -900,12 +900,21 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     if (matchedIndex >= 0) {
       claimedCachedIndexes.add(matchedIndex);
       item.observedInCache = true;
+      item.responseObservedInCache = cachedMessages
+        .slice(matchedIndex + 1)
+        .some((message) => message.role === "assistant" && !message.send_error);
     }
   }
-  // The cache is durable evidence that ChatGPT accepted the user message.
-  // Drop the optimistic row even if the UI server restarted and forgot the
-  // ephemeral send job, or if that job later reported a transport-side error.
-  const remaining = pending.filter((item) => !item.observedInCache);
+  // The cached user row is durable evidence that ChatGPT accepted the prompt,
+  // so stop rendering the optimistic duplicate. Keep the ephemeral send job
+  // only until an assistant row appears, so the activity indicator bridges the
+  // gap between acceptance and the first visible response without offering a
+  // duplicate Retry after durable acceptance.
+  const remaining = pending.filter((item) => {
+    if (!item.observedInCache) return true;
+    if (item.responseObservedInCache) return false;
+    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId)));
+  });
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
   return remaining.flatMap((item) => {
