@@ -1017,10 +1017,11 @@ function renderConversation(chat) {
     }
   }
   const title = chatTitle(chat);
+  const activityLabel = chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
-    chat.status === "active" ? "updating live" : formatRelativeTime(chatActivityAt(chat))
+    activityLabel
   ].join(" · ");
   const metaFingerprint = JSON.stringify([title, meta, chat.status]);
   if (metaFingerprint !== state.selectedMetaFingerprint) {
@@ -1028,7 +1029,9 @@ function renderConversation(chat) {
     els.chatHeading.innerHTML = `
       <div class="heading-title">${escapeHtml(title)}</div>
       <div class="heading-meta">${escapeHtml(meta)}</div>`;
-    setStatusIcon(els.syncLabel, chat.status === "active" ? "active" : "cached", chat.status === "active" ? "Syncing from SQLite" : "Cached in SQLite", "sync");
+    const syncStatus = chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
+    const syncLabel = chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
+    setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
   }
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
@@ -1038,7 +1041,7 @@ function renderConversation(chat) {
   state.composingNew = false;
   updatePinButton();
   if (!state.sending) {
-    setTextIfChanged(els.composerStatus, chat.status === "active" ? "Uses the existing live ChatGPT tab." : "Sending will reopen this chat once if its retained tab has expired.");
+    setTextIfChanged(els.composerStatus, chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.");
   }
 }
 function renderLogs(payload) {

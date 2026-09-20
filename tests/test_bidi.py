@@ -260,7 +260,7 @@ async def test_connect_navigates_only_when_no_chatgpt_context_exists(
 async def test_conversation_activity_does_not_match_sidebar_stop_titles() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
     driver.eval = AsyncMock(  # type: ignore[method-assign]
-        return_value='{"streaming":false,"complete":true,"transient":false}'
+        return_value='{"streaming":false,"complete":true,"transient":false,"failed":false}'
     )
 
     activity = await driver.conversation_activity("context-1")
@@ -273,6 +273,9 @@ async def test_conversation_activity_does_not_match_sidebar_stop_titles() -> Non
     assert 'button[aria-label="Stop answering"]' in expression
     assert 'button[aria-label="Stop generating"]' in expression
     assert "const transient=transientText&&!finalAction;" in expression
+    assert "const failed=deliveryFailed&&!finalAction&&!stop&&!streamActive;" in expression
+    assert "Message delivery timed out" in expression
+    assert "const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i" in expression
     assert "testId==='copy-turn-action-button'" in expression
     assert "/^Copy response$/i.test(label)" in expression
     assert "regenerate|share" not in expression

@@ -1220,6 +1220,7 @@ class Prompta:
                 streaming_hint = bool(activity.get("streaming"))
                 completion_hint = bool(activity.get("complete", True))
                 transient_hint = bool(activity.get("transient"))
+                failure_hint = bool(activity.get("failed"))
                 if streaming_hint or transient_hint:
                     active.idle_polls = 0
                     active.settled_at = 0.0
@@ -1254,6 +1255,23 @@ class Prompta:
                 active.last_digest = digest
                 active.idle_polls = 0
                 active.settled_at = 0.0
+
+            if failure_hint:
+                active.idle_polls += 1
+                active.settled_at = 0.0
+                if active.idle_polls < 3:
+                    continue
+                self.cache.mark_interrupted(active.conversation_id)
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.debug("Could not close failed Prompta tab", exc_info=True)
+                self._active_conversations.pop(context, None)
+                logger.warning(
+                    "Prompta marked conversation=%s interrupted after persistent ChatGPT delivery failure",
+                    active.conversation_id,
+                )
+                continue
 
             if streaming_hint or transient_hint:
                 continue
@@ -1318,7 +1336,9 @@ class Prompta:
                 ),
                 None,
             )
-            if matching is None or matching.settled_at > 0:
+            if matching is None:
+                return self.cache.status(conversation_id) != "interrupted"
+            if matching.settled_at > 0:
                 return True
             if asyncio.get_running_loop().time() >= deadline:
                 logger.warning(
@@ -1328,7 +1348,7 @@ class Prompta:
                 )
                 return False
             await asyncio.sleep(_IDLE_POLL_SECONDS)
-        return True
+        return self.cache.status(conversation_id) != "interrupted"
 
     async def _drain_once_requests(self) -> bool:
         did_work = False
@@ -1808,18 +1828,15 @@ async def _start_control_server(
     return server, path
 
 
-async def _send_once_via_control(
+async def _open_control_connection(
     state_path: Path,
-    prompt: str,
-    attachments: list[str] | None = None,
-) -> str:
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     path = _control_socket_path(state_path)
     deadline = asyncio.get_running_loop().time() + _CONTROL_CONNECT_TIMEOUT_SECONDS
     last_error: OSError | None = None
     while True:
         try:
-            reader, writer = await asyncio.open_unix_connection(str(path))
-            break
+            return await asyncio.open_unix_connection(str(path))
         except OSError as exc:
             last_error = exc
             if asyncio.get_running_loop().time() >= deadline:
@@ -1827,6 +1844,14 @@ async def _send_once_via_control(
                     f"Prompta scheduler is running but its control socket is unavailable: {path}"
                 ) from last_error
             await asyncio.sleep(0.1)
+
+
+async def _send_once_via_control(
+    state_path: Path,
+    prompt: str,
+    attachments: list[str] | None = None,
+) -> str:
+    reader, writer = await _open_control_connection(state_path)
     try:
         writer.write(
             (json.dumps({"op": "once", "prompt": prompt, "attachments": attachments or []}, ensure_ascii=False) + "\n").encode(
@@ -1860,11 +1885,7 @@ async def _send_reply_via_control(
     prompt: str,
     attachments: list[str] | None = None,
 ) -> str:
-    path = _control_socket_path(state_path)
-    try:
-        reader, writer = await asyncio.open_unix_connection(str(path))
-    except OSError as exc:
-        raise RuntimeError(f"Prompta scheduler control socket is unavailable: {path}") from exc
+    reader, writer = await _open_control_connection(state_path)
     try:
         writer.write(
             (
@@ -1900,11 +1921,7 @@ async def _send_reply_via_control(
 
 
 async def _sync_via_control(state_path: Path, conversation_id: str) -> int:
-    path = _control_socket_path(state_path)
-    try:
-        reader, writer = await asyncio.open_unix_connection(str(path))
-    except OSError as exc:
-        raise RuntimeError(f"Prompta scheduler control socket is unavailable: {path}") from exc
+    reader, writer = await _open_control_connection(state_path)
     try:
         writer.write(
             (
@@ -2180,12 +2197,15 @@ async def _run(args: argparse.Namespace) -> None:
             bidi_url,
         )
         if args.command == "run":
+            # Publish the control socket before browser/cache recovery. The daemon lock is
+            # already held at this point, so UI sends otherwise see a running scheduler
+            # but can race a potentially slow recovery and fail before the socket exists.
+            control_server, control_path = await _start_control_server(prompta, args.state)
             recovered = await prompta.recover_cached_conversations()
             if recovered:
                 logger.info(
                     "Prompta recovered %d live conversation(s) after restart", recovered
                 )
-            control_server, control_path = await _start_control_server(prompta, args.state)
 
         if args.command == "once":
             conversation_id = await prompta.send_once(args.prompt)

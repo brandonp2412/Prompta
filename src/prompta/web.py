@@ -9,6 +9,7 @@ import binascii
 import hashlib
 import json
 import logging
+import math
 import mimetypes
 import re
 import shlex
@@ -812,7 +813,10 @@ class PromptaUIServer(ThreadingHTTPServer):
         return saved
 
     def schedule_every(self, prompt: str, interval_minutes: float) -> dict[str, Any]:
-        interval_minutes = max(0.1, min(float(interval_minutes), 60.0 * 24.0 * 30.0))
+        interval_minutes = float(interval_minutes)
+        if not math.isfinite(interval_minutes):
+            raise ValueError("Schedule interval must be finite")
+        interval_minutes = max(0.1, min(interval_minutes, 60.0 * 24.0 * 30.0))
         name = _schedule_job_name(prompt)
         interval_seconds = interval_minutes * 60.0
 
@@ -908,8 +912,8 @@ print(json.dumps({"ok": True, "scheduler_started": started}))
 
     def schedule_at(self, prompt: str, run_at_epoch: float) -> dict[str, Any]:
         run_at_epoch = float(run_at_epoch)
-        if run_at_epoch <= time.time():
-            raise ValueError("Schedule time must be in the future")
+        if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
+            raise ValueError("Schedule time must be a finite timestamp in the future")
         name = f"at-{int(run_at_epoch)}-{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:10]}"
 
         if self.control_host:
@@ -1324,8 +1328,8 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             if not prompt:
                 self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
                 return
-            if interval_minutes <= 0:
-                self._json({"error": "Schedule interval must be greater than zero"}, HTTPStatus.BAD_REQUEST)
+            if not math.isfinite(interval_minutes) or interval_minutes <= 0:
+                self._json({"error": "Schedule interval must be a finite value greater than zero"}, HTTPStatus.BAD_REQUEST)
                 return
             try:
                 result = cast(PromptaUIServer, self.server).schedule_every(
@@ -1351,8 +1355,8 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             if not prompt:
                 self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
                 return
-            if run_at_epoch <= time.time():
-                self._json({"error": "Schedule time must be in the future"}, HTTPStatus.BAD_REQUEST)
+            if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
+                self._json({"error": "Schedule time must be a finite timestamp in the future"}, HTTPStatus.BAD_REQUEST)
                 return
             try:
                 result = cast(PromptaUIServer, self.server).schedule_at(prompt, run_at_epoch)
