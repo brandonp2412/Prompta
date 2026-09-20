@@ -241,7 +241,7 @@ def test_send_job_registry_returns_before_sender_finishes() -> None:
     assert result["error"] == ""
 
 
-def test_send_job_registry_reuses_client_id() -> None:
+def test_send_job_registry_reuses_client_id(tmp_path: Path) -> None:
     calls = 0
 
     def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
@@ -251,9 +251,17 @@ def test_send_job_registry_reuses_client_id() -> None:
 
     registry = SendJobRegistry(sender)
     first = registry.submit(operation="once", message="Hello", client_id="browser-send-1")
-    second = registry.submit(operation="once", message="Hello", client_id="browser-send-1")
+    retry_attachment = tmp_path / "retry-attachment.txt"
+    retry_attachment.write_text("unused retry upload")
+    second = registry.submit(
+        operation="once",
+        message="Hello",
+        attachments=[str(retry_attachment)],
+        client_id="browser-send-1",
+    )
 
     assert second["send_id"] == first["send_id"]
+    assert not retry_attachment.exists()
     deadline = time.monotonic() + 1.0
     result = registry.get(first["send_id"])
     while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
