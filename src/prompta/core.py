@@ -43,6 +43,7 @@ _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _LIVE_SNAPSHOT_INTERVAL_SECONDS = 2.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
+_RESTART_RECOVERY_INTERRUPTED_SECONDS = 15 * 60.0
 _ACTIVE_TAB_RETENTION_SECONDS = 15.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
@@ -744,7 +745,7 @@ class Prompta:
         """Reattach live cache capture after a daemon/browser restart."""
 
         recoverable = self.cache.recoverable_conversations(
-            interrupted_after=time.time() - _CACHE_COMPLETION_TIMEOUT_SECONDS
+            interrupted_after=time.time() - _RESTART_RECOVERY_INTERRUPTED_SECONDS
         )
         if not recoverable:
             return 0
@@ -759,10 +760,8 @@ class Prompta:
             context = ""
             try:
                 context = await driver.new_tab(target_url)
-                await driver.wait_for_composer()
                 expected_path = urlsplit(target_url).path.rstrip("/")
                 await self._ensure_conversation_route(driver, expected_path)
-                await driver.wait_for_composer()
                 deadline = asyncio.get_running_loop().time() + 10.0
                 snapshot: dict[str, Any] = {}
                 messages: list[Any] = []
