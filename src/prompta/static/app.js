@@ -228,6 +228,14 @@ function formatRelativeTime(epochSeconds) {
     return `${Math.round(abs / 86400000)}d`;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(epochSeconds * 1000));
 }
+function chatActivityAt(chat) {
+  if (!chat)
+    return 0;
+  if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") {
+    return Number(chat.updated_at || chat.last_message_at || 0);
+  }
+  return Number(chat.last_message_at || chat.updated_at || 0);
+}
 function sameLocalDay(epochSeconds, offsetDays = 0) {
   if (!epochSeconds)
     return false;
@@ -257,9 +265,9 @@ function groupChats(chats) {
   const groups = [
     ["Pinned", pinned],
     ["Active", unpinned.filter((chat) => chat.status === "active")],
-    ["Today", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at))],
-    ["Yesterday", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at, 1))],
-    ["Previous", unpinned.filter((chat) => chat.status !== "active" && !sameLocalDay(chat.updated_at) && !sameLocalDay(chat.updated_at, 1))]
+    ["Today", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chatActivityAt(chat)))],
+    ["Yesterday", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chatActivityAt(chat), 1))],
+    ["Previous", unpinned.filter((chat) => chat.status !== "active" && !sameLocalDay(chatActivityAt(chat)) && !sameLocalDay(chatActivityAt(chat), 1))]
   ];
   return groups.filter(([, items]) => items.length);
 }
@@ -354,7 +362,7 @@ function renderSidebar(force = false) {
     chat.status === "active" ? "" : chat.preview,
     chat.message_count,
     chat.job_name,
-    formatRelativeTime(chat.updated_at),
+    formatRelativeTime(chatActivityAt(chat)),
     Boolean(chat._optimisticNew),
     Boolean(chat._optimisticReply),
     state.pinnedIds.has(chat.id)
@@ -381,11 +389,19 @@ function renderSidebar(force = false) {
           <div class="chat-item-top">
             ${sidebarStatusDot(chat.status)}
             <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
+            <span class="chat-row-pin ${state.pinnedIds.has(chat.id) ? "active" : ""}"
+                  data-pin-chat-id="${escapeHtml(chat.id)}"
+                  role="button"
+                  aria-label="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
+                  title="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
+                  aria-pressed="${String(state.pinnedIds.has(chat.id))}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg>
+            </span>
           </div>
           <div class="chat-preview">${escapeHtml(truncate(chat.preview || "Waiting for messages…"))}</div>
           <div class="chat-meta">
             <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
-            <span class="chat-time">${escapeHtml(formatRelativeTime(chat.updated_at))}</span>
+            <span class="chat-time">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
           </div>
         </button>`;
   }).join("")}
@@ -393,12 +409,29 @@ function renderSidebar(force = false) {
   `).join("");
   for (const item of els.chatList.querySelectorAll("[data-chat-id]")) {
     item.addEventListener("click", () => {
-      if (item.dataset.optimisticNew === "true") {
+      if (item.dataset.optimisticNew === "true" && !state.pendingNewSend?.conversationId) {
         renderNewChat();
         document.body.classList.remove("sidebar-open");
         return;
       }
       selectChat(item.dataset.chatId);
+    });
+  }
+  for (const pin of els.chatList.querySelectorAll("[data-pin-chat-id]")) {
+    pin.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const chatId = pin.dataset.pinChatId;
+      if (!chatId)
+        return;
+      if (state.pinnedIds.has(chatId))
+        state.pinnedIds.delete(chatId);
+      else
+        state.pinnedIds.add(chatId);
+      savePinnedIds();
+      state.sidebarFingerprint = "";
+      renderSidebar(true);
+      updatePinButton();
     });
   }
 }
@@ -693,6 +726,12 @@ function renderMessageSection(message, allowStreaming = true) {
           <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
         ` : ""}
         <div class="message-content">${renderMarkdown(message.content)}</div>
+        ${message.send_error && message.retry_scope && message.retry_key ? `
+          <button type="button"
+                  class="retry-send-button"
+                  data-retry-scope="${escapeHtml(message.retry_scope)}"
+                  data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
+        ` : ""}
         ${streaming ? `
           <div class="streaming-indicator">
             <span class="streaming-dots"><i></i><i></i><i></i></span>
@@ -709,12 +748,25 @@ function messageNodeFingerprint(message, allowStreaming) {
     message.status,
     message.content,
     Boolean(message.send_error),
+    message.retry_scope,
+    message.retry_key,
     message.created_at,
     message.updated_at,
     allowStreaming
   ]);
 }
 var boundCopyButtons = new WeakSet;
+var boundRetryButtons = new WeakSet;
+function bindRetryButtons(root) {
+  for (const button of root.querySelectorAll(".retry-send-button")) {
+    if (boundRetryButtons.has(button))
+      continue;
+    boundRetryButtons.add(button);
+    button.addEventListener("click", () => {
+      retryFailedSend(button.dataset.retryScope || "", button.dataset.retryKey || "");
+    });
+  }
+}
 function bindCopyButtons(root) {
   for (const button of root.querySelectorAll(".copy-code")) {
     if (boundCopyButtons.has(button))
@@ -742,6 +794,7 @@ function createMessageNode(message, allowStreaming, messageKey) {
   node.dataset.messageKey = messageKey;
   node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
   bindCopyButtons(node);
+  bindRetryButtons(node);
   return node;
 }
 function patchDomNode(current, next) {
@@ -897,7 +950,9 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         content: `Send failed: ${item.error || "Unknown Prompta send error"}`,
         status: "complete",
         updated_at: item.updatedAt,
-        send_error: true
+        send_error: true,
+        retry_scope: "reply",
+        retry_key: item.clientId || item.sendId
       });
     }
     return messages;
@@ -959,7 +1014,7 @@ function renderConversation(chat) {
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
-    chat.status === "active" ? "updating live" : formatRelativeTime(chat.updated_at)
+    chat.status === "active" ? "updating live" : formatRelativeTime(chatActivityAt(chat))
   ].join(" · ");
   const metaFingerprint = JSON.stringify([title, meta, chat.status]);
   if (metaFingerprint !== state.selectedMetaFingerprint) {
@@ -1100,12 +1155,16 @@ function renderNewChat() {
           content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
           status: "complete",
           updated_at: pending.updatedAt,
-          send_error: true
+          send_error: true,
+          retry_scope: "new",
+          retry_key: pending.clientId || pending.sendId
         });
       }
       els.emptyState.hidden = true;
       els.conversation.hidden = false;
       els.conversation.innerHTML = messages.map((message) => renderMessageSection(message)).join("");
+      bindCopyButtons(els.conversation);
+      bindRetryButtons(els.conversation);
       requestAnimationFrame(() => {
         els.viewport.scrollTop = els.viewport.scrollHeight;
       });
@@ -1146,18 +1205,33 @@ async function fetchJson(url) {
     throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
 }
-async function postJson(url, payload) {
-  const response = await fetch(url, {
-    method: "POST",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || `${response.status} ${response.statusText}`);
+async function postJson(url, payload, attempts = 1) {
+  let lastError = new Error("Request failed");
+  for (let attempt = 0;attempt < Math.max(1, attempts); attempt += 1) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt + 1 >= attempts)
+        throw lastError;
+      await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+      continue;
+    }
+    const data = await response.json().catch(() => ({}));
+    if (response.ok)
+      return data;
+    lastError = new Error(data.error || `${response.status} ${response.statusText}`);
+    if (response.status < 500 || attempt + 1 >= attempts)
+      throw lastError;
+    await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
   }
-  return data;
+  throw lastError;
 }
 async function loadServerIdentity() {
   try {
@@ -1293,6 +1367,9 @@ async function selectChat(id) {
   if (state.mode !== "chats")
     showMode("chats");
   if (id === state.selectedId) {
+    if (!state.selectedChat || state.selectedChat.id !== id) {
+      await loadSelectedChat();
+    }
     document.body.classList.remove("sidebar-open");
     return;
   }
@@ -1639,8 +1716,10 @@ async function watchSend(sendId, creatingNew, conversationId) {
       statusFailures = 0;
     } catch (error) {
       statusFailures += 1;
-      if (statusFailures < 4)
+      if (statusFailures < 8) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(2500, 250 * statusFailures)));
         continue;
+      }
       job = {
         status: "failed",
         error: String(error).replace(/^Error:\s*/, "")
@@ -1665,7 +1744,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
         if (!newId) {
           state.pendingNewSend.status = "failed";
           state.pendingNewSend.error = "Prompta reported success without a conversation id";
-          renderNewChat();
+          if (state.composingNew)
+            renderNewChat();
           return;
         }
         state.composingNew = false;
@@ -1680,12 +1760,14 @@ async function watchSend(sendId, creatingNew, conversationId) {
         return;
       }
       if (status === "failed") {
-        renderNewChat();
+        if (state.composingNew)
+          renderNewChat();
         renderSidebar();
         return;
       }
       if (changed2) {
-        renderNewChat();
+        if (state.composingNew)
+          renderNewChat();
         renderSidebar();
       }
       continue;
@@ -1708,6 +1790,43 @@ async function watchSend(sendId, creatingNew, conversationId) {
       return;
     }
   }
+}
+async function retryFailedSend(scope, retryKey) {
+  if (!retryKey || state.sending)
+    return;
+  let pending = null;
+  if (scope === "new") {
+    if (state.pendingNewSend && (state.pendingNewSend.clientId === retryKey || state.pendingNewSend.sendId === retryKey)) {
+      pending = state.pendingNewSend;
+      state.pendingNewSend = null;
+      state.newChatFingerprint = "";
+      state.composingNew = true;
+      renderNewChat();
+    }
+  } else if (scope === "reply" && state.selectedId) {
+    const items = state.pendingReplies.get(state.selectedId) || [];
+    pending = items.find((item) => item.clientId === retryKey || item.sendId === retryKey) || null;
+    if (pending) {
+      const remaining = items.filter((item) => item !== pending);
+      if (remaining.length)
+        state.pendingReplies.set(state.selectedId, remaining);
+      else
+        state.pendingReplies.delete(state.selectedId);
+      state.selectedFingerprint = "";
+      if (state.selectedChat?.id === state.selectedId)
+        renderConversation(state.selectedChat);
+    }
+  }
+  if (!pending)
+    return;
+  els.messageInput.value = pending.message || "";
+  resizeComposer();
+  if ((pending.attachmentNames || []).length) {
+    setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
+    els.messageInput.focus();
+    return;
+  }
+  await sendSelectedMessage();
 }
 async function sendSelectedMessage() {
   const message = els.messageInput.value.trim();
@@ -1791,7 +1910,7 @@ async function sendSelectedMessage() {
     renderSidebar();
   }
   try {
-    const result = creatingNew ? await postJson("api/chats", { message, attachments: serializedAttachments }) : await postJson(`api/chats/${encodeURIComponent(conversationId)}/messages`, { message, attachments: serializedAttachments });
+    const result = creatingNew ? await postJson("api/chats", { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3) : await postJson(`api/chats/${encodeURIComponent(conversationId)}/messages`, { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3);
     if (!result.send_id)
       throw new Error("Prompta did not return a send id");
     pending.sendId = result.send_id;

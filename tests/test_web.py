@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import time
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.request import urlopen
 
@@ -205,6 +206,65 @@ def test_send_job_registry_returns_before_sender_finishes() -> None:
     assert result["status"] == "succeeded"
     assert result["conversation_id"] == "chat-new"
     assert result["error"] == ""
+
+
+def test_send_job_registry_reuses_client_id() -> None:
+    calls = 0
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        return "chat-new"
+
+    registry = SendJobRegistry(sender)
+    first = registry.submit(operation="once", message="Hello", client_id="browser-send-1")
+    second = registry.submit(operation="once", message="Hello", client_id="browser-send-1")
+
+    assert second["send_id"] == first["send_id"]
+    deadline = time.monotonic() + 1.0
+    result = registry.get(first["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(first["send_id"])
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert calls == 1
+
+
+def test_send_job_registry_reuses_client_id_concurrently() -> None:
+    calls = 0
+    calls_lock = Lock()
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        time.sleep(0.05)
+        return "chat-new"
+
+    registry = SendJobRegistry(sender)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        jobs = list(
+            executor.map(
+                lambda _: registry.submit(
+                    operation="once",
+                    message="Hello",
+                    client_id="browser-send-concurrent",
+                ),
+                range(8),
+            )
+        )
+
+    assert len({job["send_id"] for job in jobs}) == 1
+    send_id = jobs[0]["send_id"]
+    deadline = time.monotonic() + 1.0
+    result = registry.get(send_id)
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(send_id)
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert calls == 1
 
 
 def test_send_job_registry_surfaces_background_error() -> None:

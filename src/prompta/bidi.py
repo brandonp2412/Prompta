@@ -652,9 +652,19 @@ class FirefoxBiDiDriver:
     async def conversation_activity(self, context: str) -> dict[str, Any]:
         raw = await self.eval(
             """JSON.stringify((()=>{
-              const stop=Boolean(document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]'));
-              const streamActive=Boolean(document.querySelector('[data-streaming="active"],[data-is-streaming="true"]'));
-              return {streaming:stop||streamActive};
+              const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
+              const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
+              const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
+              const assistant=assistants.at(-1);
+              const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
+              const turnText=(turn?.innerText||turn?.textContent||'').trim();
+              const transient=/(?:Connection interrupted|Waiting for the complete answer|Message delivery timed out\.?\s*Please try again)/i.test(turnText);
+              const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
+                const label=(button.getAttribute('aria-label')||button.getAttribute('data-testid')||button.getAttribute('title')||'').trim();
+                return /(?:copy|read aloud|good response|bad response|regenerate|share)/i.test(label);
+              }));
+              return {streaming:stop||streamActive,complete:finalAction&&!stop&&!streamActive&&!transient,transient};
             })())""",
             context=context,
         )
@@ -707,26 +717,35 @@ class FirefoxBiDiDriver:
                 };
                 return walk(root).replace(/\\n{3,}/g,'\\n\\n').trim();
               };
-              const toolSelector='[data-tool-call-id],[data-tool-name],[data-testid*="tool" i],[aria-label*="tool" i],[class*="tool-call" i],[data-testid*="computer" i],[data-testid*="browser" i],[data-testid*="search" i],[aria-label*="search" i],[aria-label*="browse" i],[aria-label*="web" i]';
+              const toolSelector='[data-tool-call-id],[data-tool-name]';
               const toolBlocks=agent=>[...new Set([
                 ...agent.querySelectorAll(toolSelector)
               ])].filter(node=>!node.querySelector(toolSelector)).map(node=>{
                 const name=(node.getAttribute('data-tool-name')
-                  ||node.getAttribute('aria-label')
-                  ||node.getAttribute('title')
                   ||node.querySelector('[data-tool-name]')?.getAttribute('data-tool-name')
-                  ||'tool').replace(/^(?:called|use|using)\\s+tool\\s*:?\\s*/i,'').trim()||'tool';
-                const detail=(node.innerText||node.textContent||node.getAttribute('aria-label')||node.getAttribute('title')||node.getAttribute('data-testid')||'').trim().slice(0,16000);
-                if(!detail)return '';
-                return '```tool:'+name+'\\n'+detail+'\\n```';
+                  ||'').trim();
+                const noise=/^(?:Open tool call list|Close tool call list|cot-v5-tool-icon-pile|Tool call|Expand|Collapse)$/i;
+                const detail=(node.innerText||node.textContent||'').split(/\\n+/)
+                  .map(line=>line.trim())
+                  .filter(line=>line&&!noise.test(line)&&!/^cot-v5-/i.test(line))
+                  .join('\\n').trim().slice(0,16000);
+                if(!detail&&!name)return '';
+                const label=name||'tool';
+                return '```tool:'+label+'\\n'+(detail||label)+'\\n```';
               }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
-              const entries=roleNodes.map(e=>({
-                node:e,
-                id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
-                role:e.getAttribute('data-message-author-role')||'',
-                content:(e.textContent||e.innerText||'').trim()
-              })).filter(message=>message.role&&message.content&&!(
+              const entries=roleNodes.map(e=>{
+                const role=e.getAttribute('data-message-author-role')||'';
+                const rich=role==='assistant'
+                  ? [...e.querySelectorAll('.markdown,.markdown-new-styling')].map(markdownText).filter(Boolean).join('\\n\\n').trim()
+                  : '';
+                return {
+                  node:e,
+                  id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
+                  role,
+                  content:role==='assistant'?rich:(e.innerText||e.textContent||'').trim()
+                };
+              }).filter(message=>message.role&&message.content&&!(
                 message.role==='assistant'&&message.id.startsWith('request-placeholder-')
               ));
               const seenRoleKeys=new Set();
@@ -747,19 +766,22 @@ class FirefoxBiDiDriver:
                 const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
                 const rawVisible=(agent.innerText||agent.textContent||'').trim();
-                const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share)$/i;
+                const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\.?|waiting for the complete answer|message delivery timed out\.?\s*please try again)$/i;
                 const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
                   line
                   && !uiNoise.test(line)
                   && !richPlain.some(text=>text===line||text.includes(line)||line.includes(text))
                   && !tools.some(block=>block.includes(line))
                 )))].slice(0,200);
-                const activity=!tools.length&&activityLines.length
+                const activity=!richText.length&&!tools.length&&activityLines.length
                   ? '**Tool activity**\\n\\n'+activityLines.join('\\n')
                   : '';
+                const cleanVisible=rawVisible.split(/\\n+/).map(line=>line.trim())
+                  .filter(line=>line&&!uiNoise.test(line)&&!/^cot-v5-/i.test(line))
+                  .join('\\n').trim();
                 const content=(richText.length||tools.length||activity
                   ? [...richText,...tools,...(activity?[activity]:[])].join('\\n\\n')
-                  : rawVisible
+                  : cleanVisible
                 ).trim();
                 if(!content)continue;
                 const nested=agent.querySelector('[data-message-author-role="assistant"]');
