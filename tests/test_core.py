@@ -1365,7 +1365,7 @@ async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> 
         await prompta._drain_reply_requests()
         assert await client == "existing-chat"
         prompta.send_reply.assert_awaited_once_with("existing-chat", "Continue here", attachments=[])  # type: ignore[attr-defined]
-        prompta.wait_for_cached_response.assert_awaited_once_with("existing-chat")  # type: ignore[attr-defined]
+        prompta.wait_for_cached_response.assert_not_awaited()  # type: ignore[attr-defined]
     finally:
         server.close()
         await server.wait_closed()
