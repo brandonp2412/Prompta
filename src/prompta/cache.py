@@ -34,6 +34,8 @@ class ChatCache:
         self.path = path.expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self.path.parent, 0o700)
+        if self._database_header_is_invalid():
+            self._quarantine_corrupt_database()
         self.connection = self._open_connection()
         try:
             self._configure_connection()
@@ -49,6 +51,12 @@ class ChatCache:
             self.connection = self._open_connection()
             self._configure_connection()
             self._migrate()
+
+    def _database_header_is_invalid(self) -> bool:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return False
+        with self.path.open("rb") as database:
+            return database.read(16) != b"SQLite format 3\\x00"
 
     def _open_connection(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
