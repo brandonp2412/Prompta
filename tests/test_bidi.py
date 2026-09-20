@@ -213,6 +213,26 @@ async def test_connect_navigates_only_when_no_chatgpt_context_exists(
 
 
 @pytest.mark.asyncio
+async def test_conversation_activity_does_not_match_sidebar_stop_titles() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.eval = AsyncMock(  # type: ignore[method-assign]
+        return_value='{"streaming":false,"complete":true,"transient":false}'
+    )
+
+    activity = await driver.conversation_activity("context-1")
+
+    assert activity["streaming"] is False
+    call = driver.eval.await_args
+    assert call is not None
+    expression = call.args[0]
+    assert 'button[data-testid="stop-button"]' in expression
+    assert 'button[aria-label="Stop answering"]' in expression
+    assert 'button[aria-label="Stop generating"]' in expression
+    assert 'aria-label*="Stop"' not in expression
+    assert 'aria-label*="stop"' not in expression
+
+
+@pytest.mark.asyncio
 async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
     driver.eval = AsyncMock(  # type: ignore[method-assign]
@@ -253,6 +273,9 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "const activity=!richText.length&&!tools.length&&activityLines.length" in expression
     assert "'```tool:'+label" in expression
     assert '[data-streaming="active"]' in expression
+    assert 'button[data-testid="stop-button"]' in expression
+    assert 'aria-label*="Stop"' not in expression
+    assert 'aria-label*="stop"' not in expression
     assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression
 

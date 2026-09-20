@@ -653,13 +653,13 @@ class FirefoxBiDiDriver:
         raw = await self.eval(
             """JSON.stringify((()=>{
               const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
-              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
+              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
               const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
               const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
               const assistant=assistants.at(-1);
               const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
               const turnText=(turn?.innerText||turn?.textContent||'').trim();
-              const transient=/(?:Connection interrupted|Waiting for the complete answer|Message delivery timed out\.?\s*Please try again)/i.test(turnText);
+              const transient=/(?:Connection interrupted|Waiting for the complete answer|Message delivery timed out\\.?\\s*Please try again)/i.test(turnText);
               const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
                 const label=(button.getAttribute('aria-label')||button.getAttribute('data-testid')||button.getAttribute('title')||'').trim();
                 return /(?:copy|read aloud|good response|bad response|regenerate|share)/i.test(label);
@@ -766,7 +766,7 @@ class FirefoxBiDiDriver:
                 const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
                 const rawVisible=(agent.innerText||agent.textContent||'').trim();
-                const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\.?|waiting for the complete answer|message delivery timed out\.?\s*please try again)$/i;
+                const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again)$/i;
                 const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
                   line
                   && !uiNoise.test(line)
@@ -832,7 +832,7 @@ class FirefoxBiDiDriver:
                 content:message.content,
                 ordinal:index
               }));
-              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
+              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
               const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
               return {
                 path:location.pathname,
