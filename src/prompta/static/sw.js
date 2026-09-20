@@ -1,4 +1,4 @@
-const CACHE_NAME = "prompta-shell-v3";
+const CACHE_NAME = "prompta-shell-v4";
 const assetUrl = (path) => new URL(path, self.location.href).toString();
 const SHELL = ["./", "./app.css", "./app.js", "./manifest.json", "./icon.svg"]
   .map(assetUrl);
@@ -48,13 +48,18 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     fetch(event.request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      .then(async (response) => {
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(event.request, response.clone());
+        }
         return response;
       })
-      .catch(() => caches.match(event.request).then(
-        (cached) => cached || caches.match(assetUrl("./")),
-      )),
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === "navigate") return caches.match(assetUrl("./"));
+        return Response.error();
+      }),
   );
 });

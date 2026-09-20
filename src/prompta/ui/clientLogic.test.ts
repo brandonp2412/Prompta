@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   conversationIdFromHash,
   matchingOptimisticConversation,
+  matchingPendingReplyMessageIndex,
+  messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   sidebarPreviewText,
@@ -73,6 +75,109 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched?.id).toBe("WEB:real-chat");
+  });
+
+  test("does not guess from duplicate prompt text when server timing is missing", () => {
+    const matched = matchingOptimisticConversation(
+      [
+        { id: "WEB:unknown-age", prompt: "fix the sidebar" },
+      ],
+      {
+        message: "fix the sidebar",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matched).toBeNull();
+  });
+});
+
+describe("message timestamps", () => {
+  test("normalizes seconds and milliseconds", () => {
+    expect(messageTimestampMillis(1_700_000_000, null)).toBe(1_700_000_000_000);
+    expect(messageTimestampMillis(1_700_000_000_000, null)).toBe(1_700_000_000_000);
+  });
+
+  test("falls back to updated_at when created_at is malformed", () => {
+    expect(messageTimestampMillis("not-a-date", 1_700_000_000)).toBe(1_700_000_000_000);
+  });
+
+  test("rejects invalid and out-of-range timestamps without throwing", () => {
+    expect(messageTimestampMillis("not-a-date", Number.MAX_VALUE)).toBeNull();
+  });
+});
+
+describe("optimistic reply reconciliation", () => {
+  test("accepts a recent durable cached user message", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 1_002,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
+  });
+
+  test("does not match an older identical user message", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 900,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(-1);
+  });
+
+  test("requires durable timing metadata instead of guessing from duplicate text", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(-1);
+  });
+
+  test("does not reuse a cached message already claimed by another pending reply", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 1_002,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+      },
+      new Set([0]),
+    );
+
+    expect(matchedIndex).toBe(-1);
   });
 });
 

@@ -10,6 +10,19 @@ export type PendingNewSend = {
   createdAt?: number;
 };
 
+export type PendingReply = {
+  message?: string;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export type CachedMessage = {
+  role?: string;
+  content?: string;
+  created_at?: number;
+  updated_at?: number;
+};
+
 export type ScheduleSlashCommand =
   | null
   | { error: string }
@@ -58,8 +71,49 @@ export function matchingOptimisticConversation(
   return chats.find((chat) => {
     if (String(chat.prompt || "").trim() !== prompt) return false;
     const chatCreatedAt = Number(chat.created_at || 0);
-    return !createdAt || !chatCreatedAt || Math.abs(chatCreatedAt - createdAt) <= 30;
+    if (Number.isFinite(createdAt) && createdAt > 0) {
+      return Number.isFinite(chatCreatedAt)
+        && chatCreatedAt > 0
+        && Math.abs(chatCreatedAt - createdAt) <= 30;
+    }
+    return true;
   }) || null;
+}
+
+export function messageTimestampMillis(
+  createdAt: unknown,
+  updatedAt: unknown,
+): number | null {
+  for (const candidate of [createdAt, updatedAt]) {
+    const raw = Number(candidate);
+    if (!Number.isFinite(raw) || raw <= 0) continue;
+    const millis = raw < 1e12 ? raw * 1000 : raw;
+    if (!Number.isFinite(millis)) continue;
+    const date = new Date(millis);
+    if (!Number.isNaN(date.getTime())) return millis;
+  }
+  return null;
+}
+
+export function matchingPendingReplyMessageIndex(
+  messages: CachedMessage[],
+  pending: PendingReply,
+  claimedIndexes: ReadonlySet<number> = new Set(),
+): number {
+  const content = String(pending.message || "").trim();
+  const pendingAt = Number(pending.createdAt || pending.updatedAt || 0);
+  if (!content || !Number.isFinite(pendingAt) || pendingAt <= 0) return -1;
+
+  const earliestMatch = pendingAt - 3;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (claimedIndexes.has(index)) continue;
+    const message = messages[index];
+    if (message.role !== "user" || String(message.content || "").trim() !== content) continue;
+    const messageTime = Number(message.created_at || message.updated_at || 0);
+    if (!Number.isFinite(messageTime) || messageTime < earliestMatch) continue;
+    return index;
+  }
+  return -1;
 }
 
 export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {
