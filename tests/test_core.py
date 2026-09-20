@@ -952,6 +952,30 @@ async def test_paused_job_is_not_run(tmp_path: Path) -> None:
     assert prompta.send_once.await_count == 0
 
 
+@pytest.mark.asyncio
+async def test_active_job_is_not_started_again_while_due(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    prompta._active_conversations["context-flux"] = ActiveConversation(
+        conversation_id="existing",
+        context_id="context-flux",
+        job_name="flux",
+        prompt="still working",
+    )
+
+    assert await prompta._run_job(PromptJob("flux", "continue", 1800), now=1000.0) is False
+    assert prompta.send_once.await_count == 0
+
+    assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is True
+    prompta.send_once.assert_awaited_once_with("continue", job_name="other")
+
+
 def test_due_in_uses_uncertain_send_to_prevent_duplicate_retry(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     state_path.write_text(json.dumps({"jobs": {"flux": {"last_uncertain_send_at": 1000.0}}}))
