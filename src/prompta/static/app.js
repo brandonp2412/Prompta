@@ -1665,7 +1665,7 @@ document.addEventListener("click", (event) => {
     els.attachmentMenu.hidden = true;
   }
 });
-async function runScheduleSlashCommand(command) {
+async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
   els.sendButton.disabled = true;
   els.messageInput.value = "";
@@ -1680,6 +1680,9 @@ async function runScheduleSlashCommand(command) {
     const interval = formatScheduleInterval(Number(result.interval_minutes));
     setTextIfChanged(els.composerStatus, `Scheduled on ${server}: every ${interval} · ${command.prompt}`);
   } catch (error) {
+    els.messageInput.value = originalMessage;
+    resizeComposer();
+    updateSlashMenu();
     setTextIfChanged(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
     console.error(error);
   } finally {
@@ -1690,7 +1693,7 @@ async function runScheduleSlashCommand(command) {
       els.messageInput.focus();
   }
 }
-async function runAtSlashCommand(command) {
+async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
   els.sendButton.disabled = true;
   els.messageInput.value = "";
@@ -1705,6 +1708,9 @@ async function runAtSlashCommand(command) {
     const server = displayServerName(result.server || state.serverName || location.hostname);
     setTextIfChanged(els.composerStatus, `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`);
   } catch (error) {
+    els.messageInput.value = originalMessage;
+    resizeComposer();
+    updateSlashMenu();
     setTextIfChanged(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
     console.error(error);
   } finally {
@@ -1887,7 +1893,7 @@ async function sendSelectedMessage() {
       setTextIfChanged(els.composerStatus, scheduleCommand.error);
       return;
     }
-    await runScheduleSlashCommand(scheduleCommand);
+    await runScheduleSlashCommand(scheduleCommand, message);
     return;
   }
   const atCommand = parseAtSlashCommand(message);
@@ -1900,7 +1906,7 @@ async function sendSelectedMessage() {
       setTextIfChanged(els.composerStatus, atCommand.error);
       return;
     }
-    await runAtSlashCommand(atCommand);
+    await runAtSlashCommand(atCommand, message);
     return;
   }
   if (!creatingNew && !conversationId)
