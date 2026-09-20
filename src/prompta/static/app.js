@@ -281,7 +281,6 @@ var els = {
   openSidebar: requiredElement("#openSidebar"),
   closeSidebar: requiredElement("#closeSidebar"),
   sidebarScrim: requiredElement("#sidebarScrim"),
-  logsButton: document.querySelector("#logsButton"),
   newChatButton: requiredElement("#newChatButton"),
   pinChatButton: requiredElement("#pinChatButton"),
   shareChatButton: requiredElement("#shareChatButton"),
@@ -1218,14 +1217,6 @@ async function loadLogs() {
     console.error(error);
   }
 }
-function updateLogsButton(logsMode) {
-  if (!els.logsButton)
-    return;
-  els.logsButton.classList.toggle("active", logsMode);
-  els.logsButton.setAttribute("aria-pressed", String(logsMode));
-  els.logsButton.setAttribute("aria-label", logsMode ? "View chats" : "View logs");
-  els.logsButton.title = logsMode ? "Chats" : "Logs";
-}
 function showMode(mode) {
   state.mode = mode === "logs" ? "logs" : "chats";
   const logsMode = state.mode === "logs";
@@ -1235,7 +1226,6 @@ function showMode(mode) {
     clearInterval(state.logRefreshTimer);
     state.logRefreshTimer = null;
   }
-  updateLogsButton(logsMode);
   els.composerFooter.hidden = logsMode;
   if (logsMode) {
     state.selectedMetaFingerprint = "";
@@ -1348,7 +1338,6 @@ function renderNewChat() {
   if (enteringNewChat) {
     els.viewport.hidden = false;
     els.logsViewport.hidden = true;
-    updateLogsButton(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
     closeSidebar();
@@ -1718,11 +1707,6 @@ document.addEventListener("touchcancel", () => {
   }
   sidebarSwipe.tracking = false;
 }, { passive: true });
-if (els.logsButton) {
-  els.logsButton.addEventListener("click", () => {
-    showMode(state.mode === "logs" ? "chats" : "logs");
-  });
-}
 els.newChatButton.addEventListener("click", () => {
   state.pendingNewSend = null;
   state.newChatFingerprint = "";
@@ -2070,6 +2054,13 @@ async function sendSelectedMessage() {
   const attachments = [...state.attachments || []];
   if (!message || state.mode !== "chats" || state.sending)
     return;
+  if (message.toLowerCase() === "/logs") {
+    els.messageInput.value = "";
+    els.slashMenu.hidden = true;
+    resizeComposer();
+    showMode("logs");
+    return;
+  }
   requestNotificationPermissionFromGesture();
   const scheduleCommand = parseScheduleSlashCommand(message);
   if (scheduleCommand) {
