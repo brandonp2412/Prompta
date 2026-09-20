@@ -543,12 +543,35 @@ async def test_send_reply_recovers_when_deep_link_has_no_composer(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_effort_controls_keep_click_targets_inside_viewport(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.eval = AsyncMock(
+        side_effect=[
+            '{"text":"Medium","x":10.0,"y":20.0}',
+            '{"x":30.0,"y":40.0}',
+        ]
+    )
+
+    trigger = await prompta._effort_trigger_info(driver)
+    slider = await prompta._high_effort_slider_point(driver)
+
+    assert trigger["text"] == "Medium"
+    assert slider == {"x": 30.0, "y": 40.0}
+    trigger_expression = driver.eval.await_args_list[0].args[0]
+    slider_expression = driver.eval.await_args_list[1].args[0]
+    assert "scrollIntoView" in trigger_expression
+    assert "clientHeight" in trigger_expression
+    assert "clientHeight" in slider_expression
+
+
+@pytest.mark.asyncio
 async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
     driver.eval = AsyncMock(return_value="2")
-    driver._call = AsyncMock()
+    driver._perform_actions = AsyncMock()
     prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
             {"text": "Medium", "x": 10.0, "y": 20.0},
@@ -563,7 +586,44 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
     await prompta._ensure_high_effort(driver)
 
     assert prompta._pointer_click.await_count == 2
-    assert driver._call.await_count == 2
+    driver._perform_actions.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.context = "context-1"
+    driver.eval = AsyncMock(return_value="2")
+    driver._perform_actions = AsyncMock()
+    prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"text": "Medium", "x": 10.0, "y": 700.0},
+            {"text": "Medium", "x": 10.0, "y": 20.0},
+            {"text": "High", "x": 10.0, "y": 20.0},
+        ]
+    )
+    prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"x": 30.0, "y": 700.0},
+            {"x": 30.0, "y": 40.0},
+        ]
+    )
+    prompta._pointer_click = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            RuntimeError("move target out of bounds"),
+            None,
+            RuntimeError("move target out of bounds"),
+            None,
+        ]
+    )
+
+    await prompta._ensure_high_effort(driver)
+
+    assert prompta._effort_trigger_info.await_count == 3
+    assert prompta._high_effort_slider_point.await_count == 2
+    assert prompta._pointer_click.await_count == 4
+    driver._perform_actions.assert_awaited_once()
 
 
 def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:

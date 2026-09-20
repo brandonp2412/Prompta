@@ -11,6 +11,33 @@ from prompta.bidi import FirefoxBiDiDriver
 
 
 @pytest.mark.asyncio
+async def test_perform_actions_releases_input_state_after_failure() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver._call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            RuntimeError("input.performActions: move target out of bounds"),
+            {"type": "success"},
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="out of bounds"):
+        await driver._perform_actions(
+            "context-1",
+            [
+                {
+                    "type": "pointer",
+                    "id": "mouse",
+                    "actions": [{"type": "pointerMove", "x": 1, "y": 1}],
+                }
+            ],
+        )
+
+    calls = driver._call.await_args_list  # type: ignore[attr-defined]
+    assert calls[0].args[0] == "input.performActions"
+    assert calls[1].args == ("input.releaseActions", {"context": "context-1"})
+
+
+@pytest.mark.asyncio
 async def test_click_send_uses_trusted_enter_on_focused_composer() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
     driver.context = "context-1"

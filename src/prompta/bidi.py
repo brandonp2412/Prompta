@@ -418,6 +418,26 @@ class FirefoxBiDiDriver:
         if not await self.eval(expression):
             raise RuntimeError("ChatGPT composer could not be focused")
 
+    async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
+        try:
+            await self._call(
+                "input.performActions",
+                {
+                    "context": context,
+                    "actions": actions,
+                },
+            )
+        except BaseException:
+            # Firefox may create or partially apply an input source before an
+            # action sequence fails. Best-effort release keeps that state from
+            # leaking into the next trusted interaction.
+            try:
+                await self._call("input.releaseActions", {"context": context})
+            except Exception:
+                pass
+            raise
+        await self._call("input.releaseActions", {"context": context})
+
     async def _key_text(self, text: str, *, enter: bool = False) -> None:
         actions: list[dict[str, str]] = []
         for char in text:
@@ -434,14 +454,10 @@ class FirefoxBiDiDriver:
                     {"type": "keyUp", "value": "\ue007"},
                 ]
             )
-        await self._call(
-            "input.performActions",
-            {
-                "context": self.context,
-                "actions": [{"type": "key", "id": "keyboard", "actions": actions}],
-            },
+        await self._perform_actions(
+            self.context,
+            [{"type": "key", "id": "keyboard", "actions": actions}],
         )
-        await self._call("input.releaseActions", {"context": self.context})
 
     async def attach_files(self, files: list[str]) -> None:
         paths = [str(Path(path).expanduser().resolve()) for path in files]
@@ -572,27 +588,23 @@ class FirefoxBiDiDriver:
                 continue
             break
         # Some editor versions ignore synthetic DOM input; use real key events as a fallback.
-        await self._call(
-            "input.performActions",
-            {
-                "context": self.context,
-                "actions": [
-                    {
-                        "type": "key",
-                        "id": "keyboard",
-                        "actions": [
-                            {"type": "keyDown", "value": "\ue009"},
-                            {"type": "keyDown", "value": "a"},
-                            {"type": "keyUp", "value": "a"},
-                            {"type": "keyUp", "value": "\ue009"},
-                            {"type": "keyDown", "value": "\ue003"},
-                            {"type": "keyUp", "value": "\ue003"},
-                        ],
-                    }
-                ],
-            },
+        await self._perform_actions(
+            self.context,
+            [
+                {
+                    "type": "key",
+                    "id": "keyboard",
+                    "actions": [
+                        {"type": "keyDown", "value": "\ue009"},
+                        {"type": "keyDown", "value": "a"},
+                        {"type": "keyUp", "value": "a"},
+                        {"type": "keyUp", "value": "\ue009"},
+                        {"type": "keyDown", "value": "\ue003"},
+                        {"type": "keyUp", "value": "\ue003"},
+                    ],
+                }
+            ],
         )
-        await self._call("input.releaseActions", {"context": self.context})
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             state = await self.dom_state()
@@ -609,31 +621,27 @@ class FirefoxBiDiDriver:
         await self._key_text("", enter=True)
 
     async def _click_viewport_point(self, context: str, x: float, y: float) -> None:
-        await self._call(
-            "input.performActions",
-            {
-                "context": context,
-                "actions": [
-                    {
-                        "type": "pointer",
-                        "id": "mouse",
-                        "parameters": {"pointerType": "mouse"},
-                        "actions": [
-                            {
-                                "type": "pointerMove",
-                                "duration": 0,
-                                "origin": "viewport",
-                                "x": round(x),
-                                "y": round(y),
-                            },
-                            {"type": "pointerDown", "button": 0},
-                            {"type": "pointerUp", "button": 0},
-                        ],
-                    }
-                ],
-            },
+        await self._perform_actions(
+            context,
+            [
+                {
+                    "type": "pointer",
+                    "id": "mouse",
+                    "parameters": {"pointerType": "mouse"},
+                    "actions": [
+                        {
+                            "type": "pointerMove",
+                            "duration": 0,
+                            "origin": "viewport",
+                            "x": round(x),
+                            "y": round(y),
+                        },
+                        {"type": "pointerDown", "button": 0},
+                        {"type": "pointerUp", "button": 0},
+                    ],
+                }
+            ],
         )
-        await self._call("input.releaseActions", {"context": context})
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
