@@ -215,5 +215,9 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "if(id.startsWith('request-placeholder-'))continue;" in expression
     assert "compareDocumentPosition" in expression
     assert ".join('\\n\\n')" in expression
+    assert "const markdownText=root=>" in expression
+    assert "data-tool-call-id" in expression
+    assert "'```tool:'+name" in expression
     assert '[data-streaming="active"]' in expression
+    assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression

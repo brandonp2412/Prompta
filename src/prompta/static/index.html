@@ -1,14 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
   <meta name="theme-color" content="#212121">
   <meta name="color-scheme" content="dark light">
   <meta name="description" content="Local Prompta conversation viewer and message composer.">
-  <title>Prompta · __PROMPTA_SERVER_NAME__</title>
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23ececec'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-family='Arial' font-size='34' font-weight='700' fill='%23171717'%3EP%3C/text%3E%3C/svg%3E">
+  <meta name="application-name" content="Prompta">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prompta">
+  <title>Prompta</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon.svg">
   <link rel="stylesheet" href="./app.css">
 </head>
 <body>
@@ -22,7 +28,7 @@
           <div class="brand-mark" aria-hidden="true">P</div>
           <div class="brand-copy">
             <strong>Prompta</strong>
-            <span>__PROMPTA_SERVER_NAME__</span>
+            <span id="serverLabel">Server · …</span>
           </div>
           <div class="live-orb" id="globalLiveOrb" title="Cache status"></div>
         </div>
@@ -40,6 +46,7 @@
           <span class="summary-dot"></span>
           <span id="cacheSummary">Reading local cache</span>
         </div>
+        <span class="read-only-pill">local UI</span>
       </div>
     </aside>
 
@@ -54,10 +61,10 @@
           <div class="heading-title">Prompta</div>
           <div class="heading-meta">Local conversation history</div>
         </div>
-        <div class="topbar-actions">
-          <button type="button" class="view-button" id="logsButton" aria-pressed="false">logs</button>
-          <span class="sync-label" id="syncLabel">local cache</span>
-          <span class="status-chip neutral" id="statusChip" aria-live="polite">idle</span>
+        <div class="topbar-actions" aria-label="Prompta status">
+          <span class="status-icon sync neutral" id="syncLabel" role="img" aria-label="Local cache" title="Local cache">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"/></svg>
+          </span>
         </div>
       </header>
 
@@ -65,11 +72,11 @@
         <div class="empty-state" id="emptyState">
           <div class="empty-logo">P</div>
           <h1>Your Prompta chats, locally.</h1>
-          <p>Active runs and completed history appear here as they are written to SQLite.</p>
+          <p>Active runs and completed history are cached in-browser and refreshed from Prompta.</p>
           <div class="empty-features">
             <span>Reply from here</span>
-            <span>No page refresh loop</span>
-            <span>Live SQLite cache</span>
+            <span>Instant IndexedDB history</span>
+            <span>SQLite source of truth</span>
           </div>
         </div>
         <article class="conversation" id="conversation" hidden></article>
@@ -79,7 +86,7 @@
         <div class="logs-shell">
           <div class="logs-header">
             <div>
-              <strong>__PROMPTA_SERVER_NAME__ · prompta.service</strong>
+              <strong id="logsServerTitle">Prompta · prompta.service</strong>
               <span id="logsMeta">Waiting for synced journal</span>
             </div>
             <span class="logs-live"><i></i> live</span>
@@ -91,18 +98,17 @@
       <footer class="composer-footer" id="composerFooter">
         <form class="composer-bar" id="messageForm">
           <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
-          <button type="button" class="icon-button new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat">
+          <button type="button" class="icon-button new-chat-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           </button>
           <button type="submit" class="send-button" id="sendButton" aria-label="Send message" disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
           </button>
         </form>
-        <div class="composer-status" id="composerStatus" aria-live="polite"></div>
+        <div class="composer-status" id="composerStatus" hidden>Select a chat to send a message.</div>
       </footer>
     </main>
   </div>
   <script src="./app.js" defer></script>
-  <script src="./sidebar.js" defer></script>
 </body>
 </html>
