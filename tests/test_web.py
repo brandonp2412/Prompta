@@ -20,7 +20,6 @@ from prompta.web import (
     ReadOnlyChatStore,
     SendJobRegistry,
     _reconcile_orphaned_local_chats,
-    _remote_control,
     _start_local_scheduler_service,
     _wait_for_local_scheduler,
 )
@@ -84,44 +83,6 @@ def test_event_headers_ignore_disconnected_client(disconnect_error: OSError) -> 
     assert handler._event_headers() is False
 
 
-def test_remote_control_uses_user_ssh_config() -> None:
-    completed = MagicMock(
-        returncode=0,
-        stdout='{"ok": true, "conversation_id": "chat-id"}\n',
-        stderr="",
-    )
-    with patch("prompta.web.subprocess.run", return_value=completed) as run:
-        result = _remote_control(
-            "glass",
-            operation="reply",
-            conversation_id="chat-id",
-            message="Continue",
-        )
-
-    assert result == "chat-id"
-    argv = run.call_args.args[0]
-    assert argv[:3] == ["ssh", "-F", str(Path.home() / ".ssh" / "config")]
-    assert run.call_args.kwargs["timeout"] > 10 * 60
-
-
-def test_remote_control_surfaces_concise_remote_error() -> None:
-    completed = MagicMock(
-        returncode=0,
-        stdout='{"ok": false, "error": "ChatGPT send timed out"}\n',
-        stderr="",
-    )
-    with (
-        patch("prompta.web.subprocess.run", return_value=completed),
-        pytest.raises(RuntimeError, match="ChatGPT send timed out"),
-    ):
-        _remote_control(
-            "glass",
-            operation="reply",
-            conversation_id="chat-id",
-            message="Continue",
-        )
-
-
 def test_local_ui_startup_marks_old_active_chats_interrupted(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
@@ -140,7 +101,6 @@ def test_local_ui_startup_marks_old_active_chats_interrupted(tmp_path: Path) -> 
         orphaned = _reconcile_orphaned_local_chats(
             path,
             tmp_path / "state.json",
-            "",
         )
 
     store = ReadOnlyChatStore(path)
@@ -166,7 +126,6 @@ def test_local_ui_startup_leaves_active_chats_for_running_scheduler(tmp_path: Pa
         orphaned = _reconcile_orphaned_local_chats(
             path,
             tmp_path / "state.json",
-            "",
         )
 
     store = ReadOnlyChatStore(path)
@@ -194,7 +153,6 @@ def test_local_ui_startup_waits_for_scheduler_lock(tmp_path: Path) -> None:
         orphaned = _reconcile_orphaned_local_chats(
             path,
             tmp_path / "state.json",
-            "",
         )
 
     store = ReadOnlyChatStore(path)
@@ -222,30 +180,21 @@ def test_wait_for_local_scheduler_tolerates_restart_gap(tmp_path: Path) -> None:
     assert sleep.call_count == 2
 
 
-def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> None:
+def test_local_ui_rejects_send_when_backend_cannot_start(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
         with (
             patch("prompta.web._wait_for_local_scheduler", return_value=False),
             patch("prompta.web._start_local_scheduler_service", return_value=False),
-            patch("prompta.web._send_direct", AsyncMock(return_value="chat-direct")) as direct,
+            pytest.raises(RuntimeError, match="Prompta backend is unavailable"),
         ):
-            result = server._send("once", "Hello", "")
+            server._send("once", "Hello", "")
     finally:
         server.server_close()
 
-    assert result == "chat-direct"
-    direct.assert_awaited_once_with(
-        tmp_path / "state.json",
-        tmp_path / "chats.sqlite3",
-        "Hello",
-        conversation_id="",
-        attachments=[],
-    )
 
-
-def test_local_ui_starts_scheduler_before_direct_send(tmp_path: Path) -> None:
+def test_local_ui_starts_backend_before_send(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
@@ -256,7 +205,6 @@ def test_local_ui_starts_scheduler_before_direct_send(tmp_path: Path) -> None:
                 "prompta.web._send_once_via_control",
                 AsyncMock(return_value="chat-control"),
             ) as control,
-            patch("prompta.web._send_direct", AsyncMock()) as direct,
         ):
             result = server._send("once", "Hello", "")
     finally:
@@ -266,10 +214,9 @@ def test_local_ui_starts_scheduler_before_direct_send(tmp_path: Path) -> None:
     assert wait.call_count == 2
     start.assert_called_once_with()
     control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
-    direct.assert_not_awaited()
 
 
-def test_local_ui_refuses_direct_send_when_started_scheduler_never_claims_lock(
+def test_local_ui_rejects_send_when_started_backend_never_becomes_ready(
     tmp_path: Path,
 ) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
@@ -278,17 +225,14 @@ def test_local_ui_refuses_direct_send_when_started_scheduler_never_claims_lock(
         with (
             patch("prompta.web._wait_for_local_scheduler", return_value=False),
             patch("prompta.web._start_local_scheduler_service", return_value=True),
-            patch("prompta.web._send_direct", AsyncMock()) as direct,
+            pytest.raises(RuntimeError, match="Prompta backend is unavailable"),
         ):
-            with pytest.raises(RuntimeError, match="refusing a competing direct browser"):
-                server._send("once", "Hello", "")
+            server._send("once", "Hello", "")
     finally:
         server.server_close()
 
-    direct.assert_not_awaited()
 
-
-def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) -> None:
+def test_local_ui_uses_control_socket_when_backend_is_running(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
@@ -298,7 +242,6 @@ def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) 
                 "prompta.web._send_once_via_control",
                 AsyncMock(return_value="chat-control"),
             ) as control,
-            patch("prompta.web._send_direct", AsyncMock()) as direct,
         ):
             result = server._send("once", "Hello", "")
     finally:
@@ -306,7 +249,6 @@ def test_local_ui_uses_control_socket_when_scheduler_is_running(tmp_path: Path) 
 
     assert result == "chat-control"
     control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
-    direct.assert_not_awaited()
 
 
 def test_send_job_registry_returns_before_sender_finishes() -> None:
@@ -563,6 +505,9 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             health = json.loads(response.read().decode())
             assert "head" in health
             assert len(health["head"]) <= 8
+            assert health["server"] == "nox"
+            assert health["online"] is True
+            assert "nodes" not in health
 
         with urlopen(Request(f"{base_url}/api/events", method="HEAD"), timeout=2) as response:
             assert response.status == 200
@@ -583,25 +528,6 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-
-
-def test_remote_host_status_is_based_on_fresh_ssh_reachability(tmp_path: Path) -> None:
-    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
-    server = PromptaUIServer(
-        ("127.0.0.1", 0),
-        store,
-        tmp_path / "state.json",
-        control_host="glass",
-    )
-    try:
-        with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=255)) as run:
-            assert server.host_online(force=True) is False
-        assert run.call_args.args[0][-2:] == ["glass", "true"]
-
-        with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=0)):
-            assert server.host_online(force=True) is True
-    finally:
-        server.server_close()
 
 
 def test_start_local_scheduler_service_handles_systemctl_timeout() -> None:
