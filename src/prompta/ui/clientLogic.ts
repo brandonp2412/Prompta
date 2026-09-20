@@ -20,6 +20,16 @@ export type AtSlashCommand =
   | { error: string }
   | { runAtEpoch: number; runAtLabel: string; prompt: string };
 
+export function conversationIdFromHash(hash: unknown): string {
+  const encoded = String(hash || "").replace(/^#\/?/, "").trim();
+  if (!encoded) return "";
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return "";
+  }
+}
+
 export function sidebarPreviewText(value: unknown): string {
   return String(value || "")
     .replace(

@@ -1,11 +1,27 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  conversationIdFromHash,
   matchingOptimisticConversation,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   sidebarPreviewText,
 } from "./clientLogic";
+
+describe("conversation hash parsing", () => {
+  test("decodes a deep-linked conversation id", () => {
+    expect(conversationIdFromHash("#/WEB%3Achat-123")).toBe("WEB:chat-123");
+  });
+
+  test("treats a malformed URI hash as no route instead of throwing", () => {
+    expect(conversationIdFromHash("#/%E0%A4%A")).toBe("");
+  });
+
+  test("accepts hashes with and without a slash", () => {
+    expect(conversationIdFromHash("#chat-123")).toBe("chat-123");
+    expect(conversationIdFromHash("#/chat-123")).toBe("chat-123");
+  });
+});
 
 describe("optimistic new-chat reconciliation", () => {
   test("merges the client-first row when SSE returns the real chat", () => {
