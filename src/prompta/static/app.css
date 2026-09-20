@@ -587,7 +587,7 @@ textarea:focus-visible {
 .composer-new-chat-button {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 10px);
+  bottom: calc(100% + 16px);
   width: 34px;
   height: 34px;
   border: 1px solid var(--border-strong);
@@ -1509,12 +1509,69 @@ textarea:focus-visible {
   .message-content strong,
   .message-content h1,
   .message-content h2,
-  .message-content h3 {
+  .message-content h3,
+  .message-content h4,
+  .message-content h5,
+  .message-content h6 {
     color: #242424;
   }
 
   .message.user .message-inner {
     background: #eeeeef;
+  }
+
+  .heading-meta,
+  .view-button,
+  .logs-header span,
+  .streaming-indicator,
+  .empty-state p {
+    color: #666666;
+  }
+
+  .view-button:hover,
+  .view-button.active {
+    color: #454545;
+  }
+
+  .message-content a {
+    color: #245fa8;
+    text-decoration-color: rgba(36, 95, 168, 0.45);
+  }
+
+  .message-content code.inline-code {
+    background: #eeeeef;
+    color: #303030;
+  }
+
+  .status-icon.active,
+  .status-icon.running,
+  .status-icon.succeeded {
+    color: #13795b;
+  }
+
+  .status-icon.complete,
+  .status-icon.cached,
+  .status-icon.local {
+    color: #245fa8;
+  }
+
+  .status-icon.interrupted,
+  .status-icon.queued,
+  .status-icon.pending {
+    color: #806000;
+  }
+
+  .status-icon.failed {
+    color: #b33d3d;
+  }
+
+  .status-icon.live,
+  .status-icon.journal {
+    color: #7042a8;
+  }
+
+  .status-icon.new {
+    color: #246ba8;
   }
 
   .topbar {
@@ -1525,8 +1582,60 @@ textarea:focus-visible {
     background: #efefef;
   }
 
+  .tool-call-block {
+    border-color: rgba(49, 95, 150, 0.18);
+    background: #f5f8fb;
+  }
+
+  .tool-call-block .code-header {
+    background: #edf3f8;
+  }
+
+  .tool-name {
+    color: #315f96;
+  }
+
   .code-block code {
     color: #292929;
+  }
+
+  .code-header button {
+    color: #5f5f5f;
+  }
+
+  .code-header button:hover {
+    background: #dddddd;
+    color: #292929;
+  }
+
+  .syntax-comment {
+    color: #59695b;
+  }
+
+  .syntax-string {
+    color: #286a35;
+  }
+
+  .syntax-property,
+  .syntax-function {
+    color: #245fa8;
+  }
+
+  .syntax-number {
+    color: #713b98;
+  }
+
+  .syntax-keyword {
+    color: #673b91;
+  }
+
+  .syntax-punctuation {
+    color: #666666;
+  }
+
+  .attachment-menu,
+  .slash-menu {
+    background: #ffffff;
   }
 
   .composer-footer {

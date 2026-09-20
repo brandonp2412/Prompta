@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  composerHasContent,
   conversationIdFromHash,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
@@ -61,6 +62,21 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched).toBeNull();
+  });
+
+  test("matches the timestamp-nearest duplicate prompt", () => {
+    const matched = matchingOptimisticConversation(
+      [
+        { id: "WEB:farther", prompt: "fix the sidebar", created_at: 1_020 },
+        { id: "WEB:nearest", prompt: "fix the sidebar", created_at: 1_002 },
+      ],
+      {
+        message: "fix the sidebar",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matched?.id).toBe("WEB:nearest");
   });
 
   test("prefers the conversation id once the send job has it", () => {
@@ -216,6 +232,29 @@ describe("optimistic reply reconciliation", () => {
     expect(matchedIndex).toBe(-1);
   });
 
+  test("matches the timestamp-nearest duplicate reply", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 1_020,
+        },
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 1_001,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(1);
+  });
+
   test("does not reuse a cached message already claimed by another pending reply", () => {
     const matchedIndex = matchingPendingReplyMessageIndex(
       [
@@ -233,6 +272,20 @@ describe("optimistic reply reconciliation", () => {
     );
 
     expect(matchedIndex).toBe(-1);
+  });
+});
+
+describe("composer content", () => {
+  test("rejects an empty composer without attachments", () => {
+    expect(composerHasContent("   ", 0)).toBe(false);
+  });
+
+  test("accepts an attachment-only message", () => {
+    expect(composerHasContent("   ", 1)).toBe(true);
+  });
+
+  test("accepts text without attachments", () => {
+    expect(composerHasContent("hello", 0)).toBe(true);
   });
 });
 
@@ -305,6 +358,20 @@ describe("/at", () => {
     expect(parsed && !("error" in parsed) ? parsed.runAtEpoch : 0).toBe(
       new Date(2026, 8, 21, 8, 15, 0).getTime() / 1000,
     );
+  });
+
+  test("rejects a nonexistent local time during the DST jump", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "Pacific/Auckland";
+    try {
+      const beforeJump = new Date(2026, 8, 26, 12, 0, 0);
+      expect(parseAtSlashCommand("/at 2026-09-27 02:30 impossible", beforeJump)).toEqual({
+        error: "Schedule time does not exist in the local timezone.",
+      });
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   test("does not treat longer slash commands as /at", () => {

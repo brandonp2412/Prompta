@@ -24,15 +24,23 @@ function matchingOptimisticConversation(chats, pending) {
   if (!prompt)
     return null;
   const createdAt = Number(pending.createdAt || 0);
-  return chats.find((chat) => {
+  if (!Number.isFinite(createdAt) || createdAt <= 0)
+    return null;
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const chat of chats) {
     if (String(chat.prompt || "").trim() !== prompt)
-      return false;
+      continue;
     const chatCreatedAt = Number(chat.created_at || 0);
-    if (Number.isFinite(createdAt) && createdAt > 0) {
-      return Number.isFinite(chatCreatedAt) && chatCreatedAt > 0 && Math.abs(chatCreatedAt - createdAt) <= 30;
-    }
-    return true;
-  }) || null;
+    if (!Number.isFinite(chatCreatedAt) || chatCreatedAt <= 0)
+      continue;
+    const distance = Math.abs(chatCreatedAt - createdAt);
+    if (distance > 30 || distance >= bestDistance)
+      continue;
+    best = chat;
+    bestDistance = distance;
+  }
+  return best;
 }
 function messageTimestampMillis(createdAt, updatedAt) {
   for (const candidate of [createdAt, updatedAt]) {
@@ -54,6 +62,8 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = ne
   if (!content || !Number.isFinite(pendingAt) || pendingAt <= 0)
     return -1;
   const earliestMatch = pendingAt - 3;
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
   for (let index = messages.length - 1;index >= 0; index -= 1) {
     if (claimedIndexes.has(index))
       continue;
@@ -63,9 +73,13 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = ne
     const messageTime = Number(message.created_at || message.updated_at || 0);
     if (!Number.isFinite(messageTime) || messageTime < earliestMatch)
       continue;
-    return index;
+    const distance = Math.abs(messageTime - pendingAt);
+    if (distance >= bestDistance)
+      continue;
+    bestIndex = index;
+    bestDistance = distance;
   }
-  return -1;
+  return bestIndex;
 }
 function parseScheduleSlashCommand(message) {
   if (!/^\/every(?:\s|$)/i.test(message))
@@ -132,6 +146,9 @@ async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45000, fe
   }
   throw lastError;
 }
+function composerHasContent(message, attachmentCount) {
+  return Boolean(String(message || "").trim()) || attachmentCount > 0;
+}
 function parseAtSlashCommand(message, now = new Date) {
   if (!/^\/at(?:\s|$)/i.test(message))
     return null;
@@ -146,17 +163,29 @@ function parseAtSlashCommand(message, now = new Date) {
   const minute = Number(match[3]);
   const prompt = match[4].trim();
   let target;
+  let expectedYear;
+  let expectedMonth;
+  let expectedDay;
   if (dateToken === "today" || dateToken === "tomorrow") {
     target = new Date(now);
     if (dateToken === "tomorrow")
       target.setDate(target.getDate() + 1);
+    expectedYear = target.getFullYear();
+    expectedMonth = target.getMonth();
+    expectedDay = target.getDate();
     target.setHours(hour, minute, 0, 0);
   } else {
     const parts = dateToken.split("-").map(Number);
-    target = new Date(parts[0], parts[1] - 1, parts[2], hour, minute, 0, 0);
-    if (target.getFullYear() !== parts[0] || target.getMonth() !== parts[1] - 1 || target.getDate() !== parts[2]) {
+    expectedYear = parts[0];
+    expectedMonth = parts[1] - 1;
+    expectedDay = parts[2];
+    target = new Date(expectedYear, expectedMonth, expectedDay, hour, minute, 0, 0);
+    if (target.getFullYear() !== expectedYear || target.getMonth() !== expectedMonth || target.getDate() !== expectedDay) {
       return { error: "Schedule date is invalid." };
     }
+  }
+  if (target.getFullYear() !== expectedYear || target.getMonth() !== expectedMonth || target.getDate() !== expectedDay || target.getHours() !== hour || target.getMinutes() !== minute) {
+    return { error: "Schedule time does not exist in the local timezone." };
   }
   if (!prompt)
     return { error: "Schedule prompt is required." };
@@ -210,6 +239,7 @@ var state = {
   chatsRequestId: 0,
   selectedRequestId: 0,
   selectedChat: null,
+  selectedVisibleMessageCount: 0,
   optimisticSequence: 0,
   serverName: "",
   serverOnline: null,
@@ -218,7 +248,8 @@ var state = {
   attachments: [],
   pinnedIds: loadPinnedIds(),
   eventSource: null,
-  liveUpdatesPaused: false
+  liveUpdatesPaused: false,
+  timeRefreshTimer: null
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -279,6 +310,12 @@ function setTextIfChanged(element, value) {
 function setHiddenIfChanged(element, hidden) {
   if (element.hidden !== hidden)
     element.hidden = hidden;
+}
+function syncSendButton() {
+  const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "succeeded"].includes(state.pendingNewSend.status);
+  const hasTarget = state.composingNew || Boolean(state.selectedId);
+  const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
+  els.sendButton.disabled = state.mode !== "chats" || state.sending || Boolean(waitingNew) || !hasTarget || !hasContent;
 }
 function displayServerName(value) {
   const raw = String(value || "").trim();
@@ -401,13 +438,17 @@ function reconcileOptimisticNew(chats) {
     return;
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
+  if (!state.composingNew && state.selectedId !== matched.id) {
+    state.pendingNewSend = null;
+    state.pendingNewId = null;
+  }
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
-    const pending2 = state.pendingReplies.get(chat.id) || [];
-    if (!pending2.length)
+    const pending = state.pendingReplies.get(chat.id) || [];
+    if (!pending.length)
       return chat;
-    const latest = pending2[pending2.length - 1];
+    const latest = pending[pending.length - 1];
     return {
       ...chat,
       status: latest.status === "failed" ? chat.status : "active",
@@ -455,11 +496,11 @@ function renderSidebar(force = false) {
     chat.status === "active" ? "" : chat.preview,
     chat.message_count,
     chat.job_name,
-    formatRelativeTime(chatActivityAt(chat)),
+    chatActivityAt(chat),
     Boolean(chat._optimisticNew),
     Boolean(chat._optimisticReply),
     state.pinnedIds.has(chat.id)
-  ])) + state.selectedId + state.composingNew;
+  ])) + state.selectedId + state.composingNew + new Date().toDateString();
   if (!force && fingerprint === state.sidebarFingerprint)
     return;
   state.sidebarFingerprint = fingerprint;
@@ -488,7 +529,7 @@ function renderSidebar(force = false) {
             <div class="chat-preview">${escapeHtml(truncate(sidebarPreviewText(chat.preview) || "Waiting for messages…"))}</div>
             <div class="chat-meta">
               <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
-              <span class="chat-time">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
+              <span class="chat-time" data-activity-at="${escapeHtml(chatActivityAt(chat))}">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
             </div>
           </button>
           <button type="button"
@@ -505,7 +546,7 @@ function renderSidebar(force = false) {
   `).join("");
   for (const item of els.chatList.querySelectorAll("[data-chat-id]")) {
     item.addEventListener("click", () => {
-      if (item.dataset.optimisticNew === "true" && !state.pendingNewSend?.conversationId) {
+      if (item.dataset.optimisticNew === "true" && state.pendingNewSend) {
         renderNewChat();
         closeSidebar();
         return;
@@ -656,12 +697,14 @@ function highlightCode(raw, language) {
 }
 function inlineMarkdown(text) {
   const placeholders = [];
-  const stash = (html2) => {
-    const token = `PROMPTA_INLINE_${placeholders.length}_TOKEN`;
-    placeholders.push([token, html2]);
+  let source = String(text || "");
+  const stash = (html) => {
+    let token = `PROMPTA_INLINE_${placeholders.length}`;
+    while (source.includes(token))
+      token += "";
+    placeholders.push([token, html]);
     return token;
   };
-  let source = String(text || "");
   source = source.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code class="inline-code">${escapeHtml(code)}</code>`));
   source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
   let html = escapeHtml(source);
@@ -775,7 +818,7 @@ function renderCodeBlock(code, language) {
       <div class="code-header">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        <button type="button" class="copy-code" data-code="${encodeURIComponent(code)}">copy</button>
+        <button type="button" class="copy-code">copy</button>
       </div>
       <pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(code, highlightLanguage)}</code></pre>
     </div>`;
@@ -871,7 +914,7 @@ function bindCopyButtons(root) {
       continue;
     boundCopyButtons.add(button);
     button.addEventListener("click", async () => {
-      const code = decodeURIComponent(button.dataset.code || "");
+      const code = button.closest(".code-block")?.querySelector("pre code")?.textContent || "";
       try {
         await navigator.clipboard.writeText(code);
         const previous = button.textContent;
@@ -955,10 +998,35 @@ function updateMessageNode(node, message, allowStreaming) {
     patchDomChildren(content, template.content);
     bindCopyButtons(content);
   }
+  const retryButton = node.querySelector(".retry-send-button");
+  const shouldRetry = sendError && Boolean(message.retry_scope) && Boolean(message.retry_key);
+  if (shouldRetry) {
+    if (retryButton) {
+      retryButton.dataset.retryScope = String(message.retry_scope);
+      retryButton.dataset.retryKey = String(message.retry_key);
+    } else {
+      content.insertAdjacentHTML("afterend", `
+        <button type="button"
+                class="retry-send-button"
+                data-retry-scope="${escapeHtml(message.retry_scope)}"
+                data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
+      `);
+      bindRetryButtons(node);
+    }
+  } else if (retryButton) {
+    retryButton.remove();
+  }
+  const timestamp = node.querySelector(".message-timestamp");
+  if (!timestamp)
+    return false;
+  const nextTimestamp = messageTimestamp(message);
+  setTextIfChanged(timestamp, nextTimestamp.text);
+  if (timestamp.dateTime !== nextTimestamp.iso)
+    timestamp.dateTime = nextTimestamp.iso;
   const shouldStream = allowStreaming && message.status === "streaming";
   const indicator = node.querySelector(".streaming-indicator");
   if (shouldStream && !indicator) {
-    node.querySelector(".message-inner")?.insertAdjacentHTML("beforeend", `
+    timestamp.insertAdjacentHTML("beforebegin", `
       <div class="streaming-indicator">
         <span class="streaming-dots"><i></i><i></i><i></i></span>
         writing
@@ -1066,6 +1134,25 @@ function toggleSelectedPin() {
   renderSidebar(true);
   updatePinButton();
 }
+function renderConversationMeta(chat, visibleMessageCount) {
+  const title = chatTitle(chat);
+  const activityLabel = chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
+  const meta = [
+    chat.job_name || "one-shot",
+    `${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
+    activityLabel
+  ].join(" · ");
+  const metaFingerprint = JSON.stringify([title, meta, chat.status]);
+  if (metaFingerprint === state.selectedMetaFingerprint)
+    return;
+  state.selectedMetaFingerprint = metaFingerprint;
+  els.chatHeading.innerHTML = `
+    <div class="heading-title">${escapeHtml(title)}</div>
+    <div class="heading-meta">${escapeHtml(meta)}</div>`;
+  const syncStatus = chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
+  const syncLabel = chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
+  setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
+}
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
@@ -1073,20 +1160,19 @@ function renderConversation(chat) {
     ...messages,
     ...pendingReplyMessages(chat.id, messages)
   ];
+  state.selectedVisibleMessageCount = visibleMessages.length;
+  const allowStreaming = chat.status === "active";
   const fingerprint = JSON.stringify([
     chat.status,
     visibleMessages.map((message) => [
       message.message_key,
-      message.status,
-      message.content,
-      message.send_error
+      messageNodeFingerprint(message, allowStreaming)
     ])
   ]);
   const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
   const isInitial = state.selectedFingerprint === "";
   if (fingerprint !== state.selectedFingerprint) {
     state.selectedFingerprint = fingerprint;
-    const allowStreaming = chat.status === "active";
     renderMessageNodes(visibleMessages, allowStreaming);
     if (isInitial || wasNearBottom) {
       requestAnimationFrame(() => {
@@ -1094,27 +1180,11 @@ function renderConversation(chat) {
       });
     }
   }
-  const title = chatTitle(chat);
-  const activityLabel = chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
-  const meta = [
-    chat.job_name || "one-shot",
-    `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
-    activityLabel
-  ].join(" · ");
-  const metaFingerprint = JSON.stringify([title, meta, chat.status]);
-  if (metaFingerprint !== state.selectedMetaFingerprint) {
-    state.selectedMetaFingerprint = metaFingerprint;
-    els.chatHeading.innerHTML = `
-      <div class="heading-title">${escapeHtml(title)}</div>
-      <div class="heading-meta">${escapeHtml(meta)}</div>`;
-    const syncStatus = chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
-    const syncLabel = chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
-    setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
-  }
+  renderConversationMeta(chat, visibleMessages.length);
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
   els.messageInput.disabled = false;
-  els.sendButton.disabled = state.sending;
+  syncSendButton();
   els.shareChatButton.disabled = false;
   state.composingNew = false;
   updatePinButton();
@@ -1269,7 +1339,7 @@ function renderNewChat() {
       <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
     setStatusIcon(els.syncLabel, pending ? "queued" : "new", pending ? "Send queued" : "Fresh conversation", "sync");
     els.messageInput.disabled = false;
-    els.sendButton.disabled = Boolean(waiting);
+    syncSendButton();
     els.shareChatButton.disabled = true;
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
@@ -1346,7 +1416,6 @@ async function notifyChatFinished(chat) {
   }
 }
 function trackChatCompletions(chats) {
-  const nextStatuses = new Map(chats.map((chat) => [chat.id, chat.status]));
   if (state.statusBaselineReady) {
     for (const chat of chats) {
       if (state.chatStatuses.get(chat.id) === "active" && chat.status === "complete") {
@@ -1354,7 +1423,8 @@ function trackChatCompletions(chats) {
       }
     }
   }
-  state.chatStatuses = nextStatuses;
+  for (const chat of chats)
+    state.chatStatuses.set(chat.id, chat.status);
   state.statusBaselineReady = true;
 }
 async function loadChats() {
@@ -1475,6 +1545,8 @@ document.addEventListener("keydown", (event) => {
     els.searchInput.focus();
   }
   if (event.key === "Escape") {
+    els.attachmentMenu.hidden = true;
+    els.slashMenu.hidden = true;
     els.searchInput.blur();
     closeSidebar();
   }
@@ -1490,10 +1562,12 @@ function syncSidebarAccessibility() {
   els.openSidebar.setAttribute("aria-expanded", String(!hidden));
 }
 function openSidebar() {
+  resetSidebarDragStyles();
   document.body.classList.add("sidebar-open");
   syncSidebarAccessibility();
 }
 function closeSidebar() {
+  resetSidebarDragStyles();
   document.body.classList.remove("sidebar-open");
   syncSidebarAccessibility();
 }
@@ -1516,14 +1590,30 @@ var sidebarSwipe = {
   directionLocked: false,
   horizontal: false,
   frameId: 0,
-  pendingX: 0
+  pendingX: 0,
+  cleanupTimer: 0
 };
+function resetSidebarDragStyles() {
+  if (sidebarSwipe.frameId) {
+    cancelAnimationFrame(sidebarSwipe.frameId);
+    sidebarSwipe.frameId = 0;
+  }
+  if (sidebarSwipe.cleanupTimer) {
+    clearTimeout(sidebarSwipe.cleanupTimer);
+    sidebarSwipe.cleanupTimer = 0;
+  }
+  els.sidebar.style.removeProperty("transition");
+  els.sidebar.style.removeProperty("transform");
+  els.sidebarScrim.style.removeProperty("transition");
+  els.sidebarScrim.style.removeProperty("opacity");
+}
 function mobileSidebarEnabled() {
   return mobileSidebarMedia.matches;
 }
 document.addEventListener("touchstart", (event) => {
   if (!mobileSidebarEnabled() || event.touches.length !== 1)
     return;
+  resetSidebarDragStyles();
   const touch = event.touches[0];
   const sidebarOpen = document.body.classList.contains("sidebar-open");
   if (!sidebarOpen && touch.clientX > 96)
@@ -1601,7 +1691,10 @@ function settleSidebarDrag(open) {
   els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
   els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
   els.sidebarScrim.style.opacity = open ? "1" : "0";
-  window.setTimeout(() => {
+  if (sidebarSwipe.cleanupTimer)
+    clearTimeout(sidebarSwipe.cleanupTimer);
+  sidebarSwipe.cleanupTimer = window.setTimeout(() => {
+    sidebarSwipe.cleanupTimer = 0;
     els.sidebar.style.removeProperty("transition");
     els.sidebar.style.removeProperty("transform");
     els.sidebarScrim.style.removeProperty("transition");
@@ -1650,6 +1743,7 @@ function renderAttachments() {
   const files = state.attachments || [];
   els.attachmentChips.hidden = files.length === 0;
   els.attachmentChips.innerHTML = files.map((file, index) => '<span class="attachment-chip">' + '<span title="' + escapeHtml(file.name) + '">' + escapeHtml(truncate(file.name, 28)) + "</span>" + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>' + "</span>").join("");
+  syncSendButton();
 }
 function clearAttachments() {
   state.attachments = [];
@@ -1657,6 +1751,14 @@ function clearAttachments() {
   els.photoUploadInput.value = "";
   els.cameraUploadInput.value = "";
   renderAttachments();
+}
+function setAttachmentControlsDisabled(disabled) {
+  els.attachmentButton.disabled = disabled;
+  if (disabled)
+    els.attachmentMenu.hidden = true;
+  for (const button of els.attachmentChips.querySelectorAll("button")) {
+    button.disabled = disabled;
+  }
 }
 function addAttachments(files) {
   const current = state.attachments || [];
@@ -1739,7 +1841,9 @@ document.addEventListener("click", (event) => {
 });
 async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
+  els.messageInput.disabled = true;
   els.sendButton.disabled = true;
+  setAttachmentControlsDisabled(true);
   els.messageInput.value = "";
   resizeComposer();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
@@ -1760,14 +1864,17 @@ async function runScheduleSlashCommand(command, originalMessage) {
   } finally {
     state.sending = false;
     els.messageInput.disabled = false;
-    els.sendButton.disabled = false;
+    setAttachmentControlsDisabled(false);
+    syncSendButton();
     if (matchMedia("(pointer: fine)").matches)
       els.messageInput.focus();
   }
 }
 async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
+  els.messageInput.disabled = true;
   els.sendButton.disabled = true;
+  setAttachmentControlsDisabled(true);
   els.messageInput.value = "";
   resizeComposer();
   updateSlashMenu();
@@ -1788,7 +1895,8 @@ async function runAtSlashCommand(command, originalMessage) {
   } finally {
     state.sending = false;
     els.messageInput.disabled = false;
-    els.sendButton.disabled = false;
+    setAttachmentControlsDisabled(false);
+    syncSendButton();
     if (matchMedia("(pointer: fine)").matches)
       els.messageInput.focus();
   }
@@ -1850,13 +1958,13 @@ async function watchSend(sendId, creatingNew, conversationId) {
         return;
       const nextError = job.error || "";
       const nextConversationId = job.conversation_id || state.pendingNewSend.conversationId || "";
-      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId;
+      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
         conversationId: nextConversationId
       });
-      if (changed2)
+      if (changed)
         state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -1867,9 +1975,16 @@ async function watchSend(sendId, creatingNew, conversationId) {
             renderNewChat();
           return;
         }
+        state.pendingNewSend.conversationId = newId;
+        state.pendingNewId = newId;
+        const stillViewingPending = state.composingNew && state.mode === "chats";
+        if (!stillViewingPending) {
+          renderSidebar();
+          await loadChats();
+          return;
+        }
         state.composingNew = false;
         state.selectedId = newId;
-        state.pendingNewId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
         els.messageInput.placeholder = "Message Prompta…";
         els.composerStatus.textContent = "Sent. Waiting for the cached response…";
@@ -1884,7 +1999,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderSidebar();
         return;
       }
-      if (changed2) {
+      if (changed) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();
@@ -1940,6 +2055,7 @@ async function retryFailedSend(scope, retryKey) {
     return;
   els.messageInput.value = pending.message || "";
   resizeComposer();
+  syncSendButton();
   if ((pending.attachmentNames || []).length) {
     setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
     els.messageInput.focus();
@@ -1986,13 +2102,17 @@ async function sendSelectedMessage() {
   let serializedAttachments = [];
   if (attachments.length) {
     state.sending = true;
+    els.messageInput.disabled = true;
     els.sendButton.disabled = true;
+    setAttachmentControlsDisabled(true);
     setTextIfChanged(els.composerStatus, "Preparing attachments…");
     try {
       serializedAttachments = await serializeAttachments();
     } catch (error) {
       state.sending = false;
-      els.sendButton.disabled = false;
+      els.messageInput.disabled = false;
+      setAttachmentControlsDisabled(false);
+      syncSendButton();
       setTextIfChanged(els.composerStatus, "Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
       return;
     }
@@ -2063,14 +2183,16 @@ async function sendSelectedMessage() {
     console.error(error);
   } finally {
     state.sending = false;
+    if (attachments.length)
+      setAttachmentControlsDisabled(false);
     if (!creatingNew && state.selectedId && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
+      syncSendButton();
       if (matchMedia("(pointer: fine)").matches)
         els.messageInput.focus();
     } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
       els.messageInput.disabled = false;
-      els.sendButton.disabled = false;
+      syncSendButton();
       if (matchMedia("(pointer: fine)").matches)
         els.messageInput.focus();
     }
@@ -2091,9 +2213,9 @@ async function copySelectedChatUrl() {
     textarea.style.opacity = "0";
     document.body.append(textarea);
     textarea.select();
-    document.execCommand("copy");
+    const copied = document.execCommand("copy");
     textarea.remove();
-    setTextIfChanged(els.composerStatus, "Chat link copied.");
+    setTextIfChanged(els.composerStatus, copied ? "Chat link copied." : "Could not copy the chat link.");
   }
 }
 function updateSlashMenu() {
@@ -2116,6 +2238,7 @@ function insertSlashCommand(command) {
   els.messageInput.value = command;
   els.slashMenu.hidden = true;
   resizeComposer();
+  syncSendButton();
   els.messageInput.focus();
   els.messageInput.setSelectionRange(command.length, command.length);
 }
@@ -2134,6 +2257,7 @@ els.messageForm.addEventListener("submit", (event) => {
 els.messageInput.addEventListener("input", () => {
   resizeComposer();
   updateSlashMenu();
+  syncSendButton();
 });
 els.messageInput.addEventListener("keydown", (event) => {
   if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {
@@ -2164,6 +2288,26 @@ function queueLiveRefresh() {
     liveRefreshQueued = false;
     await loadChats();
   });
+}
+function refreshDisplayedTimes() {
+  renderSidebar();
+  for (const time of els.chatList.querySelectorAll(".chat-time[data-activity-at]")) {
+    setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
+  }
+  if (state.mode === "chats" && state.selectedChat && state.selectedChat.id === state.selectedId && !state.composingNew) {
+    renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
+  }
+}
+function stopTimeRefresh() {
+  if (state.timeRefreshTimer === null)
+    return;
+  clearInterval(state.timeRefreshTimer);
+  state.timeRefreshTimer = null;
+}
+function startTimeRefresh() {
+  if (state.timeRefreshTimer !== null)
+    return;
+  state.timeRefreshTimer = setInterval(refreshDisplayedTimes, 30000);
 }
 function stopFallbackRefresh() {
   if (state.refreshTimer === null)
@@ -2213,6 +2357,7 @@ function startEventStream() {
 window.addEventListener("pagehide", () => {
   state.liveUpdatesPaused = true;
   stopEventStream();
+  stopTimeRefresh();
 });
 window.addEventListener("pageshow", () => {
   if (!state.liveUpdatesPaused)
@@ -2221,6 +2366,7 @@ window.addEventListener("pageshow", () => {
   loadServerIdentity();
   loadChats();
   startEventStream();
+  startTimeRefresh();
 });
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator))
@@ -2236,5 +2382,6 @@ async function startApp() {
   document.documentElement.classList.remove("booting");
   await loadChats();
   startEventStream();
+  startTimeRefresh();
 }
 startApp();

@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -98,17 +99,18 @@ class ReadOnlyChatStore:
         parameters: list[Any] = []
         if search:
             where = """
-                WHERE c.title LIKE ? COLLATE NOCASE
-                   OR c.job_name LIKE ? COLLATE NOCASE
-                   OR c.prompt LIKE ? COLLATE NOCASE
+                WHERE c.title COLLATE NOCASE LIKE ? ESCAPE '!'
+                   OR c.job_name COLLATE NOCASE LIKE ? ESCAPE '!'
+                   OR c.prompt COLLATE NOCASE LIKE ? ESCAPE '!'
                    OR EXISTS (
-                       SELECT 1 FROM messages sm
-                       WHERE sm.conversation_id = c.id
-                         AND sm.message_key NOT LIKE 'request-placeholder-%'
-                         AND sm.content LIKE ? COLLATE NOCASE
-                   )
+                        SELECT 1 FROM messages sm
+                        WHERE sm.conversation_id = c.id
+                          AND sm.message_key NOT LIKE 'request-placeholder-%'
+                          AND sm.content COLLATE NOCASE LIKE ? ESCAPE '!'
+                    )
             """
-            needle = f"%{search}%"
+            escaped = search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            needle = f"%{escaped}%"
             parameters.extend([needle, needle, needle, needle])
         parameters.append(max(1, min(limit, 500)))
         try:
@@ -266,7 +268,15 @@ class ReadOnlyChatStore:
                 "source": "none",
             }
 
-        lines = completed.stdout.splitlines() if completed.returncode == 0 else []
+        lines = (
+            [
+                line
+                for line in completed.stdout.splitlines()
+                if line.strip() and line.strip() != "-- No entries --"
+            ]
+            if completed.returncode == 0
+            else []
+        )
         if not lines:
             return {
                 "exists": False,
@@ -274,10 +284,17 @@ class ReadOnlyChatStore:
                 "updated_at": None,
                 "source": "none",
             }
+        updated_at = None
+        try:
+            updated_at = datetime.fromisoformat(lines[-1].split(maxsplit=1)[0]).timestamp()
+        except (ValueError, IndexError):
+            # Keep logs available for unexpected journal formats. Leaving the
+            # timestamp unset also keeps identical polls stable in the UI.
+            pass
         return {
             "exists": True,
             "lines": lines[-bounded_limit:],
-            "updated_at": time.time(),
+            "updated_at": updated_at,
             "source": "journal",
         }
 
