@@ -41,6 +41,7 @@ _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
+_LIVE_SNAPSHOT_INTERVAL_SECONDS = 2.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
 _ACTIVE_TAB_RETENTION_SECONDS = 30 * 60.0
 _FAILURE_RETRY_SECONDS = 300.0
@@ -1090,11 +1091,17 @@ class Prompta:
         for context, active in list(self._active_conversations.items()):
             try:
                 activity = await driver.conversation_activity(context)
-                if bool(activity.get("streaming")):
+                streaming_hint = bool(activity.get("streaming"))
+                if streaming_hint:
                     active.idle_polls = 0
                     active.settled_at = 0.0
-                    continue
+                    now = time.monotonic()
+                    if now - active.last_live_snapshot_at < _LIVE_SNAPSHOT_INTERVAL_SECONDS:
+                        continue
+                    active.last_live_snapshot_at = now
                 snapshot = await driver.conversation_snapshot(context)
+                if streaming_hint:
+                    snapshot["streaming"] = True
             except Exception:
                 logger.exception(
                     "Prompta cache capture failed conversation=%s", active.conversation_id
@@ -1119,7 +1126,11 @@ class Prompta:
                 active.last_digest = digest
                 active.idle_polls = 0
                 active.settled_at = 0.0
-            elif has_assistant and not streaming:
+
+            if streaming_hint:
+                continue
+
+            if not changed and has_assistant and not streaming:
                 active.idle_polls += 1
             else:
                 active.idle_polls = 0

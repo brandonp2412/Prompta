@@ -40,6 +40,24 @@ logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
 
 
+def _git_short_head() -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+_UI_HEAD = _git_short_head()
+
+
 class ReadOnlyChatStore:
     """Open fresh read-only data sources for each web request."""
 
@@ -1226,6 +1244,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 **self.store.stats(),
                 "server": server.host_name,
                 "online": all(bool(node["online"]) for node in nodes),
+                "head": _UI_HEAD,
                 "nodes": nodes,
             })
             return

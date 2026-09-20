@@ -335,6 +335,12 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert manifest["start_url"] == "./"
             assert manifest["scope"] == "./"
 
+        with urlopen(f"{base_url}/api/health", timeout=2) as response:
+            assert response.status == 200
+            health = json.loads(response.read().decode())
+            assert "head" in health
+            assert len(health["head"]) <= 8
+
         with urlopen(f"{base_url}/api/events", timeout=2) as response:
             assert response.status == 200
             assert response.headers.get_content_type() == "text/event-stream"

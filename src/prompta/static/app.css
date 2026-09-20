@@ -512,6 +512,11 @@ textarea:focus-visible {
   background: var(--surface);
 }
 
+.icon-button.active {
+  background: var(--surface);
+  color: var(--text);
+}
+
 .new-chat-button {
   flex: 0 0 auto;
   color: var(--muted-strong);
@@ -987,10 +992,10 @@ textarea:focus-visible {
 .composer-bar {
   width: min(760px, 100%);
   margin: 0 auto;
-  padding: 8px 8px 8px 14px;
+  padding: 8px;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6px;
   border: 1px solid var(--border-strong);
   border-radius: 18px;
   background: rgba(47, 47, 47, 0.92);
@@ -1067,6 +1072,8 @@ textarea:focus-visible {
 .attachment-button {
   width: 34px;
   height: 34px;
+  display: grid;
+  place-items: center;
   color: var(--muted-strong);
 }
 

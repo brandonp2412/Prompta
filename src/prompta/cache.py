@@ -24,6 +24,7 @@ class ActiveConversation:
     last_digest: str = ""
     idle_polls: int = 0
     settled_at: float = 0.0
+    last_live_snapshot_at: float = 0.0
 
 
 class ChatCache:

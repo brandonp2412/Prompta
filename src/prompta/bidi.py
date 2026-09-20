@@ -707,19 +707,19 @@ class FirefoxBiDiDriver:
                 };
                 return walk(root).replace(/\\n{3,}/g,'\\n\\n').trim();
               };
-              const toolSelector='[data-tool-call-id],[data-tool-name],[data-testid*="tool" i],[aria-label*="tool" i],[class*="tool-call" i],[data-testid*="computer" i],[data-testid*="browser" i]';
+              const toolSelector='[data-tool-call-id],[data-tool-name],[data-testid*="tool" i],[aria-label*="tool" i],[class*="tool-call" i],[data-testid*="computer" i],[data-testid*="browser" i],[data-testid*="search" i],[aria-label*="search" i],[aria-label*="browse" i],[aria-label*="web" i]';
               const toolBlocks=agent=>[...new Set([
                 ...agent.querySelectorAll(toolSelector)
-              ])].filter(node=>!node.parentElement?.closest(toolSelector)).map(node=>{
+              ])].filter(node=>!node.querySelector(toolSelector)).map(node=>{
                 const name=(node.getAttribute('data-tool-name')
                   ||node.getAttribute('aria-label')
                   ||node.getAttribute('title')
                   ||node.querySelector('[data-tool-name]')?.getAttribute('data-tool-name')
                   ||'tool').replace(/^(?:called|use|using)\\s+tool\\s*:?\\s*/i,'').trim()||'tool';
-                const detail=(node.textContent||node.innerText||'').trim();
+                const detail=(node.innerText||node.textContent||node.getAttribute('aria-label')||node.getAttribute('title')||node.getAttribute('data-testid')||'').trim().slice(0,16000);
                 if(!detail)return '';
                 return '```tool:'+name+'\\n'+detail+'\\n```';
-              }).filter(Boolean);
+              }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const entries=roleNodes.map(e=>({
                 node:e,
@@ -729,25 +729,32 @@ class FirefoxBiDiDriver:
               })).filter(message=>message.role&&message.content&&!(
                 message.role==='assistant'&&message.id.startsWith('request-placeholder-')
               ));
+              const seenRoleKeys=new Set();
+              for(let index=entries.length-1;index>=0;index-=1){
+                const message=entries[index];
+                const key=message.role+'|'+(message.id||normalise(message.content));
+                if(seenRoleKeys.has(key))entries.splice(index,1);
+                else seenRoleKeys.add(key);
+              }
               const assistantNodes=roleNodes.filter(node=>node.getAttribute('data-message-author-role')==='assistant');
               const candidates=[...new Set([
-                ...assistantNodes.map(node=>node.closest('.agent-turn,[data-testid^="conversation-turn-"]')||node.parentElement).filter(Boolean),
+                ...assistantNodes.map(node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement).filter(Boolean),
                 ...document.querySelectorAll('.agent-turn')
               ])].filter(visible);
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
                 const richText=markdown.map(markdownText).filter(Boolean);
-                const richPlain=markdown.map(node=>(node.textContent||node.innerText||'').trim()).filter(Boolean);
+                const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
-                const rawVisible=(agent.textContent||agent.innerText||'').trim();
+                const rawVisible=(agent.innerText||agent.textContent||'').trim();
                 const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share)$/i;
-                const activityLines=rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
+                const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
                   line
                   && !uiNoise.test(line)
-                  && !richPlain.some(text=>text===line||text.includes(line))
+                  && !richPlain.some(text=>text===line||text.includes(line)||line.includes(text))
                   && !tools.some(block=>block.includes(line))
-                )).slice(0,200);
-                const activity=activityLines.length
+                )))].slice(0,200);
+                const activity=!tools.length&&activityLines.length
                   ? '**Tool activity**\\n\\n'+activityLines.join('\\n')
                   : '';
                 const content=(richText.length||tools.length||activity

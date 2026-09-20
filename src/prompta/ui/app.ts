@@ -4,6 +4,22 @@ import {
   parseAtSlashCommand,
   parseScheduleSlashCommand,
 } from "./clientLogic";
+const PINNED_CHATS_KEY = "prompta:pinned-chats";
+function loadPinnedIds() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
+    return new Set(Array.isArray(stored) ? stored.map((id) => String(id)) : []);
+  } catch {
+    return new Set();
+  }
+}
+function savePinnedIds() {
+  try {
+    localStorage.setItem(PINNED_CHATS_KEY, JSON.stringify(Array.from(state.pinnedIds)));
+  } catch {
+    // Pinning is a local convenience; storage failures should not affect chat access.
+  }
+}
 const state = {
   chats: [],
   selectedId: null,
@@ -31,6 +47,7 @@ const state = {
   chatStatuses: new Map(),
   statusBaselineReady: false,
   attachments: [],
+  pinnedIds: loadPinnedIds(),
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -54,6 +71,7 @@ const els = {
   chatHeading: requiredElement<HTMLElement>("#chatHeading"),
   syncLabel: requiredElement<HTMLElement>("#syncLabel"),
   cacheSummary: requiredElement<HTMLElement>("#cacheSummary"),
+  headLabel: requiredElement<HTMLElement>("#headLabel"),
   globalLiveOrb: requiredElement<HTMLElement>("#globalLiveOrb"),
   serverLabel: requiredElement<HTMLElement>("#serverLabel"),
   sidebar: requiredElement<HTMLElement>("#sidebar"),
@@ -62,6 +80,7 @@ const els = {
   sidebarScrim: requiredElement<HTMLElement>("#sidebarScrim"),
   logsButton: document.querySelector<HTMLButtonElement>("#logsButton"),
   newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
+  pinChatButton: requiredElement<HTMLButtonElement>("#pinChatButton"),
   shareChatButton: requiredElement<HTMLButtonElement>("#shareChatButton"),
   attachmentButton: requiredElement<HTMLButtonElement>("#attachmentButton"),
   attachmentMenu: requiredElement<HTMLElement>("#attachmentMenu"),
@@ -156,11 +175,14 @@ function truncate(value, length = 88) {
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
 function groupChats(chats) {
+  const pinned = chats.filter((chat) => state.pinnedIds.has(chat.id));
+  const unpinned = chats.filter((chat) => !state.pinnedIds.has(chat.id));
   const groups = [
-    ["Active", chats.filter((chat) => chat.status === "active")],
-    ["Today", chats.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at))],
-    ["Yesterday", chats.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at, 1))],
-    ["Previous", chats.filter((chat) => chat.status !== "active"
+    ["Pinned", pinned],
+    ["Active", unpinned.filter((chat) => chat.status === "active")],
+    ["Today", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at))],
+    ["Yesterday", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chat.updated_at, 1))],
+    ["Previous", unpinned.filter((chat) => chat.status !== "active"
       && !sameLocalDay(chat.updated_at)
       && !sameLocalDay(chat.updated_at, 1))],
   ];
@@ -244,6 +266,7 @@ function renderSidebar(force = false) {
     formatRelativeTime(chat.updated_at),
     Boolean(chat._optimisticNew),
     Boolean(chat._optimisticReply),
+    state.pinnedIds.has(chat.id),
   ])) + state.selectedId + state.composingNew;
   if (!force && fingerprint === state.sidebarFingerprint) return;
   state.sidebarFingerprint = fingerprint;
@@ -280,6 +303,7 @@ function renderSidebar(force = false) {
   for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
     item.addEventListener("click", () => {
       if (item.dataset.optimisticNew === "true") {
+        renderNewChat();
         document.body.classList.remove("sidebar-open");
         return;
       }
@@ -788,6 +812,27 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     return messages;
   });
 }
+function updatePinButton() {
+  const chatId = state.selectedId;
+  const available = Boolean(chatId) && !state.composingNew;
+  const pinned = available && state.pinnedIds.has(chatId);
+  els.pinChatButton.disabled = !available;
+  els.pinChatButton.classList.toggle("active", Boolean(pinned));
+  els.pinChatButton.setAttribute("aria-pressed", String(Boolean(pinned)));
+  const label = pinned ? "Unpin chat" : "Pin chat";
+  els.pinChatButton.title = label;
+  els.pinChatButton.setAttribute("aria-label", label);
+}
+function toggleSelectedPin() {
+  const chatId = state.selectedId;
+  if (!chatId || state.composingNew) return;
+  if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
+  else state.pinnedIds.add(chatId);
+  savePinnedIds();
+  state.sidebarFingerprint = "";
+  renderSidebar(true);
+  updatePinButton();
+}
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
@@ -838,6 +883,7 @@ function renderConversation(chat) {
   els.sendButton.disabled = state.sending;
   els.shareChatButton.disabled = false;
   state.composingNew = false;
+  updatePinButton();
   if (!state.sending) {
     setTextIfChanged(
       els.composerStatus,
@@ -940,6 +986,7 @@ function clearConversation() {
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
   els.shareChatButton.disabled = true;
+  updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
   els.composerStatus.textContent = "Select a chat to send a message.";
 }
@@ -1003,6 +1050,7 @@ function renderNewChat() {
     els.messageInput.disabled = false;
     els.sendButton.disabled = Boolean(waiting);
     els.shareChatButton.disabled = true;
+    updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
     els.composerStatus.textContent = pending
       ? (pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…")
@@ -1045,6 +1093,9 @@ async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
     setServerStatus(payload.server, payload.online);
+    const head = String(payload.head || "").trim();
+    setTextIfChanged(els.headLabel, head ? "HEAD " + head : "HEAD unknown");
+    els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
   } catch (error) {
     setServerStatus(state.serverName || location.hostname, false);
     console.warn("Could not load Prompta server identity", error);
@@ -1764,6 +1815,7 @@ function insertSlashCommand(command) {
   els.messageInput.focus();
   els.messageInput.setSelectionRange(command.length, command.length);
 }
+els.pinChatButton.addEventListener("click", toggleSelectedPin);
 els.shareChatButton.addEventListener("click", copySelectedChatUrl);
 els.slashMenu.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slash-command]");
