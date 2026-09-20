@@ -53,6 +53,7 @@ var state = {
   refreshTimer: null,
   mode: "chats",
   logFingerprint: "",
+  logRefreshTimer: null,
   sending: false,
   composingNew: false,
   pendingNewId: null,
@@ -240,6 +241,7 @@ var els = {
   logsButton: document.querySelector("#logsButton"),
   newChatButton: requiredElement("#newChatButton"),
   logsViewport: requiredElement("#logsViewport"),
+  composerFooter: requiredElement("#composerFooter"),
   logOutput: requiredElement("#logOutput"),
   logsMeta: requiredElement("#logsMeta"),
   logsServerTitle: requiredElement("#logsServerTitle"),
@@ -732,10 +734,25 @@ function renderMarkdown(raw) {
   html += renderTextBlock(source.slice(lastIndex));
   return html || "<p></p>";
 }
+function messageTimestamp(message) {
+  const raw = Number(message.created_at || message.updated_at || Date.now() / 1000);
+  const date = new Date(raw < 1000000000000 ? raw * 1000 : raw);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hour24 = date.getHours();
+  const hour12 = hour24 % 12 || 12;
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const period = hour24 < 12 ? "am" : "pm";
+  return {
+    text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${hour12}:${minutes}${period}`,
+    iso: date.toISOString()
+  };
+}
 function renderMessageSection(message, allowStreaming = true) {
   const role = message.role === "user" ? "user" : "assistant";
   const streaming = allowStreaming && message.status === "streaming";
   const label = message.send_error ? "Send error" : "Prompta run";
+  const timestamp = messageTimestamp(message);
   return `
     <section class="message ${role}${message.send_error ? " send-error" : ""}">
       <div class="message-inner">
@@ -749,6 +766,7 @@ function renderMessageSection(message, allowStreaming = true) {
             writing
           </div>
         ` : ""}
+        <time class="message-timestamp" datetime="${timestamp.iso}">${timestamp.text}</time>
       </div>
     </section>`;
 }
@@ -758,6 +776,8 @@ function messageNodeFingerprint(message, allowStreaming) {
     message.status,
     message.content,
     Boolean(message.send_error),
+    message.created_at,
+    message.updated_at,
     allowStreaming
   ]);
 }
@@ -1009,14 +1029,14 @@ function renderLogs(payload) {
   if (fingerprint !== state.logFingerprint) {
     state.logFingerprint = fingerprint;
     els.logOutput.textContent = lines.length ? lines.join(`
-`) : "No Prompta logs have been synced yet.";
+`) : "No Prompta service logs are available yet.";
     if (isInitial || wasNearBottom) {
       requestAnimationFrame(() => {
         els.logsViewport.scrollTop = els.logsViewport.scrollHeight;
       });
     }
   }
-  setTextIfChanged(els.logsMeta, payload.exists ? lines.length + " lines · synced " + formatRelativeTime(payload.updated_at) : "Waiting for synced journal");
+  setTextIfChanged(els.logsMeta, payload.exists ? payload.source === "journal" ? lines.length + " lines · live journal" : lines.length + " lines · synced " + formatRelativeTime(payload.updated_at) : "Waiting for Prompta service logs");
 }
 async function loadLogs() {
   try {
@@ -1032,10 +1052,16 @@ function showMode(mode) {
   const logsMode = state.mode === "logs";
   els.viewport.hidden = logsMode;
   els.logsViewport.hidden = !logsMode;
+  if (state.logRefreshTimer) {
+    clearInterval(state.logRefreshTimer);
+    state.logRefreshTimer = null;
+  }
   if (els.logsButton) {
     els.logsButton.textContent = logsMode ? "chats" : "logs";
     els.logsButton.classList.toggle("active", logsMode);
+    els.logsButton.setAttribute("aria-pressed", String(logsMode));
   }
+  els.composerFooter.hidden = logsMode;
   if (logsMode) {
     state.selectedMetaFingerprint = "";
     const display = displayServerName(state.serverName || location.hostname);
@@ -1045,6 +1071,10 @@ function showMode(mode) {
     els.sendButton.disabled = true;
     els.composerStatus.textContent = "Switch back to chats to send a message.";
     loadLogs();
+    state.logRefreshTimer = setInterval(() => {
+      if (state.mode === "logs" && document.visibilityState === "visible")
+        loadLogs();
+    }, 2000);
     return;
   }
   if (state.selectedId) {
@@ -1126,7 +1156,7 @@ function renderNewChat() {
       <div class="heading-title">New chat</div>
       <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
     setStatusIcon(els.syncLabel, pending ? "queued" : "new", pending ? "Send queued" : "Fresh conversation", "sync");
-    els.messageInput.disabled = Boolean(waiting);
+    els.messageInput.disabled = false;
     els.sendButton.disabled = Boolean(waiting);
     els.messageInput.placeholder = "Start a new chat…";
     els.composerStatus.textContent = pending ? pending.status === "failed" ? "Send failed. The error is shown in the chat." : "Sent to Prompta. Waiting for ChatGPT to accept it…" : "Your first message will open a fresh ChatGPT chat.";
