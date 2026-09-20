@@ -618,9 +618,10 @@ class Prompta:
 
             provisional_conversation_id = ""
             provisional_confirmed = False
-            deadline = asyncio.get_running_loop().time() + max(
-                1.0, self.config.send_timeout_seconds
-            )
+            confirmation_timeout = max(1.0, self.config.send_timeout_seconds)
+            if attachments:
+                confirmation_timeout = max(confirmation_timeout, 120.0)
+            deadline = asyncio.get_running_loop().time() + confirmation_timeout
             while asyncio.get_running_loop().time() < deadline:
                 state = await driver.dom_state()
                 rate_limit_text = str(state.get("rate_limit_text") or "")
@@ -863,9 +864,10 @@ class Prompta:
                 raise RuntimeError("ChatGPT composer did not contain the requested reply")
             await driver.click_send()
 
-            deadline = asyncio.get_running_loop().time() + max(
-                1.0, self.config.send_timeout_seconds
-            )
+            confirmation_timeout = max(1.0, self.config.send_timeout_seconds)
+            if attachments:
+                confirmation_timeout = max(confirmation_timeout, 120.0)
+            deadline = asyncio.get_running_loop().time() + confirmation_timeout
             while asyncio.get_running_loop().time() < deadline:
                 state = await driver.dom_state()
                 rate_limit_text = str(state.get("rate_limit_text") or "")
