@@ -1,4 +1,7 @@
 // src/prompta/ui/clientLogic.ts
+function sidebarPreviewText(value) {
+  return String(value || "").replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();
+}
 function matchingOptimisticConversation(chats, pending) {
   if (!pending)
     return null;
@@ -250,7 +253,7 @@ function chatTitle(chat) {
     return title;
   if (chat.job_name)
     return chat.job_name.replaceAll("-", " ");
-  const preview = (chat.preview || "").trim();
+  const preview = sidebarPreviewText(chat.preview);
   if (preview)
     return preview.slice(0, 72);
   return "Untitled conversation";
@@ -383,27 +386,30 @@ function renderSidebar(force = false) {
       ${groupedChats.map((chat) => {
     const selected = chat.id === state.selectedId || chat._optimisticNew && state.composingNew;
     return `
-        <button class="chat-item ${selected ? "selected" : ""}"
-                data-chat-id="${escapeHtml(chat.id)}"
-                data-optimistic-new="${chat._optimisticNew ? "true" : "false"}">
-          <div class="chat-item-top">
-            ${sidebarStatusDot(chat.status)}
-            <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
-            <span class="chat-row-pin ${state.pinnedIds.has(chat.id) ? "active" : ""}"
+        <div class="chat-item ${selected ? "selected" : ""}">
+          <button type="button"
+                  class="chat-item-select"
+                  data-chat-id="${escapeHtml(chat.id)}"
+                  data-optimistic-new="${chat._optimisticNew ? "true" : "false"}">
+            <div class="chat-item-top">
+              ${sidebarStatusDot(chat.status)}
+              <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
+            </div>
+            <div class="chat-preview">${escapeHtml(truncate(sidebarPreviewText(chat.preview) || "Waiting for messages…"))}</div>
+            <div class="chat-meta">
+              <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
+              <span class="chat-time">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
+            </div>
+          </button>
+          <button type="button"
+                  class="chat-row-pin ${state.pinnedIds.has(chat.id) ? "active" : ""}"
                   data-pin-chat-id="${escapeHtml(chat.id)}"
-                  role="button"
                   aria-label="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
                   title="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
                   aria-pressed="${String(state.pinnedIds.has(chat.id))}">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg>
-            </span>
-          </div>
-          <div class="chat-preview">${escapeHtml(truncate(chat.preview || "Waiting for messages…"))}</div>
-          <div class="chat-meta">
-            <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
-            <span class="chat-time">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
-          </div>
-        </button>`;
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg>
+          </button>
+        </div>`;
   }).join("")}
     </section>
   `).join("");

@@ -44,11 +44,13 @@ class FakeDriver:
         capture_status: int = 200,
         expose_user_message: bool = True,
         route_after_send: bool = True,
+        enter_submits: bool = True,
     ) -> None:
         self.prompt = prompt
         self.committed = committed
         self.expose_user_message = expose_user_message
         self.route_after_send = route_after_send
+        self.enter_submits = enter_submits
         self.is_connected = True
         self.context = "context-1"
         self.typed = initial_composer
@@ -114,10 +116,13 @@ class FakeDriver:
         self.attached_files = list(paths)
 
     async def click_send(self) -> None:
+        if not self.enter_submits:
+            return
         self.sent = True
         self.typed = ""
 
-    async def click_send_button(self) -> None:
+    async def click_send_button(self, timeout: float = 10.0) -> None:
+        del timeout
         self.send_button_clicked = True
         self.sent = True
         self.typed = ""
@@ -179,6 +184,20 @@ async def test_scheduled_send_requires_high_effort(tmp_path: Path) -> None:
     assert await prompta.send_once(prompt, job_name="scheduled-job") == "new-chat"
 
     prompta._ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_send_once_falls_back_to_send_button_when_enter_does_not_submit(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver(prompt, enter_submits=False)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once(prompt)
+
+    assert conversation_id == "new-chat"
+    assert fake.send_button_clicked is True
 
 
 @pytest.mark.asyncio
@@ -349,6 +368,47 @@ async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) ->
     assert "context-1" not in prompta._active_conversations
     assert prompta._active_conversations["context-new"].settled_at == 0.0
     assert prompta.cache.recent_conversations()[0]["status"] == "active"
+    await prompta.close()
+
+
+@pytest.mark.asyncio
+async def test_send_reply_falls_back_to_send_button_when_enter_does_not_submit(
+    tmp_path: Path,
+) -> None:
+    prompt = "Continue from the UI"
+    conversation_id = "existing-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class ReplyFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            return {
+                "title": "Existing chat",
+                "path": f"/c/{conversation_id}",
+                "streaming": True,
+                "messages": [
+                    {"id": "u1", "role": "user", "content": prompt},
+                ],
+            }
+
+    fake = ReplyFakeDriver(prompt, enter_submits=False)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-old",
+        job_name="kite",
+        prompt="Original prompt",
+    )
+
+    result = await prompta.send_reply(conversation_id, prompt)
+
+    assert result == conversation_id
+    assert fake.send_button_clicked is True
     await prompta.close()
 
 

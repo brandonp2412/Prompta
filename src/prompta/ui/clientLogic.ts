@@ -20,6 +20,16 @@ export type AtSlashCommand =
   | { error: string }
   | { runAtEpoch: number; runAtLabel: string; prompt: string };
 
+export function sidebarPreviewText(value: unknown): string {
+  return String(value || "")
+    .replace(
+      /```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function matchingOptimisticConversation(
   chats: ChatSummary[],
   pending: PendingNewSend | null | undefined,

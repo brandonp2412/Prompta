@@ -4,6 +4,7 @@ import {
   matchingOptimisticConversation,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  sidebarPreviewText,
 } from "./clientLogic";
 
 describe("optimistic new-chat reconciliation", () => {
@@ -110,5 +111,20 @@ describe("/at", () => {
     expect(parseAtSlashCommand("/at today 15:00 too late", now)).toEqual({
       error: "Schedule time must be in the future.",
     });
+  });
+});
+
+
+describe("sidebar previews", () => {
+  test("removes fenced tool activity while keeping useful prose", () => {
+    expect(sidebarPreviewText(
+      "Fixed ```tool:Open tool call list Open tool call list ```",
+    )).toBe("Fixed");
+  });
+
+  test("removes multiline tool fences and normalizes whitespace", () => {
+    expect(sidebarPreviewText(
+      "Before  ```tool-call: shell\n{\"cmd\":\"true\"}\n```  after",
+    )).toBe("Before after");
   });
 });
