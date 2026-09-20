@@ -18,6 +18,7 @@ from prompta.core import (
     RateLimitError,
     SendVerificationError,
     _daemon_is_running,
+    _open_control_connection,
     _parser,
     _run,
     _send_direct,
@@ -1304,6 +1305,98 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversation_marks_persistent_delivery_timeout_interrupted(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-timeout"
+    context_id = "context-timeout"
+    snapshot = {
+        "title": "Timed out chat",
+        "messages": [
+            {"id": "user-1", "role": "user", "content": "Do work"},
+            {"id": "assistant-1", "role": "assistant", "content": "Partial answer"},
+        ],
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta.cache.write_snapshot(conversation_id, snapshot)
+    prompta._active_conversations[context_id] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+        last_digest=prompta.cache.digest(snapshot),
+    )
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={"streaming": False, "complete": False, "transient": False, "failed": True}
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=snapshot)
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert context_id not in prompta._active_conversations
+    driver.close_context.assert_awaited_once_with(context_id)
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_cached_response_returns_false_after_interruption(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-interrupted"
+    context_id = "context-interrupted"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations[context_id] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+
+    async def interrupt_on_poll() -> None:
+        prompta.cache.mark_interrupted(conversation_id)
+        prompta._active_conversations.clear()
+
+    prompta._poll_active_conversations = AsyncMock(side_effect=interrupt_on_poll)  # type: ignore[method-assign]
+
+    assert await prompta.wait_for_cached_response(conversation_id, timeout_seconds=1) is False
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_wait_for_cached_response_polls_until_conversation_completes(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     prompta._active_conversations["context-1"] = ActiveConversation(
@@ -1633,3 +1726,35 @@ async def test_close_preserves_streaming_chat_for_restart_recovery(tmp_path: Pat
     reopened = ChatCache(cache_path)
     assert reopened.recent_conversations()[0]["status"] == "active"
     reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_open_control_connection_retries_transient_socket_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path = tmp_path / "state.json"
+    socket_path = tmp_path / "control.sock"
+    server = await asyncio.start_unix_server(
+        lambda _reader, writer: writer.close(),
+        path=str(socket_path),
+    )
+    real_open = asyncio.open_unix_connection
+    attempts = 0
+
+    async def flaky_open(path: str):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise FileNotFoundError(path)
+        return await real_open(path)
+
+    monkeypatch.setattr("prompta.core.asyncio.open_unix_connection", flaky_open)
+    try:
+        _reader, writer = await _open_control_connection(state_path)
+        writer.close()
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert attempts == 3

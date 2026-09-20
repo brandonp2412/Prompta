@@ -385,6 +385,12 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
     try:
+        with urlopen(f"{base_url}/", timeout=2) as response:
+            assert response.status == 200
+            index_html = response.read().decode()
+            assert '<div class="composer-status" id="composerStatus">' in index_html
+            assert 'id="composerStatus" hidden' not in index_html
+
         with urlopen(f"{base_url}/manifest.json", timeout=2) as response:
             assert response.status == 200
             assert response.headers.get_content_type() == "application/manifest+json"
@@ -456,6 +462,40 @@ def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
         assert saved["exact_interval"] is True
         assert result["scheduler_started"] is True
         assert result["interval_minutes"] == 30
+    finally:
+        server.server_close()
+
+
+def test_schedule_every_rejects_nonfinite_interval(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    try:
+        with pytest.raises(ValueError, match="finite"):
+            server.schedule_every("fix bugs", float("nan"))
+        with pytest.raises(ValueError, match="finite"):
+            server.schedule_every("fix bugs", float("inf"))
+    finally:
+        server.server_close()
+
+
+def test_schedule_at_rejects_nonfinite_timestamp(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    try:
+        with pytest.raises(ValueError, match="finite"):
+            server.schedule_at("fix bugs", float("nan"))
+        with pytest.raises(ValueError, match="finite"):
+            server.schedule_at("fix bugs", float("inf"))
     finally:
         server.server_close()
 

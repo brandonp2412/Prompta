@@ -816,3 +816,35 @@ def test_cache_migration_backfills_prompt_for_legacy_empty_conversation(tmp_path
     assert len(messages) == 1
     assert messages[0]["role"] == "user"
     assert messages[0]["content"] == "Legacy prompt"
+
+
+def test_cache_quarantines_corrupt_database_and_recovers(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    corrupt_bytes = b"not a sqlite database\x00PROMPTA"
+    path.write_bytes(corrupt_bytes)
+    (tmp_path / "chats.sqlite3-wal").write_bytes(b"broken wal")
+    (tmp_path / "chats.sqlite3-shm").write_bytes(b"broken shm")
+
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-after-recovery",
+        context_id="context-1",
+        job_name="recovery",
+        prompt="Keep working",
+    )
+    cache.close()
+
+    connection = sqlite3.connect(path)
+    try:
+        assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
+        assert connection.execute("SELECT COUNT(*) FROM conversations").fetchone() == (1,)
+    finally:
+        connection.close()
+
+    archived_databases = [
+        candidate
+        for candidate in tmp_path.glob("chats.sqlite3.corrupt-*")
+        if not candidate.name.endswith(("-wal", "-shm"))
+    ]
+    assert len(archived_databases) == 1
+    assert archived_databases[0].read_bytes() == corrupt_bytes

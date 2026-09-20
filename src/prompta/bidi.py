@@ -682,14 +682,16 @@ class FirefoxBiDiDriver:
               const assistant=assistants.at(-1);
               const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
               const turnText=(turn?.innerText||turn?.textContent||'').trim();
-              const transientText=/(?:Connection interrupted|Waiting for the complete answer|Message delivery timed out\\.?\\s*Please try again)/i.test(turnText);
+              const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i.test(turnText);
+              const deliveryFailed=/Message delivery timed out\\.?\\s*Please try again/i.test(turnText);
               const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
                 const testId=(button.getAttribute('data-testid')||'').trim();
                 const label=(button.getAttribute('aria-label')||'').trim();
                 return testId==='copy-turn-action-button'||/^Copy response$/i.test(label);
               }));
               const transient=transientText&&!finalAction;
-              return {streaming:stop||streamActive,complete:finalAction&&!stop&&!streamActive,transient};
+              const failed=deliveryFailed&&!finalAction&&!stop&&!streamActive;
+              return {streaming:stop||streamActive,complete:finalAction&&!stop&&!streamActive,transient,failed};
             })())""",
             context=context,
         )
