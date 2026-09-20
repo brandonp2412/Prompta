@@ -1621,6 +1621,120 @@ async def test_sync_conversation_retains_live_context_for_background_polling(
 
 
 @pytest.mark.asyncio
+async def test_sync_conversation_preserves_persistent_delivery_failure(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "failed-sync-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="flux",
+        prompt="Long task",
+    )
+    prompta.cache.mark_interrupted(conversation_id)
+
+    class FailedSyncFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def activate_history_link(self, path: str) -> bool:
+            return False
+
+        async def conversation_activity(self, context: str) -> dict[str, object]:
+            assert context == "context-new"
+            return {
+                "streaming": False,
+                "complete": False,
+                "transient": False,
+                "failed": True,
+            }
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            return {
+                "title": "Failed sync",
+                "path": f"/c/{conversation_id}",
+                "streaming": False,
+                "messages": [
+                    {"id": "u1", "role": "user", "content": "Long task"},
+                    {"id": "a1", "role": "assistant", "content": "Partial answer"},
+                ],
+            }
+
+    fake = FailedSyncFakeDriver("Long task")
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+
+    with (
+        patch("prompta.core.asyncio.sleep", AsyncMock()),
+        pytest.raises(RuntimeError, match="persistent delivery failure"),
+    ):
+        await prompta.sync_conversation(conversation_id)
+
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert not prompta._active_conversations
+    fake.close_context.assert_awaited_once_with("context-new")  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_conversation_waits_for_final_turn_evidence(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "unsettled-sync-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="flux",
+        prompt="Long task",
+    )
+
+    class UnsettledSyncFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def activate_history_link(self, path: str) -> bool:
+            return False
+
+        async def conversation_activity(self, context: str) -> dict[str, object]:
+            assert context == "context-new"
+            return {
+                "streaming": False,
+                "complete": False,
+                "transient": False,
+                "failed": False,
+            }
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            return {
+                "title": "Unsettled sync",
+                "path": f"/c/{conversation_id}",
+                "streaming": False,
+                "messages": [
+                    {"id": "u1", "role": "user", "content": "Long task"},
+                    {"id": "a1", "role": "assistant", "content": "Still settling"},
+                ],
+            }
+
+    fake = UnsettledSyncFakeDriver("Long task")
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+
+    with patch("prompta.core.asyncio.sleep", AsyncMock()):
+        assert await prompta.sync_conversation(conversation_id) == 2
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert list(prompta._active_conversations) == ["context-new"]
+    fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_recover_cached_conversations_reattaches_streaming_chat_after_restart(
     tmp_path: Path,
 ) -> None:
