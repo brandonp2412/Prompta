@@ -2081,6 +2081,25 @@ async def _firefox_port_is_open(port: int) -> bool:
     return True
 
 
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    """Stop a child process without leaking it if shutdown races process exit."""
+
+    if process.returncode is not None:
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        return
+    try:
+        await asyncio.wait_for(process.wait(), timeout=5)
+    except TimeoutError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            return
+        await process.wait()
+
+
 async def _spawn_firefox(
     profile: Path, firefox_path: str, port: int
 ) -> asyncio.subprocess.Process | None:
@@ -2116,7 +2135,14 @@ async def _spawn_firefox(
         stderr=asyncio.subprocess.DEVNULL,
         env=environment,
     )
-    await wait_for_port(port)
+    try:
+        await wait_for_port(port)
+    except BaseException:
+        # Callers cannot own/clean this child until _spawn_firefox returns.
+        # Direct UI sends keep their parent process alive, so a failed startup
+        # must not leave a headless Firefox child consuming memory indefinitely.
+        await _terminate_process(process)
+        raise
     return process
 
 
@@ -2156,13 +2182,8 @@ async def _send_direct(
     finally:
         if prompta is not None:
             await prompta.close()
-        if firefox is not None and firefox.returncode is None:
-            firefox.terminate()
-            try:
-                await asyncio.wait_for(firefox.wait(), timeout=5)
-            except TimeoutError:
-                firefox.kill()
-                await firefox.wait()
+        if firefox is not None:
+            await _terminate_process(firefox)
 
 
 def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
@@ -2338,13 +2359,8 @@ async def _run(args: argparse.Namespace) -> None:
                 pass
         if prompta is not None:
             await prompta.close()
-        if firefox is not None and firefox.returncode is None:
-            firefox.terminate()
-            try:
-                await asyncio.wait_for(firefox.wait(), timeout=5)
-            except TimeoutError:
-                firefox.kill()
-                await firefox.wait()
+        if firefox is not None:
+            await _terminate_process(firefox)
         if daemon_lock is not None:
             fcntl.flock(daemon_lock.fileno(), fcntl.LOCK_UN)
             daemon_lock.close()

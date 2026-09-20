@@ -602,6 +602,32 @@ async def test_spawn_firefox_uses_profile_local_tmpdir(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_spawn_firefox_stops_child_if_bidi_port_never_opens(tmp_path: Path) -> None:
+    profile = tmp_path / "firefox-profile"
+    profile.mkdir()
+    process = MagicMock()
+    process.returncode = None
+    process.wait = AsyncMock(return_value=0)
+
+    with (
+        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
+        patch(
+            "prompta.core.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=process),
+        ),
+        patch(
+            "prompta.core.wait_for_port",
+            AsyncMock(side_effect=TimeoutError("BiDi port did not open")),
+        ),
+        pytest.raises(TimeoutError, match="BiDi port did not open"),
+    ):
+        await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
+
+    process.terminate.assert_called_once()
+    process.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_send_direct_waits_for_cached_response_and_stops_firefox(tmp_path: Path) -> None:
     process = MagicMock()
     process.returncode = None
