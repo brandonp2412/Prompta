@@ -1521,9 +1521,11 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
             }
 
     fake = RecoveryFakeDriver("Keep working")
+    fake.wait_for_composer = AsyncMock(side_effect=AssertionError("recovery must not wait for composer"))  # type: ignore[method-assign]
     prompta.driver = cast(Any, fake)
 
     assert await prompta.recover_cached_conversations() == 1
+    fake.wait_for_composer.assert_not_awaited()  # type: ignore[attr-defined]
     assert fake.snapshot_calls == 3
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.recent_conversations()[0]["status"] == "active"
