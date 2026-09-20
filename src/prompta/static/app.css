@@ -207,7 +207,7 @@ button {
 
 .chat-group-label {
   margin: 0 9px 5px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -274,7 +274,7 @@ button {
 .chat-preview {
   margin-top: 5px;
   overflow: hidden;
-  color: #777;
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -286,7 +286,7 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #666;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -304,7 +304,7 @@ button {
 
 .list-empty {
   padding: 48px 24px;
-  color: #777;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
@@ -325,7 +325,7 @@ button {
   flex: 1;
   align-items: center;
   gap: 7px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -340,7 +340,7 @@ button {
   padding: 4px 7px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  color: #777;
+  color: var(--muted);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -418,7 +418,7 @@ button {
 }
 
 .sync-label {
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -532,7 +532,7 @@ button {
 }
 
 .logs-header span {
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -611,7 +611,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -722,7 +722,7 @@ button {
   align-items: center;
   border-bottom: 1px solid var(--border);
   background: #1b1b1b;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -759,7 +759,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -867,7 +867,7 @@ button {
   min-height: 15px;
   margin: 5px auto 0;
   padding: 0 8px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
   text-align: center;
 }
@@ -915,7 +915,7 @@ button {
   padding: 6px 9px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 

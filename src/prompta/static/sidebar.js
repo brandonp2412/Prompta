@@ -1,13 +1,24 @@
 const sidebar = document.querySelector("#sidebar");
 const body = document.body;
-const drag = { id: null, startX: 0, startY: 0, lastX: 0, lastAt: 0, open: false, active: false };
+const drag = {
+  id: null,
+  startX: 0,
+  startY: 0,
+  lastX: 0,
+  lastAt: 0,
+  width: 0,
+  open: false,
+  active: false,
+  frame: null,
+  pendingX: 0,
+};
 
 function sidebarWidth() {
   return sidebar?.getBoundingClientRect().width || Math.min(innerWidth * 0.86, 320);
 }
 
 function setDrag(clientX) {
-  const width = sidebarWidth();
+  const width = drag.width || sidebarWidth();
   const base = drag.open ? 0 : -width;
   const x = Math.max(-width, Math.min(0, base + clientX - drag.startX));
   const progress = Math.max(0, Math.min(1, (x + width) / width));
@@ -15,9 +26,23 @@ function setDrag(clientX) {
   body.style.setProperty("--sidebar-drag-progress", String(progress));
 }
 
+function scheduleDrag(clientX) {
+  drag.pendingX = clientX;
+  if (drag.frame !== null) return;
+  drag.frame = requestAnimationFrame(() => {
+    drag.frame = null;
+    setDrag(drag.pendingX);
+  });
+}
+
 function finishDrag(clientX, cancelled) {
   if (drag.id === null) return;
-  const width = sidebarWidth();
+  if (drag.frame !== null) {
+    cancelAnimationFrame(drag.frame);
+    drag.frame = null;
+  }
+  setDrag(clientX);
+  const width = drag.width || sidebarWidth();
   const x = Math.max(-width, Math.min(0, (drag.open ? 0 : -width) + clientX - drag.startX));
   const progress = (x + width) / width;
   const elapsed = Math.max(1, performance.now() - drag.lastAt);
@@ -30,12 +55,14 @@ function finishDrag(clientX, cancelled) {
     body.style.removeProperty("--sidebar-drag-progress");
   });
   drag.id = null;
+  drag.width = 0;
   drag.active = false;
 }
 
 document.addEventListener("pointerdown", (event) => {
   if (event.pointerType === "mouse" || !matchMedia("(max-width: 900px)").matches) return;
   const width = sidebarWidth();
+  drag.width = width;
   drag.open = body.classList.contains("sidebar-open");
   if (!drag.open && event.clientX > Math.min(112, innerWidth * 0.3)) return;
   if (drag.open && event.clientX > width + 24) return;
@@ -56,7 +83,7 @@ document.addEventListener("pointermove", (event) => {
     body.classList.add("sidebar-dragging");
   }
   event.preventDefault();
-  setDrag(event.clientX);
+  scheduleDrag(event.clientX);
   drag.lastX = event.clientX;
   drag.lastAt = performance.now();
 }, { passive: false });
