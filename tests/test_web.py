@@ -10,7 +10,13 @@ from urllib.request import urlopen
 import pytest
 
 from prompta.cache import ChatCache
-from prompta.web import PromptaUIServer, ReadOnlyChatStore, SendJobRegistry, _remote_control
+from prompta.web import (
+    PromptaUIServer,
+    ReadOnlyChatStore,
+    SendJobRegistry,
+    _reconcile_orphaned_local_chats,
+    _remote_control,
+)
 
 
 def _seed_cache(path: Path) -> None:
@@ -75,6 +81,57 @@ def test_remote_control_surfaces_concise_remote_error() -> None:
             conversation_id="chat-id",
             message="Continue",
         )
+
+
+def test_local_ui_startup_marks_old_active_chats_interrupted(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-old",
+        context_id="context-old",
+        job_name="",
+        prompt="Old request",
+    )
+    cache.close()
+
+    with patch("prompta.web._daemon_is_running", return_value=False):
+        orphaned = _reconcile_orphaned_local_chats(
+            path,
+            tmp_path / "state.json",
+            "",
+        )
+
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-old")
+    assert orphaned == 1
+    assert chat is not None
+    assert chat["status"] == "interrupted"
+    assert all(message["status"] == "complete" for message in chat["messages"])
+
+
+def test_local_ui_startup_leaves_active_chats_for_running_scheduler(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-live",
+        context_id="context-live",
+        job_name="",
+        prompt="Live request",
+    )
+    cache.close()
+
+    with patch("prompta.web._daemon_is_running", return_value=True):
+        orphaned = _reconcile_orphaned_local_chats(
+            path,
+            tmp_path / "state.json",
+            "",
+        )
+
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-live")
+    assert orphaned == 0
+    assert chat is not None
+    assert chat["status"] == "active"
 
 
 def test_local_ui_uses_direct_send_when_scheduler_is_stopped(tmp_path: Path) -> None:
@@ -186,6 +243,29 @@ def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
     assert [message["role"] for message in chat["messages"]] == ["user", "assistant"]
 
 
+def test_read_only_store_clears_stale_streaming_status_for_finished_chat(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    cache = ChatCache(path)
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET status = 'complete', completed_at = updated_at WHERE id = ?",
+            ("chat-1",),
+        )
+        cache.connection.execute(
+            "UPDATE messages SET status = 'streaming' WHERE conversation_id = ? AND role = 'assistant'",
+            ("chat-1",),
+        )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-1")
+
+    assert chat is not None
+    assert chat["status"] == "complete"
+    assert all(message["status"] == "complete" for message in chat["messages"])
+
+
 def test_read_only_store_searches_message_content(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
@@ -203,6 +283,114 @@ def test_read_only_store_does_not_create_missing_database(tmp_path: Path) -> Non
     assert store.conversation("missing") is None
     assert store.stats() == {"exists": False, "total": 0, "active": 0}
     assert not path.exists()
+
+
+def test_read_only_store_change_token_changes_after_cache_write(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-token",
+        context_id="context-token",
+        job_name="",
+        prompt="Token test",
+    )
+    cache.close()
+    store = ReadOnlyChatStore(path)
+    before = store.change_token()
+
+    cache = ChatCache(path)
+    cache.write_snapshot(
+        "chat-token",
+        {
+            "title": "Token test",
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Token test"},
+                {"id": "a1", "role": "assistant", "content": "Changed"},
+            ],
+            "streaming": True,
+        },
+    )
+    cache.close()
+
+    assert store.change_token() != before
+
+
+def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        with urlopen(f"{base_url}/manifest.json", timeout=2) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "application/manifest+json"
+            manifest = json.loads(response.read().decode())
+            assert manifest["name"] == f"Prompta · {server.display_name}"
+            assert manifest["short_name"] == f"Prompta {server.display_name}"
+            assert manifest["display"] == "standalone"
+            assert manifest["start_url"] == "./"
+            assert manifest["scope"] == "./"
+
+        with urlopen(f"{base_url}/api/events", timeout=2) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "text/event-stream"
+            lines = [response.readline().decode() for _ in range(5)]
+            assert "event: refresh\n" in lines
+            assert any(line.startswith("data: ") for line in lines)
+
+            store.log_path.write_text("changed\n")
+            assert response.readline().decode() == "event: refresh\n"
+            assert response.readline().decode().startswith("data: ")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_remote_host_status_is_based_on_fresh_ssh_reachability(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        control_host="glass",
+    )
+    try:
+        with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=255)) as run:
+            assert server.host_online(force=True) is False
+        assert run.call_args.args[0][-2:] == ["glass", "true"]
+
+        with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=0)):
+            assert server.host_online(force=True) is True
+    finally:
+        server.server_close()
+
+
+def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=jobs_path,
+    )
+    try:
+        with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=0)):
+            result = server.schedule_every("fix bugs", 30)
+
+        payload = json.loads(jobs_path.read_text())
+        saved = payload["jobs"][result["name"]]
+        assert saved["prompt"] == "fix bugs"
+        assert saved["interval_seconds"] == 1800
+        assert saved["exact_interval"] is True
+        assert result["scheduler_started"] is True
+        assert result["interval_minutes"] == 30
+    finally:
+        server.server_close()
 
 
 def test_read_only_store_reads_recent_glass_logs(tmp_path: Path) -> None:
