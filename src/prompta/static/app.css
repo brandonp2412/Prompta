@@ -413,6 +413,10 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
+#headLabel {
+  text-transform: lowercase;
+}
+
 .main-panel {
   min-width: 0;
   min-height: 0;
