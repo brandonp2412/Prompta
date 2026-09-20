@@ -18,12 +18,19 @@ jobs:
         with:
           python-version: "3.11"
           enable-cache: true
+      - uses: oven-sh/setup-bun@v2
       - name: Sync
-        run: uv sync --locked
+        run: |
+          uv sync --locked
+          bun install --frozen-lockfile
       - name: Test
         run: uv run pytest -q
       - name: Ruff
         run: uv run ruff check src tests scripts
+      - name: TypeScript
+        run: |
+          bun run check
+          git diff --exit-code -- src/prompta/static/app.js
       - name: ty
         run: uv run ty check
 

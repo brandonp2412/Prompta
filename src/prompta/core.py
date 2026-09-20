@@ -955,6 +955,8 @@ class Prompta:
         except Exception:
             logger.exception("Prompta cache capture could not reconnect Firefox BiDi")
             return
+        if driver is None:
+            return
         for context, active in list(self._active_conversations.items()):
             try:
                 snapshot = await driver.conversation_snapshot(context)
@@ -1005,10 +1007,12 @@ class Prompta:
             if time.monotonic() - active.settled_at < _ACTIVE_TAB_RETENTION_SECONDS:
                 continue
 
-            try:
-                await self.driver.close_context(context)
-            except Exception:
-                logger.debug("Could not close retained Prompta tab", exc_info=True)
+            close_driver = self.driver
+            if close_driver is not None:
+                try:
+                    await close_driver.close_context(context)
+                except Exception:
+                    logger.debug("Could not close retained Prompta tab", exc_info=True)
             self._active_conversations.pop(context, None)
             logger.info(
                 "Prompta closed retained conversation tab=%s after %.0fm",

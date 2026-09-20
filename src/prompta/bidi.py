@@ -525,6 +525,59 @@ class FirefoxBiDiDriver:
               const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
               const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
               const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
+              const markdownText=root=>{
+                const walk=node=>{
+                  if(node.nodeType===Node.TEXT_NODE)return node.textContent||'';
+                  if(node.nodeType!==Node.ELEMENT_NODE)return '';
+                  const tag=node.tagName.toLowerCase();
+                  const children=()=>[...node.childNodes].map(walk).join('');
+                  if(tag==='br')return '\\n';
+                  if(/^h[1-6]$/.test(tag))return '#'.repeat(Number(tag[1]))+' '+children().trim()+'\\n\\n';
+                  if(tag==='p')return children().trim()+'\\n\\n';
+                  if(tag==='strong'||tag==='b')return '**'+children()+'**';
+                  if(tag==='em'||tag==='i')return '*'+children()+'*';
+                  if(tag==='del'||tag==='s')return '~~'+children()+'~~';
+                  if(tag==='code'&&node.parentElement?.tagName.toLowerCase()!=='pre')return '`'+children()+'`';
+                  if(tag==='pre'){
+                    const code=node.querySelector('code')||node;
+                    const className=code.getAttribute('class')||'';
+                    const language=className.match(/language-([\\w+-]+)/)?.[1]||'';
+                    return '```'+language+'\\n'+(code.textContent||'').replace(/\\n$/,'')+'\\n```\\n\\n';
+                  }
+                  if(tag==='a'){
+                    const href=node.getAttribute('href')||'';
+                    const label=children().trim()||href;
+                    return /^https?:\\/\\//i.test(href)?'['+label+']('+href+')':label;
+                  }
+                  if(tag==='ul'||tag==='ol'){
+                    const ordered=tag==='ol';
+                    return [...node.children].filter(child=>child.tagName.toLowerCase()==='li').map((child,index)=>{
+                      const body=[...child.childNodes].filter(part=>!(part.nodeType===Node.ELEMENT_NODE&&['ul','ol'].includes(part.tagName.toLowerCase()))).map(walk).join('').trim();
+                      const nested=[...child.children].filter(part=>['ul','ol'].includes(part.tagName.toLowerCase())).map(walk).join('').trimEnd();
+                      const prefix=ordered?(index+1)+'. ':'- ';
+                      return prefix+body+(nested?'\\n'+nested.split('\\n').map(line=>line?'  '+line:line).join('\\n'):'');
+                    }).join('\\n')+'\\n\\n';
+                  }
+                  if(tag==='blockquote')return children().trim().split('\\n').map(line=>'> '+line).join('\\n')+'\\n\\n';
+                  if(tag==='hr')return '---\\n\\n';
+                  if(tag==='li')return children();
+                  if(tag==='div'||tag==='section'||tag==='article')return children();
+                  return children();
+                };
+                return walk(root).replace(/\\n{3,}/g,'\\n\\n').trim();
+              };
+              const toolBlocks=agent=>[...new Set([
+                ...agent.querySelectorAll('[data-tool-call-id],[data-tool-name],[data-testid*="tool" i],[aria-label*="tool" i]')
+              ])].filter(node=>!node.parentElement?.closest('[data-tool-call-id],[data-tool-name],[data-testid*="tool" i]')).map(node=>{
+                const name=(node.getAttribute('data-tool-name')
+                  ||node.getAttribute('aria-label')
+                  ||node.getAttribute('title')
+                  ||node.querySelector('[data-tool-name]')?.getAttribute('data-tool-name')
+                  ||'tool').replace(/^(?:called|use|using)\\s+tool\\s*:?\\s*/i,'').trim()||'tool';
+                const detail=(node.textContent||node.innerText||'').trim();
+                if(!detail)return '';
+                return '```tool:'+name+'\\n'+detail+'\\n```';
+              }).filter(Boolean);
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const entries=roleNodes.map(e=>({
                 node:e,
@@ -539,8 +592,10 @@ class FirefoxBiDiDriver:
               ])].filter(visible);
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
-                const content=(markdown.length
-                  ? markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean).join('\\n\\n')
+                const richText=markdown.map(markdownText).filter(Boolean);
+                const tools=toolBlocks(agent);
+                const content=(richText.length||tools.length
+                  ? [...richText,...tools].join('\\n\\n')
                   : (agent.innerText||agent.textContent||'').trim()
                 ).trim();
                 if(!content)continue;
@@ -593,7 +648,7 @@ class FirefoxBiDiDriver:
                 ordinal:index
               }));
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]')].some(visible);
-              const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"],[aria-busy="true"]')].some(visible);
+              const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
               return {
                 path:location.pathname,
                 title:document.title||'',

@@ -189,7 +189,9 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
         "ordinal": 1,
     }
     assert snapshot["streaming"] is True
-    expression = driver.eval.await_args.args[0]
+    await_args = driver.eval.await_args
+    assert await_args is not None
+    expression = await_args.args[0]
     assert ".agent-turn" in expression
     assert "for(const [agentIndex,agent] of candidates.entries())" in expression
     assert "content.length>=entries[existing].content.length" in expression
@@ -199,5 +201,9 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "if(id.startsWith('request-placeholder-'))continue;" in expression
     assert "compareDocumentPosition" in expression
     assert ".join('\\n\\n')" in expression
+    assert "const markdownText=root=>" in expression
+    assert "data-tool-call-id" in expression
+    assert "'```tool:'+name" in expression
     assert '[data-streaming="active"]' in expression
+    assert '[aria-busy="true"]' not in expression
     assert "group-data-stream-active" not in expression
