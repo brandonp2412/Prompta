@@ -67,6 +67,19 @@ def test_ui_response_ignores_disconnected_client(disconnect_error: OSError) -> N
     )
 
 
+@pytest.mark.parametrize(
+    "disconnect_error",
+    [BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()],
+)
+def test_event_headers_ignore_disconnected_client(disconnect_error: OSError) -> None:
+    handler = object.__new__(PromptaUIHandler)
+    handler.send_response = MagicMock()  # type: ignore[method-assign]
+    handler.send_header = MagicMock()  # type: ignore[method-assign]
+    handler.end_headers = MagicMock(side_effect=disconnect_error)  # type: ignore[method-assign]
+
+    assert handler._event_headers() is False
+
+
 def test_remote_control_uses_user_ssh_config() -> None:
     completed = MagicMock(
         returncode=0,
