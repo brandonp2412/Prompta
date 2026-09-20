@@ -649,6 +649,17 @@ class FirefoxBiDiDriver:
         )
         return json.loads(raw or "{}")
 
+    async def conversation_activity(self, context: str) -> dict[str, Any]:
+        raw = await self.eval(
+            """JSON.stringify((()=>{
+              const stop=Boolean(document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="stop"]'));
+              const streamActive=Boolean(document.querySelector('[data-streaming="active"],[data-is-streaming="true"]'));
+              return {streaming:stop||streamActive};
+            })())""",
+            context=context,
+        )
+        return json.loads(raw or "{}")
+
     async def conversation_snapshot(self, context: str) -> dict[str, Any]:
         raw = await self.eval(
             """JSON.stringify((()=>{
@@ -714,26 +725,28 @@ class FirefoxBiDiDriver:
                 node:e,
                 id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
                 role:e.getAttribute('data-message-author-role')||'',
-                content:(e.innerText||e.textContent||'').trim()
+                content:(e.textContent||e.innerText||'').trim()
               })).filter(message=>message.role&&message.content&&!(
                 message.role==='assistant'&&message.id.startsWith('request-placeholder-')
               ));
+              const assistantNodes=roleNodes.filter(node=>node.getAttribute('data-message-author-role')==='assistant');
               const candidates=[...new Set([
-                ...document.querySelectorAll('.agent-turn,[data-role="assistant"],[data-message-author="assistant"]')
+                ...assistantNodes.map(node=>node.closest('.agent-turn,[data-testid^="conversation-turn-"]')||node.parentElement).filter(Boolean),
+                ...document.querySelectorAll('.agent-turn')
               ])].filter(visible);
               for(const [agentIndex,agent] of candidates.entries()){
                 const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
                 const richText=markdown.map(markdownText).filter(Boolean);
-                const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
+                const richPlain=markdown.map(node=>(node.textContent||node.innerText||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
-                const rawVisible=(agent.innerText||agent.textContent||'').trim();
+                const rawVisible=(agent.textContent||agent.innerText||'').trim();
                 const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share)$/i;
                 const activityLines=rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
                   line
                   && !uiNoise.test(line)
                   && !richPlain.some(text=>text===line||text.includes(line))
                   && !tools.some(block=>block.includes(line))
-                ));
+                )).slice(0,200);
                 const activity=activityLines.length
                   ? '**Tool activity**\\n\\n'+activityLines.join('\\n')
                   : '';
@@ -771,7 +784,7 @@ class FirefoxBiDiDriver:
                   .at(-1);
                 const turnSeed=precedingUser?.getAttribute('data-message-id')
                   ||precedingUser?.getAttribute('data-message-uuid')
-                  ||normalise(precedingUser?.innerText||precedingUser?.textContent||'')
+                  ||normalise(precedingUser?.textContent||precedingUser?.innerText||'')
                   ||('agent-'+agentIndex);
                 entries.push({
                   node:agent,

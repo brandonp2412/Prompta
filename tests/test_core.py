@@ -78,6 +78,9 @@ class FakeDriver:
     async def wait_for_composer(self) -> None:
         return None
 
+    async def conversation_activity(self, context: str) -> dict[str, object]:
+        return {"streaming": False}
+
     async def dom_state(self) -> dict[str, object]:
         if self.sent:
             return {
@@ -986,6 +989,46 @@ async def test_once_uses_running_scheduler_without_spawning_firefox(
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversations_defers_rich_snapshot_while_streaming(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        "conversation-tool-run",
+        context_id="context-tool-run",
+        job_name="",
+        prompt="Search the web",
+    )
+    active = ActiveConversation(
+        conversation_id="conversation-tool-run",
+        context_id="context-tool-run",
+        job_name="",
+        prompt="Search the web",
+        idle_polls=2,
+        settled_at=123.0,
+    )
+    prompta._active_conversations["context-tool-run"] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(return_value={"streaming": True})
+    driver.conversation_snapshot = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    driver.conversation_activity.assert_awaited_once_with("context-tool-run")
+    driver.conversation_snapshot.assert_not_awaited()
+    assert active.idle_polls == 0
+    assert active.settled_at == 0.0
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversations_reconnects_before_cache_capture(tmp_path: Path) -> None:
     prompta = Prompta(
         PromptaConfig(
@@ -1014,6 +1057,7 @@ async def test_poll_active_conversations_reconnects_before_cache_capture(tmp_pat
         driver.is_connected = True
 
     driver.connect = AsyncMock(side_effect=connect)
+    driver.conversation_activity = AsyncMock(return_value={"streaming": False})
     driver.conversation_snapshot = AsyncMock(
         return_value={
             "title": "Recovered chat",
@@ -1087,6 +1131,7 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
 
     driver = MagicMock()
     driver.is_connected = True
+    driver.conversation_activity = AsyncMock(return_value={"streaming": False})
     driver.conversation_snapshot = AsyncMock(return_value=waiting_snapshot)
     prompta.driver = cast(Any, driver)
 
