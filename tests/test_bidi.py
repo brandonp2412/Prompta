@@ -51,6 +51,24 @@ async def test_click_send_uses_trusted_enter_on_focused_composer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_navigate_can_target_a_specific_context() -> None:
+    driver = FirefoxBiDiDriver("ws://unused")
+    driver.context = "default-context"
+    driver._call = AsyncMock(return_value={"type": "success"})  # type: ignore[method-assign]
+
+    await driver.navigate("https://chatgpt.com/c/123", context="active-context")
+
+    driver._call.assert_awaited_once_with(
+        "browsingContext.navigate",
+        {
+            "context": "active-context",
+            "url": "https://chatgpt.com/c/123",
+            "wait": "complete",
+        },
+    )
+
+
+@pytest.mark.asyncio
 async def test_page_send_probe_captures_durable_conversation_id() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
     driver.eval = AsyncMock()  # type: ignore[method-assign]

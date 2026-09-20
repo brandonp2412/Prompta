@@ -349,17 +349,18 @@ class FirefoxBiDiDriver:
             raise RuntimeError(f"script.evaluate returned no result: {response}")
         return result.get("value")
 
-    async def navigate(self, url: str) -> None:
+    async def navigate(self, url: str, *, context: str | None = None) -> None:
         await self._call(
             "browsingContext.navigate",
-            {"context": self.context, "url": url, "wait": "complete"},
+            {"context": context or self.context, "url": url, "wait": "complete"},
         )
 
-    async def activate_history_link(self, path: str) -> bool:
+    async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
         target = json.dumps(path.rstrip("/"))
         return bool(
             await self.eval(
-                f"""(()=>{{const target={target};const link=[...document.querySelectorAll('a[href]')].find(a=>{{try{{return new URL(a.href,location.origin).pathname.replace(/\\/$/,'')===target;}}catch{{return false;}}}});if(!link)return false;link.click();return true;}})()"""
+                f"""(()=>{{const target={target};const link=[...document.querySelectorAll('a[href]')].find(a=>{{try{{return new URL(a.href,location.origin).pathname.replace(/\\/$/,'')===target;}}catch{{return false;}}}});if(!link)return false;link.click();return true;}})()""",
+                context=context,
             )
         )
 
@@ -399,7 +400,12 @@ class FirefoxBiDiDriver:
             raise RuntimeError("Prompta Firefox profile is not logged into ChatGPT")
         return token
 
-    async def wait_for_composer(self, timeout: float = 20.0) -> None:
+    async def wait_for_composer(
+        self,
+        timeout: float = 20.0,
+        *,
+        context: str | None = None,
+    ) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
         expression = (
             "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
@@ -409,7 +415,12 @@ class FirefoxBiDiDriver:
             ")].some(visible)})()"
         )
         while asyncio.get_running_loop().time() < deadline:
-            if await self.eval(expression):
+            ready = (
+                await self.eval(expression)
+                if context is None
+                else await self.eval(expression, context=context)
+            )
+            if ready:
                 return
             await asyncio.sleep(0.25)
         raise RuntimeError("ChatGPT composer did not become ready")

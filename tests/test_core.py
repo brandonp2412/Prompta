@@ -1443,7 +1443,7 @@ async def test_poll_active_conversation_keeps_brief_connection_interruption_live
 
 
 @pytest.mark.asyncio
-async def test_poll_active_conversation_interrupts_stale_recovered_connection_failure(
+async def test_poll_active_conversation_reloads_stale_connection_failure_before_interrupting(
     tmp_path: Path,
 ) -> None:
     prompta = Prompta(
@@ -1461,12 +1461,96 @@ async def test_poll_active_conversation_interrupts_stale_recovered_connection_fa
         job_name="",
         prompt="Do work",
     )
-    prompta._active_conversations[context_id] = ActiveConversation(
+    active = ActiveConversation(
         conversation_id=conversation_id,
         context_id=context_id,
         job_name="",
         prompt="Do work",
         recovered_cache_updated_at=time.time() - 16 * 60,
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": False,
+            "transient": True,
+            "failed": False,
+        }
+    )
+    completed_snapshot = {
+        "title": "Recovered after reload",
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Do work"},
+            {"id": "a1", "role": "assistant", "content": "Recovered answer"},
+        ],
+        "streaming": False,
+    }
+    driver.conversation_snapshot = AsyncMock(return_value=completed_snapshot)
+    driver.navigate = AsyncMock()
+    driver.eval = AsyncMock(return_value=f"/c/{conversation_id}")
+    driver.wait_for_composer = AsyncMock()
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    assert active.transient_recovery_attempts == 1
+    driver.navigate.assert_awaited_once_with(
+        f"https://chatgpt.com/c/{conversation_id}",
+        context=context_id,
+    )
+    driver.wait_for_composer.assert_awaited_once_with(
+        timeout=10.0,
+        context=context_id,
+    )
+    driver.conversation_snapshot.assert_not_awaited()
+    driver.close_context.assert_not_awaited()
+
+    driver.conversation_activity.return_value = {
+        "streaming": False,
+        "complete": True,
+        "transient": False,
+        "failed": False,
+    }
+    for _ in range(4):
+        await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "complete"
+    assert active.transient_recovery_attempts == 0
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_poll_active_conversation_interrupts_when_reloaded_connection_failure_persists(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-reloaded-transient"
+    context_id = "context-reloaded-transient"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations[context_id] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+        transient_since_epoch=time.time() - 16,
+        transient_recovery_attempts=1,
     )
 
     driver = MagicMock()
@@ -1480,6 +1564,7 @@ async def test_poll_active_conversation_interrupts_stale_recovered_connection_fa
         }
     )
     driver.conversation_snapshot = AsyncMock()
+    driver.navigate = AsyncMock()
     driver.close_context = AsyncMock()
     prompta.driver = cast(Any, driver)
 
@@ -1487,6 +1572,7 @@ async def test_poll_active_conversation_interrupts_stale_recovered_connection_fa
 
     assert prompta.cache.status(conversation_id) == "interrupted"
     assert context_id not in prompta._active_conversations
+    driver.navigate.assert_not_awaited()
     driver.conversation_snapshot.assert_not_awaited()
     driver.close_context.assert_awaited_once_with(context_id)
     prompta.cache.close()
