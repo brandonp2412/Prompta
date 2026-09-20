@@ -1,5 +1,6 @@
 {
   "name": "prompta-ui",
+  "packageManager": "bun@1.4.0",
   "private": true,
   "type": "module",
   "scripts": {
