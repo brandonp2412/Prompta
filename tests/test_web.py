@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import time
+from http import HTTPStatus
 from pathlib import Path
 from threading import Event, Lock, Thread
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,7 @@ import pytest
 
 from prompta.cache import ChatCache
 from prompta.web import (
+    PromptaUIHandler,
     PromptaUIServer,
     ReadOnlyChatStore,
     SendJobRegistry,
@@ -44,6 +46,21 @@ def _seed_cache(path: Path) -> None:
         },
     )
     cache.close()
+
+
+@pytest.mark.parametrize(
+    "disconnect_error",
+    [BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()],
+)
+def test_ui_response_ignores_disconnected_client(disconnect_error: OSError) -> None:
+    handler = object.__new__(PromptaUIHandler)
+    handler._headers = MagicMock()  # type: ignore[method-assign]
+    handler.wfile = MagicMock()
+    handler.wfile.write.side_effect = disconnect_error
+
+    handler._write_response(HTTPStatus.OK, "application/json", b"{}")
+
+    handler._headers.assert_called_once_with(HTTPStatus.OK, "application/json")  # type: ignore[attr-defined]
 
 
 def test_remote_control_uses_user_ssh_config() -> None:
