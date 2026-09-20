@@ -156,11 +156,11 @@ function groupChats(chats) {
 }
 
 function statusClass(status) {
-  return ["active", "complete"].includes(status) ? status : "neutral";
+  return ["active", "complete", "interrupted"].includes(status) ? status : "neutral";
 }
 
 function displayStatus(status) {
-  if (status === "active" || status === "complete") return status;
+  if (["active", "complete", "interrupted"].includes(status)) return status;
   return "cached";
 }
 
@@ -398,7 +398,10 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
-  const pendingMessages = pendingReplyMessages(chat.id, messages);
+  if (chat.status === "interrupted") state.pendingReplies.delete(chat.id);
+  const pendingMessages = chat.status === "interrupted"
+    ? []
+    : pendingReplyMessages(chat.id, messages);
   const visibleMessages = [
     ...messages,
     ...pendingMessages,
@@ -462,7 +465,11 @@ function renderConversation(chat) {
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`,
-    chat.status === "active" ? "updating live" : formatRelativeTime(chat.updated_at),
+    chat.status === "active"
+      ? "updating live"
+      : chat.status === "interrupted"
+        ? "response interrupted"
+        : formatRelativeTime(chat.updated_at),
   ].join(" · ");
 
   els.chatHeading.innerHTML = `
@@ -470,11 +477,18 @@ function renderConversation(chat) {
     <div class="heading-meta">${escapeHtml(meta)}</div>`;
   els.statusChip.textContent = displayStatus(chat.status);
   els.statusChip.className = `status-chip ${statusClass(chat.status)}`;
-  els.syncLabel.textContent = chat.status === "active" ? "syncing from SQLite" : "cached locally";
+  els.syncLabel.textContent = chat.status === "active"
+    ? "syncing from SQLite"
+    : chat.status === "interrupted"
+      ? "browser session interrupted"
+      : "cached locally";
 
   els.emptyState.hidden = true;
   els.conversation.hidden = false;
-  els.messageInput.disabled = state.sending;
+  // Keep the composer editable while a reply is handed off. The send button
+  // remains locked by state.sending, so users can prepare the next message
+  // without risking a duplicate submit.
+  els.messageInput.disabled = false;
   syncSendButton();
   state.composingNew = false;
   if (!state.sending) {
@@ -482,7 +496,9 @@ function renderConversation(chat) {
     const latestPending = pendingForChat.at(-1);
     els.composerStatus.textContent = latestPending?.status === "failed"
       ? "Send failed. The error is shown in the chat."
-      : "";
+      : chat.status === "interrupted" && lastCachedMessage?.role === "user"
+        ? "Response interrupted before Prompta could cache it."
+        : "";
   }
 }
 
@@ -833,8 +849,16 @@ function resizeComposer() {
 }
 
 function syncSendButton() {
+  const interrupted = state.selectedChat?.status === "interrupted";
+  const replyPending = !interrupted
+    && state.selectedId
+    && (state.pendingReplies.get(state.selectedId) || [])
+      .some((item) => item.status !== "failed");
+  const assistantPending = !state.composingNew && state.selectedChat?.status === "active";
   els.sendButton.disabled = els.messageInput.disabled
     || state.sending
+    || replyPending
+    || assistantPending
     || !els.messageInput.value.trim();
 }
 
@@ -943,7 +967,7 @@ async function sendSelectedMessage() {
   };
 
   state.sending = true;
-  els.messageInput.disabled = true;
+  if (creatingNew) els.messageInput.disabled = true;
   syncSendButton();
   els.messageInput.value = "";
   resizeComposer();
