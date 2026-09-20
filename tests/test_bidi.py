@@ -228,6 +228,9 @@ async def test_conversation_activity_does_not_match_sidebar_stop_titles() -> Non
     assert 'button[data-testid="stop-button"]' in expression
     assert 'button[aria-label="Stop answering"]' in expression
     assert 'button[aria-label="Stop generating"]' in expression
+    assert "const transient=transientText&&!finalAction;" in expression
+    assert "complete:finalAction&&!stop&&!streamActive" in expression
+    assert "&&!transient" not in expression
     assert 'aria-label*="Stop"' not in expression
     assert 'aria-label*="stop"' not in expression
 
