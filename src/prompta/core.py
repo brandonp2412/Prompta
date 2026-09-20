@@ -849,6 +849,23 @@ class Prompta:
             raise ValueError("conversation id is empty")
 
         metadata = self.cache.metadata(conversation_id)
+        if str(metadata.get("status") or "") == "active":
+            live = next(
+                (
+                    active
+                    for active in self._active_conversations.values()
+                    if active.conversation_id == conversation_id
+                ),
+                None,
+            )
+            if live is not None:
+                logger.info(
+                    "Prompta sync reused active conversation=%s context=%s",
+                    conversation_id,
+                    live.context_id,
+                )
+                return len(self.cache.messages(conversation_id))
+
         target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
         driver = await self._ensure_driver()
         context = await driver.new_tab(target_url)

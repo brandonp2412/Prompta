@@ -1573,6 +1573,30 @@ async def test_one_shot_waits_for_stream_and_persists_messages_end_to_end(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_sync_conversation_reuses_existing_active_context(tmp_path: Path) -> None:
+    conversation_id = "already-live-sync-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-live",
+        job_name="sloppatv",
+        prompt="Long task",
+    )
+    prompta._active_conversations["context-live"] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id="context-live",
+        job_name="sloppatv",
+        prompt="Long task",
+    )
+    prompta._ensure_driver = AsyncMock()  # type: ignore[method-assign]
+
+    assert await prompta.sync_conversation(conversation_id) == 1
+    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    assert list(prompta._active_conversations) == ["context-live"]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_sync_conversation_retains_live_context_for_background_polling(
     tmp_path: Path,
 ) -> None:
