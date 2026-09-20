@@ -46,6 +46,7 @@ _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
 _RESTART_RECOVERY_INTERRUPTED_SECONDS = 15 * 60.0
 _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 15.0
 _RESTART_RECOVERY_LOAD_ATTEMPTS = 2
+_RESTART_RECOVERY_RETRY_SECONDS = 60.0
 _ACTIVE_TAB_RETENTION_SECONDS = 15.0
 _DELIVERY_FAILURE_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
@@ -229,6 +230,7 @@ class Prompta:
             )
         self.cache = ChatCache(cache_path)
         self._active_conversations: dict[str, ActiveConversation] = {}
+        self._next_recovery_retry_at = time.monotonic() + _RESTART_RECOVERY_RETRY_SECONDS
         self._backoffs: dict[str, RateLimitBackoff] = {}
         self._global_backoff = RateLimitBackoff()
         self._failure_retry_until: dict[str, float] = {}
@@ -772,13 +774,24 @@ class Prompta:
                 except Exception:
                     logger.debug("Could not close failed Prompta tab", exc_info=True)
 
-    async def recover_cached_conversations(self) -> int:
+    async def recover_cached_conversations(self, *, limit: int = 50) -> int:
         """Reattach live cache capture after a daemon/browser restart."""
 
-        recoverable = self.cache.recoverable_conversations(
-            interrupted_after=time.time() - _RESTART_RECOVERY_INTERRUPTED_SECONDS
-        )
+        attached_ids = {
+            active.conversation_id for active in self._active_conversations.values()
+        }
+        recoverable = [
+            row
+            for row in self.cache.recoverable_conversations(
+                interrupted_after=time.time() - _RESTART_RECOVERY_INTERRUPTED_SECONDS,
+                limit=max(1, limit) + len(attached_ids),
+            )
+            if str(row.get("id") or "") not in attached_ids
+        ][: max(1, limit)]
         if not recoverable:
+            self._next_recovery_retry_at = (
+                time.monotonic() + _RESTART_RECOVERY_RETRY_SECONDS
+            )
             return 0
 
         driver = await self._ensure_driver()
@@ -875,7 +888,23 @@ class Prompta:
                         )
                 if str(row.get("status") or "") == "active":
                     self.cache.mark_interrupted(conversation_id)
+        self._next_recovery_retry_at = time.monotonic() + _RESTART_RECOVERY_RETRY_SECONDS
         return recovered
+
+    async def _retry_cached_recovery_if_due(self) -> bool:
+        """Retry one transiently failed restart recovery without recycling the daemon."""
+
+        if time.monotonic() < self._next_recovery_retry_at:
+            return False
+        self._next_recovery_retry_at = time.monotonic() + _RESTART_RECOVERY_RETRY_SECONDS
+        recovered = await self.recover_cached_conversations(limit=1)
+        if recovered:
+            logger.info(
+                "Prompta recovered %d live conversation(s) after deferred retry",
+                recovered,
+            )
+            return True
+        return False
 
     async def sync_conversation(self, conversation_id: str) -> int:
         """Reload one cached conversation from ChatGPT without sending a message."""
@@ -1540,8 +1569,9 @@ class Prompta:
 
     async def run(self, *, once: bool = False) -> None:
         while True:
+            did_work = await self._retry_cached_recovery_if_due()
             await self._poll_active_conversations()
-            did_work = await self._drain_sync_requests()
+            did_work = await self._drain_sync_requests() or did_work
             did_work = await self._drain_reply_requests() or did_work
             did_work = await self._drain_once_requests() or did_work
             if self.driver is not None and self.driver.needs_browser_restart is True:
