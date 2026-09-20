@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import mimetypes
+import re
 import shlex
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -21,13 +24,15 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .cache import DEFAULT_CACHE_PATH
+from .cache import DEFAULT_CACHE_PATH, ChatCache
 from .core import (
+    DEFAULT_JOBS_PATH,
     DEFAULT_STATE_PATH,
     _daemon_is_running,
     _send_direct,
     _send_once_via_control,
     _send_reply_via_control,
+    add_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +89,7 @@ class ReadOnlyChatStore:
                     SELECT
                         c.id,
                         c.job_name,
+                        c.prompt,
                         c.url,
                         c.title,
                         c.status,
@@ -155,6 +161,9 @@ class ReadOnlyChatStore:
             return None
         payload = dict(conversation)
         message_payloads = [dict(message) for message in messages]
+        if payload.get("status") != "active":
+            for message in message_payloads:
+                message["status"] = "complete"
         prompt = str(payload.get("prompt") or "")
         if not message_payloads and prompt.strip():
             message_payloads = [
@@ -203,8 +212,34 @@ class ReadOnlyChatStore:
             "active": int(row["active"] or 0),
         }
 
+    def change_token(self) -> str:
+        """Cheap token that changes when SQLite/WAL or synced logs change."""
+        parts: list[str] = []
+        targets = (
+            self.path,
+            Path(f"{self.path}-wal"),
+            self.log_path,
+        )
+        for target in targets:
+            try:
+                stat = target.stat()
+            except OSError:
+                parts.append("0:0")
+                continue
+            parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
+        return "|".join(parts)
+
 
 _REMOTE_CONTROL_TIMEOUT_SECONDS = 11 * 60
+_HOST_STATUS_TTL_SECONDS = 5.0
+_HOST_CHECK_TIMEOUT_SECONDS = 3.0
+
+
+def _schedule_job_name(prompt: str) -> str:
+    words = re.findall(r"[a-z0-9]+", prompt.casefold())[:6]
+    slug = "-".join(words) or "job"
+    digest = hashlib.sha256(prompt.strip().encode("utf-8")).hexdigest()[:6]
+    return f"ui-{slug[:36]}-{digest}"
 
 
 def _remote_control(
@@ -295,6 +330,7 @@ class SendJobRegistry:
         self._sender = sender
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+        self._revision = 0
 
     def submit(
         self,
@@ -322,6 +358,7 @@ class SendJobRegistry:
                 if float(value.get("updated_at") or 0.0) >= cutoff
             }
             self._jobs[send_id] = job
+            self._revision += 1
         threading.Thread(
             target=self._run,
             args=(send_id, operation, message, conversation_id),
@@ -335,6 +372,11 @@ class SendJobRegistry:
             job = self._jobs.get(send_id)
             return dict(job) if job is not None else None
 
+    @property
+    def revision(self) -> int:
+        with self._lock:
+            return self._revision
+
     def _update(self, send_id: str, **updates: Any) -> None:
         with self._lock:
             job = self._jobs.get(send_id)
@@ -342,6 +384,7 @@ class SendJobRegistry:
                 return
             job.update(updates)
             job["updated_at"] = time.time()
+            self._revision += 1
 
     def _run(
         self,
@@ -379,13 +422,158 @@ class PromptaUIServer(ThreadingHTTPServer):
         store: ReadOnlyChatStore,
         state_path: Path = DEFAULT_STATE_PATH,
         control_host: str = "",
+        jobs_path: Path = DEFAULT_JOBS_PATH,
     ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
         self.state_path = state_path.expanduser()
+        self.jobs_path = jobs_path.expanduser()
         self.control_host = control_host.strip()
+        self.host_name = self.control_host or socket.gethostname().split(".", 1)[0]
         self._local_send_lock = threading.Lock()
+        self._host_status_lock = threading.Lock()
+        self._host_status_checked_at = 0.0
+        self._host_status_online = not bool(self.control_host)
         self.send_jobs = SendJobRegistry(self._send)
+
+    @property
+    def display_name(self) -> str:
+        return self.host_name.replace("-", " ").replace("_", " ").title()
+
+    def host_online(self, *, force: bool = False) -> bool:
+        if not self.control_host:
+            return True
+        now = time.monotonic()
+        with self._host_status_lock:
+            if not force and now - self._host_status_checked_at < _HOST_STATUS_TTL_SECONDS:
+                return self._host_status_online
+            try:
+                completed = subprocess.run(
+                    [
+                        "ssh",
+                        "-F",
+                        str(Path.home() / ".ssh" / "config"),
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "ConnectTimeout=2",
+                        "-o",
+                        "ConnectionAttempts=1",
+                        self.control_host,
+                        "true",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=_HOST_CHECK_TIMEOUT_SECONDS,
+                )
+                online = completed.returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                online = False
+            self._host_status_checked_at = time.monotonic()
+            self._host_status_online = online
+            return online
+
+    def event_token(self) -> str:
+        return (
+            f"{self.store.change_token()}|send:{self.send_jobs.revision}"
+            f"|online:{int(self.host_online())}"
+        )
+
+    def schedule_every(self, prompt: str, interval_minutes: float) -> dict[str, Any]:
+        interval_minutes = max(0.1, min(float(interval_minutes), 60.0 * 24.0 * 30.0))
+        name = _schedule_job_name(prompt)
+        interval_seconds = interval_minutes * 60.0
+
+        if self.control_host:
+            payload = base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "name": name,
+                        "prompt": prompt,
+                        "interval_seconds": interval_seconds,
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).decode("ascii")
+            code = """
+import base64
+import json
+import subprocess
+import sys
+from prompta.core import DEFAULT_JOBS_PATH, add_job
+
+payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
+add_job(
+    DEFAULT_JOBS_PATH,
+    payload["name"],
+    payload["prompt"],
+    payload["interval_seconds"],
+    exact_interval=True,
+)
+started = subprocess.run(
+    ["systemctl", "--user", "start", "prompta.service"],
+    check=False,
+    capture_output=True,
+    text=True,
+).returncode == 0
+print(json.dumps({"ok": True, "scheduler_started": started}))
+""".strip()
+            remote_command = shlex.join(
+                ["/home/example/prompta/.venv/bin/python", "-c", code, payload]
+            )
+            completed = subprocess.run(
+                [
+                    "ssh",
+                    "-F",
+                    str(Path.home() / ".ssh" / "config"),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=8",
+                    self.control_host,
+                    remote_command,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout or "remote scheduling failed").strip()
+                raise RuntimeError(detail[-2000:])
+            response_line = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+            try:
+                response = json.loads(response_line)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("remote Prompta scheduling returned an invalid response") from exc
+            if not isinstance(response, dict) or response.get("ok") is not True:
+                raise RuntimeError(str(response.get("error") or "remote Prompta scheduling failed"))
+            scheduler_started = response.get("scheduler_started") is True
+        else:
+            add_job(
+                self.jobs_path,
+                name,
+                prompt,
+                interval_seconds,
+                exact_interval=True,
+            )
+            started = subprocess.run(
+                ["systemctl", "--user", "start", "prompta.service"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            scheduler_started = started.returncode == 0
+
+        return {
+            "name": name,
+            "prompt": prompt,
+            "interval_minutes": interval_minutes,
+            "scheduler_started": scheduler_started,
+            "server": self.host_name,
+        }
 
     def _send(self, operation: str, message: str, conversation_id: str) -> str:
         if self.control_host:
@@ -431,7 +619,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def control_host(self) -> str:
         return cast(PromptaUIServer, self.server).control_host
 
-    def _message_from_json_body(self) -> str | None:
+    def _json_body(self) -> dict[str, Any] | None:
         content_type = self.headers.get("Content-Type", "")
         if not content_type.casefold().startswith("application/json"):
             self._json({"error": "Expected application/json"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
@@ -448,7 +636,16 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             self._json({"error": "Invalid JSON body"}, HTTPStatus.BAD_REQUEST)
             return None
-        message = str(payload.get("message") or "") if isinstance(payload, dict) else ""
+        if not isinstance(payload, dict):
+            self._json({"error": "Expected a JSON object"}, HTTPStatus.BAD_REQUEST)
+            return None
+        return payload
+
+    def _message_from_json_body(self) -> str | None:
+        payload = self._json_body()
+        if payload is None:
+            return None
+        message = str(payload.get("message") or "")
         if not message.strip():
             self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
             return None
@@ -468,10 +665,42 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         )
         self.end_headers()
 
-    def _json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _json(
+        self,
+        payload: Any,
+        status: HTTPStatus = HTTPStatus.OK,
+        *,
+        content_type: str = "application/json; charset=utf-8",
+    ) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-        self._headers(status, "application/json; charset=utf-8")
+        self._headers(status, content_type)
         self.wfile.write(body)
+
+    def _manifest(self) -> None:
+        server = cast(PromptaUIServer, self.server)
+        app_name = f"Prompta · {server.display_name}"
+        self._json(
+            {
+                "name": app_name,
+                "short_name": f"Prompta {server.display_name}",
+                "description": f"Prompta conversation UI for {server.display_name}",
+                "id": "./",
+                "start_url": "./",
+                "scope": "./",
+                "display": "standalone",
+                "background_color": "#212121",
+                "theme_color": "#212121",
+                "icons": [
+                    {
+                        "src": "./icon.svg",
+                        "sizes": "any",
+                        "type": "image/svg+xml",
+                        "purpose": "any maskable",
+                    }
+                ],
+            },
+            content_type="application/manifest+json; charset=utf-8",
+        )
 
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
         target = (_STATIC_ROOT / relative_path).resolve()
@@ -489,6 +718,45 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self._headers(HTTPStatus.OK, f"{mime}; charset=utf-8" if mime.startswith("text/") else mime)
         self.wfile.write(body)
 
+    def _events(self) -> None:
+        server = cast(PromptaUIServer, self.server)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+
+        last_token = ""
+        last_heartbeat = 0.0
+        try:
+            self.wfile.write(b"retry: 1000\n\n")
+            self.wfile.flush()
+            while True:
+                token = server.event_token()
+                now = time.monotonic()
+                if token != last_token:
+                    payload = json.dumps(
+                        {
+                            "token": token,
+                            "server": server.host_name,
+                            "online": server.host_online(),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    self.wfile.write(f"event: refresh\ndata: {payload}\n\n".encode())
+                    self.wfile.flush()
+                    last_token = token
+                    last_heartbeat = now
+                elif now - last_heartbeat >= 15.0:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    last_heartbeat = now
+                time.sleep(0.2)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
@@ -501,8 +769,25 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if path == "/app.js":
             self._static("app.js", "text/javascript")
             return
+        if path in {"/manifest.json", "/manifest.webmanifest"}:
+            self._manifest()
+            return
+        if path == "/icon.svg":
+            self._static("icon.svg", "image/svg+xml")
+            return
+        if path == "/sw.js":
+            self._static("sw.js", "text/javascript")
+            return
+        if path == "/api/events":
+            self._events()
+            return
         if path == "/api/health":
-            self._json(self.store.stats())
+            server = cast(PromptaUIServer, self.server)
+            self._json({
+                **self.store.stats(),
+                "server": server.host_name,
+                "online": server.host_online(),
+            })
             return
         if path == "/api/chats":
             query = parse_qs(parsed.query)
@@ -524,7 +809,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         send_prefix = "/api/sends/"
         if path.startswith(send_prefix):
             send_id = unquote(path[len(send_prefix) :]).strip("/")
-            job = self.server.send_jobs.get(send_id)
+            job = cast(PromptaUIServer, self.server).send_jobs.get(send_id)
             if job is None:
                 self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -545,11 +830,38 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path == "/api/schedule":
+            payload = self._json_body()
+            if payload is None:
+                return
+            prompt = str(payload.get("prompt") or "").strip()
+            try:
+                interval_minutes = float(str(payload.get("interval_minutes") or ""))
+            except (TypeError, ValueError):
+                interval_minutes = 0.0
+            if not prompt:
+                self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
+                return
+            if interval_minutes <= 0:
+                self._json({"error": "Schedule interval must be greater than zero"}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                result = cast(PromptaUIServer, self.server).schedule_every(
+                    prompt,
+                    interval_minutes,
+                )
+            except Exception as exc:
+                logger.exception("Prompta UI scheduling failed")
+                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+                return
+            self._json({"ok": True, **result}, HTTPStatus.CREATED)
+            return
+
         if path == "/api/chats":
             message = self._message_from_json_body()
             if message is None:
                 return
-            job = self.server.send_jobs.submit(
+            job = cast(PromptaUIServer, self.server).send_jobs.submit(
                 operation="once",
                 message=message,
             )
@@ -571,12 +883,26 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if message is None:
             return
 
-        job = self.server.send_jobs.submit(
+        job = cast(PromptaUIServer, self.server).send_jobs.submit(
             operation="reply",
             conversation_id=conversation_id,
             message=message,
         )
         self._json({"ok": True, **job}, HTTPStatus.ACCEPTED)
+
+
+def _reconcile_orphaned_local_chats(
+    cache_path: Path,
+    state_path: Path,
+    control_host: str,
+) -> int:
+    if control_host or _daemon_is_running(state_path):
+        return 0
+    cache = ChatCache(cache_path)
+    try:
+        return cache.mark_orphaned_active()
+    finally:
+        cache.close()
 
 
 def serve(
@@ -586,9 +912,21 @@ def serve(
     port: int,
     state_path: Path = DEFAULT_STATE_PATH,
     control_host: str = "",
+    jobs_path: Path = DEFAULT_JOBS_PATH,
+    preserve_active: bool = False,
 ) -> None:
+    orphaned = (
+        0
+        if preserve_active
+        else _reconcile_orphaned_local_chats(cache_path, state_path, control_host)
+    )
+    if orphaned:
+        logger.info(
+            "Prompta UI marked %d orphaned local conversation(s) interrupted",
+            orphaned,
+        )
     store = ReadOnlyChatStore(cache_path, log_path)
-    server = PromptaUIServer((host, port), store, state_path, control_host)
+    server = PromptaUIServer((host, port), store, state_path, control_host, jobs_path)
     logger.info("Prompta UI listening on http://%s:%d", host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
     if control_host:
@@ -611,9 +949,15 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--control-host", default="")
+    parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     parser.add_argument("--logs", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--preserve-active",
+        action="store_true",
+        help="Leave active cache rows untouched when another Prompta UI owns them",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     serve(
@@ -623,6 +967,8 @@ def main() -> None:
         max(1, min(args.port, 65535)),
         args.state,
         args.control_host,
+        args.jobs_file,
+        args.preserve_active,
     )
 
 

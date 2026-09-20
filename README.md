@@ -100,17 +100,29 @@ uv run prompta-ui
 ```
 
 Open `http://127.0.0.1:8765`. The UI reads the SQLite database using
-`mode=ro` plus `PRAGMA query_only=ON` and refreshes that local cache once per
-second. Those refreshes never navigate or reload ChatGPT. Sending a message uses the
+`mode=ro` plus `PRAGMA query_only=ON`. Browser state hydrates from IndexedDB first,
+then an SSE stream tells the client when the SQLite cache or send state changed, so
+active chats update without page polling or reload flicker. Sending a message uses the
 scheduler control socket and reuses a retained live tab when one exists; an expired
 historical chat is opened only for an explicit send.
 
-Features include live active-chat updates, replies to existing chats, history grouped
-by recency, full-text search across cached prompts/messages, safe Markdown and code
-rendering, responsive mobile layout, deep links to cached chats, and dark/light
-appearance following the browser preference. A mirrored UI can pass
-`--control-host <ssh-host>` so replies are executed by the Prompta worker that owns
-the mirrored cache.
+The UI is installable as a PWA with a service worker and a server-specific manifest
+name such as `Prompta · Nox` or `Prompta · Glass`. While the UI/PWA is running,
+browser notification permission lets an active-to-complete transition produce a
+system notification. Recurring jobs can be created directly from the composer:
+
+```text
+/every 30 fix bugs
+/every 2h review the latest failures
+```
+
+Features also include client-first optimistic sends with SSE reconciliation, replies
+to existing chats, history grouped by recency, full-text search across cached
+prompts/messages, safe Markdown and code rendering, responsive mobile layout, deep
+links to cached chats, and dark/light appearance following the browser preference. A
+mirrored UI can pass `--control-host <ssh-host>` so replies are executed by the
+Prompta worker that owns the mirrored cache while host-online state is based on fresh
+SSH reachability.
 
 The optional user service is `systemd/prompta-ui.service`.
 
@@ -131,8 +143,13 @@ The unit files are `systemd/prompta.service` and `systemd/prompta-ui.service`.
 
 ## Development
 
+The browser source is TypeScript in `src/prompta/ui/app.ts`; Bun builds the committed
+browser bundle at `src/prompta/static/app.js`.
+
 ```bash
 uv sync --locked
+bun install --frozen-lockfile
+bun run check
 uv run pytest
 uv run ruff check src tests scripts
 uv run ty check

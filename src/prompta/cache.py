@@ -76,6 +76,42 @@ class ChatCache:
 
             CREATE INDEX IF NOT EXISTS messages_conversation_ordinal_idx
                 ON messages(conversation_id, ordinal);
+
+            CREATE TRIGGER IF NOT EXISTS messages_remove_superseded_transient_after_insert
+            AFTER INSERT ON messages
+            WHEN NEW.role = 'assistant'
+            BEGIN
+                DELETE FROM messages
+                WHERE rowid IN (
+                    SELECT transient.rowid
+                    FROM messages transient
+                    WHERE transient.conversation_id = NEW.conversation_id
+                      AND transient.role = 'assistant'
+                      AND transient.message_key LIKE '__prompta_live_assistant_%'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM messages canonical
+                          WHERE canonical.conversation_id = transient.conversation_id
+                            AND canonical.role = 'assistant'
+                            AND canonical.message_key NOT LIKE '__prompta_live_assistant_%'
+                            AND canonical.message_key NOT LIKE 'request-placeholder-%'
+                            AND canonical.ordinal > COALESCE((
+                                SELECT MAX(previous_user.ordinal)
+                                FROM messages previous_user
+                                WHERE previous_user.conversation_id = transient.conversation_id
+                                  AND previous_user.role = 'user'
+                                  AND previous_user.ordinal < transient.ordinal
+                            ), -1)
+                            AND canonical.ordinal < COALESCE((
+                                SELECT MIN(next_user.ordinal)
+                                FROM messages next_user
+                                WHERE next_user.conversation_id = transient.conversation_id
+                                  AND next_user.role = 'user'
+                                  AND next_user.ordinal > transient.ordinal
+                            ), 2147483647)
+                      )
+                );
+            END;
             """
         )
         self.connection.execute(
@@ -99,7 +135,54 @@ class ChatCache:
             """,
             (_SEEDED_PROMPT_KEY,),
         )
+        self._remove_superseded_transient_assistants()
         self.connection.commit()
+
+    def _remove_superseded_transient_assistants(
+        self,
+        conversation_id: str | None = None,
+    ) -> int:
+        parameters: tuple[Any, ...] = ()
+        conversation_filter = ""
+        if conversation_id is not None:
+            conversation_filter = "AND transient.conversation_id = ?"
+            parameters = (conversation_id,)
+        cursor = self.connection.execute(
+            f"""
+            DELETE FROM messages
+            WHERE rowid IN (
+                SELECT transient.rowid
+                FROM messages transient
+                WHERE transient.role = 'assistant'
+                  AND transient.message_key LIKE '__prompta_live_assistant_%'
+                  {conversation_filter}
+                  AND EXISTS (
+                      SELECT 1
+                      FROM messages canonical
+                      WHERE canonical.conversation_id = transient.conversation_id
+                        AND canonical.role = 'assistant'
+                        AND canonical.message_key NOT LIKE '__prompta_live_assistant_%'
+                        AND canonical.message_key NOT LIKE 'request-placeholder-%'
+                        AND canonical.ordinal > COALESCE((
+                            SELECT MAX(previous_user.ordinal)
+                            FROM messages previous_user
+                            WHERE previous_user.conversation_id = transient.conversation_id
+                              AND previous_user.role = 'user'
+                              AND previous_user.ordinal < transient.ordinal
+                        ), -1)
+                        AND canonical.ordinal < COALESCE((
+                            SELECT MIN(next_user.ordinal)
+                            FROM messages next_user
+                            WHERE next_user.conversation_id = transient.conversation_id
+                              AND next_user.role = 'user'
+                              AND next_user.ordinal > transient.ordinal
+                        ), 2147483647)
+                  )
+            )
+            """,
+            parameters,
+        )
+        return cursor.rowcount
 
     def mark_orphaned_active(self) -> int:
         """Mark tabs from a previous Prompta process as interrupted after restart."""
@@ -459,6 +542,8 @@ class ChatCache:
                             """,
                             (conversation_id, transient_key),
                         )
+
+            self._remove_superseded_transient_assistants(conversation_id)
 
     def recent_conversations(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self.connection.execute(

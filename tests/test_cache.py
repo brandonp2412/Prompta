@@ -244,6 +244,130 @@ def test_partial_snapshot_does_not_delete_previous_canonical_turns(tmp_path: Pat
     ]
 
 
+def test_full_snapshot_removes_old_streaming_copy_from_completed_turn(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="First question",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Long chat",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First question"},
+                {
+                    "id": "__prompta_live_assistant_old__",
+                    "role": "assistant",
+                    "content": "Old streaming text that does not match the final answer",
+                },
+            ],
+        },
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Long chat",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First question"},
+                {"id": "a1", "role": "assistant", "content": "Final first answer"},
+                {"id": "u2", "role": "user", "content": "Second question"},
+                {
+                    "id": "__prompta_live_assistant_current__",
+                    "role": "assistant",
+                    "content": "Current answer",
+                },
+            ],
+        },
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [(message["message_key"], message["status"]) for message in messages] == [
+        ("u1", "complete"),
+        ("a1", "complete"),
+        ("u2", "complete"),
+        ("__prompta_live_assistant_current__", "streaming"),
+    ]
+
+
+def test_cache_migration_removes_superseded_streaming_copies(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="First question",
+    )
+    with cache.connection:
+        cache.connection.executemany(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "conversation-1",
+                    "__prompta_live_assistant_old__",
+                    1,
+                    "assistant",
+                    "Stale streaming copy",
+                    "streaming",
+                    1.0,
+                    1.0,
+                ),
+                (
+                    "conversation-1",
+                    "a1",
+                    2,
+                    "assistant",
+                    "Canonical answer",
+                    "complete",
+                    2.0,
+                    2.0,
+                ),
+                (
+                    "conversation-1",
+                    "u2",
+                    3,
+                    "user",
+                    "Next question",
+                    "complete",
+                    3.0,
+                    3.0,
+                ),
+                (
+                    "conversation-1",
+                    "__prompta_live_assistant_current__",
+                    4,
+                    "assistant",
+                    "Still generating",
+                    "streaming",
+                    4.0,
+                    4.0,
+                ),
+            ],
+        )
+    cache.close()
+
+    reopened = ChatCache(path)
+    messages = reopened.messages("conversation-1")
+    reopened.close()
+
+    keys = [message["message_key"] for message in messages]
+    assert "__prompta_live_assistant_old__" not in keys
+    assert "__prompta_live_assistant_current__" in keys
+
+
 def test_cache_migration_removes_request_placeholders(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
