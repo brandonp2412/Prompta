@@ -44,7 +44,7 @@ _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0
 _CONTROL_RESTART_POLL_SECONDS = 0.1
-_BIDI_RESTART_REQUIRED_ERROR = "Firefox BiDi session is poisoned; browser restart required"
+_BROWSER_RESTART_REQUIRED_SUFFIX = "browser restart required"
 DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
@@ -1326,7 +1326,7 @@ class Prompta:
             self._failure_retry_until[job.name] = retry_until
             if browser_restart_required:
                 raise RuntimeError(
-                    "Firefox BiDi session was lost; restarting Prompta to recycle Firefox"
+                    "Browser session was lost; restarting Prompta to recycle browser"
                 ) from exc
             return False
         sent_at = time.time()
@@ -1862,9 +1862,8 @@ class Prompta:
                 self._sync_requests.task_done()
 
     async def _release_driver_if_idle(self) -> None:
-        # Keep one Firefox BiDi session for the daemon lifetime. Firefox only allows
-        # one active session, and cycling session.end/session.new can leave the
-        # remote agent reporting a stale active session after disconnects.
+        # Keep one browser session for the daemon lifetime. Reusing the resident
+        # driver avoids unnecessary session churn and preserves the authenticated profile.
         return
 
     async def run(self, *, once: bool = False) -> None:
@@ -1876,7 +1875,7 @@ class Prompta:
             did_work = await self._drain_once_requests() or did_work
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
-                    "Firefox BiDi session was lost; restarting Prompta to recycle Firefox"
+                    "Browser session was lost; restarting Prompta to recycle browser"
                 )
             jobs = self.read_jobs()
             if not jobs:
@@ -2310,7 +2309,7 @@ async def _wait_for_scheduler_restart(state_path: Path) -> None:
             return
         await asyncio.sleep(_CONTROL_RESTART_POLL_SECONDS)
     raise RuntimeError(
-        "Prompta scheduler did not restart after Firefox BiDi session became poisoned"
+        "Prompta scheduler did not restart after the browser session became poisoned"
     )
 
 
@@ -2352,10 +2351,10 @@ async def _control_send_request_with_restart_retry(
             rejected_message=rejected_message,
         )
     except RuntimeError as exc:
-        if str(exc) != _BIDI_RESTART_REQUIRED_ERROR:
+        if _BROWSER_RESTART_REQUIRED_SUFFIX not in str(exc).lower():
             raise
     logger.info(
-        "Prompta control send hit a poisoned Firefox BiDi session; waiting for scheduler restart"
+        "Prompta control send hit a poisoned browser session; waiting for scheduler restart"
     )
     await _wait_for_scheduler_restart(state_path)
     return await _control_send_request(
@@ -2733,7 +2732,7 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--browser",
         choices=("firefox", "chrome"),
-        default=os.environ.get("PROMPTA_BROWSER", "firefox"),
+        default=os.environ.get("PROMPTA_BROWSER", "chrome"),
     )
     parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
     parser.add_argument("--firefox-path", default="/usr/bin/firefox")
@@ -2750,6 +2749,12 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--chromedriver-path",
         default=os.environ.get("PROMPTA_CHROMEDRIVER_PATH", "/usr/bin/chromedriver"),
+    )
+    parser.add_argument(
+        "--chrome-auth-timeout-seconds",
+        type=float,
+        default=float(os.environ.get("PROMPTA_CHROME_AUTH_TIMEOUT_SECONDS", "30")),
+        help="How long ChromeDriver may wait for a ChatGPT login before failing",
     )
     parser.add_argument(
         "--chrome-headed",
@@ -2770,6 +2775,7 @@ def _chrome_driver_factory(args: argparse.Namespace) -> DriverFactory:
             chrome_path=chrome_path,
             chromedriver_path=chromedriver_path,
             headless=headless,
+            auth_timeout_seconds=max(0.1, float(args.chrome_auth_timeout_seconds)),
         )
 
     return factory
