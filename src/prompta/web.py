@@ -29,10 +29,14 @@ from .cache import DEFAULT_CACHE_PATH, ChatCache
 from .core import (
     DEFAULT_JOBS_PATH,
     DEFAULT_STATE_PATH,
+    RateLimitBackoff,
+    RateLimitError,
     _daemon_is_running,
     _send_once_via_control,
     _send_reply_via_control,
     add_job,
+    is_rate_limited_text,
+    parse_retry_after,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,12 +356,42 @@ class SendJobRegistry:
             except OSError:
                 logger.warning("Could not remove Prompta UI upload %s", attachment, exc_info=True)
 
-    def __init__(self, sender: Callable[[str, str, str, list[str]], str]) -> None:
+    def __init__(
+        self,
+        sender: Callable[[str, str, str, list[str]], str],
+        *,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._sender = sender
+        self._sleep = sleeper
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
+        self._rate_limit_lock = threading.Lock()
+        self._rate_limit_backoff = RateLimitBackoff()
         self._revision = 0
+
+    @staticmethod
+    def _as_rate_limit_error(exc: Exception) -> RateLimitError | None:
+        if isinstance(exc, RateLimitError):
+            return exc
+        message = str(exc)
+        if is_rate_limited_text(message):
+            return RateLimitError(message, retry_after=parse_retry_after(message))
+        return None
+
+    def _rate_limit_remaining(self) -> tuple[float, int]:
+        with self._rate_limit_lock:
+            return self._rate_limit_backoff.remaining(), self._rate_limit_backoff.attempts
+
+    def _record_rate_limit(self, exc: RateLimitError) -> tuple[float, int]:
+        with self._rate_limit_lock:
+            delay = self._rate_limit_backoff.record(exc.retry_after)
+            return delay, self._rate_limit_backoff.attempts
+
+    def _reset_rate_limit_backoff(self) -> None:
+        with self._rate_limit_lock:
+            self._rate_limit_backoff.reset()
 
     def submit(
         self,
@@ -437,26 +471,76 @@ class SendJobRegistry:
         conversation_id: str,
         attachments: list[str],
     ) -> None:
-        self._update(send_id, status="running")
         try:
-            result = self._sender(operation, message, conversation_id, attachments)
-        except Exception as exc:
-            logger.exception(
-                "Prompta UI background send failed send_id=%s operation=%s conversation=%s",
-                send_id,
-                operation,
-                conversation_id or "new",
-            )
-            self._update(send_id, status="failed", error=str(exc))
-            return
+            while True:
+                remaining, attempt = self._rate_limit_remaining()
+                if remaining > 0:
+                    self._update(
+                        send_id,
+                        status="rate_limited",
+                        error="ChatGPT rate limited this account",
+                        retry_at=time.time() + remaining,
+                        retry_after_seconds=max(1, math.ceil(remaining)),
+                        retry_attempt=max(1, attempt),
+                    )
+                    self._sleep(remaining)
+
+                self._update(
+                    send_id,
+                    status="running",
+                    error="",
+                    retry_at=0.0,
+                    retry_after_seconds=0,
+                )
+                try:
+                    result = self._sender(operation, message, conversation_id, attachments)
+                except Exception as exc:
+                    rate_limit = self._as_rate_limit_error(exc)
+                    if rate_limit is None:
+                        logger.exception(
+                            "Prompta UI background send failed send_id=%s operation=%s conversation=%s",
+                            send_id,
+                            operation,
+                            conversation_id or "new",
+                        )
+                        self._update(send_id, status="failed", error=str(exc))
+                        return
+
+                    delay, attempt = self._record_rate_limit(rate_limit)
+                    retry_at = time.time() + delay
+                    logger.warning(
+                        "Prompta UI send rate limited send_id=%s operation=%s conversation=%s "
+                        "attempt=%d retry_after=%ds backing_off=%.1fs",
+                        send_id,
+                        operation,
+                        conversation_id or "new",
+                        attempt,
+                        rate_limit.retry_after,
+                        delay,
+                    )
+                    self._update(
+                        send_id,
+                        status="rate_limited",
+                        error=str(rate_limit),
+                        retry_at=retry_at,
+                        retry_after_seconds=max(1, math.ceil(delay)),
+                        retry_attempt=attempt,
+                    )
+                    self._sleep(delay)
+                    continue
+
+                self._reset_rate_limit_backoff()
+                self._update(
+                    send_id,
+                    status="succeeded",
+                    conversation_id=result,
+                    error="",
+                    retry_at=0.0,
+                    retry_after_seconds=0,
+                )
+                return
         finally:
             self._cleanup_attachments(attachments)
-        self._update(
-            send_id,
-            status="succeeded",
-            conversation_id=result,
-            error="",
-        )
 
 
 class PromptaUIServer(ThreadingHTTPServer):

@@ -89,7 +89,8 @@ class RateLimitError(RuntimeError):
 
     @classmethod
     def from_text(cls, text: str) -> RateLimitError:
-        return cls(retry_after=parse_retry_after(text))
+        message = text.strip() or "ChatGPT rate limit reached"
+        return cls(message, retry_after=parse_retry_after(message))
 
 
 class SendVerificationError(RuntimeError):
@@ -2257,6 +2258,13 @@ async def _handle_control_client(
                 raise ValueError("unsupported Prompta control request")
             conversation_id = await future
             response = {"ok": True, "conversation_id": conversation_id}
+    except RateLimitError as exc:
+        response = {
+            "ok": False,
+            "error": str(exc),
+            "error_type": "rate_limit",
+            "retry_after": exc.retry_after,
+        }
     except Exception as exc:
         response = {"ok": False, "error": str(exc)}
     try:
@@ -2346,7 +2354,10 @@ async def _control_send_request(
         raise RuntimeError("Prompta scheduler closed the control connection without a response")
     payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict) or payload.get("ok") is not True:
-        raise RuntimeError(str(payload.get("error") or rejected_message))
+        error = str(payload.get("error") or rejected_message)
+        if isinstance(payload, dict) and payload.get("error_type") == "rate_limit":
+            raise RateLimitError(error, retry_after=int(payload.get("retry_after") or DEFAULT_RETRY_AFTER))
+        raise RuntimeError(error)
     return payload
 
 

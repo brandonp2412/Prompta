@@ -158,6 +158,13 @@ describe("pending send activity", () => {
     });
   });
 
+  test("shows rate-limit backoff without turning the send into a failure", () => {
+    expect(pendingSendActivity("rate_limited", true, 300)).toEqual({
+      label: "rate limited · retry in 5m",
+      statusText: "Rate limited — backing off; retrying automatically in 5m.",
+    });
+  });
+
   test("stops the activity indicator for terminal states", () => {
     expect(pendingSendActivity("succeeded", true)).toBeNull();
     expect(pendingSendActivity("failed", true)).toBeNull();
