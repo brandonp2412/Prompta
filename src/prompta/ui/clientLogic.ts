@@ -5,6 +5,7 @@ export type ChatSummary = {
 };
 
 export type PendingNewSend = {
+  clientId?: string;
   conversationId?: string;
   message?: string;
   createdAt?: number;
@@ -226,6 +227,29 @@ export function sidebarPreviewText(value: unknown): string {
     )
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function pendingConversationDisplayId(
+  pending: PendingNewSend | null | undefined,
+): string {
+  if (!pending) return "";
+  if (pending.conversationId) return String(pending.conversationId);
+  const clientId = String(pending.clientId || "").trim();
+  return clientId ? `pending-new-${clientId}` : "";
+}
+
+export function promotePinnedConversationId(
+  pinnedIds: Set<string>,
+  pending: PendingNewSend | null | undefined,
+  nextConversationId: string,
+): boolean {
+  const nextId = String(nextConversationId || "").trim();
+  if (!nextId) return false;
+  const previousId = pendingConversationDisplayId(pending);
+  if (!previousId || previousId === nextId || !pinnedIds.has(previousId)) return false;
+  pinnedIds.delete(previousId);
+  pinnedIds.add(nextId);
+  return true;
 }
 
 export function matchingOptimisticConversation(
