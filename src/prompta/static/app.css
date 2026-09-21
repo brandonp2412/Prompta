@@ -1504,12 +1504,12 @@ textarea:focus-visible {
     max-width: 88%;
   }
 
-  .tool-call-block > summary .tool-name,
-  .tool-call-block > summary .copy-code {
+  .tool-call-block.tool-has-summary > summary .tool-name,
+  .tool-call-block.tool-has-summary > summary .copy-code {
     display: none;
   }
 
-  .tool-call-block[open] > .tool-expanded-meta {
+  .tool-call-block.tool-has-summary[open] > .tool-expanded-meta {
     display: flex;
   }
 
