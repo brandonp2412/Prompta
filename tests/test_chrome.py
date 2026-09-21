@@ -124,6 +124,77 @@ async def test_close_detaches_without_quitting_existing_browser() -> None:
 
 
 @pytest.mark.asyncio
+async def test_close_context_preserves_default_when_closing_background_tab() -> None:
+    selenium = MagicMock()
+    selenium.window_handles = ["default", "other"]
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "default"
+    driver._owned_contexts.add("target")
+
+    await driver.close_context("target")
+
+    assert [call.args for call in selenium.switch_to.window.call_args_list] == [
+        ("target",),
+        ("default",),
+    ]
+    assert driver.context == "default"
+    assert "target" not in driver._owned_contexts
+
+
+@pytest.mark.asyncio
+async def test_close_context_moves_default_when_closing_default_tab() -> None:
+    selenium = MagicMock()
+    selenium.window_handles = ["fallback"]
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "target"
+    driver._owned_contexts.add("target")
+
+    await driver.close_context("target")
+
+    assert [call.args for call in selenium.switch_to.window.call_args_list] == [
+        ("target",),
+        ("fallback",),
+    ]
+    assert driver.context == "fallback"
+    assert "target" not in driver._owned_contexts
+
+
+@pytest.mark.asyncio
+async def test_close_context_keeps_failed_tab_owned() -> None:
+    selenium = MagicMock()
+    selenium.switch_to.window.return_value = None
+    selenium.close.side_effect = WebDriverException("close failed")
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "default"
+    driver._owned_contexts.add("target")
+
+    with pytest.raises(RuntimeError, match="close Chromium tab: close failed"):
+        await driver.close_context("target")
+
+    assert "target" in driver._owned_contexts
+
+
+@pytest.mark.asyncio
+async def test_close_context_marks_timed_out_driver_for_restart() -> None:
+    selenium = MagicMock()
+    pool = HTTPConnectionPool("localhost", port=4444)
+    selenium.switch_to.window.side_effect = ReadTimeoutError(
+        pool, "/session/id/window", "timed out"
+    )
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "default"
+
+    with pytest.raises(RuntimeError, match="close Chromium tab: .*browser restart required"):
+        await driver.close_context("target")
+
+    assert driver.needs_browser_restart is True
+
+
+@pytest.mark.asyncio
 async def test_eval_switches_to_requested_window_without_stealing_default_context() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "other"

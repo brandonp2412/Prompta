@@ -277,19 +277,24 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
     async def close_context(self, context: str) -> None:
         def close_sync() -> None:
             driver = self._require_driver()
+            default_context = self.context
             try:
                 driver.switch_to.window(context)
                 driver.close()
-            except (NoSuchWindowException, WebDriverException):
+            except NoSuchWindowException:
                 return
             handles = list(driver.window_handles)
-            if handles:
-                driver.switch_to.window(handles[-1])
-                self.context = str(handles[-1])
-            else:
+            if not handles:
                 self.context = ""
+                return
+            if default_context and default_context != context and default_context in handles:
+                driver.switch_to.window(default_context)
+                return
+            next_context = str(handles[-1])
+            driver.switch_to.window(next_context)
+            self.context = next_context
 
-        await asyncio.to_thread(close_sync)
+        await self._run_webdriver_call("close Chromium tab", close_sync)
         self._owned_contexts.discard(context)
 
     async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
