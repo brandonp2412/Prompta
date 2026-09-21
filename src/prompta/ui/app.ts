@@ -2056,7 +2056,6 @@ document.addEventListener("touchmove", (event) => {
     }
   }
   if (!sidebarSwipe.horizontal) return;
-  event.preventDefault();
   const width = sidebarSwipe.sidebarWidth;
   const startX = sidebarSwipe.wasOpen ? 0 : -width;
   const x = Math.max(-width, Math.min(0, startX + deltaX));
@@ -2066,7 +2065,7 @@ document.addEventListener("touchmove", (event) => {
   sidebarSwipe.lastX = touch.clientX;
   sidebarSwipe.lastTime = now;
   queueSidebarDragPosition(x);
-}, { passive: false });
+}, { passive: true });
 function settleSidebarDrag(open) {
   const width = sidebarSwipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
   if (sidebarSwipe.frameId) {

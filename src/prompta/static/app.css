@@ -1542,6 +1542,7 @@ textarea:focus-visible {
 @media (max-width: 780px) {
   .app-shell {
     display: block;
+    touch-action: pan-y pinch-zoom;
   }
 
   .sidebar {
@@ -1559,11 +1560,6 @@ textarea:focus-visible {
 
   .chat-list {
     contain: layout paint style;
-  }
-
-  .chat-item {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 75px;
   }
 
   body.sidebar-dragging .sidebar {
