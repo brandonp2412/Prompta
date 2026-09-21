@@ -14,6 +14,7 @@ import {
   promotePinnedConversationId,
   pendingSendActivity,
   shouldRenderNewChatView,
+  shouldShowStopAction,
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -412,6 +413,19 @@ describe("optimistic reply reconciliation", () => {
     );
 
     expect(matchedIndex).toBe(-1);
+  });
+});
+
+
+
+describe("composer primary action", () => {
+  test("keeps Stop as the primary action for an active existing chat", () => {
+    expect(shouldShowStopAction("active", false)).toBe(true);
+  });
+
+  test("does not show Stop for completed or brand-new chats", () => {
+    expect(shouldShowStopAction("complete", false)).toBe(false);
+    expect(shouldShowStopAction("active", true)).toBe(false);
   });
 });
 

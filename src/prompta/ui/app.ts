@@ -13,6 +13,7 @@ import {
   pendingConversationSends,
   pendingSendActivity,
   shouldRenderNewChatView,
+  shouldShowStopAction,
   postJsonRequest as postJson,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -225,8 +226,7 @@ function syncSendButton() {
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
-  const running = canCompose && !state.composingNew && state.selectedChat?.status === "active";
-  const stopMode = Boolean(running && !hasContent);
+  const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
@@ -2743,7 +2743,8 @@ els.messageInput.addEventListener("keydown", (event) => {
   const mobileInput = matchMedia("(pointer: coarse)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
-    sendSelectedMessage();
+    if (els.sendButton.dataset.action === "stop") stopSelectedChat();
+    else sendSelectedMessage();
   }
 });
 window.addEventListener("hashchange", () => {
