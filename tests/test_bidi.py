@@ -96,6 +96,7 @@ async def test_page_send_probe_captures_durable_conversation_id() -> None:
     expression = call.args[0]
     assert "conversation_id:''" in expression
     assert """conversation_id["'][ ]*:[ ]*["']""" in expression
+    assert "new Request(input instanceof Request?input.clone():input,init)" in expression
 
 
 @pytest.mark.asyncio
