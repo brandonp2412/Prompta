@@ -42,6 +42,7 @@ _DAEMON_STARTUP_POLL_SECONDS = 0.1
 _DAEMON_RESTART_GRACE_CHECKS = 120
 _HOST_STATUS_TTL_SECONDS = 5.0
 _HOST_CHECK_TIMEOUT_SECONDS = 3.0
+_EVENT_HEARTBEAT_SECONDS = 5.0
 
 
 def _git_short_head() -> str:
@@ -169,6 +170,10 @@ class PromptaUIServer(ThreadingHTTPServer):
                         "ConnectTimeout=2",
                         "-o",
                         "ConnectionAttempts=1",
+                        "-o",
+                        "ControlMaster=no",
+                        "-o",
+                        "ControlPath=none",
                         self.control_host,
                         "true",
                     ],
@@ -594,8 +599,16 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     last_token = token
                     last_heartbeat = now
-                elif now - last_heartbeat >= 15.0:
-                    self.wfile.write(b": keepalive\n\n")
+                elif now - last_heartbeat >= _EVENT_HEARTBEAT_SECONDS:
+                    payload = json.dumps(
+                        {
+                            "server": server.host_name,
+                            "online": server.host_online(),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    self.wfile.write(f"event: heartbeat\ndata: {payload}\n\n".encode())
                     self.wfile.flush()
                     last_heartbeat = now
                 time.sleep(0.2)
@@ -638,7 +651,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json({
                 **self.store.stats(),
                 "server": server.host_name,
-                "online": True,
+                "online": server.host_online(force=True),
                 "head": _UI_HEAD,
             })
             return

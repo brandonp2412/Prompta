@@ -1181,11 +1181,11 @@ function highlightCode(raw, language) {
 function inlineMarkdown(text) {
   const placeholders = [];
   let source = String(text || "");
-  const stash = (html) => {
+  const stash = (html2) => {
     let token = `PROMPTA_INLINE_${placeholders.length}`;
     while (source.includes(token))
       token += "";
-    placeholders.push([token, html]);
+    placeholders.push([token, html2]);
     return token;
   };
   source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml2(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml2(label)}</a>`));
@@ -1989,7 +1989,7 @@ function setTextIfChanged3(element, value) {
   if (element.textContent !== text)
     element.textContent = text;
 }
-function createLogsPanel({ fetchJson, formatRelativeTime }) {
+function createLogsPanel({ fetchJson: fetchJson2, formatRelativeTime }) {
   const els = {
     viewport: requiredElement5("#logsViewport"),
     output: requiredElement5("#logOutput"),
@@ -2018,7 +2018,7 @@ function createLogsPanel({ fetchJson, formatRelativeTime }) {
   }
   async function load() {
     try {
-      render(await fetchJson("api/logs?limit=800"));
+      render(await fetchJson2("api/logs?limit=800"));
     } catch (error) {
       setTextIfChanged3(els.meta, "Logs unavailable");
       console.error(error);
@@ -2123,13 +2123,18 @@ function createLiveUpdates({
   observeHead,
   refreshDisplayedTimes,
   onStreamError,
-  onPageShow
+  onPageShow,
+  presenceStaleMs = 16000,
+  presenceCheckMs = 1000
 }) {
   let eventSource = null;
   let fallbackTimer = null;
   let timeRefreshTimer = null;
+  let presenceTimer = null;
   let paused = false;
   let refreshQueued = false;
+  let lastPresenceAt = 0;
+  let lastServer = "";
   function queueRefresh() {
     if (refreshQueued)
       return;
@@ -2164,6 +2169,49 @@ function createLiveUpdates({
       loadServerIdentity();
     }, 5000);
   }
+  function markPresence(payload) {
+    const server = String(payload.server || lastServer || "");
+    if (server)
+      lastServer = server;
+    lastPresenceAt = Date.now();
+    if (server && typeof payload.online === "boolean")
+      setServerStatus(server, payload.online);
+  }
+  function markStreamOffline() {
+    lastPresenceAt = 0;
+    if (lastServer)
+      setServerStatus(lastServer, false);
+    onStreamError();
+  }
+  function handleStatusEvent(event, refreshChats) {
+    stopFallbackRefresh();
+    try {
+      const payload = JSON.parse(event.data || "{}");
+      markPresence(payload);
+      if (payload.head)
+        observeHead(payload.head);
+    } catch (error) {
+      console.warn("Could not parse Prompta SSE status", error);
+    }
+    if (refreshChats)
+      queueRefresh();
+  }
+  function stopPresenceWatchdog() {
+    if (presenceTimer === null)
+      return;
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
+  function startPresenceWatchdog() {
+    if (presenceTimer !== null)
+      return;
+    presenceTimer = setInterval(() => {
+      if (!lastPresenceAt || Date.now() - lastPresenceAt <= presenceStaleMs)
+        return;
+      markStreamOffline();
+      startFallbackRefresh();
+    }, presenceCheckMs);
+  }
   function stopEventStream() {
     if (eventSource) {
       eventSource.close();
@@ -2181,27 +2229,24 @@ function createLiveUpdates({
     const events = new EventSource("api/events");
     eventSource = events;
     events.addEventListener("refresh", (event) => {
-      stopFallbackRefresh();
-      try {
-        const payload = JSON.parse(event.data || "{}");
-        setServerStatus(payload.server, payload.online);
-        observeHead(payload.head);
-      } catch (error) {
-        console.warn("Could not parse Prompta SSE status", error);
-      }
-      queueRefresh();
+      handleStatusEvent(event, true);
+    });
+    events.addEventListener("heartbeat", (event) => {
+      handleStatusEvent(event, false);
     });
     events.addEventListener("error", () => {
-      onStreamError();
+      markStreamOffline();
       startFallbackRefresh();
     });
   }
   function start() {
     startEventStream();
+    startPresenceWatchdog();
     startTimeRefresh();
   }
   function stop() {
     stopEventStream();
+    stopPresenceWatchdog();
     stopTimeRefresh();
   }
   window.addEventListener("pagehide", () => {
@@ -2230,51 +2275,121 @@ function createCompletionNotifications({
   chatTitle
 }) {
   const chatStatuses = new Map;
+  const explicitlyActive = new Set;
+  const pendingFinishedChats = new Map;
+  const notifiedCompletions = new Set;
   let baselineReady = false;
-  async function requestPermissionFromGesture() {
-    if (!("Notification" in window) || Notification.permission !== "default")
-      return;
-    try {
-      await Notification.requestPermission();
-    } catch (error) {
-      console.warn("Could not request notification permission", error);
-    }
+  let permissionRequest = null;
+  let flushingNotifications = false;
+  function completionKey(chat) {
+    return String(chat.id || "") + ":" + String(chat.completed_at ?? chat.updated_at ?? "");
   }
-  async function notifyChatFinished(chat) {
+  async function showChatFinished(chat) {
     if (!("Notification" in window) || Notification.permission !== "granted")
-      return;
+      return false;
     const display = displayServerName(getServerName() || location.hostname);
     const title = chatTitle(chat);
-    try {
-      if ("serviceWorker" in navigator) {
-        const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification("Prompta · " + display, {
-          body: title + " finished",
-          tag: "prompta-finished-" + chat.id,
-          icon: "./icon.svg",
-          badge: "./icon.svg",
-          data: { url: "./#/" + encodeURIComponent(chat.id) }
-        });
-        return;
+    const options = {
+      body: title + " finished",
+      tag: "prompta-finished-" + chat.id,
+      icon: "./icon.svg",
+      badge: "./icon.svg",
+      data: { url: "./#/" + encodeURIComponent(chat.id) }
+    };
+    if ("serviceWorker" in navigator) {
+      try {
+        let registration = typeof navigator.serviceWorker.getRegistration === "function" ? await navigator.serviceWorker.getRegistration() : null;
+        if (!registration) {
+          registration = await Promise.race([
+            navigator.serviceWorker.ready,
+            new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+          ]);
+        }
+        if (registration) {
+          await registration.showNotification("Prompta · " + display, options);
+          return true;
+        }
+      } catch (error) {
+        console.warn("Could not show Prompta service worker notification", error);
       }
-      new Notification("Prompta · " + display, { body: title + " finished" });
+    }
+    try {
+      new Notification("Prompta · " + display, options);
+      return true;
     } catch (error) {
       console.warn("Could not show Prompta completion notification", error);
+      return false;
     }
   }
+  async function flushPendingNotifications() {
+    if (flushingNotifications || !("Notification" in window) || Notification.permission !== "granted")
+      return;
+    flushingNotifications = true;
+    try {
+      while (pendingFinishedChats.size) {
+        const [key, chat] = pendingFinishedChats.entries().next().value;
+        if (!await showChatFinished(chat))
+          break;
+        pendingFinishedChats.delete(key);
+        notifiedCompletions.add(key);
+      }
+    } finally {
+      flushingNotifications = false;
+    }
+  }
+  async function requestPermissionFromGesture() {
+    if (!("Notification" in window))
+      return;
+    if (Notification.permission === "granted") {
+      await flushPendingNotifications();
+      return;
+    }
+    if (Notification.permission !== "default")
+      return;
+    if (!permissionRequest) {
+      permissionRequest = Notification.requestPermission().catch((error) => {
+        console.warn("Could not request notification permission", error);
+        return "default";
+      }).finally(() => {
+        permissionRequest = null;
+      });
+    }
+    const permission = await permissionRequest;
+    if (permission === "granted") {
+      await flushPendingNotifications();
+    }
+  }
+  function queueFinishedChat(chat) {
+    const key = completionKey(chat);
+    if (!chat.id || notifiedCompletions.has(key) || pendingFinishedChats.has(key))
+      return;
+    pendingFinishedChats.set(key, chat);
+    flushPendingNotifications();
+  }
+  function markActive(conversationId) {
+    const id = String(conversationId || "");
+    if (!id)
+      return;
+    chatStatuses.set(id, "active");
+    explicitlyActive.add(id);
+  }
   function trackCompletions(chats) {
-    if (baselineReady) {
-      for (const chat of chats) {
-        if (chatStatuses.get(chat.id) === "active" && chat.status === "complete") {
-          notifyChatFinished(chat);
-        }
+    for (const chat of chats) {
+      const wasActive = chatStatuses.get(chat.id) === "active" || explicitlyActive.has(chat.id);
+      if ((baselineReady || explicitlyActive.has(chat.id)) && wasActive && chat.status === "complete") {
+        queueFinishedChat(chat);
+        explicitlyActive.delete(chat.id);
+      } else if (!["active", "complete"].includes(chat.status)) {
+        explicitlyActive.delete(chat.id);
       }
     }
     for (const chat of chats)
       chatStatuses.set(chat.id, chat.status);
     baselineReady = true;
+    flushPendingNotifications();
   }
   return {
+    markActive,
     requestPermissionFromGesture,
     trackCompletions
   };
@@ -2724,10 +2839,10 @@ function reconcileOptimisticNew(chats) {
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
-    const pending = state.pendingReplies.get(chat.id) || [];
-    if (!pending.length)
+    const pending2 = state.pendingReplies.get(chat.id) || [];
+    if (!pending2.length)
       return chat;
-    const latest = pending[pending.length - 1];
+    const latest = pending2[pending2.length - 1];
     return {
       ...chat,
       status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
@@ -3097,8 +3212,8 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt
       }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
-      if (activity) {
+      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      if (activity2) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -3106,7 +3221,7 @@ function renderNewChat() {
           status: "pending",
           updated_at: pending.updatedAt,
           pending_activity: true,
-          pending_activity_label: activity.label
+          pending_activity_label: activity2.label
         });
       } else if (["failed", "dead_lettered"].includes(pending.status)) {
         messages.push({
@@ -3560,9 +3675,10 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
       if (nextConversationId) {
+        completionNotifications.markActive(nextConversationId);
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
-      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
@@ -3571,7 +3687,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt
       });
-      if (changed)
+      if (changed2)
         state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -3614,7 +3730,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderSidebar();
         return;
       }
-      if (changed) {
+      if (changed2) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();
@@ -3806,6 +3922,8 @@ async function sendSelectedMessage() {
     const result = creatingNew ? await postJsonRequest("api/chats", { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3) : await postJsonRequest(`api/chats/${encodeURIComponent(conversationId)}/messages`, { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3);
     if (!result.send_id)
       throw new Error("Prompta did not return a send id");
+    if (!creatingNew)
+      completionNotifications.markActive(conversationId);
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
     pending.updatedAt = Date.now() / 1000;

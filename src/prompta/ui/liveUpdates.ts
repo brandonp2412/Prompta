@@ -6,12 +6,17 @@ export function createLiveUpdates({
   refreshDisplayedTimes,
   onStreamError,
   onPageShow,
+  presenceStaleMs = 16_000,
+  presenceCheckMs = 1_000,
 }) {
   let eventSource: EventSource | null = null;
   let fallbackTimer: ReturnType<typeof setInterval> | null = null;
   let timeRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
   let paused = false;
   let refreshQueued = false;
+  let lastPresenceAt = 0;
+  let lastServer = "";
 
   function queueRefresh() {
     if (refreshQueued) return;
@@ -47,6 +52,46 @@ export function createLiveUpdates({
     }, 5000);
   }
 
+  function markPresence(payload) {
+    const server = String(payload.server || lastServer || "");
+    if (server) lastServer = server;
+    lastPresenceAt = Date.now();
+    if (server && typeof payload.online === "boolean") setServerStatus(server, payload.online);
+  }
+
+  function markStreamOffline() {
+    lastPresenceAt = 0;
+    if (lastServer) setServerStatus(lastServer, false);
+    onStreamError();
+  }
+
+  function handleStatusEvent(event, refreshChats) {
+    stopFallbackRefresh();
+    try {
+      const payload = JSON.parse(event.data || "{}");
+      markPresence(payload);
+      if (payload.head) observeHead(payload.head);
+    } catch (error) {
+      console.warn("Could not parse Prompta SSE status", error);
+    }
+    if (refreshChats) queueRefresh();
+  }
+
+  function stopPresenceWatchdog() {
+    if (presenceTimer === null) return;
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
+
+  function startPresenceWatchdog() {
+    if (presenceTimer !== null) return;
+    presenceTimer = setInterval(() => {
+      if (!lastPresenceAt || Date.now() - lastPresenceAt <= presenceStaleMs) return;
+      markStreamOffline();
+      startFallbackRefresh();
+    }, presenceCheckMs);
+  }
+
   function stopEventStream() {
     if (eventSource) {
       eventSource.close();
@@ -64,29 +109,26 @@ export function createLiveUpdates({
     const events = new EventSource("api/events");
     eventSource = events;
     events.addEventListener("refresh", (event) => {
-      stopFallbackRefresh();
-      try {
-        const payload = JSON.parse(event.data || "{}");
-        setServerStatus(payload.server, payload.online);
-        observeHead(payload.head);
-      } catch (error) {
-        console.warn("Could not parse Prompta SSE status", error);
-      }
-      queueRefresh();
+      handleStatusEvent(event, true);
+    });
+    events.addEventListener("heartbeat", (event) => {
+      handleStatusEvent(event, false);
     });
     events.addEventListener("error", () => {
-      onStreamError();
+      markStreamOffline();
       startFallbackRefresh();
     });
   }
 
   function start() {
     startEventStream();
+    startPresenceWatchdog();
     startTimeRefresh();
   }
 
   function stop() {
     stopEventStream();
+    stopPresenceWatchdog();
     stopTimeRefresh();
   }
 

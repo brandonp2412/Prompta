@@ -1327,6 +1327,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
       if (nextConversationId) {
+        completionNotifications.markActive(nextConversationId);
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
       const changed = state.pendingNewSend.status !== status
@@ -1582,6 +1583,7 @@ async function sendSelectedMessage() {
         attachments.length ? 1 : 3,
       );
     if (!result.send_id) throw new Error("Prompta did not return a send id");
+    if (!creatingNew) completionNotifications.markActive(conversationId);
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
     pending.updatedAt = Date.now() / 1000;
