@@ -356,6 +356,7 @@ function parseAtSlashCommand(message, now = new Date) {
 
 // src/prompta/ui/app.ts
 var PINNED_CHATS_KEY = "prompta:pinned-chats";
+var COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
 function loadPinnedIds() {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
@@ -367,6 +368,21 @@ function loadPinnedIds() {
 function savePinnedIds() {
   try {
     localStorage.setItem(PINNED_CHATS_KEY, JSON.stringify(Array.from(state.pinnedIds)));
+  } catch {}
+}
+function loadComposerDrafts() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_KEY) || "{}");
+    if (!stored || Array.isArray(stored) || typeof stored !== "object")
+      return new Map;
+    return new Map(Object.entries(stored).filter(([, value]) => typeof value === "string" && value).map(([key, value]) => [String(key), String(value)]));
+  } catch {
+    return new Map;
+  }
+}
+function saveComposerDrafts() {
+  try {
+    localStorage.setItem(COMPOSER_DRAFTS_KEY, JSON.stringify(Object.fromEntries(state.composerDrafts)));
   } catch {}
 }
 var state = {
@@ -406,7 +422,9 @@ var state = {
   uiHead: "",
   uiReloading: false,
   uiReloadPending: false,
-  uiReloadArmed: false
+  uiReloadArmed: false,
+  composerDrafts: loadComposerDrafts(),
+  composerDraftTarget: ""
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -458,6 +476,49 @@ var els = {
   sendButton: requiredElement("#sendButton"),
   composerStatus: requiredElement("#composerStatus")
 };
+function composerDraftTarget() {
+  if (state.composingNew)
+    return "new";
+  return state.selectedId ? "chat:" + state.selectedId : "";
+}
+function setStoredComposerDraft(target, value) {
+  if (!target)
+    return;
+  const draft = String(value || "");
+  if (draft)
+    state.composerDrafts.set(target, draft);
+  else
+    state.composerDrafts.delete(target);
+  saveComposerDrafts();
+}
+function persistComposerDraft() {
+  const target = composerDraftTarget();
+  if (!target)
+    return;
+  state.composerDraftTarget = target;
+  setStoredComposerDraft(target, els.messageInput.value);
+}
+function clearComposerDraft(target = composerDraftTarget()) {
+  if (!target)
+    return;
+  if (state.composerDrafts.delete(target))
+    saveComposerDrafts();
+}
+function syncComposerDraftTarget() {
+  const nextTarget = composerDraftTarget();
+  if (nextTarget === state.composerDraftTarget)
+    return;
+  if (state.composerDraftTarget && !state.sending) {
+    setStoredComposerDraft(state.composerDraftTarget, els.messageInput.value);
+  }
+  state.composerDraftTarget = nextTarget;
+  const draft = nextTarget ? state.composerDrafts.get(nextTarget) || "" : "";
+  if (els.messageInput.value !== draft)
+    els.messageInput.value = draft;
+  resizeComposer();
+  updateSlashMenu();
+  syncSendButton();
+}
 function setTextIfChanged(element, value) {
   const text = String(value ?? "");
   if (element.textContent !== text)
@@ -467,8 +528,8 @@ function setHiddenIfChanged(element, hidden) {
   if (element.hidden !== hidden)
     element.hidden = hidden;
 }
-const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
-const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
+var SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+var STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
 function syncSendButton() {
   const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "succeeded"].includes(state.pendingNewSend.status);
   const hasTarget = state.composingNew || Boolean(state.selectedId);
@@ -483,7 +544,7 @@ function syncSendButton() {
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
-  els.sendButton.disabled = !canCompose || state.sending || state.stopping || (!stopMode && (Boolean(waitingNew) || !hasContent));
+  els.sendButton.disabled = !canCompose || state.sending || state.stopping || !stopMode && (Boolean(waitingNew) || !hasContent);
 }
 function updateComposerActionButton() {
   syncSendButton();
@@ -1482,9 +1543,10 @@ function renderConversation(chat) {
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
   els.messageInput.disabled = false;
+  state.composingNew = false;
+  syncComposerDraftTarget();
   syncSendButton();
   els.shareChatButton.disabled = false;
-  state.composingNew = false;
   updatePinButton();
   syncSendButton();
   const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds)).find(Boolean);
@@ -1575,8 +1637,9 @@ function clearConversation() {
   els.shareChatButton.disabled = true;
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
-  els.composerStatus.textContent = "";
-  syncSendButton();
+  els.composerStatus.textContent = "Select a chat to send a message.";
+  syncComposerDraftTarget();
+  updateComposerActionButton();
 }
 function renderNewChat() {
   const enteringNewChat = !state.composingNew;
@@ -1587,6 +1650,7 @@ function renderNewChat() {
   state.selectedChat = null;
   state.renderedConversationId = "";
   state.mode = "chats";
+  syncComposerDraftTarget();
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
@@ -2194,6 +2258,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
   setAttachmentControlsDisabled(true);
+  clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
   updateComposerActionButton();
@@ -2208,6 +2273,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
     setTextIfChanged(els.composerStatus, `Scheduled on ${server}: every ${interval} · ${command.prompt}`);
   } catch (error) {
     els.messageInput.value = originalMessage;
+    persistComposerDraft();
     resizeComposer();
     updateSlashMenu();
     setTextIfChanged(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
@@ -2226,6 +2292,7 @@ async function runAtSlashCommand(command, originalMessage) {
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
   setAttachmentControlsDisabled(true);
+  clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
   updateSlashMenu();
@@ -2239,6 +2306,7 @@ async function runAtSlashCommand(command, originalMessage) {
     setTextIfChanged(els.composerStatus, `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`);
   } catch (error) {
     els.messageInput.value = originalMessage;
+    persistComposerDraft();
     resizeComposer();
     updateSlashMenu();
     setTextIfChanged(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
@@ -2436,7 +2504,7 @@ async function retryFailedSend(scope, retryKey) {
     return;
   }
   await sendSelectedMessage();
-
+}
 async function stopSelectedChat() {
   const conversationId = state.selectedId;
   if (!conversationId || state.mode !== "chats" || state.stopping)
@@ -2445,7 +2513,7 @@ async function stopSelectedChat() {
   syncSendButton();
   setTextIfChanged(els.composerStatus, "Stopping response…");
   try {
-    await postJson("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
+    await postJsonRequest("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
     setTextIfChanged(els.composerStatus, "Stopped.");
     state.selectedFingerprint = "";
     state.selectedUpdatedAt = null;
@@ -2467,6 +2535,7 @@ async function sendSelectedMessage() {
   if (!message || state.mode !== "chats" || state.sending)
     return;
   if (message.toLowerCase() === "/logs") {
+    clearComposerDraft();
     els.messageInput.value = "";
     els.slashMenu.hidden = true;
     resizeComposer();
@@ -2535,6 +2604,7 @@ async function sendSelectedMessage() {
   };
   state.sending = true;
   els.sendButton.disabled = true;
+  clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
   if (creatingNew) {
@@ -2662,6 +2732,7 @@ els.messageForm.addEventListener("submit", (event) => {
     sendSelectedMessage();
 });
 els.messageInput.addEventListener("input", () => {
+  persistComposerDraft();
   resizeComposer();
   updateSlashMenu();
   syncSendButton();
