@@ -1443,12 +1443,32 @@ class Prompta:
             return snapshot
         metadata = self.cache.metadata(conversation_id)
         url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
-        blocks = await self.tool_enricher.tool_blocks(url)
+        blocks, ordered_content = await self.tool_enricher.enrichment(url)
         if not blocks:
             return snapshot
         if active is not None:
             active.structured_tool_blocks = tuple(blocks)
-        enriched = self._apply_structured_tool_blocks(snapshot, blocks)
+        if ordered_content:
+            enriched = dict(snapshot)
+            enriched_messages = [
+                dict(message) if isinstance(message, dict) else message for message in messages
+            ]
+            assistant_index = next(
+                (
+                    index
+                    for index in range(len(enriched_messages) - 1, -1, -1)
+                    if isinstance(enriched_messages[index], dict)
+                    and str(enriched_messages[index].get("role") or "") == "assistant"
+                ),
+                None,
+            )
+            if assistant_index is not None:
+                enriched_messages[assistant_index]["content"] = ordered_content
+                enriched["messages"] = enriched_messages
+            else:
+                enriched = self._apply_structured_tool_blocks(snapshot, blocks)
+        else:
+            enriched = self._apply_structured_tool_blocks(snapshot, blocks)
         logger.info(
             "Prompta enriched conversation=%s with %d structured Chromium tool call(s)",
             conversation_id,

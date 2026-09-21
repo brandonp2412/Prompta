@@ -308,6 +308,73 @@ def _format_tool_block(call: dict[str, Any]) -> str:
     return _FENCE + "tool:" + label + chr(10) + body + chr(10) + _FENCE
 
 
+
+def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> str:
+    """Build the latest assistant turn from React messages in event order."""
+
+    ordered = sorted(
+        (message for message in messages if isinstance(message, dict)),
+        key=lambda message: (
+            float(message.get("create_time"))
+            if isinstance(message.get("create_time"), (int, float))
+            else float("inf")
+        ),
+    )
+    blocks = tool_blocks_from_messages(ordered)
+    completed_wrappers = any(
+        isinstance(parsed := _json_load(message.get("text")), dict)
+        and (
+            parsed.get("type") == "mcpToolCall"
+            or parsed.get("appContext")
+            or parsed.get("arguments") is not None
+        )
+        for message in ordered
+    )
+    parts: list[str] = []
+    tool_index = 0
+    for message in ordered:
+        role = str(message.get("role") or "")
+        recipient = str(message.get("recipient") or "")
+        content_type = str(message.get("content_type") or "")
+        if (
+            role == "assistant"
+            and recipient in {"", "all"}
+            and content_type in {"text", "multimodal_text"}
+        ):
+            raw_parts = message.get("parts")
+            visible_parts = (
+                [part for part in raw_parts if isinstance(part, str) and part.strip()]
+                if isinstance(raw_parts, list)
+                else []
+            )
+            visible = (
+                "\n".join(visible_parts)
+                if visible_parts
+                else str(message.get("text") or "")
+            ).strip()
+            if visible and not re.fullmatch(
+                r"message delivery timed out\.?\s*please try again",
+                visible,
+                flags=re.IGNORECASE,
+            ):
+                parts.append(visible)
+
+        parsed = _json_load(message.get("text"))
+        wrapper = isinstance(parsed, dict) and (
+            parsed.get("type") == "mcpToolCall"
+            or parsed.get("appContext")
+            or parsed.get("arguments") is not None
+        )
+        invocation = recipient == "api_tool.call_tool"
+        if (completed_wrappers and wrapper) or (not completed_wrappers and invocation):
+            if tool_index < len(blocks):
+                parts.append(blocks[tool_index])
+                tool_index += 1
+
+    if tool_index < len(blocks):
+        parts.extend(blocks[tool_index:])
+    return (chr(10) * 2).join(part for part in parts if part).strip()
+
 def merge_tool_blocks(content: str, blocks: list[str]) -> str:
     if not blocks:
         return content
@@ -338,10 +405,10 @@ class ChromiumToolEnricher:
         ).rstrip("/")
         self.timeout_seconds = max(1.0, timeout_seconds)
 
-    async def tool_blocks(self, url: str) -> list[str]:
+    async def enrichment(self, url: str) -> tuple[list[str], str]:
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or parsed.hostname != "chatgpt.com":
-            return []
+            return [], ""
         created_target = False
         target: dict[str, Any] | None = None
         try:
@@ -365,15 +432,16 @@ class ChromiumToolEnricher:
                 )
                 created_target = True
             if not isinstance(target, dict):
-                return []
+                return [], ""
             websocket_url = str(target.get("webSocketDebuggerUrl") or "")
             if not websocket_url:
-                return []
+                return [], ""
             messages = await self._react_messages(websocket_url)
-            return tool_blocks_from_messages(messages)
+            blocks = tool_blocks_from_messages(messages)
+            return blocks, ordered_assistant_content_from_messages(messages)
         except Exception as exc:
             logger.debug("Chromium tool enrichment unavailable for %s: %s", url, exc)
-            return []
+            return [], ""
         finally:
             if created_target and isinstance(target, dict) and target.get("id"):
                 try:
@@ -383,6 +451,10 @@ class ChromiumToolEnricher:
                     )
                 except Exception:
                     logger.debug("Could not close Chromium enrichment tab", exc_info=True)
+
+    async def tool_blocks(self, url: str) -> list[str]:
+        blocks, _ = await self.enrichment(url)
+        return blocks
 
     def _http_json(self, path: str, method: str = "GET") -> Any:
         request = Request(f"{self.endpoint}{path}", method=method)

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 
-from prompta.chromium import _REACT_TOOL_SCRIPT, merge_tool_blocks, tool_blocks_from_messages
+from prompta.chromium import (
+    _REACT_TOOL_SCRIPT,
+    merge_tool_blocks,
+    ordered_assistant_content_from_messages,
+    tool_blocks_from_messages,
+)
 
 FENCE = chr(96) * 3
 NL = chr(10)
@@ -177,3 +182,52 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT
+
+
+def test_ordered_assistant_content_uses_message_timestamps() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "create_time": 2.0,
+            "text": json.dumps({
+                "path": "/Nox Python MCP/link_123/execute_python",
+                "args": {"code": "print(1)"},
+            }),
+            "connector_tool_payload": json.dumps({"code": "print(1)"}),
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 1.0,
+            "parts": ["Before tool"],
+            "text": "",
+        },
+        {
+            "role": "tool",
+            "recipient": "assistant",
+            "content_type": "code",
+            "create_time": 2.5,
+            "text": json.dumps({"text": json.dumps({"ok": True})}),
+            "invoked_resource": {
+                "app_name": "Nox Python MCP",
+                "resource_uri": "/asdk_app_123/link_123/execute_python",
+            },
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 3.0,
+            "parts": ["After tool"],
+            "text": "",
+        },
+    ]
+
+    content = ordered_assistant_content_from_messages(messages)
+
+    assert content.index("Before tool") < content.index("Nox Python MCP · execute_python")
+    assert content.index("Nox Python MCP · execute_python") < content.index("After tool")
+    assert '"code": "print(1)"' in content
