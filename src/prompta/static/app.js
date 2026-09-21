@@ -129,7 +129,7 @@ function pythonToolCallCode(toolName, value) {
   if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload))
     return "";
   const code = argumentPayload.code;
-  return typeof code === "string" ? code : "";
+  return typeof code === "string" ? code.replace(/^(?:[ \t]*\r?\n)+/, "") : "";
 }
 function sidebarPreviewText(value) {
   return replaceChatGptRichMarkers(value).replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();

@@ -535,6 +535,17 @@ describe("tool call display cleanup", () => {
       .toBe("import socket\nprint(socket.gethostname())");
   });
 
+  test("strips leading blank lines from Python MCP code for display only", () => {
+    const payload = JSON.stringify({
+      arguments: {
+        code: "\n \t\n  print('keeps indentation')\n",
+      },
+    });
+
+    expect(pythonToolCallCode("Nox Python MCP · execute_python", payload))
+      .toBe("  print('keeps indentation')\n");
+  });
+
   test("does not reinterpret non-Python MCP JSON as Python", () => {
     expect(pythonToolCallCode(
       "GitHub · get_issue",

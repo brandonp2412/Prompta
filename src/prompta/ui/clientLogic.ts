@@ -202,7 +202,7 @@ export function pythonToolCallCode(toolName: unknown, value: unknown): string {
   const argumentPayload = parsedToolPayload(record.arguments ?? record.args ?? record);
   if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload)) return "";
   const code = (argumentPayload as Record<string, unknown>).code;
-  return typeof code === "string" ? code : "";
+  return typeof code === "string" ? code.replace(/^(?:[ \t]*\r?\n)+/, "") : "";
 }
 
 export function sidebarPreviewText(value: unknown): string {
