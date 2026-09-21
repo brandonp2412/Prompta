@@ -545,6 +545,79 @@ async def test_send_reply_recovers_when_deep_link_has_no_composer(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_send_reply_reloads_when_recovered_route_still_has_no_composer(
+    tmp_path: Path,
+) -> None:
+    prompt = "Continue from the UI"
+    conversation_id = "WEB:legacy-chat"
+    current_path = "/c/permanent-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class DelayedComposerReplyFakeDriver(FakeDriver):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.path = "/"
+            self.wait_calls = 0
+            self.history_activations: list[str] = []
+
+        async def wait_for_composer(self) -> None:
+            self.wait_calls += 1
+            if self.wait_calls in {1, 3}:
+                raise RuntimeError("ChatGPT composer did not become ready")
+
+        async def navigate(self, url: str) -> None:
+            self.navigated.append(url)
+            self.path = "/"
+
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return self.path
+
+        async def activate_history_link(self, path: str) -> bool:
+            self.history_activations.append(path)
+            self.path = path
+            return True
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            return {
+                "title": "Legacy chat",
+                "path": current_path,
+                "streaming": True,
+                "messages": [
+                    {"id": "u4", "role": "user", "content": prompt},
+                ],
+            }
+
+    fake = DelayedComposerReplyFakeDriver(prompt)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="",
+        prompt="Original prompt",
+    )
+    with prompta.cache.connection:
+        prompta.cache.connection.execute(
+            "UPDATE conversations SET url = ? WHERE id = ?",
+            (f"https://chatgpt.com{current_path}", conversation_id),
+        )
+
+    result = await prompta.send_reply(conversation_id, prompt)
+
+    assert result == conversation_id
+    assert fake.navigated == [
+        f"https://chatgpt.com{current_path}",
+        "https://chatgpt.com/",
+        f"https://chatgpt.com{current_path}",
+    ]
+    assert fake.history_activations == [current_path, current_path]
+    assert fake.wait_calls == 5
+    assert fake.sent is True
+    await prompta.close()
+
+
+@pytest.mark.asyncio
 async def test_effort_controls_keep_click_targets_inside_viewport(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()

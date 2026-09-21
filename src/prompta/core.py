@@ -1129,19 +1129,32 @@ class Prompta:
         capture: dict[str, Any] | None = None
         probe_armed = False
         try:
-            try:
+            async def prepare_conversation_route() -> None:
+                try:
+                    await driver.wait_for_composer()
+                except RuntimeError as exc:
+                    if not created_context or "composer did not become ready" not in str(exc):
+                        raise
+                    logger.warning(
+                        "Prompta deep-link composer unavailable for conversation=%s; retrying via ChatGPT home",
+                        conversation_id,
+                    )
+                    await driver.navigate("https://chatgpt.com/")
+                    await driver.wait_for_composer()
+                await self._ensure_conversation_route(driver, expected_path)
                 await driver.wait_for_composer()
+
+            try:
+                await prepare_conversation_route()
             except RuntimeError as exc:
                 if not created_context or "composer did not become ready" not in str(exc):
                     raise
                 logger.warning(
-                    "Prompta deep-link composer unavailable for conversation=%s; retrying via ChatGPT home",
+                    "Prompta conversation composer still unavailable for conversation=%s; reloading target once",
                     conversation_id,
                 )
-                await driver.navigate("https://chatgpt.com/")
-                await driver.wait_for_composer()
-            await self._ensure_conversation_route(driver, expected_path)
-            await driver.wait_for_composer()
+                await driver.navigate(target_url)
+                await prepare_conversation_route()
 
             await self._ensure_high_effort(driver)
             if attachments:
