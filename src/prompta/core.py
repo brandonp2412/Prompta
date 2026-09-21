@@ -369,10 +369,9 @@ class Prompta:
         self._active_conversations.clear()
 
     @staticmethod
-    @staticmethod
     def _apply_structured_tool_blocks(
         snapshot: dict[str, Any],
-        blocks: tuple[dict[str, Any], ...],
+        blocks: list[str] | tuple[str, ...],
     ) -> dict[str, Any]:
         return ConversationTracker.apply_structured_tool_blocks(snapshot, blocks)
 
