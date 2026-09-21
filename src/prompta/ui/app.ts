@@ -1019,7 +1019,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
   const remaining = pending.filter((item) => {
     if (!item.observedInCache) return true;
     if (item.responseObservedInCache) return false;
-    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId)));
+    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds));
   });
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
@@ -1034,7 +1034,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt,
       });
     }
-    const activity = pendingSendActivity(item.status, Boolean(item.sendId));
+    const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds);
     if (activity) {
       messages.push({
         message_key: `pending-activity-${item.clientId || item.sendId}`,
@@ -1145,7 +1145,7 @@ function renderConversation(chat) {
   updatePinButton();
   const pendingActivity = [...(state.pendingReplies.get(chat.id) || [])]
     .reverse()
-    .map((item) => pendingSendActivity(item.status, Boolean(item.sendId)))
+    .map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds))
     .find(Boolean);
   if (pendingActivity) {
     setTextIfChanged(els.composerStatus, pendingActivity.statusText);
@@ -1270,6 +1270,8 @@ function renderNewChat() {
     pending?.status || "",
     pending?.error || "",
     pending?.conversationId || "",
+    pending?.retryAfterSeconds || 0,
+    pending?.retryAttempt || 0,
   ]);
   if (fingerprint !== state.newChatFingerprint) {
     state.newChatFingerprint = fingerprint;
@@ -1281,7 +1283,7 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt,
       }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId));
+      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds);
       if (activity) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
@@ -1332,7 +1334,7 @@ function renderNewChat() {
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
     const activity = pending
-      ? pendingSendActivity(pending.status, Boolean(pending.sendId))
+      ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds)
       : null;
     els.composerStatus.textContent = pending
       ? (
@@ -1940,9 +1942,19 @@ function pendingReply(conversationId, sendId) {
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
   if (!item) return false;
-  const previous = JSON.stringify([item.status || "", item.error || ""]);
+  const previous = JSON.stringify([
+    item.status || "",
+    item.error || "",
+    item.retryAfterSeconds || 0,
+    item.retryAttempt || 0,
+  ]);
   Object.assign(item, updates);
-  const changed = JSON.stringify([item.status || "", item.error || ""]) !== previous;
+  const changed = JSON.stringify([
+    item.status || "",
+    item.error || "",
+    item.retryAfterSeconds || 0,
+    item.retryAttempt || 0,
+  ]) !== previous;
   if (changed) item.updatedAt = Date.now() / 1000;
   return changed;
 }
@@ -1995,13 +2007,19 @@ async function watchSend(sendId, creatingNew, conversationId) {
       if (state.pendingNewSend?.sendId !== sendId) return;
       const nextError = job.error || "";
       const nextConversationId = job.conversation_id || state.pendingNewSend.conversationId || "";
+      const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
+      const nextRetryAttempt = Number(job.retry_attempt || 0);
       const changed = state.pendingNewSend.status !== status
         || state.pendingNewSend.error !== nextError
-        || state.pendingNewSend.conversationId !== nextConversationId;
+        || state.pendingNewSend.conversationId !== nextConversationId
+        || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds
+        || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
         conversationId: nextConversationId,
+        retryAfterSeconds: nextRetryAfterSeconds,
+        retryAttempt: nextRetryAttempt,
       });
       if (changed) state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
@@ -2044,6 +2062,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
     const changed = updatePendingReply(conversationId, sendId, {
       status,
       error: job.error || "",
+      retryAfterSeconds: Number(job.retry_after_seconds || 0),
+      retryAttempt: Number(job.retry_attempt || 0),
     });
     if (changed) renderSidebar();
     if (state.selectedId === conversationId) await loadSelectedChat();

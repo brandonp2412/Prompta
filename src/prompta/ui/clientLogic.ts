@@ -34,18 +34,36 @@ export type AtSlashCommand =
   | { runAtEpoch: number; runAtLabel: string; prompt: string };
 
 export type PendingSendActivity = {
-  label: "sending" | "queued" | "waiting";
+  label: string;
   statusText: string;
 };
+
+function retryDelayText(seconds: unknown): string {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return "soon";
+  if (value < 60) return "<1m";
+  const minutes = Math.ceil(value / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.ceil(minutes / 60);
+  return `${hours}h`;
+}
 
 export function pendingSendActivity(
   status: unknown,
   hasSendId: boolean,
+  retryAfterSeconds: unknown = 0,
 ): PendingSendActivity | null {
   const normalized = String(status || "queued").trim().toLowerCase();
   if (normalized === "failed" || normalized === "succeeded") return null;
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
+  if (normalized === "rate_limited") {
+    const delay = retryDelayText(retryAfterSeconds);
+    return {
+      label: `rate limited · retry in ${delay}`,
+      statusText: `Rate limited — backing off; retrying automatically in ${delay}.`,
+    };
+  }
   return { label: "waiting", statusText: "Waiting for ChatGPT…" };
 }
 

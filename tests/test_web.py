@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from prompta.cache import ChatCache
+from prompta.core import RateLimitError
 from prompta.web import (
     PromptaUIHandler,
     PromptaUIServer,
@@ -279,6 +280,60 @@ def test_send_job_registry_returns_before_sender_finishes() -> None:
     assert result["status"] == "succeeded"
     assert result["conversation_id"] == "chat-new"
     assert result["error"] == ""
+
+
+def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path: Path) -> None:
+    calls = 0
+    sleeping = Event()
+    release = Event()
+    attachment = tmp_path / "kept-during-backoff.txt"
+    attachment.write_text("payload")
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RateLimitError("Try again in 2 minutes", retry_after=120)
+        return "chat-new"
+
+    registry_ref: list[SendJobRegistry] = []
+
+    def sleeper(delay: float) -> None:
+        assert delay == pytest.approx(300.0, abs=0.01)
+        sleeping.set()
+        assert release.wait(timeout=1.0)
+        registry = registry_ref[0]
+        with registry._rate_limit_lock:
+            registry._rate_limit_backoff.blocked_until = 0.0
+
+    registry = SendJobRegistry(sender, sleeper=sleeper)
+    registry_ref.append(registry)
+    with patch("prompta.core.random.uniform", return_value=0.0):
+        queued = registry.submit(
+            operation="once",
+            message="Hello",
+            attachments=[str(attachment)],
+        )
+        assert sleeping.wait(timeout=1.0)
+        limited = registry.get(queued["send_id"])
+        assert limited is not None
+        assert limited["status"] == "rate_limited"
+        assert limited["retry_after_seconds"] == 300
+        assert limited["retry_attempt"] == 1
+        assert attachment.exists()
+
+        release.set()
+        deadline = time.monotonic() + 1.0
+        result = registry.get(queued["send_id"])
+        while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+            time.sleep(0.01)
+            result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert result["conversation_id"] == "chat-new"
+    assert calls == 2
+    assert not attachment.exists()
 
 
 def test_send_job_registry_reuses_client_id(tmp_path: Path) -> None:
