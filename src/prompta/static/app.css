@@ -1576,6 +1576,254 @@ textarea:focus-visible {
 
 }
 
+
+.jobs-dialog {
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(820px, calc(var(--app-height, 100vh) - 24px));
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.jobs-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(2px);
+}
+
+.jobs-dialog-shell {
+  display: grid;
+  gap: 16px;
+  max-height: inherit;
+  padding: 20px;
+  overflow: auto;
+}
+
+.jobs-dialog-header,
+.jobs-form-actions,
+.jobs-dialog-footer,
+.job-row-top,
+.job-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jobs-dialog-header {
+  justify-content: space-between;
+}
+
+.jobs-dialog-header h2,
+.jobs-form h3 {
+  margin: 0;
+}
+
+.jobs-dialog-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.jobs-icon-button,
+.jobs-secondary-button,
+.jobs-primary-button,
+.jobs-danger-button,
+.job-action {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.jobs-icon-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.jobs-secondary-button,
+.jobs-primary-button,
+.jobs-danger-button,
+.job-action {
+  padding: 8px 12px;
+}
+
+.jobs-primary-button {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.jobs-danger-button {
+  color: #d65a5a;
+}
+
+.jobs-dialog-status {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.jobs-list {
+  display: grid;
+  gap: 10px;
+}
+
+.jobs-empty {
+  padding: 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.job-row {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.job-row-top {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.job-row-name {
+  font-weight: 650;
+}
+
+.job-row-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.job-row-prompt {
+  color: var(--muted-strong);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.job-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: 11px;
+  text-transform: lowercase;
+}
+
+.job-row-actions {
+  flex-wrap: wrap;
+}
+
+.job-action {
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.jobs-form {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.jobs-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.jobs-form input,
+.jobs-form textarea,
+.jobs-form select {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 11px;
+  outline: none;
+}
+
+.jobs-form textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+
+.jobs-form input:focus,
+.jobs-form textarea:focus,
+.jobs-form select:focus {
+  border-color: var(--muted);
+}
+
+.jobs-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.jobs-check {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.jobs-check input {
+  width: auto;
+}
+
+.jobs-form-actions {
+  justify-content: flex-end;
+}
+
+.jobs-dialog-footer {
+  justify-content: flex-start;
+  padding-top: 4px;
+}
+
+.jobs-dialog button:disabled,
+.jobs-dialog input:disabled,
+.jobs-dialog textarea:disabled,
+.jobs-dialog select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (max-width: 600px) {
+  .jobs-dialog {
+    width: calc(100vw - 12px);
+    max-height: calc(var(--app-height, 100vh) - 12px);
+    border-radius: 16px;
+  }
+
+  .jobs-dialog-shell {
+    padding: 16px;
+  }
+
+  .jobs-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .job-row-top {
+    gap: 8px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
