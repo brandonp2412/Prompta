@@ -99,7 +99,7 @@ class ConversationTracker:
                             "reloading before retry",
                             conversation_id,
                         )
-                        await driver.navigate(target_url)
+                        await driver.navigate(target_url, context=context)
                         await self.ensure_route(driver, expected_path, context=context)
                 if not messages:
                     logger.warning(
@@ -107,7 +107,7 @@ class ConversationTracker:
                         "retrying through ChatGPT history",
                         conversation_id,
                     )
-                    await driver.navigate("https://chatgpt.com/")
+                    await driver.navigate("https://chatgpt.com/", context=context)
                     await self.ensure_route(driver, expected_path, context=context)
                     deadline = (
                         asyncio.get_running_loop().time()
