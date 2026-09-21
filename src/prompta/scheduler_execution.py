@@ -12,7 +12,7 @@ from typing import Any
 from websockets.exceptions import ConnectionClosed
 
 from .cache import ActiveConversation
-from .conversation_actions import SendVerificationError
+from .conversation_actions import SendNotAcceptedError, SendVerificationError
 from .jobs import PromptJob, _next_daily_epoch, remove_job
 from .rate_limit import RateLimitBackoff, RateLimitError
 from .scheduler_runtime import SchedulerRuntime
@@ -87,7 +87,14 @@ class SchedulerExecution:
             return False
         self.scheduler.update_scheduler_state({"last_attempt_at": now})
         try:
-            conversation_id = await self.send_once_callback(job.prompt, job_name=job.name)
+            try:
+                conversation_id = await self.send_once_callback(job.prompt, job_name=job.name)
+            except SendNotAcceptedError:
+                logger.warning(
+                    "Prompta job=%s was not accepted by ChatGPT; retrying once immediately",
+                    job.name,
+                )
+                conversation_id = await self.send_once_callback(job.prompt, job_name=job.name)
         except RateLimitError as exc:
             delay = self.scheduler.record_global_rate_limit(exc)
             self.scheduler.mark_failure(job.name, str(exc))

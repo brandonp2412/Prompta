@@ -898,10 +898,19 @@ async function fetchJson(url, timeoutMs = 10_000) {
   }
 }
 async function hydrateRecentChatCache() {
-  const [cachedChats, cachedSummaries] = await Promise.all([
-    recentChatCache.warm(),
-    recentChatCache.warmSummaries(),
+  let timeout: number | undefined;
+  const cached = await Promise.race([
+    Promise.all([
+      recentChatCache.warm(),
+      recentChatCache.warmSummaries(),
+    ]),
+    new Promise<null>((resolve) => {
+      timeout = window.setTimeout(() => resolve(null), 500);
+    }),
   ]);
+  if (timeout !== undefined) window.clearTimeout(timeout);
+  if (!cached) return false;
+  const [cachedChats, cachedSummaries] = cached;
   const sidebarSnapshot = cachedSummaries.length ? cachedSummaries : cachedChats;
   if (!sidebarSnapshot.length || state.search) return false;
   const unique = new Map();
