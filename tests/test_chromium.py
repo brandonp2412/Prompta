@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from prompta.chromium import merge_tool_blocks, tool_blocks_from_messages
+from prompta.chromium import _REACT_TOOL_SCRIPT, merge_tool_blocks, tool_blocks_from_messages
 
 FENCE = chr(96) * 3
 NL = chr(10)
@@ -169,3 +169,9 @@ def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
 
     assert "print('ok')" in merged
     assert merged.endswith("After")
+
+
+def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
+    assert "const latestAssistant=assistants.at(-1)" in _REACT_TOOL_SCRIPT
+    assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
+    assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT

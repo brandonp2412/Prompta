@@ -1020,6 +1020,51 @@ class FirefoxBiDiDriver:
                 }).filter(Boolean);
                 return [...legacyBlocks,...currentBlocks];
               };
+              const reactOrderedContent=agent=>{
+                const messages=reactMessages(agent);
+                if(!messages.length)return '';
+                const tools=reactToolBlocks(agent);
+                const parsedByIndex=messages.map(message=>{
+                  const text=message?.content?.text;
+                  if(typeof text!=='string'||!text.trim())return null;
+                  try{return JSON.parse(text);}catch{return null;}
+                });
+                const hasCompletedWrappers=parsedByIndex.some(parsed=>Boolean(
+                  parsed&&typeof parsed==='object'&&(
+                    parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
+                  )
+                ));
+                const parts=[];
+                let toolIndex=0;
+                for(const [index,message] of messages.entries()){
+                  const role=String(message?.author?.role||message?.role||'');
+                  const recipient=String(message?.recipient||'');
+                  const content=message?.content||{};
+                  const contentType=String(content?.content_type||content?.type||'');
+                  if(role==='assistant'&&(!recipient||recipient==='all')&&(
+                    contentType==='text'||contentType==='multimodal_text'
+                  )){
+                    const textParts=Array.isArray(content?.parts)
+                      ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+                      :[];
+                    const visibleText=(textParts.length?textParts.join('\\n'):String(content?.text||'')).trim();
+                    if(visibleText)parts.push(visibleText);
+                  }
+                  const parsed=parsedByIndex[index];
+                  const path=parsed&&typeof parsed==='object'&&typeof parsed.path==='string'
+                    ?parsed.path:'';
+                  const wrapper=Boolean(parsed&&typeof parsed==='object'&&(
+                    parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
+                  ));
+                  const invocation=recipient==='api_tool.call_tool'||Boolean(path);
+                  if((hasCompletedWrappers?wrapper:invocation)&&toolIndex<tools.length){
+                    parts.push(tools[toolIndex]);
+                    toolIndex+=1;
+                  }
+                }
+                if(toolIndex<tools.length)parts.push(...tools.slice(toolIndex));
+                return parts.join('\\n\\n').trim();
+              };
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const agentRoot=node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement;
               const seededAssistantTurns=new Set();
@@ -1058,7 +1103,8 @@ class FirefoxBiDiDriver:
                 ...document.querySelectorAll('.agent-turn')
               ])].filter(visible);
               for(const [agentIndex,agent] of candidates.entries()){
-                const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')];
+                const reactOrdered=reactOrderedContent(agent);
+                const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible);
                 const richText=markdown.map(markdownText).filter(Boolean);
                 const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
@@ -1095,10 +1141,11 @@ class FirefoxBiDiDriver:
                 const cleanVisible=rawVisible.split(/\\n+/).map(line=>line.trim())
                   .filter(line=>line&&!uiNoise.test(line)&&!/^cot-v5-/i.test(line))
                   .join('\\n').trim();
-                const content=(orderedParts.length||activity
+                const fallbackContent=(orderedParts.length||activity
                   ? [...orderedParts,...(activity?[activity]:[])].join('\\n\\n')
                   : cleanVisible
                 ).trim();
+                const content=(reactOrdered||fallbackContent).trim();
                 if(!content)continue;
                 const nested=agent.querySelector('[data-message-author-role="assistant"]');
                 const id=agent.getAttribute('data-message-id')
