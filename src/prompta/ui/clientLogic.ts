@@ -252,6 +252,10 @@ export function sidebarPreviewText(value: unknown): string {
     .trim();
 }
 
+export function sidebarChatPreviewText(preview: unknown, prompt: unknown): string {
+  return sidebarPreviewText(preview) || sidebarPreviewText(prompt);
+}
+
 export function pendingConversationDisplayId(
   pending: PendingNewSend | null | undefined,
 ): string {
