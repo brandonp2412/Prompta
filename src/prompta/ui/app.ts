@@ -1442,6 +1442,12 @@ function renderNewChat() {
     pending?.retryAfterSeconds || 0,
     pending?.retryAt || 0,
     pending?.retryAttempt || 0,
+    imageAttachments(pending).map((attachment) => [
+      attachment.id || "",
+      attachment.name || "",
+      attachment.type || "",
+      String(attachment.src || "").length,
+    ]),
   ]);
   if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
     state.newChatFingerprint = fingerprint;
@@ -1450,6 +1456,7 @@ function renderNewChat() {
         message_key: `pending-user-${pending.clientId || pending.sendId}`,
         role: "user",
         content: pending.message,
+        attachments: pending.attachments || [],
         status: "complete",
         updated_at: pending.updatedAt,
       }];
