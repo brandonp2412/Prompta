@@ -1280,6 +1280,10 @@ textarea:focus-visible {
   font-size: 10px;
 }
 
+.message-content:empty + .streaming-indicator {
+  margin-top: 0;
+}
+
 .streaming-dots {
   display: inline-flex;
   gap: 3px;
