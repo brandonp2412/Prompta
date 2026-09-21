@@ -160,6 +160,43 @@ function renderListItem(content) {
   const checked = task[1].toLowerCase() === "x";
   return `<li class="task-item"><input type="checkbox" disabled${checked ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
 }
+function listLine(line) {
+  const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+  if (!match) return null;
+  return {
+    indent: match[1].replace(/\t/g, "    ").length,
+    ordered: /^\d/.test(match[2]),
+    content: match[3],
+  };
+}
+function renderListBlock(lines, startIndex, baseIndent = null) {
+  const first = listLine(lines[startIndex]);
+  if (!first) return { html: "", index: startIndex };
+  const indent = baseIndent ?? first.indent;
+  const ordered = first.ordered;
+  const tag = ordered ? "ol" : "ul";
+  const items = [];
+  let index = startIndex;
+  while (index < lines.length) {
+    const current = listLine(lines[index]);
+    if (!current || current.indent < indent) break;
+    if (current.indent === indent && current.ordered !== ordered) break;
+    if (current.indent > indent) {
+      if (!items.length) break;
+      const nested = renderListBlock(lines, index, current.indent);
+      if (!nested.html || nested.index === index) break;
+      items[items.length - 1] = items[items.length - 1].replace(
+        /<\/li>$/,
+        `${nested.html}</li>`,
+      );
+      index = nested.index;
+      continue;
+    }
+    items.push(renderListItem(current.content));
+    index += 1;
+  }
+  return { html: `<${tag}>${items.join("")}</${tag}>`, index };
+}
 function renderTextBlock(text) {
   const lines = String(text || "").replace(/\r/g, "").split("\n");
   const out = [];
@@ -222,18 +259,11 @@ function renderTextBlock(text) {
       out.push(`<blockquote>${renderTextBlock(quoted.join("\n"))}</blockquote>`);
       continue;
     }
-    const list = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+    const list = listLine(line);
     if (list) {
-      const ordered = /^\d/.test(list[2]);
-      const tag = ordered ? "ol" : "ul";
-      const items = [];
-      while (index < lines.length) {
-        const match = lines[index].match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
-        if (!match || /^\d/.test(match[2]) !== ordered) break;
-        items.push(renderListItem(match[3]));
-        index += 1;
-      }
-      out.push(`<${tag}>${items.join("")}</${tag}>`);
+      const rendered = renderListBlock(lines, index);
+      out.push(rendered.html);
+      index = rendered.index;
       continue;
     }
     const paragraph = [line.trim()];
@@ -254,7 +284,6 @@ function renderCodeBlock(code, language) {
   const toolish = Boolean(toolMatch || inlineToolMatch);
   const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
   const toolName = toolCallDisplayName(rawToolName);
-  const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
   const trimmedCode = code.trim();
   const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
@@ -272,7 +301,7 @@ function renderCodeBlock(code, language) {
     || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode
     ? "python"
-    : toolish && toolFence
+    : toolish
       ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
       : normalized;
   const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
@@ -293,15 +322,19 @@ function renderCodeBlock(code, language) {
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
     : "";
   if (toolish) {
-    const detailHeader = `
+    const detailHeader = toolSummary
+    ? `
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
         ${toolTime}
         ${copyButton}
-      </div>`;
+      </div>`
+    : toolTime
+      ? `<div class="tool-expanded-meta tool-time-only">${toolTime}</div>`
+      : "";
     return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}">
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${detailHeader ? " tool-has-meta" : ""}">
         <summary class="code-header">${header}</summary>
         ${detailHeader}
         ${body}

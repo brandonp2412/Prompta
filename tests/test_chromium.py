@@ -18,6 +18,7 @@ def test_tool_blocks_from_completed_mcp_wrapper() -> None:
         {
             "role": "tool",
             "recipient": "all",
+            "create_time": 1_700_000_000.25,
             "text": json.dumps(
                 {
                     "appContext": {
@@ -47,6 +48,7 @@ def test_tool_blocks_from_completed_mcp_wrapper() -> None:
     assert '"code": "print(1)"' in blocks[0]
     assert '"status": "completed"' in blocks[0]
     assert '"duration_ms": 2666' in blocks[0]
+    assert '"created_at": 1700000000.25' in blocks[0]
     assert '"result"' in blocks[0]
 
 
@@ -55,6 +57,7 @@ def test_tool_blocks_pair_invocation_with_nox_tool_result() -> None:
         {
             "role": "assistant",
             "recipient": "api_tool.call_tool",
+            "create_time": 1_700_000_100.5,
             "text": json.dumps(
                 {
                     "path": "/Nox Python MCP/link_123/execute_python",
@@ -67,6 +70,7 @@ def test_tool_blocks_pair_invocation_with_nox_tool_result() -> None:
         {
             "role": "tool",
             "recipient": "assistant",
+            "create_time": 1_700_000_105.5,
             "text": json.dumps(
                 {
                     "text": json.dumps(
@@ -91,6 +95,8 @@ def test_tool_blocks_pair_invocation_with_nox_tool_result() -> None:
     assert blocks[0].startswith(FENCE + "tool:Nox Python MCP · execute_python" + NL)
     assert '"status": "completed"' in blocks[0]
     assert '"summary": "Checking the Python MCP call"' in blocks[0]
+    assert '"created_at": 1700000100.5' in blocks[0]
+    assert '"created_at": 1700000105.5' not in blocks[0]
     assert '"arguments"' in blocks[0]
     assert "PROMPTA_TOOL_RENDER_OK" in blocks[0]
     assert '"returncode": 0' in blocks[0]
@@ -182,6 +188,7 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "const latestAssistant=assistants.at(-1)" in _REACT_TOOL_SCRIPT
     assert "create_time:Number.isFinite(Number(message?.create_time))" in _REACT_TOOL_SCRIPT
     assert "reasoning_title:trimString(metadata?.reasoning_title" in _REACT_TOOL_SCRIPT
+    assert "end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null" in _REACT_TOOL_SCRIPT
     assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT
@@ -264,3 +271,55 @@ def test_ordered_assistant_content_uses_message_timestamps() -> None:
     assert content.index("Before tool") < content.index("Nox Python MCP · execute_python")
     assert content.index("Nox Python MCP · execute_python") < content.index("After tool")
     assert '"code": "print(1)"' in content
+
+
+def test_ordered_assistant_content_keeps_completed_summary_after_tool_calls() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 1.0,
+            "parts": ["Working on it"],
+            "text": "",
+            "end_turn": False,
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 2.0,
+            "parts": ["Completed summary"],
+            "text": "",
+            "end_turn": True,
+        },
+        {
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "create_time": 3.0,
+            "text": json.dumps(
+                {
+                    "path": "/Nox Python MCP/link_123/execute_python",
+                    "args": {"code": "print(1)"},
+                }
+            ),
+            "connector_tool_payload": json.dumps({"code": "print(1)"}),
+        },
+        {
+            "role": "tool",
+            "recipient": "assistant",
+            "content_type": "code",
+            "create_time": 4.0,
+            "text": json.dumps({"text": json.dumps({"ok": True})}),
+            "invoked_resource": {
+                "app_name": "Nox Python MCP",
+                "resource_uri": "/asdk_app_123/link_123/execute_python",
+            },
+        },
+    ]
+
+    content = ordered_assistant_content_from_messages(messages)
+
+    assert content.index("Working on it") < content.index("Nox Python MCP · execute_python")
+    assert content.index("Nox Python MCP · execute_python") < content.index("Completed summary")

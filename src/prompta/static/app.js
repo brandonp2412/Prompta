@@ -1181,11 +1181,11 @@ function highlightCode(raw, language) {
 function inlineMarkdown(text) {
   const placeholders = [];
   let source = String(text || "");
-  const stash = (html) => {
+  const stash = (html2) => {
     let token = `PROMPTA_INLINE_${placeholders.length}`;
     while (source.includes(token))
       token += "";
-    placeholders.push([token, html]);
+    placeholders.push([token, html2]);
     return token;
   };
   source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml2(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml2(label)}</a>`));
@@ -1209,6 +1209,46 @@ function renderListItem(content) {
     return `<li>${inlineMarkdown(content)}</li>`;
   const checked = task[1].toLowerCase() === "x";
   return `<li class="task-item"><input type="checkbox" disabled${checked ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
+}
+function listLine(line) {
+  const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+  if (!match)
+    return null;
+  return {
+    indent: match[1].replace(/\t/g, "    ").length,
+    ordered: /^\d/.test(match[2]),
+    content: match[3]
+  };
+}
+function renderListBlock(lines, startIndex, baseIndent = null) {
+  const first = listLine(lines[startIndex]);
+  if (!first)
+    return { html: "", index: startIndex };
+  const indent = baseIndent ?? first.indent;
+  const ordered = first.ordered;
+  const tag = ordered ? "ol" : "ul";
+  const items = [];
+  let index = startIndex;
+  while (index < lines.length) {
+    const current = listLine(lines[index]);
+    if (!current || current.indent < indent)
+      break;
+    if (current.indent === indent && current.ordered !== ordered)
+      break;
+    if (current.indent > indent) {
+      if (!items.length)
+        break;
+      const nested = renderListBlock(lines, index, current.indent);
+      if (!nested.html || nested.index === index)
+        break;
+      items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${nested.html}</li>`);
+      index = nested.index;
+      continue;
+    }
+    items.push(renderListItem(current.content));
+    index += 1;
+  }
+  return { html: `<${tag}>${items.join("")}</${tag}>`, index };
 }
 function renderTextBlock(text) {
   const lines = String(text || "").replace(/\r/g, "").split(`
@@ -1261,19 +1301,11 @@ function renderTextBlock(text) {
 `))}</blockquote>`);
       continue;
     }
-    const list = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+    const list = listLine(line);
     if (list) {
-      const ordered = /^\d/.test(list[2]);
-      const tag = ordered ? "ol" : "ul";
-      const items = [];
-      while (index < lines.length) {
-        const match = lines[index].match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
-        if (!match || /^\d/.test(match[2]) !== ordered)
-          break;
-        items.push(renderListItem(match[3]));
-        index += 1;
-      }
-      out.push(`<${tag}>${items.join("")}</${tag}>`);
+      const rendered = renderListBlock(lines, index);
+      out.push(rendered.html);
+      index = rendered.index;
       continue;
     }
     const paragraph = [line.trim()];
@@ -1294,7 +1326,6 @@ function renderCodeBlock(code, language) {
   const toolish = Boolean(toolMatch || inlineToolMatch);
   const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
   const toolName = toolCallDisplayName(rawToolName);
-  const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
   const trimmedCode = code.trim();
   const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
@@ -1306,7 +1337,7 @@ function renderCodeBlock(code, language) {
   const toolTimeText = toolTimestamp === null ? "" : new Date(toolTimestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
   const toolTime = toolTimestamp === null ? "" : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml2(toolTimeText)}</time>`;
   const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
-  const highlightLanguage = pythonCode ? "python" : toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
+  const highlightLanguage = pythonCode ? "python" : toolish ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
   const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
   const copyButton = renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : "";
   const header = toolish ? toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>` : `
@@ -1317,15 +1348,15 @@ function renderCodeBlock(code, language) {
       ${copyButton}`;
   const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : "";
   if (toolish) {
-    const detailHeader = `
+    const detailHeader = toolSummary ? `
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml2(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml2(toolName)}</span>` : ""}
         ${toolTime}
         ${copyButton}
-      </div>`;
+      </div>` : toolTime ? `<div class="tool-expanded-meta tool-time-only">${toolTime}</div>` : "";
     return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}">
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${detailHeader ? " tool-has-meta" : ""}">
         <summary class="code-header">${header}</summary>
         ${detailHeader}
         ${body}
@@ -1989,7 +2020,7 @@ function setTextIfChanged3(element, value) {
   if (element.textContent !== text)
     element.textContent = text;
 }
-function createLogsPanel({ fetchJson, formatRelativeTime }) {
+function createLogsPanel({ fetchJson: fetchJson2, formatRelativeTime }) {
   const els = {
     viewport: requiredElement5("#logsViewport"),
     output: requiredElement5("#logOutput"),
@@ -2018,7 +2049,7 @@ function createLogsPanel({ fetchJson, formatRelativeTime }) {
   }
   async function load() {
     try {
-      render(await fetchJson("api/logs?limit=800"));
+      render(await fetchJson2("api/logs?limit=800"));
     } catch (error) {
       setTextIfChanged3(els.meta, "Logs unavailable");
       console.error(error);
@@ -2724,10 +2755,10 @@ function reconcileOptimisticNew(chats) {
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
-    const pending = state.pendingReplies.get(chat.id) || [];
-    if (!pending.length)
+    const pending2 = state.pendingReplies.get(chat.id) || [];
+    if (!pending2.length)
       return chat;
-    const latest = pending[pending.length - 1];
+    const latest = pending2[pending2.length - 1];
     return {
       ...chat,
       status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
@@ -3097,8 +3128,8 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt
       }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
-      if (activity) {
+      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      if (activity2) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -3106,7 +3137,7 @@ function renderNewChat() {
           status: "pending",
           updated_at: pending.updatedAt,
           pending_activity: true,
-          pending_activity_label: activity.label
+          pending_activity_label: activity2.label
         });
       } else if (["failed", "dead_lettered"].includes(pending.status)) {
         messages.push({
@@ -3562,7 +3593,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       if (nextConversationId) {
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
-      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
@@ -3571,7 +3602,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt
       });
-      if (changed)
+      if (changed2)
         state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -3614,7 +3645,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderSidebar();
         return;
       }
-      if (changed) {
+      if (changed2) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();

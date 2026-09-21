@@ -1007,6 +1007,11 @@ textarea:focus-visible {
   margin: 5px 0;
 }
 
+.message-content li > ul,
+.message-content li > ol {
+  margin: 5px 0;
+}
+
 .message-content .task-item {
   margin-left: -20px;
   display: flex;
@@ -1147,6 +1152,8 @@ textarea:focus-visible {
 }
 
 .tool-call-block > summary {
+  position: relative;
+  padding-left: 35px;
   list-style: none;
   cursor: pointer;
   user-select: none;
@@ -1160,20 +1167,21 @@ textarea:focus-visible {
 
 .tool-call-block > summary::before {
   content: "";
-  flex: 0 0 8px;
+  position: absolute;
+  top: 50%;
+  left: 16px;
   width: 8px;
   height: 8px;
-  margin: 0 11px 0 3px;
   box-sizing: border-box;
   border-right: 2px solid #7f9fc9;
   border-bottom: 2px solid #7f9fc9;
-  transform: translateY(1px) rotate(-45deg);
+  transform: translateY(-50%) rotate(-45deg);
   transform-origin: center;
   transition: transform 120ms ease;
 }
 
 .tool-call-block[open] > summary::before {
-  transform: translateY(1px) rotate(45deg);
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .tool-call-block:not([open]) > summary {
@@ -1191,7 +1199,7 @@ textarea:focus-visible {
   font-size: 10px;
 }
 
-.tool-call-block.tool-has-summary[open] > .tool-expanded-meta {
+.tool-call-block.tool-has-meta[open] > .tool-expanded-meta {
   display: flex;
 }
 
@@ -1684,7 +1692,7 @@ textarea:focus-visible {
     display: none;
   }
 
-  .tool-call-block.tool-has-summary[open] > .tool-expanded-meta {
+  .tool-call-block.tool-has-meta[open] > .tool-expanded-meta {
     display: flex;
   }
 

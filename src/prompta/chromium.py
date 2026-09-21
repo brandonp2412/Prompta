@@ -81,6 +81,7 @@ _REACT_TOOL_SCRIPT = r"""
     messages.push({
       id,
       create_time:Number.isFinite(Number(message?.create_time))?Number(message.create_time):null,
+      end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null,
       role:String(message?.author?.role||message?.role||''),
       recipient:String(message?.recipient||''),
       content_type:String(content?.content_type||content?.type||''),
@@ -213,6 +214,7 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
                     "connector": connector,
                     "action": action,
                     "summary": reasoning_title or reasoning_title_hint,
+                    "created_at": raw.get("create_time"),
                     "arguments": parsed.get("arguments"),
                     "status": str(parsed.get("status") or "completed"),
                     "duration_ms": parsed.get("durationMs"),
@@ -257,6 +259,7 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
                     "connector": _connector_from_path(path) or connector_hint,
                     "action": _action_from_path(path),
                     "summary": reasoning_title or reasoning_title_hint,
+                    "created_at": raw.get("create_time"),
                     "arguments": args,
                     "status": "running",
                     "duration_ms": None,
@@ -291,6 +294,8 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
         if action:
             call["action"] = action
         call["status"] = "completed"
+        if call.get("created_at") is None:
+            call["created_at"] = raw.get("create_time")
         result = _result_value(raw)
         if result is not None:
             call["result"] = result
@@ -306,6 +311,13 @@ def _format_tool_block(call: dict[str, Any]) -> str:
     summary = str(call.get("summary") or "").strip()
     if summary:
         detail["summary"] = summary
+    created_at = call.get("created_at")
+    if (
+        isinstance(created_at, (int, float))
+        and not isinstance(created_at, bool)
+        and created_at > 0
+    ):
+        detail["created_at"] = created_at
     if call.get("arguments") is not None:
         detail["arguments"] = _bounded(call["arguments"], 12000)
     status = str(call.get("status") or "").strip()
@@ -346,6 +358,7 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
         for message in ordered
     )
     parts: list[str] = []
+    final_text_parts: list[str] = []
     tool_index = 0
     for message in ordered:
         role = str(message.get("role") or "")
@@ -372,7 +385,10 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
                 visible,
                 flags=re.IGNORECASE,
             ):
-                parts.append(visible)
+                if message.get("end_turn") is True:
+                    final_text_parts.append(visible)
+                else:
+                    parts.append(visible)
 
         parsed = _json_load(message.get("text"))
         wrapper = isinstance(parsed, dict) and (
@@ -388,6 +404,7 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
 
     if tool_index < len(blocks):
         parts.extend(blocks[tool_index:])
+    parts.extend(final_text_parts)
     return (chr(10) * 2).join(part for part in parts if part).strip()
 
 def merge_tool_blocks(content: str, blocks: list[str]) -> str:
