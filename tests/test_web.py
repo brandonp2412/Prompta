@@ -1681,10 +1681,33 @@ def test_service_worker_prefers_network_updates_with_offline_shell_fallback() ->
     network_fetch = script.index("const response = await fetch(event.request);")
     cache_fallback = script.index("const cached = await caches.match(event.request);")
     assert network_fetch < cache_fallback
-    assert 'const CACHE_NAME = "prompta-shell-v6";' in script
+    assert 'const BUILD_ID = "__PROMPTA_UI_HEAD__";' in script
+    assert 'const CACHE_NAME = "prompta-shell-" + (BUILD_ID || "dev");' in script
+    assert 'key.startsWith("prompta-shell-")' in script
+    assert 'client.navigate(client.url)' in script
     assert "url.pathname.startsWith(apiPrefix)" in script
     assert "await cache.put(event.request, response.clone())" in script
     assert 'const shell = await caches.match(assetUrl("./"));' in script
+
+
+def test_service_worker_response_is_versioned_to_deployed_head(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with patch("prompta.web._UI_HEAD", "deadbeef"):
+            with urlopen(f"http://127.0.0.1:{server.server_port}/sw.js", timeout=2) as response:
+                script = response.read().decode()
+                content_type = response.headers.get_content_type()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert 'const BUILD_ID = "deadbeef";' in script
+    assert "__PROMPTA_UI_HEAD__" not in script
+    assert content_type == "text/javascript"
 
 
 def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:

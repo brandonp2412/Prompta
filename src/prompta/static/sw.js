@@ -1,4 +1,5 @@
-const CACHE_NAME = "prompta-shell-v6";
+const BUILD_ID = "__PROMPTA_UI_HEAD__";
+const CACHE_NAME = "prompta-shell-" + (BUILD_ID || "dev");
 const assetUrl = (path) => new URL(path, self.location.href).toString();
 const SHELL = ["./", "./app.css", "./app.js", "./manifest.webmanifest", "./icon.svg"]
   .map(assetUrl);
@@ -9,12 +10,19 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
-    )),
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    const replacingShell = keys.some(
+      (key) => key.startsWith("prompta-shell-") && key !== CACHE_NAME,
+    );
+    await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+    await self.clients.claim();
+    if (!replacingShell) return;
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of clients) {
+      if ("navigate" in client) await client.navigate(client.url);
+    }
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {
