@@ -1797,9 +1797,6 @@ async function probeHistoricalActivity(conversationId) {
     if (!chat || chat.id !== conversationId) return;
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
-    if (shouldProbeHistoricalActivity(chat.status)) {
-      void probeHistoricalActivity(chat.id);
-    }
     await loadChats();
   } catch (error) {
     if (state.selectedId === conversationId) {
@@ -1831,6 +1828,9 @@ async function loadSelectedChat() {
     }
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
+    if (shouldProbeHistoricalActivity(chat.status)) {
+      void probeHistoricalActivity(chat.id);
+    }
   } catch (error) {
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
     const missing = String(error).startsWith("Error: 404");

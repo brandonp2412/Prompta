@@ -341,6 +341,9 @@ function composerHasContent(message, attachmentCount) {
 function shouldShowStopAction(chatStatus, composingNew) {
   return !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
 }
+function shouldProbeHistoricalActivity(chatStatus) {
+  return String(chatStatus || "").trim().toLowerCase() === "interrupted";
+}
 function parseAtSlashCommand(message, now = new Date) {
   if (!/^\/at(?:\s|$)/i.test(message))
     return null;
@@ -2105,6 +2108,41 @@ async function loadChats() {
     console.error(error);
   }
 }
+var HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30000;
+async function probeHistoricalActivity(conversationId) {
+  if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status))
+    return;
+  const now = Date.now();
+  const lastProbeAt = Number(state.activityProbeAt.get(conversationId) || 0);
+  if (state.activityProbes.has(conversationId) || now - lastProbeAt < HISTORICAL_ACTIVITY_PROBE_TTL_MS)
+    return;
+  state.activityProbeAt.set(conversationId, now);
+  state.activityProbes.add(conversationId);
+  if (state.selectedId === conversationId) {
+    setTextIfChanged(els.composerStatus, "Checking whether ChatGPT is still running…");
+    syncSendButton();
+  }
+  try {
+    const payload = await postJsonRequest("api/chats/" + encodeURIComponent(conversationId) + "/probe", {}, 1, 30000);
+    if (state.selectedId !== conversationId || state.mode !== "chats")
+      return;
+    const chat = payload?.chat;
+    if (!chat || chat.id !== conversationId)
+      return;
+    state.selectedUpdatedAt = chat.updated_at;
+    renderConversation(chat);
+    await loadChats();
+  } catch (error) {
+    if (state.selectedId === conversationId) {
+      setTextIfChanged(els.composerStatus, "Could not verify whether this interrupted chat is still running.");
+    }
+    console.warn("Could not probe historical chat activity", error);
+  } finally {
+    state.activityProbes.delete(conversationId);
+    if (state.selectedId === conversationId)
+      syncSendButton();
+  }
+}
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats")
     return;
@@ -2119,6 +2157,9 @@ async function loadSelectedChat() {
     }
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
+    if (shouldProbeHistoricalActivity(chat.status)) {
+      probeHistoricalActivity(chat.id);
+    }
   } catch (error) {
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId)
       return;
