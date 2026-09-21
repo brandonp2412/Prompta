@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import mimetypes
+import socket
 import subprocess
 import threading
 import time
@@ -86,7 +87,8 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.jobs_path = jobs_path.expanduser()
         self.control_host = control_host.strip()
         self._explicit_server_name = bool(server_name.strip())
-        self.host_name = (server_name.strip() or self.control_host or "nox").split(".", 1)[0]
+        local_host = socket.gethostname().strip() or "localhost"
+        self.host_name = (server_name.strip() or self.control_host or local_host).split(".", 1)[0]
         self._local_send_lock = threading.Lock()
         self._host_status_lock = threading.Lock()
         self._host_status_checked_at = 0.0
@@ -521,10 +523,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             page = (_STATIC_ROOT / "index.html").read_text()
             display_name = html_escape(server.display_name)
             page = page.replace("__PROMPTA_SERVER_NAME__", display_name)
-            page = page.replace(
-                "<title>Prompta</title>",
-                f"<title>Prompta · {display_name}</title>",
-            )
             body = page.encode()
         except OSError:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -932,7 +930,7 @@ def serve(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve Prompta's Nox conversation UI")
+    parser = argparse.ArgumentParser(description="Serve Prompta conversation UI")
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
