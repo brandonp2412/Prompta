@@ -745,6 +745,13 @@ class SendJobRegistry:
 
     def _record_rate_limit(self, exc: RateLimitError) -> tuple[float, int]:
         with self._rate_limit_lock:
+            # Several durable-send workers can already be inside the scheduler
+            # when the first request discovers a ChatGPT rate limit. They are
+            # all observing the same limit window, so do not count each worker
+            # as a separate failed retry and exponentially amplify the backoff.
+            remaining = self._rate_limit_backoff.remaining()
+            if remaining > 0:
+                return remaining, max(1, self._rate_limit_backoff.attempts)
             delay = self._rate_limit_backoff.record(exc.retry_after)
             return delay, self._rate_limit_backoff.attempts
 
