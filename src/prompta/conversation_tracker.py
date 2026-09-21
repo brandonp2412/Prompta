@@ -76,7 +76,7 @@ class ConversationTracker:
             try:
                 context = await driver.new_tab(target_url)
                 expected_path = urlsplit(target_url).path.rstrip("/")
-                await self.ensure_route(driver, expected_path)
+                await self.ensure_route(driver, expected_path, context=context)
                 snapshot: dict[str, Any] = {}
                 messages: list[Any] = []
                 for load_attempt in range(RESTART_RECOVERY_LOAD_ATTEMPTS):
@@ -100,7 +100,7 @@ class ConversationTracker:
                             conversation_id,
                         )
                         await driver.navigate(target_url)
-                        await self.ensure_route(driver, expected_path)
+                        await self.ensure_route(driver, expected_path, context=context)
                 if not messages:
                     logger.warning(
                         "Prompta recovery conversation=%s still has no messages; "
@@ -108,7 +108,7 @@ class ConversationTracker:
                         conversation_id,
                     )
                     await driver.navigate("https://chatgpt.com/")
-                    await self.ensure_route(driver, expected_path)
+                    await self.ensure_route(driver, expected_path, context=context)
                     deadline = (
                         asyncio.get_running_loop().time()
                         + self.recovery_message_timeout_seconds()

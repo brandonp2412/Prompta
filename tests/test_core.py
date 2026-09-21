@@ -2899,11 +2899,15 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
             super().__init__(prompt)
             self.snapshot_calls = 0
 
-        async def eval(self, expression: str) -> str:
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
             assert expression == "location.pathname"
+            assert context == "context-new"
             return f"/c/{conversation_id}"
 
-        async def activate_history_link(self, path: str) -> bool:
+        async def activate_history_link(
+            self, path: str, *, context: str | None = None
+        ) -> bool:
+            assert context == "context-new"
             return False
 
         async def conversation_snapshot(self, context: str) -> dict[str, Any]:
@@ -2960,11 +2964,15 @@ async def test_recover_cached_conversations_reloads_slow_chat_before_interruptin
     )
 
     class SlowRecoveryFakeDriver(FakeDriver):
-        async def eval(self, expression: str) -> str:
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
             assert expression == "location.pathname"
+            assert context == "context-new"
             return f"/c/{conversation_id}"
 
-        async def activate_history_link(self, path: str) -> bool:
+        async def activate_history_link(
+            self, path: str, *, context: str | None = None
+        ) -> bool:
+            assert context == "context-new"
             return False
 
         async def conversation_snapshot(self, context: str) -> dict[str, Any]:
@@ -3049,11 +3057,15 @@ async def test_recover_cached_conversations_uses_history_after_direct_loads_stay
             self.navigated.append(url)
             self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
 
-        async def eval(self, expression: str) -> str:
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
             assert expression == "location.pathname"
+            assert context == "context-new"
             return self.current_path
 
-        async def activate_history_link(self, path: str) -> bool:
+        async def activate_history_link(
+            self, path: str, *, context: str | None = None
+        ) -> bool:
+            assert context == "context-new"
             self.history_activations.append(path)
             self.history_activated = True
             self.current_path = path
