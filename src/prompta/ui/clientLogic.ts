@@ -455,6 +455,10 @@ export function composerHasContent(message: string, attachmentCount: number): bo
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
 
+export function shouldShowStopAction(chatStatus: unknown, composingNew: boolean): boolean {
+  return !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
+}
+
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
   if (!/^\/at(?:\s|$)/i.test(message)) return null;
 
