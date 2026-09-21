@@ -1,4 +1,44 @@
 // src/prompta/ui/clientLogic.ts
+var CHATGPT_RICH_START = "";
+var CHATGPT_RICH_END = "";
+var CHATGPT_RICH_SEPARATOR = "";
+function readableRichMarkerFallback(parts) {
+  return parts.find((part) => {
+    const value = part.trim();
+    return Boolean(value) && value.length <= 200 && !/^turn\d+[a-z]+\d+$/i.test(value) && !/^https?:\/\//i.test(value) && !/^[{[]/.test(value);
+  })?.trim() || "";
+}
+function replaceChatGptRichMarkers(value, renderUrl = (label) => label) {
+  const source = String(value || "");
+  let output = "";
+  let cursor = 0;
+  while (cursor < source.length) {
+    const start = source.indexOf(CHATGPT_RICH_START, cursor);
+    if (start < 0) {
+      output += source.slice(cursor);
+      break;
+    }
+    output += source.slice(cursor, start);
+    const end = source.indexOf(CHATGPT_RICH_END, start + CHATGPT_RICH_START.length);
+    if (end < 0) {
+      break;
+    }
+    const body = source.slice(start + CHATGPT_RICH_START.length, end);
+    const [rawType, ...parts] = body.split(CHATGPT_RICH_SEPARATOR);
+    const type = rawType.trim().toLowerCase();
+    let replacement = "";
+    if (type === "url") {
+      const label = String(parts[0] || parts[1] || "").trim();
+      const url = String(parts[1] || "").trim();
+      replacement = /^https?:\/\//i.test(url) ? renderUrl(label || url, url) : label || readableRichMarkerFallback(parts);
+    } else if (type !== "cite" && type !== "memcite") {
+      replacement = readableRichMarkerFallback(parts);
+    }
+    output += replacement;
+    cursor = end + CHATGPT_RICH_END.length;
+  }
+  return output;
+}
 function retryDelayText(seconds) {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value <= 0)
@@ -92,7 +132,7 @@ function pythonToolCallCode(toolName, value) {
   return typeof code === "string" ? code : "";
 }
 function sidebarPreviewText(value) {
-  return String(value || "").replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();
+  return replaceChatGptRichMarkers(value).replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();
 }
 function matchingOptimisticConversation(chats, pending) {
   if (!pending)
@@ -809,6 +849,7 @@ function inlineMarkdown(text) {
     placeholders.push([token, html]);
     return token;
   };
+  source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
   source = source.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code class="inline-code">${escapeHtml(code)}</code>`));
   source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
   let html = escapeHtml(source);

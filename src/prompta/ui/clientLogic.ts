@@ -38,6 +38,67 @@ export type PendingSendActivity = {
   statusText: string;
 };
 
+
+const CHATGPT_RICH_START = "\uE200";
+const CHATGPT_RICH_END = "\uE201";
+const CHATGPT_RICH_SEPARATOR = "\uE202";
+
+function readableRichMarkerFallback(parts: string[]): string {
+  return parts.find((part) => {
+    const value = part.trim();
+    return Boolean(value)
+      && value.length <= 200
+      && !/^turn\d+[a-z]+\d+$/i.test(value)
+      && !/^https?:\/\//i.test(value)
+      && !/^[{[]/.test(value);
+  })?.trim() || "";
+}
+
+export function replaceChatGptRichMarkers(
+  value: unknown,
+  renderUrl: (label: string, url: string) => string = (label) => label,
+): string {
+  const source = String(value || "");
+  let output = "";
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const start = source.indexOf(CHATGPT_RICH_START, cursor);
+    if (start < 0) {
+      output += source.slice(cursor);
+      break;
+    }
+    output += source.slice(cursor, start);
+
+    const end = source.indexOf(CHATGPT_RICH_END, start + CHATGPT_RICH_START.length);
+    if (end < 0) {
+      // Streaming responses can expose a marker before its closing delimiter.
+      // Hide the private marker until the next snapshot completes it.
+      break;
+    }
+
+    const body = source.slice(start + CHATGPT_RICH_START.length, end);
+    const [rawType, ...parts] = body.split(CHATGPT_RICH_SEPARATOR);
+    const type = rawType.trim().toLowerCase();
+    let replacement = "";
+
+    if (type === "url") {
+      const label = String(parts[0] || parts[1] || "").trim();
+      const url = String(parts[1] || "").trim();
+      replacement = /^https?:\/\//i.test(url)
+        ? renderUrl(label || url, url)
+        : label || readableRichMarkerFallback(parts);
+    } else if (type !== "cite" && type !== "memcite") {
+      replacement = readableRichMarkerFallback(parts);
+    }
+
+    output += replacement;
+    cursor = end + CHATGPT_RICH_END.length;
+  }
+
+  return output;
+}
+
 function retryDelayText(seconds: unknown): string {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value <= 0) return "soon";
@@ -136,7 +197,7 @@ export function pythonToolCallCode(toolName: unknown, value: unknown): string {
 }
 
 export function sidebarPreviewText(value: unknown): string {
-  return String(value || "")
+  return replaceChatGptRichMarkers(value)
     .replace(
       /```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi,
       " ",
