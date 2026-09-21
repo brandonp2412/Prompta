@@ -398,9 +398,141 @@ function parseAtSlashCommand(message, now = new Date) {
   return { runAtEpoch, runAtLabel, prompt };
 }
 
+// src/prompta/ui/recentChatCache.ts
+var DATABASE_NAME = "prompta-recent-chats";
+var DATABASE_VERSION = 1;
+var STORE_NAME = "chats";
+
+class RecentChatCache {
+  scope;
+  limit;
+  memory = new Map;
+  databasePromise = null;
+  constructor(scope, limit = 20) {
+    this.scope = scope;
+    this.limit = limit;
+  }
+  getMemory(conversationId) {
+    const chat = this.memory.get(conversationId);
+    if (!chat)
+      return null;
+    this.memory.delete(conversationId);
+    this.memory.set(conversationId, chat);
+    return chat;
+  }
+  async get(conversationId) {
+    const memoryChat = this.getMemory(conversationId);
+    if (memoryChat)
+      return memoryChat;
+    const database = await this.database();
+    if (!database)
+      return null;
+    const record = await new Promise((resolve) => {
+      const transaction = database.transaction(STORE_NAME, "readonly");
+      const request = transaction.objectStore(STORE_NAME).get(this.key(conversationId));
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+    if (!record?.chat || record.scope !== this.scope)
+      return null;
+    this.rememberMemory(conversationId, record.chat);
+    this.persist(record.chat);
+    return record.chat;
+  }
+  remember(chat) {
+    const conversationId = String(chat?.id || "");
+    if (!conversationId)
+      return;
+    this.rememberMemory(conversationId, chat);
+    this.persist(chat);
+  }
+  async remove(conversationId) {
+    this.memory.delete(conversationId);
+    const database = await this.database();
+    if (!database)
+      return;
+    await new Promise((resolve) => {
+      const transaction = database.transaction(STORE_NAME, "readwrite");
+      transaction.objectStore(STORE_NAME).delete(this.key(conversationId));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    });
+  }
+  rememberMemory(conversationId, chat) {
+    this.memory.delete(conversationId);
+    this.memory.set(conversationId, chat);
+    while (this.memory.size > this.limit) {
+      const oldest = this.memory.keys().next().value;
+      if (!oldest)
+        break;
+      this.memory.delete(oldest);
+    }
+  }
+  key(conversationId) {
+    return this.scope + ":" + conversationId;
+  }
+  async persist(chat) {
+    const conversationId = String(chat?.id || "");
+    if (!conversationId)
+      return;
+    const database = await this.database();
+    if (!database)
+      return;
+    await new Promise((resolve) => {
+      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      store.put({
+        key: this.key(conversationId),
+        scope: this.scope,
+        conversationId,
+        chat,
+        accessedAt: Date.now()
+      });
+      const allRequest = store.getAll();
+      allRequest.onsuccess = () => {
+        const records = (allRequest.result || []).filter((record) => record.scope === this.scope).sort((left, right) => right.accessedAt - left.accessedAt);
+        for (const record of records.slice(this.limit))
+          store.delete(record.key);
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    });
+  }
+  database() {
+    if (this.databasePromise)
+      return this.databasePromise;
+    this.databasePromise = new Promise((resolve) => {
+      if (!("indexedDB" in globalThis)) {
+        resolve(null);
+        return;
+      }
+      let request;
+      try {
+        request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+      } catch {
+        resolve(null);
+        return;
+      }
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(STORE_NAME)) {
+          database.createObjectStore(STORE_NAME, { keyPath: "key" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+    });
+    return this.databasePromise;
+  }
+}
+
 // src/prompta/ui/app.ts
 var PINNED_CHATS_KEY = "prompta:pinned-chats";
 var COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
+var recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 function loadPinnedIds() {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
@@ -2130,6 +2262,7 @@ async function probeHistoricalActivity(conversationId) {
     if (!chat || chat.id !== conversationId)
       return;
     state.selectedUpdatedAt = chat.updated_at;
+    recentChatCache.remember(chat);
     renderConversation(chat);
     await loadChats();
   } catch (error) {
@@ -2143,10 +2276,29 @@ async function probeHistoricalActivity(conversationId) {
       syncSendButton();
   }
 }
+function renderRecentChatSnapshot(conversationId) {
+  if (!conversationId || state.mode !== "chats")
+    return;
+  const memoryChat = recentChatCache.getMemory(conversationId);
+  if (memoryChat) {
+    state.selectedUpdatedAt = memoryChat.updated_at;
+    renderConversation(memoryChat);
+    return;
+  }
+  recentChatCache.get(conversationId).then((chat) => {
+    if (!chat || state.mode !== "chats" || state.selectedId !== conversationId || state.selectedChat?.id === conversationId)
+      return;
+    state.selectedUpdatedAt = chat.updated_at;
+    renderConversation(chat);
+  });
+}
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats")
     return;
   const selectedId = state.selectedId;
+  if (!state.selectedChat || state.selectedChat.id !== selectedId) {
+    renderRecentChatSnapshot(selectedId);
+  }
   const requestId = ++state.selectedRequestId;
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
@@ -2156,6 +2308,7 @@ async function loadSelectedChat() {
       state.pendingNewId = null;
     }
     state.selectedUpdatedAt = chat.updated_at;
+    recentChatCache.remember(chat);
     renderConversation(chat);
     if (shouldProbeHistoricalActivity(chat.status)) {
       probeHistoricalActivity(chat.id);
@@ -2165,6 +2318,7 @@ async function loadSelectedChat() {
       return;
     const missing = String(error).startsWith("Error: 404");
     if (missing && state.pendingNewId !== state.selectedId) {
+      recentChatCache.remove(selectedId);
       if (conversationIdFromHash(location.hash) === selectedId) {
         history.replaceState(null, "", `${location.pathname}${location.search}`);
       }
