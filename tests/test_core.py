@@ -2944,6 +2944,29 @@ async def test_recover_cached_conversations_defers_when_chrome_debugger_is_offli
 
     prompta.cache.close()
 
+@pytest.mark.asyncio
+async def test_recover_cached_conversations_defers_transient_driver_failure(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.conversations.recover_cached_conversations = AsyncMock(
+        side_effect=RuntimeError(
+            "create ChromeDriver session: timed out; browser restart required"
+        )
+    )
+    before = time.monotonic()
+
+    assert await prompta.recover_cached_conversations() == 0
+    assert prompta._next_recovery_retry_at >= before + RESTART_RECOVERY_RETRY_SECONDS - 0.1
+
+    prompta.cache.close()
+
 
 @pytest.mark.asyncio
 async def test_recover_cached_conversations_reattaches_streaming_chat_after_restart(

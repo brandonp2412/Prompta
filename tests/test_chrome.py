@@ -523,6 +523,32 @@ async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
     form.find_elements.assert_called_once_with(By.CSS_SELECTOR, '[data-testid="send-button"]')
     send.click.assert_called_once_with()
 
+@pytest.mark.asyncio
+async def test_click_stop_uses_chromedriver_instead_of_bidi() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+
+    stop = MagicMock()
+    stop.is_displayed.return_value = True
+    stop.is_enabled.return_value = True
+    stop.get_attribute.return_value = None
+
+    def find_elements(by: str, selector: str) -> list[MagicMock]:
+        assert by == By.CSS_SELECTOR
+        return [stop] if selector == '[data-testid="stop-button"]' else []
+
+    selenium.find_elements.side_effect = find_elements
+
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+    driver._call = AsyncMock(return_value={"type": "success"})  # type: ignore[method-assign]
+
+    assert await driver.click_stop("window", timeout=0.1) is True
+
+    stop.click.assert_called_once_with()
+    driver._call.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 async def test_click_send_button_skips_aria_disabled_send_control() -> None:

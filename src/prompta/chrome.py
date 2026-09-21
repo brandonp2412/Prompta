@@ -483,6 +483,43 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             await asyncio.sleep(0.2)
         raise RuntimeError("ChatGPT send button did not become enabled")
 
+    async def click_stop(self, context: str, timeout: float = 5.0) -> bool:
+        selectors = (
+            '[data-testid="stop-button"]',
+            'button[aria-label="Stop answering"]',
+            'button[aria-label="Stop generating"]',
+        )
+        deadline = asyncio.get_running_loop().time() + max(0.2, timeout)
+
+        def click_sync() -> bool:
+            driver = self._activate_context_sync(context)
+            for selector in selectors:
+                try:
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                except WebDriverException as exc:
+                    if self._is_fatal_webdriver_error(exc):
+                        raise
+                    continue
+                for element in elements:
+                    try:
+                        if not element.is_displayed() or not element.is_enabled():
+                            continue
+                        if element.get_attribute("aria-disabled") == "true":
+                            continue
+                        element.click()
+                        return True
+                    except WebDriverException as exc:
+                        if self._is_fatal_webdriver_error(exc):
+                            raise
+                        continue
+            return False
+
+        while asyncio.get_running_loop().time() < deadline:
+            if await self._run_webdriver_call("click ChatGPT stop button", click_sync):
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
     async def attach_files(self, files: list[str]) -> None:
         paths = [str(Path(path).expanduser().resolve()) for path in files]
         if not paths:

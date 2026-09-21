@@ -314,7 +314,7 @@ function renderCodeBlock(code, language) {
       : `
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        ${copyButton}`)
+        ${toolTime}`)
     : `
       <span class="code-language">${escapeHtml(label)}</span>
       ${copyButton}`;
@@ -322,17 +322,13 @@ function renderCodeBlock(code, language) {
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
     : "";
   if (toolish) {
-    const detailHeader = toolSummary
-    ? `
+    const detailHeader = `
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
         ${toolTime}
         ${copyButton}
-      </div>`
-    : toolTime
-      ? `<div class="tool-expanded-meta tool-time-only">${toolTime}</div>`
-      : "";
+      </div>`;
     return `
       <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${detailHeader ? " tool-has-meta" : ""}">
         <summary class="code-header">${header}</summary>

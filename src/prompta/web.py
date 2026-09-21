@@ -338,7 +338,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; "
-            "style-src 'self'; script-src 'self'; connect-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
             "font-src 'self'; base-uri 'none'; frame-ancestors 'none'",
         )
         self.end_headers()
