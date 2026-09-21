@@ -24,6 +24,8 @@ _SEND_RETRY_BASE_SECONDS = 2.0
 _SEND_RETRY_CAP_SECONDS = 60.0
 _SEND_RETRY_MAX_ATTEMPTS = 5
 _DEAD_LETTER_LIMIT = 100
+_SUCCEEDED_RECEIPT_LIMIT = 1000
+
 
 class SendJobRegistry:
     """Run UI sends off-request and expose their status for polling."""
@@ -88,6 +90,7 @@ class SendJobRegistry:
         retry_at: float = 0.0,
         retry_attempt: int = 0,
         last_error: str = "",
+        finished_at: float = 0.0,
     ) -> None:
         if self._recovery_path is None:
             return
@@ -105,6 +108,8 @@ class SendJobRegistry:
         }
         if last_error:
             record["last_error"] = last_error
+        if finished_at > 0:
+            record["finished_at"] = finished_at
         expired_attachments: list[str] = []
         retained_attachments: set[str] = set()
         with self._recovery_lock:
@@ -125,6 +130,25 @@ class SendJobRegistry:
                         expired_attachments.extend(
                             value for value in raw_attachments if isinstance(value, str)
                         )
+            elif status == "succeeded":
+                succeeded = sorted(
+                    (
+                        (key, value)
+                        for key, value in self._recoverable.items()
+                        if value.get("status") == "succeeded"
+                    ),
+                    key=lambda item: float(
+                        item[1].get("finished_at") or item[1].get("created_at") or 0.0
+                    ),
+                )
+                for expired_id, expired_record in succeeded[:-_SUCCEEDED_RECEIPT_LIMIT]:
+                    self._recoverable.pop(expired_id, None)
+                    raw_attachments = expired_record.get("attachments", [])
+                    if isinstance(raw_attachments, list):
+                        expired_attachments.extend(
+                            value for value in raw_attachments if isinstance(value, str)
+                        )
+            if status in {"dead_lettered", "succeeded"}:
                 retained_attachments = {
                     value
                     for recoverable in self._recoverable.values()
@@ -186,6 +210,7 @@ class SendJobRegistry:
                 retry_at = float(candidate.get("retry_at") or 0.0)
                 retry_attempt = max(0, int(candidate.get("retry_attempt") or 0))
                 created_at = float(candidate.get("created_at") or now)
+                finished_at = float(candidate.get("finished_at") or 0.0)
             except (TypeError, ValueError):
                 continue
             if not send_id or operation not in {"once", "reply"}:
@@ -194,11 +219,47 @@ class SendJobRegistry:
             status = str(candidate.get("status") or "").strip()
             if not status:
                 status = "rate_limited" if retry_at > 0 or retry_attempt > 0 else "queued"
-            if status == "dead_lettered":
-                candidate["last_error"] = last_error
-                self._recoverable[send_id] = candidate
+            if status == "running":
+                status = "dead_lettered"
+                last_error = (
+                    last_error
+                    or "Delivery state unknown after Prompta restarted during an in-flight send"
+                )
+            if status in {"dead_lettered", "succeeded"}:
+                record = {
+                    "send_id": send_id,
+                    "operation": operation,
+                    "message": message,
+                    "conversation_id": conversation_id,
+                    "attachments": attachments,
+                    "client_id": client_id,
+                    "status": status,
+                    "retry_at": 0.0,
+                    "retry_attempt": retry_attempt,
+                    "created_at": created_at,
+                }
+                if last_error:
+                    record["last_error"] = last_error
+                if finished_at > 0:
+                    record["finished_at"] = finished_at
+                self._recoverable[send_id] = record
+                self._jobs[send_id] = {
+                    "send_id": send_id,
+                    "operation": operation,
+                    "status": status,
+                    "conversation_id": conversation_id,
+                    "error": last_error if status == "dead_lettered" else "",
+                    "created_at": created_at,
+                    "updated_at": finished_at or created_at,
+                    "attachment_count": len(attachments),
+                    "retry_at": 0.0,
+                    "retry_after_seconds": 0,
+                    "retry_attempt": retry_attempt,
+                }
+                if client_id:
+                    self._client_jobs[client_id] = send_id
                 continue
-            if status not in {"queued", "running", "rate_limited", "retrying"}:
+            if status not in {"queued", "rate_limited", "retrying"}:
                 status = "queued"
             restored_status = status if status in {"rate_limited", "retrying"} else "queued"
             record = {
@@ -216,7 +277,9 @@ class SendJobRegistry:
             if last_error:
                 record["last_error"] = last_error
             self._recoverable[send_id] = record
-            remaining = max(0.0, retry_at - now) if restored_status in {"rate_limited", "retrying"} else 0.0
+            remaining = (
+                max(0.0, retry_at - now) if restored_status in {"rate_limited", "retrying"} else 0.0
+            )
             self._jobs[send_id] = {
                 "send_id": send_id,
                 "operation": operation,
@@ -225,14 +288,18 @@ class SendJobRegistry:
                 "error": (
                     "ChatGPT rate limited this account"
                     if restored_status == "rate_limited"
-                    else last_error if restored_status == "retrying" else ""
+                    else last_error
+                    if restored_status == "retrying"
+                    else ""
                 ),
                 "created_at": created_at,
                 "updated_at": now,
                 "attachment_count": len(attachments),
                 "retry_at": retry_at if restored_status in {"rate_limited", "retrying"} else 0.0,
                 "retry_after_seconds": max(0, math.ceil(remaining)),
-                "retry_attempt": retry_attempt if restored_status in {"rate_limited", "retrying"} else 0,
+                "retry_attempt": retry_attempt
+                if restored_status in {"rate_limited", "retrying"}
+                else 0,
             }
             if client_id:
                 self._client_jobs[client_id] = send_id
@@ -241,6 +308,9 @@ class SendJobRegistry:
                 max_attempt = max(max_attempt, retry_attempt)
             restored.append(record)
 
+        if self._recoverable:
+            with self._recovery_lock:
+                self._write_recovery_locked()
         if max_attempt:
             with self._rate_limit_lock:
                 self._rate_limit_backoff.restore(
@@ -250,8 +320,9 @@ class SendJobRegistry:
                         "last_limited_at_epoch": now,
                     }
                 )
-        if restored:
+        if self._jobs:
             self._revision += 1
+        if restored:
             logger.info("Restoring %d durable Prompta UI send(s)", len(restored))
             for record in restored:
                 threading.Thread(
@@ -271,7 +342,9 @@ class SendJobRegistry:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
-                logger.warning("Could not clear invalid Prompta UI retry state %s", path, exc_info=True)
+                logger.warning(
+                    "Could not clear invalid Prompta UI retry state %s", path, exc_info=True
+                )
 
     @staticmethod
     def _as_rate_limit_error(exc: Exception) -> RateLimitError | None:
@@ -323,10 +396,17 @@ class SendJobRegistry:
         }
         with self._lock:
             cutoff = now - 3600.0
+            with self._recovery_lock:
+                durable_terminal_send_ids = {
+                    key
+                    for key, value in self._recoverable.items()
+                    if value.get("status") in {"succeeded", "dead_lettered"}
+                }
             self._jobs = {
                 key: value
                 for key, value in self._jobs.items()
                 if float(value.get("updated_at") or 0.0) >= cutoff
+                or key in durable_terminal_send_ids
             }
             live_send_ids = set(self._jobs)
             self._client_jobs = {
@@ -460,6 +540,18 @@ class SendJobRegistry:
                     retry_at=0.0,
                     retry_after_seconds=0,
                 )
+                current = self.get(send_id) or {}
+                self._remember_recoverable(
+                    send_id=send_id,
+                    operation=operation,
+                    message=message,
+                    conversation_id=conversation_id,
+                    attachments=attachments,
+                    client_id=client_id,
+                    created_at=float(current.get("created_at") or time.time()),
+                    status="running",
+                    retry_attempt=generic_attempt,
+                )
                 try:
                     result = self._sender(operation, message, conversation_id, attachments)
                 except Exception as exc:
@@ -574,6 +666,29 @@ class SendJobRegistry:
                     continue
 
                 self._reset_rate_limit_backoff()
+                current = self.get(send_id) or {}
+                if client_id:
+                    self._remember_recoverable(
+                        send_id=send_id,
+                        operation=operation,
+                        message=message,
+                        conversation_id=result,
+                        attachments=[],
+                        client_id=client_id,
+                        created_at=float(current.get("created_at") or time.time()),
+                        status="succeeded",
+                        finished_at=time.time(),
+                    )
+                else:
+                    self._forget_recoverable(send_id)
+                self._update(
+                    send_id,
+                    status="succeeded",
+                    conversation_id=result,
+                    error="",
+                    retry_at=0.0,
+                    retry_after_seconds=0,
+                )
                 if self._on_success is not None and client_id:
                     try:
                         self._on_success(client_id, result, message)
@@ -584,15 +699,6 @@ class SendJobRegistry:
                             result,
                             exc_info=True,
                         )
-                self._forget_recoverable(send_id)
-                self._update(
-                    send_id,
-                    status="succeeded",
-                    conversation_id=result,
-                    error="",
-                    retry_at=0.0,
-                    retry_after_seconds=0,
-                )
                 return
         finally:
             current = self.get(send_id) or {}
