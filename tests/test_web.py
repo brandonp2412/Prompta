@@ -548,6 +548,23 @@ def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) ->
     assert not recovery_path.exists()
 
 
+def test_send_job_registry_does_not_multiply_one_shared_rate_limit() -> None:
+    registry = SendJobRegistry(lambda *_args: "unused")
+
+    with patch("prompta.core.random.uniform", return_value=0.0):
+        first_delay, first_attempt = registry._record_rate_limit(
+            RateLimitError("Try again in 5 minutes", retry_after=300)
+        )
+        second_delay, second_attempt = registry._record_rate_limit(
+            RateLimitError("Try again in 5 minutes", retry_after=300)
+        )
+
+    assert first_attempt == 1
+    assert second_attempt == 1
+    assert first_delay == pytest.approx(300.0, abs=0.05)
+    assert 0 < second_delay <= first_delay
+
+
 def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path: Path) -> None:
     calls = 0
     sleeping = Event()
