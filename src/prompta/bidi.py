@@ -1077,6 +1077,33 @@ class FirefoxBiDiDriver:
                 }).filter(Boolean);
                 return [...legacyBlocks,...currentBlocks];
               };
+              const collapseStreamingTextParts=parts=>{
+                const collapsed=[];
+                for(const rawPart of parts){
+                  const part=String(rawPart||'').trim();
+                  if(!part)continue;
+                  const previous=collapsed.at(-1)||'';
+                  const previousIsTool=previous.startsWith('```tool:');
+                  const currentIsTool=part.startsWith('```tool:');
+                  if(previous&&!previousIsTool&&!currentIsTool){
+                    const previousNormalised=normalise(previous);
+                    const currentNormalised=normalise(part);
+                    const sameStream=previousNormalised&&currentNormalised&&(
+                      currentNormalised===previousNormalised
+                      ||currentNormalised.startsWith(previousNormalised)
+                      ||previousNormalised.startsWith(currentNormalised)
+                    );
+                    if(sameStream){
+                      if(currentNormalised.length>=previousNormalised.length){
+                        collapsed[collapsed.length-1]=part;
+                      }
+                      continue;
+                    }
+                  }
+                  collapsed.push(part);
+                }
+                return collapsed;
+              };
               const reactOrderedContent=agent=>{
                 const messages=reactMessages(agent);
                 if(!messages.length)return '';
@@ -1120,7 +1147,7 @@ class FirefoxBiDiDriver:
                   }
                 }
                 if(toolIndex<tools.length)parts.push(...tools.slice(toolIndex));
-                return parts.join('\\n\\n').trim();
+                return collapseStreamingTextParts(parts).join('\\n\\n').trim();
               };
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
               const agentRoot=node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement;
@@ -1199,7 +1226,10 @@ class FirefoxBiDiDriver:
                   .filter(line=>line&&!uiNoise.test(line)&&!/^cot-v5-/i.test(line))
                   .join('\\n').trim();
                 const fallbackContent=(orderedParts.length||activity
-                  ? [...orderedParts,...(activity?[activity]:[])].join('\\n\\n')
+                  ? collapseStreamingTextParts([
+                      ...orderedParts,
+                      ...(activity?[activity]:[])
+                    ]).join('\\n\\n')
                   : cleanVisible
                 ).trim();
                 const content=(reactOrdered||fallbackContent).trim();
