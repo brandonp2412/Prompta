@@ -1557,7 +1557,7 @@ function clearConversation() {
   els.shareChatButton.disabled = true;
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
-  els.composerStatus.textContent = "Select a chat to send a message.";
+  els.composerStatus.textContent = "";
 }
 function renderNewChat() {
   const enteringNewChat = !state.composingNew;
