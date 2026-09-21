@@ -5,7 +5,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver.common.by import By
 
 from prompta.chrome import ChromeDriverDriver
@@ -191,11 +191,19 @@ async def test_perform_actions_uses_w3c_actions() -> None:
 async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "window"
+
+    composer = MagicMock()
+    composer.is_displayed.return_value = True
+    form = MagicMock()
+    composer.find_element.return_value = form
+
     send = MagicMock()
     send.is_displayed.return_value = True
     send.is_enabled.return_value = True
     send.get_attribute.return_value = None
-    selenium.find_elements.return_value = [send]
+
+    selenium.find_elements.return_value = [composer]
+    form.find_elements.return_value = [send]
 
     driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
     driver._driver = selenium
@@ -203,7 +211,8 @@ async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
 
     await driver.click_send_button(timeout=0.1)
 
-    selenium.find_elements.assert_called_once_with(By.CSS_SELECTOR, '[data-testid="send-button"]')
+    composer.find_element.assert_called_once_with(By.XPATH, "./ancestor::form[1]")
+    form.find_elements.assert_called_once_with(By.CSS_SELECTOR, '[data-testid="send-button"]')
     send.click.assert_called_once_with()
 
 
@@ -211,6 +220,11 @@ async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
 async def test_click_send_button_skips_aria_disabled_send_control() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "window"
+
+    composer = MagicMock()
+    composer.is_displayed.return_value = True
+    form = MagicMock()
+    composer.find_element.return_value = form
 
     disabled = MagicMock()
     disabled.is_displayed.return_value = True
@@ -222,7 +236,8 @@ async def test_click_send_button_skips_aria_disabled_send_control() -> None:
     enabled.is_enabled.return_value = True
     enabled.get_attribute.return_value = None
 
-    selenium.find_elements.side_effect = [[disabled], [enabled]]
+    selenium.find_elements.return_value = [composer]
+    form.find_elements.side_effect = [[disabled], [enabled]]
 
     driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
     driver._driver = selenium
@@ -232,3 +247,31 @@ async def test_click_send_button_skips_aria_disabled_send_control() -> None:
 
     disabled.click.assert_not_called()
     enabled.click.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_click_send_button_does_not_use_unscoped_generic_submit() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+
+    composer = MagicMock()
+    composer.is_displayed.return_value = True
+    composer.find_element.side_effect = NoSuchElementException()
+
+    def find_elements(by: str, selector: str) -> list[MagicMock]:
+        assert by == By.CSS_SELECTOR
+        if selector.startswith("#prompt-textarea"):
+            return [composer]
+        return []
+
+    selenium.find_elements.side_effect = find_elements
+
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    with pytest.raises(RuntimeError, match="send button did not become enabled"):
+        await driver.click_send_button(timeout=0.01)
+
+    queried = [call.args[1] for call in selenium.find_elements.call_args_list]
+    assert 'button[type="submit"]' not in queried
