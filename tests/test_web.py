@@ -222,9 +222,12 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
             }
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
-        assert json.loads(server._image_preview_path.read_text())["records"]["image-client"][
-            "conversation_id"
-        ] == "chat-1"
+        assert (
+            json.loads(server._image_preview_path.read_text())["records"]["image-client"][
+                "conversation_id"
+            ]
+            == "chat-1"
+        )
     finally:
         for target in saved:
             Path(target).unlink(missing_ok=True)
@@ -541,7 +544,7 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
             "conversation_id": "",
             "attachments": [],
             "client_id": "browser-durable-1",
-            "status": "queued",
+            "status": "running",
             "retry_at": 0.0,
             "retry_attempt": 0,
             "created_at": queued["created_at"],
@@ -557,7 +560,13 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
 
     assert result is not None
     assert result["status"] == "succeeded"
-    assert not recovery_path.exists()
+    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    assert receipt["send_id"] == queued["send_id"]
+    assert receipt["status"] == "succeeded"
+    assert receipt["conversation_id"] == "chat-new"
+    assert receipt["client_id"] == "browser-durable-1"
+    assert receipt["attachments"] == []
+    assert receipt["finished_at"] >= receipt["created_at"]
 
 
 def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) -> None:
@@ -606,7 +615,45 @@ def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) ->
     assert result["status"] == "succeeded"
     assert result["conversation_id"] == "chat-restored-queued"
     assert calls == 1
-    assert not recovery_path.exists()
+    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    assert receipt["status"] == "succeeded"
+    assert receipt["conversation_id"] == "chat-restored-queued"
+
+
+def test_send_job_registry_dead_letters_inflight_send_after_restart(tmp_path: Path) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": "running-before-restart",
+                        "operation": "reply",
+                        "message": "Possibly delivered",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-running-restart",
+                        "status": "running",
+                        "retry_at": 0.0,
+                        "retry_attempt": 1,
+                        "created_at": time.time() - 10,
+                    }
+                ]
+            }
+        )
+    )
+    sender = MagicMock(return_value="chat-1")
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+
+    sender.assert_not_called()
+    result = registry.get("running-before-restart")
+    assert result is not None
+    assert result["status"] == "dead_lettered"
+    assert "in-flight send" in result["error"]
+    persisted = json.loads(recovery_path.read_text())["jobs"][0]
+    assert persisted["status"] == "dead_lettered"
+    assert "in-flight send" in persisted["last_error"]
 
 
 def test_send_job_registry_does_not_multiply_one_shared_rate_limit() -> None:
@@ -673,7 +720,9 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
         release.set()
         deadline = time.monotonic() + 1.0
         result = registry.get(queued["send_id"])
-        while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        while (
+            result is not None and result["status"] != "succeeded" and time.monotonic() < deadline
+        ):
             time.sleep(0.01)
             result = registry.get(queued["send_id"])
 
@@ -729,7 +778,8 @@ def test_send_job_registry_restores_rate_limited_send_after_restart(tmp_path: Pa
     assert result["status"] == "succeeded"
     assert result["conversation_id"] == "chat-restored"
     assert calls == 1
-    assert not recovery_path.exists()
+    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    assert receipt["status"] == "succeeded"
     duplicate = registry.submit(
         operation="once",
         message="Resume me",
@@ -741,19 +791,27 @@ def test_send_job_registry_restores_rate_limited_send_after_restart(tmp_path: Pa
 def test_send_job_registry_restores_generic_retry_after_restart(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
     send_id = "retry-before-restart"
-    recovery_path.write_text(json.dumps({"jobs": [{
-        "send_id": send_id,
-        "operation": "reply",
-        "message": "Resume retry",
-        "conversation_id": "chat-1",
-        "attachments": [],
-        "client_id": "browser-retry-restart",
-        "status": "retrying",
-        "retry_at": time.time() - 1,
-        "retry_attempt": 2,
-        "created_at": time.time() - 10,
-        "last_error": "browser temporarily unavailable",
-    }]}))
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": send_id,
+                        "operation": "reply",
+                        "message": "Resume retry",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-retry-restart",
+                        "status": "retrying",
+                        "retry_at": time.time() - 1,
+                        "retry_attempt": 2,
+                        "created_at": time.time() - 10,
+                        "last_error": "browser temporarily unavailable",
+                    }
+                ]
+            }
+        )
+    )
     calls = 0
 
     def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
@@ -771,24 +829,71 @@ def test_send_job_registry_restores_generic_retry_after_restart(tmp_path: Path) 
     assert result is not None
     assert result["status"] == "succeeded"
     assert calls == 1
-    assert not recovery_path.exists()
+    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    assert receipt["status"] == "succeeded"
+
+
+def test_send_job_registry_deduplicates_succeeded_send_after_restart(tmp_path: Path) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    first_sender = MagicMock(return_value="chat-durable-success")
+    first_registry = SendJobRegistry(first_sender, recovery_path=recovery_path)
+    queued = first_registry.submit(
+        operation="once",
+        message="Send exactly once",
+        client_id="browser-success-restart",
+    )
+
+    deadline = time.monotonic() + 1.0
+    result = first_registry.get(queued["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = first_registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    first_sender.assert_called_once()
+
+    restarted_sender = MagicMock(return_value="chat-duplicate")
+    restarted = SendJobRegistry(restarted_sender, recovery_path=recovery_path)
+    restored = restarted.get(queued["send_id"])
+    assert restored is not None
+    assert restored["status"] == "succeeded"
+    assert restored["conversation_id"] == "chat-durable-success"
+
+    duplicate = restarted.submit(
+        operation="once",
+        message="Send exactly once",
+        client_id="browser-success-restart",
+    )
+
+    assert duplicate["send_id"] == queued["send_id"]
+    assert duplicate["status"] == "succeeded"
+    restarted_sender.assert_not_called()
 
 
 def test_send_job_registry_does_not_replay_dead_letters(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
-    recovery_path.write_text(json.dumps({"jobs": [{
-        "send_id": "dead-before-restart",
-        "operation": "reply",
-        "message": "Do not replay",
-        "conversation_id": "chat-1",
-        "attachments": [],
-        "client_id": "browser-dead-restart",
-        "status": "dead_lettered",
-        "retry_at": 0.0,
-        "retry_attempt": 5,
-        "created_at": time.time() - 10,
-        "last_error": "browser unavailable",
-    }]}))
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": "dead-before-restart",
+                        "operation": "reply",
+                        "message": "Do not replay",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-dead-restart",
+                        "status": "dead_lettered",
+                        "retry_at": 0.0,
+                        "retry_attempt": 5,
+                        "created_at": time.time() - 10,
+                        "last_error": "browser unavailable",
+                    }
+                ]
+            }
+        )
+    )
     calls = 0
 
     def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
@@ -800,7 +905,19 @@ def test_send_job_registry_does_not_replay_dead_letters(tmp_path: Path) -> None:
     time.sleep(0.03)
 
     assert calls == 0
-    assert registry.get("dead-before-restart") is None
+    dead_letter = registry.get("dead-before-restart")
+    assert dead_letter is not None
+    assert dead_letter["status"] == "dead_lettered"
+    assert dead_letter["error"] == "browser unavailable"
+    duplicate = registry.submit(
+        operation="reply",
+        message="Do not replay",
+        conversation_id="chat-1",
+        client_id="browser-dead-restart",
+    )
+    assert duplicate["send_id"] == "dead-before-restart"
+    assert duplicate["status"] == "dead_lettered"
+    assert calls == 0
     persisted = json.loads(recovery_path.read_text())
     assert persisted["jobs"][0]["status"] == "dead_lettered"
 
@@ -950,7 +1067,9 @@ def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:
 
     deadline = time.monotonic() + 1.0
     result = registry.get(queued["send_id"])
-    while result is not None and result["status"] != "dead_lettered" and time.monotonic() < deadline:
+    while (
+        result is not None and result["status"] != "dead_lettered" and time.monotonic() < deadline
+    ):
         time.sleep(0.01)
         result = registry.get(queued["send_id"])
 
@@ -1334,12 +1453,16 @@ def test_read_only_store_keeps_unparseable_journal_poll_stable(tmp_path: Path) -
         first = store.logs()
         second = store.logs()
 
-    assert first == second == {
-        "exists": True,
-        "lines": ["unexpected journal line"],
-        "updated_at": None,
-        "source": "journal",
-    }
+    assert (
+        first
+        == second
+        == {
+            "exists": True,
+            "lines": ["unexpected journal line"],
+            "updated_at": None,
+            "source": "journal",
+        }
+    )
 
 
 def test_read_only_store_hides_request_placeholder_messages(tmp_path: Path) -> None:
@@ -1483,6 +1606,7 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
     assert manifest["short_name"] == "Prompta · Glass"
     assert manifest["start_url"] == "./"
     assert manifest_type == "application/manifest+json"
+
 
 def test_jobs_cli_add_maps_to_prompta_cli(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
