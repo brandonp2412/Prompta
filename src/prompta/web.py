@@ -361,6 +361,7 @@ class SendJobRegistry:
         sender: Callable[[str, str, str, list[str]], str],
         *,
         sleeper: Callable[[float], None] = time.sleep,
+        recovery_path: Path | None = None,
     ) -> None:
         self._sender = sender
         self._sleep = sleeper
@@ -370,6 +371,164 @@ class SendJobRegistry:
         self._rate_limit_lock = threading.Lock()
         self._rate_limit_backoff = RateLimitBackoff()
         self._revision = 0
+        self._recovery_path = recovery_path
+        self._recovery_lock = threading.Lock()
+        self._recoverable: dict[str, dict[str, Any]] = {}
+        self._restore_recoverable()
+
+    def _write_recovery_locked(self) -> None:
+        if self._recovery_path is None:
+            return
+        path = self._recovery_path
+        if not self._recoverable:
+            path.unlink(missing_ok=True)
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f"{path.suffix}.tmp")
+        temporary.write_text(
+            json.dumps({"jobs": list(self._recoverable.values())}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+
+    def _remember_recoverable(
+        self,
+        *,
+        send_id: str,
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+        client_id: str,
+        retry_at: float,
+        retry_attempt: int,
+        created_at: float,
+    ) -> None:
+        if self._recovery_path is None:
+            return
+        record = {
+            "send_id": send_id,
+            "operation": operation,
+            "message": message,
+            "conversation_id": conversation_id,
+            "attachments": attachments,
+            "client_id": client_id,
+            "retry_at": retry_at,
+            "retry_attempt": retry_attempt,
+            "created_at": created_at,
+        }
+        with self._recovery_lock:
+            self._recoverable[send_id] = record
+            self._write_recovery_locked()
+
+    def _forget_recoverable(self, send_id: str) -> None:
+        if self._recovery_path is None:
+            return
+        with self._recovery_lock:
+            if self._recoverable.pop(send_id, None) is not None:
+                self._write_recovery_locked()
+
+    def _restore_recoverable(self) -> None:
+        path = self._recovery_path
+        if path is None or not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            records = payload.get("jobs", []) if isinstance(payload, dict) else []
+            records = records if isinstance(records, list) else []
+        except (OSError, ValueError):
+            logger.warning("Could not restore Prompta UI retry state %s", path, exc_info=True)
+            return
+
+        now = time.time()
+        max_retry_at = 0.0
+        max_attempt = 0
+        restored: list[dict[str, Any]] = []
+        for candidate in records:
+            if not isinstance(candidate, dict):
+                continue
+            send_id = str(candidate.get("send_id") or "")
+            operation = str(candidate.get("operation") or "")
+            message = str(candidate.get("message") or "")
+            conversation_id = str(candidate.get("conversation_id") or "")
+            client_id = str(candidate.get("client_id") or "")
+            raw_attachments = candidate.get("attachments", [])
+            attachments = (
+                [str(value) for value in raw_attachments if isinstance(value, str)]
+                if isinstance(raw_attachments, list)
+                else []
+            )
+            try:
+                retry_at = float(candidate.get("retry_at") or 0.0)
+                retry_attempt = max(1, int(candidate.get("retry_attempt") or 1))
+                created_at = float(candidate.get("created_at") or now)
+            except (TypeError, ValueError):
+                continue
+            if not send_id or operation not in {"once", "reply"}:
+                continue
+            record = {
+                "send_id": send_id,
+                "operation": operation,
+                "message": message,
+                "conversation_id": conversation_id,
+                "attachments": attachments,
+                "client_id": client_id,
+                "retry_at": retry_at,
+                "retry_attempt": retry_attempt,
+                "created_at": created_at,
+            }
+            self._recoverable[send_id] = record
+            remaining = max(0.0, retry_at - now)
+            self._jobs[send_id] = {
+                "send_id": send_id,
+                "operation": operation,
+                "status": "rate_limited",
+                "conversation_id": conversation_id,
+                "error": "ChatGPT rate limited this account",
+                "created_at": created_at,
+                "updated_at": now,
+                "attachment_count": len(attachments),
+                "retry_at": retry_at,
+                "retry_after_seconds": max(0, math.ceil(remaining)),
+                "retry_attempt": retry_attempt,
+            }
+            if client_id:
+                self._client_jobs[client_id] = send_id
+            max_retry_at = max(max_retry_at, retry_at)
+            max_attempt = max(max_attempt, retry_attempt)
+            restored.append(record)
+
+        if max_attempt:
+            with self._rate_limit_lock:
+                self._rate_limit_backoff.restore(
+                    {
+                        "attempts": max_attempt,
+                        "blocked_until_epoch": max_retry_at,
+                        "last_limited_at_epoch": now,
+                    }
+                )
+        if restored:
+            self._revision += 1
+            logger.info("Restoring %d rate-limited Prompta UI send(s)", len(restored))
+            for record in restored:
+                threading.Thread(
+                    target=self._run,
+                    args=(
+                        record["send_id"],
+                        record["operation"],
+                        record["message"],
+                        record["conversation_id"],
+                        list(record["attachments"]),
+                        record["client_id"],
+                    ),
+                    name=f"prompta-ui-send-{record['send_id'][:8]}",
+                    daemon=True,
+                ).start()
+        else:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not clear invalid Prompta UI retry state %s", path, exc_info=True)
 
     @staticmethod
     def _as_rate_limit_error(exc: Exception) -> RateLimitError | None:
@@ -438,7 +597,14 @@ class SendJobRegistry:
             self._revision += 1
         threading.Thread(
             target=self._run,
-            args=(send_id, operation, message, conversation_id, list(attachments or [])),
+            args=(
+                send_id,
+                operation,
+                message,
+                conversation_id,
+                list(attachments or []),
+                normalized_client_id,
+            ),
             name=f"prompta-ui-send-{send_id[:8]}",
             daemon=True,
         ).start()
@@ -470,18 +636,32 @@ class SendJobRegistry:
         message: str,
         conversation_id: str,
         attachments: list[str],
+        client_id: str = "",
     ) -> None:
         try:
             while True:
                 remaining, attempt = self._rate_limit_remaining()
                 if remaining > 0:
+                    retry_at = time.time() + remaining
                     self._update(
                         send_id,
                         status="rate_limited",
                         error="ChatGPT rate limited this account",
-                        retry_at=time.time() + remaining,
+                        retry_at=retry_at,
                         retry_after_seconds=max(1, math.ceil(remaining)),
                         retry_attempt=max(1, attempt),
+                    )
+                    current = self.get(send_id) or {}
+                    self._remember_recoverable(
+                        send_id=send_id,
+                        operation=operation,
+                        message=message,
+                        conversation_id=conversation_id,
+                        attachments=attachments,
+                        client_id=client_id,
+                        retry_at=retry_at,
+                        retry_attempt=max(1, attempt),
+                        created_at=float(current.get("created_at") or time.time()),
                     )
                     self._sleep(remaining)
 
@@ -492,6 +672,7 @@ class SendJobRegistry:
                     retry_at=0.0,
                     retry_after_seconds=0,
                 )
+                self._forget_recoverable(send_id)
                 try:
                     result = self._sender(operation, message, conversation_id, attachments)
                 except Exception as exc:
@@ -525,6 +706,18 @@ class SendJobRegistry:
                         retry_at=retry_at,
                         retry_after_seconds=max(1, math.ceil(delay)),
                         retry_attempt=attempt,
+                    )
+                    current = self.get(send_id) or {}
+                    self._remember_recoverable(
+                        send_id=send_id,
+                        operation=operation,
+                        message=message,
+                        conversation_id=conversation_id,
+                        attachments=attachments,
+                        client_id=client_id,
+                        retry_at=retry_at,
+                        retry_attempt=attempt,
+                        created_at=float(current.get("created_at") or time.time()),
                     )
                     self._sleep(delay)
                     continue
@@ -561,7 +754,10 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.jobs_path = jobs_path.expanduser()
         self.host_name = "nox"
         self._local_send_lock = threading.Lock()
-        self.send_jobs = SendJobRegistry(self._send)
+        self.send_jobs = SendJobRegistry(
+            self._send,
+            recovery_path=self.state_path.parent / "ui-send-retries.json",
+        )
 
     @property
     def display_name(self) -> str:
