@@ -20,6 +20,7 @@ import {
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
+  sidebarChatPreviewText,
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
@@ -615,6 +616,20 @@ describe("sidebar previews", () => {
   });
 });
 
+
+  test("falls back to the original prompt when the latest message is tool-only", () => {
+    expect(sidebarChatPreviewText(
+      "```tool:Nox Python MCP · execute_python\n{\"arguments\":{}}\n```",
+      "Fix the chat sidebar preview",
+    )).toBe("Fix the chat sidebar preview");
+  });
+
+  test("prefers real assistant prose over the original prompt", () => {
+    expect(sidebarChatPreviewText(
+      "Working on it ```tool:Shell\n{}\n```",
+      "Fix the chat sidebar preview",
+    )).toBe("Working on it");
+  });
 
 describe("tool call display cleanup", () => {
   test("drops ChatGPT tool-list chrome instead of presenting it as a tool", () => {
