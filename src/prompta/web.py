@@ -39,6 +39,7 @@ from .core import (
     _send_once_via_control,
     _send_reply_via_control,
     _stop_via_control,
+    _sync_via_control,
     add_job,
     is_rate_limited_text,
     load_jobs,
@@ -439,7 +440,7 @@ import asyncio
 import base64
 import json
 import sys
-from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control, _stop_via_control
+from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control, _stop_via_control, _sync_via_control
 
 payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
 try:
@@ -463,6 +464,10 @@ try:
     elif payload["operation"] == "stop":
         result = asyncio.run(
             _stop_via_control(DEFAULT_STATE_PATH, payload["conversation_id"])
+        )
+    elif payload["operation"] == "sync":
+        result = asyncio.run(
+            _sync_via_control(DEFAULT_STATE_PATH, payload["conversation_id"])
         )
     else:
         raise RuntimeError("unsupported remote Prompta control operation")
@@ -1294,6 +1299,16 @@ class PromptaUIServer(ThreadingHTTPServer):
             raise KeyError(public_id)
         return target._stop(actual_id)
 
+    def probe_conversation(self, public_id: str) -> tuple[dict[str, Any], int]:
+        target, actual_id = self.resolve_conversation(public_id)
+        if target.store.conversation(actual_id) is None:
+            raise KeyError(public_id)
+        message_count = target._sync(actual_id)
+        chat = self.conversation(public_id)
+        if chat is None:
+            raise KeyError(public_id)
+        return chat, message_count
+
     def send_job(self, send_id: str) -> dict[str, Any] | None:
         for target in self.iter_nodes():
             job = target.send_jobs.get(send_id)
@@ -1523,6 +1538,17 @@ class PromptaUIServer(ThreadingHTTPServer):
             raise RuntimeError("Prompta scheduler is not running; cannot stop an active chat")
         return asyncio.run(_stop_via_control(self.state_path, conversation_id))
 
+    def _sync(self, conversation_id: str) -> int:
+        if self.control_host:
+            return int(_remote_control(
+                self.control_host,
+                operation="sync",
+                conversation_id=conversation_id,
+            ))
+        if not _daemon_is_running(self.state_path):
+            raise RuntimeError("Prompta scheduler is not running; cannot inspect chat activity")
+        return asyncio.run(_sync_via_control(self.state_path, conversation_id))
+
     def _send(
         self,
         operation: str,
@@ -1593,6 +1619,7 @@ class PromptaNodeTarget:
     host_online = PromptaUIServer.host_online
     _send = PromptaUIServer._send
     _stop = PromptaUIServer._stop
+    _sync = PromptaUIServer._sync
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -1983,6 +2010,24 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
 
         prefix = "/api/chats/"
+        probe_suffix = "/probe"
+        if path.startswith(prefix) and path.endswith(probe_suffix):
+            conversation_id = unquote(path[len(prefix) : -len(probe_suffix)]).strip("/")
+            if not conversation_id:
+                self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                chat, message_count = cast(PromptaUIServer, self.server).probe_conversation(conversation_id)
+            except KeyError:
+                self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+                return
+            except Exception as exc:
+                logger.exception("Prompta UI activity probe failed conversation=%s", conversation_id)
+                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+                return
+            self._json({"ok": True, "chat": chat, "message_count": message_count})
+            return
+
         stop_suffix = "/stop"
         if path.startswith(prefix) and path.endswith(stop_suffix):
             conversation_id = unquote(path[len(prefix) : -len(stop_suffix)]).strip("/")

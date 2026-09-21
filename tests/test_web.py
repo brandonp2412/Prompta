@@ -371,6 +371,22 @@ def test_local_ui_uses_control_socket_when_backend_is_running(tmp_path: Path) ->
     control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
 
 
+def test_probe_conversation_routes_to_own_node(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with patch.object(server, "_sync", return_value=2) as sync:
+            chat, message_count = server.probe_conversation("chat-1")
+    finally:
+        server.server_close()
+
+    assert chat["id"] == "chat-1"
+    assert message_count == 2
+    sync.assert_called_once_with("chat-1")
+
+
 def test_stop_conversation_routes_to_own_node(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)

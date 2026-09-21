@@ -476,6 +476,10 @@ export function shouldShowStopAction(chatStatus: unknown, composingNew: boolean)
   return !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
 }
 
+export function shouldProbeHistoricalActivity(chatStatus: unknown): boolean {
+  return String(chatStatus || "").trim().toLowerCase() === "interrupted";
+}
+
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
   if (!/^\/at(?:\s|$)/i.test(message)) return null;
 

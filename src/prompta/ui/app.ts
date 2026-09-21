@@ -15,6 +15,7 @@ import {
   preserveSidebarChatOrder,
   shouldRenderNewChatView,
   shouldShowStopAction,
+  shouldProbeHistoricalActivity,
   postJsonRequest as postJson,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -113,6 +114,8 @@ const state = {
   composerDrafts: loadComposerDrafts(),
   composerDraftTarget: "",
   scheduledJobs: [],
+  activityProbes: new Set(),
+  activityProbeAt: new Map(),
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -247,6 +250,7 @@ function syncSendButton() {
   const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
   const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
+  const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
@@ -254,7 +258,7 @@ function syncSendButton() {
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
-  els.sendButton.disabled = !canCompose || state.sending || state.stopping || (!stopMode && (Boolean(waitingNew) || !hasContent));
+  els.sendButton.disabled = !canCompose || state.sending || state.stopping || probingActivity || (!stopMode && (Boolean(waitingNew) || !hasContent));
 }
 function updateComposerActionButton() {
   syncSendButton();
@@ -1767,6 +1771,50 @@ async function loadChats() {
     console.error(error);
   }
 }
+const HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30_000;
+async function probeHistoricalActivity(conversationId) {
+  if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status)) return;
+  const now = Date.now();
+  const lastProbeAt = Number(state.activityProbeAt.get(conversationId) || 0);
+  if (state.activityProbes.has(conversationId) || now - lastProbeAt < HISTORICAL_ACTIVITY_PROBE_TTL_MS) return;
+
+  state.activityProbeAt.set(conversationId, now);
+  state.activityProbes.add(conversationId);
+  if (state.selectedId === conversationId) {
+    setTextIfChanged(els.composerStatus, "Checking whether ChatGPT is still running…");
+    syncSendButton();
+  }
+
+  try {
+    const payload = await postJson(
+      "api/chats/" + encodeURIComponent(conversationId) + "/probe",
+      {},
+      1,
+      30_000,
+    );
+    if (state.selectedId !== conversationId || state.mode !== "chats") return;
+    const chat = payload?.chat;
+    if (!chat || chat.id !== conversationId) return;
+    state.selectedUpdatedAt = chat.updated_at;
+    renderConversation(chat);
+    if (shouldProbeHistoricalActivity(chat.status)) {
+      void probeHistoricalActivity(chat.id);
+    }
+    await loadChats();
+  } catch (error) {
+    if (state.selectedId === conversationId) {
+      setTextIfChanged(
+        els.composerStatus,
+        "Could not verify whether this interrupted chat is still running.",
+      );
+    }
+    console.warn("Could not probe historical chat activity", error);
+  } finally {
+    state.activityProbes.delete(conversationId);
+    if (state.selectedId === conversationId) syncSendButton();
+  }
+}
+
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
   const selectedId = state.selectedId;
