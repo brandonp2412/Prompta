@@ -45,6 +45,45 @@ def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> N
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+
+def test_cache_persists_compact_sidebar_preview(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-preview",
+        context_id="context-preview",
+        job_name="",
+        prompt="Keep going",
+    )
+    fence = chr(96) * 3
+    tool_payload = "x" * 50_000
+    assistant = (
+        "Useful start.\n\n"
+        f"{fence}tool-call: execute_python\n"
+        f'{{"code":"{tool_payload}"}}\n'
+        f"{fence}\n\n"
+        "Useful end."
+    )
+    cache.write_snapshot(
+        "conversation-preview",
+        {
+            "title": "Preview",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep going"},
+                {"id": "a1", "role": "assistant", "content": assistant},
+            ],
+        },
+    )
+    row = cache.connection.execute(
+        "SELECT preview FROM conversations WHERE id = ?",
+        ("conversation-preview",),
+    ).fetchone()
+    cache.close()
+
+    assert row is not None
+    assert row["preview"] == "Useful start. Useful end."
+
+
 def test_cache_quarantines_corrupt_database_and_recreates_cache(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     path.write_bytes(b"not a sqlite database")

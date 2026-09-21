@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .preview import compact_sidebar_preview
+
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
 
@@ -140,6 +142,7 @@ class ChatCache:
                 url TEXT NOT NULL,
                 browser_context_id TEXT NOT NULL DEFAULT '',
                 title TEXT NOT NULL DEFAULT '',
+                preview TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
@@ -202,6 +205,14 @@ class ChatCache:
             END;
             """
         )
+        conversation_columns = {
+            str(row["name"])
+            for row in self.connection.execute("PRAGMA table_info(conversations)").fetchall()
+        }
+        if "preview" not in conversation_columns:
+            self.connection.execute(
+                "ALTER TABLE conversations ADD COLUMN preview TEXT NOT NULL DEFAULT ''"
+            )
         self.connection.execute(
             """
             DELETE FROM messages
@@ -238,7 +249,38 @@ class ChatCache:
             (_SEEDED_PROMPT_KEY, _SEEDED_PROMPT_KEY),
         )
         self._remove_superseded_transient_assistants()
+        for row in self.connection.execute(
+            "SELECT id FROM conversations WHERE preview = ''"
+        ).fetchall():
+            self._refresh_conversation_preview(str(row["id"]))
         self.connection.commit()
+
+    def _refresh_conversation_preview(self, conversation_id: str) -> None:
+        row = self.connection.execute(
+            """
+            SELECT COALESCE(
+                (
+                    SELECT m.content
+                    FROM messages AS m
+                    WHERE m.conversation_id = c.id
+                      AND m.message_key NOT LIKE 'request-placeholder-%'
+                    ORDER BY m.ordinal DESC, m.created_at DESC, m.rowid DESC
+                    LIMIT 1
+                ),
+                NULLIF(c.prompt, ''),
+                ''
+            ) AS preview
+            FROM conversations AS c
+            WHERE c.id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return
+        self.connection.execute(
+            "UPDATE conversations SET preview = ? WHERE id = ?",
+            (compact_sidebar_preview(row["preview"]), conversation_id),
+        )
 
     def _remove_superseded_transient_assistants(
         self,
@@ -330,14 +372,19 @@ class ChatCache:
             self.connection.execute(
                 """
                 INSERT INTO conversations (
-                    id, job_name, prompt, url, browser_context_id, status, created_at, updated_at
+                    id, job_name, prompt, url, browser_context_id, preview,
+                    status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     job_name = excluded.job_name,
                     prompt = excluded.prompt,
                     url = excluded.url,
                     browser_context_id = excluded.browser_context_id,
+                    preview = CASE
+                        WHEN conversations.preview = '' THEN excluded.preview
+                        ELSE conversations.preview
+                    END,
                     status = 'active',
                     updated_at = excluded.updated_at,
                     completed_at = NULL
@@ -348,6 +395,7 @@ class ChatCache:
                     prompt,
                     f"https://chatgpt.com/c/{conversation_id}",
                     context_id,
+                    compact_sidebar_preview(prompt),
                     now,
                     now,
                 ),
@@ -776,6 +824,7 @@ class ChatCache:
                         )
 
             self._remove_superseded_transient_assistants(conversation_id)
+            self._refresh_conversation_preview(conversation_id)
 
     def recoverable_conversations(
         self,
