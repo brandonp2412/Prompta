@@ -13,7 +13,6 @@ import math
 import mimetypes
 import re
 import shlex
-import socket
 import sqlite3
 import subprocess
 import threading
