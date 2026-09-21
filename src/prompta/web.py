@@ -1385,9 +1385,15 @@ class PromptaUIServer(ThreadingHTTPServer):
                     raise ValueError("Daily time must use HH:MM")
                 command += ["--daily-at", daily_at]
             else:
+                raw_interval_minutes = payload.get("interval_minutes")
+                if (
+                    not isinstance(raw_interval_minutes, (str, int, float))
+                    or isinstance(raw_interval_minutes, bool)
+                ):
+                    raise ValueError("Interval minutes must be a number")
                 try:
-                    interval_minutes = float(payload.get("interval_minutes"))
-                except (TypeError, ValueError) as exc:
+                    interval_minutes = float(raw_interval_minutes)
+                except ValueError as exc:
                     raise ValueError("Interval minutes must be a number") from exc
                 if not math.isfinite(interval_minutes) or interval_minutes <= 0:
                     raise ValueError("Interval minutes must be greater than zero")
@@ -1876,9 +1882,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 "online": True,
                 "head": _UI_HEAD,
             })
-            return
-        if path == "/api/events":
-            self._event_stream()
             return
         if path == "/api/chats":
             query = parse_qs(parsed.query)

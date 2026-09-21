@@ -187,6 +187,36 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT
 
 
+def test_ordered_assistant_content_tolerates_missing_and_invalid_timestamps() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Timed"],
+            "create_time": 1.0,
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Missing"],
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Invalid"],
+            "create_time": None,
+        },
+    ]
+
+    content = ordered_assistant_content_from_messages(messages)
+
+    assert content.index("Timed") < content.index("Missing")
+    assert content.index("Missing") < content.index("Invalid")
+
+
 def test_ordered_assistant_content_uses_message_timestamps() -> None:
     messages = [
         {

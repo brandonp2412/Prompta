@@ -3096,8 +3096,12 @@ async def test_open_control_connection_retries_transient_socket_startup(
 ) -> None:
     state_path = tmp_path / "state.json"
     socket_path = tmp_path / "control.sock"
+    async def close_client(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.close()
+        await writer.wait_closed()
+
     server = await asyncio.start_unix_server(
-        lambda _reader, writer: writer.close(),
+        close_client,
         path=str(socket_path),
     )
     real_open = asyncio.open_unix_connection
@@ -3114,6 +3118,7 @@ async def test_open_control_connection_retries_transient_socket_startup(
     try:
         _reader, writer = await _open_control_connection(state_path)
         writer.close()
+        await writer.wait_closed()
     finally:
         server.close()
         await server.wait_closed()

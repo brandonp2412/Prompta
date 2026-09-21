@@ -323,16 +323,17 @@ def _format_tool_block(call: dict[str, Any]) -> str:
 
 
 
+def _message_create_time(message: dict[str, Any]) -> float:
+    value = message.get("create_time")
+    return float(value) if isinstance(value, (int, float)) else float("inf")
+
+
 def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> str:
     """Build the latest assistant turn from React messages in event order."""
 
     ordered = sorted(
         (message for message in messages if isinstance(message, dict)),
-        key=lambda message: (
-            float(message.get("create_time"))
-            if isinstance(message.get("create_time"), (int, float))
-            else float("inf")
-        ),
+        key=_message_create_time,
     )
     blocks = tool_blocks_from_messages(ordered)
     completed_wrappers = any(
