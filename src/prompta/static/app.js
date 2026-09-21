@@ -329,6 +329,9 @@ async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45000, fe
 function composerHasContent(message, attachmentCount) {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
+function shouldShowStopAction(chatStatus, composingNew) {
+  return !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
+}
 function parseAtSlashCommand(message, now = new Date) {
   if (!/^\/at(?:\s|$)/i.test(message))
     return null;
@@ -592,8 +595,7 @@ function syncSendButton() {
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
-  const running = canCompose && !state.composingNew && state.selectedChat?.status === "active";
-  const stopMode = Boolean(running && !hasContent);
+  const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
@@ -3051,7 +3053,10 @@ els.messageInput.addEventListener("keydown", (event) => {
   const mobileInput = matchMedia("(pointer: coarse)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
-    sendSelectedMessage();
+    if (els.sendButton.dataset.action === "stop")
+      stopSelectedChat();
+    else
+      sendSelectedMessage();
   }
 });
 window.addEventListener("hashchange", () => {
