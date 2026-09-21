@@ -54,7 +54,7 @@ export function pendingSendActivity(
   retryAfterSeconds: unknown = 0,
 ): PendingSendActivity | null {
   const normalized = String(status || "queued").trim().toLowerCase();
-  if (normalized === "failed" || normalized === "succeeded") return null;
+  if (normalized === "failed") return null;
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
   if (normalized === "rate_limited") {

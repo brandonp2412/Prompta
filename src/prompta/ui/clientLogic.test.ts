@@ -165,8 +165,14 @@ describe("pending send activity", () => {
     });
   });
 
-  test("stops the activity indicator for terminal states", () => {
-    expect(pendingSendActivity("succeeded", true)).toBeNull();
+  test("keeps waiting after send acceptance until a response is observed", () => {
+    expect(pendingSendActivity("succeeded", true)).toEqual({
+      label: "waiting",
+      statusText: "Waiting for ChatGPT…",
+    });
+  });
+
+  test("stops the activity indicator for an explicit failure", () => {
     expect(pendingSendActivity("failed", true)).toBeNull();
   });
 });

@@ -2030,8 +2030,15 @@ async function watchSend(sendId, creatingNew, conversationId) {
           if (state.composingNew) renderNewChat();
           return;
         }
-        state.pendingNewSend.conversationId = newId;
+        const completedPending = state.pendingNewSend;
+        completedPending.conversationId = newId;
         state.pendingNewId = newId;
+        const pendingReplies = state.pendingReplies.get(newId) || [];
+        if (!pendingReplies.some((item) => item.clientId === completedPending.clientId)) {
+          pendingReplies.push(completedPending);
+          state.pendingReplies.set(newId, pendingReplies);
+        }
+        state.pendingNewSend = null;
         const stillViewingPending = state.composingNew && state.mode === "chats";
         if (!stillViewingPending) {
           renderSidebar();
