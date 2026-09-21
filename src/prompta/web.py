@@ -60,6 +60,30 @@ def _git_short_head() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else ""
 
 
+def _git_changelog() -> list[dict[str, str]]:
+    try:
+        completed = subprocess.run(
+            ["git", "log", "--format=%h%x09%s", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if completed.returncode != 0:
+        return []
+    entries = []
+    for line in completed.stdout.splitlines():
+        short_hash, separator, title = line.partition("	")
+        short_hash = short_hash.strip().lower()
+        title = title.strip()
+        if separator and short_hash and title:
+            entries.append({"hash": short_hash, "title": title})
+    return entries
+
+
 _UI_HEAD = _git_short_head()
 
 
@@ -639,6 +663,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 "online": True,
                 "head": _UI_HEAD,
             })
+            return
+        if path == "/api/changelog":
+            self._json({"changes": _git_changelog()})
             return
         if path == "/api/chats":
             query = parse_qs(parsed.query)

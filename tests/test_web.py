@@ -23,6 +23,7 @@ from prompta.web import (
     PromptaUIServer,
     ReadOnlyChatStore,
     SendJobRegistry,
+    _git_changelog,
     _reconcile_orphaned_local_chats,
     _start_local_scheduler_service,
     _wait_for_local_scheduler,
@@ -53,6 +54,25 @@ def _seed_cache(path: Path) -> None:
         },
     )
     cache.close()
+
+
+def test_git_changelog_uses_commit_titles() -> None:
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="abc1234\tNewest change\ndef5678\tOlder change\n",
+        stderr="",
+    )
+    with patch("prompta.web.subprocess.run", return_value=completed):
+        assert _git_changelog() == [
+            {"hash": "abc1234", "title": "Newest change"},
+            {"hash": "def5678", "title": "Older change"},
+        ]
+
+
+def test_git_changelog_tolerates_unavailable_git() -> None:
+    with patch("prompta.web.subprocess.run", side_effect=OSError("git unavailable")):
+        assert _git_changelog() == []
 
 
 @pytest.mark.parametrize(
@@ -1228,6 +1248,9 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert 'id="composerStatus" hidden' not in index_html
             assert 'id="logsButton"' not in index_html
             assert 'data-slash-command="/logs"' in index_html
+            assert 'id="headLabel"' in index_html
+            assert 'aria-controls="changelogDialog"' in index_html
+            assert 'id="changelogDialog"' in index_html
 
         with urlopen(Request(f"{base_url}/", method="HEAD"), timeout=2) as response:
             assert response.status == 200
@@ -1252,6 +1275,13 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert health["server"] == "nox"
             assert health["online"] is True
             assert "nodes" not in health
+
+        with urlopen(f"{base_url}/api/changelog", timeout=2) as response:
+            assert response.status == 200
+            changelog = json.loads(response.read().decode())
+            assert changelog["changes"]
+            assert changelog["changes"][0]["title"]
+            assert changelog["changes"][0]["hash"]
 
         with urlopen(Request(f"{base_url}/api/events", method="HEAD"), timeout=2) as response:
             assert response.status == 200

@@ -50,7 +50,7 @@
           <span class="summary-dot"></span>
           <span id="cacheSummary">Reading local cache</span>
         </div>
-        <span class="read-only-pill" id="headLabel" title="UI commit">…</span>
+        <button type="button" class="read-only-pill" id="headLabel" title="View changelog" aria-haspopup="dialog" aria-controls="changelogDialog">…</button>
       </div>
     </aside>
 
@@ -196,6 +196,18 @@
       <div class="jobs-dialog-footer">
         <button type="button" class="jobs-danger-button" id="clearJobsButton">Clear all jobs</button>
       </div>
+    </div>
+  </dialog>
+  <dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle">
+    <div class="changelog-dialog-shell">
+      <header class="changelog-dialog-header">
+        <div>
+          <h2 id="changelogDialogTitle">Changelog</h2>
+          <p id="changelogDialogStatus">Commit titles from this Prompta checkout.</p>
+        </div>
+        <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button>
+      </header>
+      <ol class="changelog-list" id="changelogList"></ol>
     </div>
   </dialog>
   <script src="./app.js" defer></script>

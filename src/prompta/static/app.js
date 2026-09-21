@@ -2377,6 +2377,58 @@ function createCompletionNotifications({
   };
 }
 
+// src/prompta/ui/changelogDialog.ts
+function requiredElement6(selector) {
+  const element = document.querySelector(selector);
+  if (!element)
+    throw new Error("Missing required changelog UI element: " + selector);
+  return element;
+}
+function escapeHtml5(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+function setTextIfChanged4(element, value) {
+  const text = String(value ?? "");
+  if (element.textContent !== text)
+    element.textContent = text;
+}
+function createChangelogDialog({ fetchJson: fetchJson2, closeSidebar }) {
+  const els = {
+    headLabel: requiredElement6("#headLabel"),
+    dialog: requiredElement6("#changelogDialog"),
+    closeButton: requiredElement6("#closeChangelogDialog"),
+    list: requiredElement6("#changelogList"),
+    status: requiredElement6("#changelogDialogStatus")
+  };
+  function close() {
+    if (els.dialog.open)
+      els.dialog.close();
+  }
+  async function open() {
+    closeSidebar();
+    if (!els.dialog.open)
+      els.dialog.showModal();
+    setTextIfChanged4(els.status, "Loading changelog…");
+    els.list.innerHTML = '<li class="changelog-empty">Loading changes…</li>';
+    try {
+      const payload = await fetchJson2("api/changelog");
+      const changes = Array.isArray(payload.changes) ? payload.changes : [];
+      els.list.innerHTML = changes.length ? changes.map((change) => '<li class="changelog-entry">' + escapeHtml5(change?.title || "") + "</li>").join("") : '<li class="changelog-empty">No Git commit history is available.</li>';
+      setTextIfChanged4(els.status, changes.length + " commit" + (changes.length === 1 ? "" : "s") + " · newest first");
+    } catch (error) {
+      els.list.innerHTML = '<li class="changelog-empty">Could not load changelog.</li>';
+      setTextIfChanged4(els.status, "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""));
+    }
+  }
+  els.headLabel.addEventListener("click", () => void open());
+  els.closeButton.addEventListener("click", close);
+  els.dialog.addEventListener("click", (event) => {
+    if (event.target === els.dialog)
+      close();
+  });
+  return { open, close };
+}
+
 // src/prompta/ui/clientStorage.ts
 var PINNED_CHATS_KEY = "prompta:pinned-chats";
 var COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
@@ -2458,33 +2510,33 @@ syncViewportHeight();
 window.setTimeout(() => document.documentElement.classList.remove("booting"), 1200);
 window.addEventListener("resize", syncViewportHeight);
 window.visualViewport?.addEventListener("resize", syncViewportHeight);
-function requiredElement6(selector) {
+function requiredElement7(selector) {
   const element = document.querySelector(selector);
   if (!element)
     throw new Error(`Missing required UI element: ${selector}`);
   return element;
 }
 var els = {
-  chatList: requiredElement6("#chatList"),
-  searchInput: requiredElement6("#searchInput"),
-  conversation: requiredElement6("#conversation"),
-  emptyState: requiredElement6("#emptyState"),
-  viewport: requiredElement6("#conversationViewport"),
-  chatHeading: requiredElement6("#chatHeading"),
-  syncLabel: requiredElement6("#syncLabel"),
-  cacheSummary: requiredElement6("#cacheSummary"),
-  headLabel: requiredElement6("#headLabel"),
-  globalLiveOrb: requiredElement6("#globalLiveOrb"),
-  serverLabel: requiredElement6("#serverLabel"),
-  newChatButton: requiredElement6("#newChatButton"),
-  pinChatButton: requiredElement6("#pinChatButton"),
-  shareChatButton: requiredElement6("#shareChatButton"),
-  slashMenu: requiredElement6("#slashMenu"),
-  composerFooter: requiredElement6("#composerFooter"),
-  messageForm: requiredElement6("#messageForm"),
-  messageInput: requiredElement6("#messageInput"),
-  sendButton: requiredElement6("#sendButton"),
-  composerStatus: requiredElement6("#composerStatus")
+  chatList: requiredElement7("#chatList"),
+  searchInput: requiredElement7("#searchInput"),
+  conversation: requiredElement7("#conversation"),
+  emptyState: requiredElement7("#emptyState"),
+  viewport: requiredElement7("#conversationViewport"),
+  chatHeading: requiredElement7("#chatHeading"),
+  syncLabel: requiredElement7("#syncLabel"),
+  cacheSummary: requiredElement7("#cacheSummary"),
+  headLabel: requiredElement7("#headLabel"),
+  globalLiveOrb: requiredElement7("#globalLiveOrb"),
+  serverLabel: requiredElement7("#serverLabel"),
+  newChatButton: requiredElement7("#newChatButton"),
+  pinChatButton: requiredElement7("#pinChatButton"),
+  shareChatButton: requiredElement7("#shareChatButton"),
+  slashMenu: requiredElement7("#slashMenu"),
+  composerFooter: requiredElement7("#composerFooter"),
+  messageForm: requiredElement7("#messageForm"),
+  messageInput: requiredElement7("#messageInput"),
+  sendButton: requiredElement7("#sendButton"),
+  composerStatus: requiredElement7("#composerStatus")
 };
 var sidebarRenderDeferred = false;
 var sidebar = createSidebar({
@@ -2505,13 +2557,17 @@ var conversationRenderer = createConversationRenderer({
 });
 var attachmentPicker = createAttachmentPicker({
   onChange: syncSendButton,
-  setStatus: (message) => setTextIfChanged4(els.composerStatus, message)
+  setStatus: (message) => setTextIfChanged5(els.composerStatus, message)
 });
 var logsPanel = createLogsPanel({
   fetchJson: (url, timeoutMs) => fetchJson2(url, timeoutMs),
   formatRelativeTime
 });
 var deploymentMonitor = createDeploymentMonitor();
+createChangelogDialog({
+  fetchJson: (url, timeoutMs) => fetchJson2(url, timeoutMs),
+  closeSidebar: sidebar.close
+});
 var completionNotifications = createCompletionNotifications({
   displayServerName,
   getServerName: () => state.serverName,
@@ -2569,7 +2625,7 @@ function syncComposerDraftTarget() {
   updateSlashMenu();
   syncSendButton();
 }
-function setTextIfChanged4(element, value) {
+function setTextIfChanged5(element, value) {
   const text = String(value ?? "");
   if (element.textContent !== text)
     element.textContent = text;
@@ -2664,8 +2720,8 @@ function setConversationHeading(title, meta) {
     metaNode.className = "heading-meta";
     els.chatHeading.append(metaNode);
   }
-  setTextIfChanged4(titleNode, title);
-  setTextIfChanged4(metaNode, meta);
+  setTextIfChanged5(titleNode, title);
+  setTextIfChanged5(metaNode, meta);
 }
 var SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 var STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
@@ -2702,7 +2758,7 @@ function setServerStatus(server, online) {
     state.serverOnline = online;
   const display = displayServerName(state.serverName || location.hostname);
   const knownOnline = state.serverOnline;
-  setTextIfChanged4(els.serverLabel, knownOnline === false ? `Server · ${display} · offline` : `Server · ${display}`);
+  setTextIfChanged5(els.serverLabel, knownOnline === false ? `Server · ${display} · offline` : `Server · ${display}`);
   document.title = `Prompta · ${display}`;
   logsPanel.setServerTitle(display);
   const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
@@ -2711,7 +2767,7 @@ function setServerStatus(server, online) {
   els.globalLiveOrb.classList.toggle("live", knownOnline === true);
   els.globalLiveOrb.title = knownOnline === false ? `${display} is offline` : knownOnline === true ? `${display} is online` : `${display} status unknown`;
 }
-function escapeHtml5(value) {
+function escapeHtml6(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 function formatRelativeTime(epochSeconds) {
@@ -2896,29 +2952,29 @@ function renderSidebar(force = false) {
     return;
   }
   patchHtmlChildren2(els.chatList, groupChats(chats).map(([label, groupedChats]) => `
-    <section class="chat-group" data-dom-key="group:${escapeHtml5(label)}">
-      <div class="chat-group-label">${escapeHtml5(label)}</div>
+    <section class="chat-group" data-dom-key="group:${escapeHtml6(label)}">
+      <div class="chat-group-label">${escapeHtml6(label)}</div>
       ${groupedChats.map((chat) => {
     const selected = chat.id === state.selectedId || chat._optimisticNew && state.composingNew;
     return `
-        <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml5(chat.id)}">
+        <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml6(chat.id)}">
           <button type="button"
                   class="chat-item-select"
-                  data-chat-id="${escapeHtml5(chat.id)}"
+                  data-chat-id="${escapeHtml6(chat.id)}"
                   data-optimistic-new="${chat._optimisticNew ? "true" : "false"}">
             <div class="chat-item-top">
               ${sidebarStatusDot(chat.status)}
-              <span class="chat-title">${escapeHtml5(chatTitle(chat))}</span>
+              <span class="chat-title">${escapeHtml6(chatTitle(chat))}</span>
             </div>
-            <div class="chat-preview">${escapeHtml5(truncate2(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"))}</div>
+            <div class="chat-preview">${escapeHtml6(truncate2(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"))}</div>
             <div class="chat-meta">
-              <span class="chat-job">${escapeHtml5(chat.job_name || `${chat.message_count || 0} messages`)}</span>
-              <span class="chat-time" data-activity-at="${escapeHtml5(chatActivityAt(chat))}">${escapeHtml5(formatRelativeTime(chatActivityAt(chat)))}</span>
+              <span class="chat-job">${escapeHtml6(chat.job_name || `${chat.message_count || 0} messages`)}</span>
+              <span class="chat-time" data-activity-at="${escapeHtml6(chatActivityAt(chat))}">${escapeHtml6(formatRelativeTime(chatActivityAt(chat)))}</span>
             </div>
           </button>
           <button type="button"
                   class="chat-row-pin ${state.pinnedIds.has(chat.id) ? "active" : ""}"
-                  data-pin-chat-id="${escapeHtml5(chat.id)}"
+                  data-pin-chat-id="${escapeHtml6(chat.id)}"
                   aria-label="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
                   title="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
                   aria-pressed="${String(state.pinnedIds.has(chat.id))}">
@@ -3103,9 +3159,9 @@ function renderConversation(chat) {
   syncSendButton();
   const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt)).find(Boolean);
   if (pendingActivity) {
-    setTextIfChanged4(els.composerStatus, pendingActivity.statusText);
+    setTextIfChanged5(els.composerStatus, pendingActivity.statusText);
   } else if (!state.sending) {
-    setTextIfChanged4(els.composerStatus, chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.");
+    setTextIfChanged5(els.composerStatus, chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.");
   }
 }
 function showMode(mode) {
@@ -3122,7 +3178,7 @@ function showMode(mode) {
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
     els.shareChatButton.disabled = true;
-    setTextIfChanged4(els.composerStatus, "Switch back to chats to send a message.");
+    setTextIfChanged5(els.composerStatus, "Switch back to chats to send a message.");
     updateComposerActionButton();
     return;
   }
@@ -3152,7 +3208,7 @@ function clearConversation() {
   els.shareChatButton.disabled = true;
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
-  setTextIfChanged4(els.composerStatus, "");
+  setTextIfChanged5(els.composerStatus, "");
   syncComposerDraftTarget();
   updateComposerActionButton();
 }
@@ -3236,7 +3292,7 @@ function renderNewChat() {
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
     const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt) : null;
-    setTextIfChanged4(els.composerStatus, pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
+    setTextIfChanged5(els.composerStatus, pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
   }
   updateComposerActionButton();
   if (enteringNewChat) {
@@ -3284,7 +3340,7 @@ async function hydrateRecentChatCache() {
   }
   state.chatOrderScope = cachedSummaries.length ? "" : "__cached__";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-  setTextIfChanged4(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
+  setTextIfChanged5(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
   if (initialId) {
@@ -3308,7 +3364,7 @@ async function loadServerIdentity() {
     setServerStatus(payload.server, payload.online);
     const head = String(payload.head || "").trim().toLowerCase();
     deploymentMonitor.observeHead(head);
-    setTextIfChanged4(els.headLabel, head ? head : "unknown");
+    setTextIfChanged5(els.headLabel, head ? head : "unknown");
     els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
   } catch (error) {
     setServerStatus(state.serverName || location.hostname, false);
@@ -3337,7 +3393,7 @@ async function loadChats() {
     }));
     state.chatOrderScope = orderScope;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-    setTextIfChanged4(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
+    setTextIfChanged5(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
     const hashId = conversationIdFromHash(location.hash);
     if (!state.selectedId && hashId) {
       state.selectedId = hashId;
@@ -3368,7 +3424,7 @@ async function loadChats() {
     if (els.globalLiveOrb.classList.contains("live")) {
       els.globalLiveOrb.classList.remove("live");
     }
-    setTextIfChanged4(els.cacheSummary, "Cache unavailable");
+    setTextIfChanged5(els.cacheSummary, "Cache unavailable");
     console.error(error);
   }
 }
@@ -3383,7 +3439,7 @@ async function probeHistoricalActivity(conversationId) {
   state.activityProbeAt.set(conversationId, now);
   state.activityProbes.add(conversationId);
   if (state.selectedId === conversationId) {
-    setTextIfChanged4(els.composerStatus, "Checking whether ChatGPT is still running…");
+    setTextIfChanged5(els.composerStatus, "Checking whether ChatGPT is still running…");
     syncSendButton();
   }
   try {
@@ -3399,7 +3455,7 @@ async function probeHistoricalActivity(conversationId) {
     await loadChats();
   } catch (error) {
     if (state.selectedId === conversationId) {
-      setTextIfChanged4(els.composerStatus, "Could not verify whether this interrupted chat is still running.");
+      setTextIfChanged5(els.composerStatus, "Could not verify whether this interrupted chat is still running.");
     }
     console.warn("Could not probe historical chat activity", error);
   } finally {
@@ -3536,7 +3592,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
   els.messageInput.value = "";
   resizeComposer();
   updateComposerActionButton();
-  setTextIfChanged4(els.composerStatus, "Saving schedule…");
+  setTextIfChanged5(els.composerStatus, "Saving schedule…");
   try {
     const result = await postJsonRequest("api/schedule", {
       interval_minutes: command.intervalMinutes,
@@ -3545,13 +3601,13 @@ async function runScheduleSlashCommand(command, originalMessage) {
     const server = displayServerName(result.server || state.serverName || location.hostname);
     const interval = formatScheduleInterval(Number(result.interval_minutes));
     const prefix = result.created === false ? "Already scheduled" : "Scheduled";
-    setTextIfChanged4(els.composerStatus, `${prefix} on ${server}: every ${interval} · ${command.prompt}`);
+    setTextIfChanged5(els.composerStatus, `${prefix} on ${server}: every ${interval} · ${command.prompt}`);
   } catch (error) {
     els.messageInput.value = originalMessage;
     persistComposerDraft();
     resizeComposer();
     updateSlashMenu();
-    setTextIfChanged4(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
+    setTextIfChanged5(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
     console.error(error);
   } finally {
     state.sending = false;
@@ -3571,20 +3627,20 @@ async function runAtSlashCommand(command, originalMessage) {
   els.messageInput.value = "";
   resizeComposer();
   updateSlashMenu();
-  setTextIfChanged4(els.composerStatus, "Saving one-time schedule…");
+  setTextIfChanged5(els.composerStatus, "Saving one-time schedule…");
   try {
     const result = await postJsonRequest("api/schedule-at", {
       run_at_epoch: command.runAtEpoch,
       prompt: command.prompt
     });
     const server = displayServerName(result.server || state.serverName || location.hostname);
-    setTextIfChanged4(els.composerStatus, `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`);
+    setTextIfChanged5(els.composerStatus, `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`);
   } catch (error) {
     els.messageInput.value = originalMessage;
     persistComposerDraft();
     resizeComposer();
     updateSlashMenu();
-    setTextIfChanged4(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
+    setTextIfChanged5(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
     console.error(error);
   } finally {
     state.sending = false;
@@ -3653,7 +3709,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
           if (!pendingReply(conversationId, sendId))
             return;
         }
-        setTextIfChanged4(els.composerStatus, "Send status unavailable. Prompta may still be running it; reconnecting…");
+        setTextIfChanged5(els.composerStatus, "Send status unavailable. Prompta may still be running it; reconnecting…");
       }
       await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 250 * statusFailures)));
       continue;
@@ -3710,7 +3766,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         state.selectedId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
         els.messageInput.placeholder = "Message Prompta…";
-        setTextIfChanged4(els.composerStatus, "Sent. Waiting for the cached response…");
+        setTextIfChanged5(els.composerStatus, "Sent. Waiting for the cached response…");
         state.selectedUpdatedAt = null;
         await loadChats();
         await loadSelectedChat();
@@ -3741,12 +3797,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
     if (state.selectedId === conversationId)
       await loadSelectedChat();
     if (status === "succeeded") {
-      setTextIfChanged4(els.composerStatus, "Sent. Waiting for the cached response…");
+      setTextIfChanged5(els.composerStatus, "Sent. Waiting for the cached response…");
       await loadChats();
       return;
     }
     if (["failed", "dead_lettered"].includes(status)) {
-      setTextIfChanged4(els.composerStatus, status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
+      setTextIfChanged5(els.composerStatus, status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
       return;
     }
   }
@@ -3783,7 +3839,7 @@ async function retryFailedSend(scope, retryKey) {
   resizeComposer();
   syncSendButton();
   if ((pending.attachmentNames || []).length) {
-    setTextIfChanged4(els.composerStatus, "Reattach the files, then send again.");
+    setTextIfChanged5(els.composerStatus, "Reattach the files, then send again.");
     els.messageInput.focus();
     return;
   }
@@ -3795,16 +3851,16 @@ async function stopSelectedChat() {
     return;
   state.stopping = true;
   syncSendButton();
-  setTextIfChanged4(els.composerStatus, "Stopping response…");
+  setTextIfChanged5(els.composerStatus, "Stopping response…");
   try {
     await postJsonRequest("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
-    setTextIfChanged4(els.composerStatus, "Stopped.");
+    setTextIfChanged5(els.composerStatus, "Stopped.");
     state.selectedFingerprint = "";
     state.selectedUpdatedAt = null;
     await loadSelectedChat();
     await loadChats();
   } catch (error) {
-    setTextIfChanged4(els.composerStatus, "Stop failed: " + String(error).replace(/^Error:\s*/, ""));
+    setTextIfChanged5(els.composerStatus, "Stop failed: " + String(error).replace(/^Error:\s*/, ""));
     console.error(error);
   } finally {
     state.stopping = false;
@@ -3834,11 +3890,11 @@ async function sendSelectedMessage() {
   const scheduleCommand = parseScheduleSlashCommand(message);
   if (scheduleCommand) {
     if (attachments.length) {
-      setTextIfChanged4(els.composerStatus, "Scheduled prompts do not include attachments.");
+      setTextIfChanged5(els.composerStatus, "Scheduled prompts do not include attachments.");
       return;
     }
     if ("error" in scheduleCommand) {
-      setTextIfChanged4(els.composerStatus, scheduleCommand.error);
+      setTextIfChanged5(els.composerStatus, scheduleCommand.error);
       return;
     }
     await runScheduleSlashCommand(scheduleCommand, message);
@@ -3847,11 +3903,11 @@ async function sendSelectedMessage() {
   const atCommand = parseAtSlashCommand(message);
   if (atCommand) {
     if (attachments.length) {
-      setTextIfChanged4(els.composerStatus, "Scheduled prompts do not include attachments.");
+      setTextIfChanged5(els.composerStatus, "Scheduled prompts do not include attachments.");
       return;
     }
     if ("error" in atCommand) {
-      setTextIfChanged4(els.composerStatus, atCommand.error);
+      setTextIfChanged5(els.composerStatus, atCommand.error);
       return;
     }
     await runAtSlashCommand(atCommand, message);
@@ -3865,7 +3921,7 @@ async function sendSelectedMessage() {
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
     attachmentPicker.setDisabled(true);
-    setTextIfChanged4(els.composerStatus, "Preparing attachments…");
+    setTextIfChanged5(els.composerStatus, "Preparing attachments…");
     try {
       serializedAttachments = await attachmentPicker.serialize();
     } catch (error) {
@@ -3873,7 +3929,7 @@ async function sendSelectedMessage() {
       els.messageInput.disabled = false;
       attachmentPicker.setDisabled(false);
       syncSendButton();
-      setTextIfChanged4(els.composerStatus, "Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
+      setTextIfChanged5(els.composerStatus, "Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
       return;
     }
     state.sending = false;
@@ -3968,7 +4024,7 @@ async function copySelectedChatUrl() {
   url.hash = `/${encodeURIComponent(state.selectedId)}`;
   try {
     await navigator.clipboard.writeText(url.toString());
-    setTextIfChanged4(els.composerStatus, "Chat link copied.");
+    setTextIfChanged5(els.composerStatus, "Chat link copied.");
   } catch (error) {
     const textarea = document.createElement("textarea");
     textarea.value = url.toString();
@@ -3978,7 +4034,7 @@ async function copySelectedChatUrl() {
     textarea.select();
     const copied = document.execCommand("copy");
     textarea.remove();
-    setTextIfChanged4(els.composerStatus, copied ? "Chat link copied." : "Could not copy the chat link.");
+    setTextIfChanged5(els.composerStatus, copied ? "Chat link copied." : "Could not copy the chat link.");
   }
 }
 function updateSlashMenu() {
@@ -4059,14 +4115,14 @@ function refreshDisplayedTimes() {
   }
   renderSidebar();
   for (const time of els.chatList.querySelectorAll(".chat-time[data-activity-at]")) {
-    setTextIfChanged4(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
+    setTextIfChanged5(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
   }
   for (const time of els.conversation.querySelectorAll(".message-timestamp[data-message-at]")) {
     const age = time.querySelector(".message-age");
     if (!age)
       continue;
     const ageText = messageAgeText(Number(time.dataset.messageAt || 0));
-    setTextIfChanged4(age, ageText ? ` · ${ageText}` : "");
+    setTextIfChanged5(age, ageText ? ` · ${ageText}` : "");
   }
   if (state.mode === "chats" && state.selectedChat && state.selectedChat.id === state.selectedId && !state.composingNew) {
     renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
