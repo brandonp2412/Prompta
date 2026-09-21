@@ -1266,11 +1266,11 @@ function highlightCode(raw, language) {
 function inlineMarkdown(text) {
   const placeholders = [];
   let source = String(text || "");
-  const stash = (html) => {
+  const stash = (html2) => {
     let token = `PROMPTA_INLINE_${placeholders.length}`;
     while (source.includes(token))
       token += "";
-    placeholders.push([token, html]);
+    placeholders.push([token, html2]);
     return token;
   };
   source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml2(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml2(label)}</a>`));
@@ -2074,7 +2074,7 @@ function setTextIfChanged3(element, value) {
   if (element.textContent !== text)
     element.textContent = text;
 }
-function createLogsPanel({ fetchJson, formatRelativeTime }) {
+function createLogsPanel({ fetchJson: fetchJson2, formatRelativeTime }) {
   const els = {
     viewport: requiredElement5("#logsViewport"),
     output: requiredElement5("#logOutput"),
@@ -2103,7 +2103,7 @@ function createLogsPanel({ fetchJson, formatRelativeTime }) {
   }
   async function load() {
     try {
-      render(await fetchJson("api/logs?limit=800"));
+      render(await fetchJson2("api/logs?limit=800"));
     } catch (error) {
       setTextIfChanged3(els.meta, "Logs unavailable");
       console.error(error);
@@ -2878,10 +2878,10 @@ function reconcileOptimisticNew(chats) {
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
-    const pending = state.pendingReplies.get(chat.id) || [];
-    if (!pending.length)
+    const pending2 = state.pendingReplies.get(chat.id) || [];
+    if (!pending2.length)
       return chat;
-    const latest = pending[pending.length - 1];
+    const latest = pending2[pending2.length - 1];
     return {
       ...chat,
       status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
@@ -3251,8 +3251,8 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt
       }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
-      if (activity) {
+      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      if (activity2) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -3260,7 +3260,7 @@ function renderNewChat() {
           status: "pending",
           updated_at: pending.updatedAt,
           pending_activity: true,
-          pending_activity_label: activity.label
+          pending_activity_label: activity2.label
         });
       } else if (["failed", "dead_lettered"].includes(pending.status)) {
         messages.push({
@@ -3737,7 +3737,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       if (nextConversationId) {
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
-      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
@@ -3746,7 +3746,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt
       });
-      if (changed)
+      if (changed2)
         state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -3789,7 +3789,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderSidebar();
         return;
       }
-      if (changed) {
+      if (changed2) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();
