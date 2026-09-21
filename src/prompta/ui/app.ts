@@ -937,10 +937,10 @@ function bindCopyButtons(root) {
       try {
         await navigator.clipboard.writeText(code);
         const previous = button.textContent;
-        button.textContent = "copied";
-        setTimeout(() => { button.textContent = previous; }, 1000);
+        setTextIfChanged(button, "copied");
+        setTimeout(() => { setTextIfChanged(button, previous); }, 1000);
       } catch {
-        button.textContent = "copy unavailable";
+        setTextIfChanged(button, "copy unavailable");
       }
     });
   }
@@ -1098,7 +1098,7 @@ function updateMessageNode(node, message, allowStreaming) {
     `);
   } else if (shouldStream && indicator) {
     const labelNode = indicator.lastChild;
-    if (labelNode?.nodeType === Node.TEXT_NODE) labelNode.textContent = ` ${activityLabel}`;
+    if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent !== ` ${activityLabel}`) labelNode.textContent = ` ${activityLabel}`;
   } else if (!shouldStream && indicator) {
     indicator.remove();
   }
@@ -1375,9 +1375,10 @@ function renderLogs(payload) {
   const isInitial = !state.logFingerprint;
   if (fingerprint !== state.logFingerprint) {
     state.logFingerprint = fingerprint;
-    els.logOutput.textContent = lines.length
-      ? lines.join("\n")
-      : "No Prompta service logs are available yet.";
+    setTextIfChanged(
+      els.logOutput,
+      lines.length ? lines.join("\n") : "No Prompta service logs are available yet.",
+    );
     if (isInitial || wasNearBottom) {
       requestAnimationFrame(() => {
         els.logsViewport.scrollTop = els.logsViewport.scrollHeight;
@@ -1398,7 +1399,7 @@ async function loadLogs() {
     const payload = await fetchJson("api/logs?limit=800");
     renderLogs(payload);
   } catch (error) {
-    els.logsMeta.textContent = "Logs unavailable";
+    setTextIfChanged(els.logsMeta, "Logs unavailable");
     console.error(error);
   }
 }
@@ -1420,7 +1421,7 @@ function showMode(mode) {
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
     els.shareChatButton.disabled = true;
-    els.composerStatus.textContent = "Switch back to chats to send a message.";
+    setTextIfChanged(els.composerStatus, "Switch back to chats to send a message.");
     updateComposerActionButton();
     loadLogs();
     state.logRefreshTimer = setInterval(() => {
@@ -1454,7 +1455,7 @@ function clearConversation() {
   els.shareChatButton.disabled = true;
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
-  els.composerStatus.textContent = "Select a chat to send a message.";
+  setTextIfChanged(els.composerStatus, "Select a chat to send a message.");
   syncComposerDraftTarget();
   updateComposerActionButton();
 }
@@ -1548,13 +1549,16 @@ function renderNewChat() {
     const activity = pending
       ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt)
       : null;
-    els.composerStatus.textContent = pending
-      ? (
-        pending.status === "failed"
-          ? "Send failed. The error is shown in the chat."
-          : activity?.statusText || "Sent. Waiting for the cached response…"
-      )
-      : "Your first message will open a fresh ChatGPT chat.";
+    setTextIfChanged(
+      els.composerStatus,
+      pending
+        ? (
+          pending.status === "failed"
+            ? "Send failed. The error is shown in the chat."
+            : activity?.statusText || "Sent. Waiting for the cached response…"
+        )
+        : "Your first message will open a fresh ChatGPT chat.",
+    );
   }
   updateComposerActionButton();
   if (enteringNewChat) {
@@ -2196,7 +2200,7 @@ function jobScheduleText(job) {
 }
 function resetJobForm() {
   els.jobsForm.reset();
-  els.jobsFormTitle.textContent = "Add job";
+  setTextIfChanged(els.jobsFormTitle, "Add job");
   els.jobNameInput.readOnly = false;
   els.jobScheduleType.value = "interval";
   els.jobIntervalInput.value = "30";
@@ -2240,26 +2244,26 @@ function renderJobs(jobs) {
   }).join(""));
 }
 async function loadJobs() {
-  els.jobsDialogStatus.textContent = "Loading jobs…";
+  setTextIfChanged(els.jobsDialogStatus, "Loading jobs…");
   try {
     const result = await fetchJson("api/jobs");
     renderJobs(result.jobs);
-    els.jobsDialogStatus.textContent = `${result.jobs?.length || 0} configured job${result.jobs?.length === 1 ? "" : "s"}.`;
+    setTextIfChanged(els.jobsDialogStatus, `${result.jobs?.length || 0} configured job${result.jobs?.length === 1 ? "" : "s"}.`);
   } catch (error) {
-    els.jobsDialogStatus.textContent = `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`;
+    setTextIfChanged(els.jobsDialogStatus, `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`);
   }
 }
 async function runJobCommand(payload, successText) {
-  els.jobsDialogStatus.textContent = "Running Prompta CLI command…";
+  setTextIfChanged(els.jobsDialogStatus, "Running Prompta CLI command…");
   els.saveJobButton.disabled = true;
   try {
     const result = await postJson("api/jobs", payload);
     renderJobs(result.jobs);
     const command = Array.isArray(result.command) ? result.command.join(" ") : "";
-    els.jobsDialogStatus.textContent = command ? `${successText} · ${command}` : successText;
+    setTextIfChanged(els.jobsDialogStatus, command ? `${successText} · ${command}` : successText);
     return true;
   } catch (error) {
-    els.jobsDialogStatus.textContent = `Jobs command failed: ${String(error).replace(/^Error:\\s*/, "")}`;
+    setTextIfChanged(els.jobsDialogStatus, `Jobs command failed: ${String(error).replace(/^Error:\\s*/, "")}`);
     return false;
   } finally {
     els.saveJobButton.disabled = false;
@@ -2309,7 +2313,7 @@ els.jobsList.addEventListener("click", async (event) => {
   if (!job) return;
   const action = String(button.dataset.jobAction || "");
   if (action === "edit") {
-    els.jobsFormTitle.textContent = `Edit ${job.name}`;
+    setTextIfChanged(els.jobsFormTitle, `Edit ${job.name}`);
     els.jobNameInput.value = job.name;
     els.jobNameInput.readOnly = true;
     els.jobPromptInput.value = job.prompt || "";
@@ -2453,7 +2457,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         state.selectedId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
         els.messageInput.placeholder = "Message Prompta…";
-        els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+        setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
         state.selectedUpdatedAt = null;
         await loadChats();
         await loadSelectedChat();
@@ -2480,12 +2484,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
     if (changed) renderSidebar();
     if (state.selectedId === conversationId) await loadSelectedChat();
     if (status === "succeeded") {
-      els.composerStatus.textContent = "Sent. Waiting for the cached response…";
+      setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
       await loadChats();
       return;
     }
     if (status === "failed") {
-      els.composerStatus.textContent = "Send failed. The error is shown in the chat.";
+      setTextIfChanged(els.composerStatus, "Send failed. The error is shown in the chat.");
       return;
     }
   }
