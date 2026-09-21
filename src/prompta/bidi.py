@@ -780,6 +780,43 @@ class FirefoxBiDiDriver:
               const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
               const assistant=assistants.at(-1);
               const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
+              const visibleMessageId=assistant?.getAttribute('data-message-id')||assistant?.getAttribute('data-message-uuid')||'';
+              const reactTurnEnd=()=>{
+                if(!turn||!visibleMessageId)return null;
+                const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
+                const add=messages=>{
+                  if(!Array.isArray(messages)||seenArrays.has(messages))return;
+                  seenArrays.add(messages);
+                  found.push(...messages.filter(message=>message&&typeof message==='object'&&message.content&&message.author));
+                };
+                const walk=(value,depth)=>{
+                  if(!value||depth>6||(typeof value!=='object'&&typeof value!=='function'))return;
+                  if(seenObjects.has(value))return;
+                  seenObjects.add(value);
+                  if(Array.isArray(value)){if(depth<=4)add(value);return;}
+                  let keys=[];
+                  try{keys=Object.keys(value);}catch{return;}
+                  for(const key of keys.slice(0,220)){
+                    if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
+                    let next;
+                    try{next=value[key];}catch{continue;}
+                    if(key==='messages')add(next);
+                    if(next&&depth<6&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
+                  }
+                };
+                for(const node of [turn,...turn.querySelectorAll('*')]){
+                  const key=Object.keys(node).find(name=>name.startsWith('__reactProps$'));
+                  if(key)walk(node[key],0);
+                }
+                const states=found
+                  .filter(message=>String(message?.id||'')===visibleMessageId&&String(message?.author?.role||'')==='assistant')
+                  .map(message=>message?.end_turn)
+                  .filter(value=>typeof value==='boolean');
+                if(states.includes(true))return true;
+                if(states.includes(false))return false;
+                return null;
+              };
+              const turnEnded=reactTurnEnd();
               const turnText=(turn?.innerText||turn?.textContent||'').trim();
               const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i.test(turnText);
               const deliveryFailed=/Message delivery timed out\\.?\\s*Please try again/i.test(turnText);
@@ -788,9 +825,11 @@ class FirefoxBiDiDriver:
                 const label=(button.getAttribute('aria-label')||'').trim();
                 return testId==='copy-turn-action-button'||/^Copy response$/i.test(label);
               }));
-              const transient=transientText&&!finalAction;
-              const failed=deliveryFailed&&!finalAction&&!stop&&!streamActive;
-              return {streaming:stop||streamActive,complete:finalAction&&!stop&&!streamActive,transient,failed};
+              const streaming=stop||streamActive||turnEnded===false;
+              const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));
+              const transient=transientText&&!complete;
+              const failed=deliveryFailed&&!complete&&!streaming;
+              return {streaming,complete,transient,failed,turn_ended:turnEnded};
             })())""",
             context=context,
         )
@@ -1215,11 +1254,21 @@ class FirefoxBiDiDriver:
               }));
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
               const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
+              const latestAssistant=assistantNodes.at(-1);
+              const latestTurn=agentRoot(latestAssistant);
+              const visibleMessageId=latestAssistant?.getAttribute('data-message-id')||latestAssistant?.getAttribute('data-message-uuid')||'';
+              const endStates=visibleMessageId&&latestTurn
+                ? reactMessages(latestTurn)
+                    .filter(message=>String(message?.id||'')===visibleMessageId&&String(message?.author?.role||'')==='assistant')
+                    .map(message=>message?.end_turn)
+                    .filter(value=>typeof value==='boolean')
+                : [];
+              const turnEnded=endStates.includes(true)?true:(endStates.includes(false)?false:null);
               return {
                 path:location.pathname,
                 title:document.title||'',
                 messages,
-                streaming:stop||streamActive
+                streaming:stop||streamActive||turnEnded===false
               };
             })())""",
             context=context,

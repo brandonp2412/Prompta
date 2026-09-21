@@ -1929,6 +1929,70 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversation_debounces_copy_action_when_react_end_turn_unknown(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-copy-gap"
+    context_id = "context-copy-gap"
+    snapshot = {
+        "title": "Tool gap",
+        "messages": [
+            {"id": "user-1", "role": "user", "content": "Do several tool calls"},
+            {"id": "assistant-1", "role": "assistant", "content": "Still working"},
+        ],
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do several tool calls",
+    )
+    prompta.cache.write_snapshot(conversation_id, snapshot)
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do several tool calls",
+        last_digest=prompta.cache.digest(snapshot),
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+            "turn_ended": None,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=snapshot)
+    prompta.driver = cast(Any, driver)
+
+    for _ in range(9):
+        await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert active.settled_at == 0.0
+
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "complete"
+    assert active.settled_at > 0.0
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversation_marks_persistent_delivery_timeout_interrupted(
     tmp_path: Path,
 ) -> None:

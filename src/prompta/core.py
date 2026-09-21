@@ -57,6 +57,7 @@ _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 15.0
 _RESTART_RECOVERY_LOAD_ATTEMPTS = 2
 _RESTART_RECOVERY_RETRY_SECONDS = 60.0
 _ACTIVE_TAB_RETENTION_SECONDS = 15.0
+_FALLBACK_COMPLETION_POLLS = 10
 _DELIVERY_FAILURE_POLLS = 3
 _DELIVERY_RETRY_DISCOVERY_POLLS = 3
 _DELIVERY_RETRY_MAX_ATTEMPTS = 1
@@ -1730,7 +1731,18 @@ class Prompta:
                 active.idle_polls = 0
                 active.settled_at = 0.0
 
-            if active.idle_polls < 3:
+            completion_polls = 3
+            if (
+                completion_hint
+                and "turn_ended" in activity
+                and activity.get("turn_ended") is None
+            ):
+                # Copy/action chrome can appear between tool calls before the
+                # model has actually ended its turn. If React turn metadata is
+                # unavailable, require a longer quiet window before trusting
+                # that weaker completion signal.
+                completion_polls = _FALLBACK_COMPLETION_POLLS
+            if active.idle_polls < completion_polls:
                 continue
             if not completion_hint and active.idle_polls < 30:
                 continue

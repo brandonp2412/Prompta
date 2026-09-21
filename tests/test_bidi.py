@@ -435,14 +435,19 @@ async def test_conversation_activity_does_not_match_sidebar_stop_titles() -> Non
     assert 'button[data-testid="stop-button"]' in expression
     assert 'button[aria-label="Stop answering"]' in expression
     assert 'button[aria-label="Stop generating"]' in expression
-    assert "const transient=transientText&&!finalAction;" in expression
-    assert "const failed=deliveryFailed&&!finalAction&&!stop&&!streamActive;" in expression
+    assert "const turnEnded=reactTurnEnd();" in expression
+    assert "const streaming=stop||streamActive||turnEnded===false;" in expression
+    assert "const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));" in expression
+    assert "const transient=transientText&&!complete;" in expression
+    assert "const failed=deliveryFailed&&!complete&&!streaming;" in expression
+    assert "turn_ended:turnEnded" in expression
+    assert "message?.end_turn" in expression
     assert "Message delivery timed out" in expression
     assert "const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i" in expression
     assert "testId==='copy-turn-action-button'" in expression
     assert "/^Copy response$/i.test(label)" in expression
     assert "regenerate|share" not in expression
-    assert "complete:finalAction&&!stop&&!streamActive" in expression
+    assert "complete:finalAction&&!stop&&!streamActive" not in expression
     assert "&&!transient" not in expression
     assert 'aria-label*="Stop"' not in expression
     assert 'aria-label*="stop"' not in expression
@@ -526,6 +531,8 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "'```tool:'+label" in expression
     assert '[data-streaming="active"]' in expression
     assert 'button[data-testid="stop-button"]' in expression
+    assert "endStates.includes(false)" in expression
+    assert "streaming:stop||streamActive||turnEnded===false" in expression
     assert 'aria-label*="Stop"' not in expression
     assert 'aria-label*="stop"' not in expression
     assert '[aria-busy="true"]' not in expression
