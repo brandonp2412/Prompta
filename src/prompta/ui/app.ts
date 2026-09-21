@@ -69,6 +69,8 @@ const state = {
   timeRefreshTimer: null,
   uiHead: "",
   uiReloading: false,
+  uiReloadPending: false,
+  uiReloadArmed: false,
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -1373,19 +1375,21 @@ async function fetchJson(url, timeoutMs = 10_000) {
     window.clearTimeout(timeout);
   }
 }
-async function refreshForDeployment() {
-  if (state.uiReloading) return;
-  state.uiReloading = true;
+async function updateServiceWorkerForDeployment() {
   try {
     if ("serviceWorker" in navigator) {
       const registration = await navigator.serviceWorker.getRegistration();
       await registration?.update();
     }
   } catch (error) {
-    console.warn("Could not update Prompta service worker before refresh", error);
-  } finally {
-    window.location.reload();
+    console.warn("Could not update Prompta service worker for deployment", error);
   }
+}
+async function refreshForDeployment() {
+  if (state.uiReloading) return;
+  state.uiReloading = true;
+  await updateServiceWorkerForDeployment();
+  window.location.reload();
 }
 function observeUiHead(value) {
   const head = String(value || "").trim().toLowerCase();
@@ -1395,6 +1399,19 @@ function observeUiHead(value) {
     return;
   }
   if (head === state.uiHead || state.uiReloading) return;
+
+  state.uiHead = head;
+  state.uiReloadPending = true;
+  state.uiReloadArmed = document.visibilityState !== "visible";
+  void updateServiceWorkerForDeployment();
+}
+function handleDeploymentVisibilityChange() {
+  if (!state.uiReloadPending || state.uiReloading) return;
+  if (document.visibilityState !== "visible") {
+    state.uiReloadArmed = true;
+    return;
+  }
+  if (!state.uiReloadArmed) return;
   void refreshForDeployment();
 }
 async function loadServerIdentity() {
@@ -2429,12 +2446,14 @@ function startEventStream() {
     startFallbackRefresh();
   });
 }
+document.addEventListener("visibilitychange", handleDeploymentVisibilityChange);
 window.addEventListener("pagehide", () => {
   state.liveUpdatesPaused = true;
   stopEventStream();
   stopTimeRefresh();
 });
 window.addEventListener("pageshow", () => {
+  handleDeploymentVisibilityChange();
   if (!state.liveUpdatesPaused) return;
   state.liveUpdatesPaused = false;
   loadServerIdentity();
