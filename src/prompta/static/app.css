@@ -805,6 +805,10 @@ textarea:focus-visible {
   text-align: right;
 }
 
+.message-age {
+  color: color-mix(in srgb, currentColor 78%, transparent);
+}
+
 .message-content > :first-child {
   margin-top: 0;
 }
@@ -965,7 +969,8 @@ textarea:focus-visible {
   font-size: 10px;
 }
 
-.code-header button {
+.code-header button,
+.tool-expanded-meta button {
   margin-left: auto;
   padding: 4px 7px;
   border: 0;
@@ -976,7 +981,8 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
-.code-header button:hover {
+.code-header button:hover,
+.tool-expanded-meta button:hover {
   background: #2a2a2a;
   color: #ccc;
 }
@@ -1034,6 +1040,21 @@ textarea:focus-visible {
 
 .tool-call-block:not([open]) > summary {
   border-bottom-color: transparent;
+}
+
+.tool-expanded-meta {
+  min-height: 34px;
+  padding: 0 11px 0 13px;
+  display: none;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: #161d26;
+  color: #777;
+  font-size: 10px;
+}
+
+.tool-call-block.tool-has-summary[open] > .tool-expanded-meta {
+  display: flex;
 }
 
 .tool-summary {
@@ -1483,6 +1504,20 @@ textarea:focus-visible {
     max-width: 88%;
   }
 
+  .tool-call-block > summary .tool-name,
+  .tool-call-block > summary .copy-code {
+    display: none;
+  }
+
+  .tool-call-block[open] > .tool-expanded-meta {
+    display: flex;
+  }
+
+  .tool-expanded-meta {
+    min-height: 38px;
+    padding-inline: 12px;
+  }
+
 
   .composer-footer {
     padding-inline: 12px;
@@ -1630,7 +1665,8 @@ textarea:focus-visible {
     background: #f5f8fb;
   }
 
-  .tool-call-block .code-header {
+  .tool-call-block .code-header,
+  .tool-expanded-meta {
     background: #edf3f8;
   }
 
@@ -1646,11 +1682,13 @@ textarea:focus-visible {
     color: #292929;
   }
 
-  .code-header button {
+  .code-header button,
+  .tool-expanded-meta button {
     color: #5f5f5f;
   }
 
-  .code-header button:hover {
+  .code-header button:hover,
+  .tool-expanded-meta button:hover {
     background: #dddddd;
     color: #292929;
   }

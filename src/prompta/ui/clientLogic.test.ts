@@ -5,6 +5,7 @@ import {
   conversationIdFromHash,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
+  messageAgeText,
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
@@ -127,6 +128,14 @@ describe("message timestamps", () => {
 
   test("rejects invalid and out-of-range timestamps without throwing", () => {
     expect(messageTimestampMillis("not-a-date", Number.MAX_VALUE)).toBeNull();
+  });
+
+  test("formats compact elapsed durations for message timestamps", () => {
+    const now = 2_000_000_000_000;
+    expect(messageAgeText(now - 10_000, now)).toBe("now");
+    expect(messageAgeText(now - 4 * 60_000, now)).toBe("4m ago");
+    expect(messageAgeText(now - 3 * 3_600_000, now)).toBe("3h ago");
+    expect(messageAgeText(now - 8 * 86_400_000, now)).toBe("1w ago");
   });
 });
 
