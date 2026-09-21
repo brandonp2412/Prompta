@@ -226,6 +226,45 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         await asyncio.to_thread(perform)
 
+    async def click_send_button(self, timeout: float = 120.0) -> None:
+        """Click ChatGPT's actual send control through ChromeDriver.
+
+        Selenium's element click lets ChromeDriver resolve scrolling and hit-testing
+        against the live element instead of relying on coordinates captured just
+        before the click. ChatGPT can reflow the composer while enabling Send,
+        which made the inherited coordinate click occasionally hit a stale point.
+        """
+
+        selectors = (
+            '[data-testid="send-button"]',
+            'button[aria-label="Send prompt"]',
+            'button[type="submit"]',
+        )
+        deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
+
+        def click_sync() -> bool:
+            driver = self._activate_context_sync(None)
+            for selector in selectors:
+                for element in driver.find_elements(By.CSS_SELECTOR, selector):
+                    try:
+                        if not element.is_displayed() or not element.is_enabled():
+                            continue
+                        if element.get_attribute("aria-disabled") == "true":
+                            continue
+                        element.click()
+                        return True
+                    except WebDriverException:
+                        # ChatGPT can replace the composer controls while React
+                        # commits the editor state. Re-query on the next poll.
+                        continue
+            return False
+
+        while asyncio.get_running_loop().time() < deadline:
+            if await asyncio.to_thread(click_sync):
+                return
+            await asyncio.sleep(0.2)
+        raise RuntimeError("ChatGPT send button did not become enabled")
+
     async def attach_files(self, files: list[str]) -> None:
         paths = [str(Path(path).expanduser().resolve()) for path in files]
         if not paths:
