@@ -13,6 +13,8 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from selenium import webdriver
 from selenium.common.exceptions import (
@@ -433,6 +435,31 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             await asyncio.sleep(0.2)
         raise RuntimeError("ChatGPT attachment upload did not finish within 120s")
 
+    def _close_debugger_targets(self, contexts: set[str]) -> None:
+        if not self.debugger_address or not contexts:
+            return
+        base_url = f"http://{self.debugger_address}"
+        try:
+            with urlopen(f"{base_url}/json/list", timeout=1.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            return
+        target_ids = {
+            str(item.get("id") or "")
+            for item in payload
+            if isinstance(item, dict) and item.get("id")
+        } if isinstance(payload, list) else set()
+        for context in contexts & target_ids:
+            try:
+                request = Request(
+                    f"{base_url}/json/close/{quote(context, safe='')}",
+                    method="PUT",
+                )
+                with urlopen(request, timeout=1.0):
+                    pass
+            except Exception:
+                pass
+
     async def close(self) -> None:
         driver = self._driver
         self._driver = None
@@ -446,16 +473,19 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         if self.debugger_address:
             def detach() -> None:
+                fallback_contexts: set[str] = set()
                 try:
                     handles = set(driver.window_handles)
                 except WebDriverException:
                     handles = set()
+                    fallback_contexts.update(owned_contexts)
                 for context in owned_contexts & handles:
                     try:
                         driver.switch_to.window(context)
                         driver.close()
                     except (NoSuchWindowException, WebDriverException):
-                        pass
+                        fallback_contexts.add(context)
+                self._close_debugger_targets(fallback_contexts)
                 try:
                     driver.service.stop()
                 except Exception:

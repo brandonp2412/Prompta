@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
@@ -121,6 +122,49 @@ async def test_close_detaches_without_quitting_existing_browser() -> None:
     selenium.service.stop.assert_called_once_with()
     selenium.command_executor.close.assert_called_once_with()
     assert driver._owned_contexts == set()
+
+
+def test_debugger_cleanup_closes_only_owned_open_targets() -> None:
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    listing = MagicMock()
+    listing.read.return_value = json.dumps(
+        [{"id": "target"}, {"id": "unowned"}]
+    ).encode()
+    listing.__enter__.return_value = listing
+    closing = MagicMock()
+    closing.__enter__.return_value = closing
+
+    with patch("prompta.chrome.urlopen", side_effect=[listing, closing]) as open_url:
+        driver._close_debugger_targets({"target", "already-gone"})
+
+    assert open_url.call_count == 2
+    assert open_url.call_args_list[0].args[0] == "http://127.0.0.1:9222/json/list"
+    request = open_url.call_args_list[1].args[0]
+    assert request.full_url == "http://127.0.0.1:9222/json/close/target"
+    assert request.get_method() == "PUT"
+
+
+@pytest.mark.asyncio
+async def test_close_uses_debugger_cleanup_when_webdriver_is_unavailable() -> None:
+    selenium = MagicMock()
+    type(selenium).window_handles = PropertyMock(side_effect=WebDriverException("gone"))
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "prompta-tab"
+    driver._owned_contexts.add("prompta-tab")
+
+    with patch.object(driver, "_close_debugger_targets") as close_targets:
+        await driver.close()
+
+    close_targets.assert_called_once_with({"prompta-tab"})
+    selenium.service.stop.assert_called_once_with()
+    selenium.command_executor.close.assert_called_once_with()
 
 
 @pytest.mark.asyncio
