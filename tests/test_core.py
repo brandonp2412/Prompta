@@ -3003,6 +3003,7 @@ def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
     assert args.chrome_profile == profile
     assert args.chrome_path == "/custom/chromium"
     assert args.chromedriver_path == "/custom/chromedriver"
+    assert args.chrome_debugger_address is None
     assert args.chrome_headed is False
     assert args.chrome_auth_timeout_seconds == 30.0
 
