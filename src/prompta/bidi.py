@@ -897,9 +897,25 @@ class FirefoxBiDiDriver:
               const reactToolBlocks=agent=>{
                 const messages=reactMessages(agent);
                 if(!messages.length)return [];
-                const connectorNames=messages.map(message=>
-                  message?.metadata?.jit_plugin_data?.from_server?.body?.connector_name
-                ).filter(Boolean);
+                const parsedText=message=>{
+                  const text=message?.content?.text;
+                  if(typeof text!=='string'||!text.trim())return null;
+                  try{return JSON.parse(text);}catch{return null;}
+                };
+                const resourcePath=message=>String(
+                  message?.metadata?.invoked_resource?.resource_uri||''
+                );
+                const pathAction=path=>String(path||'').split('/').filter(Boolean).at(-1)||'';
+                const pathConnector=path=>{
+                  const parts=String(path||'').split('/').filter(Boolean);
+                  const first=parts[0]||'';
+                  return first&&!/^asdk_app_/i.test(first)&&!/^link_/i.test(first)?first:'';
+                };
+                const connectorNames=messages.flatMap(message=>[
+                  message?.metadata?.jit_plugin_data?.from_server?.body?.connector_name,
+                  message?.metadata?.invoked_resource?.app_name,
+                  pathConnector(resourcePath(message))
+                ]).filter(Boolean);
                 const fallbackConnector=connectorNames.at(-1)||'';
                 const blocks=[],seen=new Set();
                 const add=(name,action,args,status,duration,error)=>{
@@ -915,31 +931,62 @@ class FirefoxBiDiDriver:
                   const key=label+'|'+body;
                   if(!seen.has(key)){seen.add(key);blocks.push(block);}
                 };
-                for(const message of messages){
-                  const text=message?.content?.text;
-                  if(typeof text!=='string'||!text.trim())continue;
-                  let parsed;
-                  try{parsed=JSON.parse(text);}catch{continue;}
-                  if(!parsed||typeof parsed!=='object'||!(
-                    parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
-                  ))continue;
+                const invocations=[];
+                for(const [index,message] of messages.entries()){
+                  const parsed=parsedText(message);
+                  if(!parsed||typeof parsed!=='object')continue;
+                  const path=typeof parsed.path==='string'?parsed.path:'';
+                  const action=parsed.appContext?.actionName
+                    ||(typeof parsed.tool==='string'?parsed.tool.split('.').at(-1):'')
+                    ||pathAction(path);
                   const name=parsed.appContext?.appName
                     ||message?.metadata?.invoked_resource?.app_name
+                    ||pathConnector(path)
                     ||fallbackConnector;
-                  const action=parsed.appContext?.actionName
-                    ||(typeof parsed.tool==='string'?parsed.tool.split('.').at(-1):'');
-                  add(name,action,parsed.arguments,parsed.status,parsed.durationMs,parsed.error);
+                  const args=parsed.arguments??parsed.args;
+                  if(message?.recipient==='api_tool.call_tool'||path){
+                    invocations.push({index,name,action,args,path});
+                  }
+                  if(parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments){
+                    add(name,action,args,parsed.status,parsed.durationMs,parsed.error);
+                  }
                 }
                 if(blocks.length)return blocks;
-                for(const message of messages){
-                  if(message?.recipient!=='api_tool.call_tool')continue;
-                  const payload=message?.metadata?.connector_tool_payload||message?.content?.text;
-                  let parsed;
-                  try{parsed=JSON.parse(payload);}catch{continue;}
-                  const action=typeof parsed?.path==='string'
-                    ?parsed.path.split('/').filter(Boolean).at(-1)
-                    :'';
-                  add(fallbackConnector,action,parsed?.args,'running',null,null);
+
+                let completed=0;
+                for(const [index,message] of messages.entries()){
+                  const path=resourcePath(message);
+                  if(!path)continue;
+                  const action=pathAction(path);
+                  const name=message?.metadata?.invoked_resource?.app_name
+                    ||pathConnector(path)
+                    ||fallbackConnector;
+                  const invocation=[...invocations].reverse().find(candidate=>
+                    candidate.index<index&&(
+                      !action||!candidate.action||candidate.action===action
+                    )
+                  );
+                  add(
+                    name||invocation?.name||'',
+                    action||invocation?.action||'',
+                    invocation?.args,
+                    'completed',
+                    null,
+                    null
+                  );
+                  completed+=1;
+                }
+                if(completed)return blocks;
+
+                for(const invocation of invocations){
+                  add(
+                    invocation.name||fallbackConnector,
+                    invocation.action,
+                    invocation.args,
+                    'running',
+                    null,
+                    null
+                  );
                 }
                 return blocks;
               };

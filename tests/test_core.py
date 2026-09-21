@@ -2906,3 +2906,28 @@ async def test_retained_completed_tool_enrichment_is_not_overwritten_by_firefox_
     driver.close_context.assert_not_awaited()
     prompta.cache.close()
 
+
+def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
+    profile = tmp_path / "chrome-profile"
+    args = _parser().parse_args(
+        [
+            "sync",
+            "existing-chat",
+            "--browser",
+            "chrome",
+            "--direct-browser",
+            "--chrome-profile",
+            str(profile),
+            "--chrome-path",
+            "/custom/chromium",
+            "--chromedriver-path",
+            "/custom/chromedriver",
+        ]
+    )
+
+    assert args.browser == "chrome"
+    assert args.direct_browser is True
+    assert args.chrome_profile == profile
+    assert args.chrome_path == "/custom/chromium"
+    assert args.chromedriver_path == "/custom/chromedriver"
+    assert args.chrome_headed is False

@@ -14,6 +14,7 @@ import re
 import sqlite3
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,15 +25,20 @@ from websockets.exceptions import ConnectionClosed
 
 from .bidi import FirefoxBiDiDriver, wait_for_port
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
+from .chrome import ChromeDriverDriver
 from .chromium import ChromiumToolEnricher, merge_tool_blocks
 
 logger = logging.getLogger(__name__)
+
+BrowserDriver = FirefoxBiDiDriver | ChromeDriverDriver
+DriverFactory = Callable[[], BrowserDriver]
 
 DEFAULT_INTERVAL_SECONDS = 30 * 60
 DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
 DEFAULT_STATE_PATH = Path.home() / ".local" / "state" / "prompta" / "state.json"
 DEFAULT_FIREFOX_PROFILE = Path.home() / ".local" / "state" / "prompta" / "firefox-profile"
 DEFAULT_FIREFOX_PORT = 9229
+DEFAULT_CHROME_PROFILE = Path.home() / ".local" / "state" / "prompta" / "chrome-profile"
 _CONTROL_SOCKET_NAME = "control.sock"
 _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
@@ -228,10 +234,17 @@ class PromptaConfig:
 
 
 class Prompta:
-    def __init__(self, config: PromptaConfig, bidi_url: str) -> None:
+    def __init__(
+        self,
+        config: PromptaConfig,
+        bidi_url: str,
+        *,
+        driver_factory: DriverFactory | None = None,
+    ) -> None:
         self.config = config
         self.bidi_url = bidi_url
-        self.driver: FirefoxBiDiDriver | None = None
+        self._driver_factory = driver_factory
+        self.driver: BrowserDriver | None = None
         cache_path = config.cache_path
         if cache_path is None:
             cache_path = (
@@ -434,16 +447,20 @@ class Prompta:
             return max(0.0, initial_due_at - current)
         return 0.0
 
-    async def _ensure_driver(self) -> FirefoxBiDiDriver:
+    async def _ensure_driver(self) -> BrowserDriver:
         if self.driver is None:
-            self.driver = FirefoxBiDiDriver(self.bidi_url)
+            self.driver = (
+                self._driver_factory()
+                if self._driver_factory is not None
+                else FirefoxBiDiDriver(self.bidi_url)
+            )
         if not self.driver.is_connected:
             await self.driver.connect()
         return self.driver
 
     async def _ensure_conversation_route(
         self,
-        driver: FirefoxBiDiDriver,
+        driver: BrowserDriver,
         expected_path: str,
         *,
         context: str | None = None,
@@ -476,12 +493,12 @@ class Prompta:
                 f"ChatGPT opened unexpected conversation path {path!r}; expected {expected!r}"
             )
 
-    async def _pointer_click(self, driver: FirefoxBiDiDriver, x: float, y: float) -> None:
+    async def _pointer_click(self, driver: BrowserDriver, x: float, y: float) -> None:
         await driver._click_viewport_point(driver.context, x, y)
 
     async def _effort_trigger_info(
         self,
-        driver: FirefoxBiDiDriver,
+        driver: BrowserDriver,
         *,
         timeout: float = _EFFORT_CONTROL_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
@@ -518,7 +535,7 @@ class Prompta:
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT thinking-effort control did not become available")
 
-    async def _high_effort_slider_point(self, driver: FirefoxBiDiDriver) -> dict[str, float]:
+    async def _high_effort_slider_point(self, driver: BrowserDriver) -> dict[str, float]:
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
             raw = await driver.eval(
@@ -553,7 +570,7 @@ class Prompta:
             await asyncio.sleep(0.1)
         raise RuntimeError("ChatGPT thinking-effort slider did not open")
 
-    async def _ensure_high_effort(self, driver: FirefoxBiDiDriver) -> None:
+    async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
         trigger = await self._effort_trigger_info(driver)
         if str(trigger.get("text") or "").strip().casefold() == "high":
             logger.info("Prompta verified thinking effort=High")
@@ -2675,9 +2692,54 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS)
     parser.add_argument("--bidi-url")
+    parser.add_argument(
+        "--direct-browser",
+        action="store_true",
+        help="Bypass a running Prompta daemon and use this command's browser backend directly",
+    )
+    parser.add_argument(
+        "--browser",
+        choices=("firefox", "chrome"),
+        default=os.environ.get("PROMPTA_BROWSER", "firefox"),
+    )
     parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
     parser.add_argument("--firefox-path", default="/usr/bin/firefox")
     parser.add_argument("--firefox-port", type=int, default=DEFAULT_FIREFOX_PORT)
+    parser.add_argument(
+        "--chrome-profile",
+        type=Path,
+        default=Path(os.environ.get("PROMPTA_CHROME_PROFILE", str(DEFAULT_CHROME_PROFILE))),
+    )
+    parser.add_argument(
+        "--chrome-path",
+        default=os.environ.get("PROMPTA_CHROME_PATH", "/usr/bin/chromium"),
+    )
+    parser.add_argument(
+        "--chromedriver-path",
+        default=os.environ.get("PROMPTA_CHROMEDRIVER_PATH", "/usr/bin/chromedriver"),
+    )
+    parser.add_argument(
+        "--chrome-headed",
+        action="store_true",
+        help="Run Chromium with a visible window (useful for the first ChatGPT login)",
+    )
+
+
+def _chrome_driver_factory(args: argparse.Namespace) -> DriverFactory:
+    profile = args.chrome_profile.expanduser().resolve()
+    chrome_path = str(args.chrome_path)
+    chromedriver_path = str(args.chromedriver_path)
+    headless = not bool(args.chrome_headed)
+
+    def factory() -> BrowserDriver:
+        return ChromeDriverDriver(
+            profile=profile,
+            chrome_path=chrome_path,
+            chromedriver_path=chromedriver_path,
+            headless=headless,
+        )
+
+    return factory
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -2744,7 +2806,7 @@ def _parser() -> argparse.ArgumentParser:
 async def _run(args: argparse.Namespace) -> None:
     if args.command == "once":
         _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
-        if not args.bidi_url and _daemon_is_running(args.state):
+        if not args.direct_browser and not args.bidi_url and _daemon_is_running(args.state):
             conversation_id = await _send_once_via_control(args.state, args.prompt)
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
             _print_notice("…", "Waiting", "assistant response", tone="36")
@@ -2753,7 +2815,7 @@ async def _run(args: argparse.Namespace) -> None:
             return
     elif args.command == "reply":
         _print_notice("◆", "Reply", _prompt_preview(args.prompt, 72))
-        if not args.bidi_url and _daemon_is_running(args.state):
+        if not args.direct_browser and not args.bidi_url and _daemon_is_running(args.state):
             conversation_id = await _send_reply_via_control(
                 args.state,
                 args.conversation_id,
@@ -2762,7 +2824,7 @@ async def _run(args: argparse.Namespace) -> None:
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
             return
     elif args.command == "sync":
-        if not args.bidi_url and _daemon_is_running(args.state):
+        if not args.direct_browser and not args.bidi_url and _daemon_is_running(args.state):
             message_count = await _sync_via_control(args.state, args.conversation_id)
             _print_notice(
                 "✓",
@@ -2782,13 +2844,18 @@ async def _run(args: argparse.Namespace) -> None:
         daemon_lock = _acquire_daemon_lock(args.state)
 
     try:
+        driver_factory: DriverFactory | None = None
+        using_firefox = bool(args.bidi_url) or args.browser == "firefox"
         if args.bidi_url:
             bidi_url = args.bidi_url
-        else:
+        elif using_firefox:
             firefox = await _spawn_firefox(
                 args.firefox_profile, args.firefox_path, args.firefox_port
             )
             bidi_url = f"ws://127.0.0.1:{args.firefox_port}/session"
+        else:
+            bidi_url = ""
+            driver_factory = _chrome_driver_factory(args)
 
         prompta = Prompta(
             PromptaConfig(
@@ -2798,13 +2865,14 @@ async def _run(args: argparse.Namespace) -> None:
                 send_timeout_seconds=max(1.0, args.send_timeout_seconds),
             ),
             bidi_url,
+            driver_factory=driver_factory,
         )
         if args.command == "run":
             # Publish the control socket before browser/cache recovery. The daemon lock is
             # already held at this point, so UI sends otherwise see a running scheduler
             # but can race a potentially slow recovery and fail before the socket exists.
             control_server, control_path = await _start_control_server(prompta, args.state)
-            if not args.bidi_url and firefox is None:
+            if using_firefox and not args.bidi_url and firefox is None:
                 firefox = await _recover_disappeared_reused_firefox(
                     prompta,
                     args.firefox_profile,
@@ -2817,7 +2885,12 @@ async def _run(args: argparse.Namespace) -> None:
                     "Prompta recovered %d live conversation(s) after restart", recovered
                 )
 
-        if args.command != "run" and not args.bidi_url and firefox is None:
+        if (
+            args.command != "run"
+            and using_firefox
+            and not args.bidi_url
+            and firefox is None
+        ):
             firefox = await _recover_disappeared_reused_firefox(
                 prompta,
                 args.firefox_profile,
