@@ -55,6 +55,7 @@ const state = {
   selectedRequestId: 0,
   selectedChat: null,
   selectedVisibleMessageCount: 0,
+  renderedConversationId: "",
   optimisticSequence: 0,
   serverName: "",
   serverOnline: null,
@@ -799,15 +800,20 @@ function patchDomNode(current, next) {
     return current;
   }
   if (current.nodeType !== Node.ELEMENT_NODE) return current;
+  const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
+  const detailsOpen = preserveDetailsOpen ? (current as HTMLDetailsElement).open : false;
   for (const attribute of Array.from(current.attributes as NamedNodeMap) as Attr[]) {
+    if (preserveDetailsOpen && attribute.name === "open") continue;
     if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
   }
   for (const attribute of Array.from(next.attributes as NamedNodeMap) as Attr[]) {
+    if (preserveDetailsOpen && attribute.name === "open") continue;
     if (current.getAttribute(attribute.name) !== attribute.value) {
       current.setAttribute(attribute.name, attribute.value);
     }
   }
   patchDomChildren(current, next);
+  if (preserveDetailsOpen) (current as HTMLDetailsElement).open = detailsOpen;
   return current;
 }
 function patchDomChildren(currentParent, nextParent) {
@@ -945,6 +951,49 @@ function renderMessageNodes(messages, allowStreaming) {
     if (!desiredKeys.has(node.dataset.messageKey)) node.remove();
   }
 }
+const CONVERSATION_BOTTOM_SLOP = 24;
+function captureConversationViewport() {
+  const maxScrollTop = Math.max(0, els.viewport.scrollHeight - els.viewport.clientHeight);
+  const bottomGap = Math.max(0, maxScrollTop - els.viewport.scrollTop);
+  const pinnedToBottom = bottomGap <= CONVERSATION_BOTTOM_SLOP;
+  const snapshot = {
+    pinnedToBottom,
+    scrollTop: els.viewport.scrollTop,
+    anchorKey: "",
+    anchorOffset: 0,
+  };
+  if (pinnedToBottom) return snapshot;
+
+  const viewportTop = els.viewport.getBoundingClientRect().top;
+  for (const node of Array.from(els.conversation.children) as HTMLElement[]) {
+    const rect = node.getBoundingClientRect();
+    if (rect.bottom <= viewportTop + 1) continue;
+    snapshot.anchorKey = String(node.dataset.messageKey || "");
+    snapshot.anchorOffset = rect.top - viewportTop;
+    break;
+  }
+  return snapshot;
+}
+function restoreConversationViewport(snapshot, forceBottom = false) {
+  if (forceBottom || snapshot.pinnedToBottom) {
+    els.viewport.scrollTop = els.viewport.scrollHeight;
+    return;
+  }
+  if (snapshot.anchorKey) {
+    const anchor = Array.from(els.conversation.children)
+      .find((node) => (node as HTMLElement).dataset.messageKey === snapshot.anchorKey) as HTMLElement | undefined;
+    if (anchor) {
+      const viewportTop = els.viewport.getBoundingClientRect().top;
+      const nextOffset = anchor.getBoundingClientRect().top - viewportTop;
+      const delta = nextOffset - snapshot.anchorOffset;
+      if (Math.abs(delta) > 0.5) els.viewport.scrollTop += delta;
+      return;
+    }
+  }
+  const maxScrollTop = Math.max(0, els.viewport.scrollHeight - els.viewport.clientHeight);
+  els.viewport.scrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
+}
+
 function pendingReplyMessages(conversationId, cachedMessages) {
   const pending = state.pendingReplies.get(conversationId) || [];
   const claimedCachedIndexes = new Set<number>();
@@ -1078,16 +1127,13 @@ function renderConversation(chat) {
       messageNodeFingerprint(message, allowStreaming),
     ]),
   ]);
-  const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
-  const isInitial = state.selectedFingerprint === "";
   if (fingerprint !== state.selectedFingerprint) {
+    const viewportSnapshot = captureConversationViewport();
+    const isInitial = state.renderedConversationId !== chat.id;
     state.selectedFingerprint = fingerprint;
     renderMessageNodes(visibleMessages, allowStreaming);
-    if (isInitial || wasNearBottom) {
-      requestAnimationFrame(() => {
-        els.viewport.scrollTop = els.viewport.scrollHeight;
-      });
-    }
+    state.renderedConversationId = chat.id;
+    restoreConversationViewport(viewportSnapshot, isInitial);
   }
   renderConversationMeta(chat, visibleMessages.length);
   setHiddenIfChanged(els.emptyState, true);
@@ -1192,6 +1238,7 @@ function clearConversation() {
   state.selectedFingerprint = "";
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
+  state.renderedConversationId = "";
   els.emptyState.hidden = false;
   els.conversation.hidden = true;
   els.conversation.innerHTML = "";
@@ -1213,6 +1260,7 @@ function renderNewChat() {
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
   state.selectedChat = null;
+  state.renderedConversationId = "";
   state.mode = "chats";
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "succeeded"].includes(pending.status);
