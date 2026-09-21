@@ -151,9 +151,24 @@ export function pendingSendActivity(
   nowEpoch: unknown = Date.now() / 1000,
 ): PendingSendActivity | null {
   const normalized = String(status || "queued").trim().toLowerCase();
-  if (normalized === "failed") return null;
+  if (["failed", "dead_lettered"].includes(normalized)) return null;
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
+  if (normalized === "retrying") {
+    const deadline = Number(retryAtEpoch);
+    const now = Number(nowEpoch);
+    const remaining = Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now)
+      ? Math.max(0, deadline - now)
+      : Number(retryAfterSeconds);
+    if (remaining <= 0) {
+      return { label: "retrying now", statusText: "Retry backoff elapsed; retrying now…" };
+    }
+    const delay = retryDelayText(remaining);
+    return {
+      label: `retrying · ${delay}`,
+      statusText: `Send failed transiently — retrying automatically in ${delay}.`,
+    };
+  }
   if (normalized === "rate_limited") {
     const deadline = Number(retryAtEpoch);
     const now = Number(nowEpoch);
@@ -225,6 +240,20 @@ export function toolCallSummary(value: unknown): string {
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
   return "";
+}
+
+export function toolCallTimestampMillis(value: unknown): number | null {
+  const payload = parsedToolPayload(value);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  for (const candidate of [record.created_at, record.createdAt, record.timestamp, record.time]) {
+    const numeric = Number(candidate);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    const millis = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+    if (Number.isNaN(new Date(millis).getTime())) continue;
+    return millis;
+  }
+  return null;
 }
 
 export function pythonToolCallCode(toolName: unknown, value: unknown): string {

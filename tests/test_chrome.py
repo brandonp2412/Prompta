@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -7,8 +10,44 @@ from unittest.mock import MagicMock, patch
 import pytest
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver.common.by import By
+from urllib3.connectionpool import HTTPConnectionPool
+from urllib3.exceptions import ReadTimeoutError
 
-from prompta.chrome import ChromeDriverDriver
+from prompta.chrome import ChromeDriverDriver, _PromptaChrome
+
+
+def test_prompta_chrome_applies_timeout_before_start_session() -> None:
+    service = MagicMock()
+    service.service_url = "http://127.0.0.1:4444"
+    options = MagicMock()
+    options._ignore_local_proxy = True
+    executor = MagicMock()
+    client_config = MagicMock()
+
+    with (
+        patch("prompta.chrome.ClientConfig", return_value=client_config) as config_type,
+        patch(
+            "prompta.chrome.ChromiumRemoteConnection", return_value=executor
+        ) as connection_type,
+        patch("prompta.chrome.RemoteWebDriver.__init__", return_value=None) as remote_init,
+    ):
+        driver = _PromptaChrome(service=service, options=options)
+
+    service.start.assert_called_once_with()
+    config_type.assert_called_once_with(
+        remote_server_addr=service.service_url, keep_alive=True, timeout=30.0
+    )
+    connection_type.assert_called_once_with(
+        remote_server_addr=service.service_url,
+        browser_name="chrome",
+        vendor_prefix="goog",
+        keep_alive=True,
+        ignore_proxy=True,
+        client_config=client_config,
+    )
+    remote_init.assert_called_once_with(
+        driver, command_executor=executor, options=options
+    )
 
 
 def test_create_driver_uses_dedicated_profile_and_chromedriver(tmp_path: Path) -> None:
@@ -17,7 +56,7 @@ def test_create_driver_uses_dedicated_profile_and_chromedriver(tmp_path: Path) -
 
     with (
         patch("prompta.chrome.Service") as service_type,
-        patch("prompta.chrome.webdriver.Chrome", return_value=fake_driver) as chrome_type,
+        patch("prompta.chrome._PromptaChrome", return_value=fake_driver) as chrome_type,
     ):
         driver = ChromeDriverDriver(
             profile=profile,
@@ -28,6 +67,7 @@ def test_create_driver_uses_dedicated_profile_and_chromedriver(tmp_path: Path) -
         created = driver._create_driver()
 
     assert created is fake_driver
+    assert fake_driver.command_executor._client_config.timeout == 30.0
     service_type.assert_called_once_with(executable_path="/custom/chromedriver")
     options = chrome_type.call_args.kwargs["options"]
     assert options.binary_location == "/custom/chromium"
@@ -43,7 +83,7 @@ def test_create_driver_attaches_to_existing_browser_without_profile_args(tmp_pat
 
     with (
         patch("prompta.chrome.Service") as service_type,
-        patch("prompta.chrome.webdriver.Chrome", return_value=fake_driver) as chrome_type,
+        patch("prompta.chrome._PromptaChrome", return_value=fake_driver) as chrome_type,
     ):
         driver = ChromeDriverDriver(
             profile=profile,
@@ -275,3 +315,63 @@ async def test_click_send_button_does_not_use_unscoped_generic_submit() -> None:
 
     queried = [call.args[1] for call in selenium.find_elements.call_args_list]
     assert 'button[type="submit"]' not in queried
+
+
+@pytest.mark.asyncio
+async def test_new_tab_marks_crashed_chromedriver_for_restart() -> None:
+    selenium = MagicMock()
+    selenium.switch_to.new_window.side_effect = WebDriverException("tab crashed")
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    with pytest.raises(RuntimeError, match="browser restart required"):
+        await driver.new_tab()
+
+    assert driver.needs_browser_restart is True
+    assert driver.is_connected is False
+
+
+@pytest.mark.asyncio
+async def test_eval_marks_chromedriver_transport_timeout_for_restart() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+    selenium.execute_script.side_effect = ReadTimeoutError(
+        HTTPConnectionPool("127.0.0.1", 4444), "http://127.0.0.1:4444", "timed out"
+    )
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    with pytest.raises(RuntimeError, match="browser restart required"):
+        await driver.eval("location.pathname")
+
+    assert driver.needs_browser_restart is True
+
+
+@pytest.mark.asyncio
+async def test_eval_serializes_chromedriver_commands() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+    active = 0
+    peak = 0
+    guard = threading.Lock()
+
+    def execute_script(script: str) -> str:
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.02)
+        with guard:
+            active -= 1
+        return script
+
+    selenium.execute_script.side_effect = execute_script
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    await asyncio.gather(driver.eval("1"), driver.eval("2"))
+
+    assert peak == 1

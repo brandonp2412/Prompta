@@ -134,7 +134,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       ||message?.metadata?.reasoning_titles?.at?.(-1)
       ||''
     ).trim();
-    const add=(name,action,summary,args,status,duration,error)=>{
+    const add=(name,action,summary,args,status,duration,error,createdAt)=>{
       const label=[name,action].filter(Boolean).join(' · ')||'tool';
       const detail={};
       if(summary)detail.summary=summary;
@@ -143,6 +143,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       if(status)detail.status=status;
       if(Number.isFinite(duration))detail.duration_ms=duration;
       if(error)detail.error=typeof error==='string'?error:JSON.stringify(error);
+      if(Number.isFinite(Number(createdAt))&&Number(createdAt)>0)detail.created_at=Number(createdAt);
       const body=Object.keys(detail).length?JSON.stringify(detail,null,2):'Called tool';
       const block='```tool:'+label+'\\n'+body+'\\n```';
       blocks.push(block);
@@ -162,13 +163,13 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       const args=parsed.arguments??parsed.args;
       const summary=reasoningTitle(message);
       if(message?.recipient==='api_tool.call_tool'||path){
-        invocations.push({index,name,action,args,path,summary});
+        invocations.push({index,name,action,args,path,summary,createdAt:Number(message?.create_time)});
       }
       if(parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments){
         const prior=[...invocations].reverse().find(candidate=>
           candidate.index<=index&&(!action||!candidate.action||candidate.action===action)
         );
-        add(name,action,summary||prior?.summary||'',args,parsed.status,parsed.durationMs,parsed.error);
+        add(name,action,summary||prior?.summary||'',args,parsed.status,parsed.durationMs,parsed.error,Number(message?.create_time)||prior?.createdAt);
       }
     }
     if(blocks.length)return blocks;
@@ -193,7 +194,8 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         invocation?.args,
         'completed',
         null,
-        null
+        null,
+        Number(message?.create_time)||invocation?.createdAt
       );
       completed+=1;
     }
@@ -207,7 +209,8 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         invocation.args,
         'running',
         null,
-        null
+        null,
+        invocation.createdAt
       );
     }
     return blocks;
@@ -284,7 +287,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
       )
     ));
-    const parts=[];
+    const parts=[],finalTextParts=[];
     let toolIndex=0;
     for(const [index,message] of messages.entries()){
       const role=String(message?.author?.role||message?.role||'');
@@ -298,7 +301,10 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
           ?content.parts.filter(part=>typeof part==='string'&&part.trim())
           :[];
         const visibleText=(textParts.length?textParts.join('\\n'):String(content?.text||'')).trim();
-        if(visibleText)parts.push(visibleText);
+        if(visibleText){
+          if(message?.end_turn===true)finalTextParts.push(visibleText);
+          else parts.push(visibleText);
+        }
       }
       const parsed=parsedByIndex[index];
       const path=parsed&&typeof parsed==='object'&&typeof parsed.path==='string'
@@ -313,6 +319,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       }
     }
     if(toolIndex<tools.length)parts.push(...tools.slice(toolIndex));
+    if(finalTextParts.length)parts.push(...finalTextParts);
     return collapseStreamingTextParts(parts).join('\\n\\n').trim();
   };
   const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];

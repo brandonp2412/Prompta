@@ -361,6 +361,15 @@ export function createConversationRenderer({ onRetry }) {
       if (!desiredKeys.has(node.dataset.messageKey)) node.remove();
     }
   }
+  function renderLoadingState() {
+    conversation.innerHTML = `
+      <div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation">
+        <div class="conversation-loading-row conversation-loading-user"></div>
+        <div class="conversation-loading-row conversation-loading-assistant"></div>
+        <div class="conversation-loading-row conversation-loading-assistant short"></div>
+      </div>`;
+  }
+
   const CONVERSATION_BOTTOM_SLOP = 24;
   function captureConversationViewport() {
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
@@ -406,6 +415,7 @@ export function createConversationRenderer({ onRetry }) {
 
   return {
     renderMessageNodes,
+    renderLoadingState,
     messageNodeFingerprint,
     captureConversationViewport,
     restoreConversationViewport,

@@ -26,6 +26,7 @@ import {
   toolCallHasUsefulDetail,
   toolCallIsInvocationPlaceholder,
   toolCallSummary,
+  toolCallTimestampMillis,
 } from "./clientLogic";
 
 describe("conversation hash parsing", () => {
@@ -317,8 +318,13 @@ describe("pending send activity", () => {
     });
   });
 
-  test("stops the activity indicator for an explicit failure", () => {
+  test("shows transient retry backoff and stops on terminal queue failures", () => {
+    expect(pendingSendActivity("retrying", true, 4, 1_004, 1_000)).toEqual({
+      label: "retrying · <1m",
+      statusText: "Send failed transiently — retrying automatically in <1m.",
+    });
     expect(pendingSendActivity("failed", true)).toBeNull();
+    expect(pendingSendActivity("dead_lettered", true)).toBeNull();
   });
 });
 
@@ -650,6 +656,13 @@ describe("tool call display cleanup", () => {
       arguments: { pageId: 5 },
     }))).toBe("Inspecting Tool Call Ordering in ChatGPT DOM");
     expect(toolCallSummary(JSON.stringify({ arguments: { pageId: 5 } }))).toBe("");
+  });
+
+  test("extracts tool call timestamps in seconds or milliseconds", () => {
+    expect(toolCallTimestampMillis(JSON.stringify({ created_at: 1_700_000_000 }))).toBe(1_700_000_000_000);
+    expect(toolCallTimestampMillis(JSON.stringify({ timestamp: 1_700_000_000_123 }))).toBe(1_700_000_000_123);
+    expect(toolCallTimestampMillis(JSON.stringify({ created_at: 1e30 }))).toBeNull();
+    expect(toolCallTimestampMillis(JSON.stringify({ arguments: { pageId: 5 } }))).toBeNull();
   });
 
   test("extracts only Python source from Nox and Glass MCP tool payloads", () => {

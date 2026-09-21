@@ -53,6 +53,27 @@ export class RecentChatCache {
     void this.persist(chat);
   }
 
+  async warm() {
+    const database = await this.database();
+    if (!database) return [];
+    const records = await new Promise<CachedChatRecord[]>((resolve) => {
+      const transaction = database.transaction(STORE_NAME, "readonly");
+      const request = transaction.objectStore(STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([]);
+    });
+    const chats = records
+      .filter((record) => record.scope === this.scope && record.chat)
+      .sort((left, right) => right.accessedAt - left.accessedAt)
+      .slice(0, this.limit)
+      .map((record) => record.chat);
+    for (const chat of chats) {
+      const conversationId = String(chat?.id || "");
+      if (conversationId) this.rememberMemory(conversationId, chat);
+    }
+    return chats;
+  }
+
   async remove(conversationId: string) {
     this.memory.delete(conversationId);
     const database = await this.database();

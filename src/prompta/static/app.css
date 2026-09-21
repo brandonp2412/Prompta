@@ -883,6 +883,42 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--panel) 78%, var(--text) 8%);
 }
 
+.conversation-loading {
+  display: grid;
+  gap: 18px;
+  width: min(760px, calc(100% - 32px));
+  margin: 22px auto;
+  padding: 8px 0 28px;
+}
+
+.conversation-loading-row {
+  width: min(72%, 520px);
+  height: 58px;
+  border-radius: 18px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--panel) 90%, var(--text) 2%) 0%,
+    color-mix(in srgb, var(--panel) 75%, var(--text) 8%) 50%,
+    color-mix(in srgb, var(--panel) 90%, var(--text) 2%) 100%
+  );
+  background-size: 200% 100%;
+  animation: conversation-loading-pulse 1.25s ease-in-out infinite;
+}
+
+.conversation-loading-user {
+  justify-self: end;
+  width: min(54%, 390px);
+}
+
+.conversation-loading-assistant.short {
+  width: min(46%, 330px);
+}
+
+@keyframes conversation-loading-pulse {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
 .message-timestamp {
   display: block;
   margin-top: 7px;
@@ -1144,11 +1180,6 @@ textarea:focus-visible {
   border-bottom: 0;
 }
 
-.tool-call-block:not([open]) > summary > * {
-  position: relative;
-  top: 1px;
-}
-
 .tool-expanded-meta {
   min-height: 34px;
   padding: 0 11px 0 13px;
@@ -1172,6 +1203,17 @@ textarea:focus-visible {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-time {
+  margin-left: auto;
+  color: #7f8997;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tool-time + .copy-code {
+  margin-left: 8px;
 }
 
 .tool-name {
@@ -1888,14 +1930,95 @@ textarea:focus-visible {
 }
 
 @media (max-width: 600px) {
-  .jobs-dialog {
-    width: calc(100vw - 12px);
-    max-height: calc(var(--app-height, 100vh) - 12px);
+  .jobs-dialog[data-presentation="stack"] {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: var(--app-height, 100dvh);
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: none;
+  }
+
+  .jobs-dialog[data-presentation="stack"]::backdrop {
+    display: none;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-dialog-shell {
+    display: block;
+    height: 100%;
+    max-height: none;
+    padding: 0 16px calc(22px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-dialog-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    min-height: 64px;
+    margin: 0 -16px 14px;
+    padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(18px);
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-dialog-header p {
+    display: none;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-icon-button {
+    order: -1;
+    width: 40px;
+    height: 40px;
+    margin-left: -8px;
+    border: 0;
+    background: transparent;
+    font-size: 0;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-icon-button::before {
+    content: "←";
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-dialog-status {
+    margin: 0 0 12px;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-list {
+    gap: 12px;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .job-row {
+    padding: 15px;
     border-radius: 16px;
   }
 
-  .jobs-dialog-shell {
-    padding: 16px;
+  .jobs-dialog[data-presentation="stack"] .jobs-form {
+    margin-top: 22px;
+    padding-top: 20px;
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-form-actions {
+    position: sticky;
+    bottom: 0;
+    margin: 0 -16px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(18px);
+  }
+
+  .jobs-dialog[data-presentation="stack"] .jobs-primary-button {
+    flex: 1;
   }
 
   .jobs-form-grid {

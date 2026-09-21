@@ -62,12 +62,25 @@ function retryDelayText(seconds) {
 }
 function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1000) {
   const normalized = String(status || "queued").trim().toLowerCase();
-  if (normalized === "failed")
+  if (["failed", "dead_lettered"].includes(normalized))
     return null;
   if (!hasSendId)
     return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued")
     return { label: "queued", statusText: "Queued in Prompta…" };
+  if (normalized === "retrying") {
+    const deadline = Number(retryAtEpoch);
+    const now = Number(nowEpoch);
+    const remaining = Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now) ? Math.max(0, deadline - now) : Number(retryAfterSeconds);
+    if (remaining <= 0) {
+      return { label: "retrying now", statusText: "Retry backoff elapsed; retrying now…" };
+    }
+    const delay = retryDelayText(remaining);
+    return {
+      label: `retrying · ${delay}`,
+      statusText: `Send failed transiently — retrying automatically in ${delay}.`
+    };
+  }
   if (normalized === "rate_limited") {
     const deadline = Number(retryAtEpoch);
     const now = Number(nowEpoch);
@@ -134,6 +147,22 @@ function toolCallSummary(value) {
       return candidate.trim();
   }
   return "";
+}
+function toolCallTimestampMillis(value) {
+  const payload = parsedToolPayload(value);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return null;
+  const record = payload;
+  for (const candidate of [record.created_at, record.createdAt, record.timestamp, record.time]) {
+    const numeric = Number(candidate);
+    if (!Number.isFinite(numeric) || numeric <= 0)
+      continue;
+    const millis = numeric > 1000000000000 ? numeric : numeric * 1000;
+    if (Number.isNaN(new Date(millis).getTime()))
+      continue;
+    return millis;
+  }
+  return null;
 }
 function pythonToolCallCode(toolName, value) {
   const name = String(toolName || "").trim().toLowerCase();
@@ -449,6 +478,24 @@ class RecentChatCache {
     this.rememberMemory(conversationId, chat);
     this.persist(chat);
   }
+  async warm() {
+    const database = await this.database();
+    if (!database)
+      return [];
+    const records = await new Promise((resolve) => {
+      const transaction = database.transaction(STORE_NAME, "readonly");
+      const request = transaction.objectStore(STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([]);
+    });
+    const chats = records.filter((record) => record.scope === this.scope && record.chat).sort((left, right) => right.accessedAt - left.accessedAt).slice(0, this.limit).map((record) => record.chat);
+    for (const chat of chats) {
+      const conversationId = String(chat?.id || "");
+      if (conversationId)
+        this.rememberMemory(conversationId, chat);
+    }
+    return chats;
+  }
   async remove(conversationId) {
     this.memory.delete(conversationId);
     const database = await this.database();
@@ -612,6 +659,13 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
     slashMenu: requiredElement("#slashMenu")
   };
   let scheduledJobs = [];
+  const mobileJobsScreen = window.matchMedia("(max-width: 600px)");
+  const appShell = document.querySelector(".app-shell");
+  function closeJobsView() {
+    if (!els.jobsDialog.open)
+      return;
+    els.jobsDialog.close();
+  }
   function resetJobForm() {
     els.jobsForm.reset();
     setTextIfChanged(els.jobsFormTitle, "Add job");
@@ -691,18 +745,33 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
       syncSendButton();
     }
     resetJobForm();
-    if (!els.jobsDialog.open)
-      els.jobsDialog.showModal();
+    if (!els.jobsDialog.open) {
+      const stacked = mobileJobsScreen.matches;
+      els.jobsDialog.dataset.presentation = stacked ? "stack" : "modal";
+      if (stacked) {
+        els.jobsDialog.show();
+        if (appShell)
+          appShell.inert = true;
+      } else {
+        els.jobsDialog.showModal();
+      }
+    }
     await loadJobs();
   }
   els.jobsSidebarButton.addEventListener("click", async () => {
     closeSidebar();
     await open();
   });
-  els.closeJobsDialog.addEventListener("click", () => els.jobsDialog.close());
+  els.closeJobsDialog.addEventListener("click", closeJobsView);
   els.jobsDialog.addEventListener("click", (event) => {
-    if (event.target === els.jobsDialog)
-      els.jobsDialog.close();
+    if (event.target === els.jobsDialog && els.jobsDialog.dataset.presentation !== "stack") {
+      closeJobsView();
+    }
+  });
+  els.jobsDialog.addEventListener("close", () => {
+    if (appShell)
+      appShell.inert = false;
+    delete els.jobsDialog.dataset.presentation;
   });
   els.jobScheduleType.addEventListener("change", syncJobScheduleFields);
   els.resetJobForm.addEventListener("click", resetJobForm);
@@ -756,8 +825,7 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
       resetJobForm();
   });
   function close() {
-    if (els.jobsDialog.open)
-      els.jobsDialog.close();
+    closeJobsView();
   }
   return { open, close };
 }
@@ -1234,6 +1302,9 @@ function renderCodeBlock(code, language) {
     return "";
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
   const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
+  const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
+  const toolTimeText = toolTimestamp === null ? "" : new Date(toolTimestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const toolTime = toolTimestamp === null ? "" : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml2(toolTimeText)}</time>`;
   const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode ? "python" : toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
   const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
@@ -1250,6 +1321,7 @@ function renderCodeBlock(code, language) {
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml2(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml2(toolName)}</span>` : ""}
+        ${toolTime}
         ${copyButton}
       </div>`;
     return `
@@ -1654,6 +1726,14 @@ function createConversationRenderer({ onRetry }) {
         node.remove();
     }
   }
+  function renderLoadingState() {
+    conversation.innerHTML = `
+      <div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation">
+        <div class="conversation-loading-row conversation-loading-user"></div>
+        <div class="conversation-loading-row conversation-loading-assistant"></div>
+        <div class="conversation-loading-row conversation-loading-assistant short"></div>
+      </div>`;
+  }
   const CONVERSATION_BOTTOM_SLOP = 24;
   function captureConversationViewport() {
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
@@ -1699,6 +1779,7 @@ function createConversationRenderer({ onRetry }) {
   }
   return {
     renderMessageNodes,
+    renderLoadingState,
     messageNodeFingerprint,
     captureConversationViewport,
     restoreConversationViewport
@@ -2492,7 +2573,7 @@ function setConversationHeading(title, meta) {
 var SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 var STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
 function syncSendButton() {
-  const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "succeeded"].includes(state.pendingNewSend.status);
+  const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "dead_lettered", "succeeded"].includes(state.pendingNewSend.status);
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
@@ -2612,7 +2693,9 @@ var iconStatusClasses = new Set([
   "interrupted",
   "queued",
   "pending",
+  "retrying",
   "failed",
+  "dead_lettered",
   "live",
   "journal",
   "new",
@@ -2647,7 +2730,7 @@ function sidebarChats() {
     const latest = pending[pending.length - 1];
     return {
       ...chat,
-      status: latest.status === "failed" ? chat.status : "active",
+      status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
       preview: latest.message,
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
       _optimisticReply: true
@@ -2666,7 +2749,7 @@ function sidebarChats() {
   const pendingId = pendingConversationDisplayId(pending);
   const optimistic = {
     id: pendingId,
-    status: pending.status === "failed" ? "failed" : "active",
+    status: ["failed", "dead_lettered"].includes(pending.status) ? pending.status : "active",
     title: truncate2(pending.message, 72) || "New chat",
     preview: pending.message,
     message_count: 1,
@@ -2830,7 +2913,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         pending_activity: true,
         pending_activity_label: activity.label
       });
-    } else if (item.status === "failed") {
+    } else if (["failed", "dead_lettered"].includes(item.status)) {
       messages.push({
         message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
@@ -2986,7 +3069,7 @@ function renderNewChat() {
   state.mode = "chats";
   syncComposerDraftTarget();
   const pending = state.pendingNewSend;
-  const waiting = pending && !["failed", "succeeded"].includes(pending.status);
+  const waiting = pending && !["failed", "dead_lettered", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
     pending?.sendId || "",
     pending?.message || "",
@@ -3025,7 +3108,7 @@ function renderNewChat() {
           pending_activity: true,
           pending_activity_label: activity.label
         });
-      } else if (pending.status === "failed") {
+      } else if (["failed", "dead_lettered"].includes(pending.status)) {
         messages.push({
           message_key: `pending-error-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -3055,7 +3138,7 @@ function renderNewChat() {
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
     const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt) : null;
-    setTextIfChanged4(els.composerStatus, pending ? pending.status === "failed" ? "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "Your first message will open a fresh ChatGPT chat.");
+    setTextIfChanged4(els.composerStatus, pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "Your first message will open a fresh ChatGPT chat.");
   }
   updateComposerActionButton();
   if (enteringNewChat) {
@@ -3083,6 +3166,36 @@ async function fetchJson2(url, timeoutMs = 1e4) {
   } finally {
     window.clearTimeout(timeout);
   }
+}
+async function hydrateRecentChatCache() {
+  const cachedChats = await recentChatCache.warm();
+  if (!cachedChats.length || state.search)
+    return false;
+  const unique = new Map;
+  for (const chat of cachedChats) {
+    if (chat?.id && !unique.has(chat.id))
+      unique.set(chat.id, chat);
+  }
+  state.chats = Array.from(unique.values()).sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
+  state.chatOrderScope = "__cached__";
+  const activeCount = state.chats.filter((chat) => chat.status === "active").length;
+  setTextIfChanged4(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
+  const hashId = conversationIdFromHash(location.hash);
+  const initialId = hashId || state.chats[0]?.id || "";
+  if (initialId) {
+    state.selectedId = initialId;
+    const chat = unique.get(initialId);
+    if (chat) {
+      state.selectedUpdatedAt = chat.updated_at;
+      renderConversation(chat);
+    } else {
+      conversationRenderer.renderLoadingState();
+      setHiddenIfChanged(els.emptyState, true);
+      setHiddenIfChanged(els.conversation, false);
+    }
+  }
+  renderSidebar();
+  return true;
 }
 async function loadServerIdentity() {
   try {
@@ -3197,6 +3310,9 @@ function renderRecentChatSnapshot(conversationId) {
     renderConversation(memoryChat);
     return;
   }
+  conversationRenderer.renderLoadingState();
+  setHiddenIfChanged(els.emptyState, true);
+  setHiddenIfChanged(els.conversation, false);
   recentChatCache.get(conversationId).then((chat) => {
     if (!chat || state.mode !== "chats" || state.selectedId !== conversationId || state.selectedChat?.id === conversationId)
       return;
@@ -3492,7 +3608,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         await loadSelectedChat();
         return;
       }
-      if (status === "failed") {
+      if (["failed", "dead_lettered"].includes(status)) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();
@@ -3521,8 +3637,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
       await loadChats();
       return;
     }
-    if (status === "failed") {
-      setTextIfChanged4(els.composerStatus, "Send failed. The error is shown in the chat.");
+    if (["failed", "dead_lettered"].includes(status)) {
+      setTextIfChanged4(els.composerStatus, status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
       return;
     }
   }
@@ -3826,10 +3942,10 @@ window.addEventListener("hashchange", () => {
     selectChat(id);
 });
 function refreshDisplayedTimes() {
-  if (state.composingNew && state.pendingNewSend?.status === "rate_limited") {
+  if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status)) {
     state.newChatFingerprint = "";
     renderNewChat();
-  } else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => item.status === "rate_limited")) {
+  } else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status))) {
     state.selectedFingerprint = "";
     loadSelectedChat();
   }
@@ -3852,6 +3968,12 @@ async function startApp() {
   deploymentMonitor.registerServiceWorker();
   loadServerIdentity();
   resizeComposer();
+  const hydrated = await hydrateRecentChatCache();
+  if (!hydrated) {
+    conversationRenderer.renderLoadingState();
+    setHiddenIfChanged(els.emptyState, true);
+    setHiddenIfChanged(els.conversation, false);
+  }
   document.documentElement.classList.remove("booting");
   await loadChats();
   liveUpdates.start();

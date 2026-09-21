@@ -1,6 +1,6 @@
-const CACHE_NAME = "prompta-shell-v4";
+const CACHE_NAME = "prompta-shell-v5";
 const assetUrl = (path) => new URL(path, self.location.href).toString();
-const SHELL = ["./", "./app.css", "./app.js", "./manifest.json", "./icon.svg"]
+const SHELL = ["./", "./app.css", "./app.js", "./manifest.webmanifest", "./icon.svg"]
   .map(assetUrl);
 
 self.addEventListener("install", (event) => {
@@ -46,20 +46,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(async () => (
+        await caches.match(event.request)
+        || await caches.match(assetUrl("./"))
+        || Response.error()
+      )),
+    );
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request)
-      .then(async (response) => {
+    caches.match(event.request).then((cached) => {
+      const refresh = fetch(event.request).then(async (response) => {
         if (response.ok) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(event.request, response.clone());
         }
         return response;
-      })
-      .catch(async () => {
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
-        if (event.request.mode === "navigate") return caches.match(assetUrl("./"));
-        return Response.error();
-      }),
+      });
+      if (cached) {
+        event.waitUntil(refresh.catch(() => undefined));
+        return cached;
+      }
+      return refresh.catch(() => Response.error());
+    }),
   );
 });

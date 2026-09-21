@@ -557,7 +557,7 @@ async def test_send_reply_recovers_when_deep_link_has_no_composer(tmp_path: Path
             if self.wait_calls == 1:
                 raise RuntimeError("ChatGPT composer did not become ready")
 
-        async def navigate(self, url: str) -> None:
+        async def navigate(self, url: str, *, context: str | None = None) -> None:
             self.navigated.append(url)
             self.path = "/"
 
@@ -629,7 +629,7 @@ async def test_send_reply_reloads_when_recovered_route_still_has_no_composer(
             if self.wait_calls in {1, 3}:
                 raise RuntimeError("ChatGPT composer did not become ready")
 
-        async def navigate(self, url: str) -> None:
+        async def navigate(self, url: str, *, context: str | None = None) -> None:
             self.navigated.append(url)
             self.path = "/"
 
