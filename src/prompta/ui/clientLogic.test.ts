@@ -9,7 +9,9 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  pendingConversationDisplayId,
   pendingConversationSends,
+  promotePinnedConversationId,
   pendingSendActivity,
   shouldRenderNewChatView,
   postJsonRequest,
@@ -129,6 +131,37 @@ describe("pending new-chat view rendering", () => {
     const fingerprint = '["send-1","hello","running"]';
     expect(shouldRenderNewChatView(false, fingerprint, fingerprint)).toBe(false);
     expect(shouldRenderNewChatView(false, fingerprint, 'older')).toBe(true);
+  });
+});
+
+describe("pending chat pin promotion", () => {
+  test("uses the optimistic pending id before ChatGPT assigns a conversation id", () => {
+    expect(pendingConversationDisplayId({
+      clientId: "client-1",
+      conversationId: "",
+    })).toBe("pending-new-client-1");
+  });
+
+  test("moves a pending pin to the real ChatGPT conversation id", () => {
+    const pins = new Set(["pending-new-client-1", "other-chat"]);
+    const pending = {
+      clientId: "client-1",
+      conversationId: "",
+    };
+
+    expect(promotePinnedConversationId(pins, pending, "WEB:real-chat")).toBe(true);
+    expect(Array.from(pins).sort()).toEqual(["WEB:real-chat", "other-chat"]);
+  });
+
+  test("leaves unrelated pins unchanged", () => {
+    const pins = new Set(["other-chat"]);
+    const pending = {
+      clientId: "client-1",
+      conversationId: "",
+    };
+
+    expect(promotePinnedConversationId(pins, pending, "WEB:real-chat")).toBe(false);
+    expect(Array.from(pins)).toEqual(["other-chat"]);
   });
 });
 

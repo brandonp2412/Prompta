@@ -3,6 +3,8 @@ import {
   conversationIdFromHash,
   formatScheduleInterval,
   matchingOptimisticConversation,
+  pendingConversationDisplayId,
+  promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
   messageAgeText,
   messageTimestampMillis,
@@ -22,7 +24,7 @@ import {
 } from "./clientLogic";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
 const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
-function loadPinnedIds() {
+function loadPinnedIds(): Set<string> {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
     return new Set(Array.isArray(stored) ? stored.map((id) => String(id)) : []);
@@ -56,6 +58,14 @@ function saveComposerDrafts() {
   } catch {
     // Draft persistence is best-effort; the in-memory textarea remains authoritative.
   }
+}
+function promotePendingConversationPin(pending, nextConversationId) {
+  const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
+  if (changed) {
+    savePinnedIds();
+    state.sidebarFingerprint = "";
+  }
+  return changed;
 }
 const state = {
   chats: [],
@@ -338,6 +348,7 @@ function reconcileOptimisticNew(chats) {
   if (!pending) return;
   const matched = matchingOptimisticConversation(chats, pending);
   if (!matched) return;
+  promotePendingConversationPin(pending, matched.id);
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
   if (!state.composingNew && state.selectedId !== matched.id) {
@@ -362,11 +373,12 @@ function sidebarChats() {
   if (!pending) return chats;
   const matched = matchingOptimisticConversation(chats, pending);
   if (matched) {
+    promotePendingConversationPin(pending, matched.id);
     pending.conversationId = matched.id;
     state.pendingNewId = matched.id;
     return chats;
   }
-  const pendingId = pending.conversationId || `pending-new-${pending.clientId}`;
+  const pendingId = pendingConversationDisplayId(pending);
   const optimistic = {
     id: pendingId,
     status: pending.status === "failed" ? "failed" : "active",
@@ -2292,6 +2304,9 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
+      if (nextConversationId) {
+        promotePendingConversationPin(state.pendingNewSend, nextConversationId);
+      }
       const changed = state.pendingNewSend.status !== status
         || state.pendingNewSend.error !== nextError
         || state.pendingNewSend.conversationId !== nextConversationId
@@ -2316,6 +2331,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
           return;
         }
         const completedPending = state.pendingNewSend;
+        promotePendingConversationPin(completedPending, newId);
         completedPending.conversationId = newId;
         state.pendingNewId = newId;
         const pendingReplies = state.pendingReplies.get(newId) || [];
