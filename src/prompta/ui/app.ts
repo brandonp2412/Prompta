@@ -10,6 +10,7 @@ import {
   parseScheduleSlashCommand,
   pendingConversationSends,
   pendingSendActivity,
+  shouldRenderNewChatView,
   postJsonRequest as postJson,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -1284,7 +1285,7 @@ function renderNewChat() {
     pending?.retryAfterSeconds || 0,
     pending?.retryAttempt || 0,
   ]);
-  if (fingerprint !== state.newChatFingerprint) {
+  if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
     state.newChatFingerprint = fingerprint;
     if (pending) {
       const messages: any[] = [{
