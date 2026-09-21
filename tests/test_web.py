@@ -1888,3 +1888,83 @@ def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
             "next_due_at_epoch": 1234.0,
         }
     ]
+
+
+def test_remote_host_presence_transitions_online_then_offline(tmp_path: Path) -> None:
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
+        tmp_path / "state.json",
+        control_host="glass",
+        server_name="glass",
+    )
+    online = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    offline = subprocess.CompletedProcess(args=[], returncode=255, stdout="", stderr="")
+    try:
+        with patch("prompta.web.subprocess.run", side_effect=[online, offline]) as probe:
+            assert server.host_online(force=True) is True
+            assert server.host_online(force=True) is False
+    finally:
+        server.server_close()
+
+    first_command = probe.call_args_list[0].args[0]
+    assert "ControlMaster=no" in first_command
+    assert "ControlPath=none" in first_command
+
+
+def test_remote_health_reports_probed_offline_state(tmp_path: Path) -> None:
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
+        tmp_path / "state.json",
+        control_host="glass",
+        server_name="glass",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with patch.object(server, "host_online", return_value=False) as host_online:
+            with urlopen(f"http://127.0.0.1:{server.server_port}/api/health", timeout=2) as response:
+                health = json.loads(response.read().decode())
+        assert health["server"] == "glass"
+        assert health["online"] is False
+        host_online.assert_called_once_with(force=True)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_event_stream_sends_presence_heartbeat(tmp_path: Path) -> None:
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
+        tmp_path / "state.json",
+        control_host="glass",
+        server_name="glass",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with (
+            patch.object(server, "host_online", return_value=True),
+            patch("prompta.web._EVENT_HEARTBEAT_SECONDS", 0.01),
+        ):
+            with urlopen(f"http://127.0.0.1:{server.server_port}/api/events", timeout=2) as response:
+                lines = []
+                heartbeat_seen = False
+                deadline = time.monotonic() + 1
+                while time.monotonic() < deadline:
+                    line = response.readline().decode()
+                    lines.append(line)
+                    if heartbeat_seen and line.startswith("data: "):
+                        break
+                    heartbeat_seen = line == "event: heartbeat\n"
+        assert "event: refresh\n" in lines
+        heartbeat_index = lines.index("event: heartbeat\n")
+        heartbeat = json.loads(lines[heartbeat_index + 1].removeprefix("data: "))
+        assert heartbeat == {"server": "glass", "online": True}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
