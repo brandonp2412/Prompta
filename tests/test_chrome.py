@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
@@ -99,6 +99,52 @@ def test_create_driver_attaches_to_existing_browser_without_profile_args(tmp_pat
     assert options.experimental_options["debuggerAddress"] == "127.0.0.1:9222"
     assert not profile.exists()
     assert not any(arg.startswith("--user-data-dir=") for arg in options.arguments)
+
+
+@pytest.mark.asyncio
+async def test_create_driver_session_retries_attached_browser_timeout() -> None:
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    created = MagicMock()
+    timeout = ReadTimeoutError(
+        HTTPConnectionPool("localhost", port=4444),
+        "/session",
+        "timed out",
+    )
+
+    with (
+        patch.object(driver, "_create_driver", side_effect=[timeout, created]) as create_driver,
+        patch("prompta.chrome.asyncio.sleep", new_callable=AsyncMock) as sleep,
+    ):
+        result = await driver._create_driver_session()
+
+    assert result is created
+    assert create_driver.call_count == 2
+    sleep.assert_awaited_once_with(0.5)
+    assert driver.needs_browser_restart is False
+
+
+@pytest.mark.asyncio
+async def test_create_driver_session_does_not_retry_owned_browser_timeout() -> None:
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    timeout = ReadTimeoutError(
+        HTTPConnectionPool("localhost", port=4444),
+        "/session",
+        "timed out",
+    )
+
+    with (
+        patch.object(driver, "_create_driver", side_effect=timeout) as create_driver,
+        patch("prompta.chrome.asyncio.sleep", new_callable=AsyncMock) as sleep,
+    ):
+        with pytest.raises(RuntimeError, match="create ChromeDriver session: .*browser restart required"):
+            await driver._create_driver_session()
+
+    create_driver.assert_called_once_with()
+    sleep.assert_not_awaited()
+    assert driver.needs_browser_restart is True
 
 
 @pytest.mark.asyncio

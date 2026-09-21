@@ -157,13 +157,30 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             connection_manager.clear()
         return driver
 
+    async def _create_driver_session(self) -> webdriver.Chrome:
+        attempts = 2 if self.debugger_address else 1
+        last_error: Exception | None = None
+        async with self._call_lock:
+            for attempt in range(attempts):
+                try:
+                    return await asyncio.to_thread(self._create_driver)
+                except (WebDriverException, Urllib3HTTPError, TimeoutError, OSError) as exc:
+                    last_error = exc
+                    if attempt + 1 < attempts:
+                        await asyncio.sleep(0.5)
+                        continue
+                    raise self._driver_runtime_error(
+                        "create ChromeDriver session", exc
+                    ) from exc
+        raise RuntimeError("ChromeDriver session creation failed") from last_error
+
     async def connect(self) -> None:
         if self.is_connected:
             return
         if self.needs_browser_restart:
             raise RuntimeError("Chromium WebDriver session is poisoned; browser restart required")
         try:
-            self._driver = await self._run_webdriver_call("create ChromeDriver session", self._create_driver)
+            self._driver = await self._create_driver_session()
             handles = await self._run_webdriver_call(
                 "read Chromium window handles",
                 lambda: list(self._require_driver().window_handles),
