@@ -23,48 +23,17 @@ import { RecentChatCache } from "./recentChatCache";
 import { createJobsDialog } from "./jobsDialog";
 import { createSidebar } from "./sidebar";
 import { createConversationRenderer, imageAttachments, pendingImageAttachments } from "./conversationRenderer";
-const PINNED_CHATS_KEY = "prompta:pinned-chats";
-const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
+import { createAttachmentPicker } from "./attachmentPicker";
+import { createLogsPanel } from "./logsPanel";
+import { createDeploymentMonitor } from "./deploymentMonitor";
+import { createLiveUpdates } from "./liveUpdates";
+import { createCompletionNotifications } from "./completionNotifications";
+import { loadComposerDrafts, loadPinnedIds, saveComposerDrafts, savePinnedIds } from "./clientStorage";
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
-function loadPinnedIds(): Set<string> {
-  try {
-    const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
-    return new Set(Array.isArray(stored) ? stored.map((id) => String(id)) : []);
-  } catch {
-    return new Set();
-  }
-}
-function savePinnedIds() {
-  try {
-    localStorage.setItem(PINNED_CHATS_KEY, JSON.stringify(Array.from(state.pinnedIds)));
-  } catch {
-    // Pinning is a local convenience; storage failures should not affect chat access.
-  }
-}
-function loadComposerDrafts() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_KEY) || "{}");
-    if (!stored || Array.isArray(stored) || typeof stored !== "object") return new Map();
-    return new Map(
-      Object.entries(stored)
-        .filter(([, value]) => typeof value === "string" && value)
-        .map(([key, value]) => [String(key), String(value)]),
-    );
-  } catch {
-    return new Map();
-  }
-}
-function saveComposerDrafts() {
-  try {
-    localStorage.setItem(COMPOSER_DRAFTS_KEY, JSON.stringify(Object.fromEntries(state.composerDrafts)));
-  } catch {
-    // Draft persistence is best-effort; the in-memory textarea remains authoritative.
-  }
-}
 function promotePendingConversationPin(pending, nextConversationId) {
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
   if (changed) {
-    savePinnedIds();
+    savePinnedIds(state.pinnedIds);
     state.sidebarFingerprint = "";
   }
   return changed;
@@ -76,10 +45,7 @@ const state = {
   selectedFingerprint: "",
   search: "",
   sidebarFingerprint: "",
-  refreshTimer: null,
   mode: "chats",
-  logFingerprint: "",
-  logRefreshTimer: null,
   sending: false,
   stopping: false,
   composingNew: false,
@@ -97,17 +63,7 @@ const state = {
   optimisticSequence: 0,
   serverName: "",
   serverOnline: null,
-  chatStatuses: new Map(),
-  statusBaselineReady: false,
-  attachments: [],
   pinnedIds: loadPinnedIds(),
-  eventSource: null,
-  liveUpdatesPaused: false,
-  timeRefreshTimer: null,
-  uiHead: "",
-  uiReloading: false,
-  uiReloadPending: false,
-  uiReloadArmed: false,
   composerDrafts: loadComposerDrafts(),
   composerDraftTarget: "",
   activityProbes: new Set(),
@@ -141,18 +97,8 @@ const els = {
   newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
   pinChatButton: requiredElement<HTMLButtonElement>("#pinChatButton"),
   shareChatButton: requiredElement<HTMLButtonElement>("#shareChatButton"),
-  attachmentButton: requiredElement<HTMLButtonElement>("#attachmentButton"),
-  attachmentMenu: requiredElement<HTMLElement>("#attachmentMenu"),
-  fileUploadInput: requiredElement<HTMLInputElement>("#fileUploadInput"),
-  photoUploadInput: requiredElement<HTMLInputElement>("#photoUploadInput"),
-  cameraUploadInput: requiredElement<HTMLInputElement>("#cameraUploadInput"),
-  attachmentChips: requiredElement<HTMLElement>("#attachmentChips"),
   slashMenu: requiredElement<HTMLElement>("#slashMenu"),
-  logsViewport: requiredElement<HTMLElement>("#logsViewport"),
   composerFooter: requiredElement<HTMLElement>("#composerFooter"),
-  logOutput: requiredElement<HTMLElement>("#logOutput"),
-  logsMeta: requiredElement<HTMLElement>("#logsMeta"),
-  logsServerTitle: requiredElement<HTMLElement>("#logsServerTitle"),
   messageForm: requiredElement<HTMLFormElement>("#messageForm"),
   messageInput: requiredElement<HTMLTextAreaElement>("#messageInput"),
   sendButton: requiredElement<HTMLButtonElement>("#sendButton"),
@@ -175,6 +121,29 @@ const jobsDialog = createJobsDialog({
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
 });
+const attachmentPicker = createAttachmentPicker({
+  onChange: syncSendButton,
+  setStatus: (message) => setTextIfChanged(els.composerStatus, message),
+});
+const logsPanel = createLogsPanel({
+  fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
+  formatRelativeTime,
+});
+const deploymentMonitor = createDeploymentMonitor();
+const completionNotifications = createCompletionNotifications({
+  displayServerName,
+  getServerName: () => state.serverName,
+  chatTitle,
+});
+const liveUpdates = createLiveUpdates({
+  loadChats: () => loadChats(),
+  loadServerIdentity: () => loadServerIdentity(),
+  setServerStatus,
+  observeHead: (head) => deploymentMonitor.observeHead(head),
+  refreshDisplayedTimes,
+  onStreamError: () => els.globalLiveOrb.classList.remove("live"),
+  onPageShow: () => deploymentMonitor.handleVisibilityChange(),
+});
 
 function composerDraftTarget() {
   if (state.composingNew) return "new";
@@ -185,7 +154,7 @@ function setStoredComposerDraft(target, value) {
   const draft = String(value || "");
   if (draft) state.composerDrafts.set(target, draft);
   else state.composerDrafts.delete(target);
-  saveComposerDrafts();
+  saveComposerDrafts(state.composerDrafts);
 }
 function persistComposerDraft() {
   const target = composerDraftTarget();
@@ -195,7 +164,7 @@ function persistComposerDraft() {
 }
 function clearComposerDraft(target = composerDraftTarget()) {
   if (!target) return;
-  if (state.composerDrafts.delete(target)) saveComposerDrafts();
+  if (state.composerDrafts.delete(target)) saveComposerDrafts(state.composerDrafts);
 }
 function syncComposerDraftTarget() {
   const nextTarget = composerDraftTarget();
@@ -295,7 +264,7 @@ const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="
 function syncSendButton() {
   const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "succeeded"].includes(state.pendingNewSend.status);
   const hasTarget = state.composingNew || Boolean(state.selectedId);
-  const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
+  const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
   const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
   const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
@@ -331,7 +300,7 @@ function setServerStatus(server, online) {
     knownOnline === false ? `Server · ${display} · offline` : `Server · ${display}`,
   );
   document.title = `Prompta · ${display}`;
-  setTextIfChanged(els.logsServerTitle, `${display} · prompta.service`);
+  logsPanel.setServerTitle(display);
   const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (appleTitle) appleTitle.setAttribute("content", `Prompta ${display}`);
   els.globalLiveOrb.classList.toggle("live", knownOnline === true);
@@ -559,7 +528,7 @@ function renderSidebar(force = false) {
       if (!chatId) return;
       if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
       else state.pinnedIds.add(chatId);
-      savePinnedIds();
+      savePinnedIds(state.pinnedIds);
       state.sidebarFingerprint = "";
       renderSidebar(true);
       updatePinButton();
@@ -661,7 +630,7 @@ function toggleSelectedPin() {
   if (!chatId || state.composingNew) return;
   if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
   else state.pinnedIds.add(chatId);
-  savePinnedIds();
+  savePinnedIds(state.pinnedIds);
   state.sidebarFingerprint = "";
   renderSidebar(true);
   updatePinButton();
@@ -745,52 +714,11 @@ function renderConversation(chat) {
     );
   }
 }
-function renderLogs(payload) {
-  const lines = Array.isArray(payload.lines) ? payload.lines : [];
-  const fingerprint = JSON.stringify([payload.updated_at, lines]);
-  const wasNearBottom = els.logsViewport.scrollHeight
-    - els.logsViewport.scrollTop
-    - els.logsViewport.clientHeight < 120;
-  const isInitial = !state.logFingerprint;
-  if (fingerprint !== state.logFingerprint) {
-    state.logFingerprint = fingerprint;
-    setTextIfChanged(
-      els.logOutput,
-      lines.length ? lines.join("\n") : "No Prompta service logs are available yet.",
-    );
-    if (isInitial || wasNearBottom) {
-      requestAnimationFrame(() => {
-        els.logsViewport.scrollTop = els.logsViewport.scrollHeight;
-      });
-    }
-  }
-  setTextIfChanged(
-    els.logsMeta,
-    payload.exists
-      ? payload.source === "journal"
-        ? lines.length + " lines · live journal"
-        : lines.length + " lines · synced " + formatRelativeTime(payload.updated_at)
-      : "Waiting for Prompta service logs",
-  );
-}
-async function loadLogs() {
-  try {
-    const payload = await fetchJson("api/logs?limit=800");
-    renderLogs(payload);
-  } catch (error) {
-    setTextIfChanged(els.logsMeta, "Logs unavailable");
-    console.error(error);
-  }
-}
 function showMode(mode) {
   state.mode = mode === "logs" ? "logs" : "chats";
   const logsMode = state.mode === "logs";
   els.viewport.hidden = logsMode;
-  els.logsViewport.hidden = !logsMode;
-  if (state.logRefreshTimer) {
-    clearInterval(state.logRefreshTimer);
-    state.logRefreshTimer = null;
-  }
+  logsPanel.setVisible(logsMode);
   els.composerFooter.hidden = logsMode;
   if (logsMode) {
     state.selectedMetaFingerprint = "";
@@ -802,10 +730,6 @@ function showMode(mode) {
     els.shareChatButton.disabled = true;
     setTextIfChanged(els.composerStatus, "Switch back to chats to send a message.");
     updateComposerActionButton();
-    loadLogs();
-    state.logRefreshTimer = setInterval(() => {
-      if (state.mode === "logs" && document.visibilityState === "visible") loadLogs();
-    }, 2000);
     return;
   }
   if (state.selectedId) {
@@ -942,7 +866,7 @@ function renderNewChat() {
   updateComposerActionButton();
   if (enteringNewChat) {
     els.viewport.hidden = false;
-    els.logsViewport.hidden = true;
+    logsPanel.setVisible(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
     sidebar.close();
@@ -965,100 +889,18 @@ async function fetchJson(url, timeoutMs = 10_000) {
     window.clearTimeout(timeout);
   }
 }
-async function updateServiceWorkerForDeployment() {
-  try {
-    if ("serviceWorker" in navigator) {
-      const registration = await navigator.serviceWorker.getRegistration();
-      await registration?.update();
-    }
-  } catch (error) {
-    console.warn("Could not update Prompta service worker for deployment", error);
-  }
-}
-async function refreshForDeployment() {
-  if (state.uiReloading) return;
-  state.uiReloading = true;
-  await updateServiceWorkerForDeployment();
-  window.location.reload();
-}
-function observeUiHead(value) {
-  const head = String(value || "").trim().toLowerCase();
-  if (!head) return;
-  if (!state.uiHead) {
-    state.uiHead = head;
-    return;
-  }
-  if (head === state.uiHead || state.uiReloading) return;
-
-  state.uiHead = head;
-  state.uiReloadPending = true;
-  state.uiReloadArmed = document.visibilityState !== "visible";
-  void updateServiceWorkerForDeployment();
-}
-function handleDeploymentVisibilityChange() {
-  if (!state.uiReloadPending || state.uiReloading) return;
-  if (document.visibilityState !== "visible") {
-    state.uiReloadArmed = true;
-    return;
-  }
-  if (!state.uiReloadArmed) return;
-  void refreshForDeployment();
-}
 async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
     setServerStatus(payload.server, payload.online);
     const head = String(payload.head || "").trim().toLowerCase();
-    observeUiHead(head);
+    deploymentMonitor.observeHead(head);
     setTextIfChanged(els.headLabel, head ? head : "unknown");
     els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
   } catch (error) {
     setServerStatus(state.serverName || location.hostname, false);
     console.warn("Could not load Prompta server identity", error);
   }
-}
-async function requestNotificationPermissionFromGesture() {
-  if (!("Notification" in window) || Notification.permission !== "default") return;
-  try {
-    await Notification.requestPermission();
-  } catch (error) {
-    console.warn("Could not request notification permission", error);
-  }
-}
-async function notifyChatFinished(chat) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  const display = displayServerName(state.serverName || location.hostname);
-  const title = chatTitle(chat);
-  try {
-    if ("serviceWorker" in navigator) {
-      const registration = await navigator.serviceWorker.ready;
-      await registration.showNotification(`Prompta · ${display}`, {
-        body: `${title} finished`,
-        tag: `prompta-finished-${chat.id}`,
-        icon: "./icon.svg",
-        badge: "./icon.svg",
-        data: { url: `./#/${encodeURIComponent(chat.id)}` },
-      });
-      return;
-    }
-    new Notification(`Prompta · ${display}`, { body: `${title} finished` });
-  } catch (error) {
-    console.warn("Could not show Prompta completion notification", error);
-  }
-}
-function trackChatCompletions(chats) {
-  if (state.statusBaselineReady) {
-    for (const chat of chats) {
-      if (state.chatStatuses.get(chat.id) === "active" && chat.status === "complete") {
-        notifyChatFinished(chat);
-      }
-    }
-  }
-  // Search results are only a filtered slice of the cache. Preserve statuses
-  // for conversations omitted by the current filter so clearing search can
-  // still observe an active -> complete transition that happened meanwhile.
-  for (const chat of chats) state.chatStatuses.set(chat.id, chat.status);
-  state.statusBaselineReady = true;
 }
 async function loadChats() {
   const requestId = ++state.chatsRequestId;
@@ -1068,7 +910,7 @@ async function loadChats() {
     if (requestId !== state.chatsRequestId) return;
     const chats = payload.chats || [];
     reconcileOptimisticNew(chats);
-    trackChatCompletions(chats);
+    completionNotifications.trackCompletions(chats);
     const orderScope = state.search;
     const preserveOrder = state.chatOrderScope === orderScope;
     const previousChats = preserveOrder ? state.chats : [];
@@ -1115,7 +957,7 @@ async function loadChats() {
         clearConversation();
       }
     } else {
-      await loadLogs();
+      await logsPanel.load();
     }
   } catch (error) {
     if (requestId !== state.chatsRequestId) return;
@@ -1272,7 +1114,7 @@ document.addEventListener("keydown", (event) => {
     els.searchInput.focus();
   }
   if (event.key === "Escape") {
-    els.attachmentMenu.hidden = true;
+    attachmentPicker.closeMenu();
     els.slashMenu.hidden = true;
     jobsDialog.close();
     els.searchInput.blur();
@@ -1295,117 +1137,11 @@ function resizeComposer() {
   els.messageInput.style.height = `${Math.min(180, contentHeight)}px`;
   els.messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
 }
-function renderAttachments() {
-  const files = state.attachments || [];
-  els.attachmentChips.hidden = files.length === 0;
-  patchHtmlChildren(els.attachmentChips, files.map((file, index) => (
-    '<span class="attachment-chip">'
-    + '<span title="' + escapeHtml(file.name) + '">' + escapeHtml(truncate(file.name, 28)) + '</span>'
-    + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>'
-    + '</span>'
-  )).join(""));
-  syncSendButton();
-}
-function clearAttachments() {
-  state.attachments = [];
-  els.fileUploadInput.value = "";
-  els.photoUploadInput.value = "";
-  els.cameraUploadInput.value = "";
-  renderAttachments();
-}
-function setAttachmentControlsDisabled(disabled) {
-  els.attachmentButton.disabled = disabled;
-  if (disabled) els.attachmentMenu.hidden = true;
-  for (const button of els.attachmentChips.querySelectorAll<HTMLButtonElement>("button")) {
-    button.disabled = disabled;
-  }
-}
-function addAttachments(files) {
-  const current = state.attachments || [];
-  for (const file of files) {
-    if (current.length >= 5) break;
-    const duplicate = current.some((existing) => (
-      existing.name === file.name
-      && existing.size === file.size
-      && existing.lastModified === file.lastModified
-    ));
-    if (!duplicate) current.push(file);
-  }
-  state.attachments = current;
-  renderAttachments();
-  if (files.length && current.length >= 5) {
-    setTextIfChanged(els.composerStatus, "Prompta supports up to 5 attachments per message.");
-  }
-}
-async function attachmentPayload(file) {
-  if (file.size > 25 * 1024 * 1024) {
-    throw new Error(file.name + " is larger than 25 MB");
-  }
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error("Could not read " + file.name));
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.readAsDataURL(file);
-  });
-  const comma = dataUrl.indexOf(",");
-  return {
-    name: file.name,
-    type: file.type || "application/octet-stream",
-    data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-  };
-}
-async function serializeAttachments() {
-  const files = state.attachments || [];
-  const total = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
-  if (total > 25 * 1024 * 1024) {
-    throw new Error("Attachments exceed the 25 MB Prompta upload limit");
-  }
-  return Promise.all(files.map(attachmentPayload));
-}
-els.attachmentButton.addEventListener("click", () => {
-  els.attachmentMenu.hidden = !els.attachmentMenu.hidden;
-});
-els.attachmentMenu.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-attachment-kind]");
-  if (!button) return;
-  els.attachmentMenu.hidden = true;
-  const kind = button.dataset.attachmentKind;
-  if (kind === "photo") els.photoUploadInput.click();
-  else if (kind === "camera") els.cameraUploadInput.click();
-  else els.fileUploadInput.click();
-});
-for (const input of [els.fileUploadInput, els.photoUploadInput, els.cameraUploadInput]) {
-  input.addEventListener("change", () => {
-    const files = Array.from(input.files || []);
-    // Reset the native picker immediately so removing a chip and choosing the
-    // same file again still emits a change event.
-    input.value = "";
-    addAttachments(files);
-  });
-}
-els.attachmentChips.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-attachment]");
-  if (!button) return;
-  const index = Number(button.dataset.removeAttachment);
-  if (!Number.isInteger(index)) return;
-  state.attachments.splice(index, 1);
-  renderAttachments();
-});
-document.addEventListener("click", (event) => {
-  const target = event.target as Node;
-  if (
-    !els.attachmentMenu.hidden
-    && !els.attachmentMenu.contains(target)
-    && !els.attachmentButton.contains(target)
-  ) {
-    els.attachmentMenu.hidden = true;
-  }
-});
 async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
-  setAttachmentControlsDisabled(true);
+  attachmentPicker.setDisabled(true);
   clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
@@ -1435,7 +1171,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
   } finally {
     state.sending = false;
     els.messageInput.disabled = false;
-    setAttachmentControlsDisabled(false);
+    attachmentPicker.setDisabled(false);
     syncSendButton();
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
@@ -1444,7 +1180,7 @@ async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
-  setAttachmentControlsDisabled(true);
+  attachmentPicker.setDisabled(true);
   clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
@@ -1473,7 +1209,7 @@ async function runAtSlashCommand(command, originalMessage) {
   } finally {
     state.sending = false;
     els.messageInput.disabled = false;
-    setAttachmentControlsDisabled(false);
+    attachmentPicker.setDisabled(false);
     syncSendButton();
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
@@ -1701,7 +1437,7 @@ async function sendSelectedMessage() {
   const message = els.messageInput.value.trim();
   const creatingNew = state.composingNew;
   const conversationId = state.selectedId;
-  const attachments = [...(state.attachments || [])];
+  const attachments = attachmentPicker.snapshot();
   if (!message || state.mode !== "chats" || state.sending) return;
   if (message.toLowerCase() === "/logs") {
     clearComposerDraft();
@@ -1715,7 +1451,7 @@ async function sendSelectedMessage() {
     await jobsDialog.open(true);
     return;
   }
-  requestNotificationPermissionFromGesture();
+  completionNotifications.requestPermissionFromGesture();
   const scheduleCommand = parseScheduleSlashCommand(message);
   if (scheduleCommand) {
     if (attachments.length) {
@@ -1748,14 +1484,14 @@ async function sendSelectedMessage() {
     state.sending = true;
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
-    setAttachmentControlsDisabled(true);
+    attachmentPicker.setDisabled(true);
     setTextIfChanged(els.composerStatus, "Preparing attachments…");
     try {
-      serializedAttachments = await serializeAttachments();
+      serializedAttachments = await attachmentPicker.serialize();
     } catch (error) {
       state.sending = false;
       els.messageInput.disabled = false;
-      setAttachmentControlsDisabled(false);
+      attachmentPicker.setDisabled(false);
       syncSendButton();
       setTextIfChanged(
         els.composerStatus,
@@ -1812,7 +1548,7 @@ async function sendSelectedMessage() {
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
     pending.updatedAt = Date.now() / 1000;
-    if (attachments.length) clearAttachments();
+    if (attachments.length) attachmentPicker.clear();
     if (creatingNew) {
       state.newChatFingerprint = "";
       renderNewChat();
@@ -1837,7 +1573,7 @@ async function sendSelectedMessage() {
     console.error(error);
   } finally {
     state.sending = false;
-    if (attachments.length) setAttachmentControlsDisabled(false);
+    if (attachments.length) attachmentPicker.setDisabled(false);
     if (!creatingNew && state.selectedId && state.mode === "chats") {
       els.messageInput.disabled = false;
       syncSendButton();
@@ -1934,15 +1670,6 @@ window.addEventListener("hashchange", () => {
   const id = conversationIdFromHash(location.hash);
   if (id && id !== state.selectedId) selectChat(id);
 });
-let liveRefreshQueued = false;
-function queueLiveRefresh() {
-  if (liveRefreshQueued) return;
-  liveRefreshQueued = true;
-  requestAnimationFrame(async () => {
-    liveRefreshQueued = false;
-    await loadChats();
-  });
-}
 function refreshDisplayedTimes() {
   if (state.composingNew && state.pendingNewSend?.status === "rate_limited") {
     state.newChatFingerprint = "";
@@ -1973,86 +1700,12 @@ function refreshDisplayedTimes() {
     renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
   }
 }
-function stopTimeRefresh() {
-  if (state.timeRefreshTimer === null) return;
-  clearInterval(state.timeRefreshTimer);
-  state.timeRefreshTimer = null;
-}
-function startTimeRefresh() {
-  if (state.timeRefreshTimer !== null) return;
-  state.timeRefreshTimer = setInterval(refreshDisplayedTimes, 30_000);
-}
-function stopFallbackRefresh() {
-  if (state.refreshTimer === null) return;
-  clearInterval(state.refreshTimer);
-  state.refreshTimer = null;
-}
-function startFallbackRefresh() {
-  if (state.refreshTimer !== null) return;
-  state.refreshTimer = setInterval(() => {
-    loadChats();
-    loadServerIdentity();
-  }, 5000);
-}
-function stopEventStream() {
-  if (state.eventSource) {
-    state.eventSource.close();
-    state.eventSource = null;
-  }
-  stopFallbackRefresh();
-}
-function startEventStream() {
-  if (state.eventSource) return;
-  if (!("EventSource" in window)) {
-    startFallbackRefresh();
-    return;
-  }
-  const events = new EventSource("api/events");
-  state.eventSource = events;
-  events.addEventListener("refresh", (event) => {
-    stopFallbackRefresh();
-    try {
-      const payload = JSON.parse(event.data || "{}");
-      setServerStatus(payload.server, payload.online);
-      observeUiHead(payload.head);
-    } catch (error) {
-      console.warn("Could not parse Prompta SSE status", error);
-    }
-    queueLiveRefresh();
-  });
-  events.addEventListener("error", () => {
-    els.globalLiveOrb.classList.remove("live");
-    startFallbackRefresh();
-  });
-}
-document.addEventListener("visibilitychange", handleDeploymentVisibilityChange);
-window.addEventListener("pagehide", () => {
-  state.liveUpdatesPaused = true;
-  stopEventStream();
-  stopTimeRefresh();
-});
-window.addEventListener("pageshow", () => {
-  handleDeploymentVisibilityChange();
-  if (!state.liveUpdatesPaused) return;
-  state.liveUpdatesPaused = false;
-  loadServerIdentity();
-  loadChats();
-  startEventStream();
-  startTimeRefresh();
-});
-function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch((error) => {
-    console.warn("Could not register Prompta service worker", error);
-  });
-}
 async function startApp() {
-  registerServiceWorker();
+  deploymentMonitor.registerServiceWorker();
   loadServerIdentity();
   resizeComposer();
   document.documentElement.classList.remove("booting");
   await loadChats();
-  startEventStream();
-  startTimeRefresh();
+  liveUpdates.start();
 }
 startApp();

@@ -4,20 +4,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
-import binascii
-import hashlib
 import json
 import logging
 import math
 import mimetypes
-import re
-import shlex
 import subprocess
-import sys
 import threading
 import time
-import uuid
 from html import escape as html_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
+from .attachment_store import AttachmentStore
 from .cache import DEFAULT_CACHE_PATH, ChatCache
 from .core import (
     DEFAULT_JOBS_PATH,
@@ -34,10 +28,11 @@ from .core import (
     _send_reply_via_control,
     _stop_via_control,
     _sync_via_control,
-    add_job,
-    load_jobs,
 )
+from .image_previews import ImagePreviewStore
+from .remote_control import remote_control as _remote_control
 from .send_jobs import SendJobRegistry as SendJobRegistry
+from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
 
 logger = logging.getLogger(__name__)
@@ -45,7 +40,6 @@ _STATIC_ROOT = Path(__file__).with_name("static")
 _DAEMON_STARTUP_CHECKS = 10
 _DAEMON_STARTUP_POLL_SECONDS = 0.1
 _DAEMON_RESTART_GRACE_CHECKS = 120
-_REMOTE_CONTROL_TIMEOUT_SECONDS = 11 * 60
 _HOST_STATUS_TTL_SECONDS = 5.0
 _HOST_CHECK_TIMEOUT_SECONDS = 3.0
 
@@ -66,188 +60,6 @@ def _git_short_head() -> str:
 
 
 _UI_HEAD = _git_short_head()
-
-
-
-
-def _schedule_job_name(prompt: str) -> str:
-    words = re.findall(r"[a-z0-9]+", prompt.casefold())[:6]
-    slug = "-".join(words) or "job"
-    digest = hashlib.sha256(prompt.strip().encode("utf-8")).hexdigest()[:6]
-    return f"ui-{slug[:36]}-{digest}"
-
-
-def _remote_control(
-    control_host: str,
-    *,
-    operation: str,
-    message: str = "",
-    conversation_id: str = "",
-    attachments: list[str] | None = None,
-) -> str:
-    remote_attachments: list[str] = []
-    remote_dir = ""
-    if attachments:
-        remote_dir = f"/home/example/.local/state/prompta/ui-uploads/{uuid.uuid4().hex}"
-        mkdir = subprocess.run(
-            [
-                "ssh",
-                "-F",
-                str(Path.home() / ".ssh" / "config"),
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=8",
-                control_host,
-                "mkdir",
-                "-p",
-                remote_dir,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-        if mkdir.returncode != 0:
-            raise RuntimeError((mkdir.stderr or "remote upload directory creation failed").strip())
-        for index, attachment in enumerate(attachments):
-            name = Path(attachment).name
-            remote_path = f"{remote_dir}/{index}-{name}"
-            copied = subprocess.run(
-                [
-                    "scp",
-                    "-F",
-                    str(Path.home() / ".ssh" / "config"),
-                    "-q",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=8",
-                    attachment,
-                    f"{control_host}:{remote_path}",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if copied.returncode != 0:
-                subprocess.run(
-                    ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                raise RuntimeError((copied.stderr or "remote attachment transfer failed").strip())
-            remote_attachments.append(remote_path)
-
-    payload = base64.urlsafe_b64encode(
-        json.dumps(
-            {
-                "operation": operation,
-                "message": message,
-                "conversation_id": conversation_id,
-                "attachments": remote_attachments,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).decode("ascii")
-    code = """
-import asyncio
-import base64
-import json
-import sys
-from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control, _stop_via_control, _sync_via_control
-
-payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
-try:
-    if payload["operation"] == "once":
-        result = asyncio.run(
-            _send_once_via_control(
-                DEFAULT_STATE_PATH,
-                payload["message"],
-                payload.get("attachments") or [],
-            )
-        )
-    elif payload["operation"] == "reply":
-        result = asyncio.run(
-            _send_reply_via_control(
-                DEFAULT_STATE_PATH,
-                payload["conversation_id"],
-                payload["message"],
-                payload.get("attachments") or [],
-            )
-        )
-    elif payload["operation"] == "stop":
-        result = asyncio.run(
-            _stop_via_control(DEFAULT_STATE_PATH, payload["conversation_id"])
-        )
-    elif payload["operation"] == "sync":
-        result = asyncio.run(
-            _sync_via_control(DEFAULT_STATE_PATH, payload["conversation_id"])
-        )
-    else:
-        raise RuntimeError("unsupported remote Prompta control operation")
-except Exception as exc:
-    print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-else:
-    print(json.dumps({"ok": True, "conversation_id": result}, ensure_ascii=False))
-""".strip()
-    remote_command = shlex.join(
-        ["/home/example/prompta/.venv/bin/python", "-c", code, payload]
-    )
-    completed = subprocess.run(
-        [
-            "ssh",
-            "-F",
-            str(Path.home() / ".ssh" / "config"),
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=8",
-            control_host,
-            remote_command,
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=_REMOTE_CONTROL_TIMEOUT_SECONDS,
-    )
-    if completed.returncode != 0:
-        if remote_dir:
-            subprocess.run(
-                ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        detail = (completed.stderr or completed.stdout or "remote control failed").strip()
-        raise RuntimeError(detail[-2000:])
-    if remote_dir:
-        subprocess.run(
-            ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    result = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
-    if not result:
-        raise RuntimeError("remote Prompta control returned an empty conversation id")
-    try:
-        response = json.loads(result)
-    except json.JSONDecodeError:
-        return result
-    if not isinstance(response, dict):
-        raise RuntimeError("remote Prompta control returned an invalid response")
-    if response.get("ok") is not True:
-        raise RuntimeError(str(response.get("error") or "remote Prompta control failed"))
-    conversation_id = str(response.get("conversation_id") or "")
-    if not conversation_id:
-        raise RuntimeError("remote Prompta control returned an empty conversation id")
-    return conversation_id
 
 
 
@@ -279,10 +91,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         self._host_status_lock = threading.Lock()
         self._host_status_checked_at = 0.0
         self._host_status_online = not bool(self.control_host)
-        self._image_preview_lock = threading.Lock()
-        self._image_preview_path = self.state_path.parent / "ui-image-previews.json"
-        self._image_preview_dir = self.state_path.parent / "ui-image-previews"
-        self._image_previews = self._load_image_previews()
+        self.image_previews = ImagePreviewStore(self.state_path.parent)
+        self.attachments = AttachmentStore(self.state_path.parent, self.image_previews)
+        self.job_service = WebJobService(
+            self.jobs_path,
+            self.state_path,
+            self.host_name,
+            start_scheduler=lambda: _start_local_scheduler_service(),
+        )
         self.send_jobs = SendJobRegistry(
             self._send,
             recovery_path=self.state_path.parent / "ui-send-retries.json",
@@ -301,64 +117,17 @@ class PromptaUIServer(ThreadingHTTPServer):
                 self.jobs_path,
             )
 
-    def _load_image_previews(self) -> dict[str, dict[str, Any]]:
-        try:
-            payload = json.loads(self._image_preview_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, ValueError):
-            return {}
-        records = payload.get("records", {}) if isinstance(payload, dict) else {}
-        if not isinstance(records, dict):
-            return {}
-        cutoff = time.time() - (30 * 24 * 60 * 60)
-        cleaned: dict[str, dict[str, Any]] = {}
-        for client_id, raw_record in records.items():
-            if not isinstance(raw_record, dict):
-                continue
-            try:
-                created_at = float(raw_record.get("created_at") or 0.0)
-            except (TypeError, ValueError):
-                created_at = 0.0
-            conversation_id = str(raw_record.get("conversation_id") or "")
-            if not conversation_id and created_at and created_at < cutoff:
-                continue
-            images = raw_record.get("images")
-            if not isinstance(images, list):
-                continue
-            kept_images = []
-            for image in images:
-                if not isinstance(image, dict):
-                    continue
-                preview_id = str(image.get("id") or "")
-                if not preview_id:
-                    continue
-                file_path = self._image_preview_dir / preview_id
-                if not file_path.is_file():
-                    continue
-                kept_images.append(
-                    {
-                        "id": preview_id,
-                        "name": str(image.get("name") or "image"),
-                        "type": str(image.get("type") or "image/*"),
-                    }
-                )
-            if kept_images:
-                cleaned[str(client_id)] = {
-                    "client_id": str(client_id),
-                    "conversation_id": conversation_id,
-                    "message": str(raw_record.get("message") or ""),
-                    "created_at": created_at or time.time(),
-                    "images": kept_images,
-                }
-        return cleaned
+    @property
+    def _image_previews(self) -> dict[str, dict[str, Any]]:
+        return self.image_previews.records
 
-    def _write_image_previews_locked(self) -> None:
-        self._image_preview_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self._image_preview_path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps({"records": self._image_previews}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        temporary.replace(self._image_preview_path)
+    @property
+    def _image_preview_path(self) -> Path:
+        return self.image_previews.path
+
+    @property
+    def _image_preview_dir(self) -> Path:
+        return self.image_previews.directory
 
     def _replace_staged_image_previews(
         self,
@@ -366,105 +135,16 @@ class PromptaUIServer(ThreadingHTTPServer):
         message: str,
         images: list[dict[str, str]],
     ) -> None:
-        if not client_id or not images:
-            return
-        with self._image_preview_lock:
-            previous = self._image_previews.get(client_id)
-            if isinstance(previous, dict) and not previous.get("conversation_id"):
-                for image in previous.get("images", []):
-                    if isinstance(image, dict):
-                        try:
-                            (self._image_preview_dir / str(image.get("id") or "")).unlink(
-                                missing_ok=True
-                            )
-                        except OSError:
-                            pass
-            self._image_previews[client_id] = {
-                "client_id": client_id,
-                "conversation_id": "",
-                "message": message,
-                "created_at": time.time(),
-                "images": images,
-            }
-            self._write_image_previews_locked()
+        self.image_previews.replace_staged(client_id, message, images)
 
     def _bind_image_previews(self, client_id: str, conversation_id: str, message: str) -> None:
-        with self._image_preview_lock:
-            record = self._image_previews.get(client_id)
-            if not isinstance(record, dict):
-                return
-            record["conversation_id"] = conversation_id
-            if message:
-                record["message"] = message
-            self._write_image_previews_locked()
+        self.image_previews.bind(client_id, conversation_id, message)
 
     def _enrich_image_previews(self, chat: dict[str, Any], conversation_id: str) -> None:
-        messages = chat.get("messages")
-        if not isinstance(messages, list):
-            return
-        with self._image_preview_lock:
-            records = [
-                dict(record)
-                for record in self._image_previews.values()
-                if isinstance(record, dict)
-                and str(record.get("conversation_id") or "") == conversation_id
-            ]
-        records.sort(key=lambda record: float(record.get("created_at") or 0.0))
-        used_indexes: set[int] = set()
-        for record in records:
-            expected = str(record.get("message") or "").strip()
-            candidates = [
-                (index, message)
-                for index, message in enumerate(messages)
-                if index not in used_indexes
-                and isinstance(message, dict)
-                and str(message.get("role") or "") == "user"
-                and str(message.get("content") or "").strip() == expected
-            ]
-            if not candidates:
-                continue
-            record_created = float(record.get("created_at") or 0.0)
-            index, message = min(
-                candidates,
-                key=lambda item: abs(float(item[1].get("created_at") or 0.0) - record_created),
-            )
-            used_indexes.add(index)
-            images = record.get("images")
-            if isinstance(images, list):
-                message["attachments"] = [
-                    {
-                        "id": str(image.get("id") or ""),
-                        "name": str(image.get("name") or "image"),
-                        "type": str(image.get("type") or "image/*"),
-                    }
-                    for image in images
-                    if isinstance(image, dict) and image.get("id")
-                ]
+        self.image_previews.enrich(chat, conversation_id)
 
     def image_preview(self, preview_id: str) -> tuple[bytes, str] | None:
-        if not re.fullmatch(r"[a-f0-9]{32}", preview_id):
-            return None
-        media_type = "application/octet-stream"
-        found = False
-        with self._image_preview_lock:
-            for record in self._image_previews.values():
-                if not isinstance(record, dict):
-                    continue
-                for image in record.get("images", []):
-                    if not isinstance(image, dict) or str(image.get("id") or "") != preview_id:
-                        continue
-                    media_type = str(image.get("type") or "application/octet-stream")
-                    found = True
-                    break
-                if found:
-                    break
-        if not found:
-            return None
-        try:
-            body = (self._image_preview_dir / preview_id).read_bytes()
-        except OSError:
-            return None
-        return body, media_type
+        return self.image_previews.image_preview(preview_id)
 
     @property
     def display_name(self) -> str:
@@ -595,107 +275,10 @@ class PromptaUIServer(ThreadingHTTPServer):
         return self.store.logs(limit=limit)
 
     def scheduled_jobs(self) -> dict[str, Any]:
-        try:
-            state_payload = json.loads(self.state_path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            state_payload = {}
-        state_jobs = state_payload.get("jobs") if isinstance(state_payload, dict) else {}
-        if not isinstance(state_jobs, dict):
-            state_jobs = {}
-
-        jobs = []
-        for job in load_jobs(self.jobs_path).values():
-            job_state = state_jobs.get(job.name)
-            if not isinstance(job_state, dict):
-                job_state = {}
-            paused = job_state.get("paused") is True
-            status = "paused" if paused else str(job_state.get("status") or "pending")
-            if status not in {"paused", "pending", "healthy", "failing", "rate-limited"}:
-                status = "pending"
-            try:
-                next_due_at = float(job_state.get("next_due_at_epoch") or 0.0)
-            except (TypeError, ValueError):
-                next_due_at = 0.0
-            jobs.append(
-                {
-                    "name": job.name,
-                    "prompt": job.prompt,
-                    "interval_minutes": job.interval_seconds / 60.0,
-                    "daily_at": job.daily_at,
-                    "run_at_epoch": job.run_at_epoch,
-                    "exact_interval": job.exact_interval,
-                    "paused": paused,
-                    "status": status,
-                    "next_due_at_epoch": next_due_at,
-                }
-            )
-        return {"jobs": jobs, "server": self.host_name}
+        return self.job_service.scheduled_jobs()
 
     def _run_job_cli(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
-        action = action.strip().lower()
-        command = [sys.executable, "-m", "prompta.core"]
-
-        if action == "add":
-            name = str(payload.get("name") or "").strip()
-            prompt = str(payload.get("prompt") or "").strip()
-            if not name:
-                raise ValueError("Job name is required")
-            if not prompt:
-                raise ValueError("Job prompt is required")
-            command += ["add", name, prompt]
-            daily_at = str(payload.get("daily_at") or "").strip()
-            if daily_at:
-                if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at):
-                    raise ValueError("Daily time must use HH:MM")
-                command += ["--daily-at", daily_at]
-            else:
-                raw_interval_minutes = payload.get("interval_minutes")
-                if (
-                    not isinstance(raw_interval_minutes, (str, int, float))
-                    or isinstance(raw_interval_minutes, bool)
-                ):
-                    raise ValueError("Interval minutes must be a number")
-                try:
-                    interval_minutes = float(raw_interval_minutes)
-                except ValueError as exc:
-                    raise ValueError("Interval minutes must be a number") from exc
-                if not math.isfinite(interval_minutes) or interval_minutes <= 0:
-                    raise ValueError("Interval minutes must be greater than zero")
-                command += ["--interval-minutes", str(interval_minutes)]
-                if payload.get("exact_interval") is True:
-                    command.append("--exact-interval")
-            command += ["--jobs-file", str(self.jobs_path)]
-        elif action in {"remove", "pause", "resume"}:
-            name = str(payload.get("name") or "").strip()
-            if not name:
-                raise ValueError("Job name is required")
-            command += [action, name, "--jobs-file", str(self.jobs_path)]
-            if action in {"pause", "resume"}:
-                command += ["--state", str(self.state_path)]
-        elif action == "clear":
-            command += ["clear", "--jobs-file", str(self.jobs_path)]
-        else:
-            raise ValueError(f"Unsupported jobs command: {action}")
-
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise RuntimeError(detail or f"prompta {action} failed")
-
-        if action in {"add", "resume"}:
-            _start_local_scheduler_service()
-        display = ["prompta", *command[3:]]
-        return {
-            "ok": True,
-            "command": display,
-            **self.scheduled_jobs(),
-        }
+        return self.job_service.run_cli(action, payload)
 
     def save_attachments(
         self,
@@ -704,105 +287,17 @@ class PromptaUIServer(ThreadingHTTPServer):
         client_id: str = "",
         message: str = "",
     ) -> list[str]:
-        if raw_attachments is None:
-            return []
-        if not isinstance(raw_attachments, list) or len(raw_attachments) > 5:
-            raise ValueError("Attachments must be a list of at most 5 files")
-
-        upload_dir = self.state_path.parent / "ui-uploads"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        self._image_preview_dir.mkdir(parents=True, exist_ok=True)
-        saved: list[str] = []
-        preview_files: list[Path] = []
-        preview_images: list[dict[str, str]] = []
-        total_bytes = 0
-        try:
-            for item in raw_attachments:
-                if not isinstance(item, dict):
-                    raise ValueError("Invalid attachment")
-                name = Path(str(item.get("name") or "attachment")).name
-                name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .") or "attachment"
-                media_type = str(item.get("type") or "application/octet-stream").strip().lower()
-                encoded = str(item.get("data") or "")
-                if encoded.startswith("data:") and "," in encoded:
-                    encoded = encoded.split(",", 1)[1]
-                try:
-                    content = base64.b64decode(encoded, validate=True)
-                except (ValueError, binascii.Error) as exc:
-                    raise ValueError(f"Attachment {name} is not valid base64") from exc
-                total_bytes += len(content)
-                if total_bytes > 25 * 1024 * 1024:
-                    raise ValueError("Attachments exceed the 25 MB Prompta upload limit")
-                target = upload_dir / f"{uuid.uuid4().hex}-{name}"
-                target.write_bytes(content)
-                target.chmod(0o600)
-                saved.append(str(target))
-                if client_id and media_type.startswith("image/"):
-                    preview_id = uuid.uuid4().hex
-                    preview_target = self._image_preview_dir / preview_id
-                    preview_target.write_bytes(content)
-                    preview_target.chmod(0o600)
-                    preview_files.append(preview_target)
-                    preview_images.append(
-                        {"id": preview_id, "name": name, "type": media_type}
-                    )
-        except Exception:
-            for target in saved:
-                Path(target).unlink(missing_ok=True)
-            for target in preview_files:
-                target.unlink(missing_ok=True)
-            raise
-        if preview_images:
-            self._replace_staged_image_previews(client_id, message, preview_images)
-        return saved
-
+        return self.attachments.save(
+            raw_attachments,
+            client_id=client_id,
+            message=message,
+        )
 
     def schedule_every(self, prompt: str, interval_minutes: float) -> dict[str, Any]:
-        interval_minutes = float(interval_minutes)
-        if not math.isfinite(interval_minutes):
-            raise ValueError("Schedule interval must be finite")
-        interval_minutes = max(0.1, min(interval_minutes, 60.0 * 24.0 * 30.0))
-        name = _schedule_job_name(prompt)
-        interval_seconds = interval_minutes * 60.0
-        add_job(
-            self.jobs_path,
-            name,
-            prompt,
-            interval_seconds,
-            exact_interval=True,
-        )
-        scheduler_started = _start_local_scheduler_service()
-        return {
-            "name": name,
-            "prompt": prompt,
-            "interval_minutes": interval_minutes,
-            "scheduler_started": scheduler_started,
-            "server": self.host_name,
-        }
-
+        return self.job_service.schedule_every(prompt, interval_minutes)
 
     def schedule_at(self, prompt: str, run_at_epoch: float) -> dict[str, Any]:
-        run_at_epoch = float(run_at_epoch)
-        if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
-            raise ValueError("Schedule time must be a finite timestamp in the future")
-        name = f"at-{int(run_at_epoch)}-{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:10]}"
-        add_job(
-            self.jobs_path,
-            name,
-            prompt,
-            0.0,
-            exact_interval=True,
-            run_at_epoch=run_at_epoch,
-        )
-        scheduler_started = _start_local_scheduler_service()
-        return {
-            "name": name,
-            "prompt": prompt,
-            "run_at_epoch": run_at_epoch,
-            "scheduler_started": scheduler_started,
-            "server": self.host_name,
-        }
-
+        return self.job_service.schedule_at(prompt, run_at_epoch)
 
     def _stop(self, conversation_id: str) -> str:
         if self.control_host:
