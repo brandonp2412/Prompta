@@ -1151,7 +1151,9 @@ async def test_paused_job_is_not_run(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_active_job_is_not_started_again_while_due(tmp_path: Path) -> None:
+async def test_active_scheduled_job_blocks_other_scheduled_jobs_until_done(
+    tmp_path: Path,
+) -> None:
     prompta = Prompta(
         PromptaConfig(
             jobs_file=tmp_path / "jobs.json",
@@ -1168,7 +1170,10 @@ async def test_active_job_is_not_started_again_while_due(tmp_path: Path) -> None
     )
 
     assert await prompta._run_job(PromptJob("flux", "continue", 1800), now=1000.0) is False
+    assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is False
     assert prompta.send_once.await_count == 0
+
+    prompta._active_conversations.clear()
 
     assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is True
     prompta.send_once.assert_awaited_once_with("continue", job_name="other")

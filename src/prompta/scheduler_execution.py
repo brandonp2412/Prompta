@@ -20,6 +20,7 @@ from .scheduler_runtime import SchedulerRuntime
 logger = logging.getLogger(__name__)
 
 _FAILURE_RETRY_SECONDS = 300.0
+_MAX_ACTIVE_SCHEDULED_JOBS = 1
 
 
 def prompt_hash(prompt: str) -> str:
@@ -69,6 +70,11 @@ class SchedulerExecution:
             active.job_name == job.name
             for active in self.active.values()
         ):
+            return False
+        active_scheduled_jobs = sum(
+            1 for active in self.active.values() if active.job_name
+        )
+        if active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
             return False
         backoff = self.scheduler.backoffs.setdefault(job.name, RateLimitBackoff())
         if backoff.remaining() > 0:

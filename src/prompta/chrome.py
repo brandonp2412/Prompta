@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,8 @@ from urllib3.exceptions import HTTPError as Urllib3HTTPError
 from urllib3.util.retry import Retry
 
 from .bidi import _BIDI_AUTH_TIMEOUT_SECONDS, FirefoxBiDiDriver
+
+logger = logging.getLogger(__name__)
 
 _CHROMEDRIVER_COMMAND_TIMEOUT_SECONDS = 30
 _FATAL_WEBDRIVER_MARKERS = (
@@ -337,7 +340,14 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         context = await self._run_webdriver_call("create Chromium tab", create)
         self.context = context
         self._remember_owned_context(context)
-        await self.navigate(url, context=context)
+        try:
+            await self.navigate(url, context=context)
+        except BaseException:
+            try:
+                await self.close_context(context)
+            except Exception:
+                logger.debug("Could not close Prompta tab after navigation failure", exc_info=True)
+            raise
         return context
 
     async def close_context(self, context: str) -> None:

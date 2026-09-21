@@ -548,6 +548,31 @@ async def test_click_send_button_does_not_use_unscoped_generic_submit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_tab_closes_created_context_when_navigation_fails(tmp_path: Path) -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "new-context"
+    selenium.window_handles = ["default-context"]
+    driver = ChromeDriverDriver(profile=tmp_path / "profile")
+    driver._driver = selenium
+    driver.context = "default-context"
+
+    with (
+        patch.object(
+            driver,
+            "navigate",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("navigation failed"),
+        ),
+        pytest.raises(RuntimeError, match="navigation failed"),
+    ):
+        await driver.new_tab("https://chatgpt.com/c/test")
+
+    selenium.close.assert_called_once_with()
+    assert "new-context" not in driver._owned_contexts
+    assert driver.context == "default-context"
+
+
+@pytest.mark.asyncio
 async def test_new_tab_marks_crashed_chromedriver_for_restart() -> None:
     selenium = MagicMock()
     selenium.switch_to.new_window.side_effect = WebDriverException("tab crashed")
