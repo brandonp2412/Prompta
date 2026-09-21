@@ -71,9 +71,11 @@ class FakeDriver:
             "fetch_error": "",
         }
         self.navigated: list[str] = []
+        self.navigation_contexts: list[str | None] = []
 
-    async def navigate(self, url: str) -> None:
+    async def navigate(self, url: str, *, context: str | None = None) -> None:
         self.navigated.append(url)
+        self.navigation_contexts.append(context)
 
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         self.context = "context-new"
@@ -3008,6 +3010,7 @@ async def test_recover_cached_conversations_reloads_slow_chat_before_interruptin
         f"https://chatgpt.com/c/{conversation_id}",
         f"https://chatgpt.com/c/{conversation_id}",
     ]
+    assert fake.navigation_contexts == ["context-new"]
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.status(conversation_id) == "active"
     fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
@@ -3053,8 +3056,10 @@ async def test_recover_cached_conversations_uses_history_after_direct_loads_stay
             self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
             return self.context
 
-        async def navigate(self, url: str) -> None:
+        async def navigate(self, url: str, *, context: str | None = None) -> None:
+            assert context == "context-new"
             self.navigated.append(url)
+            self.navigation_contexts.append(context)
             self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
 
         async def eval(self, expression: str, *, context: str | None = None) -> str:
@@ -3101,6 +3106,7 @@ async def test_recover_cached_conversations_uses_history_after_direct_loads_stay
         assert await prompta.recover_cached_conversations() == 1
 
     assert fake.navigated == [target_url, target_url, "https://chatgpt.com/"]
+    assert fake.navigation_contexts == ["context-new", "context-new"]
     assert fake.history_activations == [f"/c/{conversation_id}"]
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.status(conversation_id) == "active"
