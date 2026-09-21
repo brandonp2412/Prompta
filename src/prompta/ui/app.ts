@@ -25,8 +25,10 @@ import {
   toolCallIsInvocationPlaceholder,
   toolCallSummary,
 } from "./clientLogic";
+import { RecentChatCache } from "./recentChatCache";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
 const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
+const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 function loadPinnedIds(): Set<string> {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
@@ -1796,6 +1798,7 @@ async function probeHistoricalActivity(conversationId) {
     const chat = payload?.chat;
     if (!chat || chat.id !== conversationId) return;
     state.selectedUpdatedAt = chat.updated_at;
+    recentChatCache.remember(chat);
     renderConversation(chat);
     await loadChats();
   } catch (error) {
@@ -1812,9 +1815,33 @@ async function probeHistoricalActivity(conversationId) {
   }
 }
 
+function renderRecentChatSnapshot(conversationId) {
+  if (!conversationId || state.mode !== "chats") return;
+  const memoryChat = recentChatCache.getMemory(conversationId);
+  if (memoryChat) {
+    state.selectedUpdatedAt = memoryChat.updated_at;
+    renderConversation(memoryChat);
+    return;
+  }
+
+  void recentChatCache.get(conversationId).then((chat) => {
+    if (
+      !chat
+      || state.mode !== "chats"
+      || state.selectedId !== conversationId
+      || state.selectedChat?.id === conversationId
+    ) return;
+    state.selectedUpdatedAt = chat.updated_at;
+    renderConversation(chat);
+  });
+}
+
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
   const selectedId = state.selectedId;
+  if (!state.selectedChat || state.selectedChat.id !== selectedId) {
+    renderRecentChatSnapshot(selectedId);
+  }
   const requestId = ++state.selectedRequestId;
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
@@ -1827,6 +1854,7 @@ async function loadSelectedChat() {
       state.pendingNewId = null;
     }
     state.selectedUpdatedAt = chat.updated_at;
+    recentChatCache.remember(chat);
     renderConversation(chat);
     if (shouldProbeHistoricalActivity(chat.status)) {
       void probeHistoricalActivity(chat.id);
@@ -1835,6 +1863,7 @@ async function loadSelectedChat() {
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
     const missing = String(error).startsWith("Error: 404");
     if (missing && state.pendingNewId !== state.selectedId) {
+      void recentChatCache.remove(selectedId);
       if (conversationIdFromHash(location.hash) === selectedId) {
         history.replaceState(null, "", `${location.pathname}${location.search}`);
       }
