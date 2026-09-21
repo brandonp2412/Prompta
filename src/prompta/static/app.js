@@ -30,6 +30,37 @@ function toolCallIsInvocationPlaceholder(value) {
 function toolCallHasUsefulDetail(value) {
   return String(value || "").split(/\n+/).map((line) => line.trim()).some((line) => Boolean(toolCallDisplayName(line)));
 }
+function parsedToolPayload(value) {
+  let current = value;
+  for (let depth = 0;depth < 3; depth += 1) {
+    if (typeof current !== "string")
+      return current;
+    const trimmed = current.trim();
+    if (!trimmed || !/^[{[]/.test(trimmed))
+      return current;
+    try {
+      current = JSON.parse(trimmed);
+    } catch {
+      return current;
+    }
+  }
+  return current;
+}
+function pythonToolCallCode(toolName, value) {
+  const name = String(toolName || "").trim().toLowerCase();
+  const pythonTool = name.includes("execute_python") || name.includes("python") && (name.includes("nox") || name.includes("glass") || name.includes("mcp"));
+  if (!pythonTool)
+    return "";
+  const payload = parsedToolPayload(value);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return "";
+  const record = payload;
+  const argumentPayload = parsedToolPayload(record.arguments ?? record.args ?? record);
+  if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload))
+    return "";
+  const code = argumentPayload.code;
+  return typeof code === "string" ? code : "";
+}
 function sidebarPreviewText(value) {
   return String(value || "").replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();
 }
@@ -838,9 +869,10 @@ function renderCodeBlock(code, language) {
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation)
     return "";
-  const renderedCode = toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code;
-  const highlightLanguage = toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
-  const label = toolish ? "tool call" : rawLanguage || "code";
+  const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
+  const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
+  const highlightLanguage = pythonCode ? "python" : toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
+  const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
   return `
     <div class="code-block${toolish ? " tool-call-block" : ""}">
       <div class="code-header">

@@ -77,6 +77,36 @@ export function toolCallHasUsefulDetail(value: unknown): boolean {
     .some((line) => Boolean(toolCallDisplayName(line)));
 }
 
+function parsedToolPayload(value: unknown): unknown {
+  let current: unknown = value;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof current !== "string") return current;
+    const trimmed = current.trim();
+    if (!trimmed || !/^[{[]/.test(trimmed)) return current;
+    try {
+      current = JSON.parse(trimmed);
+    } catch {
+      return current;
+    }
+  }
+  return current;
+}
+
+export function pythonToolCallCode(toolName: unknown, value: unknown): string {
+  const name = String(toolName || "").trim().toLowerCase();
+  const pythonTool = name.includes("execute_python")
+    || (name.includes("python") && (name.includes("nox") || name.includes("glass") || name.includes("mcp")));
+  if (!pythonTool) return "";
+
+  const payload = parsedToolPayload(value);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const record = payload as Record<string, unknown>;
+  const argumentPayload = parsedToolPayload(record.arguments ?? record.args ?? record);
+  if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload)) return "";
+  const code = (argumentPayload as Record<string, unknown>).code;
+  return typeof code === "string" ? code : "";
+}
+
 export function sidebarPreviewText(value: unknown): string {
   return String(value || "")
     .replace(

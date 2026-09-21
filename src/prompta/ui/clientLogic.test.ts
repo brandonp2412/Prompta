@@ -10,6 +10,7 @@ import {
   parseScheduleSlashCommand,
   pendingSendActivity,
   postJsonRequest,
+  pythonToolCallCode,
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
@@ -435,5 +436,35 @@ describe("tool call display cleanup", () => {
   test("keeps actual connector names and useful details", () => {
     expect(toolCallDisplayName("Nox Python MCP")).toBe("Nox Python MCP");
     expect(toolCallHasUsefulDetail("execute_python\nHOST nox")).toBe(true);
+  });
+
+  test("extracts only Python source from Nox and Glass MCP tool payloads", () => {
+    const nox = JSON.stringify({
+      arguments: {
+        code: "from pathlib import Path\nprint(Path.cwd())",
+        cwd: "/home/example/prompta",
+      },
+      status: "completed",
+      result: { stdout: "/home/example/prompta\n" },
+    });
+    const glass = JSON.stringify({
+      arguments: JSON.stringify({
+        code: "import socket\nprint(socket.gethostname())",
+        timeout_seconds: 120,
+      }),
+      status: "completed",
+    });
+
+    expect(pythonToolCallCode("Nox Python MCP · execute_python", nox))
+      .toBe("from pathlib import Path\nprint(Path.cwd())");
+    expect(pythonToolCallCode("Glass · execute_python", glass))
+      .toBe("import socket\nprint(socket.gethostname())");
+  });
+
+  test("does not reinterpret non-Python MCP JSON as Python", () => {
+    expect(pythonToolCallCode(
+      "GitHub · get_issue",
+      JSON.stringify({ arguments: { code: "not python" } }),
+    )).toBe("");
   });
 });
