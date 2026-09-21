@@ -2,7 +2,6 @@ export function createDeploymentMonitor() {
   let head = "";
   let reloading = false;
   let reloadPending = false;
-  let reloadArmed = false;
 
   async function updateServiceWorker() {
     try {
@@ -18,6 +17,7 @@ export function createDeploymentMonitor() {
   async function refresh() {
     if (reloading) return;
     reloading = true;
+    reloadPending = false;
     await updateServiceWorker();
     window.location.reload();
   }
@@ -32,17 +32,11 @@ export function createDeploymentMonitor() {
     if (nextHead === head || reloading) return;
     head = nextHead;
     reloadPending = true;
-    reloadArmed = document.visibilityState !== "visible";
-    void updateServiceWorker();
+    void refresh();
   }
 
   function handleVisibilityChange() {
     if (!reloadPending || reloading) return;
-    if (document.visibilityState !== "visible") {
-      reloadArmed = true;
-      return;
-    }
-    if (!reloadArmed) return;
     void refresh();
   }
 

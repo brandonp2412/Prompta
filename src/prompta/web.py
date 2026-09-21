@@ -580,6 +580,15 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             body,
         )
 
+    def _service_worker(self) -> None:
+        try:
+            script = (_STATIC_ROOT / "sw.js").read_text()
+            body = script.replace("__PROMPTA_UI_HEAD__", _UI_HEAD or "dev").encode()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._write_response(HTTPStatus.OK, "text/javascript; charset=utf-8", body)
+
     def _event_headers(self) -> bool:
         try:
             self.send_response(HTTPStatus.OK)
@@ -663,7 +672,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._static("icon.svg", "image/svg+xml")
             return
         if path == "/sw.js":
-            self._static("sw.js", "text/javascript")
+            self._service_worker()
             return
         if path == "/api/events":
             self._events()

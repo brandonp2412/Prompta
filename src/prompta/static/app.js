@@ -2173,7 +2173,6 @@ function createDeploymentMonitor() {
   let head = "";
   let reloading = false;
   let reloadPending = false;
-  let reloadArmed = false;
   async function updateServiceWorker() {
     try {
       if ("serviceWorker" in navigator) {
@@ -2188,6 +2187,7 @@ function createDeploymentMonitor() {
     if (reloading)
       return;
     reloading = true;
+    reloadPending = false;
     await updateServiceWorker();
     window.location.reload();
   }
@@ -2203,17 +2203,10 @@ function createDeploymentMonitor() {
       return;
     head = nextHead;
     reloadPending = true;
-    reloadArmed = document.visibilityState !== "visible";
-    updateServiceWorker();
+    refresh();
   }
   function handleVisibilityChange() {
     if (!reloadPending || reloading)
-      return;
-    if (document.visibilityState !== "visible") {
-      reloadArmed = true;
-      return;
-    }
-    if (!reloadArmed)
       return;
     refresh();
   }
