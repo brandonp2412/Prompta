@@ -372,6 +372,8 @@ async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) ->
     fake = ReplyFakeDriver(prompt)
     prompta.driver = cast(Any, fake)
     prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    wait_for_cached_response = AsyncMock(return_value=True)
+    prompta.actions.wait_for_cached_response_callback = wait_for_cached_response
     prompta.cache.start(
         conversation_id,
         context_id="context-1",
@@ -383,12 +385,13 @@ async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) ->
         context_id="context-1",
         job_name="kite",
         prompt="Original prompt",
-        settled_at=1.0,
+        settled_at=0.0,
     )
 
     result = await prompta.send_reply(conversation_id, prompt)
 
     assert result == conversation_id
+    wait_for_cached_response.assert_awaited_once_with(conversation_id)
     assert fake.navigated == [f"https://chatgpt.com/c/{conversation_id}"]
     assert fake.sent is True
     assert "context-1" not in prompta._active_conversations

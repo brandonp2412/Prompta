@@ -271,7 +271,11 @@ function syncSendButton() {
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
-  const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
+  const stopMode = canCompose && shouldShowStopAction(
+    state.selectedChat?.status,
+    state.composingNew,
+    hasContent,
+  );
   const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {

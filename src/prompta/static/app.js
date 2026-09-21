@@ -403,8 +403,8 @@ async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45000, fe
 function composerHasContent(message, attachmentCount) {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
-function shouldShowStopAction(chatStatus, composingNew) {
-  return !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
+function shouldShowStopAction(chatStatus, composingNew, hasComposerContent = false) {
+  return !hasComposerContent && !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
 }
 function shouldProbeHistoricalActivity(chatStatus) {
   return String(chatStatus || "").trim().toLowerCase() === "interrupted";
@@ -2730,7 +2730,7 @@ function syncSendButton() {
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
-  const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
+  const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew, hasContent);
   const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {

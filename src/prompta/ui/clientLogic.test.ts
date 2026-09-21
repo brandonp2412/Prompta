@@ -559,13 +559,17 @@ describe("historical activity probing", () => {
 });
 
 describe("composer primary action", () => {
-  test("keeps Stop as the primary action for an active existing chat", () => {
-    expect(shouldShowStopAction("active", false)).toBe(true);
+  test("keeps Stop as the primary action for an active existing chat with an empty composer", () => {
+    expect(shouldShowStopAction("active", false, false)).toBe(true);
+  });
+
+  test("switches an active chat from Stop to Send once the composer has content", () => {
+    expect(shouldShowStopAction("active", false, true)).toBe(false);
   });
 
   test("does not show Stop for completed or brand-new chats", () => {
-    expect(shouldShowStopAction("complete", false)).toBe(false);
-    expect(shouldShowStopAction("active", true)).toBe(false);
+    expect(shouldShowStopAction("complete", false, false)).toBe(false);
+    expect(shouldShowStopAction("active", true, false)).toBe(false);
   });
 });
 
