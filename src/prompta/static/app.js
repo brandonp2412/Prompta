@@ -2235,11 +2235,17 @@ function syncSidebarAccessibility() {
 }
 function openSidebar() {
   resetSidebarDragStyles();
+  if (mobileSidebarEnabled() && !document.body.classList.contains("sidebar-open")) {
+    beginSidebarMotion();
+  }
   document.body.classList.add("sidebar-open");
   syncSidebarAccessibility();
 }
 function closeSidebar() {
   resetSidebarDragStyles();
+  if (mobileSidebarEnabled() && document.body.classList.contains("sidebar-open")) {
+    beginSidebarMotion();
+  }
   document.body.classList.remove("sidebar-open");
   syncSidebarAccessibility();
 }
