@@ -116,7 +116,6 @@ describe("live chat synchronization", () => {
     let identityLoads = 0;
     let pageShows = 0;
 
-
     const liveUpdates = createLiveUpdates({
       loadChats: async () => {
         loads += 1;
@@ -140,7 +139,6 @@ describe("live chat synchronization", () => {
     emitWindow("pagehide");
     expect(firstStream.closed).toBe(true);
 
-
     emitWindow("pageshow");
     await Promise.resolve();
 
@@ -150,5 +148,46 @@ describe("live chat synchronization", () => {
     expect(FakeEventSource.instances).toHaveLength(2);
 
     liveUpdates.stop();
+  });
+});
+
+describe("live presence", () => {
+  test("moves online to offline on a stale heartbeat and recovers after a new heartbeat", async () => {
+    const statuses: Array<{ server: string; online: boolean }> = [];
+    let streamErrors = 0;
+    const live = createLiveUpdates({
+      loadChats: async () => {},
+      loadServerIdentity: async () => {},
+      setServerStatus: (server: string, online: boolean) => statuses.push({ server, online }),
+      observeHead: () => {},
+      refreshDisplayedTimes: () => {},
+      onStreamError: () => {
+        streamErrors += 1;
+      },
+      onPageShow: () => {},
+      presenceStaleMs: 15,
+      presenceCheckMs: 5,
+    });
+
+    live.start();
+    const events = FakeEventSource.instances[0];
+    events.emit("refresh", JSON.stringify({ server: "glass", online: true, head: "abc123" }));
+    expect(statuses.at(-1)).toEqual({ server: "glass", online: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(statuses.at(-1)).toEqual({ server: "glass", online: false });
+    expect(streamErrors).toBeGreaterThan(0);
+
+    events.emit("heartbeat", JSON.stringify({ server: "glass", online: true }));
+    expect(statuses.at(-1)).toEqual({ server: "glass", online: true });
+
+    events.emit("error");
+    expect(statuses.at(-1)).toEqual({ server: "glass", online: false });
+
+    events.emit("refresh", JSON.stringify({ server: "glass", online: true, head: "def456" }));
+    expect(statuses.at(-1)).toEqual({ server: "glass", online: true });
+
+    live.stop();
+    expect(events.closed).toBe(true);
   });
 });
