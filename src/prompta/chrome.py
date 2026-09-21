@@ -98,10 +98,62 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         self.debugger_address = debugger_address.strip() if debugger_address else None
         self._driver: webdriver.Chrome | None = None
         self._owned_contexts: set[str] = set()
+        self._owned_contexts_path = self.profile.with_name(
+            f"{self.profile.name}.owned-contexts.json"
+        )
 
     @property
     def is_connected(self) -> bool:
         return self._driver is not None and bool(self.context) and not self.needs_browser_restart
+
+    def _load_persisted_owned_contexts(self) -> set[str]:
+        if not self.debugger_address:
+            return set()
+        try:
+            payload = json.loads(self._owned_contexts_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return set()
+        if not isinstance(payload, list):
+            return set()
+        return {item for item in payload if isinstance(item, str) and item}
+
+    def _persist_owned_contexts(self) -> None:
+        if not self.debugger_address:
+            return
+        try:
+            if not self._owned_contexts:
+                self._owned_contexts_path.unlink(missing_ok=True)
+                return
+            self._owned_contexts_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._owned_contexts_path.with_name(f"{self._owned_contexts_path.name}.tmp")
+            temporary.write_text(
+                json.dumps(sorted(self._owned_contexts)),
+                encoding="utf-8",
+            )
+            temporary.replace(self._owned_contexts_path)
+        except OSError:
+            pass
+
+    def _remember_owned_context(self, context: str) -> None:
+        if not self.debugger_address:
+            return
+        self._owned_contexts.add(context)
+        self._persist_owned_contexts()
+
+    def _forget_owned_context(self, context: str) -> None:
+        self._owned_contexts.discard(context)
+        self._persist_owned_contexts()
+
+    async def _cleanup_stale_owned_contexts(self) -> None:
+        stale_contexts = self._load_persisted_owned_contexts()
+        if not stale_contexts:
+            return
+        unresolved = await asyncio.to_thread(
+            self._close_debugger_targets,
+            stale_contexts,
+        )
+        self._owned_contexts.update(unresolved)
+        self._persist_owned_contexts()
 
     @staticmethod
     def _is_fatal_webdriver_error(exc: Exception) -> bool:
@@ -169,9 +221,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                     if attempt + 1 < attempts:
                         await asyncio.sleep(0.5)
                         continue
-                    raise self._driver_runtime_error(
-                        "create ChromeDriver session", exc
-                    ) from exc
+                    raise self._driver_runtime_error("create ChromeDriver session", exc) from exc
         raise RuntimeError("ChromeDriver session creation failed") from last_error
 
     async def connect(self) -> None:
@@ -180,6 +230,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         if self.needs_browser_restart:
             raise RuntimeError("Chromium WebDriver session is poisoned; browser restart required")
         try:
+            await self._cleanup_stale_owned_contexts()
             self._driver = await self._create_driver_session()
             handles = await self._run_webdriver_call(
                 "read Chromium window handles",
@@ -188,6 +239,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             if not handles:
                 raise RuntimeError("ChromeDriver created no browser window")
             if self.debugger_address:
+
                 def create_owned_tab() -> str:
                     driver = self._require_driver()
                     driver.switch_to.new_window("tab")
@@ -197,7 +249,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                     "create Prompta Chromium tab",
                     create_owned_tab,
                 )
-                self._owned_contexts.add(self.context)
+                self._remember_owned_context(self.context)
             else:
                 self.context = str(handles[0])
             self._network_subscribed = True
@@ -207,9 +259,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     if await self.login_required():
-                        raise RuntimeError(
-                            "Prompta Chromium profile is not logged into ChatGPT"
-                        )
+                        raise RuntimeError("Prompta Chromium profile is not logged into ChatGPT")
                     if await self.ensure_token():
                         return
                 except Exception as exc:
@@ -257,9 +307,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 if await_promise:
                     script = (
                         "const done=arguments[arguments.length-1];"
-                        "Promise.resolve(("
-                        + expression
-                        + ")).then(v=>done({ok:true,value:v}),"
+                        "Promise.resolve((" + expression + ")).then(v=>done({ok:true,value:v}),"
                         "e=>done({ok:false,error:String(e&&e.stack||e)}));"
                     )
                     payload = driver.execute_async_script(script)
@@ -288,8 +336,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         context = await self._run_webdriver_call("create Chromium tab", create)
         self.context = context
-        if self.debugger_address:
-            self._owned_contexts.add(context)
+        self._remember_owned_context(context)
         await self.navigate(url, context=context)
         return context
 
@@ -314,7 +361,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             self.context = next_context
 
         await self._run_webdriver_call("close Chromium tab", close_sync)
-        self._owned_contexts.discard(context)
+        self._forget_owned_context(context)
 
     async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
         def perform() -> None:
@@ -340,7 +387,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         composer_selector = (
             '#prompt-textarea,div[role="textbox"].ProseMirror,'
-            'textarea#prompt-textarea,textarea#mobile-composer-prompt'
+            "textarea#prompt-textarea,textarea#mobile-composer-prompt"
         )
         selectors = (
             '[data-testid="send-button"]',
@@ -418,9 +465,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 element.send_keys("\n".join(paths))
                 return True
 
-            return bool(
-                await self._run_webdriver_call("upload ChatGPT attachment", upload_sync)
-            )
+            return bool(await self._run_webdriver_call("upload ChatGPT attachment", upload_sync))
 
         if not await locate_and_upload():
             opened = await self.eval(
@@ -452,20 +497,25 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             await asyncio.sleep(0.2)
         raise RuntimeError("ChatGPT attachment upload did not finish within 120s")
 
-    def _close_debugger_targets(self, contexts: set[str]) -> None:
+    def _close_debugger_targets(self, contexts: set[str]) -> set[str]:
         if not self.debugger_address or not contexts:
-            return
+            return set(contexts)
         base_url = f"http://{self.debugger_address}"
         try:
             with urlopen(f"{base_url}/json/list", timeout=1.0) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except Exception:
-            return
-        target_ids = {
-            str(item.get("id") or "")
-            for item in payload
-            if isinstance(item, dict) and item.get("id")
-        } if isinstance(payload, list) else set()
+            return set(contexts)
+        target_ids = (
+            {
+                str(item.get("id") or "")
+                for item in payload
+                if isinstance(item, dict) and item.get("id")
+            }
+            if isinstance(payload, list)
+            else set()
+        )
+        unresolved: set[str] = set()
         for context in contexts & target_ids:
             try:
                 request = Request(
@@ -475,7 +525,8 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 with urlopen(request, timeout=1.0):
                     pass
             except Exception:
-                pass
+                unresolved.add(context)
+        return unresolved
 
     async def close(self) -> None:
         driver = self._driver
@@ -489,6 +540,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             return
 
         if self.debugger_address:
+
             def detach() -> None:
                 fallback_contexts: set[str] = set()
                 try:

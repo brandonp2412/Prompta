@@ -27,9 +27,7 @@ def test_prompta_chrome_applies_timeout_before_start_session() -> None:
 
     with (
         patch("prompta.chrome.ClientConfig", return_value=client_config) as config_type,
-        patch(
-            "prompta.chrome.ChromiumRemoteConnection", return_value=executor
-        ) as connection_type,
+        patch("prompta.chrome.ChromiumRemoteConnection", return_value=executor) as connection_type,
         patch("prompta.chrome.RemoteWebDriver.__init__", return_value=None) as remote_init,
     ):
         driver = _PromptaChrome(service=service, options=options)
@@ -46,9 +44,7 @@ def test_prompta_chrome_applies_timeout_before_start_session() -> None:
         ignore_proxy=True,
         client_config=client_config,
     )
-    remote_init.assert_called_once_with(
-        driver, command_executor=executor, options=options
-    )
+    remote_init.assert_called_once_with(driver, command_executor=executor, options=options)
 
 
 def test_create_driver_uses_dedicated_profile_and_chromedriver(tmp_path: Path) -> None:
@@ -139,7 +135,9 @@ async def test_create_driver_session_does_not_retry_owned_browser_timeout() -> N
         patch.object(driver, "_create_driver", side_effect=timeout) as create_driver,
         patch("prompta.chrome.asyncio.sleep", new_callable=AsyncMock) as sleep,
     ):
-        with pytest.raises(RuntimeError, match="create ChromeDriver session: .*browser restart required"):
+        with pytest.raises(
+            RuntimeError, match="create ChromeDriver session: .*browser restart required"
+        ):
             await driver._create_driver_session()
 
     create_driver.assert_called_once_with()
@@ -176,21 +174,90 @@ def test_debugger_cleanup_closes_only_owned_open_targets() -> None:
         debugger_address="127.0.0.1:9222",
     )
     listing = MagicMock()
-    listing.read.return_value = json.dumps(
-        [{"id": "target"}, {"id": "unowned"}]
-    ).encode()
+    listing.read.return_value = json.dumps([{"id": "target"}, {"id": "unowned"}]).encode()
     listing.__enter__.return_value = listing
     closing = MagicMock()
     closing.__enter__.return_value = closing
 
     with patch("prompta.chrome.urlopen", side_effect=[listing, closing]) as open_url:
-        driver._close_debugger_targets({"target", "already-gone"})
+        unresolved = driver._close_debugger_targets({"target", "already-gone"})
 
+    assert unresolved == set()
     assert open_url.call_count == 2
     assert open_url.call_args_list[0].args[0] == "http://127.0.0.1:9222/json/list"
     request = open_url.call_args_list[1].args[0]
     assert request.full_url == "http://127.0.0.1:9222/json/close/target"
     assert request.get_method() == "PUT"
+
+
+def test_owned_context_registry_tracks_only_prompta_tabs(tmp_path: Path) -> None:
+    profile = tmp_path / "chrome-profile"
+    driver = ChromeDriverDriver(
+        profile=profile,
+        debugger_address="127.0.0.1:9222",
+    )
+
+    driver._remember_owned_context("prompta-tab")
+
+    registry = profile.with_name("chrome-profile.owned-contexts.json")
+    assert json.loads(registry.read_text()) == ["prompta-tab"]
+
+    driver._forget_owned_context("prompta-tab")
+
+    assert not registry.exists()
+
+
+@pytest.mark.asyncio
+async def test_stale_owned_context_cleanup_preserves_only_failed_targets(tmp_path: Path) -> None:
+    profile = tmp_path / "chrome-profile"
+    registry = profile.with_name("chrome-profile.owned-contexts.json")
+    registry.write_text(json.dumps(["already-gone", "still-open"]))
+    driver = ChromeDriverDriver(
+        profile=profile,
+        debugger_address="127.0.0.1:9222",
+    )
+
+    with patch.object(
+        driver,
+        "_close_debugger_targets",
+        return_value={"still-open"},
+    ) as close_targets:
+        await driver._cleanup_stale_owned_contexts()
+
+    close_targets.assert_called_once_with({"already-gone", "still-open"})
+    assert driver._owned_contexts == {"still-open"}
+    assert json.loads(registry.read_text()) == ["still-open"]
+
+
+@pytest.mark.asyncio
+async def test_connect_cleans_stale_targets_before_creating_driver(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "chrome-profile",
+        debugger_address="127.0.0.1:9222",
+    )
+    selenium = MagicMock()
+    selenium.window_handles = ["user-tab"]
+    selenium.current_window_handle = "prompta-tab"
+    order: list[str] = []
+
+    async def cleanup() -> None:
+        order.append("cleanup")
+
+    async def create_session() -> MagicMock:
+        order.append("create")
+        return selenium
+
+    with (
+        patch.object(driver, "_cleanup_stale_owned_contexts", side_effect=cleanup),
+        patch.object(driver, "_create_driver_session", side_effect=create_session),
+        patch.object(driver, "navigate", new_callable=AsyncMock),
+        patch.object(driver, "login_required", new_callable=AsyncMock, return_value=False),
+        patch.object(driver, "ensure_token", new_callable=AsyncMock, return_value=True),
+    ):
+        await driver.connect()
+
+    assert order[:2] == ["cleanup", "create"]
+    assert "prompta-tab" in driver._owned_contexts
 
 
 @pytest.mark.asyncio
@@ -329,7 +396,9 @@ async def test_attachment_upload_returns_to_default_context_after_background_eva
 
     assert driver.context == "upload-tab"
     assert selenium.switch_to.window.call_args_list[0].args == ("watch-tab",)
-    assert any(call.args == ("upload-tab",) for call in selenium.switch_to.window.call_args_list[1:])
+    assert any(
+        call.args == ("upload-tab",) for call in selenium.switch_to.window.call_args_list[1:]
+    )
     file_input.send_keys.assert_called_once_with(str(image.resolve()))
 
 
