@@ -522,6 +522,7 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "message?.metadata?.invoked_resource?.resource_uri" in expression
     assert "message?.metadata?.reasoning_title" in expression
     assert "detail.summary=summary" in expression
+    assert "detail.created_at=Number(createdAt)" in expression
     assert "'completed'" in expression
     assert "detail.arguments=args" in expression
     assert "detail.duration_ms=duration" in expression
@@ -542,6 +543,8 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "return collapseStreamingTextParts(parts).join" in expression
     assert "? collapseStreamingTextParts([" in expression
     assert "const reactOrderedContent=agent=>" in expression
+    assert "if(message?.end_turn===true)finalTextParts.push(visibleText)" in expression
+    assert "if(finalTextParts.length)parts.push(...finalTextParts)" in expression
     assert "contentType==='text'||contentType==='multimodal_text'" in expression
     assert "const currentToolRows=[...agent.querySelectorAll" in expression
     assert "const orderedNodes=[" in expression
