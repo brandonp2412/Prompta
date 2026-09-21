@@ -16,6 +16,7 @@ import {
   preserveSidebarChatOrder,
   shouldRenderNewChatView,
   shouldShowStopAction,
+  shouldProbeHistoricalActivity,
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -472,6 +473,17 @@ describe("optimistic reply reconciliation", () => {
 });
 
 
+
+describe("historical activity probing", () => {
+  test("probes interrupted chats because they may still be live in ChatGPT", () => {
+    expect(shouldProbeHistoricalActivity("interrupted")).toBe(true);
+  });
+
+  test("does not probe chats whose activity state is already known", () => {
+    expect(shouldProbeHistoricalActivity("active")).toBe(false);
+    expect(shouldProbeHistoricalActivity("complete")).toBe(false);
+  });
+});
 
 describe("composer primary action", () => {
   test("keeps Stop as the primary action for an active existing chat", () => {
