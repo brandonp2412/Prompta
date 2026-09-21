@@ -1,4 +1,4 @@
-const CACHE_NAME = "prompta-shell-v5";
+const CACHE_NAME = "prompta-shell-v6";
 const assetUrl = (path) => new URL(path, self.location.href).toString();
 const SHELL = ["./", "./app.css", "./app.js", "./manifest.webmanifest", "./icon.svg"]
   .map(assetUrl);
@@ -46,31 +46,22 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (event.request.mode === "navigate") {
-    event.respondWith(
-      fetch(event.request).catch(async () => (
-        await caches.match(event.request)
-        || await caches.match(assetUrl("./"))
-        || Response.error()
-      )),
-    );
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const refresh = fetch(event.request).then(async (response) => {
-        if (response.ok) {
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put(event.request, response.clone());
-        }
-        return response;
-      });
-      if (cached) {
-        event.waitUntil(refresh.catch(() => undefined));
-        return cached;
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(event.request);
+      if (response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(event.request, response.clone());
       }
-      return refresh.catch(() => Response.error());
-    }),
-  );
+      return response;
+    } catch {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      if (event.request.mode === "navigate") {
+        const shell = await caches.match(assetUrl("./"));
+        if (shell) return shell;
+      }
+      return Response.error();
+    }
+  })());
 });

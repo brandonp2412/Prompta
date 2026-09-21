@@ -1126,7 +1126,8 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
     store = ReadOnlyChatStore(path)
-    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    with patch("prompta.web.socket.gethostname", return_value="nox.presley.nz"):
+        server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
@@ -1454,6 +1455,31 @@ def test_read_only_store_event_fingerprint_changes_with_cache(tmp_path: Path) ->
     assert after_message != after_start
 
 
+def test_ui_server_defaults_identity_to_local_hostname(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    with patch("prompta.web.socket.gethostname", return_value="glass.presley.nz"):
+        server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        assert server.host_name == "glass"
+        assert server.display_name == "Glass"
+    finally:
+        server.server_close()
+
+
+def test_service_worker_prefers_network_updates_with_offline_shell_fallback() -> None:
+    script = (
+        Path(__file__).resolve().parents[1] / "src" / "prompta" / "static" / "sw.js"
+    ).read_text()
+
+    network_fetch = script.index("const response = await fetch(event.request);")
+    cache_fallback = script.index("const cached = await caches.match(event.request);")
+    assert network_fetch < cache_fallback
+    assert 'const CACHE_NAME = "prompta-shell-v6";' in script
+    assert "url.pathname.startsWith(apiPrefix)" in script
+    assert "await cache.put(event.request, response.clone())" in script
+    assert 'const shell = await caches.match(assetUrl("./"));' in script
+
+
 def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(
@@ -1477,11 +1503,27 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
         server.server_close()
         thread.join(timeout=2)
 
-    assert "Prompta · Glass" in index
+    assert '<title>Prompta · Glass</title>' in index
+    assert '<meta name="application-name" content="Prompta · Glass">' in index
+    assert '<meta name="apple-mobile-web-app-title" content="Prompta Glass">' in index
+    assert '<span id="serverLabel">Server · Glass</span>' in index
     assert "__PROMPTA_SERVER_NAME__" not in index
     assert manifest["name"] == "Prompta · Glass"
     assert manifest["short_name"] == "Prompta · Glass"
+    assert manifest["id"] == "./"
     assert manifest["start_url"] == "./"
+    assert manifest["scope"] == "./"
+    assert manifest["display"] == "standalone"
+    assert manifest["background_color"] == "#212121"
+    assert manifest["theme_color"] == "#212121"
+    assert manifest["icons"] == [
+        {
+            "src": "./icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable",
+        }
+    ]
     assert manifest_type == "application/manifest+json"
 
 def test_jobs_cli_add_maps_to_prompta_cli(tmp_path: Path) -> None:
