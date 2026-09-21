@@ -312,6 +312,22 @@ async def test_send_once_with_attachment_clicks_send_button(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_send_once_allows_attachment_only_message(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    fake = FakeDriver("")
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    conversation_id = await prompta.send_once("", attachments=["/tmp/sample.txt"])
+
+    assert conversation_id == "new-chat"
+    assert fake.attached_files == ["/tmp/sample.txt"]
+    assert fake.typed == ""
+    assert fake.send_button_clicked is True
+    assert fake.sent is True
+
+
+@pytest.mark.asyncio
 async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None:
     prompt = "PROMPTA TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
@@ -373,6 +389,51 @@ async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) ->
     assert "context-1" not in prompta._active_conversations
     assert prompta._active_conversations["context-new"].settled_at == 0.0
     assert prompta.cache.recent_conversations()[0]["status"] == "active"
+    await prompta.close()
+
+
+@pytest.mark.asyncio
+async def test_send_reply_allows_attachment_only_message(tmp_path: Path) -> None:
+    conversation_id = "existing-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class ReplyAttachmentDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            return {
+                "title": "Existing chat",
+                "path": f"/c/{conversation_id}",
+                "streaming": True,
+                "messages": [
+                    {"id": "u1", "role": "user", "content": ""},
+                ],
+            }
+
+    fake = ReplyAttachmentDriver("")
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-old",
+        job_name="kite",
+        prompt="Original prompt",
+    )
+
+    result = await prompta.send_reply(
+        conversation_id,
+        "",
+        attachments=["/tmp/reply-attachment.png"],
+    )
+
+    assert result == conversation_id
+    assert fake.attached_files == ["/tmp/reply-attachment.png"]
+    assert fake.typed == ""
+    assert fake.send_button_clicked is True
+    assert fake.sent is True
     await prompta.close()
 
 
@@ -1367,6 +1428,41 @@ async def test_control_socket_routes_one_shot_through_scheduler(tmp_path: Path) 
         await prompta._drain_once_requests()
         assert await client == "conversation-via-daemon"
         prompta.send_once.assert_awaited_once_with("Do one thing", attachments=[])  # type: ignore[attr-defined]
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_control_socket_routes_attachment_only_one_shot(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="attachment-only-chat")  # type: ignore[method-assign]
+    server, socket_path = await _start_control_server(prompta, state_path)
+    try:
+        client = asyncio.create_task(
+            _send_once_via_control(state_path, "", ["/tmp/attachment-only.png"])
+        )
+        for _ in range(100):
+            if not prompta._once_requests.empty():
+                break
+            await asyncio.sleep(0.01)
+        assert not prompta._once_requests.empty()
+        await prompta._drain_once_requests()
+        assert await client == "attachment-only-chat"
+        prompta.send_once.assert_awaited_once_with(  # type: ignore[attr-defined]
+            "",
+            attachments=["/tmp/attachment-only.png"],
+        )
     finally:
         server.close()
         await server.wait_closed()

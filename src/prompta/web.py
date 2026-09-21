@@ -1676,9 +1676,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if payload is None:
             return None
         message = str(payload.get("message") or "")
-        if not message.strip():
-            self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
-            return None
         client_id = str(payload.get("client_id") or "").strip()
         try:
             attachments = cast(PromptaUIServer, self.server).save_attachments(
@@ -1688,6 +1685,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             )
         except (ValueError, OSError) as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return None
+        if not message.strip() and not attachments:
+            self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
             return None
         return message, attachments, client_id
 

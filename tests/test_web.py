@@ -267,6 +267,61 @@ def test_image_attachment_preview_http_route(tmp_path: Path) -> None:
             Path(target).unlink(missing_ok=True)
 
 
+def test_chat_http_route_accepts_attachment_only_message(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    server.send_jobs.submit = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "send_id": "attachment-only-send",
+            "status": "queued",
+            "conversation_id": "",
+        }
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    saved: list[str] = []
+    try:
+        thread.start()
+        payload = json.dumps(
+            {
+                "message": "",
+                "client_id": "attachment-only-client",
+                "attachments": [
+                    {
+                        "name": "notes.txt",
+                        "type": "text/plain",
+                        "data": base64.b64encode(b"attachment-only").decode(),
+                    }
+                ],
+            }
+        ).encode()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/api/chats",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            body = json.loads(response.read())
+            assert response.status == HTTPStatus.ACCEPTED
+            assert body["ok"] is True
+            assert body["send_id"] == "attachment-only-send"
+
+        call = server.send_jobs.submit.call_args  # type: ignore[attr-defined]
+        assert call.kwargs["operation"] == "once"
+        assert call.kwargs["message"] == ""
+        assert call.kwargs["client_id"] == "attachment-only-client"
+        saved = list(call.kwargs["attachments"])
+        assert len(saved) == 1
+        assert Path(saved[0]).read_bytes() == b"attachment-only"
+    finally:
+        for target in saved:
+            Path(target).unlink(missing_ok=True)
+        server.shutdown()
+        server.server_close()
+        if thread.is_alive():
+            thread.join(timeout=2)
+
+
 def test_send_job_registry_calls_success_hook_with_client_id() -> None:
     succeeded = MagicMock()
     sender = MagicMock(return_value="chat-new")
