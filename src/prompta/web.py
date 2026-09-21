@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import mimetypes
+import os
 import re
 import shlex
 import sqlite3
@@ -568,10 +569,11 @@ class SendJobRegistry:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(f"{path.suffix}.tmp")
-        temporary.write_text(
-            json.dumps({"jobs": list(self._recoverable.values())}, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        payload = json.dumps({"jobs": list(self._recoverable.values())}, ensure_ascii=False)
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
         temporary.replace(path)
 
     def _remember_recoverable(
@@ -583,9 +585,10 @@ class SendJobRegistry:
         conversation_id: str,
         attachments: list[str],
         client_id: str,
-        retry_at: float,
-        retry_attempt: int,
         created_at: float,
+        status: str = "queued",
+        retry_at: float = 0.0,
+        retry_attempt: int = 0,
     ) -> None:
         if self._recovery_path is None:
             return
@@ -596,6 +599,7 @@ class SendJobRegistry:
             "conversation_id": conversation_id,
             "attachments": attachments,
             "client_id": client_id,
+            "status": status,
             "retry_at": retry_at,
             "retry_attempt": retry_attempt,
             "created_at": created_at,
@@ -643,12 +647,18 @@ class SendJobRegistry:
             )
             try:
                 retry_at = float(candidate.get("retry_at") or 0.0)
-                retry_attempt = max(1, int(candidate.get("retry_attempt") or 1))
+                retry_attempt = max(0, int(candidate.get("retry_attempt") or 0))
                 created_at = float(candidate.get("created_at") or now)
             except (TypeError, ValueError):
                 continue
             if not send_id or operation not in {"once", "reply"}:
                 continue
+            status = str(candidate.get("status") or "").strip()
+            if not status:
+                status = "rate_limited" if retry_at > 0 or retry_attempt > 0 else "queued"
+            if status not in {"queued", "running", "rate_limited"}:
+                status = "queued"
+            restored_status = "rate_limited" if status == "rate_limited" else "queued"
             record = {
                 "send_id": send_id,
                 "operation": operation,
@@ -656,29 +666,31 @@ class SendJobRegistry:
                 "conversation_id": conversation_id,
                 "attachments": attachments,
                 "client_id": client_id,
+                "status": restored_status,
                 "retry_at": retry_at,
                 "retry_attempt": retry_attempt,
                 "created_at": created_at,
             }
             self._recoverable[send_id] = record
-            remaining = max(0.0, retry_at - now)
+            remaining = max(0.0, retry_at - now) if restored_status == "rate_limited" else 0.0
             self._jobs[send_id] = {
                 "send_id": send_id,
                 "operation": operation,
-                "status": "rate_limited",
+                "status": restored_status,
                 "conversation_id": conversation_id,
-                "error": "ChatGPT rate limited this account",
+                "error": "ChatGPT rate limited this account" if restored_status == "rate_limited" else "",
                 "created_at": created_at,
                 "updated_at": now,
                 "attachment_count": len(attachments),
-                "retry_at": retry_at,
+                "retry_at": retry_at if restored_status == "rate_limited" else 0.0,
                 "retry_after_seconds": max(0, math.ceil(remaining)),
-                "retry_attempt": retry_attempt,
+                "retry_attempt": retry_attempt if restored_status == "rate_limited" else 0,
             }
             if client_id:
                 self._client_jobs[client_id] = send_id
-            max_retry_at = max(max_retry_at, retry_at)
-            max_attempt = max(max_attempt, retry_attempt)
+            if restored_status == "rate_limited":
+                max_retry_at = max(max_retry_at, retry_at)
+                max_attempt = max(max_attempt, retry_attempt)
             restored.append(record)
 
         if max_attempt:
@@ -692,7 +704,7 @@ class SendJobRegistry:
                 )
         if restored:
             self._revision += 1
-            logger.info("Restoring %d rate-limited Prompta UI send(s)", len(restored))
+            logger.info("Restoring %d durable Prompta UI send(s)", len(restored))
             for record in restored:
                 threading.Thread(
                     target=self._run,
@@ -746,6 +758,7 @@ class SendJobRegistry:
     ) -> dict[str, Any]:
         now = time.time()
         normalized_client_id = client_id.strip()
+        attachment_paths = list(attachments or [])
         send_id = uuid.uuid4().hex
         job = {
             "send_id": send_id,
@@ -755,7 +768,7 @@ class SendJobRegistry:
             "error": "",
             "created_at": now,
             "updated_at": now,
-            "attachment_count": len(attachments or []),
+            "attachment_count": len(attachment_paths),
         }
         with self._lock:
             cutoff = now - 3600.0
@@ -772,7 +785,7 @@ class SendJobRegistry:
                 existing_send_id = self._client_jobs.get(normalized_client_id)
                 existing = self._jobs.get(existing_send_id or "")
                 if existing is not None:
-                    self._cleanup_attachments(list(attachments or []))
+                    self._cleanup_attachments(attachment_paths)
                     if (
                         self._on_success is not None
                         and str(existing.get("status") or "") == "succeeded"
@@ -791,6 +804,20 @@ class SendJobRegistry:
                                 exc_info=True,
                             )
                     return dict(existing)
+            try:
+                self._remember_recoverable(
+                    send_id=send_id,
+                    operation=operation,
+                    message=message,
+                    conversation_id=conversation_id,
+                    attachments=attachment_paths,
+                    client_id=normalized_client_id,
+                    created_at=now,
+                    status="queued",
+                )
+            except Exception:
+                self._cleanup_attachments(attachment_paths)
+                raise
             self._jobs[send_id] = job
             if normalized_client_id:
                 self._client_jobs[normalized_client_id] = send_id
@@ -802,7 +829,7 @@ class SendJobRegistry:
                 operation,
                 message,
                 conversation_id,
-                list(attachments or []),
+                attachment_paths,
                 normalized_client_id,
             ),
             name=f"prompta-ui-send-{send_id[:8]}",
@@ -859,9 +886,10 @@ class SendJobRegistry:
                         conversation_id=conversation_id,
                         attachments=attachments,
                         client_id=client_id,
+                        created_at=float(current.get("created_at") or time.time()),
+                        status="rate_limited",
                         retry_at=retry_at,
                         retry_attempt=max(1, attempt),
-                        created_at=float(current.get("created_at") or time.time()),
                     )
                     self._sleep(remaining)
 
@@ -872,7 +900,6 @@ class SendJobRegistry:
                     retry_at=0.0,
                     retry_after_seconds=0,
                 )
-                self._forget_recoverable(send_id)
                 try:
                     result = self._sender(operation, message, conversation_id, attachments)
                 except Exception as exc:
@@ -884,6 +911,7 @@ class SendJobRegistry:
                             operation,
                             conversation_id or "new",
                         )
+                        self._forget_recoverable(send_id)
                         self._update(send_id, status="failed", error=str(exc))
                         return
 
@@ -915,22 +943,15 @@ class SendJobRegistry:
                         conversation_id=conversation_id,
                         attachments=attachments,
                         client_id=client_id,
+                        created_at=float(current.get("created_at") or time.time()),
+                        status="rate_limited",
                         retry_at=retry_at,
                         retry_attempt=attempt,
-                        created_at=float(current.get("created_at") or time.time()),
                     )
                     self._sleep(delay)
                     continue
 
                 self._reset_rate_limit_backoff()
-                self._update(
-                    send_id,
-                    status="succeeded",
-                    conversation_id=result,
-                    error="",
-                    retry_at=0.0,
-                    retry_after_seconds=0,
-                )
                 if self._on_success is not None and client_id:
                     try:
                         self._on_success(client_id, result, message)
@@ -941,6 +962,15 @@ class SendJobRegistry:
                             result,
                             exc_info=True,
                         )
+                self._forget_recoverable(send_id)
+                self._update(
+                    send_id,
+                    status="succeeded",
+                    conversation_id=result,
+                    error="",
+                    retry_at=0.0,
+                    retry_after_seconds=0,
+                )
                 return
         finally:
             self._cleanup_attachments(attachments)

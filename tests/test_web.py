@@ -437,6 +437,101 @@ def test_send_job_registry_returns_before_sender_finishes() -> None:
     assert result["error"] == ""
 
 
+def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path) -> None:
+    release = Event()
+    started = Event()
+    recovery_path = tmp_path / "ui-send-retries.json"
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        started.set()
+        assert release.wait(timeout=1.0)
+        return "chat-new"
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+    queued = registry.submit(
+        operation="once",
+        message="Durable hello",
+        client_id="browser-durable-1",
+    )
+
+    assert started.wait(timeout=1.0)
+    persisted = json.loads(recovery_path.read_text())
+    assert persisted["jobs"] == [
+        {
+            "send_id": queued["send_id"],
+            "operation": "once",
+            "message": "Durable hello",
+            "conversation_id": "",
+            "attachments": [],
+            "client_id": "browser-durable-1",
+            "status": "queued",
+            "retry_at": 0.0,
+            "retry_attempt": 0,
+            "created_at": queued["created_at"],
+        }
+    ]
+
+    release.set()
+    deadline = time.monotonic() + 1.0
+    result = registry.get(queued["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert not recovery_path.exists()
+
+
+def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    send_id = "queued-before-restart"
+    created_at = time.time() - 10
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": send_id,
+                        "operation": "once",
+                        "message": "Resume queued send",
+                        "conversation_id": "",
+                        "attachments": [],
+                        "client_id": "browser-queued-restart",
+                        "status": "queued",
+                        "retry_at": 0.0,
+                        "retry_attempt": 0,
+                        "created_at": created_at,
+                    }
+                ]
+            }
+        )
+    )
+    calls = 0
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        assert operation == "once"
+        assert message == "Resume queued send"
+        assert conversation_id == ""
+        assert attachments == []
+        return "chat-restored-queued"
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+    deadline = time.monotonic() + 1.0
+    result = registry.get(send_id)
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(send_id)
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert result["conversation_id"] == "chat-restored-queued"
+    assert calls == 1
+    assert not recovery_path.exists()
+
+
 def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path: Path) -> None:
     calls = 0
     sleeping = Event()
