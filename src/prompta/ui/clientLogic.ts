@@ -173,6 +173,20 @@ export function messageTimestampMillis(
   return null;
 }
 
+export function messageAgeText(timestampMillis: unknown, nowMillis = Date.now()): string {
+  const timestamp = Number(timestampMillis);
+  const now = Number(nowMillis);
+  if (!Number.isFinite(timestamp) || timestamp <= 0 || !Number.isFinite(now)) return "";
+  const elapsed = Math.max(0, now - timestamp);
+  if (elapsed < 45_000) return "now";
+  if (elapsed < 3_600_000) return `${Math.max(1, Math.floor(elapsed / 60_000))}m ago`;
+  if (elapsed < 86_400_000) return `${Math.max(1, Math.floor(elapsed / 3_600_000))}h ago`;
+  if (elapsed < 604_800_000) return `${Math.max(1, Math.floor(elapsed / 86_400_000))}d ago`;
+  if (elapsed < 2_592_000_000) return `${Math.max(1, Math.floor(elapsed / 604_800_000))}w ago`;
+  if (elapsed < 31_536_000_000) return `${Math.max(1, Math.floor(elapsed / 2_592_000_000))}mo ago`;
+  return `${Math.max(1, Math.floor(elapsed / 31_536_000_000))}y ago`;
+}
+
 export function matchingPendingReplyMessageIndex(
   messages: CachedMessage[],
   pending: PendingReply,

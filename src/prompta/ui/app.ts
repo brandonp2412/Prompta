@@ -4,6 +4,7 @@ import {
   formatScheduleInterval,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
+  messageAgeText,
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
@@ -627,19 +628,33 @@ function renderCodeBlock(code, language) {
       ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
       : normalized;
   const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
-  const header = `
-      ${toolSummary
-        ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>`
-        : `<span class="code-language">${escapeHtml(label)}</span>`}
-      ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-      ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}`;
+  const copyButton = renderedCode.trim()
+    ? '<button type="button" class="copy-code">copy</button>'
+    : "";
+  const header = toolish
+    ? (toolSummary
+      ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>`
+      : `
+        <span class="code-language">${escapeHtml(label)}</span>
+        ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+        ${copyButton}`)
+    : `
+      <span class="code-language">${escapeHtml(label)}</span>
+      ${copyButton}`;
   const body = renderedCode.trim()
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
     : "";
   if (toolish) {
+    const detailHeader = `
+      <div class="tool-expanded-meta">
+        <span class="code-language">${escapeHtml(label)}</span>
+        ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+        ${copyButton}
+      </div>`;
     return `
-      <details class="code-block tool-call-block">
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}">
         <summary class="code-header">${header}</summary>
+        ${detailHeader}
         ${body}
       </details>`;
   }
@@ -667,7 +682,7 @@ function renderMarkdown(raw) {
 }
 function messageTimestamp(message) {
   const millis = messageTimestampMillis(message.created_at, message.updated_at);
-  if (millis === null) return { text: "Time unavailable", iso: "" };
+  if (millis === null) return { text: "Time unavailable", iso: "", millis: null, age: "" };
   const date = new Date(millis);
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -678,6 +693,8 @@ function messageTimestamp(message) {
   return {
     text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${hour12}:${minutes}${period}`,
     iso: date.toISOString(),
+    millis,
+    age: messageAgeText(millis),
   };
 }
 function renderMessageSection(message, allowStreaming = true) {
@@ -707,7 +724,9 @@ function renderMessageSection(message, allowStreaming = true) {
             ${escapeHtml(activityLabel)}
           </div>
         ` : ""}
-        <time class="message-timestamp" datetime="${timestamp.iso}">${timestamp.text}</time>
+        <time class="message-timestamp" datetime="${timestamp.iso}"${timestamp.millis === null ? "" : ` data-message-at="${timestamp.millis}"`}>
+          <span class="message-clock">${escapeHtml(timestamp.text)}</span>${timestamp.age ? `<span class="message-age"> · ${escapeHtml(timestamp.age)}</span>` : ""}
+        </time>
       </div>
     </section>`;
 }
@@ -847,8 +866,25 @@ function updateMessageNode(node, message, allowStreaming) {
   const timestamp = node.querySelector(".message-timestamp") as HTMLTimeElement | null;
   if (!timestamp) return false;
   const nextTimestamp = messageTimestamp(message);
-  setTextIfChanged(timestamp, nextTimestamp.text);
+  const clock = timestamp.querySelector(".message-clock") as HTMLElement | null;
+  if (!clock) return false;
+  setTextIfChanged(clock, nextTimestamp.text);
   if (timestamp.dateTime !== nextTimestamp.iso) timestamp.dateTime = nextTimestamp.iso;
+  if (nextTimestamp.millis === null) {
+    delete timestamp.dataset.messageAt;
+  } else if (timestamp.dataset.messageAt !== String(nextTimestamp.millis)) {
+    timestamp.dataset.messageAt = String(nextTimestamp.millis);
+  }
+  let age = timestamp.querySelector(".message-age") as HTMLElement | null;
+  if (nextTimestamp.age) {
+    if (!age) {
+      timestamp.insertAdjacentHTML("beforeend", '<span class="message-age"></span>');
+      age = timestamp.querySelector(".message-age") as HTMLElement | null;
+    }
+    if (age) setTextIfChanged(age, ` · ${nextTimestamp.age}`);
+  } else {
+    age?.remove();
+  }
 
   const shouldStream = Boolean(message.pending_activity)
     || (allowStreaming && message.status === "streaming");
@@ -2246,6 +2282,12 @@ function refreshDisplayedTimes() {
   renderSidebar();
   for (const time of els.chatList.querySelectorAll<HTMLElement>(".chat-time[data-activity-at]")) {
     setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
+  }
+  for (const time of els.conversation.querySelectorAll<HTMLElement>(".message-timestamp[data-message-at]")) {
+    const age = time.querySelector<HTMLElement>(".message-age");
+    if (!age) continue;
+    const ageText = messageAgeText(Number(time.dataset.messageAt || 0));
+    setTextIfChanged(age, ageText ? ` · ${ageText}` : "");
   }
   if (
     state.mode === "chats"
