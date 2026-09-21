@@ -11,6 +11,7 @@ import {
   parseScheduleSlashCommand,
   pendingConversationSends,
   pendingSendActivity,
+  shouldRenderNewChatView,
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -115,6 +116,19 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched).toBeNull();
+  });
+});
+
+describe("pending new-chat view rendering", () => {
+  test("forces a render when returning to an unchanged pending new chat", () => {
+    const fingerprint = '["send-1","hello","running"]';
+    expect(shouldRenderNewChatView(true, fingerprint, fingerprint)).toBe(true);
+  });
+
+  test("still skips redundant renders while already viewing the same pending chat", () => {
+    const fingerprint = '["send-1","hello","running"]';
+    expect(shouldRenderNewChatView(false, fingerprint, fingerprint)).toBe(false);
+    expect(shouldRenderNewChatView(false, fingerprint, 'older')).toBe(true);
   });
 });
 

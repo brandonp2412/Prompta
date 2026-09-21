@@ -275,6 +275,14 @@ export function messageAgeText(timestampMillis: unknown, nowMillis = Date.now())
   return `${Math.max(1, Math.floor(elapsed / 31_536_000_000))}y ago`;
 }
 
+export function shouldRenderNewChatView(
+  enteringNewChat: boolean,
+  fingerprint: string,
+  previousFingerprint: string,
+): boolean {
+  return enteringNewChat || fingerprint !== previousFingerprint;
+}
+
 export function pendingConversationSends(
   conversationId: string,
   replies: PendingReply[],

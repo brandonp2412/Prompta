@@ -198,6 +198,9 @@ function messageAgeText(timestampMillis, nowMillis = Date.now()) {
     return `${Math.max(1, Math.floor(elapsed / 2592000000))}mo ago`;
   return `${Math.max(1, Math.floor(elapsed / 31536000000))}y ago`;
 }
+function shouldRenderNewChatView(enteringNewChat, fingerprint, previousFingerprint) {
+  return enteringNewChat || fingerprint !== previousFingerprint;
+}
 function pendingConversationSends(conversationId, replies, pendingNew) {
   if (!pendingNew || pendingNew.conversationId !== conversationId)
     return replies;
@@ -1576,7 +1579,7 @@ function renderNewChat() {
     pending?.retryAfterSeconds || 0,
     pending?.retryAttempt || 0
   ]);
-  if (fingerprint !== state.newChatFingerprint) {
+  if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
     state.newChatFingerprint = fingerprint;
     if (pending) {
       const messages = [{
