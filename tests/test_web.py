@@ -11,6 +11,7 @@ from http import HTTPStatus
 from pathlib import Path
 from threading import Event, Lock, Thread
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
@@ -1307,7 +1308,87 @@ def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
         server.server_close()
 
 
-def test_schedule_every_rejects_nonfinite_interval(tmp_path: Path) -> None:
+def test_schedule_api_deduplicates_and_exposes_jobs(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=jobs_path,
+    )
+    start_scheduler = MagicMock(return_value=True)
+    server.job_service.start_scheduler = start_scheduler
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        def post_schedule(prompt: str, interval_minutes: float) -> tuple[int, dict[str, object]]:
+            request = Request(
+                f"{base_url}/api/schedule",
+                data=json.dumps(
+                    {"prompt": prompt, "interval_minutes": interval_minutes}
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=2) as response:
+                return response.status, json.loads(response.read())
+
+        first_status, first = post_schedule("fix bugs", 30)
+        duplicate_status, duplicate = post_schedule("  Fix   Bugs  ", 30)
+        second_status, second = post_schedule("fix bugs", 60)
+
+        with urlopen(f"{base_url}/api/jobs", timeout=2) as response:
+            jobs_payload = json.loads(response.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert first_status == HTTPStatus.CREATED
+    assert first["created"] is True
+    assert duplicate_status == HTTPStatus.OK
+    assert duplicate["created"] is False
+    assert duplicate["name"] == first["name"]
+    assert second_status == HTTPStatus.CREATED
+    assert second["created"] is True
+    assert second["name"] != first["name"]
+    assert len(jobs_payload["jobs"]) == 2
+    assert sorted(job["interval_minutes"] for job in jobs_payload["jobs"]) == [30.0, 60.0]
+    assert {job["name"] for job in jobs_payload["jobs"]} == {first["name"], second["name"]}
+    assert start_scheduler.call_count == 3
+
+
+def test_schedule_api_returns_clear_interval_validation_error(tmp_path: Path) -> None:
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/api/schedule",
+            data=json.dumps({"prompt": "fix bugs", "interval_minutes": 0.05}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as error:
+            urlopen(request, timeout=2)
+        payload = json.loads(error.value.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert error.value.code == HTTPStatus.BAD_REQUEST
+    assert payload["error"] == "Schedule interval must be at least 6 seconds"
+
+
+def test_schedule_every_rejects_invalid_interval_and_prompt(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
     server = PromptaUIServer(
         ("127.0.0.1", 0),
@@ -1316,10 +1397,18 @@ def test_schedule_every_rejects_nonfinite_interval(tmp_path: Path) -> None:
         jobs_path=tmp_path / "jobs.json",
     )
     try:
-        with pytest.raises(ValueError, match="finite"):
+        with pytest.raises(ValueError, match="finite value greater than zero"):
             server.schedule_every("fix bugs", float("nan"))
-        with pytest.raises(ValueError, match="finite"):
+        with pytest.raises(ValueError, match="finite value greater than zero"):
             server.schedule_every("fix bugs", float("inf"))
+        with pytest.raises(ValueError, match="finite value greater than zero"):
+            server.schedule_every("fix bugs", 0)
+        with pytest.raises(ValueError, match="at least 6 seconds"):
+            server.schedule_every("fix bugs", 0.09)
+        with pytest.raises(ValueError, match="cannot exceed 30 days"):
+            server.schedule_every("fix bugs", 60 * 24 * 31)
+        with pytest.raises(ValueError, match="prompt is required"):
+            server.schedule_every("   ", 30)
     finally:
         server.server_close()
 
