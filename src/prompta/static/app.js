@@ -144,6 +144,25 @@ function pythonToolCallCode(toolName, value) {
 function sidebarPreviewText(value) {
   return replaceChatGptRichMarkers(value).replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ").replace(/\s+/g, " ").trim();
 }
+function pendingConversationDisplayId(pending) {
+  if (!pending)
+    return "";
+  if (pending.conversationId)
+    return String(pending.conversationId);
+  const clientId = String(pending.clientId || "").trim();
+  return clientId ? `pending-new-${clientId}` : "";
+}
+function promotePinnedConversationId(pinnedIds, pending, nextConversationId) {
+  const nextId = String(nextConversationId || "").trim();
+  if (!nextId)
+    return false;
+  const previousId = pendingConversationDisplayId(pending);
+  if (!previousId || previousId === nextId || !pinnedIds.has(previousId))
+    return false;
+  pinnedIds.delete(previousId);
+  pinnedIds.add(nextId);
+  return true;
+}
 function matchingOptimisticConversation(chats, pending) {
   if (!pending)
     return null;
@@ -394,6 +413,14 @@ function saveComposerDrafts() {
   try {
     localStorage.setItem(COMPOSER_DRAFTS_KEY, JSON.stringify(Object.fromEntries(state.composerDrafts)));
   } catch {}
+}
+function promotePendingConversationPin(pending, nextConversationId) {
+  const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
+  if (changed) {
+    savePinnedIds();
+    state.sidebarFingerprint = "";
+  }
+  return changed;
 }
 var state = {
   chats: [],
@@ -697,6 +724,7 @@ function reconcileOptimisticNew(chats) {
   const matched = matchingOptimisticConversation(chats, pending);
   if (!matched)
     return;
+  promotePendingConversationPin(pending, matched.id);
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
   if (!state.composingNew && state.selectedId !== matched.id) {
@@ -723,11 +751,12 @@ function sidebarChats() {
     return chats;
   const matched = matchingOptimisticConversation(chats, pending);
   if (matched) {
+    promotePendingConversationPin(pending, matched.id);
     pending.conversationId = matched.id;
     state.pendingNewId = matched.id;
     return chats;
   }
-  const pendingId = pending.conversationId || `pending-new-${pending.clientId}`;
+  const pendingId = pendingConversationDisplayId(pending);
   const optimistic = {
     id: pendingId,
     status: pending.status === "failed" ? "failed" : "active",
@@ -2586,6 +2615,9 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
+      if (nextConversationId) {
+        promotePendingConversationPin(state.pendingNewSend, nextConversationId);
+      }
       const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
@@ -2607,6 +2639,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
           return;
         }
         const completedPending = state.pendingNewSend;
+        promotePendingConversationPin(completedPending, newId);
         completedPending.conversationId = newId;
         state.pendingNewId = newId;
         const pendingReplies = state.pendingReplies.get(newId) || [];
