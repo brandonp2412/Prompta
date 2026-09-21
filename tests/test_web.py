@@ -821,3 +821,65 @@ def test_read_only_store_falls_back_to_saved_prompt_for_empty_chat(tmp_path: Pat
     assert [(message["role"], message["content"]) for message in chat["messages"]] == [
         ("user", "This prompt must remain visible")
     ]
+
+
+def test_read_only_store_event_fingerprint_changes_with_cache(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    store = ReadOnlyChatStore(path)
+
+    before = store.event_fingerprint()
+    cache.start(
+        "chat-event",
+        context_id="context-event",
+        job_name="event-test",
+        prompt="Initial prompt",
+    )
+    after_start = store.event_fingerprint()
+    cache.write_snapshot(
+        "chat-event",
+        {
+            "title": "Event test",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Initial prompt"},
+                {"id": "a1", "role": "assistant", "content": "Working"},
+            ],
+        },
+    )
+    after_message = store.event_fingerprint()
+    cache.close()
+
+    assert after_start != before
+    assert after_message != after_start
+
+
+def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        server_name="glass",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host = "127.0.0.1"
+    port = server.server_port
+    try:
+        with urlopen(f"http://{host}:{port}/", timeout=2) as response:
+            index = response.read().decode()
+        with urlopen(f"http://{host}:{port}/manifest.webmanifest", timeout=2) as response:
+            manifest = json.loads(response.read())
+            manifest_type = response.headers.get_content_type()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert "Prompta · Glass" in index
+    assert "__PROMPTA_SERVER_NAME__" not in index
+    assert manifest["name"] == "Prompta · Glass"
+    assert manifest["short_name"] == "Prompta · Glass"
+    assert manifest["start_url"] == "./"
+    assert manifest_type == "application/manifest+json"

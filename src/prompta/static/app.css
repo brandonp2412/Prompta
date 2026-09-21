@@ -370,7 +370,7 @@ textarea:focus-visible {
 
 .list-empty {
   padding: 48px 24px;
-  color: #777;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
@@ -664,7 +664,7 @@ textarea:focus-visible {
 }
 
 .logs-header span {
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -742,7 +742,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -965,7 +965,7 @@ textarea:focus-visible {
   align-items: center;
   border-bottom: 1px solid var(--border);
   background: #1b1b1b;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -1113,7 +1113,7 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -1365,7 +1365,7 @@ textarea:focus-visible {
   min-height: 15px;
   margin: 5px auto 0;
   padding: 0 8px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
   text-align: center;
 }
@@ -1413,7 +1413,7 @@ textarea:focus-visible {
   padding: 6px 9px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  color: #777;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -1446,11 +1446,16 @@ textarea:focus-visible {
     width: min(86vw, 320px);
     transform: translateX(-100%);
     box-shadow: 20px 0 50px rgba(0, 0, 0, 0.35);
-    transition: transform 190ms ease;
+    transition: transform 190ms cubic-bezier(0.2, 0.75, 0.2, 1);
   }
 
   body.sidebar-open .sidebar {
     transform: translateX(0);
+  }
+
+  body.sidebar-dragging .sidebar {
+    transform: translateX(var(--sidebar-drag-x, -102%));
+    transition: none;
   }
 
   .sidebar-scrim {
@@ -1468,6 +1473,12 @@ textarea:focus-visible {
   body.sidebar-open .sidebar-scrim {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  body.sidebar-dragging .sidebar-scrim {
+    opacity: var(--sidebar-drag-progress, 0);
+    pointer-events: none;
+    transition: none;
   }
 
   .mobile-only {

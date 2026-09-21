@@ -812,6 +812,77 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             content_type="application/manifest+json; charset=utf-8",
         )
 
+    def _index(self) -> None:
+        try:
+            body = (_STATIC_ROOT / "index.html").read_text().replace(
+                "__PROMPTA_SERVER_NAME__",
+                html_escape(self.ui_server_name),
+            ).encode()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._headers(HTTPStatus.OK, "text/html; charset=utf-8")
+        self.wfile.write(body)
+
+    def _manifest(self) -> None:
+        name = f"Prompta · {self.ui_server_name}"
+        payload = {
+            "id": "./",
+            "name": name,
+            "short_name": name,
+            "description": "Fast local-first Prompta conversation UI",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": "#212121",
+            "theme_color": "#212121",
+            "icons": [
+                {
+                    "src": "./icon.svg",
+                    "sizes": "any",
+                    "type": "image/svg+xml",
+                    "purpose": "any maskable",
+                }
+            ],
+        }
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        self._headers(HTTPStatus.OK, "application/manifest+json; charset=utf-8")
+        self.wfile.write(body)
+
+    def _event_stream(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        last_fingerprint = self.store.event_fingerprint()
+        last_heartbeat = time.monotonic()
+        try:
+            while True:
+                fingerprint = self.store.event_fingerprint()
+                now = time.monotonic()
+                if fingerprint != last_fingerprint:
+                    payload = json.dumps(
+                        {
+                            "revision": fingerprint[:4],
+                            "conversation_id": fingerprint[4],
+                        },
+                        separators=(",", ":"),
+                    )
+                    body = "event: refresh\ndata: " + payload + "\n\n"
+                    self.wfile.write(body.encode())
+                    self.wfile.flush()
+                    last_fingerprint = fingerprint
+                    last_heartbeat = now
+                elif now - last_heartbeat >= 15.0:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    last_heartbeat = now
+                time.sleep(0.75)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
         target = (_STATIC_ROOT / relative_path).resolve()
         try:
@@ -890,7 +961,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/":
-            self._static("index.html", "text/html")
+            self._index()
             return
         if path == "/app.css":
             self._static("app.css", "text/css")
@@ -918,6 +989,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 "online": True,
                 "head": _UI_HEAD,
             })
+            return
+        if path == "/api/events":
+            self._event_stream()
             return
         if path == "/api/chats":
             query = parse_qs(parsed.query)
