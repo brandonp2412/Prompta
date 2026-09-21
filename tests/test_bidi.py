@@ -517,6 +517,11 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "!node.querySelector(toolSelector)" in expression
     assert "blocks.indexOf(block)===index" not in expression
     assert "const seenRoleKeys=new Set()" in expression
+    assert "const collapseStreamingTextParts=parts=>" in expression
+    assert "currentNormalised.startsWith(previousNormalised)" in expression
+    assert "previousNormalised.startsWith(currentNormalised)" in expression
+    assert "return collapseStreamingTextParts(parts).join" in expression
+    assert "? collapseStreamingTextParts([" in expression
     assert "const reactOrderedContent=agent=>" in expression
     assert "contentType==='text'||contentType==='multimodal_text'" in expression
     assert "const currentToolRows=[...agent.querySelectorAll" in expression
