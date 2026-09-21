@@ -308,9 +308,20 @@ export function promotePinnedConversationId(
   return true;
 }
 
+function comparableTimestampSeconds(value: unknown): number {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
+  return timestamp >= 1e12 ? timestamp / 1000 : timestamp;
+}
+
+function comparablePrompt(value: unknown): string {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
 export function matchingOptimisticConversation(
   chats: ChatSummary[],
   pending: PendingNewSend | null | undefined,
+  knownConversationIds: ReadonlySet<string> = new Set(),
 ): ChatSummary | null {
   if (!pending) return null;
 
@@ -319,24 +330,31 @@ export function matchingOptimisticConversation(
     if (exact) return exact;
   }
 
-  const prompt = String(pending.message || "").trim();
+  const prompt = comparablePrompt(pending.message);
   if (!prompt) return null;
 
-  const createdAt = Number(pending.createdAt || 0);
-  if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
-
+  const createdAt = comparableTimestampSeconds(pending.createdAt);
   let best: ChatSummary | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const chat of chats) {
-    if (String(chat.prompt || "").trim() !== prompt) continue;
-    const chatCreatedAt = Number(chat.created_at || 0);
-    if (!Number.isFinite(chatCreatedAt) || chatCreatedAt <= 0) continue;
-    const distance = Math.abs(chatCreatedAt - createdAt);
-    if (distance > 30 || distance >= bestDistance) continue;
-    best = chat;
-    bestDistance = distance;
+  if (createdAt > 0) {
+    for (const chat of chats) {
+      if (comparablePrompt(chat.prompt) !== prompt) continue;
+      const chatCreatedAt = comparableTimestampSeconds(chat.created_at);
+      if (chatCreatedAt <= 0) continue;
+      const distance = Math.abs(chatCreatedAt - createdAt);
+      if (distance > 30 || distance >= bestDistance) continue;
+      best = chat;
+      bestDistance = distance;
+    }
   }
-  return best;
+  if (best) return best;
+  if (!knownConversationIds.size) return null;
+
+  const unseenMatches = chats.filter((chat) => (
+    !knownConversationIds.has(chat.id)
+    && comparablePrompt(chat.prompt) === prompt
+  ));
+  return unseenMatches.length === 1 ? unseenMatches[0] : null;
 }
 
 export function messageTimestampMillis(
@@ -396,21 +414,20 @@ export function matchingPendingReplyMessageIndex(
   pending: PendingReply,
   claimedIndexes: ReadonlySet<number> = new Set(),
 ): number {
-  const content = String(pending.message || "").trim();
-  const pendingAt = Number(pending.createdAt || pending.updatedAt || 0);
-  if (!content || !Number.isFinite(pendingAt) || pendingAt <= 0) return -1;
+  const content = comparablePrompt(pending.message);
+  const pendingAt = comparableTimestampSeconds(pending.createdAt || pending.updatedAt);
+  if (!content || pendingAt <= 0) return -1;
 
-  const earliestMatch = pendingAt - 3;
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (claimedIndexes.has(index)) continue;
     const message = messages[index];
-    if (message.role !== "user" || String(message.content || "").trim() !== content) continue;
-    const messageTime = Number(message.created_at || message.updated_at || 0);
-    if (!Number.isFinite(messageTime) || messageTime < earliestMatch) continue;
+    if (message.role !== "user" || comparablePrompt(message.content) !== content) continue;
+    const messageTime = comparableTimestampSeconds(message.created_at || message.updated_at);
+    if (messageTime <= 0) continue;
     const distance = Math.abs(messageTime - pendingAt);
-    if (distance >= bestDistance) continue;
+    if (distance > 30 || distance >= bestDistance) continue;
     bestIndex = index;
     bestDistance = distance;
   }

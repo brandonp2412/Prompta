@@ -178,6 +178,36 @@ describe("optimistic new-chat reconciliation", () => {
 
     expect(matched).toBeNull();
   });
+
+  test("reconciles one newly seen matching conversation when clocks cannot be compared", () => {
+    const matched = matchingOptimisticConversation(
+      [
+        { id: "WEB:known-chat", prompt: "older prompt" },
+        { id: "WEB:new-chat", prompt: "  fix   the sidebar  " },
+      ],
+      {
+        message: "fix the sidebar",
+      },
+      new Set(["WEB:known-chat"]),
+    );
+
+    expect(matched?.id).toBe("WEB:new-chat");
+  });
+
+  test("does not reconcile ambiguous newly seen matching conversations", () => {
+    const matched = matchingOptimisticConversation(
+      [
+        { id: "WEB:new-a", prompt: "fix the sidebar" },
+        { id: "WEB:new-b", prompt: "fix the sidebar" },
+      ],
+      {
+        message: "fix the sidebar",
+      },
+      new Set(["WEB:known-chat"]),
+    );
+
+    expect(matched).toBeNull();
+  });
 });
 
 describe("pending new-chat view rendering", () => {
@@ -417,6 +447,42 @@ describe("optimistic reply reconciliation", () => {
     );
 
     expect(matchedIndex).toBe(-1);
+  });
+
+  test("accepts a durable reply timestamp slightly before the client clock", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 995,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
+  });
+
+  test("normalizes milliseconds and whitespace while reconciling replies", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep   fixing bugs",
+          created_at: 1_700_000_002_000,
+        },
+      ],
+      {
+        message: " keep fixing   bugs ",
+        createdAt: 1_700_000_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
   });
 
   test("requires durable timing metadata instead of guessing from duplicate text", () => {

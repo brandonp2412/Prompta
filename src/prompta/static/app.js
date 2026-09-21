@@ -204,7 +204,16 @@ function promotePinnedConversationId(pinnedIds, pending, nextConversationId) {
   pinnedIds.add(nextId);
   return true;
 }
-function matchingOptimisticConversation(chats, pending) {
+function comparableTimestampSeconds(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0)
+    return 0;
+  return timestamp >= 1000000000000 ? timestamp / 1000 : timestamp;
+}
+function comparablePrompt(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+function matchingOptimisticConversation(chats, pending, knownConversationIds = new Set) {
   if (!pending)
     return null;
   if (pending.conversationId) {
@@ -212,27 +221,32 @@ function matchingOptimisticConversation(chats, pending) {
     if (exact)
       return exact;
   }
-  const prompt = String(pending.message || "").trim();
+  const prompt = comparablePrompt(pending.message);
   if (!prompt)
     return null;
-  const createdAt = Number(pending.createdAt || 0);
-  if (!Number.isFinite(createdAt) || createdAt <= 0)
-    return null;
+  const createdAt = comparableTimestampSeconds(pending.createdAt);
   let best = null;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const chat of chats) {
-    if (String(chat.prompt || "").trim() !== prompt)
-      continue;
-    const chatCreatedAt = Number(chat.created_at || 0);
-    if (!Number.isFinite(chatCreatedAt) || chatCreatedAt <= 0)
-      continue;
-    const distance = Math.abs(chatCreatedAt - createdAt);
-    if (distance > 30 || distance >= bestDistance)
-      continue;
-    best = chat;
-    bestDistance = distance;
+  if (createdAt > 0) {
+    for (const chat of chats) {
+      if (comparablePrompt(chat.prompt) !== prompt)
+        continue;
+      const chatCreatedAt = comparableTimestampSeconds(chat.created_at);
+      if (chatCreatedAt <= 0)
+        continue;
+      const distance = Math.abs(chatCreatedAt - createdAt);
+      if (distance > 30 || distance >= bestDistance)
+        continue;
+      best = chat;
+      bestDistance = distance;
+    }
   }
-  return best;
+  if (best)
+    return best;
+  if (!knownConversationIds.size)
+    return null;
+  const unseenMatches = chats.filter((chat) => !knownConversationIds.has(chat.id) && comparablePrompt(chat.prompt) === prompt);
+  return unseenMatches.length === 1 ? unseenMatches[0] : null;
 }
 function messageTimestampMillis(createdAt, updatedAt) {
   for (const candidate of [createdAt, updatedAt]) {
@@ -278,24 +292,23 @@ function pendingConversationSends(conversationId, replies, pendingNew) {
   return duplicate ? replies : [...replies, pendingNew];
 }
 function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = new Set) {
-  const content = String(pending.message || "").trim();
-  const pendingAt = Number(pending.createdAt || pending.updatedAt || 0);
-  if (!content || !Number.isFinite(pendingAt) || pendingAt <= 0)
+  const content = comparablePrompt(pending.message);
+  const pendingAt = comparableTimestampSeconds(pending.createdAt || pending.updatedAt);
+  if (!content || pendingAt <= 0)
     return -1;
-  const earliestMatch = pendingAt - 3;
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (let index = messages.length - 1;index >= 0; index -= 1) {
     if (claimedIndexes.has(index))
       continue;
     const message = messages[index];
-    if (message.role !== "user" || String(message.content || "").trim() !== content)
+    if (message.role !== "user" || comparablePrompt(message.content) !== content)
       continue;
-    const messageTime = Number(message.created_at || message.updated_at || 0);
-    if (!Number.isFinite(messageTime) || messageTime < earliestMatch)
+    const messageTime = comparableTimestampSeconds(message.created_at || message.updated_at);
+    if (messageTime <= 0)
       continue;
     const distance = Math.abs(messageTime - pendingAt);
-    if (distance >= bestDistance)
+    if (distance > 30 || distance >= bestDistance)
       continue;
     bestIndex = index;
     bestDistance = distance;
@@ -432,8 +445,10 @@ function parseAtSlashCommand(message, now = new Date) {
 
 // src/prompta/ui/recentChatCache.ts
 var DATABASE_NAME = "prompta-recent-chats";
-var DATABASE_VERSION = 1;
+var DATABASE_VERSION = 2;
 var STORE_NAME = "chats";
+var SUMMARY_STORE_NAME = "summaries";
+var SUMMARY_LIMIT = 200;
 
 class RecentChatCache {
   scope;
@@ -478,6 +493,22 @@ class RecentChatCache {
     this.rememberMemory(conversationId, chat);
     this.persist(chat);
   }
+  rememberSummaries(chats) {
+    const summaries = chats.filter((chat) => String(chat?.id || "")).slice(0, SUMMARY_LIMIT);
+    this.persistSummaries(summaries);
+  }
+  async warmSummaries() {
+    const database = await this.database();
+    if (!database)
+      return [];
+    const records = await new Promise((resolve) => {
+      const transaction = database.transaction(SUMMARY_STORE_NAME, "readonly");
+      const request = transaction.objectStore(SUMMARY_STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([]);
+    });
+    return records.filter((record) => record.scope === this.scope && record.chat).sort((left, right) => left.position - right.position).slice(0, SUMMARY_LIMIT).map((record) => record.chat);
+  }
   async warm() {
     const database = await this.database();
     if (!database)
@@ -502,8 +533,9 @@ class RecentChatCache {
     if (!database)
       return;
     await new Promise((resolve) => {
-      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const transaction = database.transaction([STORE_NAME, SUMMARY_STORE_NAME], "readwrite");
       transaction.objectStore(STORE_NAME).delete(this.key(conversationId));
+      transaction.objectStore(SUMMARY_STORE_NAME).delete(this.key(conversationId));
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => resolve();
       transaction.onabort = () => resolve();
@@ -550,6 +582,37 @@ class RecentChatCache {
       transaction.onabort = () => resolve();
     });
   }
+  async persistSummaries(chats) {
+    const database = await this.database();
+    if (!database)
+      return;
+    const retainedIds = new Set(chats.map((chat) => String(chat.id)));
+    await new Promise((resolve) => {
+      const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(SUMMARY_STORE_NAME);
+      const allRequest = store.getAll();
+      allRequest.onsuccess = () => {
+        for (const record of allRequest.result || []) {
+          if (record.scope === this.scope && !retainedIds.has(String(record.conversationId || ""))) {
+            store.delete(record.key);
+          }
+        }
+        chats.forEach((chat, position) => {
+          const conversationId = String(chat.id);
+          store.put({
+            key: this.key(conversationId),
+            scope: this.scope,
+            conversationId,
+            chat,
+            position
+          });
+        });
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    });
+  }
   database() {
     if (this.databasePromise)
       return this.databasePromise;
@@ -569,6 +632,9 @@ class RecentChatCache {
         const database = request.result;
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           database.createObjectStore(STORE_NAME, { keyPath: "key" });
+        }
+        if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) {
+          database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -2128,15 +2194,27 @@ function createLiveUpdates({
   let fallbackTimer = null;
   let timeRefreshTimer = null;
   let paused = false;
-  let refreshQueued = false;
+  let refreshRunning = false;
+  let refreshAgain = false;
+  async function drainRefreshes() {
+    try {
+      do {
+        refreshAgain = false;
+        await loadChats();
+      } while (refreshAgain && !paused);
+    } finally {
+      refreshRunning = false;
+      if (refreshAgain && !paused)
+        queueRefresh();
+    }
+  }
   function queueRefresh() {
-    if (refreshQueued)
+    if (refreshRunning) {
+      refreshAgain = true;
       return;
-    refreshQueued = true;
-    requestAnimationFrame(async () => {
-      refreshQueued = false;
-      await loadChats();
-    });
+    }
+    refreshRunning = true;
+    drainRefreshes();
   }
   function stopTimeRefresh() {
     if (timeRefreshTimer === null)
@@ -2710,7 +2788,8 @@ function reconcileOptimisticNew(chats) {
   const pending = state.pendingNewSend;
   if (!pending)
     return;
-  const matched = matchingOptimisticConversation(chats, pending);
+  const knownConversationIds = new Set(state.chats.map((chat) => String(chat.id)));
+  const matched = matchingOptimisticConversation(chats, pending, knownConversationIds);
   if (!matched)
     return;
   promotePendingConversationPin(pending, matched.id);
@@ -3167,23 +3246,30 @@ async function fetchJson2(url, timeoutMs = 1e4) {
   }
 }
 async function hydrateRecentChatCache() {
-  const cachedChats = await recentChatCache.warm();
-  if (!cachedChats.length || state.search)
+  const [cachedChats, cachedSummaries] = await Promise.all([
+    recentChatCache.warm(),
+    recentChatCache.warmSummaries()
+  ]);
+  const sidebarSnapshot = cachedSummaries.length ? cachedSummaries : cachedChats;
+  if (!sidebarSnapshot.length || state.search)
     return false;
   const unique = new Map;
-  for (const chat of cachedChats) {
+  for (const chat of sidebarSnapshot) {
     if (chat?.id && !unique.has(chat.id))
       unique.set(chat.id, chat);
   }
-  state.chats = Array.from(unique.values()).sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
-  state.chatOrderScope = "__cached__";
+  state.chats = Array.from(unique.values());
+  if (!cachedSummaries.length) {
+    state.chats.sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
+  }
+  state.chatOrderScope = cachedSummaries.length ? "" : "__cached__";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
   setTextIfChanged4(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
   if (initialId) {
     state.selectedId = initialId;
-    const chat = unique.get(initialId);
+    const chat = recentChatCache.getMemory(initialId);
     if (chat) {
       state.selectedUpdatedAt = chat.updated_at;
       renderConversation(chat);
@@ -3218,6 +3304,8 @@ async function loadChats() {
       return;
     const chats = payload.chats || [];
     reconcileOptimisticNew(chats);
+    if (!state.search)
+      recentChatCache.rememberSummaries(chats);
     completionNotifications.trackCompletions(chats);
     const orderScope = state.search;
     const preserveOrder = state.chatOrderScope === orderScope;
