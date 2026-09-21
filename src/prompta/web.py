@@ -543,9 +543,11 @@ class SendJobRegistry:
         *,
         sleeper: Callable[[float], None] = time.sleep,
         recovery_path: Path | None = None,
+        on_success: Callable[[str, str, str], None] | None = None,
     ) -> None:
         self._sender = sender
         self._sleep = sleeper
+        self._on_success = on_success
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -771,6 +773,23 @@ class SendJobRegistry:
                 existing = self._jobs.get(existing_send_id or "")
                 if existing is not None:
                     self._cleanup_attachments(list(attachments or []))
+                    if (
+                        self._on_success is not None
+                        and str(existing.get("status") or "") == "succeeded"
+                        and str(existing.get("conversation_id") or "")
+                    ):
+                        try:
+                            self._on_success(
+                                normalized_client_id,
+                                str(existing["conversation_id"]),
+                                message,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Could not bind idempotent Prompta image preview send_id=%s",
+                                existing_send_id,
+                                exc_info=True,
+                            )
                     return dict(existing)
             self._jobs[send_id] = job
             if normalized_client_id:
@@ -912,6 +931,16 @@ class SendJobRegistry:
                     retry_at=0.0,
                     retry_after_seconds=0,
                 )
+                if self._on_success is not None and client_id:
+                    try:
+                        self._on_success(client_id, result, message)
+                    except Exception:
+                        logger.warning(
+                            "Could not bind Prompta image preview send_id=%s conversation=%s",
+                            send_id,
+                            result,
+                            exc_info=True,
+                        )
                 return
         finally:
             self._cleanup_attachments(attachments)
@@ -944,9 +973,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         self._host_status_lock = threading.Lock()
         self._host_status_checked_at = 0.0
         self._host_status_online = not bool(self.control_host)
+        self._image_preview_lock = threading.Lock()
+        self._image_preview_path = self.state_path.parent / "ui-image-previews.json"
+        self._image_preview_dir = self.state_path.parent / "ui-image-previews"
+        self._image_previews = self._load_image_previews()
         self.send_jobs = SendJobRegistry(
             self._send,
             recovery_path=self.state_path.parent / "ui-send-retries.json",
+            on_success=self._bind_image_previews,
         )
         self.extra_nodes: dict[str, PromptaNodeTarget] = {}
         for node_name, node_store, node_control_host in extra_nodes or []:
@@ -960,6 +994,171 @@ class PromptaUIServer(ThreadingHTTPServer):
                 str(node_control_host),
                 self.jobs_path,
             )
+
+    def _load_image_previews(self) -> dict[str, dict[str, Any]]:
+        try:
+            payload = json.loads(self._image_preview_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError):
+            return {}
+        records = payload.get("records", {}) if isinstance(payload, dict) else {}
+        if not isinstance(records, dict):
+            return {}
+        cutoff = time.time() - (30 * 24 * 60 * 60)
+        cleaned: dict[str, dict[str, Any]] = {}
+        for client_id, raw_record in records.items():
+            if not isinstance(raw_record, dict):
+                continue
+            try:
+                created_at = float(raw_record.get("created_at") or 0.0)
+            except (TypeError, ValueError):
+                created_at = 0.0
+            conversation_id = str(raw_record.get("conversation_id") or "")
+            if not conversation_id and created_at and created_at < cutoff:
+                continue
+            images = raw_record.get("images")
+            if not isinstance(images, list):
+                continue
+            kept_images = []
+            for image in images:
+                if not isinstance(image, dict):
+                    continue
+                preview_id = str(image.get("id") or "")
+                if not preview_id:
+                    continue
+                file_path = self._image_preview_dir / preview_id
+                if not file_path.is_file():
+                    continue
+                kept_images.append(
+                    {
+                        "id": preview_id,
+                        "name": str(image.get("name") or "image"),
+                        "type": str(image.get("type") or "image/*"),
+                    }
+                )
+            if kept_images:
+                cleaned[str(client_id)] = {
+                    "client_id": str(client_id),
+                    "conversation_id": conversation_id,
+                    "message": str(raw_record.get("message") or ""),
+                    "created_at": created_at or time.time(),
+                    "images": kept_images,
+                }
+        return cleaned
+
+    def _write_image_previews_locked(self) -> None:
+        self._image_preview_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._image_preview_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps({"records": self._image_previews}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary.replace(self._image_preview_path)
+
+    def _replace_staged_image_previews(
+        self,
+        client_id: str,
+        message: str,
+        images: list[dict[str, str]],
+    ) -> None:
+        if not client_id or not images:
+            return
+        with self._image_preview_lock:
+            previous = self._image_previews.get(client_id)
+            if isinstance(previous, dict) and not previous.get("conversation_id"):
+                for image in previous.get("images", []):
+                    if isinstance(image, dict):
+                        try:
+                            (self._image_preview_dir / str(image.get("id") or "")).unlink(
+                                missing_ok=True
+                            )
+                        except OSError:
+                            pass
+            self._image_previews[client_id] = {
+                "client_id": client_id,
+                "conversation_id": "",
+                "message": message,
+                "created_at": time.time(),
+                "images": images,
+            }
+            self._write_image_previews_locked()
+
+    def _bind_image_previews(self, client_id: str, conversation_id: str, message: str) -> None:
+        with self._image_preview_lock:
+            record = self._image_previews.get(client_id)
+            if not isinstance(record, dict):
+                return
+            record["conversation_id"] = conversation_id
+            if message:
+                record["message"] = message
+            self._write_image_previews_locked()
+
+    def _enrich_image_previews(self, chat: dict[str, Any], conversation_id: str) -> None:
+        messages = chat.get("messages")
+        if not isinstance(messages, list):
+            return
+        with self._image_preview_lock:
+            records = [
+                dict(record)
+                for record in self._image_previews.values()
+                if isinstance(record, dict)
+                and str(record.get("conversation_id") or "") == conversation_id
+            ]
+        records.sort(key=lambda record: float(record.get("created_at") or 0.0))
+        used_indexes: set[int] = set()
+        for record in records:
+            expected = str(record.get("message") or "").strip()
+            candidates = [
+                (index, message)
+                for index, message in enumerate(messages)
+                if index not in used_indexes
+                and isinstance(message, dict)
+                and str(message.get("role") or "") == "user"
+                and str(message.get("content") or "").strip() == expected
+            ]
+            if not candidates:
+                continue
+            record_created = float(record.get("created_at") or 0.0)
+            index, message = min(
+                candidates,
+                key=lambda item: abs(float(item[1].get("created_at") or 0.0) - record_created),
+            )
+            used_indexes.add(index)
+            images = record.get("images")
+            if isinstance(images, list):
+                message["attachments"] = [
+                    {
+                        "id": str(image.get("id") or ""),
+                        "name": str(image.get("name") or "image"),
+                        "type": str(image.get("type") or "image/*"),
+                    }
+                    for image in images
+                    if isinstance(image, dict) and image.get("id")
+                ]
+
+    def image_preview(self, preview_id: str) -> tuple[bytes, str] | None:
+        if not re.fullmatch(r"[a-f0-9]{32}", preview_id):
+            return None
+        media_type = "application/octet-stream"
+        found = False
+        with self._image_preview_lock:
+            for record in self._image_previews.values():
+                if not isinstance(record, dict):
+                    continue
+                for image in record.get("images", []):
+                    if not isinstance(image, dict) or str(image.get("id") or "") != preview_id:
+                        continue
+                    media_type = str(image.get("type") or "application/octet-stream")
+                    found = True
+                    break
+                if found:
+                    break
+        if not found:
+            return None
+        try:
+            body = (self._image_preview_dir / preview_id).read_bytes()
+        except OSError:
+            return None
+        return body, media_type
 
     @property
     def display_name(self) -> str:
@@ -1054,7 +1253,10 @@ class PromptaUIServer(ThreadingHTTPServer):
         chat = target.store.conversation(actual_id)
         if chat is None:
             return None
-        return self._public_chat(target, chat, self)
+        result = self._public_chat(target, chat, self)
+        if target is self:
+            self._enrich_image_previews(result, actual_id)
+        return result
 
     def stop_conversation(self, public_id: str) -> str:
         target, actual_id = self.resolve_conversation(public_id)
@@ -1173,7 +1375,13 @@ class PromptaUIServer(ThreadingHTTPServer):
             **self.scheduled_jobs(),
         }
 
-    def save_attachments(self, raw_attachments: Any) -> list[str]:
+    def save_attachments(
+        self,
+        raw_attachments: Any,
+        *,
+        client_id: str = "",
+        message: str = "",
+    ) -> list[str]:
         if raw_attachments is None:
             return []
         if not isinstance(raw_attachments, list) or len(raw_attachments) > 5:
@@ -1181,7 +1389,10 @@ class PromptaUIServer(ThreadingHTTPServer):
 
         upload_dir = self.state_path.parent / "ui-uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
+        self._image_preview_dir.mkdir(parents=True, exist_ok=True)
         saved: list[str] = []
+        preview_files: list[Path] = []
+        preview_images: list[dict[str, str]] = []
         total_bytes = 0
         try:
             for item in raw_attachments:
@@ -1189,6 +1400,7 @@ class PromptaUIServer(ThreadingHTTPServer):
                     raise ValueError("Invalid attachment")
                 name = Path(str(item.get("name") or "attachment")).name
                 name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .") or "attachment"
+                media_type = str(item.get("type") or "application/octet-stream").strip().lower()
                 encoded = str(item.get("data") or "")
                 if encoded.startswith("data:") and "," in encoded:
                     encoded = encoded.split(",", 1)[1]
@@ -1203,10 +1415,23 @@ class PromptaUIServer(ThreadingHTTPServer):
                 target.write_bytes(content)
                 target.chmod(0o600)
                 saved.append(str(target))
+                if client_id and media_type.startswith("image/"):
+                    preview_id = uuid.uuid4().hex
+                    preview_target = self._image_preview_dir / preview_id
+                    preview_target.write_bytes(content)
+                    preview_target.chmod(0o600)
+                    preview_files.append(preview_target)
+                    preview_images.append(
+                        {"id": preview_id, "name": name, "type": media_type}
+                    )
         except Exception:
             for target in saved:
                 Path(target).unlink(missing_ok=True)
+            for target in preview_files:
+                target.unlink(missing_ok=True)
             raise
+        if preview_images:
+            self._replace_staged_image_previews(client_id, message, preview_images)
         return saved
 
 
@@ -1384,14 +1609,16 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if not message.strip():
             self._json({"error": "Message is empty"}, HTTPStatus.BAD_REQUEST)
             return None
+        client_id = str(payload.get("client_id") or "").strip()
         try:
             attachments = cast(PromptaUIServer, self.server).save_attachments(
-                payload.get("attachments")
+                payload.get("attachments"),
+                client_id=client_id,
+                message=message,
             )
         except (ValueError, OSError) as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return None
-        client_id = str(payload.get("client_id") or "").strip()
         return message, attachments, client_id
 
     def _headers(
@@ -1608,6 +1835,16 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/jobs":
             self._json(cast(PromptaUIServer, self.server).scheduled_jobs())
+            return
+        preview_prefix = "/api/attachment-previews/"
+        if path.startswith(preview_prefix):
+            preview_id = unquote(path[len(preview_prefix) :]).strip("/")
+            preview = cast(PromptaUIServer, self.server).image_preview(preview_id)
+            if preview is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            body, media_type = preview
+            self._write_response(HTTPStatus.OK, media_type, body)
             return
         send_prefix = "/api/sends/"
         if path.startswith(send_prefix):

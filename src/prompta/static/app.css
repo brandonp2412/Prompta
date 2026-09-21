@@ -847,6 +847,25 @@ textarea:focus-visible {
   line-height: 1.55;
 }
 
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.message-image-preview {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(260px, 100%);
+  max-height: 260px;
+  object-fit: cover;
+  border-radius: 14px;
+  background: var(--panel);
+}
+
 .retry-send-button {
   margin-top: 10px;
   padding: 7px 12px;

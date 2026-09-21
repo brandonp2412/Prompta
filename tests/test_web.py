@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import json
 import subprocess
@@ -180,6 +181,123 @@ def test_wait_for_local_scheduler_tolerates_restart_gap(tmp_path: Path) -> None:
 
     assert running.call_count == 3
     assert sleep.call_count == 2
+
+
+def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    raw = [
+        {
+            "name": "red.png",
+            "type": "image/png",
+            "data": base64.b64encode(b"fake-png-bytes").decode(),
+        }
+    ]
+    saved: list[str] = []
+    try:
+        saved = server.save_attachments(
+            raw,
+            client_id="image-client",
+            message="Keep working on Kite",
+        )
+        record = server._image_previews["image-client"]
+        preview = record["images"][0]
+        preview_id = preview["id"]
+
+        server._bind_image_previews(
+            "image-client",
+            "chat-1",
+            "Keep working on Kite",
+        )
+        chat = server.conversation("chat-1")
+
+        assert chat is not None
+        assert chat["messages"][0]["attachments"] == [
+            {
+                "id": preview_id,
+                "name": "red.png",
+                "type": "image/png",
+            }
+        ]
+        assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
+        assert json.loads(server._image_preview_path.read_text())["records"]["image-client"][
+            "conversation_id"
+        ] == "chat-1"
+    finally:
+        for target in saved:
+            Path(target).unlink(missing_ok=True)
+        server.server_close()
+
+
+def test_image_attachment_preview_http_route(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    raw = [
+        {
+            "name": "blue.png",
+            "type": "image/png",
+            "data": base64.b64encode(b"preview-png").decode(),
+        }
+    ]
+    saved: list[str] = []
+    thread = Thread(target=server.serve_forever, daemon=True)
+    try:
+        saved = server.save_attachments(
+            raw,
+            client_id="preview-client",
+            message="Preview it",
+        )
+        preview_id = server._image_previews["preview-client"]["images"][0]["id"]
+        thread.start()
+        with urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/attachment-previews/{preview_id}",
+            timeout=2,
+        ) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "image/png"
+            assert response.read() == b"preview-png"
+    finally:
+        server.shutdown()
+        server.server_close()
+        if thread.is_alive():
+            thread.join(timeout=2)
+        for target in saved:
+            Path(target).unlink(missing_ok=True)
+
+
+def test_send_job_registry_calls_success_hook_with_client_id() -> None:
+    succeeded = MagicMock()
+    sender = MagicMock(return_value="chat-new")
+
+    registry = SendJobRegistry(sender, on_success=succeeded)
+    queued = registry.submit(
+        operation="once",
+        message="Hello",
+        client_id="client-success",
+    )
+
+    deadline = time.monotonic() + 1.0
+    result = registry.get(queued["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    succeeded.assert_called_once_with("client-success", "chat-new", "Hello")
+
+    duplicate = registry.submit(
+        operation="once",
+        message="Hello",
+        client_id="client-success",
+    )
+
+    assert duplicate["send_id"] == queued["send_id"]
+    assert sender.call_count == 1
+    assert succeeded.call_count == 2
+    succeeded.assert_called_with("client-success", "chat-new", "Hello")
 
 
 def test_local_ui_rejects_send_when_backend_cannot_start(tmp_path: Path) -> None:

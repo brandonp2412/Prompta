@@ -25,6 +25,12 @@ export type PendingReply = {
   responseObservedInCache?: boolean;
   createdAt?: number;
   updatedAt?: number;
+  attachments?: Array<{
+    id?: string;
+    name?: string;
+    type?: string;
+    src?: string;
+  }>;
 };
 
 export type CachedMessage = {

@@ -1157,6 +1157,40 @@ function renderMarkdown(raw) {
   html += renderTextBlock(source.slice(lastIndex));
   return html || "<p></p>";
 }
+function imageAttachments(message) {
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  return attachments.filter((attachment) => {
+    if (!attachment || typeof attachment !== "object")
+      return false;
+    const type = String(attachment.type || "");
+    const src = String(attachment.src || "");
+    return type.startsWith("image/") && (Boolean(attachment.id) || src.startsWith("data:image/"));
+  });
+}
+function imageAttachmentSrc(attachment) {
+  const inline = String(attachment?.src || "");
+  if (inline.startsWith("data:image/"))
+    return inline;
+  const id = String(attachment?.id || "");
+  return id ? `api/attachment-previews/${encodeURIComponent(id)}` : "";
+}
+function renderMessageAttachments(message) {
+  const images = imageAttachments(message);
+  if (!images.length)
+    return "";
+  return `<div class="message-attachments">${images.map((attachment) => {
+    const src = imageAttachmentSrc(attachment);
+    const name = String(attachment.name || "Attached image");
+    return `<img class="message-image-preview" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async">`;
+  }).join("")}</div>`;
+}
+function pendingImageAttachments(serializedAttachments) {
+  return serializedAttachments.filter((attachment) => String(attachment.type || "").startsWith("image/")).map((attachment) => ({
+    name: attachment.name,
+    type: attachment.type,
+    src: `data:${attachment.type};base64,${attachment.data}`
+  }));
+}
 function messageTimestamp(message) {
   const millis = messageTimestampMillis(message.created_at, message.updated_at);
   if (millis === null)
@@ -1182,12 +1216,14 @@ function renderMessageSection(message, allowStreaming = true) {
   const label = message.send_error ? "Send error" : "Prompta run";
   const timestamp = messageTimestamp(message);
   const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content);
+  const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
   return `
     <section class="message ${role}${message.send_error ? " send-error" : ""}">
       <div class="message-inner">
         ${role === "assistant" ? `
           <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
         ` : ""}
+        ${attachmentsHtml}
         <div class="message-content">${contentHtml}</div>
         ${message.send_error && message.retry_scope && message.retry_key ? `
           <button type="button"
@@ -1212,6 +1248,12 @@ function messageNodeFingerprint(message, allowStreaming) {
     message.role,
     message.status,
     message.content,
+    imageAttachments(message).map((attachment) => [
+      attachment.id || "",
+      attachment.name || "",
+      attachment.type || "",
+      String(attachment.src || "").length
+    ]),
     Boolean(message.send_error),
     Boolean(message.pending_activity),
     message.pending_activity_label,
@@ -1326,6 +1368,10 @@ function updateMessageNode(node, message, allowStreaming) {
     return false;
   const content = node.querySelector(".message-content");
   if (!content)
+    return false;
+  const currentAttachments = node.querySelector(".message-attachments")?.outerHTML || "";
+  const nextAttachments = message.pending_activity ? "" : renderMessageAttachments(message);
+  if (currentAttachments !== nextAttachments)
     return false;
   const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
   if (content.innerHTML !== nextContent) {
@@ -1481,6 +1527,10 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       claimedCachedIndexes.add(matchedIndex);
       item.observedInCache = true;
       item.responseObservedInCache = cachedMessages.slice(matchedIndex + 1).some((message) => message.role === "assistant" && !message.send_error);
+      const cachedMessage = cachedMessages[matchedIndex];
+      if (cachedMessage && !imageAttachments(cachedMessage).length && imageAttachments(item).length) {
+        cachedMessage.attachments = item.attachments;
+      }
     }
   }
   const remaining = pending.filter((item) => {
@@ -1501,6 +1551,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         message_key: `pending-user-${item.clientId || item.sendId}`,
         role: "user",
         content: item.message,
+        attachments: item.attachments || [],
         status: "complete",
         updated_at: item.updatedAt
       });
@@ -2843,7 +2894,8 @@ async function sendSelectedMessage() {
     conversationId: conversationId || "",
     createdAt: now,
     updatedAt: now,
-    attachmentNames: attachments.map((file) => file.name)
+    attachmentNames: attachments.map((file) => file.name),
+    attachments: pendingImageAttachments(serializedAttachments)
   };
   state.sending = true;
   els.sendButton.disabled = true;
