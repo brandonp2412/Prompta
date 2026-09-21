@@ -3413,6 +3413,125 @@ async def test_retained_completed_tool_enrichment_is_not_overwritten_by_firefox_
     prompta.cache.close()
 
 
+@pytest.mark.asyncio
+async def test_retained_completed_tool_enrichment_refreshes_late_final_text(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-late-final-text"
+    context_id = "context-late-final-text"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Run a tool",
+    )
+    fence = chr(96) * 3
+    nl = chr(10)
+    rich_block = (
+        fence
+        + "tool:Nox Python MCP · execute_python"
+        + nl
+        + json.dumps({"status": "completed", "arguments": {"code": "print(1)"}})
+        + nl
+        + fence
+    )
+    initial_source = {
+        "title": "Tool chat",
+        "path": f"/c/{conversation_id}",
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Run a tool"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": "Initial summary" + nl * 2 + rich_block,
+            },
+        ],
+        "streaming": False,
+    }
+    cached_snapshot = {
+        **initial_source,
+        "messages": [
+            initial_source["messages"][0],
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": rich_block + nl * 2 + "Initial summary",
+            },
+        ],
+    }
+    prompta.cache.write_snapshot(conversation_id, cached_snapshot, complete=True)
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Run a tool",
+        last_digest=prompta.cache.digest(initial_source),
+        settled_at=time.monotonic(),
+        structured_tool_blocks=(rich_block,),
+    )
+    prompta._active_conversations[context_id] = active
+
+    generic_block = (
+        fence
+        + "tool:tool"
+        + nl
+        + json.dumps({"status": "running"})
+        + nl
+        + fence
+    )
+    late_snapshot = {
+        **initial_source,
+        "messages": [
+            initial_source["messages"][0],
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": "Late final summary" + nl * 2 + generic_block,
+            },
+        ],
+    }
+    ordered_late = rich_block + nl * 2 + "Late final summary"
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=late_snapshot)
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+    prompta.tool_enricher.enrichment = AsyncMock(
+        return_value=([rich_block], ordered_late)
+    )  # type: ignore[method-assign]
+
+    await prompta._poll_active_conversations()
+
+    cached = prompta.cache.messages(conversation_id)
+    assert cached[-1]["content"] == ordered_late
+    assert cached[-1]["content"].endswith("Late final summary")
+    assert cached[-1]["content"].index(rich_block) < cached[-1]["content"].index(
+        "Late final summary"
+    )
+    assert prompta.tool_enricher.enrichment.await_count == 1  # type: ignore[attr-defined]
+
+    await prompta._poll_active_conversations()
+
+    assert prompta.tool_enricher.enrichment.await_count == 1  # type: ignore[attr-defined]
+    driver.close_context.assert_not_awaited()
+    prompta.cache.close()
+
+
 def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
     profile = tmp_path / "chrome-profile"
     args = _parser().parse_args(
