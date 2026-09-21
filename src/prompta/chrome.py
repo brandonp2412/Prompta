@@ -143,7 +143,12 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             raise RuntimeError("ChromeDriver has no browsing context")
         if driver.current_window_handle != target:
             driver.switch_to.window(target)
-        self.context = target
+        # Explicit-context operations are used by background conversation
+        # watchers. They must not steal the driver's logical default context
+        # from an in-flight send (attachment uploads are especially exposed
+        # because they poll readiness for longer than plain-text sends).
+        if context is None:
+            self.context = target
         return driver
 
     async def eval(

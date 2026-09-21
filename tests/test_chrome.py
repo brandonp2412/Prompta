@@ -84,7 +84,7 @@ async def test_close_detaches_without_quitting_existing_browser() -> None:
 
 
 @pytest.mark.asyncio
-async def test_eval_switches_to_requested_window() -> None:
+async def test_eval_switches_to_requested_window_without_stealing_default_context() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "other"
     selenium.execute_script.return_value = "value"
@@ -97,7 +97,39 @@ async def test_eval_switches_to_requested_window() -> None:
     assert result == "value"
     selenium.switch_to.window.assert_called_once_with("target")
     selenium.execute_script.assert_called_once_with("return (location.pathname);")
-    assert driver.context == "target"
+    assert driver.context == "default"
+
+
+@pytest.mark.asyncio
+async def test_attachment_upload_returns_to_default_context_after_background_eval(
+    tmp_path: Path,
+) -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "upload-tab"
+    selenium.execute_script.side_effect = [
+        "watched",
+        '{"attached":true,"busy":false}',
+        '{"attached":true,"busy":false}',
+        '{"attached":true,"busy":false}',
+    ]
+    file_input = MagicMock()
+    selenium.find_element.return_value = file_input
+
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "upload-tab"
+
+    await driver.eval("location.pathname", context="watch-tab")
+    selenium.current_window_handle = "watch-tab"
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"not-a-real-png")
+    await driver.attach_files([str(image)])
+
+    assert driver.context == "upload-tab"
+    assert selenium.switch_to.window.call_args_list[0].args == ("watch-tab",)
+    assert any(call.args == ("upload-tab",) for call in selenium.switch_to.window.call_args_list[1:])
+    file_input.send_keys.assert_called_once_with(str(image.resolve()))
 
 
 @pytest.mark.asyncio
