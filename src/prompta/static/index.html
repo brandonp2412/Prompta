@@ -37,6 +37,10 @@
           <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" autocomplete="off">
           <kbd>/</kbd>
         </label>
+        <button type="button" class="sidebar-action" id="jobsSidebarButton">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/><path d="M8 12h3M8 16h3M14 12h2M14 16h2"/></svg>
+          <span>Jobs</span>
+        </button>
       </div>
 
       <nav class="chat-list" id="chatList" aria-label="Cached conversations"></nav>
@@ -121,7 +125,6 @@
             <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
             <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
               <button type="button" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
-              <button type="button" data-slash-command="/jobs"><strong>/jobs</strong><span>Manage scheduled jobs</span></button>
               <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
             </div>
           </div>

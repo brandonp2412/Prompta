@@ -138,6 +138,7 @@ const els = {
   openSidebar: requiredElement<HTMLButtonElement>("#openSidebar"),
   closeSidebar: requiredElement<HTMLButtonElement>("#closeSidebar"),
   sidebarScrim: requiredElement<HTMLElement>("#sidebarScrim"),
+  jobsSidebarButton: requiredElement<HTMLButtonElement>("#jobsSidebarButton"),
   newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
   pinChatButton: requiredElement<HTMLButtonElement>("#pinChatButton"),
   shareChatButton: requiredElement<HTMLButtonElement>("#shareChatButton"),
@@ -2168,15 +2169,21 @@ async function runJobCommand(payload, successText) {
     els.saveJobButton.disabled = false;
   }
 }
-async function openJobsDialog() {
-  els.messageInput.value = "";
-  els.slashMenu.hidden = true;
-  resizeComposer();
-  syncSendButton();
+async function openJobsDialog(clearComposer = false) {
+  if (clearComposer) {
+    els.messageInput.value = "";
+    els.slashMenu.hidden = true;
+    resizeComposer();
+    syncSendButton();
+  }
   resetJobForm();
   if (!els.jobsDialog.open) els.jobsDialog.showModal();
   await loadJobs();
 }
+els.jobsSidebarButton.addEventListener("click", async () => {
+  closeSidebar();
+  await openJobsDialog();
+});
 els.closeJobsDialog.addEventListener("click", () => els.jobsDialog.close());
 els.jobsDialog.addEventListener("click", (event) => {
   if (event.target === els.jobsDialog) els.jobsDialog.close();
@@ -2461,7 +2468,7 @@ async function sendSelectedMessage() {
     return;
   }
   if (message.toLowerCase() === "/jobs") {
-    await openJobsDialog();
+    await openJobsDialog(true);
     return;
   }
   requestNotificationPermissionFromGesture();

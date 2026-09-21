@@ -204,6 +204,41 @@ textarea:focus-visible {
   font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.sidebar-action {
+  width: 100%;
+  height: 38px;
+  margin-top: 8px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-action:hover,
+.sidebar-action:focus-visible {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.sidebar-action svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .chat-list {
   min-height: 0;
   flex: 1;
