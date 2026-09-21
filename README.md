@@ -165,12 +165,9 @@ historical chat is opened only for an explicit send.
 
 The UI is installable as a PWA with a service worker and the `Prompta · Nox` manifest. While the UI/PWA is running,
 browser notification permission lets an active-to-complete transition produce a
-system notification. Recurring jobs can be created directly from the composer:
-
-```text
-/every 30 fix bugs
-/every 2h review the latest failures
-```
+system notification. Use /jobs in the composer to open the scheduled-jobs manager;
+its add, pause, resume, remove, and clear actions map to the corresponding Prompta CLI
+commands.
 
 Features also include client-first optimistic sends with SSE reconciliation, replies
 to existing chats, history grouped by recency, full-text search across cached
