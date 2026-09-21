@@ -260,7 +260,7 @@ class ConversationTracker:
         try:
             driver = await self.ensure_driver()
         except Exception:
-            logger.exception("Prompta cache capture could not reconnect Firefox BiDi")
+            logger.exception("Prompta cache capture could not reconnect browser session")
             return
         if driver is None:
             return
