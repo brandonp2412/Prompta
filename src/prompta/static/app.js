@@ -885,7 +885,7 @@ function renderCodeBlock(code, language) {
 }
 function renderMarkdown(raw) {
   const source = String(raw || "");
-  const pattern = /```([^\n`]*)\n?([\s\S]*?)```/g;
+  const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
   let lastIndex = 0;
   let html = "";
   let match;
