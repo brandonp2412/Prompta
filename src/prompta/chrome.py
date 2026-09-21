@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -22,10 +23,52 @@ from selenium.common.exceptions import (
 )
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chromium.remote_connection import ChromiumRemoteConnection
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.remote.client_config import ClientConfig
 from selenium.webdriver.remote.command import Command
+from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
+from urllib3.util.retry import Retry
 
 from .bidi import _BIDI_AUTH_TIMEOUT_SECONDS, FirefoxBiDiDriver
+
+_CHROMEDRIVER_COMMAND_TIMEOUT_SECONDS = 30
+_FATAL_WEBDRIVER_MARKERS = (
+    "tab crashed",
+    "invalid session id",
+    "session deleted",
+    "disconnected",
+    "not connected to devtools",
+    "chrome not reachable",
+    "unable to discover open pages",
+)
+
+
+class _PromptaChrome(webdriver.Chrome):
+    def __init__(self, *, service: Service, options: Options) -> None:
+        self.service = service
+        self.options = options
+        self.service.start()
+        client_config = ClientConfig(
+            remote_server_addr=self.service.service_url,
+            keep_alive=True,
+            timeout=_CHROMEDRIVER_COMMAND_TIMEOUT_SECONDS,
+        )
+        executor = ChromiumRemoteConnection(
+            remote_server_addr=self.service.service_url,
+            browser_name=DesiredCapabilities.CHROME["browserName"],
+            vendor_prefix="goog",
+            keep_alive=True,
+            ignore_proxy=self.options._ignore_local_proxy,
+            client_config=client_config,
+        )
+        try:
+            RemoteWebDriver.__init__(self, command_executor=executor, options=self.options)
+        except Exception:
+            self.quit()
+            raise
 
 
 class ChromeDriverDriver(FirefoxBiDiDriver):
@@ -56,14 +99,29 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
     @property
     def is_connected(self) -> bool:
-        driver = self._driver
-        if driver is None or not self.context:
-            return False
-        try:
-            _ = driver.current_window_handle
-        except WebDriverException:
-            return False
-        return True
+        return self._driver is not None and bool(self.context) and not self.needs_browser_restart
+
+    @staticmethod
+    def _is_fatal_webdriver_error(exc: Exception) -> bool:
+        if isinstance(exc, (Urllib3HTTPError, TimeoutError, OSError)):
+            return True
+        message = str(exc).casefold()
+        return any(marker in message for marker in _FATAL_WEBDRIVER_MARKERS)
+
+    def _driver_runtime_error(self, operation: str, exc: Exception) -> RuntimeError:
+        fatal = self._is_fatal_webdriver_error(exc)
+        if fatal:
+            self.needs_browser_restart = True
+        detail = str(getattr(exc, "msg", "") or exc).strip() or type(exc).__name__
+        suffix = "; browser restart required" if fatal else ""
+        return RuntimeError(f"{operation}: {detail}{suffix}")
+
+    async def _run_webdriver_call(self, operation: str, callback: Callable[[], Any]) -> Any:
+        async with self._call_lock:
+            try:
+                return await asyncio.to_thread(callback)
+            except (WebDriverException, Urllib3HTTPError, TimeoutError, OSError) as exc:
+                raise self._driver_runtime_error(operation, exc) from exc
 
     def _create_driver(self) -> webdriver.Chrome:
         options = Options()
@@ -85,7 +143,17 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 options.add_argument("--headless=new")
                 options.add_argument("--disable-gpu")
         service = Service(executable_path=self.chromedriver_path)
-        return webdriver.Chrome(service=service, options=options)
+        driver = _PromptaChrome(service=service, options=options)
+        client_config = getattr(driver.command_executor, "_client_config", None)
+        if client_config is not None:
+            client_config.timeout = _CHROMEDRIVER_COMMAND_TIMEOUT_SECONDS
+        connection_manager = getattr(driver.command_executor, "_conn", None)
+        if connection_manager is not None and hasattr(connection_manager, "connection_pool_kw"):
+            connection_manager.connection_pool_kw["retries"] = Retry(
+                total=0, connect=0, read=0, redirect=0, status=0
+            )
+            connection_manager.clear()
+        return driver
 
     async def connect(self) -> None:
         if self.is_connected:
@@ -93,8 +161,11 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         if self.needs_browser_restart:
             raise RuntimeError("Chromium WebDriver session is poisoned; browser restart required")
         try:
-            self._driver = await asyncio.to_thread(self._create_driver)
-            handles = await asyncio.to_thread(lambda: list(self._require_driver().window_handles))
+            self._driver = await self._run_webdriver_call("create ChromeDriver session", self._create_driver)
+            handles = await self._run_webdriver_call(
+                "read Chromium window handles",
+                lambda: list(self._require_driver().window_handles),
+            )
             if not handles:
                 raise RuntimeError("ChromeDriver created no browser window")
             if self.debugger_address:
@@ -103,7 +174,10 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                     driver.switch_to.new_window("tab")
                     return str(driver.current_window_handle)
 
-                self.context = await asyncio.to_thread(create_owned_tab)
+                self.context = await self._run_webdriver_call(
+                    "create Prompta Chromium tab",
+                    create_owned_tab,
+                )
                 self._owned_contexts.add(self.context)
             else:
                 self.context = str(handles[0])
@@ -178,14 +252,14 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             except JavascriptException as exc:
                 raise RuntimeError(f"ChromeDriver script failed: {exc.msg}") from exc
 
-        return await asyncio.to_thread(execute)
+        return await self._run_webdriver_call("execute Chromium script", execute)
 
     async def navigate(self, url: str, *, context: str | None = None) -> None:
         def navigate_sync() -> None:
             driver = self._activate_context_sync(context)
             driver.get(url)
 
-        await asyncio.to_thread(navigate_sync)
+        await self._run_webdriver_call("navigate Chromium tab", navigate_sync)
 
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         def create() -> str:
@@ -193,7 +267,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             driver.switch_to.new_window("tab")
             return str(driver.current_window_handle)
 
-        context = await asyncio.to_thread(create)
+        context = await self._run_webdriver_call("create Chromium tab", create)
         self.context = context
         if self.debugger_address:
             self._owned_contexts.add(context)
@@ -229,7 +303,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 except WebDriverException:
                     pass
 
-        await asyncio.to_thread(perform)
+        await self._run_webdriver_call("perform Chromium input actions", perform)
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
         """Click ChatGPT's actual send control through ChromeDriver.
@@ -263,7 +337,9 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                     except NoSuchElementException:
                         scope = None
                     break
-                except WebDriverException:
+                except WebDriverException as exc:
+                    if self._is_fatal_webdriver_error(exc):
+                        raise
                     continue
 
             for selector in selectors:
@@ -276,7 +352,9 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 root = scope if scope is not None else driver
                 try:
                     elements = root.find_elements(By.CSS_SELECTOR, selector)
-                except WebDriverException:
+                except WebDriverException as exc:
+                    if self._is_fatal_webdriver_error(exc):
+                        raise
                     continue
                 for element in elements:
                     try:
@@ -286,14 +364,14 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                             continue
                         element.click()
                         return True
-                    except WebDriverException:
-                        # ChatGPT can replace the composer controls while React
-                        # commits the editor state. Re-query on the next poll.
+                    except WebDriverException as exc:
+                        if self._is_fatal_webdriver_error(exc):
+                            raise
                         continue
             return False
 
         while asyncio.get_running_loop().time() < deadline:
-            if await asyncio.to_thread(click_sync):
+            if await self._run_webdriver_call("click ChatGPT send button", click_sync):
                 return
             await asyncio.sleep(0.2)
         raise RuntimeError("ChatGPT send button did not become enabled")
@@ -316,7 +394,9 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 element.send_keys("\n".join(paths))
                 return True
 
-            return await asyncio.to_thread(upload_sync)
+            return bool(
+                await self._run_webdriver_call("upload ChatGPT attachment", upload_sync)
+            )
 
         if not await locate_and_upload():
             opened = await self.eval(

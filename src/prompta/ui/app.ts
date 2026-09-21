@@ -262,7 +262,7 @@ function setConversationHeading(title, meta) {
 const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
 function syncSendButton() {
-  const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "succeeded"].includes(state.pendingNewSend.status);
+  const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "dead_lettered", "succeeded"].includes(state.pendingNewSend.status);
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
@@ -378,7 +378,7 @@ function sidebarStatusDot(status) {
 }
 const iconStatusClasses = new Set([
   "active", "running", "succeeded", "complete", "cached", "local",
-  "interrupted", "queued", "pending", "failed", "live", "journal",
+  "interrupted", "queued", "pending", "retrying", "failed", "dead_lettered", "live", "journal",
   "new", "idle",
 ]);
 function setStatusIcon(element, status, label, kind = "") {
@@ -407,7 +407,7 @@ function sidebarChats() {
     const latest = pending[pending.length - 1];
     return {
       ...chat,
-      status: latest.status === "failed" ? chat.status : "active",
+      status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
       preview: latest.message,
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
       _optimisticReply: true,
@@ -425,7 +425,7 @@ function sidebarChats() {
   const pendingId = pendingConversationDisplayId(pending);
   const optimistic = {
     id: pendingId,
-    status: pending.status === "failed" ? "failed" : "active",
+    status: ["failed", "dead_lettered"].includes(pending.status) ? pending.status : "active",
     title: truncate(pending.message, 72) || "New chat",
     preview: pending.message,
     message_count: 1,
@@ -599,7 +599,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         pending_activity: true,
         pending_activity_label: activity.label,
       });
-    } else if (item.status === "failed") {
+    } else if (["failed", "dead_lettered"].includes(item.status)) {
       messages.push({
         message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
@@ -773,7 +773,7 @@ function renderNewChat() {
   state.mode = "chats";
   syncComposerDraftTarget();
   const pending = state.pendingNewSend;
-  const waiting = pending && !["failed", "succeeded"].includes(pending.status);
+  const waiting = pending && !["failed", "dead_lettered", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
     pending?.sendId || "",
     pending?.message || "",
@@ -812,7 +812,7 @@ function renderNewChat() {
           pending_activity: true,
           pending_activity_label: activity.label,
         });
-      } else if (pending.status === "failed") {
+      } else if (["failed", "dead_lettered"].includes(pending.status)) {
         messages.push({
           message_key: `pending-error-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -856,8 +856,10 @@ function renderNewChat() {
       els.composerStatus,
       pending
         ? (
-          pending.status === "failed"
-            ? "Send failed. The error is shown in the chat."
+          ["failed", "dead_lettered"].includes(pending.status)
+            ? (pending.status === "dead_lettered"
+              ? "Send exhausted its retry budget. Retry to enqueue it again."
+              : "Send failed. The error is shown in the chat.")
             : activity?.statusText || "Sent. Waiting for the cached response…"
         )
         : "Your first message will open a fresh ChatGPT chat.",
@@ -889,6 +891,36 @@ async function fetchJson(url, timeoutMs = 10_000) {
     window.clearTimeout(timeout);
   }
 }
+async function hydrateRecentChatCache() {
+  const cachedChats = await recentChatCache.warm();
+  if (!cachedChats.length || state.search) return false;
+  const unique = new Map();
+  for (const chat of cachedChats) {
+    if (chat?.id && !unique.has(chat.id)) unique.set(chat.id, chat);
+  }
+  state.chats = Array.from(unique.values())
+    .sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
+  state.chatOrderScope = "__cached__";
+  const activeCount = state.chats.filter((chat) => chat.status === "active").length;
+  setTextIfChanged(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
+  const hashId = conversationIdFromHash(location.hash);
+  const initialId = hashId || state.chats[0]?.id || "";
+  if (initialId) {
+    state.selectedId = initialId;
+    const chat = unique.get(initialId);
+    if (chat) {
+      state.selectedUpdatedAt = chat.updated_at;
+      renderConversation(chat);
+    } else {
+      conversationRenderer.renderLoadingState();
+      setHiddenIfChanged(els.emptyState, true);
+      setHiddenIfChanged(els.conversation, false);
+    }
+  }
+  renderSidebar();
+  return true;
+}
+
 async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
@@ -1019,6 +1051,9 @@ function renderRecentChatSnapshot(conversationId) {
     return;
   }
 
+  conversationRenderer.renderLoadingState();
+  setHiddenIfChanged(els.emptyState, true);
+  setHiddenIfChanged(els.conversation, false);
   void recentChatCache.get(conversationId).then((chat) => {
     if (
       !chat
@@ -1343,7 +1378,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         await loadSelectedChat();
         return;
       }
-      if (status === "failed") {
+      if (["failed", "dead_lettered"].includes(status)) {
         if (state.composingNew) renderNewChat();
         renderSidebar();
         return;
@@ -1368,8 +1403,10 @@ async function watchSend(sendId, creatingNew, conversationId) {
       await loadChats();
       return;
     }
-    if (status === "failed") {
-      setTextIfChanged(els.composerStatus, "Send failed. The error is shown in the chat.");
+    if (["failed", "dead_lettered"].includes(status)) {
+      setTextIfChanged(els.composerStatus, status === "dead_lettered"
+        ? "Send exhausted its retry budget. Retry to enqueue it again."
+        : "Send failed. The error is shown in the chat.");
       return;
     }
   }
@@ -1671,12 +1708,12 @@ window.addEventListener("hashchange", () => {
   if (id && id !== state.selectedId) selectChat(id);
 });
 function refreshDisplayedTimes() {
-  if (state.composingNew && state.pendingNewSend?.status === "rate_limited") {
+  if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status)) {
     state.newChatFingerprint = "";
     renderNewChat();
   } else if (
     state.selectedId
-    && (state.pendingReplies.get(state.selectedId) || []).some((item) => item.status === "rate_limited")
+    && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status))
   ) {
     state.selectedFingerprint = "";
     void loadSelectedChat();
@@ -1702,8 +1739,14 @@ function refreshDisplayedTimes() {
 }
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
-  loadServerIdentity();
+  void loadServerIdentity();
   resizeComposer();
+  const hydrated = await hydrateRecentChatCache();
+  if (!hydrated) {
+    conversationRenderer.renderLoadingState();
+    setHiddenIfChanged(els.emptyState, true);
+    setHiddenIfChanged(els.conversation, false);
+  }
   document.documentElement.classList.remove("booting");
   await loadChats();
   liveUpdates.start();

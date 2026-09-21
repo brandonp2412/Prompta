@@ -85,6 +85,13 @@ export function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton 
     slashMenu: requiredElement<HTMLElement>("#slashMenu"),
   };
   let scheduledJobs = [];
+  const mobileJobsScreen = window.matchMedia("(max-width: 600px)");
+  const appShell = document.querySelector<HTMLElement>(".app-shell");
+
+  function closeJobsView() {
+    if (!els.jobsDialog.open) return;
+    els.jobsDialog.close();
+  }
 
   function resetJobForm() {
     els.jobsForm.reset();
@@ -179,7 +186,16 @@ export function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton 
       syncSendButton();
     }
     resetJobForm();
-    if (!els.jobsDialog.open) els.jobsDialog.showModal();
+    if (!els.jobsDialog.open) {
+      const stacked = mobileJobsScreen.matches;
+      els.jobsDialog.dataset.presentation = stacked ? "stack" : "modal";
+      if (stacked) {
+        els.jobsDialog.show();
+        if (appShell) appShell.inert = true;
+      } else {
+        els.jobsDialog.showModal();
+      }
+    }
     await loadJobs();
   }
 
@@ -187,9 +203,15 @@ export function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton 
     closeSidebar();
     await open();
   });
-  els.closeJobsDialog.addEventListener("click", () => els.jobsDialog.close());
+  els.closeJobsDialog.addEventListener("click", closeJobsView);
   els.jobsDialog.addEventListener("click", (event) => {
-    if (event.target === els.jobsDialog) els.jobsDialog.close();
+    if (event.target === els.jobsDialog && els.jobsDialog.dataset.presentation !== "stack") {
+      closeJobsView();
+    }
+  });
+  els.jobsDialog.addEventListener("close", () => {
+    if (appShell) appShell.inert = false;
+    delete els.jobsDialog.dataset.presentation;
   });
   els.jobScheduleType.addEventListener("change", syncJobScheduleFields);
   els.resetJobForm.addEventListener("click", resetJobForm);
@@ -241,7 +263,7 @@ export function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton 
   });
 
   function close() {
-    if (els.jobsDialog.open) els.jobsDialog.close();
+    closeJobsView();
   }
 
   return { open, close };

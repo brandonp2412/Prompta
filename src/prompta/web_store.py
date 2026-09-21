@@ -167,6 +167,7 @@ class ReadOnlyChatStore:
 
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
         bounded_limit = max(1, min(limit, 2000))
+        file_payload: dict[str, Any] | None = None
         if self.log_path.is_file():
             try:
                 text = self.log_path.read_text(errors="replace")
@@ -174,7 +175,7 @@ class ReadOnlyChatStore:
             except OSError:
                 pass
             else:
-                return {
+                file_payload = {
                     "exists": True,
                     "lines": text.splitlines()[-bounded_limit:],
                     "updated_at": updated_at,
@@ -182,7 +183,7 @@ class ReadOnlyChatStore:
                 }
 
         if not self.journal_unit:
-            return {
+            return file_payload or {
                 "exists": False,
                 "lines": [],
                 "updated_at": None,
@@ -207,7 +208,7 @@ class ReadOnlyChatStore:
                 timeout=2.0,
             )
         except (OSError, subprocess.SubprocessError):
-            return {
+            return file_payload or {
                 "exists": False,
                 "lines": [],
                 "updated_at": None,
@@ -224,7 +225,7 @@ class ReadOnlyChatStore:
             else []
         )
         if not lines:
-            return {
+            return file_payload or {
                 "exists": False,
                 "lines": [],
                 "updated_at": None,

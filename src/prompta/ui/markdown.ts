@@ -5,6 +5,7 @@ import {
   toolCallHasUsefulDetail,
   toolCallIsInvocationPlaceholder,
   toolCallSummary,
+  toolCallTimestampMillis,
 } from "./clientLogic";
 
 function escapeHtml(value) {
@@ -260,6 +261,13 @@ function renderCodeBlock(code, language) {
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
   const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
+  const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
+  const toolTimeText = toolTimestamp === null
+    ? ""
+    : new Date(toolTimestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const toolTime = toolTimestamp === null
+    ? ""
+    : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml(toolTimeText)}</time>`;
   const renderedCode = pythonCode
     || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode
@@ -289,6 +297,7 @@ function renderCodeBlock(code, language) {
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+        ${toolTime}
         ${copyButton}
       </div>`;
     return `
