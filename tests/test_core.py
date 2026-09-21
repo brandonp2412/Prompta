@@ -1414,6 +1414,79 @@ async def test_control_send_does_not_retry_unrelated_scheduler_error(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_busy_reply_does_not_block_other_scheduler_requests(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta._active_conversations["busy-context"] = ActiveConversation(
+        conversation_id="busy-chat",
+        context_id="busy-context",
+        job_name="",
+        prompt="Earlier prompt",
+    )
+    busy_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._reply_requests.put(("busy-chat", "Follow up", [], busy_future))
+    prompta.send_reply = AsyncMock(return_value="busy-chat")  # type: ignore[method-assign]
+
+    did_work = await prompta._drain_reply_requests()
+
+    assert did_work is False
+    assert prompta._reply_requests.qsize() == 1
+    assert not busy_future.done()
+    prompta.send_reply.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_prioritises_ui_send_before_active_poll(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    order: list[str] = []
+
+    async def drain_reply() -> bool:
+        order.append("reply")
+        return False
+
+    async def drain_once() -> bool:
+        order.append("once")
+        return True
+
+    async def drain_sync() -> bool:
+        order.append("sync")
+        return False
+
+    async def retry_recovery() -> bool:
+        order.append("recovery")
+        return False
+
+    async def poll_active() -> None:
+        order.append("poll")
+
+    prompta._drain_reply_requests = drain_reply  # type: ignore[method-assign]
+    prompta._drain_once_requests = drain_once  # type: ignore[method-assign]
+    prompta._drain_sync_requests = drain_sync  # type: ignore[method-assign]
+    prompta._retry_cached_recovery_if_due = retry_recovery  # type: ignore[method-assign]
+    prompta._poll_active_conversations = poll_active  # type: ignore[method-assign]
+    prompta.read_jobs = lambda: {}  # type: ignore[method-assign]
+
+    await prompta.run(once=True)
+
+    assert order == ["reply", "once", "sync", "recovery", "poll"]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     prompta = Prompta(

@@ -1879,13 +1879,25 @@ class Prompta:
             finally:
                 self._once_requests.task_done()
 
+    def _reply_target_is_busy(self, conversation_id: str) -> bool:
+        return any(
+            active.conversation_id == conversation_id and active.settled_at <= 0
+            for active in self._active_conversations.values()
+        )
+
     async def _drain_reply_requests(self) -> bool:
         did_work = False
-        while True:
+        pending = self._reply_requests.qsize()
+        for _ in range(pending):
             try:
-                conversation_id, prompt, attachments, future = self._reply_requests.get_nowait()
+                item = self._reply_requests.get_nowait()
             except asyncio.QueueEmpty:
                 return did_work
+            conversation_id, prompt, attachments, future = item
+            if self._reply_target_is_busy(conversation_id):
+                self._reply_requests.task_done()
+                await self._reply_requests.put(item)
+                continue
             try:
                 result = await self.send_reply(conversation_id, prompt, attachments=attachments)
             except Exception as exc:
@@ -1897,6 +1909,7 @@ class Prompta:
                 did_work = True
             finally:
                 self._reply_requests.task_done()
+        return did_work
 
     async def _drain_sync_requests(self) -> bool:
         did_work = False
@@ -1924,11 +1937,14 @@ class Prompta:
 
     async def run(self, *, once: bool = False) -> None:
         while True:
-            did_work = await self._retry_cached_recovery_if_due()
-            await self._poll_active_conversations()
-            did_work = await self._drain_sync_requests() or did_work
-            did_work = await self._drain_reply_requests() or did_work
+            # UI sends are latency-sensitive. Drain them before browser/cache
+            # maintenance so a slow active-conversation poll cannot starve new
+            # messages for minutes.
+            did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
+            did_work = await self._drain_sync_requests() or did_work
+            did_work = await self._retry_cached_recovery_if_due() or did_work
+            await self._poll_active_conversations()
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
                     "Browser session was lost; restarting Prompta to recycle browser"
