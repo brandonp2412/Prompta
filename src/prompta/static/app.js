@@ -1,4 +1,13 @@
 // src/prompta/ui/clientLogic.ts
+function preserveSidebarChatOrder(previous, incoming) {
+  if (!previous.length)
+    return [...incoming];
+  const incomingById = new Map(incoming.map((chat) => [chat.id, chat]));
+  const previousIds = new Set(previous.map((chat) => chat.id));
+  const added = incoming.filter((chat) => !previousIds.has(chat.id));
+  const retained = previous.map((chat) => incomingById.get(chat.id)).filter((chat) => Boolean(chat));
+  return [...added, ...retained];
+}
 var CHATGPT_RICH_START = "";
 var CHATGPT_RICH_END = "";
 var CHATGPT_RICH_SEPARATOR = "";
@@ -445,6 +454,7 @@ var state = {
   newChatFingerprint: "",
   selectedMetaFingerprint: "",
   chatsRequestId: 0,
+  chatOrderScope: null,
   selectedRequestId: 0,
   selectedChat: null,
   selectedVisibleMessageCount: 0,
@@ -696,15 +706,17 @@ function truncate(value, length = 88) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
+function sidebarGroupAt(chat) {
+  return Number(chat?._sidebarGroupAt || chatActivityAt(chat) || 0);
+}
 function groupChats(chats) {
   const pinned = chats.filter((chat) => state.pinnedIds.has(chat.id));
   const unpinned = chats.filter((chat) => !state.pinnedIds.has(chat.id));
   const groups = [
     ["Pinned", pinned],
-    ["Active", unpinned.filter((chat) => chat.status === "active")],
-    ["Today", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chatActivityAt(chat)))],
-    ["Yesterday", unpinned.filter((chat) => chat.status !== "active" && sameLocalDay(chatActivityAt(chat), 1))],
-    ["Previous", unpinned.filter((chat) => chat.status !== "active" && !sameLocalDay(chatActivityAt(chat)) && !sameLocalDay(chatActivityAt(chat), 1))]
+    ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
+    ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
+    ["Previous", unpinned.filter((chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1))]
   ];
   return groups.filter(([, items]) => items.length);
 }
@@ -2027,7 +2039,15 @@ async function loadChats() {
     const chats = payload.chats || [];
     reconcileOptimisticNew(chats);
     trackChatCompletions(chats);
-    state.chats = chats;
+    const orderScope = state.search;
+    const preserveOrder = state.chatOrderScope === orderScope;
+    const previousChats = preserveOrder ? state.chats : [];
+    const groupAnchors = new Map(previousChats.map((chat) => [chat.id, sidebarGroupAt(chat)]));
+    state.chats = preserveSidebarChatOrder(previousChats, chats).map((chat) => ({
+      ...chat,
+      _sidebarGroupAt: groupAnchors.get(chat.id) || chatActivityAt(chat)
+    }));
+    state.chatOrderScope = orderScope;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
     setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
     const hashId = conversationIdFromHash(location.hash);
