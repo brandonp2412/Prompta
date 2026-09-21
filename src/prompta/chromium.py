@@ -80,6 +80,7 @@ _REACT_TOOL_SCRIPT = r"""
     const content=message?.content||{};
     messages.push({
       id,
+      create_time:Number.isFinite(Number(message?.create_time))?Number(message.create_time):null,
       role:String(message?.author?.role||message?.role||''),
       recipient:String(message?.recipient||''),
       content_type:String(content?.content_type||content?.type||''),
@@ -95,6 +96,11 @@ _REACT_TOOL_SCRIPT = r"""
       connector_name:trimString(connectorName||'')
     });
   }
+  messages.sort((left,right)=>{
+    const leftTime=Number.isFinite(Number(left.create_time))?Number(left.create_time):Number.POSITIVE_INFINITY;
+    const rightTime=Number.isFinite(Number(right.create_time))?Number(right.create_time):Number.POSITIVE_INFINITY;
+    return leftTime-rightTime;
+  });
   return {
     ready:Boolean(document.querySelector('[data-message-author-role]')),
     href:location.href,

@@ -173,5 +173,7 @@ def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
 
 def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "const latestAssistant=assistants.at(-1)" in _REACT_TOOL_SCRIPT
+    assert "create_time:Number.isFinite(Number(message?.create_time))" in _REACT_TOOL_SCRIPT
+    assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT

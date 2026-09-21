@@ -487,6 +487,8 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "Open tool call list" in expression
     assert "const cleanToolName=value=>" in expression
     assert "const reactMessages=agent=>" in expression
+    assert "const messageTime=message=>" in expression
+    assert "left.time-right.time||left.index-right.index" in expression
     assert "name.startsWith('__reactProps$')" in expression
     assert "const reactToolBlocks=agent=>" in expression
     assert "parsed.type==='mcpToolCall'" in expression
