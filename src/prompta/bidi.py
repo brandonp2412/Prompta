@@ -854,7 +854,98 @@ class FirefoxBiDiDriver:
               const toolSelector='[data-tool-call-id],[data-tool-name]';
               const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\\w-]+)$/i;
               const cleanToolName=value=>{const text=(value||'').replace(/\\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
+              const reactMessages=agent=>{
+                const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
+                const add=messages=>{
+                  if(!Array.isArray(messages)||seenArrays.has(messages))return;
+                  seenArrays.add(messages);
+                  if(messages.some(message=>message&&typeof message==='object'&&message.content&&message.author))found.push(...messages);
+                };
+                const walk=(value,depth)=>{
+                  if(!value||depth>6||(typeof value!=='object'&&typeof value!=='function'))return;
+                  if(seenObjects.has(value))return;
+                  seenObjects.add(value);
+                  if(Array.isArray(value)){if(depth<=4)add(value);return;}
+                  let keys=[];
+                  try{keys=Object.keys(value);}catch{return;}
+                  for(const key of keys.slice(0,220)){
+                    if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
+                    let next;
+                    try{next=value[key];}catch{continue;}
+                    if(key==='messages')add(next);
+                    if(next&&depth<6&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
+                  }
+                };
+                for(const node of [agent,...agent.querySelectorAll('*')]){
+                  const key=Object.keys(node).find(name=>name.startsWith('__reactProps$'));
+                  if(key)walk(node[key],0);
+                }
+                const unique=[],seen=new Set();
+                for(const message of found){
+                  const key=message?.id||JSON.stringify([
+                    message?.author?.role,
+                    message?.recipient,
+                    message?.content?.content_type,
+                    message?.content?.text||''
+                  ]);
+                  if(seen.has(key))continue;
+                  seen.add(key);
+                  unique.push(message);
+                }
+                return unique;
+              };
+              const reactToolBlocks=agent=>{
+                const messages=reactMessages(agent);
+                if(!messages.length)return [];
+                const connectorNames=messages.map(message=>
+                  message?.metadata?.jit_plugin_data?.from_server?.body?.connector_name
+                ).filter(Boolean);
+                const fallbackConnector=connectorNames.at(-1)||'';
+                const blocks=[],seen=new Set();
+                const add=(name,action,args,status,duration,error)=>{
+                  const label=[name,action].filter(Boolean).join(' · ')||'tool';
+                  const detail={};
+                  if(args&&typeof args==='object')detail.arguments=args;
+                  else if(args!=null)detail.arguments=args;
+                  if(status)detail.status=status;
+                  if(Number.isFinite(duration))detail.duration_ms=duration;
+                  if(error)detail.error=typeof error==='string'?error:JSON.stringify(error);
+                  const body=Object.keys(detail).length?JSON.stringify(detail,null,2):'Called tool';
+                  const block='```tool:'+label+'\\n'+body+'\\n```';
+                  const key=label+'|'+body;
+                  if(!seen.has(key)){seen.add(key);blocks.push(block);}
+                };
+                for(const message of messages){
+                  const text=message?.content?.text;
+                  if(typeof text!=='string'||!text.trim())continue;
+                  let parsed;
+                  try{parsed=JSON.parse(text);}catch{continue;}
+                  if(!parsed||typeof parsed!=='object'||!(
+                    parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
+                  ))continue;
+                  const name=parsed.appContext?.appName
+                    ||message?.metadata?.invoked_resource?.app_name
+                    ||fallbackConnector;
+                  const action=parsed.appContext?.actionName
+                    ||(typeof parsed.tool==='string'?parsed.tool.split('.').at(-1):'');
+                  add(name,action,parsed.arguments,parsed.status,parsed.durationMs,parsed.error);
+                }
+                if(blocks.length)return blocks;
+                for(const message of messages){
+                  if(message?.recipient!=='api_tool.call_tool')continue;
+                  const payload=message?.metadata?.connector_tool_payload||message?.content?.text;
+                  let parsed;
+                  try{parsed=JSON.parse(payload);}catch{continue;}
+                  const action=typeof parsed?.path==='string'
+                    ?parsed.path.split('/').filter(Boolean).at(-1)
+                    :'';
+                  add(fallbackConnector,action,parsed?.args,'running',null,null);
+                }
+                return blocks;
+              };
               const toolBlocks=agent=>{
+                const structuredBlocks=reactToolBlocks(agent);
+                if(structuredBlocks.length)return structuredBlocks;
                 const currentRows=[...agent.querySelectorAll('span[class~="group/tool-message"]')];
                 const currentBlocks=currentRows.map(node=>{
                   const lines=(node.innerText||node.textContent||'').split(/\\n+/)
