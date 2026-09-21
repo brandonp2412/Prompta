@@ -453,7 +453,7 @@ def test_static_bundle_contains_historical_activity_probe() -> None:
     assert "/probe" in bundle
 
 
-def test_probe_conversation_routes_to_own_node(tmp_path: Path) -> None:
+def test_probe_conversation_uses_local_backend(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
     store = ReadOnlyChatStore(path)
@@ -469,7 +469,7 @@ def test_probe_conversation_routes_to_own_node(tmp_path: Path) -> None:
     sync.assert_called_once_with("chat-1")
 
 
-def test_stop_conversation_routes_to_own_node(tmp_path: Path) -> None:
+def test_stop_conversation_uses_local_backend(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
     store = ReadOnlyChatStore(path)
@@ -483,26 +483,6 @@ def test_stop_conversation_routes_to_own_node(tmp_path: Path) -> None:
     assert result == "chat-1"
     stop.assert_called_once_with("chat-1")
 
-
-def test_stop_conversation_routes_to_remote_node(tmp_path: Path) -> None:
-    local_path = tmp_path / "local.sqlite3"
-    remote_path = tmp_path / "remote.sqlite3"
-    _seed_cache(remote_path)
-    server = PromptaUIServer(
-        ("127.0.0.1", 0),
-        ReadOnlyChatStore(local_path),
-        tmp_path / "state.json",
-        extra_nodes=[("remote-node", ReadOnlyChatStore(remote_path), "remote-node")],
-    )
-    target = server.extra_nodes["remote-node"]
-    try:
-        with patch.object(target, "_stop", return_value="chat-1") as stop:
-            result = server.stop_conversation("remote-node::chat-1")
-    finally:
-        server.server_close()
-
-    assert result == "chat-1"
-    stop.assert_called_once_with("chat-1")
 
 
 def test_send_job_registry_returns_before_sender_finishes() -> None:
@@ -1460,9 +1440,9 @@ def test_schedule_at_rejects_nonfinite_timestamp(tmp_path: Path) -> None:
         server.server_close()
 
 
-def test_read_only_store_reads_recent_glass_logs(tmp_path: Path) -> None:
+def test_read_only_store_reads_recent_nox_logs(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
-    logs = tmp_path / "prompta-glass.log"
+    logs = tmp_path / "prompta-nox.log"
     logs.write_text("\n".join(f"line {index}" for index in range(8)) + "\n")
     store = ReadOnlyChatStore(path, logs, journal_unit="")
 
@@ -1474,7 +1454,7 @@ def test_read_only_store_reads_recent_glass_logs(tmp_path: Path) -> None:
     assert payload["source"] == "file"
 
 
-def test_read_only_store_reports_missing_glass_logs(tmp_path: Path) -> None:
+def test_read_only_store_reports_missing_nox_logs(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(
         tmp_path / "chats.sqlite3",
         tmp_path / "missing.log",
@@ -1664,11 +1644,11 @@ def test_read_only_store_event_fingerprint_changes_with_cache(tmp_path: Path) ->
 
 def test_ui_server_defaults_identity_to_local_hostname(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
-    with patch("prompta.web.socket.gethostname", return_value="glass.presley.nz"):
+    with patch("prompta.web.socket.gethostname", return_value="nox.presley.nz"):
         server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
-        assert server.host_name == "glass"
-        assert server.display_name == "Glass"
+        assert server.host_name == "nox"
+        assert server.display_name == "Nox"
     finally:
         server.server_close()
 
@@ -1712,12 +1692,12 @@ def test_service_worker_response_is_versioned_to_deployed_head(tmp_path: Path) -
 
 def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
-    server = PromptaUIServer(
-        ("127.0.0.1", 0),
-        store,
-        tmp_path / "state.json",
-        server_name="glass",
-    )
+    with patch("prompta.web.socket.gethostname", return_value="nox.presley.nz"):
+        server = PromptaUIServer(
+            ("127.0.0.1", 0),
+            store,
+            tmp_path / "state.json",
+        )
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host = "127.0.0.1"
@@ -1733,13 +1713,13 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
         server.server_close()
         thread.join(timeout=2)
 
-    assert '<title>Prompta · Glass</title>' in index
-    assert '<meta name="application-name" content="Prompta · Glass">' in index
-    assert '<meta name="apple-mobile-web-app-title" content="Prompta Glass">' in index
-    assert '<span id="serverLabel">Server · Glass</span>' in index
+    assert '<title>Prompta · Nox</title>' in index
+    assert '<meta name="application-name" content="Prompta · Nox">' in index
+    assert '<meta name="apple-mobile-web-app-title" content="Prompta Nox">' in index
+    assert '<span id="serverLabel">Server · Nox</span>' in index
     assert "__PROMPTA_SERVER_NAME__" not in index
-    assert manifest["name"] == "Prompta · Glass"
-    assert manifest["short_name"] == "Prompta · Glass"
+    assert manifest["name"] == "Prompta · Nox"
+    assert manifest["short_name"] == "Prompta Nox"
     assert manifest["id"] == "./"
     assert manifest["start_url"] == "./"
     assert manifest["scope"] == "./"
@@ -1913,66 +1893,18 @@ def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
     ]
 
 
-def test_remote_host_presence_transitions_online_then_offline(tmp_path: Path) -> None:
-    server = PromptaUIServer(
-        ("127.0.0.1", 0),
-        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
-        tmp_path / "state.json",
-        control_host="glass",
-        server_name="glass",
-    )
-    online = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-    offline = subprocess.CompletedProcess(args=[], returncode=255, stdout="", stderr="")
-    try:
-        with patch("prompta.web.subprocess.run", side_effect=[online, offline]) as probe:
-            assert server.host_online(force=True) is True
-            assert server.host_online(force=True) is False
-    finally:
-        server.server_close()
-
-    first_command = probe.call_args_list[0].args[0]
-    assert "ControlMaster=no" in first_command
-    assert "ControlPath=none" in first_command
-
-
-def test_remote_health_reports_probed_offline_state(tmp_path: Path) -> None:
-    server = PromptaUIServer(
-        ("127.0.0.1", 0),
-        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
-        tmp_path / "state.json",
-        control_host="glass",
-        server_name="glass",
-    )
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        with patch.object(server, "host_online", return_value=False) as host_online:
-            with urlopen(f"http://127.0.0.1:{server.server_port}/api/health", timeout=2) as response:
-                health = json.loads(response.read().decode())
-        assert health["server"] == "glass"
-        assert health["online"] is False
-        host_online.assert_called_once_with(force=True)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-
 
 def test_event_stream_sends_presence_heartbeat(tmp_path: Path) -> None:
-    server = PromptaUIServer(
-        ("127.0.0.1", 0),
-        ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
-        tmp_path / "state.json",
-        control_host="glass",
-        server_name="glass",
-    )
+    with patch("prompta.web.socket.gethostname", return_value="nox.presley.nz"):
+        server = PromptaUIServer(
+            ("127.0.0.1", 0),
+            ReadOnlyChatStore(tmp_path / "missing.sqlite3"),
+            tmp_path / "state.json",
+        )
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with (
-            patch.object(server, "host_online", return_value=True),
-            patch("prompta.web._EVENT_HEARTBEAT_SECONDS", 0.01),
-        ):
+        with patch("prompta.web._EVENT_HEARTBEAT_SECONDS", 0.01):
             with urlopen(f"http://127.0.0.1:{server.server_port}/api/events", timeout=2) as response:
                 lines = []
                 heartbeat_seen = False
@@ -1982,11 +1914,11 @@ def test_event_stream_sends_presence_heartbeat(tmp_path: Path) -> None:
                     lines.append(line)
                     if heartbeat_seen and line.startswith("data: "):
                         break
-                    heartbeat_seen = line == "event: heartbeat\n"
-        assert "event: refresh\n" in lines
-        heartbeat_index = lines.index("event: heartbeat\n")
+                    heartbeat_seen = line == "event: heartbeat" + chr(10)
+        assert "event: refresh" + chr(10) in lines
+        heartbeat_index = lines.index("event: heartbeat" + chr(10))
         heartbeat = json.loads(lines[heartbeat_index + 1].removeprefix("data: "))
-        assert heartbeat == {"server": "glass", "online": True}
+        assert heartbeat == {"server": "nox", "online": True}
     finally:
         server.shutdown()
         server.server_close()

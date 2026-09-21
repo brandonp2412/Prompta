@@ -31,7 +31,6 @@ from .core import (
     _sync_via_control,
 )
 from .image_previews import ImagePreviewStore
-from .remote_control import remote_control as _remote_control
 from .send_jobs import SendJobRegistry as SendJobRegistry
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
@@ -41,8 +40,6 @@ _STATIC_ROOT = Path(__file__).with_name("static")
 _DAEMON_STARTUP_CHECKS = 10
 _DAEMON_STARTUP_POLL_SECONDS = 0.1
 _DAEMON_RESTART_GRACE_CHECKS = 120
-_HOST_STATUS_TTL_SECONDS = 5.0
-_HOST_CHECK_TIMEOUT_SECONDS = 3.0
 _EVENT_HEARTBEAT_SECONDS = 5.0
 
 
@@ -91,7 +88,7 @@ _UI_HEAD = _git_short_head()
 
 
 class PromptaUIServer(ThreadingHTTPServer):
-    """Prompta UI with one local node and optional remote cache/control nodes."""
+    """Prompta UI and local backend control surface."""
 
     daemon_threads = True
 
@@ -101,23 +98,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         store: ReadOnlyChatStore,
         state_path: Path = DEFAULT_STATE_PATH,
         jobs_path: Path = DEFAULT_JOBS_PATH,
-        *,
-        control_host: str = "",
-        server_name: str = "",
-        extra_nodes: list[tuple[str, ReadOnlyChatStore, str]] | None = None,
     ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
         self.state_path = state_path.expanduser()
         self.jobs_path = jobs_path.expanduser()
-        self.control_host = control_host.strip()
-        self._explicit_server_name = bool(server_name.strip())
         local_host = socket.gethostname().strip() or "localhost"
-        self.host_name = (server_name.strip() or self.control_host or local_host).split(".", 1)[0]
+        self.host_name = local_host.split(".", 1)[0]
         self._local_send_lock = threading.Lock()
-        self._host_status_lock = threading.Lock()
-        self._host_status_checked_at = 0.0
-        self._host_status_online = not bool(self.control_host)
         self.image_previews = ImagePreviewStore(self.state_path.parent)
         self.attachments = AttachmentStore(self.state_path.parent, self.image_previews)
         self.job_service = WebJobService(
@@ -131,18 +119,6 @@ class PromptaUIServer(ThreadingHTTPServer):
             recovery_path=self.state_path.parent / "ui-send-retries.json",
             on_success=self._bind_image_previews,
         )
-        self.extra_nodes: dict[str, PromptaNodeTarget] = {}
-        for node_name, node_store, node_control_host in extra_nodes or []:
-            normalized = str(node_name).strip()
-            if not normalized or normalized == self.host_name:
-                continue
-            self.extra_nodes[normalized] = PromptaNodeTarget(
-                normalized,
-                node_store,
-                self.state_path,
-                str(node_control_host),
-                self.jobs_path,
-            )
 
     @property
     def _image_previews(self) -> dict[str, dict[str, Any]]:
@@ -178,82 +154,16 @@ class PromptaUIServer(ThreadingHTTPServer):
         return self.host_name.replace("-", " ").replace("_", " ").title()
 
     def host_online(self, *, force: bool = False) -> bool:
-        if not self.control_host:
-            return True
-        now = time.monotonic()
-        with self._host_status_lock:
-            if not force and now - self._host_status_checked_at < _HOST_STATUS_TTL_SECONDS:
-                return self._host_status_online
-            try:
-                completed = subprocess.run(
-                    [
-                        "ssh",
-                        "-F",
-                        str(Path.home() / ".ssh" / "config"),
-                        "-o",
-                        "BatchMode=yes",
-                        "-o",
-                        "ConnectTimeout=2",
-                        "-o",
-                        "ConnectionAttempts=1",
-                        "-o",
-                        "ControlMaster=no",
-                        "-o",
-                        "ControlPath=none",
-                        self.control_host,
-                        "true",
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=_HOST_CHECK_TIMEOUT_SECONDS,
-                )
-                online = completed.returncode == 0
-            except (OSError, subprocess.TimeoutExpired):
-                online = False
-            self._host_status_checked_at = time.monotonic()
-            self._host_status_online = online
-            return online
-
-    def iter_nodes(self):
-        yield self
-        yield from self.extra_nodes.values()
-
-    def resolve_conversation(self, public_id: str):
-        node_name, separator, actual_id = public_id.partition("::")
-        if separator:
-            target = self.extra_nodes.get(node_name)
-            if target is None:
-                raise KeyError(public_id)
-            return target, actual_id
-        return self, public_id
-
-    @staticmethod
-    def _public_chat(target, chat: dict[str, Any], local_target) -> dict[str, Any]:
-        result = dict(chat)
-        actual_id = str(result.get("id") or "")
-        if target is not local_target:
-            result["id"] = f"{target.host_name}::{actual_id}"
-        result["node"] = target.host_name
-        result["node_display"] = target.display_name
-        return result
+        return True
 
     def event_token(self) -> str:
-        parts = []
-        for target in self.iter_nodes():
-            parts.append(
-                f"{target.host_name}:{target.store.change_token()}:"
-                f"send={target.send_jobs.revision}:online={int(target.host_online())}"
-            )
-        return "|".join(parts)
+        return (
+            f"{self.store.change_token()}:"
+            f"send={self.send_jobs.revision}:online={int(self.host_online())}"
+        )
 
     def conversations(self, *, limit: int = 200, query: str = "") -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for target in self.iter_nodes():
-            rows.extend(
-                self._public_chat(target, chat, self)
-                for chat in target.store.conversations(limit=limit, query=query)
-            )
+        rows = [dict(chat) for chat in self.store.conversations(limit=limit, query=query)]
         rows.sort(
             key=lambda chat: (
                 0 if str(chat.get("status") or "") == "active" else 1,
@@ -262,45 +172,31 @@ class PromptaUIServer(ThreadingHTTPServer):
         )
         return rows[: max(1, min(limit, 500))]
 
-    def conversation(self, public_id: str) -> dict[str, Any] | None:
-        try:
-            target, actual_id = self.resolve_conversation(public_id)
-        except KeyError:
-            return None
-        chat = target.store.conversation(actual_id)
+    def conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        chat = self.store.conversation(conversation_id)
         if chat is None:
             return None
-        result = self._public_chat(target, chat, self)
-        if target is self:
-            self._enrich_image_previews(result, actual_id)
+        result = dict(chat)
+        self._enrich_image_previews(result, conversation_id)
         return result
 
-    def stop_conversation(self, public_id: str) -> str:
-        target, actual_id = self.resolve_conversation(public_id)
-        if target.store.conversation(actual_id) is None:
-            raise KeyError(public_id)
-        return target._stop(actual_id)
+    def stop_conversation(self, conversation_id: str) -> str:
+        if self.store.conversation(conversation_id) is None:
+            raise KeyError(conversation_id)
+        return self._stop(conversation_id)
 
-    def probe_conversation(self, public_id: str) -> tuple[dict[str, Any], int]:
-        target, actual_id = self.resolve_conversation(public_id)
-        if target.store.conversation(actual_id) is None:
-            raise KeyError(public_id)
-        message_count = target._sync(actual_id)
-        chat = self.conversation(public_id)
+    def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int]:
+        if self.store.conversation(conversation_id) is None:
+            raise KeyError(conversation_id)
+        message_count = self._sync(conversation_id)
+        chat = self.conversation(conversation_id)
         if chat is None:
-            raise KeyError(public_id)
+            raise KeyError(conversation_id)
         return chat, message_count
 
     def send_job(self, send_id: str) -> dict[str, Any] | None:
-        for target in self.iter_nodes():
-            job = target.send_jobs.get(send_id)
-            if job is not None:
-                result = dict(job)
-                conversation_id = str(result.get("conversation_id") or "")
-                if conversation_id and target is not self:
-                    result["conversation_id"] = f"{target.host_name}::{conversation_id}"
-                return result
-        return None
+        job = self.send_jobs.get(send_id)
+        return dict(job) if job is not None else None
 
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
         return self.store.logs(limit=limit)
@@ -331,23 +227,11 @@ class PromptaUIServer(ThreadingHTTPServer):
         return self.job_service.schedule_at(prompt, run_at_epoch)
 
     def _stop(self, conversation_id: str) -> str:
-        if self.control_host:
-            return _remote_control(
-                self.control_host,
-                operation="stop",
-                conversation_id=conversation_id,
-            )
         if not _daemon_is_running(self.state_path):
             raise RuntimeError("Prompta scheduler is not running; cannot stop an active chat")
         return asyncio.run(_stop_via_control(self.state_path, conversation_id))
 
     def _sync(self, conversation_id: str) -> int:
-        if self.control_host:
-            return int(_remote_control(
-                self.control_host,
-                operation="sync",
-                conversation_id=conversation_id,
-            ))
         if not _daemon_is_running(self.state_path):
             raise RuntimeError("Prompta scheduler is not running; cannot inspect chat activity")
         return asyncio.run(_sync_via_control(self.state_path, conversation_id))
@@ -360,14 +244,6 @@ class PromptaUIServer(ThreadingHTTPServer):
         attachments: list[str] | None = None,
     ) -> str:
         attachment_paths = list(attachments or [])
-        if self.control_host:
-            return _remote_control(
-                self.control_host,
-                operation=operation,
-                message=message,
-                conversation_id=conversation_id,
-                attachments=attachment_paths,
-            )
         with self._local_send_lock:
             scheduler_running = _wait_for_local_scheduler(self.state_path)
             if not scheduler_running and _start_local_scheduler_service():
@@ -388,41 +264,6 @@ class PromptaUIServer(ThreadingHTTPServer):
                     attachment_paths,
                 )
             )
-
-
-class PromptaNodeTarget:
-    """Non-listening Prompta node exposed through the unified UI server."""
-
-    def __init__(
-        self,
-        host_name: str,
-        store: ReadOnlyChatStore,
-        state_path: Path,
-        control_host: str,
-        jobs_path: Path,
-    ) -> None:
-        self.store = store
-        self.state_path = state_path.expanduser()
-        self.jobs_path = jobs_path.expanduser()
-        self.control_host = control_host.strip()
-        self.host_name = host_name.strip()
-        self._local_send_lock = threading.Lock()
-        self._host_status_lock = threading.Lock()
-        self._host_status_checked_at = 0.0
-        self._host_status_online = not bool(self.control_host)
-        self.send_jobs = SendJobRegistry(
-            self._send,
-            recovery_path=self.state_path.parent / f"ui-send-retries-{self.host_name}.json",
-        )
-
-    @property
-    def display_name(self) -> str:
-        return self.host_name.replace("-", " ").replace("_", " ").title()
-
-    host_online = PromptaUIServer.host_online
-    _send = PromptaUIServer._send
-    _stop = PromptaUIServer._stop
-    _sync = PromptaUIServer._sync
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -526,7 +367,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self._json(
             {
                 "name": app_name,
-                "short_name": app_name if server._explicit_server_name else f"Prompta {server.display_name}",
+                "short_name": f"Prompta {server.display_name}",
                 "description": f"Prompta conversation UI for {server.display_name}",
                 "id": "./",
                 "start_url": "./",
