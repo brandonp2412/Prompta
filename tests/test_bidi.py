@@ -77,7 +77,9 @@ async def test_click_stop_uses_trusted_pointer_in_requested_context() -> None:
     assert await driver.click_stop("context-live") is True
 
     driver.eval.assert_awaited_once()
-    assert driver.eval.await_args.kwargs["context"] == "context-live"
+    eval_call = driver.eval.await_args
+    assert eval_call is not None
+    assert eval_call.kwargs["context"] == "context-live"
     calls = driver._call.await_args_list
     assert calls[0].args[0] == "input.performActions"
     assert calls[0].args[1]["context"] == "context-live"
