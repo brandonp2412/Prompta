@@ -10,13 +10,12 @@ import json
 import logging
 import os
 import random
-import re
 import sqlite3
 import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -27,25 +26,69 @@ from .bidi import FirefoxBiDiDriver, wait_for_port
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
 from .chrome import ChromeDriverDriver
 from .chromium import ChromiumToolEnricher, merge_tool_blocks
+from .control_server import (
+    _acquire_daemon_lock as _acquire_daemon_lock,
+)
+from .control_server import (
+    _control_socket_path as _control_socket_path,
+)
+from .control_server import (
+    _daemon_is_running as _daemon_is_running,
+)
+from .control_server import (
+    _open_control_connection as _open_control_connection,
+)
+from .control_server import (
+    _start_control_server as _start_control_server,
+)
+from .firefox_runtime import (
+    firefox_port_is_open as _firefox_port_is_open,
+)
+from .firefox_runtime import (
+    firefox_process_uses_profile as _firefox_process_uses_profile,
+)
+from .firefox_runtime import (
+    spawn_firefox as _spawn_firefox_impl,
+)
+from .firefox_runtime import (
+    terminate_process as _terminate_process,
+)
+from .jobs import (
+    DEFAULT_INTERVAL_SECONDS as DEFAULT_INTERVAL_SECONDS,
+)
+from .jobs import (
+    PromptJob,
+    _next_daily_epoch,
+    _normalise_daily_at,
+    add_job,
+    clear_jobs,
+    load_jobs,
+    remove_job,
+)
+from .rate_limit import (
+    DEFAULT_RETRY_AFTER,
+    RateLimitBackoff,
+    RateLimitError,
+    is_rate_limited_text,
+)
+from .rate_limit import (
+    parse_retry_after as parse_retry_after,
+)
 
 logger = logging.getLogger(__name__)
 
 BrowserDriver = FirefoxBiDiDriver | ChromeDriverDriver
 DriverFactory = Callable[[], BrowserDriver]
 
-DEFAULT_INTERVAL_SECONDS = 30 * 60
 DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
 DEFAULT_STATE_PATH = Path.home() / ".local" / "state" / "prompta" / "state.json"
 DEFAULT_FIREFOX_PROFILE = Path.home() / ".local" / "state" / "prompta" / "firefox-profile"
 DEFAULT_FIREFOX_PORT = 9229
 DEFAULT_CHROME_PROFILE = Path.home() / ".local" / "state" / "prompta" / "chrome-profile"
-_CONTROL_SOCKET_NAME = "control.sock"
-_DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0
 _CONTROL_RESTART_POLL_SECONDS = 0.1
 _BROWSER_RESTART_REQUIRED_SUFFIX = "browser restart required"
-DEFAULT_RETRY_AFTER = 5 * 60
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
@@ -74,157 +117,22 @@ _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
 _RECURRING_JITTER_FRACTION = 0.20
 _RECURRING_JITTER_CAP_SECONDS = 5 * 60.0
-_RATE_LIMIT_BACKOFF_CAP_SECONDS = 30 * 60.0
-_RATE_LIMIT_RESET_SECONDS = 30 * 60.0
-_RATE_LIMIT_JITTER_FRACTION = 0.10
-_RATE_LIMIT_JITTER_CAP_SECONDS = 60.0
 
 
-class RateLimitError(RuntimeError):
-    def __init__(
-        self, message: str = "ChatGPT rate limit reached", retry_after: int = DEFAULT_RETRY_AFTER
-    ) -> None:
-        super().__init__(message)
-        self.retry_after = max(0, int(retry_after))
-
-    @classmethod
-    def from_text(cls, text: str) -> RateLimitError:
-        message = text.strip() or "ChatGPT rate limit reached"
-        return cls(message, retry_after=parse_retry_after(message))
 
 
 class SendVerificationError(RuntimeError):
     """The send action happened, but ChatGPT did not expose enough evidence to prove its outcome."""
 
 
-def parse_retry_after(text: str) -> int:
-    lowered = text.casefold()
-    if re.search(r"\b(?:a\s+)?few\s+(?:minutes?|mins?)\b", lowered):
-        return 5 * 60
-    match = re.search(r"\b(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", lowered)
-    if match is None:
-        return DEFAULT_RETRY_AFTER
-    value = int(match.group(1))
-    unit = match.group(2)
-    if unit.startswith(("hour", "hr")):
-        return value * 60 * 60
-    return value * 60 if unit.startswith(("min", "minute")) else value
 
 
-def is_rate_limited_text(text: str) -> bool:
-    lowered = " ".join(text.casefold().split())
-    return any(
-        phrase in lowered
-        for phrase in (
-            "too many requests",
-            "rate limit",
-            "try again in",
-            "wait a few minutes",
-            "you've reached the current usage cap",
-            "you have reached the current usage cap",
-        )
-    )
 
 
-class RateLimitBackoff:
-    def __init__(self) -> None:
-        self.attempts = 0
-        self.blocked_until = 0.0
-        self.last_limited_at = 0.0
-
-    def snapshot(
-        self,
-        *,
-        now: float | None = None,
-        wall_time: float | None = None,
-    ) -> dict[str, float | int]:
-        now = time.monotonic() if now is None else now
-        wall_time = time.time() if wall_time is None else wall_time
-        remaining = self.remaining(now=now)
-        limited_age = max(0.0, now - self.last_limited_at) if self.attempts else 0.0
-        return {
-            "attempts": self.attempts,
-            "blocked_until_epoch": wall_time + remaining,
-            "last_limited_at_epoch": wall_time - limited_age,
-        }
-
-    def restore(
-        self,
-        snapshot: dict[str, Any],
-        *,
-        now: float | None = None,
-        wall_time: float | None = None,
-    ) -> None:
-        now = time.monotonic() if now is None else now
-        wall_time = time.time() if wall_time is None else wall_time
-        attempts = max(0, int(snapshot.get("attempts") or 0))
-        blocked_until_epoch = float(snapshot.get("blocked_until_epoch") or 0.0)
-        last_limited_epoch = float(snapshot.get("last_limited_at_epoch") or 0.0)
-        remaining = max(0.0, blocked_until_epoch - wall_time)
-        limited_age = max(0.0, wall_time - last_limited_epoch) if last_limited_epoch else 0.0
-        if not attempts or (remaining <= 0 and limited_age >= _RATE_LIMIT_RESET_SECONDS):
-            self.reset()
-            return
-        self.attempts = attempts
-        self.blocked_until = now + remaining
-        self.last_limited_at = now - limited_age
-
-    def record(self, retry_after: float = 0.0, *, now: float | None = None) -> float:
-        now = time.monotonic() if now is None else now
-        if (
-            self.attempts
-            and self.last_limited_at
-            and now - self.last_limited_at >= _RATE_LIMIT_RESET_SECONDS
-        ):
-            self.reset()
-        self.attempts += 1
-        exponential = min(
-            _RATE_LIMIT_BACKOFF_CAP_SECONDS,
-            float(DEFAULT_RETRY_AFTER) * (2 ** min(self.attempts - 1, 20)),
-        )
-        floor = max(exponential, max(0.0, float(retry_after)))
-        jitter_cap = min(_RATE_LIMIT_JITTER_CAP_SECONDS, floor * _RATE_LIMIT_JITTER_FRACTION)
-        delay = floor + random.uniform(0.0, jitter_cap)
-        self.last_limited_at = now
-        self.blocked_until = max(self.blocked_until, now + delay)
-        return max(0.0, self.blocked_until - now)
-
-    def remaining(self, *, now: float | None = None) -> float:
-        now = time.monotonic() if now is None else now
-        return max(0.0, self.blocked_until - now)
-
-    def reset(self) -> None:
-        self.attempts = 0
-        self.blocked_until = 0.0
-        self.last_limited_at = 0.0
 
 
-def _normalise_daily_at(value: str) -> str:
-    candidate = value.strip()
-    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", candidate):
-        raise ValueError("daily time must be HH:MM in 24-hour local time")
-    return candidate
 
 
-def _next_daily_epoch(daily_at: str, now: float, *, include_now: bool = False) -> float:
-    hour, minute = (int(part) for part in _normalise_daily_at(daily_at).split(":"))
-    current = datetime.fromtimestamp(now)
-    candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    candidate_epoch = candidate.timestamp()
-    if candidate_epoch < now or (candidate_epoch == now and not include_now):
-        candidate = candidate + timedelta(days=1)
-        candidate_epoch = candidate.timestamp()
-    return candidate_epoch
-
-
-@dataclass(frozen=True)
-class PromptJob:
-    name: str
-    prompt: str
-    interval_seconds: float = DEFAULT_INTERVAL_SECONDS
-    daily_at: str | None = None
-    exact_interval: bool = False
-    run_at_epoch: float | None = None
 
 
 @dataclass(frozen=True)
@@ -2035,114 +1943,6 @@ class Prompta:
         self.cache.close()
 
 
-def load_jobs(path: Path) -> dict[str, PromptJob]:
-    target = path.expanduser()
-    try:
-        payload = json.loads(target.read_text())
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    jobs_raw = payload.get("jobs", payload)
-    if not isinstance(jobs_raw, dict):
-        return {}
-    jobs: dict[str, PromptJob] = {}
-    for name, value in jobs_raw.items():
-        if isinstance(value, str):
-            prompt = value
-            interval = DEFAULT_INTERVAL_SECONDS
-        elif isinstance(value, dict):
-            prompt = str(value.get("prompt") or "")
-            try:
-                raw_interval = value.get("interval_seconds")
-                interval = DEFAULT_INTERVAL_SECONDS if raw_interval is None else float(raw_interval)
-            except (TypeError, ValueError):
-                interval = DEFAULT_INTERVAL_SECONDS
-        else:
-            continue
-        daily_at = None
-        exact_interval = False
-        run_at_epoch: float | None = None
-        if isinstance(value, dict):
-            exact_interval = value.get("exact_interval") is True
-            if value.get("run_at_epoch") is not None:
-                try:
-                    run_at_epoch = float(value["run_at_epoch"])
-                except (TypeError, ValueError):
-                    logger.warning("Ignoring invalid run_at_epoch for Prompta job=%s", name)
-            if value.get("daily_at") is not None:
-                try:
-                    daily_at = _normalise_daily_at(str(value["daily_at"]))
-                except ValueError:
-                    logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
-        if str(name).strip() and prompt.strip():
-            jobs[str(name)] = PromptJob(
-                str(name), prompt, max(0.0, interval), daily_at, exact_interval, run_at_epoch
-            )
-    return jobs
-
-
-def _write_jobs(path: Path, jobs: dict[str, PromptJob]) -> None:
-    target = path.expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "jobs": {
-            name: {
-                "prompt": job.prompt,
-                "interval_seconds": job.interval_seconds,
-                **({"daily_at": job.daily_at} if job.daily_at is not None else {}),
-                **({"exact_interval": True} if job.exact_interval else {}),
-                **({"run_at_epoch": job.run_at_epoch} if job.run_at_epoch is not None else {}),
-            }
-            for name, job in sorted(jobs.items())
-        }
-    }
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    os.chmod(temporary, 0o600)
-    temporary.replace(target)
-
-
-def add_job(
-    path: Path,
-    name: str,
-    prompt: str,
-    interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
-    daily_at: str | None = None,
-    exact_interval: bool = False,
-    run_at_epoch: float | None = None,
-) -> None:
-    if not name.strip():
-        raise ValueError("prompta job name is empty")
-    if not prompt.strip():
-        raise ValueError("prompta prompt is empty")
-    jobs = load_jobs(path)
-    normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
-    normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
-    if normalised_run_at is not None and normalised_run_at <= 0:
-        raise ValueError("run_at_epoch must be a positive Unix timestamp")
-    jobs[name] = PromptJob(
-        name,
-        prompt,
-        max(0.0, interval_seconds),
-        normalised_daily_at,
-        exact_interval,
-        normalised_run_at,
-    )
-    _write_jobs(path, jobs)
-
-
-def remove_job(path: Path, name: str) -> None:
-    jobs = load_jobs(path)
-    jobs.pop(name, None)
-    _write_jobs(path, jobs)
-
-
-def clear_jobs(path: Path) -> None:
-    try:
-        path.expanduser().unlink()
-    except FileNotFoundError:
-        pass
 
 
 def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
@@ -2268,146 +2068,18 @@ def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     print(bottom)
 
 
-def _control_socket_path(state_path: Path) -> Path:
-    return state_path.expanduser().parent / _CONTROL_SOCKET_NAME
 
 
-def _daemon_lock_path(state_path: Path) -> Path:
-    return state_path.expanduser().parent / _DAEMON_LOCK_NAME
 
 
-def _daemon_is_running(state_path: Path) -> bool:
-    path = _daemon_lock_path(state_path)
-    try:
-        handle = path.open("r")
-    except FileNotFoundError:
-        return False
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        handle.close()
-        return True
-    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    handle.close()
-    return False
 
 
-def _acquire_daemon_lock(state_path: Path) -> Any:
-    path = _daemon_lock_path(state_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a+")
-    os.chmod(path, 0o600)
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        handle.close()
-        raise RuntimeError("another Prompta scheduler is already running") from exc
-    return handle
 
 
-async def _handle_control_client(
-    prompta: Prompta,
-    reader: asyncio.StreamReader,
-    writer: asyncio.StreamWriter,
-) -> None:
-    try:
-        raw = await asyncio.wait_for(reader.readline(), timeout=10.0)
-        payload = json.loads(raw.decode("utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("invalid Prompta control request")
-        op = str(payload.get("op") or "")
-        if op == "sync":
-            conversation_id = str(payload.get("conversation_id") or "")
-            if not conversation_id.strip():
-                raise ValueError("conversation id is empty")
-            sync_future: asyncio.Future[int] = asyncio.get_running_loop().create_future()
-            await prompta._sync_requests.put((conversation_id, sync_future))
-            message_count = await sync_future
-            response = {"ok": True, "message_count": message_count}
-        elif op == "stop":
-            conversation_id = str(payload.get("conversation_id") or "")
-            if not conversation_id.strip():
-                raise ValueError("conversation id is empty")
-            stopped_id = await prompta.stop_conversation(conversation_id)
-            response = {"ok": True, "conversation_id": stopped_id}
-        else:
-            prompt = str(payload.get("prompt") or "")
-            raw_attachments = payload.get("attachments")
-            attachments = [
-                str(path)
-                for path in raw_attachments
-                if isinstance(path, str) and path.strip()
-            ] if isinstance(raw_attachments, list) else []
-            if not prompt.strip() and not attachments:
-                raise ValueError("prompta prompt is empty")
-            future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-            if op == "once":
-                await prompta._once_requests.put((prompt, attachments, future))
-            elif op == "reply":
-                conversation_id = str(payload.get("conversation_id") or "")
-                if not conversation_id.strip():
-                    raise ValueError("conversation id is empty")
-                await prompta._reply_requests.put((conversation_id, prompt, attachments, future))
-            else:
-                raise ValueError("unsupported Prompta control request")
-            conversation_id = await future
-            response = {"ok": True, "conversation_id": conversation_id}
-    except RateLimitError as exc:
-        response = {
-            "ok": False,
-            "error": str(exc),
-            "error_type": "rate_limit",
-            "retry_after": exc.retry_after,
-        }
-    except Exception as exc:
-        response = {"ok": False, "error": str(exc)}
-    try:
-        writer.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
-        await writer.drain()
-    except (BrokenPipeError, ConnectionResetError):
-        logger.debug("Prompta control client disconnected before receiving its result")
-    finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
 
 
-async def _start_control_server(
-    prompta: Prompta,
-    state_path: Path,
-) -> tuple[asyncio.AbstractServer, Path]:
-    path = _control_socket_path(state_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-    server = await asyncio.start_unix_server(
-        lambda reader, writer: _handle_control_client(prompta, reader, writer),
-        path=str(path),
-    )
-    os.chmod(path, 0o600)
-    return server, path
 
 
-async def _open_control_connection(
-    state_path: Path,
-) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-    path = _control_socket_path(state_path)
-    deadline = asyncio.get_running_loop().time() + _CONTROL_CONNECT_TIMEOUT_SECONDS
-    last_error: OSError | None = None
-    while True:
-        try:
-            return await asyncio.open_unix_connection(str(path))
-        except OSError as exc:
-            last_error = exc
-            if asyncio.get_running_loop().time() >= deadline:
-                raise RuntimeError(
-                    f"Prompta scheduler is running but its control socket is unavailable: {path}"
-                ) from last_error
-            await asyncio.sleep(0.1)
 
 
 async def _wait_for_scheduler_restart(state_path: Path) -> None:
@@ -2613,175 +2285,23 @@ async def _wait_for_cache_completion(
     return False
 
 
-async def _firefox_port_is_open(port: int) -> bool:
-    try:
-        _reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    except OSError:
-        return False
-    writer.close()
-    await writer.wait_closed()
-    return True
-
-
-async def _terminate_process(process: asyncio.subprocess.Process) -> None:
-    """Stop a child process without leaking it if shutdown races process exit."""
-
-    if process.returncode is not None:
-        return
-    try:
-        process.terminate()
-    except ProcessLookupError:
-        return
-    try:
-        await asyncio.wait_for(process.wait(), timeout=5)
-    except TimeoutError:
-        try:
-            process.kill()
-        except ProcessLookupError:
-            return
-        await process.wait()
-
-
-def _firefox_profile_owner_pid(profile: Path) -> int | None:
-    """Return Firefox's live-profile owner PID encoded in its lock symlink."""
-
-    try:
-        target = os.readlink(profile / "lock")
-    except (FileNotFoundError, OSError):
-        return None
-    match = re.search(r"\+(\d+)$", target)
-    return int(match.group(1)) if match is not None else None
-
-
-def _firefox_process_uses_profile(pid: int, profile: Path) -> bool:
-    """Conservatively identify a live Firefox process using this profile."""
-
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-    try:
-        arguments = [
-            value.decode("utf-8", errors="replace")
-            for value in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-            if value
-        ]
-    except OSError:
-        # If the PID exists but procfs cannot be inspected, preserve the lock
-        # instead of risking two Firefox instances writing the same profile.
-        return True
-    if not arguments or Path(arguments[0]).name != "firefox":
-        return False
-    resolved = str(profile.resolve())
-    return any(
-        argument == resolved
-        for index, argument in enumerate(arguments)
-        if index > 0 and arguments[index - 1] == "--profile"
-    )
 
 
 async def _spawn_firefox(
     profile: Path, firefox_path: str, port: int
 ) -> asyncio.subprocess.Process | None:
-    resolved = profile.expanduser().resolve()
-    if not resolved.is_dir():
-        raise RuntimeError(f"Firefox profile does not exist: {resolved}")
-    if await _firefox_port_is_open(port):
-        # A systemd restart can briefly leave the old Firefox listener alive while
-        # the previous service cgroup is still being torn down. A single delayed
-        # recheck still leaves a race if that process exits immediately afterwards,
-        # so require the listener to survive several consecutive polls before reuse.
-        listener_stable = True
-        for _ in range(_FIREFOX_REUSE_STABILITY_CHECKS):
-            await asyncio.sleep(_FIREFOX_REUSE_POLL_SECONDS)
-            if not await _firefox_port_is_open(port):
-                listener_stable = False
-                break
-        if listener_stable:
-            logger.info("Prompta reusing Firefox already listening on port %d", port)
-            return None
-        logger.info(
-            "Prompta Firefox listener on port %d disappeared during reuse check",
-            port,
-        )
-
-    owner_pid = _firefox_profile_owner_pid(resolved)
-    if owner_pid is not None and _firefox_process_uses_profile(owner_pid, resolved):
-        logger.info(
-            "Prompta Firefox profile is still owned by pid=%d; waiting for it to exit",
-            owner_pid,
-        )
-        deadline = (
-            asyncio.get_running_loop().time()
-            + _FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS
-        )
-        while _firefox_process_uses_profile(owner_pid, resolved):
-            if asyncio.get_running_loop().time() >= deadline:
-                raise RuntimeError(
-                    "Firefox profile is still in use after "
-                    f"{_FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS:.0f}s "
-                    f"(pid={owner_pid})"
-                )
-            await asyncio.sleep(_FIREFOX_REUSE_POLL_SECONDS)
-            if await _firefox_port_is_open(port):
-                listener_stable = True
-                for _ in range(_FIREFOX_REUSE_STABILITY_CHECKS):
-                    await asyncio.sleep(_FIREFOX_REUSE_POLL_SECONDS)
-                    if not await _firefox_port_is_open(port):
-                        listener_stable = False
-                        break
-                if listener_stable:
-                    logger.info(
-                        "Prompta reusing Firefox already listening on port %d",
-                        port,
-                    )
-                    return None
-        logger.info(
-            "Prompta previous Firefox pid=%d released the profile; starting a fresh browser",
-            owner_pid,
-        )
-
-    # Only remove lock artifacts after proving that their recorded Firefox
-    # owner is gone. Deleting a live profile lock can let two Firefox instances
-    # write cookies/session state concurrently.
-    for name in ("lock", ".parentlock"):
-        try:
-            os.unlink(resolved / name)
-        except FileNotFoundError:
-            pass
-    # Keep Firefox independent from the host's shared /tmp quota. Prompta can
-    # have plenty of state-disk space while a busy user tmpfs is exhausted,
-    # which otherwise makes a clean daemon restart fail before BiDi starts.
-    firefox_tmp = resolved.parent / "firefox-tmp"
-    firefox_tmp.mkdir(parents=True, exist_ok=True)
-    os.chmod(firefox_tmp, 0o700)
-    environment = os.environ.copy()
-    environment["TMPDIR"] = str(firefox_tmp)
-    process = await asyncio.create_subprocess_exec(
+    return await _spawn_firefox_impl(
+        profile,
         firefox_path,
-        "--headless",
-        "--profile",
-        str(resolved),
-        "--remote-debugging-port",
-        str(port),
-        "-remote-allow-system-access",
-        "https://chatgpt.com/",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-        env=environment,
+        port,
+        port_is_open=_firefox_port_is_open,
+        process_uses_profile=_firefox_process_uses_profile,
+        wait_for_port_fn=wait_for_port,
+        terminate_process_fn=_terminate_process,
+        profile_release_timeout_seconds=_FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS,
+        reuse_poll_seconds=_FIREFOX_REUSE_POLL_SECONDS,
+        reuse_stability_checks=_FIREFOX_REUSE_STABILITY_CHECKS,
     )
-    try:
-        await wait_for_port(port)
-    except BaseException:
-        # Callers cannot own/clean this child until _spawn_firefox returns.
-        # Direct UI sends keep their parent process alive, so a failed startup
-        # must not leave a headless Firefox child consuming memory indefinitely.
-        await _terminate_process(process)
-        raise
-    return process
 
 
 async def _recover_disappeared_reused_firefox(

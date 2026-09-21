@@ -7,7 +7,6 @@ import {
   promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
   messageAgeText,
-  messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   pendingConversationSends,
@@ -17,16 +16,13 @@ import {
   shouldShowStopAction,
   shouldProbeHistoricalActivity,
   postJsonRequest as postJson,
-  pythonToolCallCode,
-  replaceChatGptRichMarkers,
   sidebarChatPreviewText,
   sidebarPreviewText,
-  toolCallDisplayName,
-  toolCallHasUsefulDetail,
-  toolCallIsInvocationPlaceholder,
-  toolCallSummary,
 } from "./clientLogic";
 import { RecentChatCache } from "./recentChatCache";
+import { createJobsDialog } from "./jobsDialog";
+import { createSidebar } from "./sidebar";
+import { createConversationRenderer, imageAttachments, pendingImageAttachments } from "./conversationRenderer";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
 const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
@@ -80,8 +76,6 @@ const state = {
   selectedFingerprint: "",
   search: "",
   sidebarFingerprint: "",
-  sidebarMotionActive: false,
-  sidebarRenderDeferred: false,
   refreshTimer: null,
   mode: "chats",
   logFingerprint: "",
@@ -116,7 +110,6 @@ const state = {
   uiReloadArmed: false,
   composerDrafts: loadComposerDrafts(),
   composerDraftTarget: "",
-  scheduledJobs: [],
   activityProbes: new Set(),
   activityProbeAt: new Map(),
 };
@@ -145,11 +138,6 @@ const els = {
   headLabel: requiredElement<HTMLElement>("#headLabel"),
   globalLiveOrb: requiredElement<HTMLElement>("#globalLiveOrb"),
   serverLabel: requiredElement<HTMLElement>("#serverLabel"),
-  sidebar: requiredElement<HTMLElement>("#sidebar"),
-  openSidebar: requiredElement<HTMLButtonElement>("#openSidebar"),
-  closeSidebar: requiredElement<HTMLButtonElement>("#closeSidebar"),
-  sidebarScrim: requiredElement<HTMLElement>("#sidebarScrim"),
-  jobsSidebarButton: requiredElement<HTMLButtonElement>("#jobsSidebarButton"),
   newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
   pinChatButton: requiredElement<HTMLButtonElement>("#pinChatButton"),
   shareChatButton: requiredElement<HTMLButtonElement>("#shareChatButton"),
@@ -169,25 +157,25 @@ const els = {
   messageInput: requiredElement<HTMLTextAreaElement>("#messageInput"),
   sendButton: requiredElement<HTMLButtonElement>("#sendButton"),
   composerStatus: requiredElement<HTMLElement>("#composerStatus"),
-  jobsDialog: requiredElement<HTMLDialogElement>("#jobsDialog"),
-  closeJobsDialog: requiredElement<HTMLButtonElement>("#closeJobsDialog"),
-  jobsDialogStatus: requiredElement<HTMLElement>("#jobsDialogStatus"),
-  jobsList: requiredElement<HTMLElement>("#jobsList"),
-  jobsForm: requiredElement<HTMLFormElement>("#jobsForm"),
-  jobsFormTitle: requiredElement<HTMLElement>("#jobsFormTitle"),
-  jobNameInput: requiredElement<HTMLInputElement>("#jobNameInput"),
-  jobPromptInput: requiredElement<HTMLTextAreaElement>("#jobPromptInput"),
-  jobScheduleType: requiredElement<HTMLSelectElement>("#jobScheduleType"),
-  jobIntervalField: requiredElement<HTMLElement>("#jobIntervalField"),
-  jobIntervalInput: requiredElement<HTMLInputElement>("#jobIntervalInput"),
-  jobDailyField: requiredElement<HTMLElement>("#jobDailyField"),
-  jobDailyInput: requiredElement<HTMLInputElement>("#jobDailyInput"),
-  jobExactField: requiredElement<HTMLElement>("#jobExactField"),
-  jobExactInput: requiredElement<HTMLInputElement>("#jobExactInput"),
-  resetJobForm: requiredElement<HTMLButtonElement>("#resetJobForm"),
-  saveJobButton: requiredElement<HTMLButtonElement>("#saveJobButton"),
-  clearJobsButton: requiredElement<HTMLButtonElement>("#clearJobsButton"),
 };
+
+let sidebarRenderDeferred = false;
+const sidebar = createSidebar({
+  onMotionEnd: () => {
+    if (!sidebarRenderDeferred) return;
+    sidebarRenderDeferred = false;
+    renderSidebar();
+  },
+});
+const jobsDialog = createJobsDialog({
+  closeSidebar: sidebar.close,
+  resizeComposer,
+  syncSendButton,
+});
+const conversationRenderer = createConversationRenderer({
+  onRetry: retryFailedSend,
+});
+
 function composerDraftTarget() {
   if (state.composingNew) return "new";
   return state.selectedId ? "chat:" + state.selectedId : "";
@@ -229,6 +217,63 @@ function setTextIfChanged(element: Element, value) {
 function setHiddenIfChanged(element: HTMLElement, hidden) {
   if (element.hidden !== hidden) element.hidden = hidden;
 }
+function patchDomNode(current, next) {
+  if (
+    current.nodeType !== next.nodeType
+    || (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
+  ) {
+    const replacement = next.cloneNode(true);
+    current.replaceWith(replacement);
+    return replacement;
+  }
+  if (current.nodeType === Node.TEXT_NODE) {
+    if (current.data !== next.data) current.data = next.data;
+    return current;
+  }
+  if (current.nodeType !== Node.ELEMENT_NODE) return current;
+  const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
+  const detailsOpen = preserveDetailsOpen ? (current as HTMLDetailsElement).open : false;
+  for (const attribute of Array.from(current.attributes as NamedNodeMap) as Attr[]) {
+    if (preserveDetailsOpen && attribute.name === "open") continue;
+    if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+  }
+  for (const attribute of Array.from(next.attributes as NamedNodeMap) as Attr[]) {
+    if (preserveDetailsOpen && attribute.name === "open") continue;
+    if (current.getAttribute(attribute.name) !== attribute.value) {
+      current.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  patchDomChildren(current, next);
+  if (preserveDetailsOpen) (current as HTMLDetailsElement).open = detailsOpen;
+  return current;
+}
+function domPatchKey(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
+  return (node as HTMLElement).dataset.domKey || "";
+}
+function patchDomChildren(currentParent, nextParent) {
+  let index = 0;
+  while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
+    let current = currentParent.childNodes[index];
+    const next = nextParent.childNodes[index];
+    if (!next) { current.remove(); continue; }
+    if (!current) { currentParent.append(next.cloneNode(true)); index += 1; continue; }
+    const nextKey = domPatchKey(next);
+    if (nextKey && domPatchKey(current) !== nextKey) {
+      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
+      if (match) { currentParent.insertBefore(match, current); current = match; }
+      else { currentParent.insertBefore(next.cloneNode(true), current); index += 1; continue; }
+    }
+    patchDomNode(current, next);
+    index += 1;
+  }
+}
+function patchHtmlChildren(element: Element, html: string) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  patchDomChildren(element, template.content);
+}
+
 function setConversationHeading(title, meta) {
   let titleNode = els.chatHeading.querySelector(".heading-title");
   let metaNode = els.chatHeading.querySelector(".heading-meta");
@@ -431,19 +476,9 @@ function sidebarChats() {
 }
 const boundSidebarItems = new WeakSet();
 const boundSidebarPins = new WeakSet();
-function beginSidebarMotion() {
-  state.sidebarMotionActive = true;
-}
-function endSidebarMotion() {
-  if (!state.sidebarMotionActive) return;
-  state.sidebarMotionActive = false;
-  if (!state.sidebarRenderDeferred) return;
-  state.sidebarRenderDeferred = false;
-  renderSidebar();
-}
 function renderSidebar(force = false) {
-  if (state.sidebarMotionActive) {
-    state.sidebarRenderDeferred = true;
+  if (sidebar.isMoving()) {
+    sidebarRenderDeferred = true;
     return;
   }
   const chats = sidebarChats();
@@ -508,7 +543,7 @@ function renderSidebar(force = false) {
     item.addEventListener("click", () => {
       if (item.dataset.optimisticNew === "true" && state.pendingNewSend) {
         renderNewChat();
-        closeSidebar();
+        sidebar.close();
         return;
       }
       selectChat(item.dataset.chatId);
@@ -531,689 +566,6 @@ function renderSidebar(force = false) {
     });
   }
 }
-const LANGUAGE_ALIASES = {
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "typescript", py: "python",
-  sh: "bash", shell: "bash", zsh: "bash", yml: "yaml",
-  c: "cpp", cxx: "cpp", h: "cpp", hpp: "cpp",
-  html: "markup", xml: "markup", svg: "markup", md: "markdown",
-};
-const CODE_KEYWORDS = {
-  javascript: new Set("as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(" ")),
-  typescript: new Set("abstract any as async await boolean break case catch class const constructor continue declare default do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let namespace never new null number object of private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while yield".split(" ")),
-  python: new Set("and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield".split(" ")),
-  bash: new Set("case do done elif else esac export fi for function if in local readonly return select then time until while".split(" ")),
-  cpp: new Set("auto bool break case catch char class const constexpr continue default delete do double else enum explicit extern false float for friend if inline int long namespace new nullptr operator private protected public return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while".split(" ")),
-  dart: new Set("abstract as assert async await break case catch class const continue default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null of on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield".split(" ")),
-  sql: new Set("ADD ALL ALTER AND ANY AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY RIGHT SELECT SET TABLE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH".split(" ")),
-  json: new Set(["true", "false", "null"]),
-};
-function normalizeLanguage(language) {
-  const raw = String(language || "").trim().toLowerCase().split(/\s+/)[0];
-  return LANGUAGE_ALIASES[raw] || raw || "code";
-}
-function syntaxToken(className, value) {
-  return `<span class="syntax-${className}">${escapeHtml(value)}</span>`;
-}
-function highlightCode(raw, language) {
-  const source = String(raw || "");
-  const normalized = normalizeLanguage(language);
-  const keywords = CODE_KEYWORDS[normalized] || new Set();
-  const sql = normalized === "sql";
-  const hashComments = ["python", "bash", "yaml"].includes(normalized);
-  let html = "";
-  let index = 0;
-  while (index < source.length) {
-    if (normalized === "markup" && source.startsWith("<!--", index)) {
-      const end = source.indexOf("-->", index + 4);
-      const next = end < 0 ? source.length : end + 3;
-      html += syntaxToken("comment", source.slice(index, next));
-      index = next;
-      continue;
-    }
-    if (source.startsWith("/*", index)) {
-      const end = source.indexOf("*/", index + 2);
-      const next = end < 0 ? source.length : end + 2;
-      html += syntaxToken("comment", source.slice(index, next));
-      index = next;
-      continue;
-    }
-    if (source.startsWith("//", index) && normalized !== "json") {
-      const end = source.indexOf("\n", index + 2);
-      const next = end < 0 ? source.length : end;
-      html += syntaxToken("comment", source.slice(index, next));
-      index = next;
-      continue;
-    }
-    if (hashComments && source[index] === "#") {
-      const end = source.indexOf("\n", index + 1);
-      const next = end < 0 ? source.length : end;
-      html += syntaxToken("comment", source.slice(index, next));
-      index = next;
-      continue;
-    }
-    const quote = source[index];
-    if (quote === '"' || quote === "'" || quote === "`") {
-      let cursor = index + 1;
-      while (cursor < source.length) {
-        if (source[cursor] === "\\") {
-          cursor += 2;
-          continue;
-        }
-        if (source[cursor] === quote) {
-          cursor += 1;
-          break;
-        }
-        cursor += 1;
-      }
-      const value = source.slice(index, cursor);
-      const property = normalized === "json" && /^\s*:/.test(source.slice(cursor));
-      html += syntaxToken(property ? "property" : "string", value);
-      index = cursor;
-      continue;
-    }
-    const number = source.slice(index).match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
-    if (number) {
-      html += syntaxToken("number", number[0]);
-      index += number[0].length;
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(source[index])) {
-      let cursor = index + 1;
-      while (/[A-Za-z0-9_$]/.test(source[cursor] || "")) cursor += 1;
-      const value = source.slice(index, cursor);
-      const lookup = sql ? value.toUpperCase() : value;
-      if (keywords.has(lookup)) html += syntaxToken("keyword", value);
-      else if (/^\s*\(/.test(source.slice(cursor))) html += syntaxToken("function", value);
-      else html += escapeHtml(value);
-      index = cursor;
-      continue;
-    }
-    html += /[\[\]{}(),.:;]/.test(source[index])
-      ? syntaxToken("punctuation", source[index])
-      : escapeHtml(source[index]);
-    index += 1;
-  }
-  return html;
-}
-function inlineMarkdown(text) {
-  const placeholders = [];
-  let source = String(text || "");
-  const stash = (html) => {
-    let token = `\uE000PROMPTA_INLINE_${placeholders.length}\uE001`;
-    while (source.includes(token)) token += "\uE002";
-    placeholders.push([token, html]);
-    return token;
-  };
-  source = replaceChatGptRichMarkers(source, (label, url) => stash(
-    `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
-  ));
-  source = source.replace(/`([^`\n]+)`/g, (_, code) => (
-    stash(`<code class="inline-code">${escapeHtml(code)}</code>`)
-  ));
-  source = source.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g,
-    (_, label, url) => stash(
-      `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
-    ),
-  );
-  let html = escapeHtml(source);
-  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-  html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
-  html = html.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
-  for (const [token, value] of placeholders) html = html.replaceAll(token, value);
-  return html;
-}
-function splitTableRow(line) {
-  return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
-}
-function renderListItem(content) {
-  const task = content.match(/^\[([ xX])\]\s+(.+)$/);
-  if (!task) return `<li>${inlineMarkdown(content)}</li>`;
-  const checked = task[1].toLowerCase() === "x";
-  return `<li class="task-item"><input type="checkbox" disabled${checked ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
-}
-function renderTextBlock(text) {
-  const lines = String(text || "").replace(/\r/g, "").split("\n");
-  const out = [];
-  let index = 0;
-  const startsBlock = (line, next = "") => (
-    !line.trim()
-    || /^(#{1,6})\s+/.test(line)
-    || /^\s*([-+*]|\d+[.)])\s+/.test(line)
-    || /^\s*>\s?/.test(line)
-    || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)
-    || (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next))
-  );
-  while (index < lines.length) {
-    const line = lines[index];
-    const next = lines[index + 1] || "";
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    if (heading) {
-      const level = heading[1].length;
-      out.push(`<h${level}>${inlineMarkdown(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
-      index += 1;
-      continue;
-    }
-    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      out.push("<hr>");
-      index += 1;
-      continue;
-    }
-    if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next)) {
-      const headers = splitTableRow(line);
-      const aligns = splitTableRow(next).map((cell) => {
-        const left = cell.startsWith(":");
-        const right = cell.endsWith(":");
-        return left && right ? "center" : right ? "right" : left ? "left" : "";
-      });
-      index += 2;
-      const rows = [];
-      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
-        rows.push(splitTableRow(lines[index]));
-        index += 1;
-      }
-      out.push(`<div class="table-scroll"><table><thead><tr>${headers.map((cell, column) => (
-        `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`
-      )).join("")}</tr></thead><tbody>${rows.map((row) => (
-        `<tr>${headers.map((_, column) => (
-          `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`
-        )).join("")}</tr>`
-      )).join("")}</tbody></table></div>`);
-      continue;
-    }
-    if (/^\s*>\s?/.test(line)) {
-      const quoted = [];
-      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
-        quoted.push(lines[index].replace(/^\s*>\s?/, ""));
-        index += 1;
-      }
-      out.push(`<blockquote>${renderTextBlock(quoted.join("\n"))}</blockquote>`);
-      continue;
-    }
-    const list = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
-    if (list) {
-      const ordered = /^\d/.test(list[2]);
-      const tag = ordered ? "ol" : "ul";
-      const items = [];
-      while (index < lines.length) {
-        const match = lines[index].match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
-        if (!match || /^\d/.test(match[2]) !== ordered) break;
-        items.push(renderListItem(match[3]));
-        index += 1;
-      }
-      out.push(`<${tag}>${items.join("")}</${tag}>`);
-      continue;
-    }
-    const paragraph = [line.trim()];
-    index += 1;
-    while (index < lines.length && !startsBlock(lines[index], lines[index + 1] || "")) {
-      paragraph.push(lines[index].trim());
-      index += 1;
-    }
-    out.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
-  }
-  return out.join("");
-}
-function renderCodeBlock(code, language) {
-  const rawLanguage = String(language || "").trim();
-  const normalized = normalizeLanguage(rawLanguage);
-  const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
-  const inlineToolMatch = code.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
-  const toolish = Boolean(toolMatch || inlineToolMatch);
-  const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
-  const toolName = toolCallDisplayName(rawToolName);
-  const toolFence = ["tool", "tool-call", "function", "function-call"].includes(normalized);
-  const trimmedCode = code.trim();
-  const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
-  const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
-  if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
-  const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
-  const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
-  const renderedCode = pythonCode
-    || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
-  const highlightLanguage = pythonCode
-    ? "python"
-    : toolish && toolFence
-      ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
-      : normalized;
-  const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
-  const copyButton = renderedCode.trim()
-    ? '<button type="button" class="copy-code">copy</button>'
-    : "";
-  const header = toolish
-    ? (toolSummary
-      ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>`
-      : `
-        <span class="code-language">${escapeHtml(label)}</span>
-        ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        ${copyButton}`)
-    : `
-      <span class="code-language">${escapeHtml(label)}</span>
-      ${copyButton}`;
-  const body = renderedCode.trim()
-    ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
-    : "";
-  if (toolish) {
-    const detailHeader = `
-      <div class="tool-expanded-meta">
-        <span class="code-language">${escapeHtml(label)}</span>
-        ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        ${copyButton}
-      </div>`;
-    return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}">
-        <summary class="code-header">${header}</summary>
-        ${detailHeader}
-        ${body}
-      </details>`;
-  }
-  return `
-    <div class="code-block">
-      <div class="code-header">${header}</div>
-      ${body}
-    </div>`;
-}
-function renderMarkdown(raw) {
-  const source = String(raw || "");
-  const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
-  let lastIndex = 0;
-  let html = "";
-  let match;
-  while ((match = pattern.exec(source)) !== null) {
-    html += renderTextBlock(source.slice(lastIndex, match.index));
-    const language = match[1].trim() || "code";
-    const code = match[2].replace(/\n$/, "");
-    html += renderCodeBlock(code, language);
-    lastIndex = pattern.lastIndex;
-  }
-  html += renderTextBlock(source.slice(lastIndex));
-  return html || "<p></p>";
-}
-function imageAttachments(message) {
-  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
-  return attachments.filter((attachment) => {
-    if (!attachment || typeof attachment !== "object") return false;
-    const type = String(attachment.type || "");
-    const src = String(attachment.src || "");
-    return type.startsWith("image/") && (Boolean(attachment.id) || src.startsWith("data:image/"));
-  });
-}
-function imageAttachmentSrc(attachment) {
-  const inline = String(attachment?.src || "");
-  if (inline.startsWith("data:image/")) return inline;
-  const id = String(attachment?.id || "");
-  return id ? `api/attachment-previews/${encodeURIComponent(id)}` : "";
-}
-function renderMessageAttachments(message) {
-  const images = imageAttachments(message);
-  if (!images.length) return "";
-  return `<div class="message-attachments">${images.map((attachment) => {
-    const src = imageAttachmentSrc(attachment);
-    const name = String(attachment.name || "Attached image");
-    return `<img class="message-image-preview" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async">`;
-  }).join("")}</div>`;
-}
-function pendingImageAttachments(serializedAttachments) {
-  return serializedAttachments
-    .filter((attachment) => String(attachment.type || "").startsWith("image/"))
-    .map((attachment) => ({
-      name: attachment.name,
-      type: attachment.type,
-      src: `data:${attachment.type};base64,${attachment.data}`,
-    }));
-}
-
-function messageTimestamp(message) {
-  const millis = messageTimestampMillis(message.created_at, message.updated_at);
-  if (millis === null) return { text: "Time unavailable", iso: "", millis: null, age: "" };
-  const date = new Date(millis);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
-  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const hour24 = date.getHours();
-  const hour12 = hour24 % 12 || 12;
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const period = hour24 < 12 ? "am" : "pm";
-  return {
-    text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${hour12}:${minutes}${period}`,
-    iso: date.toISOString(),
-    millis,
-    age: messageAgeText(millis),
-  };
-}
-function renderMessageSection(message, allowStreaming = true) {
-  const role = message.role === "user" ? "user" : "assistant";
-  const streaming = Boolean(message.pending_activity)
-    || (allowStreaming && message.status === "streaming");
-  const activityLabel = message.pending_activity_label || "writing";
-  const label = message.send_error ? "Send error" : "Prompta run";
-  const timestamp = messageTimestamp(message);
-  const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content);
-  const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
-  return `
-    <section class="message ${role}${message.send_error ? " send-error" : ""}">
-      <div class="message-inner">
-        ${role === "assistant" ? `
-          <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
-        ` : ""}
-        ${attachmentsHtml}
-        <div class="message-content">${contentHtml}</div>
-        ${message.send_error && message.retry_scope && message.retry_key ? `
-          <button type="button"
-                  class="retry-send-button"
-                  data-retry-scope="${escapeHtml(message.retry_scope)}"
-                  data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
-        ` : ""}
-        ${streaming ? `
-          <div class="streaming-indicator">
-            <span class="streaming-dots"><i></i><i></i><i></i></span>
-            ${escapeHtml(activityLabel)}
-          </div>
-        ` : ""}
-        <time class="message-timestamp" datetime="${timestamp.iso}"${timestamp.millis === null ? "" : ` data-message-at="${timestamp.millis}"`}>
-          <span class="message-clock">${escapeHtml(timestamp.text)}</span>${timestamp.age ? `<span class="message-age"> · ${escapeHtml(timestamp.age)}</span>` : ""}
-        </time>
-      </div>
-    </section>`;
-}
-function messageNodeFingerprint(message, allowStreaming) {
-  return JSON.stringify([
-    message.role,
-    message.status,
-    message.content,
-    imageAttachments(message).map((attachment) => [
-      attachment.id || "",
-      attachment.name || "",
-      attachment.type || "",
-      String(attachment.src || "").length,
-    ]),
-    Boolean(message.send_error),
-    Boolean(message.pending_activity),
-    message.pending_activity_label,
-    message.retry_scope,
-    message.retry_key,
-    message.created_at,
-    message.updated_at,
-    allowStreaming,
-  ]);
-}
-const boundCopyButtons = new WeakSet();
-const boundRetryButtons = new WeakSet();
-function bindRetryButtons(root) {
-  for (const button of root.querySelectorAll(".retry-send-button")) {
-    if (boundRetryButtons.has(button)) continue;
-    boundRetryButtons.add(button);
-    button.addEventListener("click", () => {
-      retryFailedSend(button.dataset.retryScope || "", button.dataset.retryKey || "");
-    });
-  }
-}
-function bindCopyButtons(root) {
-  for (const button of root.querySelectorAll(".copy-code")) {
-    if (boundCopyButtons.has(button)) continue;
-    boundCopyButtons.add(button);
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const code = button.closest(".code-block")?.querySelector("pre code")?.textContent || "";
-      try {
-        await navigator.clipboard.writeText(code);
-        const previous = button.textContent;
-        setTextIfChanged(button, "copied");
-        setTimeout(() => { setTextIfChanged(button, previous); }, 1000);
-      } catch {
-        setTextIfChanged(button, "copy unavailable");
-      }
-    });
-  }
-}
-function createMessageNode(message, allowStreaming, messageKey) {
-  const template = document.createElement("template");
-  template.innerHTML = renderMessageSection(message, allowStreaming).trim();
-  const node = template.content.firstElementChild as HTMLElement;
-  node.dataset.messageKey = messageKey;
-  node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
-  bindCopyButtons(node);
-  bindRetryButtons(node);
-  return node;
-}
-function patchDomNode(current, next) {
-  if (
-    current.nodeType !== next.nodeType
-    || (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
-  ) {
-    const replacement = next.cloneNode(true);
-    current.replaceWith(replacement);
-    return replacement;
-  }
-  if (current.nodeType === Node.TEXT_NODE) {
-    if (current.data !== next.data) current.data = next.data;
-    return current;
-  }
-  if (current.nodeType !== Node.ELEMENT_NODE) return current;
-  const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
-  const detailsOpen = preserveDetailsOpen ? (current as HTMLDetailsElement).open : false;
-  for (const attribute of Array.from(current.attributes as NamedNodeMap) as Attr[]) {
-    if (preserveDetailsOpen && attribute.name === "open") continue;
-    if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-  }
-  for (const attribute of Array.from(next.attributes as NamedNodeMap) as Attr[]) {
-    if (preserveDetailsOpen && attribute.name === "open") continue;
-    if (current.getAttribute(attribute.name) !== attribute.value) {
-      current.setAttribute(attribute.name, attribute.value);
-    }
-  }
-  patchDomChildren(current, next);
-  if (preserveDetailsOpen) (current as HTMLDetailsElement).open = detailsOpen;
-  return current;
-}
-function domPatchKey(node) {
-  if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
-  return (node as HTMLElement).dataset.domKey || "";
-}
-function patchDomChildren(currentParent, nextParent) {
-  let index = 0;
-  while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
-    let current = currentParent.childNodes[index];
-    const next = nextParent.childNodes[index];
-    if (!next) { current.remove(); continue; }
-    if (!current) { currentParent.append(next.cloneNode(true)); index += 1; continue; }
-    const nextKey = domPatchKey(next);
-    if (nextKey && domPatchKey(current) !== nextKey) {
-      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
-      if (match) { currentParent.insertBefore(match, current); current = match; }
-      else { currentParent.insertBefore(next.cloneNode(true), current); index += 1; continue; }
-    }
-    patchDomNode(current, next);
-    index += 1;
-  }
-}
-function patchHtmlChildren(element: Element, html: string) {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  patchDomChildren(element, template.content);
-}
-function updateMessageNode(node, message, allowStreaming) {
-  const role = message.role === "user" ? "user" : "assistant";
-  const sendError = Boolean(message.send_error);
-  const expectedRole = node.classList.contains("user") ? "user" : "assistant";
-  const structuralMismatch = expectedRole !== role
-    || node.classList.contains("send-error") !== sendError;
-  if (structuralMismatch) return false;
-  const content = node.querySelector(".message-content");
-  if (!content) return false;
-  let currentAttachments = node.querySelector(".message-attachments") as HTMLElement | null;
-  const nextAttachments = message.pending_activity ? "" : renderMessageAttachments(message);
-  if (!nextAttachments) {
-    currentAttachments?.remove();
-    currentAttachments = null;
-  } else if (!currentAttachments) {
-    const template = document.createElement("template");
-    template.innerHTML = nextAttachments;
-    const nextNode = template.content.firstElementChild;
-    if (nextNode) content.before(nextNode);
-  } else if (currentAttachments.outerHTML !== nextAttachments) {
-    const template = document.createElement("template");
-    template.innerHTML = nextAttachments;
-    const nextNode = template.content.firstElementChild;
-    if (nextNode) patchDomNode(currentAttachments, nextNode);
-  }
-  const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
-  if (content.innerHTML !== nextContent) {
-    const template = document.createElement("template");
-    template.innerHTML = nextContent;
-    patchDomChildren(content, template.content);
-    bindCopyButtons(content);
-  }
-  const retryButton = node.querySelector(".retry-send-button") as HTMLButtonElement | null;
-  const shouldRetry = sendError && Boolean(message.retry_scope) && Boolean(message.retry_key);
-  if (shouldRetry) {
-    if (retryButton) {
-      retryButton.dataset.retryScope = String(message.retry_scope);
-      retryButton.dataset.retryKey = String(message.retry_key);
-    } else {
-      content.insertAdjacentHTML("afterend", `
-        <button type="button"
-                class="retry-send-button"
-                data-retry-scope="${escapeHtml(message.retry_scope)}"
-                data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
-      `);
-      bindRetryButtons(node);
-    }
-  } else if (retryButton) {
-    retryButton.remove();
-  }
-
-  const timestamp = node.querySelector(".message-timestamp") as HTMLTimeElement | null;
-  if (!timestamp) return false;
-  const nextTimestamp = messageTimestamp(message);
-  const clock = timestamp.querySelector(".message-clock") as HTMLElement | null;
-  if (!clock) return false;
-  setTextIfChanged(clock, nextTimestamp.text);
-  if (timestamp.dateTime !== nextTimestamp.iso) timestamp.dateTime = nextTimestamp.iso;
-  if (nextTimestamp.millis === null) {
-    delete timestamp.dataset.messageAt;
-  } else if (timestamp.dataset.messageAt !== String(nextTimestamp.millis)) {
-    timestamp.dataset.messageAt = String(nextTimestamp.millis);
-  }
-  let age = timestamp.querySelector(".message-age") as HTMLElement | null;
-  if (nextTimestamp.age) {
-    if (!age) {
-      timestamp.insertAdjacentHTML("beforeend", '<span class="message-age"></span>');
-      age = timestamp.querySelector(".message-age") as HTMLElement | null;
-    }
-    if (age) setTextIfChanged(age, ` · ${nextTimestamp.age}`);
-  } else {
-    age?.remove();
-  }
-
-  const shouldStream = Boolean(message.pending_activity)
-    || (allowStreaming && message.status === "streaming");
-  const activityLabel = message.pending_activity_label || "writing";
-  const indicator = node.querySelector(".streaming-indicator");
-  if (shouldStream && !indicator) {
-    timestamp.insertAdjacentHTML("beforebegin", `
-      <div class="streaming-indicator">
-        <span class="streaming-dots"><i></i><i></i><i></i></span>
-        ${escapeHtml(activityLabel)}
-      </div>
-    `);
-  } else if (shouldStream && indicator) {
-    const labelNode = indicator.lastChild;
-    if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent !== ` ${activityLabel}`) labelNode.textContent = ` ${activityLabel}`;
-  } else if (!shouldStream && indicator) {
-    indicator.remove();
-  }
-  node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
-  return true;
-}
-function renderMessageNodes(messages, allowStreaming) {
-  const existing = new Map(
-    (Array.from(els.conversation.children) as HTMLElement[])
-      .map((node) => [node.dataset.messageKey, node]),
-  );
-  const desiredKeys = new Set();
-  const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
-  const lastAssistantIndex = messages.findLastIndex((message) => (
-    message.role === "assistant" && !message.send_error
-  ));
-  const streamingIndex = allowStreaming
-    && lastAssistantIndex > lastUserIndex
-    && messages[lastAssistantIndex]?.status === "streaming"
-    ? lastAssistantIndex
-    : -1;
-  messages.forEach((message, index) => {
-    const messageKey = String(message.message_key || `${message.role || "message"}:${index}`);
-    const streamThisMessage = index === streamingIndex;
-    desiredKeys.add(messageKey);
-    const fingerprint = messageNodeFingerprint(message, streamThisMessage);
-    let node = existing.get(messageKey);
-    if (!node) {
-      node = createMessageNode(message, streamThisMessage, messageKey);
-    } else if (node.dataset.renderFingerprint !== fingerprint) {
-      if (!updateMessageNode(node, message, streamThisMessage)) {
-        const replacement = createMessageNode(message, streamThisMessage, messageKey);
-        node.replaceWith(replacement);
-        node = replacement;
-      }
-    }
-    const currentAtIndex = els.conversation.children[index];
-    if (currentAtIndex !== node) {
-      els.conversation.insertBefore(node, currentAtIndex || null);
-    }
-  });
-  for (const node of Array.from(els.conversation.children) as HTMLElement[]) {
-    if (!desiredKeys.has(node.dataset.messageKey)) node.remove();
-  }
-}
-const CONVERSATION_BOTTOM_SLOP = 24;
-function captureConversationViewport() {
-  const maxScrollTop = Math.max(0, els.viewport.scrollHeight - els.viewport.clientHeight);
-  const bottomGap = Math.max(0, maxScrollTop - els.viewport.scrollTop);
-  const pinnedToBottom = bottomGap <= CONVERSATION_BOTTOM_SLOP;
-  const snapshot = {
-    pinnedToBottom,
-    scrollTop: els.viewport.scrollTop,
-    anchorKey: "",
-    anchorOffset: 0,
-  };
-  if (pinnedToBottom) return snapshot;
-
-  const viewportTop = els.viewport.getBoundingClientRect().top;
-  for (const node of Array.from(els.conversation.children) as HTMLElement[]) {
-    const rect = node.getBoundingClientRect();
-    if (rect.bottom <= viewportTop + 1) continue;
-    snapshot.anchorKey = String(node.dataset.messageKey || "");
-    snapshot.anchorOffset = rect.top - viewportTop;
-    break;
-  }
-  return snapshot;
-}
-function restoreConversationViewport(snapshot, forceBottom = false) {
-  if (forceBottom || snapshot.pinnedToBottom) {
-    els.viewport.scrollTop = els.viewport.scrollHeight;
-    return;
-  }
-  if (snapshot.anchorKey) {
-    const anchor = Array.from(els.conversation.children)
-      .find((node) => (node as HTMLElement).dataset.messageKey === snapshot.anchorKey) as HTMLElement | undefined;
-    if (anchor) {
-      const viewportTop = els.viewport.getBoundingClientRect().top;
-      const nextOffset = anchor.getBoundingClientRect().top - viewportTop;
-      const delta = nextOffset - snapshot.anchorOffset;
-      if (Math.abs(delta) > 0.5) els.viewport.scrollTop += delta;
-      return;
-    }
-  }
-  const maxScrollTop = Math.max(0, els.viewport.scrollHeight - els.viewport.clientHeight);
-  els.viewport.scrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
-}
-
 function pendingReplyMessages(conversationId, cachedMessages) {
   const pending = pendingConversationSends(
     conversationId,
@@ -1355,16 +707,16 @@ function renderConversation(chat) {
     chat.status,
     visibleMessages.map((message) => [
       message.message_key,
-      messageNodeFingerprint(message, allowStreaming),
+      conversationRenderer.messageNodeFingerprint(message, allowStreaming),
     ]),
   ]);
   if (fingerprint !== state.selectedFingerprint) {
-    const viewportSnapshot = captureConversationViewport();
+    const viewportSnapshot = conversationRenderer.captureConversationViewport();
     const isInitial = state.renderedConversationId !== chat.id;
     state.selectedFingerprint = fingerprint;
-    renderMessageNodes(visibleMessages, allowStreaming);
+    conversationRenderer.renderMessageNodes(visibleMessages, allowStreaming);
     state.renderedConversationId = chat.id;
-    restoreConversationViewport(viewportSnapshot, isInitial);
+    conversationRenderer.restoreConversationViewport(viewportSnapshot, isInitial);
   }
   renderConversationMeta(chat, visibleMessages.length);
   setHiddenIfChanged(els.emptyState, true);
@@ -1474,7 +826,7 @@ function clearConversation() {
   state.renderedConversationId = "";
   setHiddenIfChanged(els.emptyState, false);
   setHiddenIfChanged(els.conversation, true);
-  renderMessageNodes([], false);
+  conversationRenderer.renderMessageNodes([], false);
   setConversationHeading("Prompta", "Local conversation history");
   setStatusIcon(els.syncLabel, "local", "Local cache", "sync");
   els.messageInput.disabled = true;
@@ -1548,15 +900,15 @@ function renderNewChat() {
           retry_key: pending.clientId || pending.sendId,
         });
       }
-      const viewportSnapshot = captureConversationViewport();
+      const viewportSnapshot = conversationRenderer.captureConversationViewport();
       setHiddenIfChanged(els.emptyState, true);
       setHiddenIfChanged(els.conversation, false);
-      renderMessageNodes(messages, true);
-      restoreConversationViewport(viewportSnapshot, enteringNewChat);
+      conversationRenderer.renderMessageNodes(messages, true);
+      conversationRenderer.restoreConversationViewport(viewportSnapshot, enteringNewChat);
     } else {
       setHiddenIfChanged(els.emptyState, false);
       setHiddenIfChanged(els.conversation, true);
-      renderMessageNodes([], false);
+      conversationRenderer.renderMessageNodes([], false);
     }
     setConversationHeading(
       "New chat",
@@ -1593,7 +945,7 @@ function renderNewChat() {
     els.logsViewport.hidden = true;
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
-    closeSidebar();
+    sidebar.close();
     if (!waiting && matchMedia("(pointer: fine)").matches) {
       requestAnimationFrame(() => els.messageInput.focus());
     }
@@ -1880,7 +1232,7 @@ async function selectChat(id) {
   // Start dismissing the mobile sidebar before any chat fetch or sidebar render.
   // The previous ordering made a tap feel network-bound because closeSidebar()
   // did not run until /api/chats/:id completed.
-  closeSidebar();
+  sidebar.close();
 
   if (id === state.selectedId) {
     if (!state.selectedChat || state.selectedChat.id !== id) {
@@ -1922,196 +1274,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     els.attachmentMenu.hidden = true;
     els.slashMenu.hidden = true;
-    if (els.jobsDialog.open) els.jobsDialog.close();
+    jobsDialog.close();
     els.searchInput.blur();
-    closeSidebar();
+    sidebar.close();
   }
 });
-const mobileSidebarMedia = window.matchMedia("(max-width: 780px)");
-function sidebarIsOpen() {
-  return els.sidebar.classList.contains("is-open");
-}
-function syncSidebarAccessibility() {
-  const hidden = mobileSidebarMedia.matches
-    && !sidebarIsOpen();
-  els.sidebar.toggleAttribute("inert", hidden);
-  if (hidden) els.sidebar.setAttribute("aria-hidden", "true");
-  else els.sidebar.removeAttribute("aria-hidden");
-  els.openSidebar.setAttribute("aria-expanded", String(!hidden));
-}
-function openSidebar() {
-  resetSidebarDragStyles();
-  if (mobileSidebarEnabled() && !sidebarIsOpen()) {
-    beginSidebarMotion();
-  }
-  els.sidebar.classList.add("is-open");
-  els.sidebarScrim.classList.add("is-open");
-  syncSidebarAccessibility();
-}
-function closeSidebar() {
-  resetSidebarDragStyles();
-  if (mobileSidebarEnabled() && sidebarIsOpen()) {
-    beginSidebarMotion();
-  }
-  els.sidebar.classList.remove("is-open");
-  els.sidebarScrim.classList.remove("is-open");
-  syncSidebarAccessibility();
-}
-els.openSidebar.addEventListener("click", openSidebar);
-els.closeSidebar.addEventListener("click", closeSidebar);
-els.sidebarScrim.addEventListener("click", closeSidebar);
-mobileSidebarMedia.addEventListener("change", syncSidebarAccessibility);
-window.addEventListener("resize", syncSidebarAccessibility);
-syncSidebarAccessibility();
-els.sidebar.addEventListener("transitionrun", (event) => {
-  if (event.propertyName === "transform" && mobileSidebarEnabled()) beginSidebarMotion();
-});
-els.sidebar.addEventListener("transitionend", (event) => {
-  if (event.propertyName === "transform") endSidebarMotion();
-});
-els.sidebar.addEventListener("transitioncancel", (event) => {
-  if (event.propertyName === "transform") endSidebarMotion();
-});
-const SIDEBAR_EDGE_SWIPE_WIDTH = 144;
-
-const sidebarSwipe = {
-  startX: 0,
-  startY: 0,
-  lastX: 0,
-  lastTime: 0,
-  velocityX: 0,
-  sidebarWidth: 0,
-  progress: 0,
-  wasOpen: false,
-  tracking: false,
-  directionLocked: false,
-  horizontal: false,
-  frameId: 0,
-  pendingX: 0,
-  cleanupTimer: 0,
-};
-function resetSidebarDragStyles() {
-  if (sidebarSwipe.frameId) {
-    cancelAnimationFrame(sidebarSwipe.frameId);
-    sidebarSwipe.frameId = 0;
-  }
-  if (sidebarSwipe.cleanupTimer) {
-    clearTimeout(sidebarSwipe.cleanupTimer);
-    sidebarSwipe.cleanupTimer = 0;
-  }
-  els.sidebar.style.removeProperty("transition");
-  els.sidebar.style.removeProperty("transform");
-  els.sidebarScrim.style.removeProperty("transition");
-  els.sidebarScrim.style.removeProperty("opacity");
-  endSidebarMotion();
-}
-function mobileSidebarEnabled() {
-  return mobileSidebarMedia.matches;
-}
-document.addEventListener("touchstart", (event) => {
-  if (!mobileSidebarEnabled() || event.touches.length !== 1) return;
-  resetSidebarDragStyles();
-  const touch = event.touches[0];
-  const sidebarOpen = sidebarIsOpen();
-  if (!sidebarOpen && touch.clientX > SIDEBAR_EDGE_SWIPE_WIDTH) return;
-  sidebarSwipe.startX = touch.clientX;
-  sidebarSwipe.startY = touch.clientY;
-  sidebarSwipe.lastX = touch.clientX;
-  sidebarSwipe.lastTime = performance.now();
-  sidebarSwipe.velocityX = 0;
-  sidebarSwipe.sidebarWidth = els.sidebar.getBoundingClientRect().width;
-  sidebarSwipe.progress = sidebarOpen ? 1 : 0;
-  sidebarSwipe.wasOpen = sidebarOpen;
-  sidebarSwipe.tracking = true;
-  sidebarSwipe.directionLocked = false;
-  sidebarSwipe.horizontal = false;
-  sidebarSwipe.pendingX = sidebarOpen ? 0 : -sidebarSwipe.sidebarWidth;
-}, { passive: true });
-function applySidebarDragPosition(x) {
-  const width = sidebarSwipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
-  sidebarSwipe.progress = Math.max(0, Math.min(1, 1 + (x / width)));
-  els.sidebar.style.transform = `translate3d(${x}px, 0, 0)`;
-  els.sidebarScrim.style.opacity = String(sidebarSwipe.progress);
-}
-function queueSidebarDragPosition(x) {
-  sidebarSwipe.pendingX = x;
-  if (sidebarSwipe.frameId) return;
-  sidebarSwipe.frameId = requestAnimationFrame(() => {
-    sidebarSwipe.frameId = 0;
-    applySidebarDragPosition(sidebarSwipe.pendingX);
-  });
-}
-document.addEventListener("touchmove", (event) => {
-  if (!sidebarSwipe.tracking || event.touches.length !== 1) return;
-  const touch = event.touches[0];
-  const deltaX = touch.clientX - sidebarSwipe.startX;
-  const deltaY = touch.clientY - sidebarSwipe.startY;
-  if (!sidebarSwipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
-    sidebarSwipe.directionLocked = true;
-    sidebarSwipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
-    if (sidebarSwipe.horizontal) {
-      beginSidebarMotion();
-      els.sidebar.style.transition = "none";
-      els.sidebarScrim.style.transition = "none";
-    }
-  }
-  if (!sidebarSwipe.horizontal) return;
-  event.preventDefault();
-  const width = sidebarSwipe.sidebarWidth;
-  const startX = sidebarSwipe.wasOpen ? 0 : -width;
-  const x = Math.max(-width, Math.min(0, startX + deltaX));
-  const now = performance.now();
-  const elapsed = Math.max(1, now - sidebarSwipe.lastTime);
-  sidebarSwipe.velocityX = (touch.clientX - sidebarSwipe.lastX) / elapsed;
-  sidebarSwipe.lastX = touch.clientX;
-  sidebarSwipe.lastTime = now;
-  queueSidebarDragPosition(x);
-}, { passive: false });
-function settleSidebarDrag(open) {
-  const width = sidebarSwipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
-  if (sidebarSwipe.frameId) {
-    cancelAnimationFrame(sidebarSwipe.frameId);
-    sidebarSwipe.frameId = 0;
-    applySidebarDragPosition(sidebarSwipe.pendingX);
-  }
-  const currentX = -width * (1 - sidebarSwipe.progress);
-  const targetX = open ? 0 : -width;
-  const remaining = Math.abs(targetX - currentX);
-  const speed = Math.max(0.6, Math.abs(sidebarSwipe.velocityX));
-  const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
-  els.sidebar.classList.toggle("is-open", open);
-  els.sidebarScrim.classList.toggle("is-open", open);
-  syncSidebarAccessibility();
-  els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
-  els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
-  els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
-  els.sidebarScrim.style.opacity = open ? "1" : "0";
-  if (sidebarSwipe.cleanupTimer) clearTimeout(sidebarSwipe.cleanupTimer);
-  sidebarSwipe.cleanupTimer = window.setTimeout(() => {
-    sidebarSwipe.cleanupTimer = 0;
-    els.sidebar.style.removeProperty("transition");
-    els.sidebar.style.removeProperty("transform");
-    els.sidebarScrim.style.removeProperty("transition");
-    els.sidebarScrim.style.removeProperty("opacity");
-    endSidebarMotion();
-  }, duration + 30);
-}
-document.addEventListener("touchend", () => {
-  if (!sidebarSwipe.tracking) return;
-  if (sidebarSwipe.horizontal) {
-    const fastOpen = sidebarSwipe.velocityX > 0.35;
-    const fastClose = sidebarSwipe.velocityX < -0.35;
-    const shouldOpen = fastOpen || (!fastClose && sidebarSwipe.progress >= 0.5);
-    settleSidebarDrag(shouldOpen);
-  }
-  sidebarSwipe.tracking = false;
-}, { passive: true });
-document.addEventListener("touchcancel", () => {
-  if (sidebarSwipe.tracking && sidebarSwipe.horizontal) {
-    settleSidebarDrag(sidebarSwipe.wasOpen);
-  }
-  sidebarSwipe.tracking = false;
-}, { passive: true });
 els.newChatButton.addEventListener("click", () => {
   state.pendingNewSend = null;
   state.newChatFingerprint = "";
@@ -2311,165 +1478,6 @@ async function runAtSlashCommand(command, originalMessage) {
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
-function formatJobMinutes(value) {
-  const minutes = Number(value);
-  if (!Number.isFinite(minutes)) return "";
-  if (minutes >= 60 && minutes % 60 === 0) {
-    const hours = minutes / 60;
-    return `${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-}
-function jobScheduleText(job) {
-  if (job.run_at_epoch) {
-    const date = new Date(Number(job.run_at_epoch) * 1000);
-    return `once · ${date.toLocaleString([], {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
-  }
-  if (job.daily_at) return `daily · ${job.daily_at}`;
-  return `every ${formatJobMinutes(job.interval_minutes)}${job.exact_interval ? " · exact" : ""}`;
-}
-function resetJobForm() {
-  els.jobsForm.reset();
-  setTextIfChanged(els.jobsFormTitle, "Add job");
-  els.jobNameInput.readOnly = false;
-  els.jobScheduleType.value = "interval";
-  els.jobIntervalInput.value = "30";
-  els.jobDailyInput.value = "09:00";
-  els.jobExactInput.checked = false;
-  syncJobScheduleFields();
-}
-function syncJobScheduleFields() {
-  const daily = els.jobScheduleType.value === "daily";
-  els.jobIntervalField.hidden = daily;
-  els.jobDailyField.hidden = !daily;
-  els.jobExactField.hidden = daily;
-}
-function renderJobs(jobs) {
-  state.scheduledJobs = Array.isArray(jobs) ? jobs : [];
-  els.clearJobsButton.disabled = state.scheduledJobs.length === 0;
-  if (!state.scheduledJobs.length) {
-    patchHtmlChildren(els.jobsList, '<div class="jobs-empty">No scheduled jobs.</div>');
-    return;
-  }
-  patchHtmlChildren(els.jobsList, state.scheduledJobs.map((job) => {
-    const paused = Boolean(job.paused);
-    const canEdit = !job.run_at_epoch;
-    return `
-      <article class="job-row" data-job-name="${escapeHtml(job.name)}" data-dom-key="job:${escapeHtml(job.name)}">
-        <div class="job-row-top">
-          <div>
-            <div class="job-row-name">${escapeHtml(job.name)}</div>
-            <div class="job-row-meta">${escapeHtml(jobScheduleText(job))}</div>
-          </div>
-          <span class="job-status">${escapeHtml(job.status || (paused ? "paused" : "pending"))}</span>
-        </div>
-        <div class="job-row-prompt">${escapeHtml(job.prompt || "")}</div>
-        <div class="job-row-actions">
-          ${canEdit ? '<button type="button" class="job-action" data-job-action="edit">Edit</button>' : ""}
-          <button type="button" class="job-action" data-job-action="${paused ? "resume" : "pause"}">${paused ? "Resume" : "Pause"}</button>
-          <button type="button" class="job-action" data-job-action="remove">Remove</button>
-        </div>
-      </article>
-    `;
-  }).join(""));
-}
-async function loadJobs() {
-  setTextIfChanged(els.jobsDialogStatus, "Loading jobs…");
-  try {
-    const result = await fetchJson("api/jobs");
-    renderJobs(result.jobs);
-    setTextIfChanged(els.jobsDialogStatus, `${result.jobs?.length || 0} configured job${result.jobs?.length === 1 ? "" : "s"}.`);
-  } catch (error) {
-    setTextIfChanged(els.jobsDialogStatus, `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`);
-  }
-}
-async function runJobCommand(payload, successText) {
-  setTextIfChanged(els.jobsDialogStatus, "Running Prompta CLI command…");
-  els.saveJobButton.disabled = true;
-  try {
-    const result = await postJson("api/jobs", payload);
-    renderJobs(result.jobs);
-    const command = Array.isArray(result.command) ? result.command.join(" ") : "";
-    setTextIfChanged(els.jobsDialogStatus, command ? `${successText} · ${command}` : successText);
-    return true;
-  } catch (error) {
-    setTextIfChanged(els.jobsDialogStatus, `Jobs command failed: ${String(error).replace(/^Error:\\s*/, "")}`);
-    return false;
-  } finally {
-    els.saveJobButton.disabled = false;
-  }
-}
-async function openJobsDialog(clearComposer = false) {
-  if (clearComposer) {
-    els.messageInput.value = "";
-    els.slashMenu.hidden = true;
-    resizeComposer();
-    syncSendButton();
-  }
-  resetJobForm();
-  if (!els.jobsDialog.open) els.jobsDialog.showModal();
-  await loadJobs();
-}
-els.jobsSidebarButton.addEventListener("click", async () => {
-  closeSidebar();
-  await openJobsDialog();
-});
-els.closeJobsDialog.addEventListener("click", () => els.jobsDialog.close());
-els.jobsDialog.addEventListener("click", (event) => {
-  if (event.target === els.jobsDialog) els.jobsDialog.close();
-});
-els.jobScheduleType.addEventListener("change", syncJobScheduleFields);
-els.resetJobForm.addEventListener("click", resetJobForm);
-els.jobsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const daily = els.jobScheduleType.value === "daily";
-  const payload = {
-    action: "add",
-    name: els.jobNameInput.value.trim(),
-    prompt: els.jobPromptInput.value.trim(),
-    daily_at: daily ? els.jobDailyInput.value : "",
-    interval_minutes: daily ? null : Number(els.jobIntervalInput.value),
-    exact_interval: !daily && els.jobExactInput.checked,
-  };
-  const saved = await runJobCommand(payload, `Saved ${payload.name}`);
-  if (saved) resetJobForm();
-});
-els.jobsList.addEventListener("click", async (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-job-action]");
-  const row = button?.closest<HTMLElement>("[data-job-name]");
-  if (!button || !row) return;
-  const name = String(row.dataset.jobName || "");
-  const job = state.scheduledJobs.find((item) => item.name === name);
-  if (!job) return;
-  const action = String(button.dataset.jobAction || "");
-  if (action === "edit") {
-    setTextIfChanged(els.jobsFormTitle, `Edit ${job.name}`);
-    els.jobNameInput.value = job.name;
-    els.jobNameInput.readOnly = true;
-    els.jobPromptInput.value = job.prompt || "";
-    els.jobScheduleType.value = job.daily_at ? "daily" : "interval";
-    els.jobDailyInput.value = job.daily_at || "09:00";
-    els.jobIntervalInput.value = String(job.interval_minutes || 30);
-    els.jobExactInput.checked = Boolean(job.exact_interval);
-    syncJobScheduleFields();
-    els.jobPromptInput.focus();
-    return;
-  }
-  await runJobCommand({ action, name }, `${action === "remove" ? "Removed" : action === "pause" ? "Paused" : "Resumed"} ${name}`);
-});
-els.clearJobsButton.addEventListener("click", async () => {
-  if (!state.scheduledJobs.length) return;
-  if (!window.confirm(`Clear all ${state.scheduledJobs.length} scheduled jobs?`)) return;
-  const cleared = await runJobCommand({ action: "clear" }, "Cleared all scheduled jobs");
-  if (cleared) resetJobForm();
-});
-
 function pendingReply(conversationId, sendId) {
   return (state.pendingReplies.get(conversationId) || [])
     .find((item) => item.sendId === sendId);
@@ -2704,7 +1712,7 @@ async function sendSelectedMessage() {
     return;
   }
   if (message.toLowerCase() === "/jobs") {
-    await openJobsDialog(true);
+    await jobsDialog.open(true);
     return;
   }
   requestNotificationPermissionFromGesture();
