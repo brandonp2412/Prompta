@@ -4,6 +4,23 @@ export type ChatSummary = {
   created_at?: number;
 };
 
+
+export function preserveSidebarChatOrder<T extends { id: string }>(
+  previous: readonly T[],
+  incoming: readonly T[],
+): T[] {
+  if (!previous.length) return [...incoming];
+
+  const incomingById = new Map(incoming.map((chat) => [chat.id, chat]));
+  const previousIds = new Set(previous.map((chat) => chat.id));
+  const added = incoming.filter((chat) => !previousIds.has(chat.id));
+  const retained = previous
+    .map((chat) => incomingById.get(chat.id))
+    .filter((chat): chat is T => Boolean(chat));
+
+  return [...added, ...retained];
+}
+
 export type PendingNewSend = {
   clientId?: string;
   conversationId?: string;

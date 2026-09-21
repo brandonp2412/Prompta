@@ -13,6 +13,7 @@ import {
   pendingConversationSends,
   promotePinnedConversationId,
   pendingSendActivity,
+  preserveSidebarChatOrder,
   shouldRenderNewChatView,
   shouldShowStopAction,
   postJsonRequest,
@@ -37,6 +38,60 @@ describe("conversation hash parsing", () => {
   test("accepts hashes with and without a slash", () => {
     expect(conversationIdFromHash("#chat-123")).toBe("chat-123");
     expect(conversationIdFromHash("#/chat-123")).toBe("chat-123");
+  });
+});
+
+describe("sidebar ordering", () => {
+  test("keeps existing chats in place when server activity order changes", () => {
+    const previous = [
+      { id: "chat-a", updated_at: 100 },
+      { id: "chat-b", updated_at: 90 },
+      { id: "chat-c", updated_at: 80 },
+    ];
+    const incoming = [
+      { id: "chat-c", updated_at: 130 },
+      { id: "chat-a", updated_at: 120 },
+      { id: "chat-b", updated_at: 110 },
+    ];
+
+    expect(preserveSidebarChatOrder(previous, incoming).map((chat) => chat.id)).toEqual([
+      "chat-a",
+      "chat-b",
+      "chat-c",
+    ]);
+  });
+
+  test("puts genuinely new chats ahead without shuffling retained chats", () => {
+    const previous = [
+      { id: "chat-a" },
+      { id: "chat-b" },
+      { id: "chat-c" },
+    ];
+    const incoming = [
+      { id: "new-2" },
+      { id: "chat-c" },
+      { id: "new-1" },
+      { id: "chat-a" },
+      { id: "chat-b" },
+    ];
+
+    expect(preserveSidebarChatOrder(previous, incoming).map((chat) => chat.id)).toEqual([
+      "new-2",
+      "new-1",
+      "chat-a",
+      "chat-b",
+      "chat-c",
+    ]);
+  });
+
+  test("drops chats that are no longer in the current result set", () => {
+    const previous = [{ id: "chat-a" }, { id: "chat-b" }, { id: "chat-c" }];
+    const incoming = [{ id: "chat-c" }, { id: "chat-a" }];
+
+    expect(preserveSidebarChatOrder(previous, incoming).map((chat) => chat.id)).toEqual([
+      "chat-a",
+      "chat-c",
+    ]);
   });
 });
 
