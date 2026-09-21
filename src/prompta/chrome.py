@@ -240,6 +240,10 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         which made the inherited coordinate click occasionally hit a stale point.
         """
 
+        composer_selector = (
+            '#prompt-textarea,div[role="textbox"].ProseMirror,'
+            'textarea#prompt-textarea,textarea#mobile-composer-prompt'
+        )
         selectors = (
             '[data-testid="send-button"]',
             'button[aria-label="Send prompt"]',
@@ -249,8 +253,32 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         def click_sync() -> bool:
             driver = self._activate_context_sync(None)
+            scope: Any | None = None
+            for composer in driver.find_elements(By.CSS_SELECTOR, composer_selector):
+                try:
+                    if not composer.is_displayed():
+                        continue
+                    try:
+                        scope = composer.find_element(By.XPATH, "./ancestor::form[1]")
+                    except NoSuchElementException:
+                        scope = None
+                    break
+                except WebDriverException:
+                    continue
+
             for selector in selectors:
-                for element in driver.find_elements(By.CSS_SELECTOR, selector):
+                # The generic submit fallback is only safe inside the active
+                # composer form. ChatGPT has other visible submit controls, and
+                # clicking one of those looks like a successful Selenium click
+                # while leaving the prompt untouched in the composer.
+                if scope is None and selector == 'button[type="submit"]':
+                    continue
+                root = scope if scope is not None else driver
+                try:
+                    elements = root.find_elements(By.CSS_SELECTOR, selector)
+                except WebDriverException:
+                    continue
+                for element in elements:
                     try:
                         if not element.is_displayed() or not element.is_enabled():
                             continue
