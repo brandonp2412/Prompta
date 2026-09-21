@@ -544,8 +544,14 @@ export function composerHasContent(message: string, attachmentCount: number): bo
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
 
-export function shouldShowStopAction(chatStatus: unknown, composingNew: boolean): boolean {
-  return !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
+export function shouldShowStopAction(
+  chatStatus: unknown,
+  composingNew: boolean,
+  hasComposerContent = false,
+): boolean {
+  return !hasComposerContent
+    && !composingNew
+    && String(chatStatus || "").trim().toLowerCase() === "active";
 }
 
 export function shouldProbeHistoricalActivity(chatStatus: unknown): boolean {
