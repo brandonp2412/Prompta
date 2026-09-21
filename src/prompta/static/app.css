@@ -1348,6 +1348,7 @@ textarea:focus-visible {
 }
 
 .composer-input-shell textarea {
+  display: block;
   width: 100%;
 }
 
