@@ -28,6 +28,7 @@ import { createLogsPanel } from "./logsPanel";
 import { createDeploymentMonitor } from "./deploymentMonitor";
 import { createLiveUpdates } from "./liveUpdates";
 import { createCompletionNotifications } from "./completionNotifications";
+import { createChangelogDialog } from "./changelogDialog";
 import { loadComposerDrafts, loadPinnedIds, saveComposerDrafts, savePinnedIds } from "./clientStorage";
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 function promotePendingConversationPin(pending, nextConversationId) {
@@ -130,6 +131,10 @@ const logsPanel = createLogsPanel({
   formatRelativeTime,
 });
 const deploymentMonitor = createDeploymentMonitor();
+createChangelogDialog({
+  fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
+  closeSidebar: sidebar.close,
+});
 const completionNotifications = createCompletionNotifications({
   displayServerName,
   getServerName: () => state.serverName,
