@@ -1493,7 +1493,7 @@ async function sendSelectedMessage() {
     showMode("logs");
     return;
   }
-  if (message.toLowerCase() === "/jobs") {
+  if (["/list", "/jobs"].includes(message.toLowerCase())) {
     await jobsDialog.open(true);
     return;
   }

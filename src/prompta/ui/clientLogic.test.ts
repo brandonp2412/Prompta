@@ -583,22 +583,22 @@ describe("composer content", () => {
   });
 });
 
-describe("/every", () => {
+describe("/add", () => {
   test("defaults bare numbers to minutes", () => {
-    expect(parseScheduleSlashCommand("/every 30 fix bugs")).toEqual({
+    expect(parseScheduleSlashCommand("/add 30 fix bugs")).toEqual({
       intervalMinutes: 30,
       prompt: "fix bugs",
     });
   });
 
   test.each([
-    ["/every 30s check quickly", 0.5],
-    ["/every 10 seconds check quickly", 1 / 6],
-    ["/every 15 min review failures", 15],
-    ["/every 1.5 hours review failures", 90],
-    ["/every 2h review failures", 120],
-    ["/every 1 day review failures", 1440],
-    ["/every 2d review failures", 2880],
+    ["/add 30s check quickly", 0.5],
+    ["/add 10 seconds check quickly", 1 / 6],
+    ["/add 15 min review failures", 15],
+    ["/add 1.5 hours review failures", 90],
+    ["/add 2h review failures", 120],
+    ["/add 1 day review failures", 1440],
+    ["/add 2d review failures", 2880],
   ])("supports useful interval units: %s", (command, intervalMinutes) => {
     expect(parseScheduleSlashCommand(command)).toEqual({
       intervalMinutes,
@@ -607,33 +607,40 @@ describe("/every", () => {
   });
 
   test("returns usage for malformed commands", () => {
-    expect(parseScheduleSlashCommand("/every tomorrow fix bugs")).toEqual({
+    expect(parseScheduleSlashCommand("/add tomorrow fix bugs")).toEqual({
       error:
-        "Use /every <interval> <prompt>, for example: /every 30 fix bugs or /every 2h review failures",
+        "Use /add <interval> <prompt>, for example: /add 30 fix bugs or /add 2h review failures",
     });
   });
 
   test("rejects intervals shorter than six seconds", () => {
-    expect(parseScheduleSlashCommand("/every 5s fix bugs")).toEqual({
+    expect(parseScheduleSlashCommand("/add 5s fix bugs")).toEqual({
       error: "Schedule interval must be at least 6 seconds.",
     });
   });
 
   test("rejects intervals longer than thirty days", () => {
-    expect(parseScheduleSlashCommand("/every 31d fix bugs")).toEqual({
+    expect(parseScheduleSlashCommand("/add 31d fix bugs")).toEqual({
       error: "Schedule interval cannot exceed 30 days.",
     });
   });
 
   test("accepts command names case-insensitively", () => {
-    expect(parseScheduleSlashCommand("/EVERY 45 review failures")).toEqual({
+    expect(parseScheduleSlashCommand("/ADD 45 review failures")).toEqual({
       intervalMinutes: 45,
       prompt: "review failures",
     });
   });
 
-  test("does not treat longer slash commands as /every", () => {
-    expect(parseScheduleSlashCommand("/everybody say hello")).toBeNull();
+  test("keeps /every as a compatibility alias", () => {
+    expect(parseScheduleSlashCommand("/every 30 fix bugs")).toEqual({
+      intervalMinutes: 30,
+      prompt: "fix bugs",
+    });
+  });
+
+  test("does not treat longer slash commands as /add", () => {
+    expect(parseScheduleSlashCommand("/address say hello")).toBeNull();
   });
 });
 
