@@ -208,6 +208,17 @@ describe("pending send activity", () => {
     });
   });
 
+  test("counts rate-limit backoff down from the absolute retry deadline", () => {
+    expect(pendingSendActivity("rate_limited", true, 300, 1_300, 1_180)).toEqual({
+      label: "rate limited · retry in 2m",
+      statusText: "Rate limited — backing off; retrying automatically in 2m.",
+    });
+    expect(pendingSendActivity("rate_limited", true, 300, 1_300, 1_301)).toEqual({
+      label: "rate limited · retrying now",
+      statusText: "Rate limited — backoff elapsed; retrying now…",
+    });
+  });
+
   test("keeps waiting after send acceptance until a response is observed", () => {
     expect(pendingSendActivity("succeeded", true)).toEqual({
       label: "waiting",

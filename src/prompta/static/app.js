@@ -51,7 +51,7 @@ function retryDelayText(seconds) {
   const hours = Math.ceil(minutes / 60);
   return `${hours}h`;
 }
-function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0) {
+function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1000) {
   const normalized = String(status || "queued").trim().toLowerCase();
   if (normalized === "failed")
     return null;
@@ -60,7 +60,17 @@ function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0) {
   if (normalized === "queued")
     return { label: "queued", statusText: "Queued in Prompta…" };
   if (normalized === "rate_limited") {
-    const delay = retryDelayText(retryAfterSeconds);
+    const deadline = Number(retryAtEpoch);
+    const now = Number(nowEpoch);
+    const hasDeadline = Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now);
+    const remaining = hasDeadline ? Math.max(0, deadline - now) : Number(retryAfterSeconds);
+    if (hasDeadline && remaining <= 0) {
+      return {
+        label: "rate limited · retrying now",
+        statusText: "Rate limited — backoff elapsed; retrying now…"
+      };
+    }
+    const delay = retryDelayText(remaining);
     return {
       label: `rate limited · retry in ${delay}`,
       statusText: `Rate limited — backing off; retrying automatically in ${delay}.`
@@ -1352,7 +1362,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       return true;
     if (item.responseObservedInCache)
       return false;
-    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds));
+    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt));
   });
   if (remaining.length)
     state.pendingReplies.set(conversationId, remaining);
@@ -1369,7 +1379,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt
       });
     }
-    const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds);
+    const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt);
     if (activity) {
       messages.push({
         message_key: `pending-activity-${item.clientId || item.sendId}`,
@@ -1470,7 +1480,7 @@ function renderConversation(chat) {
   els.shareChatButton.disabled = false;
   state.composingNew = false;
   updatePinButton();
-  const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds)).find(Boolean);
+  const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt)).find(Boolean);
   if (pendingActivity) {
     setTextIfChanged(els.composerStatus, pendingActivity.statusText);
   } else if (!state.sending) {
@@ -1577,6 +1587,7 @@ function renderNewChat() {
     pending?.error || "",
     pending?.conversationId || "",
     pending?.retryAfterSeconds || 0,
+    pending?.retryAt || 0,
     pending?.retryAttempt || 0
   ]);
   if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
@@ -1589,7 +1600,7 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt
       }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds);
+      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
       if (activity) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
@@ -1634,7 +1645,7 @@ function renderNewChat() {
     els.shareChatButton.disabled = true;
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
-    const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds) : null;
+    const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt) : null;
     els.composerStatus.textContent = pending ? pending.status === "failed" ? "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "Your first message will open a fresh ChatGPT chat.";
   }
   if (enteringNewChat) {
@@ -2242,6 +2253,7 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.status || "",
     item.error || "",
     item.retryAfterSeconds || 0,
+    item.retryAt || 0,
     item.retryAttempt || 0
   ]);
   Object.assign(item, updates);
@@ -2249,6 +2261,7 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.status || "",
     item.error || "",
     item.retryAfterSeconds || 0,
+    item.retryAt || 0,
     item.retryAttempt || 0
   ]) !== previous;
   if (changed)
@@ -2299,13 +2312,15 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextError = job.error || "";
       const nextConversationId = job.conversation_id || state.pendingNewSend.conversationId || "";
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
+      const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
-      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
         conversationId: nextConversationId,
         retryAfterSeconds: nextRetryAfterSeconds,
+        retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt
       });
       if (changed)
@@ -2361,6 +2376,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       status,
       error: job.error || "",
       retryAfterSeconds: Number(job.retry_after_seconds || 0),
+      retryAt: Number(job.retry_at || 0),
       retryAttempt: Number(job.retry_attempt || 0)
     });
     if (changed)
@@ -2650,6 +2666,13 @@ function queueLiveRefresh() {
   });
 }
 function refreshDisplayedTimes() {
+  if (state.composingNew && state.pendingNewSend?.status === "rate_limited") {
+    state.newChatFingerprint = "";
+    renderNewChat();
+  } else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => item.status === "rate_limited")) {
+    state.selectedFingerprint = "";
+    loadSelectedChat();
+  }
   renderSidebar();
   for (const time of els.chatList.querySelectorAll(".chat-time[data-activity-at]")) {
     setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
