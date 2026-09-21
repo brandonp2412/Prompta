@@ -39,6 +39,11 @@ from .bidi import _BIDI_AUTH_TIMEOUT_SECONDS, FirefoxBiDiDriver
 
 logger = logging.getLogger(__name__)
 
+
+class ChromeDebuggerUnavailableError(RuntimeError):
+    pass
+
+
 _CHROMEDRIVER_COMMAND_TIMEOUT_SECONDS = 30
 _FATAL_WEBDRIVER_MARKERS = (
     "tab crashed",
@@ -212,6 +217,22 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             connection_manager.clear()
         return driver
 
+    def _assert_debugger_available(self) -> None:
+        if not self.debugger_address:
+            return
+        endpoint = f"http://{self.debugger_address}/json/version"
+        try:
+            with urlopen(endpoint, timeout=1.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            raise ChromeDebuggerUnavailableError(
+                f"Chromium debugger at {self.debugger_address} is unavailable"
+            ) from exc
+        if not isinstance(payload, dict) or not payload.get("webSocketDebuggerUrl"):
+            raise ChromeDebuggerUnavailableError(
+                f"Chromium debugger at {self.debugger_address} is unavailable"
+            )
+
     async def _create_driver_session(self) -> webdriver.Chrome:
         attempts = 2 if self.debugger_address else 1
         last_error: Exception | None = None
@@ -233,6 +254,8 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         if self.needs_browser_restart:
             raise RuntimeError("Chromium WebDriver session is poisoned; browser restart required")
         try:
+            if self.debugger_address:
+                await asyncio.to_thread(self._assert_debugger_available)
             await self._cleanup_stale_owned_contexts()
             self._driver = await self._create_driver_session()
             handles = await self._run_webdriver_call(

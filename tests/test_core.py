@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from prompta.cache import ActiveConversation, ChatCache
+from prompta.chrome import ChromeDebuggerUnavailableError
+from prompta.conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS
 from prompta.core import (
     Prompta,
     PromptaConfig,
@@ -2873,6 +2875,28 @@ async def test_sync_conversation_waits_for_final_turn_evidence(
     assert prompta.cache.status(conversation_id) == "active"
     assert list(prompta._active_conversations) == ["context-new"]
     fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_recover_cached_conversations_defers_when_chrome_debugger_is_offline(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.conversations.recover_cached_conversations = AsyncMock(
+        side_effect=ChromeDebuggerUnavailableError("offline")
+    )
+    before = time.monotonic()
+
+    assert await prompta.recover_cached_conversations() == 0
+    assert prompta._next_recovery_retry_at >= before + RESTART_RECOVERY_RETRY_SECONDS - 0.1
+
     prompta.cache.close()
 
 

@@ -14,7 +14,7 @@ from selenium.webdriver.common.by import By
 from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 
-from prompta.chrome import ChromeDriverDriver, _PromptaChrome
+from prompta.chrome import ChromeDebuggerUnavailableError, ChromeDriverDriver, _PromptaChrome
 
 
 def test_prompta_chrome_applies_timeout_before_start_session() -> None:
@@ -95,6 +95,43 @@ def test_create_driver_attaches_to_existing_browser_without_profile_args(tmp_pat
     assert options.experimental_options["debuggerAddress"] == "127.0.0.1:9222"
     assert not profile.exists()
     assert not any(arg.startswith("--user-data-dir=") for arg in options.arguments)
+
+
+def test_attached_debugger_unavailable_fails_fast(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "chrome-profile",
+        debugger_address="127.0.0.1:9222",
+    )
+
+    with (
+        patch("prompta.chrome.urlopen", side_effect=OSError("connection refused")),
+        pytest.raises(ChromeDebuggerUnavailableError, match="127.0.0.1:9222"),
+    ):
+        driver._assert_debugger_available()
+
+
+@pytest.mark.asyncio
+async def test_connect_does_not_poison_session_when_debugger_is_offline(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "chrome-profile",
+        debugger_address="127.0.0.1:9222",
+    )
+
+    with (
+        patch.object(
+            driver,
+            "_assert_debugger_available",
+            side_effect=ChromeDebuggerUnavailableError("offline"),
+        ),
+        patch.object(driver, "_cleanup_stale_owned_contexts", new_callable=AsyncMock) as cleanup,
+        patch.object(driver, "_create_driver_session", new_callable=AsyncMock) as create_session,
+        pytest.raises(ChromeDebuggerUnavailableError, match="offline"),
+    ):
+        await driver.connect()
+
+    cleanup.assert_not_awaited()
+    create_session.assert_not_awaited()
+    assert driver.needs_browser_restart is False
 
 
 @pytest.mark.asyncio
