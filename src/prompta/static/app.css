@@ -188,7 +188,7 @@ textarea:focus-visible {
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .search-box input::placeholder {
@@ -253,12 +253,47 @@ textarea:focus-visible {
   gap: 7px;
 }
 
+.chat-row-pin {
+  width: 24px;
+  height: 24px;
+  margin: -4px -4px -4px 0;
+  display: none;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-row-pin svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chat-row-pin:hover,
+.chat-row-pin.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-item:hover .chat-row-pin,
+  .chat-row-pin.active {
+    display: grid;
+  }
+}
+
 .chat-title {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   color: #dedede;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 520;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -286,7 +321,7 @@ textarea:focus-visible {
   margin-top: 5px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -298,7 +333,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chat-job {
@@ -702,13 +737,30 @@ textarea:focus-visible {
 
 .message-content {
   color: #e8e8e8;
-  font-size: 14px;
-  line-height: 1.72;
+  font-size: 15px;
+  line-height: 1.68;
   overflow-wrap: anywhere;
 }
 
 .message.user .message-content {
   line-height: 1.55;
+}
+
+.retry-send-button {
+  margin-top: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--panel) 86%, var(--text) 4%);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.retry-send-button:hover {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--border));
+  background: color-mix(in srgb, var(--panel) 78%, var(--text) 8%);
 }
 
 .message-timestamp {
@@ -819,7 +871,7 @@ textarea:focus-visible {
 .message-content table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .message-content th,

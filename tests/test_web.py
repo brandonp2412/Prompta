@@ -207,6 +207,29 @@ def test_send_job_registry_returns_before_sender_finishes() -> None:
     assert result["error"] == ""
 
 
+def test_send_job_registry_reuses_client_id() -> None:
+    calls = 0
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        return "chat-new"
+
+    registry = SendJobRegistry(sender)
+    first = registry.submit(operation="once", message="Hello", client_id="browser-send-1")
+    second = registry.submit(operation="once", message="Hello", client_id="browser-send-1")
+
+    assert second["send_id"] == first["send_id"]
+    deadline = time.monotonic() + 1.0
+    result = registry.get(first["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(first["send_id"])
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert calls == 1
+
+
 def test_send_job_registry_surfaces_background_error() -> None:
     def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
         raise RuntimeError("browser session unavailable")
