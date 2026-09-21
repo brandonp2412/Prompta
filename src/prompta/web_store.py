@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 import subprocess
 from datetime import datetime
@@ -8,18 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .cache import DEFAULT_CACHE_PATH
-
-_SIDEBAR_PREVIEW_LIMIT = 1024
-_SIDEBAR_TOOL_BLOCK_RE = re.compile(
-    r"^ {0,3}```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\r?\n"
-    r"[\s\S]*?^ {0,3}```[ \t]*\r?$",
-    re.IGNORECASE | re.MULTILINE,
-)
-
-
-def _compact_sidebar_preview(value: Any) -> str:
-    compact = " ".join(_SIDEBAR_TOOL_BLOCK_RE.sub(" ", str(value or "")).split())
-    return compact[:_SIDEBAR_PREVIEW_LIMIT]
+from .preview import compact_sidebar_preview
 
 
 class ReadOnlyChatStore:
@@ -74,6 +62,23 @@ class ReadOnlyChatStore:
         parameters.append(max(1, min(limit, 500)))
         try:
             with self._connect() as connection:
+                columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
+                }
+                preview_expression = (
+                    "c.preview"
+                    if "preview" in columns
+                    else """COALESCE(
+                        (
+                            SELECT m.content FROM messages m
+                            WHERE m.conversation_id = c.id
+                              AND m.message_key NOT LIKE 'request-placeholder-%'
+                            ORDER BY m.ordinal DESC LIMIT 1
+                        ),
+                        NULLIF(c.prompt, '')
+                    )"""
+                )
                 rows = connection.execute(
                     f"""
                     SELECT
@@ -94,15 +99,7 @@ class ReadOnlyChatStore:
                             ),
                             c.created_at
                         ) AS last_message_at,
-                        COALESCE(
-                            (
-                                SELECT m.content FROM messages m
-                                WHERE m.conversation_id = c.id
-                                  AND m.message_key NOT LIKE 'request-placeholder-%'
-                                ORDER BY m.ordinal DESC LIMIT 1
-                            ),
-                            NULLIF(c.prompt, '')
-                        ) AS preview,
+                        {preview_expression} AS preview,
                         CASE
                             WHEN EXISTS (
                                 SELECT 1 FROM messages m
@@ -131,7 +128,7 @@ class ReadOnlyChatStore:
         result = []
         for row in rows:
             payload = dict(row)
-            payload["preview"] = _compact_sidebar_preview(payload.get("preview"))
+            payload["preview"] = compact_sidebar_preview(payload.get("preview"))
             result.append(payload)
         return result
 
