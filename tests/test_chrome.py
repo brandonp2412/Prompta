@@ -285,6 +285,7 @@ async def test_connect_cleans_stale_targets_before_creating_driver(tmp_path: Pat
         return selenium
 
     with (
+        patch.object(driver, "_assert_debugger_available"),
         patch.object(driver, "_cleanup_stale_owned_contexts", side_effect=cleanup),
         patch.object(driver, "_create_driver_session", side_effect=create_session),
         patch.object(driver, "navigate", new_callable=AsyncMock),
