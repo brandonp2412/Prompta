@@ -588,6 +588,22 @@ function setHiddenIfChanged(element, hidden) {
   if (element.hidden !== hidden)
     element.hidden = hidden;
 }
+function setConversationHeading(title, meta) {
+  let titleNode = els.chatHeading.querySelector(".heading-title");
+  let metaNode = els.chatHeading.querySelector(".heading-meta");
+  if (!titleNode) {
+    titleNode = document.createElement("div");
+    titleNode.className = "heading-title";
+    els.chatHeading.prepend(titleNode);
+  }
+  if (!metaNode) {
+    metaNode = document.createElement("div");
+    metaNode.className = "heading-meta";
+    els.chatHeading.append(metaNode);
+  }
+  setTextIfChanged(titleNode, title);
+  setTextIfChanged(metaNode, meta);
+}
 var SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 var STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
 function syncSendButton() {
@@ -599,7 +615,7 @@ function syncSendButton() {
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
-    els.sendButton.innerHTML = stopMode ? STOP_ICON : SEND_ICON;
+    patchHtmlChildren(els.sendButton, stopMode ? STOP_ICON : SEND_ICON);
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
@@ -737,10 +753,10 @@ function reconcileOptimisticNew(chats) {
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
-    const pending = state.pendingReplies.get(chat.id) || [];
-    if (!pending.length)
+    const pending2 = state.pendingReplies.get(chat.id) || [];
+    if (!pending2.length)
       return chat;
-    const latest = pending[pending.length - 1];
+    const latest = pending2[pending2.length - 1];
     return {
       ...chat,
       status: latest.status === "failed" ? chat.status : "active",
@@ -780,6 +796,8 @@ function sidebarChats() {
   }
   return [optimistic, ...chats];
 }
+var boundSidebarItems = new WeakSet;
+var boundSidebarPins = new WeakSet;
 function renderSidebar(force = false) {
   const chats = sidebarChats();
   const fingerprint = JSON.stringify(chats.map((chat) => [
@@ -798,19 +816,19 @@ function renderSidebar(force = false) {
     return;
   state.sidebarFingerprint = fingerprint;
   if (!chats.length) {
-    els.chatList.innerHTML = `
+    patchHtmlChildren(els.chatList, `
       <div class="list-empty">
         ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
-      </div>`;
+      </div>`);
     return;
   }
-  els.chatList.innerHTML = groupChats(chats).map(([label, groupedChats]) => `
-    <section class="chat-group">
+  patchHtmlChildren(els.chatList, groupChats(chats).map(([label, groupedChats]) => `
+    <section class="chat-group" data-dom-key="group:${escapeHtml(label)}">
       <div class="chat-group-label">${escapeHtml(label)}</div>
       ${groupedChats.map((chat) => {
     const selected = chat.id === state.selectedId || chat._optimisticNew && state.composingNew;
     return `
-        <div class="chat-item ${selected ? "selected" : ""}">
+        <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml(chat.id)}">
           <button type="button"
                   class="chat-item-select"
                   data-chat-id="${escapeHtml(chat.id)}"
@@ -836,8 +854,11 @@ function renderSidebar(force = false) {
         </div>`;
   }).join("")}
     </section>
-  `).join("");
+  `).join(""));
   for (const item of els.chatList.querySelectorAll("[data-chat-id]")) {
+    if (boundSidebarItems.has(item))
+      continue;
+    boundSidebarItems.add(item);
     item.addEventListener("click", () => {
       if (item.dataset.optimisticNew === "true" && state.pendingNewSend) {
         renderNewChat();
@@ -848,6 +869,9 @@ function renderSidebar(force = false) {
     });
   }
   for (const pin of els.chatList.querySelectorAll("[data-pin-chat-id]")) {
+    if (boundSidebarPins.has(pin))
+      continue;
+    boundSidebarPins.add(pin);
     pin.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -991,11 +1015,11 @@ function highlightCode(raw, language) {
 function inlineMarkdown(text) {
   const placeholders = [];
   let source = String(text || "");
-  const stash = (html) => {
+  const stash = (html2) => {
     let token = `PROMPTA_INLINE_${placeholders.length}`;
     while (source.includes(token))
       token += "";
-    placeholders.push([token, html]);
+    placeholders.push([token, html2]);
     return token;
   };
   source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
@@ -1343,10 +1367,15 @@ function patchDomNode(current, next) {
     current.open = detailsOpen;
   return current;
 }
+function domPatchKey(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE)
+    return "";
+  return node.dataset.domKey || "";
+}
 function patchDomChildren(currentParent, nextParent) {
   let index = 0;
   while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
-    const current = currentParent.childNodes[index];
+    let current = currentParent.childNodes[index];
     const next = nextParent.childNodes[index];
     if (!next) {
       current.remove();
@@ -1357,9 +1386,26 @@ function patchDomChildren(currentParent, nextParent) {
       index += 1;
       continue;
     }
+    const nextKey = domPatchKey(next);
+    if (nextKey && domPatchKey(current) !== nextKey) {
+      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
+      if (match) {
+        currentParent.insertBefore(match, current);
+        current = match;
+      } else {
+        currentParent.insertBefore(next.cloneNode(true), current);
+        index += 1;
+        continue;
+      }
+    }
     patchDomNode(current, next);
     index += 1;
   }
+}
+function patchHtmlChildren(element, html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  patchDomChildren(element, template.content);
 }
 function updateMessageNode(node, message, allowStreaming) {
   const role = message.role === "user" ? "user" : "assistant";
@@ -1371,10 +1417,24 @@ function updateMessageNode(node, message, allowStreaming) {
   const content = node.querySelector(".message-content");
   if (!content)
     return false;
-  const currentAttachments = node.querySelector(".message-attachments")?.outerHTML || "";
+  let currentAttachments = node.querySelector(".message-attachments");
   const nextAttachments = message.pending_activity ? "" : renderMessageAttachments(message);
-  if (currentAttachments !== nextAttachments)
-    return false;
+  if (!nextAttachments) {
+    currentAttachments?.remove();
+    currentAttachments = null;
+  } else if (!currentAttachments) {
+    const template = document.createElement("template");
+    template.innerHTML = nextAttachments;
+    const nextNode = template.content.firstElementChild;
+    if (nextNode)
+      content.before(nextNode);
+  } else if (currentAttachments.outerHTML !== nextAttachments) {
+    const template = document.createElement("template");
+    template.innerHTML = nextAttachments;
+    const nextNode = template.content.firstElementChild;
+    if (nextNode)
+      patchDomNode(currentAttachments, nextNode);
+  }
   const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
   if (content.innerHTML !== nextContent) {
     const template = document.createElement("template");
@@ -1620,9 +1680,7 @@ function renderConversationMeta(chat, visibleMessageCount) {
   if (metaFingerprint === state.selectedMetaFingerprint)
     return;
   state.selectedMetaFingerprint = metaFingerprint;
-  els.chatHeading.innerHTML = `
-    <div class="heading-title">${escapeHtml(title)}</div>
-    <div class="heading-meta">${escapeHtml(meta)}</div>`;
+  setConversationHeading(title, meta);
   const syncStatus = chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
   const syncLabel = chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
   setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
@@ -1707,7 +1765,7 @@ function showMode(mode) {
   if (logsMode) {
     state.selectedMetaFingerprint = "";
     const display = displayServerName(state.serverName || location.hostname);
-    els.chatHeading.innerHTML = `<div class="heading-title">${escapeHtml(display)} Prompta logs</div>` + `<div class="heading-meta">journalctl · prompta.service · ${escapeHtml(display)}</div>`;
+    setConversationHeading(`${display} Prompta logs`, `journalctl · prompta.service · ${display}`);
     setStatusIcon(els.syncLabel, "journal", `${display} journal`, "sync");
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
@@ -1737,12 +1795,10 @@ function clearConversation() {
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
   state.renderedConversationId = "";
-  els.emptyState.hidden = false;
-  els.conversation.hidden = true;
-  els.conversation.innerHTML = "";
-  els.chatHeading.innerHTML = `
-    <div class="heading-title">Prompta</div>
-    <div class="heading-meta">Local conversation history</div>`;
+  setHiddenIfChanged(els.emptyState, false);
+  setHiddenIfChanged(els.conversation, true);
+  renderMessageNodes([], false);
+  setConversationHeading("Prompta", "Local conversation history");
   setStatusIcon(els.syncLabel, "local", "Local cache", "sync");
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
@@ -1792,8 +1848,8 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt
       }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
-      if (activity) {
+      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      if (activity2) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -1801,7 +1857,7 @@ function renderNewChat() {
           status: "pending",
           updated_at: pending.updatedAt,
           pending_activity: true,
-          pending_activity_label: activity.label
+          pending_activity_label: activity2.label
         });
       } else if (pending.status === "failed") {
         messages.push({
@@ -1815,22 +1871,17 @@ function renderNewChat() {
           retry_key: pending.clientId || pending.sendId
         });
       }
-      els.emptyState.hidden = true;
-      els.conversation.hidden = false;
-      els.conversation.innerHTML = messages.map((message) => renderMessageSection(message)).join("");
-      bindCopyButtons(els.conversation);
-      bindRetryButtons(els.conversation);
-      requestAnimationFrame(() => {
-        els.viewport.scrollTop = els.viewport.scrollHeight;
-      });
+      const viewportSnapshot = captureConversationViewport();
+      setHiddenIfChanged(els.emptyState, true);
+      setHiddenIfChanged(els.conversation, false);
+      renderMessageNodes(messages, true);
+      restoreConversationViewport(viewportSnapshot, enteringNewChat);
     } else {
-      els.emptyState.hidden = false;
-      els.conversation.hidden = true;
-      els.conversation.innerHTML = "";
+      setHiddenIfChanged(els.emptyState, false);
+      setHiddenIfChanged(els.conversation, true);
+      renderMessageNodes([], false);
     }
-    els.chatHeading.innerHTML = `
-      <div class="heading-title">New chat</div>
-      <div class="heading-meta">${pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation"}</div>`;
+    setConversationHeading("New chat", pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation");
     setStatusIcon(els.syncLabel, pending ? "queued" : "new", pending ? "Send queued" : "Fresh conversation", "sync");
     els.messageInput.disabled = false;
     syncSendButton();
@@ -2278,7 +2329,7 @@ function resizeComposer() {
 function renderAttachments() {
   const files = state.attachments || [];
   els.attachmentChips.hidden = files.length === 0;
-  els.attachmentChips.innerHTML = files.map((file, index) => '<span class="attachment-chip">' + '<span title="' + escapeHtml(file.name) + '">' + escapeHtml(truncate(file.name, 28)) + "</span>" + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>' + "</span>").join("");
+  patchHtmlChildren(els.attachmentChips, files.map((file, index) => '<span class="attachment-chip">' + '<span title="' + escapeHtml(file.name) + '">' + escapeHtml(truncate(file.name, 28)) + "</span>" + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>' + "</span>").join(""));
   syncSendButton();
 }
 function clearAttachments() {
@@ -2487,14 +2538,14 @@ function renderJobs(jobs) {
   state.scheduledJobs = Array.isArray(jobs) ? jobs : [];
   els.clearJobsButton.disabled = state.scheduledJobs.length === 0;
   if (!state.scheduledJobs.length) {
-    els.jobsList.innerHTML = '<div class="jobs-empty">No scheduled jobs.</div>';
+    patchHtmlChildren(els.jobsList, '<div class="jobs-empty">No scheduled jobs.</div>');
     return;
   }
-  els.jobsList.innerHTML = state.scheduledJobs.map((job) => {
+  patchHtmlChildren(els.jobsList, state.scheduledJobs.map((job) => {
     const paused = Boolean(job.paused);
     const canEdit = !job.run_at_epoch;
     return `
-      <article class="job-row" data-job-name="${escapeHtml(job.name)}">
+      <article class="job-row" data-job-name="${escapeHtml(job.name)}" data-dom-key="job:${escapeHtml(job.name)}">
         <div class="job-row-top">
           <div>
             <div class="job-row-name">${escapeHtml(job.name)}</div>
@@ -2510,7 +2561,7 @@ function renderJobs(jobs) {
         </div>
       </article>
     `;
-  }).join("");
+  }).join(""));
 }
 async function loadJobs() {
   els.jobsDialogStatus.textContent = "Loading jobs…";
@@ -2685,7 +2736,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       if (nextConversationId) {
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
-      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
@@ -2694,7 +2745,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt
       });
-      if (changed)
+      if (changed2)
         state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -2737,7 +2788,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderSidebar();
         return;
       }
-      if (changed) {
+      if (changed2) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();
