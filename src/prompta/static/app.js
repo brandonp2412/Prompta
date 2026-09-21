@@ -46,6 +46,17 @@ function parsedToolPayload(value) {
   }
   return current;
 }
+function toolCallSummary(value) {
+  const payload = parsedToolPayload(value);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return "";
+  const record = payload;
+  for (const candidate of [record.summary, record.reasoning_title, record.title]) {
+    if (typeof candidate === "string" && candidate.trim())
+      return candidate.trim();
+  }
+  return "";
+}
 function pythonToolCallCode(toolName, value) {
   const name = String(toolName || "").trim().toLowerCase();
   const pythonTool = name.includes("execute_python") || name.includes("python") && (name.includes("nox") || name.includes("glass") || name.includes("mcp"));
@@ -870,11 +881,12 @@ function renderCodeBlock(code, language) {
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation)
     return "";
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
+  const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
   const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode ? "python" : toolish && toolFence ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
   const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
   const header = `
-      <span class="code-language">${escapeHtml(label)}</span>
+      ${toolSummary ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>` : `<span class="code-language">${escapeHtml(label)}</span>`}
       ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
       ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}`;
   const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : "";

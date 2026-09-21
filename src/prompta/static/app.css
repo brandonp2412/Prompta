@@ -1036,6 +1036,16 @@ textarea:focus-visible {
   border-bottom-color: transparent;
 }
 
+.tool-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: #d8e6fb;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-name {
   margin-left: 8px;
   padding-left: 8px;
@@ -1622,6 +1632,10 @@ textarea:focus-visible {
 
   .tool-call-block .code-header {
     background: #edf3f8;
+  }
+
+  .tool-summary {
+    color: #244f82;
   }
 
   .tool-name {

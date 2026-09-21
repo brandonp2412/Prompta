@@ -92,6 +92,16 @@ function parsedToolPayload(value: unknown): unknown {
   return current;
 }
 
+export function toolCallSummary(value: unknown): string {
+  const payload = parsedToolPayload(value);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const record = payload as Record<string, unknown>;
+  for (const candidate of [record.summary, record.reasoning_title, record.title]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return "";
+}
+
 export function pythonToolCallCode(toolName: unknown, value: unknown): string {
   const name = String(toolName || "").trim().toLowerCase();
   const pythonTool = name.includes("execute_python")

@@ -14,6 +14,7 @@ import {
   toolCallDisplayName,
   toolCallHasUsefulDetail,
   toolCallIsInvocationPlaceholder,
+  toolCallSummary,
 } from "./clientLogic";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
 function loadPinnedIds() {
@@ -617,6 +618,7 @@ function renderCodeBlock(code, language) {
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
+  const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
   const renderedCode = pythonCode
     || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode
@@ -626,7 +628,9 @@ function renderCodeBlock(code, language) {
       : normalized;
   const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
   const header = `
-      <span class="code-language">${escapeHtml(label)}</span>
+      ${toolSummary
+        ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>`
+        : `<span class="code-language">${escapeHtml(label)}</span>`}
       ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
       ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}`;
   const body = renderedCode.trim()
