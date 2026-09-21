@@ -246,7 +246,7 @@ class FirefoxBiDiDriver:
               window.fetch=function(input,init){
                 let isSend=false,req=null;
                 try{
-                  req=new Request(input,init);
+                  req=new Request(input instanceof Request?input.clone():input,init);
                   const url=new URL(req.url,location.href);
                   isSend=req.method==='POST'&&(url.pathname==='/backend-api/f/conversation'||url.pathname==='/backend-api/conversation');
                   if(isSend){
