@@ -19,6 +19,10 @@ class SendVerificationError(RuntimeError):
     pass
 
 
+class SendNotAcceptedError(RuntimeError):
+    pass
+
+
 class ConversationActions:
     def __init__(
         self,
@@ -214,7 +218,7 @@ class ConversationActions:
                 and not provisional_conversation_id
                 and last_path == baseline_path
             ):
-                raise RuntimeError(
+                raise SendNotAcceptedError(
                     "ChatGPT did not accept the prompt; it remained in the composer after submit"
                 )
             raise SendVerificationError(

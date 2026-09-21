@@ -53,6 +53,9 @@ _FATAL_WEBDRIVER_MARKERS = (
     "not connected to devtools",
     "chrome not reachable",
     "unable to discover open pages",
+    "no such window",
+    "target window already closed",
+    "web view not found",
 )
 
 

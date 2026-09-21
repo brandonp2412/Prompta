@@ -12,6 +12,7 @@ import pytest
 
 from prompta.cache import ActiveConversation, ChatCache
 from prompta.chrome import ChromeDebuggerUnavailableError
+from prompta.conversation_actions import SendNotAcceptedError
 from prompta.conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS
 from prompta.core import (
     Prompta,
@@ -1206,6 +1207,47 @@ async def test_uncertain_send_is_persisted_instead_of_retried_rapidly(tmp_path: 
         assert await prompta._run_job(job, now=1000.0) is False
 
     assert prompta.due_in(job, now=1001.0) == 1799.0
+
+
+@pytest.mark.asyncio
+async def test_scheduled_send_retries_once_when_chatgpt_does_not_accept_prompt(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[SendNotAcceptedError("not accepted"), "conversation"]
+    )
+    job = PromptJob("flux", "continue flux", 1800)
+
+    with patch("prompta.core.time.time", return_value=1000.0):
+        assert await prompta._run_job(job, now=1000.0) is True
+
+    assert prompta.send_once.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_scheduled_send_not_accepted_retry_is_bounded(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(  # type: ignore[method-assign]
+        side_effect=SendNotAcceptedError("not accepted")
+    )
+    job = PromptJob("flux", "continue flux", 1800)
+
+    with patch("prompta.core.time.time", return_value=1000.0):
+        assert await prompta._run_job(job, now=1000.0) is False
+
+    assert prompta.send_once.await_count == 2
+    assert prompta.scheduler_execution.scheduler.failure_retry_remaining("flux", 1001.0) > 0
 
 
 @pytest.mark.asyncio

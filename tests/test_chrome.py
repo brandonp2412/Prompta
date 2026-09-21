@@ -642,6 +642,25 @@ async def test_eval_marks_chromedriver_transport_timeout_for_restart() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    ["no such window", "target window already closed", "web view not found"],
+)
+async def test_eval_marks_closed_chromium_window_for_restart(message: str) -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+    selenium.execute_script.side_effect = WebDriverException(message)
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    with pytest.raises(RuntimeError, match="browser restart required"):
+        await driver.eval("location.pathname")
+
+    assert driver.needs_browser_restart is True
+
+
+@pytest.mark.asyncio
 async def test_eval_serializes_chromedriver_commands() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "window"
