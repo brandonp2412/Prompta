@@ -435,15 +435,15 @@ export function matchingPendingReplyMessageIndex(
 }
 
 export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {
-  if (!/^\/every(?:\s|$)/i.test(message)) return null;
+  if (!/^\/(?:add|every)(?:\s|$)/i.test(message)) return null;
 
   const match = message.match(
-    /^\/every\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i,
+    /^\/(?:add|every)\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i,
   );
   if (!match) {
     return {
       error:
-        "Use /every <interval> <prompt>, for example: /every 30 fix bugs or /every 2h review failures",
+        "Use /add <interval> <prompt>, for example: /add 30 fix bugs or /add 2h review failures",
     };
   }
 

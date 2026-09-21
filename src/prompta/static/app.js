@@ -316,12 +316,12 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = ne
   return bestIndex;
 }
 function parseScheduleSlashCommand(message) {
-  if (!/^\/every(?:\s|$)/i.test(message))
+  if (!/^\/(?:add|every)(?:\s|$)/i.test(message))
     return null;
-  const match = message.match(/^\/every\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i);
+  const match = message.match(/^\/(?:add|every)\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i);
   if (!match) {
     return {
-      error: "Use /every <interval> <prompt>, for example: /every 30 fix bugs or /every 2h review failures"
+      error: "Use /add <interval> <prompt>, for example: /add 30 fix bugs or /add 2h review failures"
     };
   }
   const amount = Number(match[1]);
@@ -3826,7 +3826,7 @@ async function sendSelectedMessage() {
     showMode("logs");
     return;
   }
-  if (message.toLowerCase() === "/jobs") {
+  if (["/list", "/jobs"].includes(message.toLowerCase())) {
     await jobsDialog.open(true);
     return;
   }
