@@ -1548,13 +1548,22 @@ textarea:focus-visible {
     position: fixed;
     inset: 0 auto 0 0;
     width: min(86vw, 320px);
-    transform: translateX(-100%);
+    transform: translate3d(-100%, 0, 0);
     box-shadow: 20px 0 50px rgba(0, 0, 0, 0.35);
     transition: transform 160ms cubic-bezier(0.2, 0.75, 0.2, 1);
   }
 
-  body.sidebar-open .sidebar {
-    transform: translateX(0);
+  .sidebar.is-open {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .chat-list {
+    contain: layout paint style;
+  }
+
+  .chat-item {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 75px;
   }
 
   body.sidebar-dragging .sidebar {
@@ -1574,7 +1583,7 @@ textarea:focus-visible {
     will-change: opacity;
   }
 
-  body.sidebar-open .sidebar-scrim {
+  .sidebar-scrim.is-open {
     opacity: 1;
     pointer-events: auto;
   }
