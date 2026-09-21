@@ -2224,8 +2224,11 @@ document.addEventListener("keydown", (event) => {
   }
 });
 var mobileSidebarMedia = window.matchMedia("(max-width: 780px)");
+function sidebarIsOpen() {
+  return els.sidebar.classList.contains("is-open");
+}
 function syncSidebarAccessibility() {
-  const hidden = mobileSidebarMedia.matches && !document.body.classList.contains("sidebar-open");
+  const hidden = mobileSidebarMedia.matches && !sidebarIsOpen();
   els.sidebar.toggleAttribute("inert", hidden);
   if (hidden)
     els.sidebar.setAttribute("aria-hidden", "true");
@@ -2235,18 +2238,20 @@ function syncSidebarAccessibility() {
 }
 function openSidebar() {
   resetSidebarDragStyles();
-  if (mobileSidebarEnabled() && !document.body.classList.contains("sidebar-open")) {
+  if (mobileSidebarEnabled() && !sidebarIsOpen()) {
     beginSidebarMotion();
   }
-  document.body.classList.add("sidebar-open");
+  els.sidebar.classList.add("is-open");
+  els.sidebarScrim.classList.add("is-open");
   syncSidebarAccessibility();
 }
 function closeSidebar() {
   resetSidebarDragStyles();
-  if (mobileSidebarEnabled() && document.body.classList.contains("sidebar-open")) {
+  if (mobileSidebarEnabled() && sidebarIsOpen()) {
     beginSidebarMotion();
   }
-  document.body.classList.remove("sidebar-open");
+  els.sidebar.classList.remove("is-open");
+  els.sidebarScrim.classList.remove("is-open");
   syncSidebarAccessibility();
 }
 els.openSidebar.addEventListener("click", openSidebar);
@@ -2307,7 +2312,7 @@ document.addEventListener("touchstart", (event) => {
     return;
   resetSidebarDragStyles();
   const touch = event.touches[0];
-  const sidebarOpen = document.body.classList.contains("sidebar-open");
+  const sidebarOpen = sidebarIsOpen();
   if (!sidebarOpen && touch.clientX > SIDEBAR_EDGE_SWIPE_WIDTH)
     return;
   sidebarSwipe.startX = touch.clientX;
@@ -2378,7 +2383,8 @@ function settleSidebarDrag(open) {
   const remaining = Math.abs(targetX - currentX);
   const speed = Math.max(0.6, Math.abs(sidebarSwipe.velocityX));
   const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
-  document.body.classList.toggle("sidebar-open", open);
+  els.sidebar.classList.toggle("is-open", open);
+  els.sidebarScrim.classList.toggle("is-open", open);
   syncSidebarAccessibility();
   els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
   els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
