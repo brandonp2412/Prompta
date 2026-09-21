@@ -508,12 +508,16 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "!node.querySelector(toolSelector)" in expression
     assert "blocks.indexOf(block)===index" not in expression
     assert "const seenRoleKeys=new Set()" in expression
+    assert "const reactOrderedContent=agent=>" in expression
+    assert "contentType==='text'||contentType==='multimodal_text'" in expression
     assert "const currentToolRows=[...agent.querySelectorAll" in expression
     assert "const orderedNodes=[" in expression
     assert "...markdown.map(node=>({node,kind:'markdown'}))" in expression
     assert "...toolRows.map(node=>({node,kind:'tool'}))" in expression
     assert "left.node.compareDocumentPosition(right.node)" in expression
     assert "if(orderedToolIndex<tools.length)orderedParts.push" in expression
+    assert "const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible)" in expression
+    assert "const content=(reactOrdered||fallbackContent).trim()" in expression
     assert "const activity=!richText.length&&!tools.length&&activityLines.length" in expression
     assert "'```tool:'+label" in expression
     assert '[data-streaming="active"]' in expression

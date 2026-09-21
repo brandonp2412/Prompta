@@ -28,7 +28,12 @@ _TOOL_BLOCK_RE = re.compile(
 )
 _REACT_TOOL_SCRIPT = r"""
 (()=>{
-  const root=document.querySelector('main')||document.body;
+  const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
+  const latestAssistant=assistants.at(-1);
+  const root=latestAssistant?.closest('[data-testid^="conversation-turn-"]')
+    ||latestAssistant?.closest('.agent-turn')
+    ||document.querySelector('main')
+    ||document.body;
   if(!root)return {ready:false,messages:[]};
   const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
   const add=messages=>{
