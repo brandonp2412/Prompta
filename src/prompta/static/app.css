@@ -308,6 +308,41 @@ textarea:focus-visible {
   }
 }
 
+.chat-row-pin {
+  width: 24px;
+  height: 24px;
+  margin: -4px -4px -4px 0;
+  display: none;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-row-pin svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chat-row-pin:hover,
+.chat-row-pin.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-item:hover .chat-row-pin,
+  .chat-row-pin.active {
+    display: grid;
+  }
+}
+
 .chat-title {
   min-width: 0;
   flex: 1;
