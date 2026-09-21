@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.by import By
 
 from prompta.chrome import ChromeDriverDriver
 
@@ -152,3 +153,50 @@ async def test_perform_actions_uses_w3c_actions() -> None:
 
     assert selenium.execute.call_count == 2
     assert selenium.execute.call_args_list[0].args[1] == {"actions": actions}
+
+
+@pytest.mark.asyncio
+async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+    send = MagicMock()
+    send.is_displayed.return_value = True
+    send.is_enabled.return_value = True
+    send.get_attribute.return_value = None
+    selenium.find_elements.return_value = [send]
+
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    await driver.click_send_button(timeout=0.1)
+
+    selenium.find_elements.assert_called_once_with(By.CSS_SELECTOR, '[data-testid="send-button"]')
+    send.click.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_click_send_button_skips_aria_disabled_send_control() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "window"
+
+    disabled = MagicMock()
+    disabled.is_displayed.return_value = True
+    disabled.is_enabled.return_value = True
+    disabled.get_attribute.return_value = "true"
+
+    enabled = MagicMock()
+    enabled.is_displayed.return_value = True
+    enabled.is_enabled.return_value = True
+    enabled.get_attribute.return_value = None
+
+    selenium.find_elements.side_effect = [[disabled], [enabled]]
+
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "window"
+
+    await driver.click_send_button(timeout=0.1)
+
+    disabled.click.assert_not_called()
+    enabled.click.assert_called_once_with()
