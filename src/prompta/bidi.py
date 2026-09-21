@@ -114,7 +114,7 @@ class FirefoxBiDiDriver:
         while asyncio.get_running_loop().time() < deadline:
             try:
                 if await self.login_required():
-                    raise RuntimeError("Prompta Firefox profile is not logged into ChatGPT")
+                    raise RuntimeError("Prompta browser profile is not logged into ChatGPT")
                 if await self.ensure_token():
                     return
             except Exception as exc:
@@ -397,7 +397,7 @@ class FirefoxBiDiDriver:
         payload = json.loads(raw or "{}")
         token = str(payload.get("token") or "")
         if not payload.get("ok") or not token:
-            raise RuntimeError("Prompta Firefox profile is not logged into ChatGPT")
+            raise RuntimeError("Prompta browser profile is not logged into ChatGPT")
         return token
 
     async def wait_for_composer(

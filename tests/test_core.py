@@ -2218,7 +2218,7 @@ async def test_run_restarts_owned_browser_after_poisoned_bidi_session(tmp_path: 
     prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="recycle Firefox"):
+    with pytest.raises(RuntimeError, match="recycle browser"):
         await prompta.run(once=True)
 
     prompta.cache.close()
@@ -3004,3 +3004,10 @@ def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
     assert args.chrome_path == "/custom/chromium"
     assert args.chromedriver_path == "/custom/chromedriver"
     assert args.chrome_headed is False
+    assert args.chrome_auth_timeout_seconds == 30.0
+
+
+def test_parser_defaults_to_chromedriver_backend() -> None:
+    args = _parser().parse_args(["sync", "existing-chat"])
+
+    assert args.browser == "chrome"
