@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import subprocess
 from datetime import datetime
@@ -7,6 +8,18 @@ from pathlib import Path
 from typing import Any
 
 from .cache import DEFAULT_CACHE_PATH
+
+_SIDEBAR_PREVIEW_LIMIT = 1024
+_SIDEBAR_TOOL_BLOCK_RE = re.compile(
+    r"^ {0,3}```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\r?\n"
+    r"[\s\S]*?^ {0,3}```[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _compact_sidebar_preview(value: Any) -> str:
+    compact = " ".join(_SIDEBAR_TOOL_BLOCK_RE.sub(" ", str(value or "")).split())
+    return compact[:_SIDEBAR_PREVIEW_LIMIT]
 
 
 class ReadOnlyChatStore:
@@ -115,7 +128,12 @@ class ReadOnlyChatStore:
                 ).fetchall()
         except (FileNotFoundError, sqlite3.DatabaseError):
             return []
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            payload = dict(row)
+            payload["preview"] = _compact_sidebar_preview(payload.get("preview"))
+            result.append(payload)
+        return result
 
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
         try:
