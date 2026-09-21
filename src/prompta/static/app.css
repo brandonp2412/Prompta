@@ -1976,8 +1976,8 @@ textarea:focus-visible {
 
   .jobs-dialog[data-presentation="stack"] .jobs-icon-button {
     order: -1;
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     margin-left: -8px;
     border: 0;
     background: transparent;
@@ -1986,7 +1986,7 @@ textarea:focus-visible {
 
   .jobs-dialog[data-presentation="stack"] .jobs-icon-button::before {
     content: "←";
-    font-size: 24px;
+    font-size: 28px;
     line-height: 1;
   }
 
