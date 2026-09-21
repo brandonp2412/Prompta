@@ -892,7 +892,13 @@ class FirefoxBiDiDriver:
                   seen.add(key);
                   unique.push(message);
                 }
-                return unique;
+                const messageTime=message=>{
+                  const value=Number(message?.create_time);
+                  return Number.isFinite(value)?value:Number.POSITIVE_INFINITY;
+                };
+                return unique.map((message,index)=>({message,index,time:messageTime(message)}))
+                  .sort((left,right)=>left.time-right.time||left.index-right.index)
+                  .map(entry=>entry.message);
               };
               const reactToolBlocks=agent=>{
                 const messages=reactMessages(agent);
