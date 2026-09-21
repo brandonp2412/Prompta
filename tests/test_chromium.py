@@ -113,3 +113,59 @@ def test_merge_tool_blocks_replaces_generic_running_placeholder() -> None:
 
     assert merged.startswith("Answer" + NL * 2 + FENCE + "tool:Nox Python MCP · execute_python")
     assert '"status": "running"' not in merged
+
+
+def test_merge_tool_blocks_preserves_existing_interleaving() -> None:
+    first = (
+        FENCE + "tool:tool" + NL
+        + json.dumps({"status": "running", "slot": 1}, indent=2) + NL
+        + FENCE
+    )
+    second = (
+        FENCE + "tool:tool" + NL
+        + json.dumps({"status": "running", "slot": 2}, indent=2) + NL
+        + FENCE
+    )
+    rich_first = (
+        FENCE + "tool:Nox Python MCP · execute_python" + NL
+        + json.dumps({"arguments": {"code": "print(1)"}, "status": "completed"}, indent=2) + NL
+        + FENCE
+    )
+    rich_second = (
+        FENCE + "tool:Chrome DevTools · take_snapshot" + NL
+        + json.dumps({"arguments": {"pageId": 4}, "status": "completed"}, indent=2) + NL
+        + FENCE
+    )
+    content = (
+        "Before" + NL * 2 + first + NL * 2
+        + "Between" + NL * 2 + second + NL * 2 + "After"
+    )
+
+    merged = merge_tool_blocks(content, [rich_first, rich_second])
+
+    assert merged.index("Before") < merged.index("Nox Python MCP")
+    assert merged.index("Nox Python MCP") < merged.index("Between")
+    assert merged.index("Between") < merged.index("Chrome DevTools")
+    assert merged.index("Chrome DevTools") < merged.index("After")
+    assert '"status": "running"' not in merged
+
+
+def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
+    body = json.dumps(
+        {
+            "arguments": {"code": "m = re.search(r'```tool:x', text)"},
+            "status": "running",
+        },
+        indent=2,
+    )
+    placeholder = FENCE + "tool:Nox Python MCP · execute_python" + NL + body + NL + FENCE
+    rich = (
+        FENCE + "tool:Nox Python MCP · execute_python" + NL
+        + json.dumps({"arguments": {"code": "print('ok')"}, "status": "completed"}, indent=2) + NL
+        + FENCE
+    )
+
+    merged = merge_tool_blocks("Before" + NL * 2 + placeholder + NL * 2 + "After", [rich])
+
+    assert "print('ok')" in merged
+    assert merged.endswith("After")

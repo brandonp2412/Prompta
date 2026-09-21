@@ -917,7 +917,7 @@ class FirefoxBiDiDriver:
                   pathConnector(resourcePath(message))
                 ]).filter(Boolean);
                 const fallbackConnector=connectorNames.at(-1)||'';
-                const blocks=[],seen=new Set();
+                const blocks=[];
                 const add=(name,action,args,status,duration,error)=>{
                   const label=[name,action].filter(Boolean).join(' · ')||'tool';
                   const detail={};
@@ -928,8 +928,7 @@ class FirefoxBiDiDriver:
                   if(error)detail.error=typeof error==='string'?error:JSON.stringify(error);
                   const body=Object.keys(detail).length?JSON.stringify(detail,null,2):'Called tool';
                   const block='```tool:'+label+'\\n'+body+'\\n```';
-                  const key=label+'|'+body;
-                  if(!seen.has(key)){seen.add(key);blocks.push(block);}
+                  blocks.push(block);
                 };
                 const invocations=[];
                 for(const [index,message] of messages.entries()){
@@ -1018,7 +1017,7 @@ class FirefoxBiDiDriver:
                   if(!body&&!name)return '';
                   const label=name||'tool';
                   return '```tool:'+label+'\\n'+body+'\\n```';
-                }).filter(Boolean).filter((block,index,blocks)=>blocks.indexOf(block)===index);
+                }).filter(Boolean);
                 return [...legacyBlocks,...currentBlocks];
               };
               const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
@@ -1063,6 +1062,25 @@ class FirefoxBiDiDriver:
                 const richText=markdown.map(markdownText).filter(Boolean);
                 const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
                 const tools=toolBlocks(agent);
+                const currentToolRows=[...agent.querySelectorAll('span[class~=\"group/tool-message\"]')];
+                const legacyToolRows=[...new Set([
+                  ...agent.querySelectorAll(toolSelector)
+                ])].filter(node=>!node.closest('span[class~=\"group/tool-message\"]')&&!node.querySelector(toolSelector));
+                const toolRows=currentToolRows.length?currentToolRows:legacyToolRows;
+                const orderedNodes=[
+                  ...markdown.map(node=>({node,kind:'markdown'})),
+                  ...toolRows.map(node=>({node,kind:'tool'}))
+                ].sort((left,right)=>left.node===right.node?0:(
+                  left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
+                ));
+                let orderedToolIndex=0;
+                const orderedParts=orderedNodes.map(entry=>{
+                  if(entry.kind==='markdown')return markdownText(entry.node);
+                  const block=tools[orderedToolIndex]||'';
+                  orderedToolIndex+=1;
+                  return block;
+                }).filter(Boolean);
+                if(orderedToolIndex<tools.length)orderedParts.push(...tools.slice(orderedToolIndex));
                 const rawVisible=(agent.innerText||agent.textContent||'').trim();
                 const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again)$/i;
                 const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
@@ -1077,8 +1095,8 @@ class FirefoxBiDiDriver:
                 const cleanVisible=rawVisible.split(/\\n+/).map(line=>line.trim())
                   .filter(line=>line&&!uiNoise.test(line)&&!/^cot-v5-/i.test(line))
                   .join('\\n').trim();
-                const content=(richText.length||tools.length||activity
-                  ? [...richText,...tools,...(activity?[activity]:[])].join('\\n\\n')
+                const content=(orderedParts.length||activity
+                  ? [...orderedParts,...(activity?[activity]:[])].join('\\n\\n')
                   : cleanVisible
                 ).trim();
                 if(!content)continue;

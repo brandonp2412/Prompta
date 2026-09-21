@@ -625,14 +625,24 @@ function renderCodeBlock(code, language) {
       ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
       : normalized;
   const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
+  const header = `
+      <span class="code-language">${escapeHtml(label)}</span>
+      ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+      ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}`;
+  const body = renderedCode.trim()
+    ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
+    : "";
+  if (toolish) {
+    return `
+      <details class="code-block tool-call-block">
+        <summary class="code-header">${header}</summary>
+        ${body}
+      </details>`;
+  }
   return `
-    <div class="code-block${toolish ? " tool-call-block" : ""}">
-      <div class="code-header">
-        <span class="code-language">${escapeHtml(label)}</span>
-        ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        ${renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : ""}
-      </div>
-      ${renderedCode.trim() ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : ""}
+    <div class="code-block">
+      <div class="code-header">${header}</div>
+      ${body}
     </div>`;
 }
 function renderMarkdown(raw) {
@@ -727,7 +737,9 @@ function bindCopyButtons(root) {
   for (const button of root.querySelectorAll(".copy-code")) {
     if (boundCopyButtons.has(button)) continue;
     boundCopyButtons.add(button);
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       const code = button.closest(".code-block")?.querySelector("pre code")?.textContent || "";
       try {
         await navigator.clipboard.writeText(code);
