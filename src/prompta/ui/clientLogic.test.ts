@@ -15,6 +15,7 @@ import {
   toolCallDisplayName,
   toolCallHasUsefulDetail,
   toolCallIsInvocationPlaceholder,
+  toolCallSummary,
 } from "./clientLogic";
 
 describe("conversation hash parsing", () => {
@@ -436,6 +437,14 @@ describe("tool call display cleanup", () => {
   test("keeps actual connector names and useful details", () => {
     expect(toolCallDisplayName("Nox Python MCP")).toBe("Nox Python MCP");
     expect(toolCallHasUsefulDetail("execute_python\nHOST nox")).toBe(true);
+  });
+
+  test("extracts ChatGPT reasoning titles for collapsed tool summaries", () => {
+    expect(toolCallSummary(JSON.stringify({
+      summary: "Inspecting Tool Call Ordering in ChatGPT DOM",
+      arguments: { pageId: 5 },
+    }))).toBe("Inspecting Tool Call Ordering in ChatGPT DOM");
+    expect(toolCallSummary(JSON.stringify({ arguments: { pageId: 5 } }))).toBe("");
   });
 
   test("extracts only Python source from Nox and Glass MCP tool payloads", () => {
