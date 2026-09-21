@@ -477,7 +477,9 @@ var state = {
   uiReloadArmed: false,
   composerDrafts: loadComposerDrafts(),
   composerDraftTarget: "",
-  scheduledJobs: []
+  scheduledJobs: [],
+  activityProbes: new Set,
+  activityProbeAt: new Map
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -624,6 +626,7 @@ function syncSendButton() {
   const hasContent = composerHasContent(els.messageInput.value, state.attachments.length);
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
   const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew);
+  const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
@@ -631,7 +634,7 @@ function syncSendButton() {
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
-  els.sendButton.disabled = !canCompose || state.sending || state.stopping || !stopMode && (Boolean(waitingNew) || !hasContent);
+  els.sendButton.disabled = !canCompose || state.sending || state.stopping || probingActivity || !stopMode && (Boolean(waitingNew) || !hasContent);
 }
 function updateComposerActionButton() {
   syncSendButton();
@@ -767,10 +770,10 @@ function reconcileOptimisticNew(chats) {
 }
 function sidebarChats() {
   const chats = state.chats.map((chat) => {
-    const pending2 = state.pendingReplies.get(chat.id) || [];
-    if (!pending2.length)
+    const pending = state.pendingReplies.get(chat.id) || [];
+    if (!pending.length)
       return chat;
-    const latest = pending2[pending2.length - 1];
+    const latest = pending[pending.length - 1];
     return {
       ...chat,
       status: latest.status === "failed" ? chat.status : "active",
@@ -1045,11 +1048,11 @@ function highlightCode(raw, language) {
 function inlineMarkdown(text) {
   const placeholders = [];
   let source = String(text || "");
-  const stash = (html2) => {
+  const stash = (html) => {
     let token = `PROMPTA_INLINE_${placeholders.length}`;
     while (source.includes(token))
       token += "";
-    placeholders.push([token, html2]);
+    placeholders.push([token, html]);
     return token;
   };
   source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
@@ -1878,8 +1881,8 @@ function renderNewChat() {
         status: "complete",
         updated_at: pending.updatedAt
       }];
-      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
-      if (activity2) {
+      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      if (activity) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
           role: "assistant",
@@ -1887,7 +1890,7 @@ function renderNewChat() {
           status: "pending",
           updated_at: pending.updatedAt,
           pending_activity: true,
-          pending_activity_label: activity2.label
+          pending_activity_label: activity.label
         });
       } else if (pending.status === "failed") {
         messages.push({
@@ -2788,7 +2791,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       if (nextConversationId) {
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
-      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
@@ -2797,7 +2800,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt
       });
-      if (changed2)
+      if (changed)
         state.pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -2840,7 +2843,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         renderSidebar();
         return;
       }
-      if (changed2) {
+      if (changed) {
         if (state.composingNew)
           renderNewChat();
         renderSidebar();
