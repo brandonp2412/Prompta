@@ -1434,9 +1434,9 @@ textarea:focus-visible {
 }
 
 .attachment-menu {
-  left: 0;
+  right: 0;
   bottom: 44px;
-  width: 168px;
+  width: min(168px, calc(100vw - 24px));
 }
 
 .attachment-menu button,
