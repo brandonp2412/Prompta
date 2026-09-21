@@ -2807,3 +2807,102 @@ async def test_open_control_connection_retries_transient_socket_startup(
         await server.wait_closed()
 
     assert attempts == 3
+
+@pytest.mark.asyncio
+async def test_retained_completed_tool_enrichment_is_not_overwritten_by_firefox_snapshot(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-rich-tool"
+    context_id = "context-rich-tool"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Run a tool",
+    )
+    fence = chr(96) * 3
+    nl = chr(10)
+    rich_block = (
+        fence
+        + "tool:Nox Python MCP · execute_python"
+        + nl
+        + json.dumps({"status": "completed", "arguments": {"code": "print(1)"}})
+        + nl
+        + fence
+    )
+    rich_snapshot = {
+        "title": "Tool chat",
+        "path": f"/c/{conversation_id}",
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Run a tool"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": "Done" + nl * 2 + rich_block,
+            },
+        ],
+        "streaming": False,
+    }
+    prompta.cache.write_snapshot(conversation_id, rich_snapshot, complete=True)
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Run a tool",
+        last_digest=prompta.cache.digest(rich_snapshot),
+        settled_at=time.monotonic(),
+        structured_tool_blocks=(rich_block,),
+    )
+    prompta._active_conversations[context_id] = active
+
+    generic_snapshot = {
+        **rich_snapshot,
+        "messages": [
+            rich_snapshot["messages"][0],
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": (
+                    "Done"
+                    + nl * 2
+                    + fence
+                    + "tool:tool"
+                    + nl
+                    + json.dumps({"status": "running"})
+                    + nl
+                    + fence
+                ),
+            },
+        ],
+    }
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=generic_snapshot)
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+    prompta.tool_enricher.tool_blocks = AsyncMock()  # type: ignore[method-assign]
+
+    await prompta._poll_active_conversations()
+
+    cached = prompta.cache.messages(conversation_id)
+    assert "Nox Python MCP · execute_python" in cached[-1]["content"]
+    assert '"status": "running"' not in cached[-1]["content"]
+    prompta.tool_enricher.tool_blocks.assert_not_awaited()  # type: ignore[attr-defined]
+    driver.close_context.assert_not_awaited()
+    prompta.cache.close()
+

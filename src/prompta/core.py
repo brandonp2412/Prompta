@@ -1366,11 +1366,13 @@ class Prompta:
             self.cache.mark_interrupted(active.conversation_id)
         self._active_conversations.clear()
 
-    async def _enrich_completed_tool_calls(
-        self,
-        conversation_id: str,
+    @staticmethod
+    def _apply_structured_tool_blocks(
         snapshot: dict[str, Any],
+        blocks: list[str] | tuple[str, ...],
     ) -> dict[str, Any]:
+        if not blocks:
+            return snapshot
         messages = snapshot.get("messages")
         if not isinstance(messages, list):
             return snapshot
@@ -1387,14 +1389,7 @@ class Prompta:
             return snapshot
         assistant = messages[assistant_index]
         content = str(assistant.get("content") or "")
-        if "tool:" not in content and "function:" not in content:
-            return snapshot
-        metadata = self.cache.metadata(conversation_id)
-        url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
-        blocks = await self.tool_enricher.tool_blocks(url)
-        if not blocks:
-            return snapshot
-        enriched_content = merge_tool_blocks(content, blocks)
+        enriched_content = merge_tool_blocks(content, list(blocks))
         if enriched_content == content:
             return snapshot
         enriched = dict(snapshot)
@@ -1403,6 +1398,40 @@ class Prompta:
         ]
         enriched_messages[assistant_index]["content"] = enriched_content
         enriched["messages"] = enriched_messages
+        return enriched
+
+    async def _enrich_completed_tool_calls(
+        self,
+        conversation_id: str,
+        snapshot: dict[str, Any],
+        *,
+        active: ActiveConversation | None = None,
+    ) -> dict[str, Any]:
+        messages = snapshot.get("messages")
+        if not isinstance(messages, list):
+            return snapshot
+        assistant = next(
+            (
+                message
+                for message in reversed(messages)
+                if isinstance(message, dict)
+                and str(message.get("role") or "") == "assistant"
+            ),
+            None,
+        )
+        if assistant is None:
+            return snapshot
+        content = str(assistant.get("content") or "")
+        if "tool:" not in content and "function:" not in content:
+            return snapshot
+        metadata = self.cache.metadata(conversation_id)
+        url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
+        blocks = await self.tool_enricher.tool_blocks(url)
+        if not blocks:
+            return snapshot
+        if active is not None:
+            active.structured_tool_blocks = tuple(blocks)
+        enriched = self._apply_structured_tool_blocks(snapshot, blocks)
         logger.info(
             "Prompta enriched conversation=%s with %d structured Chromium tool call(s)",
             conversation_id,
@@ -1507,6 +1536,12 @@ class Prompta:
                     "Prompta cache capture failed conversation=%s", active.conversation_id
                 )
                 continue
+
+            if active.structured_tool_blocks:
+                snapshot = self._apply_structured_tool_blocks(
+                    snapshot,
+                    active.structured_tool_blocks,
+                )
 
             digest = self.cache.digest(snapshot)
             changed = digest != active.last_digest
@@ -1654,6 +1689,7 @@ class Prompta:
                 snapshot = await self._enrich_completed_tool_calls(
                     active.conversation_id,
                     snapshot,
+                    active=active,
                 )
                 self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
                 active.last_digest = self.cache.digest(snapshot)
