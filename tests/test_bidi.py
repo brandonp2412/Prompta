@@ -496,6 +496,8 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "typeof parsed.path==='string'" in expression
     assert "message?.metadata?.invoked_resource?.app_name" in expression
     assert "message?.metadata?.invoked_resource?.resource_uri" in expression
+    assert "message?.metadata?.reasoning_title" in expression
+    assert "detail.summary=summary" in expression
     assert "'completed'" in expression
     assert "detail.arguments=args" in expression
     assert "detail.duration_ms=duration" in expression

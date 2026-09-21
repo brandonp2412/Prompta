@@ -62,6 +62,7 @@ def test_tool_blocks_pair_invocation_with_nox_tool_result() -> None:
                 }
             ),
             "connector_tool_payload": json.dumps({"code": "print(1)"}),
+            "reasoning_title": "Checking the Python MCP call",
         },
         {
             "role": "tool",
@@ -89,6 +90,7 @@ def test_tool_blocks_pair_invocation_with_nox_tool_result() -> None:
     assert len(blocks) == 1
     assert blocks[0].startswith(FENCE + "tool:Nox Python MCP · execute_python" + NL)
     assert '"status": "completed"' in blocks[0]
+    assert '"summary": "Checking the Python MCP call"' in blocks[0]
     assert '"arguments"' in blocks[0]
     assert "PROMPTA_TOOL_RENDER_OK" in blocks[0]
     assert '"returncode": 0' in blocks[0]
@@ -179,6 +181,7 @@ def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
 def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "const latestAssistant=assistants.at(-1)" in _REACT_TOOL_SCRIPT
     assert "create_time:Number.isFinite(Number(message?.create_time))" in _REACT_TOOL_SCRIPT
+    assert "reasoning_title:trimString(metadata?.reasoning_title" in _REACT_TOOL_SCRIPT
     assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT
