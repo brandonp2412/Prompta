@@ -19,6 +19,7 @@ import {
   postJsonRequest as postJson,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
+  sidebarChatPreviewText,
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
@@ -450,7 +451,7 @@ function renderSidebar(force = false) {
     chat.id,
     chat.status,
     chat.title,
-    chat.status === "active" ? "" : chat.preview,
+    sidebarChatPreviewText(chat.preview, chat.prompt),
     chat.message_count,
     chat.job_name,
     chatActivityAt(chat),
@@ -483,7 +484,7 @@ function renderSidebar(force = false) {
               ${sidebarStatusDot(chat.status)}
               <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
             </div>
-            <div class="chat-preview">${escapeHtml(truncate(sidebarPreviewText(chat.preview) || "Waiting for messages…"))}</div>
+            <div class="chat-preview">${escapeHtml(truncate(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"))}</div>
             <div class="chat-meta">
               <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
               <span class="chat-time" data-activity-at="${escapeHtml(chatActivityAt(chat))}">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
