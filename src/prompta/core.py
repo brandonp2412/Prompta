@@ -642,7 +642,7 @@ class Prompta:
         job_name: str = "",
         attachments: list[str] | None = None,
     ) -> str:
-        if not prompt.strip():
+        if not prompt.strip() and not attachments:
             raise ValueError("prompta prompt is empty")
         driver = await self._ensure_driver()
         context = await driver.new_tab()
@@ -669,7 +669,8 @@ class Prompta:
             await driver.arm_page_send_probe()
             probe_armed = True
             capture = driver.arm_send_capture()
-            await driver.type_message(prompt)
+            if prompt.strip():
+                await driver.type_message(prompt)
             typed = await driver.dom_state()
             if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
@@ -1101,7 +1102,7 @@ class Prompta:
 
         if not conversation_id.strip():
             raise ValueError("conversation id is empty")
-        if not prompt.strip():
+        if not prompt.strip() and not attachments:
             raise ValueError("prompta prompt is empty")
 
         driver = await self._ensure_driver()
@@ -1178,7 +1179,8 @@ class Prompta:
             await driver.arm_page_send_probe()
             probe_armed = True
             capture = driver.arm_send_capture()
-            await driver.type_message(prompt)
+            if prompt.strip():
+                await driver.type_message(prompt)
             typed = await driver.dom_state()
             if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the requested reply")
@@ -2336,7 +2338,7 @@ async def _handle_control_client(
                 for path in raw_attachments
                 if isinstance(path, str) and path.strip()
             ] if isinstance(raw_attachments, list) else []
-            if not prompt.strip():
+            if not prompt.strip() and not attachments:
                 raise ValueError("prompta prompt is empty")
             future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
             if op == "once":
