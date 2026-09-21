@@ -18,6 +18,7 @@ import {
   toolCallSummary,
 } from "./clientLogic";
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
+const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
 function loadPinnedIds() {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
@@ -31,6 +32,26 @@ function savePinnedIds() {
     localStorage.setItem(PINNED_CHATS_KEY, JSON.stringify(Array.from(state.pinnedIds)));
   } catch {
     // Pinning is a local convenience; storage failures should not affect chat access.
+  }
+}
+function loadComposerDrafts() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_KEY) || "{}");
+    if (!stored || Array.isArray(stored) || typeof stored !== "object") return new Map();
+    return new Map(
+      Object.entries(stored)
+        .filter(([, value]) => typeof value === "string" && value)
+        .map(([key, value]) => [String(key), String(value)]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+function saveComposerDrafts() {
+  try {
+    localStorage.setItem(COMPOSER_DRAFTS_KEY, JSON.stringify(Object.fromEntries(state.composerDrafts)));
+  } catch {
+    // Draft persistence is best-effort; the in-memory textarea remains authoritative.
   }
 }
 const state = {
@@ -67,6 +88,8 @@ const state = {
   timeRefreshTimer: null,
   uiHead: "",
   uiReloading: false,
+  composerDrafts: loadComposerDrafts(),
+  composerDraftTarget: "",
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -117,6 +140,40 @@ const els = {
   sendButton: requiredElement<HTMLButtonElement>("#sendButton"),
   composerStatus: requiredElement<HTMLElement>("#composerStatus"),
 };
+function composerDraftTarget() {
+  if (state.composingNew) return "new";
+  return state.selectedId ? "chat:" + state.selectedId : "";
+}
+function setStoredComposerDraft(target, value) {
+  if (!target) return;
+  const draft = String(value || "");
+  if (draft) state.composerDrafts.set(target, draft);
+  else state.composerDrafts.delete(target);
+  saveComposerDrafts();
+}
+function persistComposerDraft() {
+  const target = composerDraftTarget();
+  if (!target) return;
+  state.composerDraftTarget = target;
+  setStoredComposerDraft(target, els.messageInput.value);
+}
+function clearComposerDraft(target = composerDraftTarget()) {
+  if (!target) return;
+  if (state.composerDrafts.delete(target)) saveComposerDrafts();
+}
+function syncComposerDraftTarget() {
+  const nextTarget = composerDraftTarget();
+  if (nextTarget === state.composerDraftTarget) return;
+  if (state.composerDraftTarget && !state.sending) {
+    setStoredComposerDraft(state.composerDraftTarget, els.messageInput.value);
+  }
+  state.composerDraftTarget = nextTarget;
+  const draft = nextTarget ? state.composerDrafts.get(nextTarget) || "" : "";
+  if (els.messageInput.value !== draft) els.messageInput.value = draft;
+  resizeComposer();
+  updateSlashMenu();
+  syncSendButton();
+}
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
   if (element.textContent !== text) element.textContent = text;
@@ -1093,9 +1150,10 @@ function renderConversation(chat) {
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
   els.messageInput.disabled = false;
+  state.composingNew = false;
+  syncComposerDraftTarget();
   syncSendButton();
   els.shareChatButton.disabled = false;
-  state.composingNew = false;
   updatePinButton();
   const pendingActivity = [...(state.pendingReplies.get(chat.id) || [])]
     .reverse()
@@ -1205,6 +1263,7 @@ function clearConversation() {
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
   els.composerStatus.textContent = "Select a chat to send a message.";
+  syncComposerDraftTarget();
 }
 function renderNewChat() {
   const enteringNewChat = !state.composingNew;
@@ -1214,6 +1273,7 @@ function renderNewChat() {
   state.selectedFingerprint = "";
   state.selectedChat = null;
   state.mode = "chats";
+  syncComposerDraftTarget();
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
@@ -1818,6 +1878,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
   setAttachmentControlsDisabled(true);
+  clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
@@ -1834,6 +1895,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
     );
   } catch (error) {
     els.messageInput.value = originalMessage;
+    persistComposerDraft();
     resizeComposer();
     updateSlashMenu();
     setTextIfChanged(
@@ -1854,6 +1916,7 @@ async function runAtSlashCommand(command, originalMessage) {
   els.messageInput.disabled = true;
   els.sendButton.disabled = true;
   setAttachmentControlsDisabled(true);
+  clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
   updateSlashMenu();
@@ -1870,6 +1933,7 @@ async function runAtSlashCommand(command, originalMessage) {
     );
   } catch (error) {
     els.messageInput.value = originalMessage;
+    persistComposerDraft();
     resizeComposer();
     updateSlashMenu();
     setTextIfChanged(
@@ -2050,6 +2114,7 @@ async function sendSelectedMessage() {
   const attachments = [...(state.attachments || [])];
   if (!message || state.mode !== "chats" || state.sending) return;
   if (message.toLowerCase() === "/logs") {
+    clearComposerDraft();
     els.messageInput.value = "";
     els.slashMenu.hidden = true;
     resizeComposer();
@@ -2120,6 +2185,7 @@ async function sendSelectedMessage() {
   };
   state.sending = true;
   els.sendButton.disabled = true;
+  clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
   if (creatingNew) {
@@ -2246,6 +2312,7 @@ els.messageForm.addEventListener("submit", (event) => {
   sendSelectedMessage();
 });
 els.messageInput.addEventListener("input", () => {
+  persistComposerDraft();
   resizeComposer();
   updateSlashMenu();
   syncSendButton();
