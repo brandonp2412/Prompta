@@ -924,9 +924,15 @@ class FirefoxBiDiDriver:
                 ]).filter(Boolean);
                 const fallbackConnector=connectorNames.at(-1)||'';
                 const blocks=[];
-                const add=(name,action,args,status,duration,error)=>{
+                const reasoningTitle=message=>String(
+                  message?.metadata?.reasoning_title
+                  ||message?.metadata?.reasoning_titles?.at?.(-1)
+                  ||''
+                ).trim();
+                const add=(name,action,summary,args,status,duration,error)=>{
                   const label=[name,action].filter(Boolean).join(' · ')||'tool';
                   const detail={};
+                  if(summary)detail.summary=summary;
                   if(args&&typeof args==='object')detail.arguments=args;
                   else if(args!=null)detail.arguments=args;
                   if(status)detail.status=status;
@@ -949,11 +955,15 @@ class FirefoxBiDiDriver:
                     ||pathConnector(path)
                     ||fallbackConnector;
                   const args=parsed.arguments??parsed.args;
+                  const summary=reasoningTitle(message);
                   if(message?.recipient==='api_tool.call_tool'||path){
-                    invocations.push({index,name,action,args,path});
+                    invocations.push({index,name,action,args,path,summary});
                   }
                   if(parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments){
-                    add(name,action,args,parsed.status,parsed.durationMs,parsed.error);
+                    const prior=[...invocations].reverse().find(candidate=>
+                      candidate.index<=index&&(!action||!candidate.action||candidate.action===action)
+                    );
+                    add(name,action,summary||prior?.summary||'',args,parsed.status,parsed.durationMs,parsed.error);
                   }
                 }
                 if(blocks.length)return blocks;
@@ -974,6 +984,7 @@ class FirefoxBiDiDriver:
                   add(
                     name||invocation?.name||'',
                     action||invocation?.action||'',
+                    invocation?.summary||reasoningTitle(message),
                     invocation?.args,
                     'completed',
                     null,
@@ -987,6 +998,7 @@ class FirefoxBiDiDriver:
                   add(
                     invocation.name||fallbackConnector,
                     invocation.action,
+                    invocation.summary,
                     invocation.args,
                     'running',
                     null,

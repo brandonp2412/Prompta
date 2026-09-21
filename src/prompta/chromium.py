@@ -89,6 +89,7 @@ _REACT_TOOL_SCRIPT = r"""
         ?content.parts.slice(0,8).map(part=>trimString(part))
         :[],
       connector_tool_payload:trimString(metadata?.connector_tool_payload||''),
+      reasoning_title:trimString(metadata?.reasoning_title||metadata?.reasoning_titles?.at?.(-1)||''),
       invoked_resource:invoked?{
         app_name:trimString(invoked?.app_name||''),
         resource_uri:trimString(invoked?.resource_uri||'')
@@ -176,9 +177,13 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
     completed_wrapper_count = 0
     connector_hint = ""
 
+    reasoning_title_hint = ""
     for raw in messages:
         if not isinstance(raw, dict):
             continue
+        reasoning_title = str(raw.get("reasoning_title") or "").strip()
+        if reasoning_title:
+            reasoning_title_hint = reasoning_title
         connector_name = str(raw.get("connector_name") or "").strip()
         if connector_name:
             connector_hint = connector_name
@@ -207,6 +212,7 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
                 {
                     "connector": connector,
                     "action": action,
+                    "summary": reasoning_title or reasoning_title_hint,
                     "arguments": parsed.get("arguments"),
                     "status": str(parsed.get("status") or "completed"),
                     "duration_ms": parsed.get("durationMs"),
@@ -221,9 +227,13 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
 
     invocations: list[dict[str, Any]] = []
     pending: list[int] = []
+    reasoning_title_hint = ""
     for raw in messages:
         if not isinstance(raw, dict):
             continue
+        reasoning_title = str(raw.get("reasoning_title") or "").strip()
+        if reasoning_title:
+            reasoning_title_hint = reasoning_title
         connector_name = str(raw.get("connector_name") or "").strip()
         if connector_name:
             connector_hint = connector_name
@@ -246,6 +256,7 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
                 {
                     "connector": _connector_from_path(path) or connector_hint,
                     "action": _action_from_path(path),
+                    "summary": reasoning_title or reasoning_title_hint,
                     "arguments": args,
                     "status": "running",
                     "duration_ms": None,
@@ -292,6 +303,9 @@ def _format_tool_block(call: dict[str, Any]) -> str:
     action = str(call.get("action") or "").strip()
     label = " · ".join(part for part in (connector, action) if part) or "tool"
     detail: dict[str, Any] = {}
+    summary = str(call.get("summary") or "").strip()
+    if summary:
+        detail["summary"] = summary
     if call.get("arguments") is not None:
         detail["arguments"] = _bounded(call["arguments"], 12000)
     status = str(call.get("status") or "").strip()
