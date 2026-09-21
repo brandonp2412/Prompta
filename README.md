@@ -172,6 +172,10 @@ system notification. Recurring jobs can be created directly from the composer:
 /every 2h review the latest failures
 ```
 
+Use `/jobs` in the composer to open the scheduled-jobs manager. Its add, edit,
+pause, resume, remove, and clear actions map to the corresponding Prompta CLI
+commands.
+
 Features also include client-first optimistic sends with SSE reconciliation, replies
 to existing chats, history grouped by recency, full-text search across cached
 prompts/messages, safe Markdown and code rendering, responsive mobile layout, deep
