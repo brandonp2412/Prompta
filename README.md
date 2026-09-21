@@ -185,17 +185,15 @@ to existing chats, history grouped by recency, full-text search across cached
 prompts/messages, safe Markdown and code rendering, responsive mobile layout, deep
 links to cached chats, and dark/light appearance following the browser preference.
 
-Prompta has one deployment topology: Nox owns the browser worker, scheduler control
-socket, SQLite conversation cache, logs, and the UI on port 8765. The UI never forwards
-work over SSH, federates another node, or opens a competing direct browser session. If
-the local worker is unavailable, the UI starts `prompta.service` and fails the send if
-that single backend does not become ready.
+Prompta runs only on Nox: the browser worker, scheduler control socket, SQLite
+conversation cache, logs, and UI on port 8765 all live there. If the backend is
+unavailable, the UI starts `prompta.service` and fails the send if it does not become
+ready.
 
 Install `systemd/prompta.service` and `systemd/prompta-ui.service` under
 `~/.config/systemd/user/`. The UI unit wants the local worker but remains available across worker restarts and uses
 `--preserve-active` so a UI-only restart cannot mark worker-owned live conversations
-interrupted. Remove legacy `prompta-cache-sync.timer`, `prompta-cache-sync.service`,
-Glass UI units, and old 8766/8767 per-node units when upgrading.
+interrupted. Remove legacy `prompta-cache-sync.timer` and `prompta-cache-sync.service` when upgrading.
 
 ## Service
 
