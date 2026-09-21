@@ -561,6 +561,9 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.jobs_path = jobs_path.expanduser()
         self.host_name = "nox"
         self._local_send_lock = threading.Lock()
+        self._host_status_lock = threading.Lock()
+        self._host_status_checked_at = 0.0
+        self._host_status_online = not bool(self.control_host)
         self.send_jobs = SendJobRegistry(self._send)
 
     @property
@@ -956,6 +959,45 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._event_headers()
             return
         self.do_GET()
+
+    def _events(self) -> None:
+        server = cast(PromptaUIServer, self.server)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+
+        last_token = ""
+        last_heartbeat = 0.0
+        try:
+            self.wfile.write(b"retry: 1000\n\n")
+            self.wfile.flush()
+            while True:
+                token = server.event_token()
+                now = time.monotonic()
+                if token != last_token:
+                    payload = json.dumps(
+                        {
+                            "token": token,
+                            "server": server.host_name,
+                            "online": server.host_online(),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    self.wfile.write(f"event: refresh\ndata: {payload}\n\n".encode())
+                    self.wfile.flush()
+                    last_token = token
+                    last_heartbeat = now
+                elif now - last_heartbeat >= 15.0:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    last_heartbeat = now
+                time.sleep(0.2)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
