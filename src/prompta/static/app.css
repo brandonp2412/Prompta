@@ -88,7 +88,7 @@ textarea:focus-visible {
 }
 
 .sidebar-top {
-  padding: 14px 12px 10px;
+  padding: 14px 12px 0;
 }
 
 .brand-row {
@@ -242,7 +242,7 @@ textarea:focus-visible {
 .chat-list {
   min-height: 0;
   flex: 1;
-  padding: 4px 8px 16px;
+  padding: 0 8px 16px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #3a3a3a transparent;
@@ -250,6 +250,10 @@ textarea:focus-visible {
 
 .chat-group {
   margin-top: 13px;
+}
+
+.chat-list > .chat-group:first-child {
+  margin-top: 0;
 }
 
 .chat-group-label {
