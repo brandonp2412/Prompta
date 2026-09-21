@@ -1255,7 +1255,7 @@ class FirefoxBiDiDriver:
               const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
               const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
               const latestAssistant=assistantNodes.at(-1);
-              const latestTurn=agentRoot(latestAssistant);
+              const latestTurn=latestAssistant?agentRoot(latestAssistant):null;
               const visibleMessageId=latestAssistant?.getAttribute('data-message-id')||latestAssistant?.getAttribute('data-message-uuid')||'';
               const endStates=visibleMessageId&&latestTurn
                 ? reactMessages(latestTurn)

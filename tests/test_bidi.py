@@ -531,6 +531,7 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "'```tool:'+label" in expression
     assert '[data-streaming="active"]' in expression
     assert 'button[data-testid="stop-button"]' in expression
+    assert "const latestTurn=latestAssistant?agentRoot(latestAssistant):null;" in expression
     assert "endStates.includes(false)" in expression
     assert "streaming:stop||streamActive||turnEnded===false" in expression
     assert 'aria-label*="Stop"' not in expression
