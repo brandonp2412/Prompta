@@ -350,6 +350,14 @@ class Prompta:
     def _persist_global_backoff(self) -> None:
         self._update_scheduler_state({"rate_limit_backoff": self._global_backoff.snapshot()})
 
+    def _record_global_rate_limit(self, exc: RateLimitError) -> float:
+        remaining = self._global_backoff.remaining()
+        if remaining > 0:
+            return remaining
+        delay = self._global_backoff.record(float(exc.retry_after))
+        self._persist_global_backoff()
+        return delay
+
     def _send_gap_remaining(self, now: float) -> float:
         try:
             last_attempt_at = float(self._scheduler_state().get("last_attempt_at") or 0.0)
@@ -1280,8 +1288,7 @@ class Prompta:
         try:
             conversation_id = await self.send_once(job.prompt, job_name=job.name)
         except RateLimitError as exc:
-            delay = self._global_backoff.record(float(exc.retry_after))
-            self._persist_global_backoff()
+            delay = self._record_global_rate_limit(exc)
             self._mark_failure(job.name, str(exc))
             logger.warning(
                 "Prompta job=%s rate limited account-wide; attempt=%d retry_after=%ds pausing all jobs for %.1fs",
@@ -1868,7 +1875,17 @@ class Prompta:
             except asyncio.QueueEmpty:
                 return did_work
             try:
+                remaining = self._global_backoff.remaining()
+                if remaining > 0:
+                    raise RateLimitError(
+                        "ChatGPT account-wide rate limit backoff is active",
+                        retry_after=max(1, int(remaining + 0.999)),
+                    )
                 conversation_id = await self.send_once(prompt, attachments=attachments)
+            except RateLimitError as exc:
+                self._record_global_rate_limit(exc)
+                if not future.done():
+                    future.set_exception(exc)
             except Exception as exc:
                 if not future.done():
                     future.set_exception(exc)
@@ -1899,7 +1916,17 @@ class Prompta:
                 await self._reply_requests.put(item)
                 continue
             try:
+                remaining = self._global_backoff.remaining()
+                if remaining > 0:
+                    raise RateLimitError(
+                        "ChatGPT account-wide rate limit backoff is active",
+                        retry_after=max(1, int(remaining + 0.999)),
+                    )
                 result = await self.send_reply(conversation_id, prompt, attachments=attachments)
+            except RateLimitError as exc:
+                self._record_global_rate_limit(exc)
+                if not future.done():
+                    future.set_exception(exc)
             except Exception as exc:
                 if not future.done():
                     future.set_exception(exc)

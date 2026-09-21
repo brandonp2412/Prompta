@@ -1487,6 +1487,34 @@ async def test_scheduler_prioritises_ui_send_before_active_poll(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_control_send_rate_limit_pauses_scheduler_jobs(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(side_effect=RateLimitError("Too many requests", retry_after=300))  # type: ignore[method-assign]
+    future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._once_requests.put(("User send", [], future))
+
+    with patch("prompta.core.random.uniform", return_value=0.0):
+        await prompta._drain_once_requests()
+
+    with pytest.raises(RateLimitError):
+        await future
+    assert prompta._global_backoff.remaining() > 0
+
+    scheduled = PromptJob("background", "Background send", 1800)
+    await prompta._run_job(scheduled, now=time.time())
+    assert prompta.send_once.await_count == 1
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     prompta = Prompta(

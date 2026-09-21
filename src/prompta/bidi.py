@@ -807,8 +807,16 @@ class FirefoxBiDiDriver:
               };
               const messages=[...document.querySelectorAll('[data-message-author-role]')];
               const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
-              const rateLimitText=[...document.querySelectorAll('[role="alert"],[aria-live="assertive"],[aria-live="polite"],[data-testid="conversation-fetch-error-toaster"],[data-testid*="rate-limit"]')]
-                .filter(visible).map(e=>e.innerText||'').filter(Boolean).join('\\n');
+              const rateLimitNodes=[...document.querySelectorAll('[role="alert"],[aria-live="assertive"],[aria-live="polite"],[data-testid="conversation-fetch-error-toaster"],[data-testid*="rate-limit"]')]
+                .filter(visible);
+              const rateLimitText=rateLimitNodes.map(e=>e.innerText||'').filter(Boolean).join('\\n');
+              const rateLimitModal=document.querySelector('[data-testid="modal-conversation-history-rate-limit"]');
+              if(rateLimitModal&&visible(rateLimitModal)){
+                const acknowledge=[...rateLimitModal.querySelectorAll('button')].find(
+                  button=>visible(button)&&(button.innerText||'').trim().toLowerCase()==='got it'
+                );
+                acknowledge?.click();
+              }
               return {
                 composer_text:(composer&&(composer.innerText||composer.value)||''),
                 last_user_id:(users.at(-1)?.getAttribute('data-message-id')||''),
