@@ -490,7 +490,11 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "name.startsWith('__reactProps$')" in expression
     assert "const reactToolBlocks=agent=>" in expression
     assert "parsed.type==='mcpToolCall'" in expression
+    assert "parsed.arguments??parsed.args" in expression
+    assert "typeof parsed.path==='string'" in expression
     assert "message?.metadata?.invoked_resource?.app_name" in expression
+    assert "message?.metadata?.invoked_resource?.resource_uri" in expression
+    assert "'completed'" in expression
     assert "detail.arguments=args" in expression
     assert "detail.duration_ms=duration" in expression
     assert "if(structuredBlocks.length)return structuredBlocks" in expression

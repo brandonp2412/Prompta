@@ -8,8 +8,58 @@ Send ChatGPT prompts once or on a schedule.
 uv sync --locked
 ```
 
-The Firefox profile used by the service lives at 
-`~/.local/state/prompta/firefox-profile` and must be logged in to ChatGPT.
+Prompta supports Firefox/WebDriver BiDi and Chromium/ChromeDriver browser backends.
+Firefox remains the default until Chromium is explicitly selected.
+
+The Firefox profile used by the service lives at
+`~/.local/state/prompta/firefox-profile`. The Chromium profile defaults to
+`~/.local/state/prompta/chrome-profile`. Whichever backend is selected must have
+an authenticated ChatGPT session.
+
+### Chromium / ChromeDriver setup
+
+Install Chromium and ChromeDriver, then perform the first login with the dedicated
+Prompta profile in a visible browser:
+
+```bash
+mkdir -p ~/.local/state/prompta/chrome-profile
+chromium \
+  --user-data-dir="$HOME/.local/state/prompta/chrome-profile" \
+  --profile-directory=Default \
+  --password-store=basic \
+  https://chatgpt.com/
+```
+
+After logging in, **close Chromium** so ChromeDriver can exclusively open the profile.
+Test the backend without changing the service default:
+
+```bash
+uv run prompta sync <conversation-id> --browser chrome --direct-browser
+```
+
+To switch the systemd worker after that test succeeds:
+
+```bash
+systemctl --user edit prompta
+```
+
+Add:
+
+```ini
+[Service]
+Environment=PROMPTA_BROWSER=chrome
+```
+
+Then run:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart prompta
+```
+
+`PROMPTA_CHROME_PROFILE`, `PROMPTA_CHROME_PATH`, and
+`PROMPTA_CHROMEDRIVER_PATH` can override the Chromium defaults. The equivalent
+CLI flags are `--chrome-profile`, `--chrome-path`, and `--chromedriver-path`.
 
 ## One-shot tasks
 
@@ -73,21 +123,22 @@ Runtime data defaults to:
 - `~/.config/prompta/jobs.json`
 - `~/.local/state/prompta/state.json`
 - `~/.local/state/prompta/firefox-profile`
+- `~/.local/state/prompta/chrome-profile`
 - `~/.local/state/prompta/chats.sqlite3`
 
 ## Conversation cache
 
-Scheduled conversations stay open in their own Firefox tabs while ChatGPT is producing
-the response. Prompta reads the already-rendered message DOM over WebDriver BiDi and
-writes changed snapshots to the SQLite cache roughly once per scheduler tick. Cache
-capture does not reload the page, poll ChatGPT HTTP APIs, or submit additional model
-requests.
+Scheduled conversations stay open in browser tabs while ChatGPT is producing the
+response. Prompta reads the already-rendered message DOM and React message state through
+the selected WebDriver backend (Firefox BiDi or Chromium/ChromeDriver), then writes
+changed snapshots to the SQLite cache roughly once per scheduler tick. Cache capture does
+not poll ChatGPT HTTP APIs or submit additional model requests.
 
 The database uses WAL mode so another local process can read active conversations and
 completed history while the scheduler keeps writing. Once an assistant response is
-stable and no longer streaming, Prompta records it as complete and retains the Firefox
+stable and no longer streaming, Prompta records it as complete and retains the browser
 tab briefly (currently 15 seconds) for an immediate follow-up before closing it to keep
-headless Firefox memory bounded. On scheduler restart, Prompta attempts to reattach
+browser memory bounded. On scheduler restart, Prompta attempts to reattach
 recent live conversations instead of discarding their progress.
 
 ## Web UI
