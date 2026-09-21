@@ -486,6 +486,14 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert 'data-testid*="search" i' not in expression
     assert "Open tool call list" in expression
     assert "const cleanToolName=value=>" in expression
+    assert "const reactMessages=agent=>" in expression
+    assert "name.startsWith('__reactProps$')" in expression
+    assert "const reactToolBlocks=agent=>" in expression
+    assert "parsed.type==='mcpToolCall'" in expression
+    assert "message?.metadata?.invoked_resource?.app_name" in expression
+    assert "detail.arguments=args" in expression
+    assert "detail.duration_ms=duration" in expression
+    assert "if(structuredBlocks.length)return structuredBlocks" in expression
     assert 'span[class~=\"group/tool-message\"]' in expression
     assert "Called tool" in expression
     assert "node.getAttribute('aria-label')" in expression
