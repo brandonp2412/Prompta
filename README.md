@@ -188,7 +188,7 @@ the local worker is unavailable, the UI starts `prompta.service` and fails the s
 that single backend does not become ready.
 
 Install `systemd/prompta.service` and `systemd/prompta-ui.service` under
-`~/.config/systemd/user/`. The UI unit requires the local worker and uses
+`~/.config/systemd/user/`. The UI unit wants the local worker but remains available across worker restarts and uses
 `--preserve-active` so a UI-only restart cannot mark worker-owned live conversations
 interrupted. Remove legacy `prompta-cache-sync.timer`, `prompta-cache-sync.service`,
 Glass UI units, and old 8766/8767 per-node units when upgrading.

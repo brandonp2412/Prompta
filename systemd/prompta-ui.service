@@ -1,6 +1,6 @@
 [Unit]
 Description=Prompta Nox conversation UI
-Requires=prompta.service
+Wants=prompta.service
 After=network-online.target prompta.service
 
 [Service]
