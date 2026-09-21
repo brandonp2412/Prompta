@@ -8,7 +8,6 @@ import {
   messageAgeText,
   messageTimestampMillis,
   parseAtSlashCommand,
-  parseScheduleSlashCommand,
   pendingConversationSends,
   pendingSendActivity,
   shouldRenderNewChatView,
@@ -395,40 +394,6 @@ describe("composer content", () => {
     expect(composerHasContent("hello", 0)).toBe(true);
   });
 });
-
-describe("/every", () => {
-  test("defaults bare numbers to minutes", () => {
-    expect(parseScheduleSlashCommand("/every 30 fix bugs")).toEqual({
-      intervalMinutes: 30,
-      prompt: "fix bugs",
-    });
-  });
-
-  test("supports hour units", () => {
-    expect(parseScheduleSlashCommand("/every 2h review failures")).toEqual({
-      intervalMinutes: 120,
-      prompt: "review failures",
-    });
-  });
-
-  test("returns usage for malformed commands", () => {
-    expect(parseScheduleSlashCommand("/every tomorrow fix bugs")).toEqual({
-      error: "Use /every <minutes> <prompt>, for example: /every 30 fix bugs",
-    });
-  });
-
-  test("accepts command names case-insensitively", () => {
-    expect(parseScheduleSlashCommand("/EVERY 45 review failures")).toEqual({
-      intervalMinutes: 45,
-      prompt: "review failures",
-    });
-  });
-
-  test("does not treat longer slash commands as /every", () => {
-    expect(parseScheduleSlashCommand("/everybody say hello")).toBeNull();
-  });
-});
-
 
 describe("/at", () => {
   const now = new Date(2026, 8, 20, 16, 0, 0);

@@ -33,11 +33,6 @@ export type CachedMessage = {
   updated_at?: number;
 };
 
-export type ScheduleSlashCommand =
-  | null
-  | { error: string }
-  | { intervalMinutes: number; prompt: string };
-
 export type AtSlashCommand =
   | null
   | { error: string }
@@ -335,36 +330,6 @@ export function matchingPendingReplyMessageIndex(
     bestDistance = distance;
   }
   return bestIndex;
-}
-
-export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {
-  if (!/^\/every(?:\s|$)/i.test(message)) return null;
-
-  const match = message.match(
-    /^\/every\s+(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\s+([\s\S]+)$/i,
-  );
-  if (!match) {
-    return { error: "Use /every <minutes> <prompt>, for example: /every 30 fix bugs" };
-  }
-
-  const amount = Number(match[1]);
-  const unit = String(match[2] || "m").toLowerCase();
-  const intervalMinutes = amount * (unit.startsWith("h") ? 60 : 1);
-  const prompt = match[3].trim();
-
-  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0 || !prompt) {
-    return { error: "Schedule interval and prompt are required." };
-  }
-
-  return { intervalMinutes, prompt };
-}
-
-export function formatScheduleInterval(minutes: number): string {
-  if (minutes >= 60 && minutes % 60 === 0) {
-    const hours = minutes / 60;
-    return `${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 export async function postJsonRequest(

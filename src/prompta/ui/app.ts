@@ -1,13 +1,11 @@
 import {
   composerHasContent,
   conversationIdFromHash,
-  formatScheduleInterval,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
   messageAgeText,
   messageTimestampMillis,
   parseAtSlashCommand,
-  parseScheduleSlashCommand,
   pendingConversationSends,
   pendingSendActivity,
   shouldRenderNewChatView,
@@ -73,6 +71,7 @@ const state = {
   uiReloading: false,
   uiReloadPending: false,
   uiReloadArmed: false,
+  scheduledJobs: [],
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -122,6 +121,24 @@ const els = {
   messageInput: requiredElement<HTMLTextAreaElement>("#messageInput"),
   sendButton: requiredElement<HTMLButtonElement>("#sendButton"),
   composerStatus: requiredElement<HTMLElement>("#composerStatus"),
+  jobsDialog: requiredElement<HTMLDialogElement>("#jobsDialog"),
+  closeJobsDialog: requiredElement<HTMLButtonElement>("#closeJobsDialog"),
+  jobsDialogStatus: requiredElement<HTMLElement>("#jobsDialogStatus"),
+  jobsList: requiredElement<HTMLElement>("#jobsList"),
+  jobsForm: requiredElement<HTMLFormElement>("#jobsForm"),
+  jobsFormTitle: requiredElement<HTMLElement>("#jobsFormTitle"),
+  jobNameInput: requiredElement<HTMLInputElement>("#jobNameInput"),
+  jobPromptInput: requiredElement<HTMLTextAreaElement>("#jobPromptInput"),
+  jobScheduleType: requiredElement<HTMLSelectElement>("#jobScheduleType"),
+  jobIntervalField: requiredElement<HTMLElement>("#jobIntervalField"),
+  jobIntervalInput: requiredElement<HTMLInputElement>("#jobIntervalInput"),
+  jobDailyField: requiredElement<HTMLElement>("#jobDailyField"),
+  jobDailyInput: requiredElement<HTMLInputElement>("#jobDailyInput"),
+  jobExactField: requiredElement<HTMLElement>("#jobExactField"),
+  jobExactInput: requiredElement<HTMLInputElement>("#jobExactInput"),
+  resetJobForm: requiredElement<HTMLButtonElement>("#resetJobForm"),
+  saveJobButton: requiredElement<HTMLButtonElement>("#saveJobButton"),
+  clearJobsButton: requiredElement<HTMLButtonElement>("#clearJobsButton"),
 };
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
@@ -1606,6 +1623,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     els.attachmentMenu.hidden = true;
     els.slashMenu.hidden = true;
+    if (els.jobsDialog.open) els.jobsDialog.close();
     els.searchInput.blur();
     closeSidebar();
   }
@@ -1893,42 +1911,6 @@ document.addEventListener("click", (event) => {
     els.attachmentMenu.hidden = true;
   }
 });
-async function runScheduleSlashCommand(command, originalMessage) {
-  state.sending = true;
-  els.messageInput.disabled = true;
-  els.sendButton.disabled = true;
-  setAttachmentControlsDisabled(true);
-  els.messageInput.value = "";
-  resizeComposer();
-  setTextIfChanged(els.composerStatus, "Saving schedule…");
-  try {
-    const result = await postJson("api/schedule", {
-      interval_minutes: command.intervalMinutes,
-      prompt: command.prompt,
-    });
-    const server = displayServerName(result.server || state.serverName || location.hostname);
-    const interval = formatScheduleInterval(Number(result.interval_minutes));
-    setTextIfChanged(
-      els.composerStatus,
-      `Scheduled on ${server}: every ${interval} · ${command.prompt}`,
-    );
-  } catch (error) {
-    els.messageInput.value = originalMessage;
-    resizeComposer();
-    updateSlashMenu();
-    setTextIfChanged(
-      els.composerStatus,
-      `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`,
-    );
-    console.error(error);
-  } finally {
-    state.sending = false;
-    els.messageInput.disabled = false;
-    setAttachmentControlsDisabled(false);
-    syncSendButton();
-    if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
-  }
-}
 async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
   els.messageInput.disabled = true;
@@ -1965,6 +1947,159 @@ async function runAtSlashCommand(command, originalMessage) {
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
+function formatJobMinutes(value) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes)) return "";
+  if (minutes >= 60 && minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+function jobScheduleText(job) {
+  if (job.run_at_epoch) {
+    const date = new Date(Number(job.run_at_epoch) * 1000);
+    return `once · ${date.toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  }
+  if (job.daily_at) return `daily · ${job.daily_at}`;
+  return `every ${formatJobMinutes(job.interval_minutes)}${job.exact_interval ? " · exact" : ""}`;
+}
+function resetJobForm() {
+  els.jobsForm.reset();
+  els.jobsFormTitle.textContent = "Add job";
+  els.jobNameInput.readOnly = false;
+  els.jobScheduleType.value = "interval";
+  els.jobIntervalInput.value = "30";
+  els.jobDailyInput.value = "09:00";
+  els.jobExactInput.checked = false;
+  syncJobScheduleFields();
+}
+function syncJobScheduleFields() {
+  const daily = els.jobScheduleType.value === "daily";
+  els.jobIntervalField.hidden = daily;
+  els.jobDailyField.hidden = !daily;
+  els.jobExactField.hidden = daily;
+}
+function renderJobs(jobs) {
+  state.scheduledJobs = Array.isArray(jobs) ? jobs : [];
+  els.clearJobsButton.disabled = state.scheduledJobs.length === 0;
+  if (!state.scheduledJobs.length) {
+    els.jobsList.innerHTML = '<div class="jobs-empty">No scheduled jobs.</div>';
+    return;
+  }
+  els.jobsList.innerHTML = state.scheduledJobs.map((job) => {
+    const paused = Boolean(job.paused);
+    const canEdit = !job.run_at_epoch;
+    return `
+      <article class="job-row" data-job-name="${escapeHtml(job.name)}">
+        <div class="job-row-top">
+          <div>
+            <div class="job-row-name">${escapeHtml(job.name)}</div>
+            <div class="job-row-meta">${escapeHtml(jobScheduleText(job))}</div>
+          </div>
+          <span class="job-status">${escapeHtml(job.status || (paused ? "paused" : "pending"))}</span>
+        </div>
+        <div class="job-row-prompt">${escapeHtml(job.prompt || "")}</div>
+        <div class="job-row-actions">
+          ${canEdit ? '<button type="button" class="job-action" data-job-action="edit">Edit</button>' : ""}
+          <button type="button" class="job-action" data-job-action="${paused ? "resume" : "pause"}">${paused ? "Resume" : "Pause"}</button>
+          <button type="button" class="job-action" data-job-action="remove">Remove</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+async function loadJobs() {
+  els.jobsDialogStatus.textContent = "Loading jobs…";
+  try {
+    const result = await fetchJson("api/jobs");
+    renderJobs(result.jobs);
+    els.jobsDialogStatus.textContent = `${result.jobs?.length || 0} configured job${result.jobs?.length === 1 ? "" : "s"}.`;
+  } catch (error) {
+    els.jobsDialogStatus.textContent = `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`;
+  }
+}
+async function runJobCommand(payload, successText) {
+  els.jobsDialogStatus.textContent = "Running Prompta CLI command…";
+  els.saveJobButton.disabled = true;
+  try {
+    const result = await postJson("api/jobs", payload);
+    renderJobs(result.jobs);
+    const command = Array.isArray(result.command) ? result.command.join(" ") : "";
+    els.jobsDialogStatus.textContent = command ? `${successText} · ${command}` : successText;
+    return true;
+  } catch (error) {
+    els.jobsDialogStatus.textContent = `Jobs command failed: ${String(error).replace(/^Error:\s*/, "")}`;
+    return false;
+  } finally {
+    els.saveJobButton.disabled = false;
+  }
+}
+async function openJobsDialog() {
+  els.messageInput.value = "";
+  els.slashMenu.hidden = true;
+  resizeComposer();
+  syncSendButton();
+  resetJobForm();
+  if (!els.jobsDialog.open) els.jobsDialog.showModal();
+  await loadJobs();
+}
+els.closeJobsDialog.addEventListener("click", () => els.jobsDialog.close());
+els.jobsDialog.addEventListener("click", (event) => {
+  if (event.target === els.jobsDialog) els.jobsDialog.close();
+});
+els.jobScheduleType.addEventListener("change", syncJobScheduleFields);
+els.resetJobForm.addEventListener("click", resetJobForm);
+els.jobsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const daily = els.jobScheduleType.value === "daily";
+  const payload = {
+    action: "add",
+    name: els.jobNameInput.value.trim(),
+    prompt: els.jobPromptInput.value.trim(),
+    daily_at: daily ? els.jobDailyInput.value : "",
+    interval_minutes: daily ? null : Number(els.jobIntervalInput.value),
+    exact_interval: !daily && els.jobExactInput.checked,
+  };
+  const saved = await runJobCommand(payload, `Saved ${payload.name}`);
+  if (saved) resetJobForm();
+});
+els.jobsList.addEventListener("click", async (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-job-action]");
+  const row = button?.closest<HTMLElement>("[data-job-name]");
+  if (!button || !row) return;
+  const name = String(row.dataset.jobName || "");
+  const job = state.scheduledJobs.find((item) => item.name === name);
+  if (!job) return;
+  const action = String(button.dataset.jobAction || "");
+  if (action === "edit") {
+    els.jobsFormTitle.textContent = `Edit ${job.name}`;
+    els.jobNameInput.value = job.name;
+    els.jobNameInput.readOnly = true;
+    els.jobPromptInput.value = job.prompt || "";
+    els.jobScheduleType.value = job.daily_at ? "daily" : "interval";
+    els.jobDailyInput.value = job.daily_at || "09:00";
+    els.jobIntervalInput.value = String(job.interval_minutes || 30);
+    els.jobExactInput.checked = Boolean(job.exact_interval);
+    syncJobScheduleFields();
+    els.jobPromptInput.focus();
+    return;
+  }
+  await runJobCommand({ action, name }, `${action === "remove" ? "Removed" : action === "pause" ? "Paused" : "Resumed"} ${name}`);
+});
+els.clearJobsButton.addEventListener("click", async () => {
+  if (!state.scheduledJobs.length) return;
+  if (!window.confirm(`Clear all ${state.scheduledJobs.length} scheduled jobs?`)) return;
+  const cleared = await runJobCommand({ action: "clear" }, "Cleared all scheduled jobs");
+  if (cleared) resetJobForm();
+});
+
 function pendingReply(conversationId, sendId) {
   return (state.pendingReplies.get(conversationId) || [])
     .find((item) => item.sendId === sendId);
@@ -2167,20 +2302,11 @@ async function sendSelectedMessage() {
     showMode("logs");
     return;
   }
-  requestNotificationPermissionFromGesture();
-  const scheduleCommand = parseScheduleSlashCommand(message);
-  if (scheduleCommand) {
-    if (attachments.length) {
-      setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
-      return;
-    }
-    if ("error" in scheduleCommand) {
-      setTextIfChanged(els.composerStatus, scheduleCommand.error);
-      return;
-    }
-    await runScheduleSlashCommand(scheduleCommand, message);
+  if (message.toLowerCase() === "/jobs") {
+    await openJobsDialog();
     return;
   }
+  requestNotificationPermissionFromGesture();
   const atCommand = parseAtSlashCommand(message);
   if (atCommand) {
     if (attachments.length) {
