@@ -24,6 +24,7 @@ from websockets.exceptions import ConnectionClosed
 
 from .bidi import FirefoxBiDiDriver, wait_for_port
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
+from .chromium import ChromiumToolEnricher, merge_tool_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +240,7 @@ class Prompta:
                 else config.jobs_file.expanduser().parent / "chats.sqlite3"
             )
         self.cache = ChatCache(cache_path)
+        self.tool_enricher = ChromiumToolEnricher()
         self._active_conversations: dict[str, ActiveConversation] = {}
         self._next_recovery_retry_at = time.monotonic() + _RESTART_RECOVERY_RETRY_SECONDS
         self._backoffs: dict[str, RateLimitBackoff] = {}
@@ -1025,6 +1027,10 @@ class Prompta:
                 last_digest = digest
 
                 if stable_polls >= 2 and completion_hint:
+                    latest = await self._enrich_completed_tool_calls(
+                        conversation_id,
+                        latest,
+                    )
                     self.cache.write_snapshot(conversation_id, latest, complete=True)
                     return len(messages)
                 if stable_polls >= 2 and not completion_hint:
@@ -1360,6 +1366,50 @@ class Prompta:
             self.cache.mark_interrupted(active.conversation_id)
         self._active_conversations.clear()
 
+    async def _enrich_completed_tool_calls(
+        self,
+        conversation_id: str,
+        snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        messages = snapshot.get("messages")
+        if not isinstance(messages, list):
+            return snapshot
+        assistant_index = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[index], dict)
+                and str(messages[index].get("role") or "") == "assistant"
+            ),
+            None,
+        )
+        if assistant_index is None:
+            return snapshot
+        assistant = messages[assistant_index]
+        content = str(assistant.get("content") or "")
+        if "tool:" not in content and "function:" not in content:
+            return snapshot
+        metadata = self.cache.metadata(conversation_id)
+        url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
+        blocks = await self.tool_enricher.tool_blocks(url)
+        if not blocks:
+            return snapshot
+        enriched_content = merge_tool_blocks(content, blocks)
+        if enriched_content == content:
+            return snapshot
+        enriched = dict(snapshot)
+        enriched_messages = [
+            dict(message) if isinstance(message, dict) else message for message in messages
+        ]
+        enriched_messages[assistant_index]["content"] = enriched_content
+        enriched["messages"] = enriched_messages
+        logger.info(
+            "Prompta enriched conversation=%s with %d structured Chromium tool call(s)",
+            conversation_id,
+            len(blocks),
+        )
+        return enriched
+
     async def _poll_active_conversations(self) -> None:
         if not self._active_conversations:
             return
@@ -1601,7 +1651,12 @@ class Prompta:
                 continue
 
             if active.settled_at <= 0:
+                snapshot = await self._enrich_completed_tool_calls(
+                    active.conversation_id,
+                    snapshot,
+                )
                 self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
+                active.last_digest = self.cache.digest(snapshot)
                 active.settled_at = time.monotonic()
                 logger.info(
                     "Prompta cached completed conversation=%s messages=%d; retaining tab for %.0fs",
