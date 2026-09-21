@@ -14,6 +14,7 @@ import mimetypes
 import re
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -36,6 +37,7 @@ from .core import (
     _send_reply_via_control,
     add_job,
     is_rate_limited_text,
+    load_jobs,
     parse_retry_after,
 )
 
@@ -778,6 +780,103 @@ class PromptaUIServer(ThreadingHTTPServer):
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
         return self.store.logs(limit=limit)
 
+    def scheduled_jobs(self) -> dict[str, Any]:
+        try:
+            state_payload = json.loads(self.state_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            state_payload = {}
+        state_jobs = state_payload.get("jobs") if isinstance(state_payload, dict) else {}
+        if not isinstance(state_jobs, dict):
+            state_jobs = {}
+
+        jobs = []
+        for job in load_jobs(self.jobs_path).values():
+            job_state = state_jobs.get(job.name)
+            if not isinstance(job_state, dict):
+                job_state = {}
+            paused = job_state.get("paused") is True
+            status = "paused" if paused else str(job_state.get("status") or "pending")
+            if status not in {"paused", "pending", "healthy", "failing", "rate-limited"}:
+                status = "pending"
+            try:
+                next_due_at = float(job_state.get("next_due_at_epoch") or 0.0)
+            except (TypeError, ValueError):
+                next_due_at = 0.0
+            jobs.append(
+                {
+                    "name": job.name,
+                    "prompt": job.prompt,
+                    "interval_minutes": job.interval_seconds / 60.0,
+                    "daily_at": job.daily_at,
+                    "run_at_epoch": job.run_at_epoch,
+                    "exact_interval": job.exact_interval,
+                    "paused": paused,
+                    "status": status,
+                    "next_due_at_epoch": next_due_at,
+                }
+            )
+        return {"jobs": jobs, "server": self.host_name}
+
+    def _run_job_cli(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        action = action.strip().lower()
+        command = [sys.executable, "-m", "prompta.core"]
+
+        if action == "add":
+            name = str(payload.get("name") or "").strip()
+            prompt = str(payload.get("prompt") or "").strip()
+            if not name:
+                raise ValueError("Job name is required")
+            if not prompt:
+                raise ValueError("Job prompt is required")
+            command += ["add", name, prompt]
+            daily_at = str(payload.get("daily_at") or "").strip()
+            if daily_at:
+                if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at):
+                    raise ValueError("Daily time must use HH:MM")
+                command += ["--daily-at", daily_at]
+            else:
+                try:
+                    interval_minutes = float(payload.get("interval_minutes"))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Interval minutes must be a number") from exc
+                if not math.isfinite(interval_minutes) or interval_minutes <= 0:
+                    raise ValueError("Interval minutes must be greater than zero")
+                command += ["--interval-minutes", str(interval_minutes)]
+                if payload.get("exact_interval") is True:
+                    command.append("--exact-interval")
+            command += ["--jobs-file", str(self.jobs_path)]
+        elif action in {"remove", "pause", "resume"}:
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("Job name is required")
+            command += [action, name, "--jobs-file", str(self.jobs_path)]
+            if action in {"pause", "resume"}:
+                command += ["--state", str(self.state_path)]
+        elif action == "clear":
+            command += ["clear", "--jobs-file", str(self.jobs_path)]
+        else:
+            raise ValueError(f"Unsupported jobs command: {action}")
+
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).strip()
+            raise RuntimeError(detail or f"prompta {action} failed")
+
+        if action in {"add", "resume"}:
+            _start_local_scheduler_service()
+        display = ["prompta", *command[3:]]
+        return {
+            "ok": True,
+            "command": display,
+            **self.scheduled_jobs(),
+        }
+
     def save_attachments(self, raw_attachments: Any) -> list[str]:
         if raw_attachments is None:
             return []
@@ -1132,6 +1231,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 limit = 500
             self._json(cast(PromptaUIServer, self.server).logs(limit=limit))
             return
+        if path == "/api/jobs":
+            self._json(cast(PromptaUIServer, self.server).scheduled_jobs())
+            return
         send_prefix = "/api/sends/"
         if path.startswith(send_prefix):
             send_id = unquote(path[len(send_prefix) :]).strip("/")
@@ -1155,6 +1257,23 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/jobs":
+            payload = self._json_body()
+            if payload is None:
+                return
+            action = str(payload.get("action") or "").strip().lower()
+            try:
+                result = cast(PromptaUIServer, self.server)._run_job_cli(action, payload)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except Exception as exc:
+                logger.exception("Prompta UI jobs command failed")
+                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+                return
+            self._json(result)
+            return
 
         if path == "/api/schedule":
             payload = self._json_body()

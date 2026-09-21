@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import subprocess
+import sys
 import time
 from datetime import datetime
 from http import HTTPStatus
@@ -878,4 +879,144 @@ def test_read_only_store_falls_back_to_saved_prompt_for_empty_chat(tmp_path: Pat
     assert chat is not None
     assert [(message["role"], message["content"]) for message in chat["messages"]] == [
         ("user", "This prompt must remain visible")
+    ]
+
+
+def test_jobs_cli_add_maps_to_prompta_cli(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    try:
+        with (
+            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
+            patch("prompta.web._start_local_scheduler_service", return_value=True) as start,
+            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
+        ):
+            result = server._run_job_cli(
+                "add",
+                {
+                    "name": "kite-roadmap",
+                    "prompt": "Keep working on Kite",
+                    "interval_minutes": 30,
+                    "exact_interval": True,
+                },
+            )
+    finally:
+        server.server_close()
+
+    run_cli.assert_called_once_with(
+        [
+            sys.executable,
+            "-m",
+            "prompta.core",
+            "add",
+            "kite-roadmap",
+            "Keep working on Kite",
+            "--interval-minutes",
+            "30.0",
+            "--exact-interval",
+            "--jobs-file",
+            str(jobs_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    start.assert_called_once_with()
+    assert result["command"][:4] == ["prompta", "add", "kite-roadmap", "Keep working on Kite"]
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        ("pause", ["pause", "kite-roadmap"]),
+        ("resume", ["resume", "kite-roadmap"]),
+        ("remove", ["remove", "kite-roadmap"]),
+    ],
+)
+def test_jobs_cli_named_actions_map_to_prompta_cli(
+    tmp_path: Path,
+    action: str,
+    expected: list[str],
+) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    try:
+        with (
+            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
+            patch("prompta.web._start_local_scheduler_service", return_value=True),
+            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
+        ):
+            server._run_job_cli(action, {"name": "kite-roadmap"})
+    finally:
+        server.server_close()
+
+    command = run_cli.call_args.args[0]
+    assert command[:3] == [sys.executable, "-m", "prompta.core"]
+    assert command[3:5] == expected
+    assert command[-2:] == (
+        ["--state", str(state_path)]
+        if action in {"pause", "resume"}
+        else ["--jobs-file", str(jobs_path)]
+    )
+
+
+def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    jobs_path.write_text(
+        json.dumps(
+            {
+                "jobs": {
+                    "daily-check": {
+                        "prompt": "Check the build",
+                        "interval_seconds": 1800,
+                        "daily_at": "09:30",
+                    }
+                }
+            }
+        )
+    )
+    state_path.write_text(
+        json.dumps(
+            {
+                "jobs": {
+                    "daily-check": {
+                        "paused": True,
+                        "status": "healthy",
+                        "next_due_at_epoch": 1234,
+                    }
+                }
+            }
+        )
+    )
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(tmp_path / "chats.sqlite3"),
+        state_path,
+        jobs_path,
+    )
+    try:
+        result = server.scheduled_jobs()
+    finally:
+        server.server_close()
+
+    assert result["jobs"] == [
+        {
+            "name": "daily-check",
+            "prompt": "Check the build",
+            "interval_minutes": 30.0,
+            "daily_at": "09:30",
+            "run_at_epoch": None,
+            "exact_interval": False,
+            "paused": True,
+            "status": "paused",
+            "next_due_at_epoch": 1234.0,
+        }
     ]
