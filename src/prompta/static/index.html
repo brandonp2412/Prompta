@@ -121,7 +121,7 @@
             <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
             <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
               <button type="button" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
-              <button type="button" data-slash-command="/every "><strong>/every</strong><span>Repeat a prompt on an interval</span></button>
+              <button type="button" data-slash-command="/jobs"><strong>/jobs</strong><span>Manage scheduled jobs</span></button>
               <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
             </div>
           </div>
@@ -138,6 +138,58 @@
       </footer>
     </main>
   </div>
+  <dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle">
+    <div class="jobs-dialog-shell">
+      <header class="jobs-dialog-header">
+        <div>
+          <h2 id="jobsDialogTitle">Scheduled jobs</h2>
+          <p>Managed through the Prompta CLI.</p>
+        </div>
+        <button type="button" class="jobs-icon-button" id="closeJobsDialog" aria-label="Close scheduled jobs">×</button>
+      </header>
+      <div class="jobs-dialog-status" id="jobsDialogStatus" role="status"></div>
+      <div class="jobs-list" id="jobsList"></div>
+      <form class="jobs-form" id="jobsForm">
+        <h3 id="jobsFormTitle">Add job</h3>
+        <label>
+          <span>Name</span>
+          <input id="jobNameInput" name="name" autocomplete="off" required>
+        </label>
+        <label>
+          <span>Prompt</span>
+          <textarea id="jobPromptInput" name="prompt" rows="3" required></textarea>
+        </label>
+        <div class="jobs-form-grid">
+          <label>
+            <span>Schedule</span>
+            <select id="jobScheduleType">
+              <option value="interval">Interval</option>
+              <option value="daily">Daily</option>
+            </select>
+          </label>
+          <label id="jobIntervalField">
+            <span>Every (minutes)</span>
+            <input id="jobIntervalInput" type="number" min="0.1" step="0.1" value="30">
+          </label>
+          <label id="jobDailyField" hidden>
+            <span>At</span>
+            <input id="jobDailyInput" type="time" value="09:00">
+          </label>
+        </div>
+        <label class="jobs-check" id="jobExactField">
+          <input id="jobExactInput" type="checkbox">
+          <span>Exact interval</span>
+        </label>
+        <div class="jobs-form-actions">
+          <button type="button" class="jobs-secondary-button" id="resetJobForm">Reset</button>
+          <button type="submit" class="jobs-primary-button" id="saveJobButton">Save job</button>
+        </div>
+      </form>
+      <div class="jobs-dialog-footer">
+        <button type="button" class="jobs-danger-button" id="clearJobsButton">Clear all jobs</button>
+      </div>
+    </div>
+  </dialog>
   <script src="./app.js" defer></script>
   <script src="./sidebar.js" defer></script>
 </body>
