@@ -76,6 +76,8 @@ const state = {
   selectedFingerprint: "",
   search: "",
   sidebarFingerprint: "",
+  sidebarMotionActive: false,
+  sidebarRenderDeferred: false,
   refreshTimer: null,
   mode: "chats",
   logFingerprint: "",
@@ -422,7 +424,21 @@ function sidebarChats() {
 }
 const boundSidebarItems = new WeakSet();
 const boundSidebarPins = new WeakSet();
+function beginSidebarMotion() {
+  state.sidebarMotionActive = true;
+}
+function endSidebarMotion() {
+  if (!state.sidebarMotionActive) return;
+  state.sidebarMotionActive = false;
+  if (!state.sidebarRenderDeferred) return;
+  state.sidebarRenderDeferred = false;
+  renderSidebar();
+}
 function renderSidebar(force = false) {
+  if (state.sidebarMotionActive) {
+    state.sidebarRenderDeferred = true;
+    return;
+  }
   const chats = sidebarChats();
   const fingerprint = JSON.stringify(chats.map((chat) => [
     chat.id,
@@ -1782,11 +1798,16 @@ async function loadSelectedChat() {
 async function selectChat(id) {
   if (!id) return;
   if (state.mode !== "chats") showMode("chats");
+
+  // Start dismissing the mobile sidebar before any chat fetch or sidebar render.
+  // The previous ordering made a tap feel network-bound because closeSidebar()
+  // did not run until /api/chats/:id completed.
+  closeSidebar();
+
   if (id === state.selectedId) {
     if (!state.selectedChat || state.selectedChat.id !== id) {
       await loadSelectedChat();
     }
-    closeSidebar();
     return;
   }
   const pendingNew = state.pendingNewSend?.conversationId === id
@@ -1803,7 +1824,6 @@ async function selectChat(id) {
   history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
   renderSidebar();
   await loadSelectedChat();
-  closeSidebar();
 }
 let searchTimer;
 els.searchInput.addEventListener("input", () => {
@@ -1854,6 +1874,15 @@ els.sidebarScrim.addEventListener("click", closeSidebar);
 mobileSidebarMedia.addEventListener("change", syncSidebarAccessibility);
 window.addEventListener("resize", syncSidebarAccessibility);
 syncSidebarAccessibility();
+els.sidebar.addEventListener("transitionrun", (event) => {
+  if (event.propertyName === "transform" && mobileSidebarEnabled()) beginSidebarMotion();
+});
+els.sidebar.addEventListener("transitionend", (event) => {
+  if (event.propertyName === "transform") endSidebarMotion();
+});
+els.sidebar.addEventListener("transitioncancel", (event) => {
+  if (event.propertyName === "transform") endSidebarMotion();
+});
 const SIDEBAR_EDGE_SWIPE_WIDTH = 144;
 
 const sidebarSwipe = {
@@ -1885,6 +1914,7 @@ function resetSidebarDragStyles() {
   els.sidebar.style.removeProperty("transform");
   els.sidebarScrim.style.removeProperty("transition");
   els.sidebarScrim.style.removeProperty("opacity");
+  endSidebarMotion();
 }
 function mobileSidebarEnabled() {
   return mobileSidebarMedia.matches;
@@ -1931,6 +1961,7 @@ document.addEventListener("touchmove", (event) => {
     sidebarSwipe.directionLocked = true;
     sidebarSwipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
     if (sidebarSwipe.horizontal) {
+      beginSidebarMotion();
       els.sidebar.style.transition = "none";
       els.sidebarScrim.style.transition = "none";
     }
@@ -1972,6 +2003,7 @@ function settleSidebarDrag(open) {
     els.sidebar.style.removeProperty("transform");
     els.sidebarScrim.style.removeProperty("transition");
     els.sidebarScrim.style.removeProperty("opacity");
+    endSidebarMotion();
   }, duration + 30);
 }
 document.addEventListener("touchend", () => {
