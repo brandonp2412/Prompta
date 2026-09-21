@@ -1569,12 +1569,13 @@ async def test_scheduler_prioritises_ui_send_before_active_poll(tmp_path: Path) 
     async def poll_active() -> None:
         order.append("poll")
 
-    prompta._drain_reply_requests = drain_reply  # type: ignore[method-assign]
-    prompta._drain_once_requests = drain_once  # type: ignore[method-assign]
-    prompta._drain_sync_requests = drain_sync  # type: ignore[method-assign]
-    prompta._retry_cached_recovery_if_due = retry_recovery  # type: ignore[method-assign]
-    prompta._poll_active_conversations = poll_active  # type: ignore[method-assign]
-    prompta.read_jobs = lambda: {}  # type: ignore[method-assign]
+    test_prompta = cast(Any, prompta)
+    test_prompta._drain_reply_requests = drain_reply
+    test_prompta._drain_once_requests = drain_once
+    test_prompta._drain_sync_requests = drain_sync
+    test_prompta._retry_cached_recovery_if_due = retry_recovery
+    test_prompta._poll_active_conversations = poll_active
+    test_prompta.read_jobs = lambda: {}
 
     await prompta.run(once=True)
 
