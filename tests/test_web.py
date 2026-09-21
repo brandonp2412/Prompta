@@ -1020,6 +1020,47 @@ def test_read_only_store_clears_stale_streaming_status_for_finished_chat(tmp_pat
     assert all(message["status"] == "complete" for message in chat["messages"])
 
 
+def test_read_only_store_compacts_tool_heavy_sidebar_preview(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-preview",
+        context_id="context-preview",
+        job_name="",
+        prompt="Keep going",
+    )
+    tool_payload = "x" * 50_000
+    fence = chr(96) * 3
+    assistant = (
+        "Readable summary before tools.\n\n"
+        f"{fence}tool-call: execute_python\n"
+        f'{{"code":"{tool_payload}"}}\n'
+        f"{fence}\n\n"
+        "Readable summary after tools."
+    )
+    cache.write_snapshot(
+        "chat-preview",
+        {
+            "title": "Preview test",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep going"},
+                {"id": "a1", "role": "assistant", "content": assistant},
+            ],
+        },
+    )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    chats = store.conversations()
+    chat = store.conversation("chat-preview")
+
+    assert chats[0]["preview"] == "Readable summary before tools. Readable summary after tools."
+    assert len(chats[0]["preview"]) <= 1024
+    assert chat is not None
+    assert chat["messages"][-1]["content"] == assistant
+
+
 def test_read_only_store_searches_message_content(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
