@@ -9,6 +9,7 @@ import {
   parseScheduleSlashCommand,
   pendingSendActivity,
   postJsonRequest as postJson,
+  pythonToolCallCode,
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
@@ -615,11 +616,15 @@ function renderCodeBlock(code, language) {
   const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
-  const renderedCode = toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code;
-  const highlightLanguage = toolish && toolFence
-    ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
-    : normalized;
-  const label = toolish ? "tool call" : (rawLanguage || "code");
+  const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
+  const renderedCode = pythonCode
+    || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
+  const highlightLanguage = pythonCode
+    ? "python"
+    : toolish && toolFence
+      ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
+      : normalized;
+  const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
   return `
     <div class="code-block${toolish ? " tool-call-block" : ""}">
       <div class="code-header">
