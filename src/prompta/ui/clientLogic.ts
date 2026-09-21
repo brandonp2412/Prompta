@@ -18,6 +18,7 @@ export type PendingReply = {
   status?: string;
   error?: string;
   retryAfterSeconds?: number;
+  retryAt?: number;
   retryAttempt?: number;
   observedInCache?: boolean;
   responseObservedInCache?: boolean;
@@ -122,13 +123,25 @@ export function pendingSendActivity(
   status: unknown,
   hasSendId: boolean,
   retryAfterSeconds: unknown = 0,
+  retryAtEpoch: unknown = 0,
+  nowEpoch: unknown = Date.now() / 1000,
 ): PendingSendActivity | null {
   const normalized = String(status || "queued").trim().toLowerCase();
   if (normalized === "failed") return null;
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
   if (normalized === "rate_limited") {
-    const delay = retryDelayText(retryAfterSeconds);
+    const deadline = Number(retryAtEpoch);
+    const now = Number(nowEpoch);
+    const hasDeadline = Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now);
+    const remaining = hasDeadline ? Math.max(0, deadline - now) : Number(retryAfterSeconds);
+    if (hasDeadline && remaining <= 0) {
+      return {
+        label: "rate limited · retrying now",
+        statusText: "Rate limited — backoff elapsed; retrying now…",
+      };
+    }
+    const delay = retryDelayText(remaining);
     return {
       label: `rate limited · retry in ${delay}`,
       statusText: `Rate limited — backing off; retrying automatically in ${delay}.`,
@@ -202,7 +215,7 @@ export function pythonToolCallCode(toolName: unknown, value: unknown): string {
   const argumentPayload = parsedToolPayload(record.arguments ?? record.args ?? record);
   if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload)) return "";
   const code = (argumentPayload as Record<string, unknown>).code;
-  return typeof code === "string" ? code : "";
+  return typeof code === "string" ? code.replace(/^(?:[ \t]*\r?\n)+/, "") : "";
 }
 
 export function sidebarPreviewText(value: unknown): string {

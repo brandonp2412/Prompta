@@ -342,7 +342,8 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
         with registry._rate_limit_lock:
             registry._rate_limit_backoff.blocked_until = 0.0
 
-    registry = SendJobRegistry(sender, sleeper=sleeper)
+    recovery_path = tmp_path / "ui-send-retries.json"
+    registry = SendJobRegistry(sender, sleeper=sleeper, recovery_path=recovery_path)
     registry_ref.append(registry)
     with patch("prompta.core.random.uniform", return_value=0.0):
         queued = registry.submit(
@@ -357,6 +358,9 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
         assert limited["retry_after_seconds"] == 300
         assert limited["retry_attempt"] == 1
         assert attachment.exists()
+        recovery = json.loads(recovery_path.read_text())
+        assert recovery["jobs"][0]["send_id"] == queued["send_id"]
+        assert recovery["jobs"][0]["message"] == "Hello"
 
         release.set()
         deadline = time.monotonic() + 1.0
@@ -370,6 +374,60 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
     assert result["conversation_id"] == "chat-new"
     assert calls == 2
     assert not attachment.exists()
+    assert not recovery_path.exists()
+
+
+def test_send_job_registry_restores_rate_limited_send_after_restart(tmp_path: Path) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    send_id = "restored-send"
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": send_id,
+                        "operation": "once",
+                        "message": "Resume me",
+                        "conversation_id": "",
+                        "attachments": [],
+                        "client_id": "browser-restored",
+                        "retry_at": time.time() - 1,
+                        "retry_attempt": 1,
+                        "created_at": time.time() - 10,
+                    }
+                ]
+            }
+        )
+    )
+    calls = 0
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        assert operation == "once"
+        assert message == "Resume me"
+        assert conversation_id == ""
+        assert attachments == []
+        return "chat-restored"
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+    deadline = time.monotonic() + 1.0
+    result = registry.get(send_id)
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(send_id)
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert result["conversation_id"] == "chat-restored"
+    assert calls == 1
+    assert not recovery_path.exists()
+    duplicate = registry.submit(
+        operation="once",
+        message="Resume me",
+        client_id="browser-restored",
+    )
+    assert duplicate["send_id"] == send_id
 
 
 def test_send_job_registry_reuses_client_id(tmp_path: Path) -> None:
