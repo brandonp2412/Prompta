@@ -8,6 +8,7 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  pendingConversationSends,
   pendingSendActivity,
   postJsonRequest as postJson,
   pythonToolCallCode,
@@ -1001,7 +1002,11 @@ function restoreConversationViewport(snapshot, forceBottom = false) {
 }
 
 function pendingReplyMessages(conversationId, cachedMessages) {
-  const pending = state.pendingReplies.get(conversationId) || [];
+  const pending = pendingConversationSends(
+    conversationId,
+    state.pendingReplies.get(conversationId) || [],
+    state.pendingNewSend,
+  );
   const claimedCachedIndexes = new Set<number>();
   for (const item of pending) {
     const matchedIndex = matchingPendingReplyMessageIndex(
@@ -1537,9 +1542,8 @@ async function loadSelectedChat() {
       || selectedId !== state.selectedId
       || chat.id !== state.selectedId
     ) return;
-    if (state.pendingNewId === chat.id) {
+    if (state.pendingNewId === chat.id && !state.pendingNewSend) {
       state.pendingNewId = null;
-      if (state.pendingNewSend?.conversationId === chat.id) state.pendingNewSend = null;
     }
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
@@ -1565,8 +1569,11 @@ async function selectChat(id) {
     closeSidebar();
     return;
   }
+  const pendingNew = state.pendingNewSend?.conversationId === id
+    ? state.pendingNewSend
+    : null;
   state.composingNew = false;
-  state.pendingNewId = null;
+  state.pendingNewId = pendingNew ? id : null;
   els.messageInput.placeholder = "Message Prompta…";
   state.selectedId = id;
   state.selectedUpdatedAt = null;
