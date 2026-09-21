@@ -735,7 +735,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
 
 def _start_local_scheduler_service() -> bool:
-    """Ask systemd to own the local Firefox session when the service is available."""
+    """Ask systemd to own the local browser worker when the service is available."""
 
     try:
         started = subprocess.run(
