@@ -1007,6 +1007,35 @@ textarea:focus-visible {
   background: #18202a;
 }
 
+.tool-call-block > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-call-block > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-call-block > summary::before {
+  content: "›";
+  display: inline-block;
+  margin-right: 7px;
+  color: #7f9fc9;
+  font-size: 15px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 120ms ease;
+}
+
+.tool-call-block[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.tool-call-block:not([open]) > summary {
+  border-bottom-color: transparent;
+}
+
 .tool-name {
   margin-left: 8px;
   padding-left: 8px;

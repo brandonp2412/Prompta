@@ -18,10 +18,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 _FENCE = chr(96) * 3
 _TOOL_BLOCK_RE = re.compile(
-    re.escape(_FENCE)
-    + r"(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?"
-    + re.escape(_FENCE),
-    re.IGNORECASE,
+    r"^ {0,3}"
+    + re.escape(_FENCE)
+    + r"(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\r?\n"
+    + r"[\s\S]*?^ {0,3}"
+    + re.escape(_FENCE)
+    + r"[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE,
 )
 _REACT_TOOL_SCRIPT = r"""
 (()=>{
@@ -297,8 +300,22 @@ def _format_tool_block(call: dict[str, Any]) -> str:
 def merge_tool_blocks(content: str, blocks: list[str]) -> str:
     if not blocks:
         return content
-    cleaned = _TOOL_BLOCK_RE.sub("", str(content or "")).strip()
-    return (chr(10) * 2).join(part for part in [cleaned, *blocks] if part).strip()
+    source = str(content or "")
+    matches = list(_TOOL_BLOCK_RE.finditer(source))
+    if not matches:
+        return (chr(10) * 2).join(part for part in [source.strip(), *blocks] if part).strip()
+
+    parts: list[str] = []
+    cursor = 0
+    for index, match in enumerate(matches):
+        parts.append(source[cursor : match.start()])
+        parts.append(blocks[index] if index < len(blocks) else match.group(0))
+        cursor = match.end()
+    parts.append(source[cursor:])
+    merged = "".join(parts).strip()
+    if len(blocks) > len(matches):
+        merged = (chr(10) * 2).join([merged, *blocks[len(matches) :]]).strip()
+    return merged
 
 
 class ChromiumToolEnricher:
