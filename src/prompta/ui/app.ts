@@ -11,6 +11,7 @@ import {
   pendingSendActivity,
   postJsonRequest as postJson,
   pythonToolCallCode,
+  replaceChatGptRichMarkers,
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
@@ -494,6 +495,9 @@ function inlineMarkdown(text) {
     placeholders.push([token, html]);
     return token;
   };
+  source = replaceChatGptRichMarkers(source, (label, url) => stash(
+    `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
+  ));
   source = source.replace(/`([^`\n]+)`/g, (_, code) => (
     stash(`<code class="inline-code">${escapeHtml(code)}</code>`)
   ));

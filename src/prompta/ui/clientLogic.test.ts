@@ -12,6 +12,7 @@ import {
   pendingSendActivity,
   postJsonRequest,
   pythonToolCallCode,
+  replaceChatGptRichMarkers,
   sidebarPreviewText,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
@@ -497,5 +498,36 @@ describe("tool call display cleanup", () => {
       "GitHub · get_issue",
       JSON.stringify({ arguments: { code: "not python" } }),
     )).toBe("");
+  });
+});
+
+
+describe("ChatGPT rich-text markers", () => {
+  const start = "\uE200";
+  const end = "\uE201";
+  const sep = "\uE202";
+
+  test("turns native URL markers into renderer-controlled links", () => {
+    const input = `Deployed ${start}url${sep}Commit e5612bc${sep}https://github.com/brandonp2412/Prompta/commit/e5612bc${end}.`;
+    expect(replaceChatGptRichMarkers(
+      input,
+      (label, url) => `<a href="${url}">${label}</a>`,
+    )).toBe(
+      'Deployed <a href="https://github.com/brandonp2412/Prompta/commit/e5612bc">Commit e5612bc</a>.',
+    );
+  });
+
+  test("removes native citation markers without leaking internal source ids", () => {
+    const input = `K-9 supports this.${start}cite${sep}turn158675search6${sep}turn158675search3${end}`;
+    expect(replaceChatGptRichMarkers(input)).toBe("K-9 supports this.");
+  });
+
+  test("hides incomplete streaming markers until the closing delimiter arrives", () => {
+    expect(replaceChatGptRichMarkers(`Ready ${start}url${sep}Commit`)).toBe("Ready ");
+  });
+
+  test("sidebar previews use readable rich-link labels", () => {
+    const input = `Fixed in ${start}url${sep}Commit abc1234${sep}https://example.com/commit/abc1234${end}`;
+    expect(sidebarPreviewText(input)).toBe("Fixed in Commit abc1234");
   });
 });
