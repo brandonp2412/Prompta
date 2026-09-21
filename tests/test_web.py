@@ -1316,6 +1316,23 @@ def test_jobs_cli_named_actions_map_to_prompta_cli(
     )
 
 
+def test_run_job_cli_rejects_boolean_interval(tmp_path: Path) -> None:
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(tmp_path / "chats.sqlite3"),
+        tmp_path / "state.json",
+        tmp_path / "jobs.json",
+    )
+    try:
+        with pytest.raises(ValueError, match="Interval minutes must be a number"):
+            server._run_job_cli(
+                "add",
+                {"name": "bad-interval", "prompt": "Do work", "interval_minutes": True},
+            )
+    finally:
+        server.server_close()
+
+
 def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     state_path = tmp_path / "state.json"

@@ -348,7 +348,9 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 except Exception:
                     pass
                 try:
-                    driver.command_executor.close()
+                    command_executor = driver.command_executor
+                    if not isinstance(command_executor, str):
+                        command_executor.close()
                 except Exception:
                     pass
 
