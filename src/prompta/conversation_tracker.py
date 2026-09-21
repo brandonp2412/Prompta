@@ -360,6 +360,24 @@ class ConversationTracker:
 
             digest = self.cache.digest(snapshot)
             changed = digest != active.last_digest
+            if (
+                changed
+                and active.settled_at > 0
+                and completion_hint
+                and not bool(snapshot.get("streaming"))
+                and not failure_hint
+                and active.structured_tool_blocks
+            ):
+                source_digest = digest
+                snapshot = await self.enrich_completed_tool_calls(
+                    active.conversation_id,
+                    snapshot,
+                    active=active,
+                )
+                self.cache.write_snapshot(active.conversation_id, snapshot)
+                active.last_digest = source_digest
+                changed = False
+
             messages = snapshot.get("messages")
             if not isinstance(messages, list):
                 messages = []
@@ -500,13 +518,14 @@ class ConversationTracker:
                 continue
 
             if active.settled_at <= 0:
+                source_digest = digest
                 snapshot = await self.enrich_completed_tool_calls(
                     active.conversation_id,
                     snapshot,
                     active=active,
                 )
                 self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
-                active.last_digest = self.cache.digest(snapshot)
+                active.last_digest = source_digest
                 active.settled_at = time.monotonic()
                 logger.info(
                     "Prompta cached completed conversation=%s messages=%d; retaining tab for %.0fs",
