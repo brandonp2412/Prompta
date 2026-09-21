@@ -11,15 +11,28 @@ export function createLiveUpdates({
   let fallbackTimer: ReturnType<typeof setInterval> | null = null;
   let timeRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let paused = false;
-  let refreshQueued = false;
+  let refreshRunning = false;
+  let refreshAgain = false;
+
+  async function drainRefreshes() {
+    try {
+      do {
+        refreshAgain = false;
+        await loadChats();
+      } while (refreshAgain && !paused);
+    } finally {
+      refreshRunning = false;
+      if (refreshAgain && !paused) queueRefresh();
+    }
+  }
 
   function queueRefresh() {
-    if (refreshQueued) return;
-    refreshQueued = true;
-    requestAnimationFrame(async () => {
-      refreshQueued = false;
-      await loadChats();
-    });
+    if (refreshRunning) {
+      refreshAgain = true;
+      return;
+    }
+    refreshRunning = true;
+    void drainRefreshes();
   }
 
   function stopTimeRefresh() {

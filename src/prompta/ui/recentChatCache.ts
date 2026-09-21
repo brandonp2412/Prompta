@@ -1,6 +1,8 @@
 const DATABASE_NAME = "prompta-recent-chats";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const STORE_NAME = "chats";
+const SUMMARY_STORE_NAME = "summaries";
+const SUMMARY_LIMIT = 200;
 
 type CachedChatRecord = {
   key: string;
@@ -8,6 +10,14 @@ type CachedChatRecord = {
   conversationId: string;
   chat: any;
   accessedAt: number;
+};
+
+type CachedChatSummaryRecord = {
+  key: string;
+  scope: string;
+  conversationId: string;
+  chat: any;
+  position: number;
 };
 
 export class RecentChatCache {
@@ -53,6 +63,29 @@ export class RecentChatCache {
     void this.persist(chat);
   }
 
+  rememberSummaries(chats: any[]) {
+    const summaries = chats
+      .filter((chat) => String(chat?.id || ""))
+      .slice(0, SUMMARY_LIMIT);
+    void this.persistSummaries(summaries);
+  }
+
+  async warmSummaries() {
+    const database = await this.database();
+    if (!database) return [];
+    const records = await new Promise<CachedChatSummaryRecord[]>((resolve) => {
+      const transaction = database.transaction(SUMMARY_STORE_NAME, "readonly");
+      const request = transaction.objectStore(SUMMARY_STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([]);
+    });
+    return records
+      .filter((record) => record.scope === this.scope && record.chat)
+      .sort((left, right) => left.position - right.position)
+      .slice(0, SUMMARY_LIMIT)
+      .map((record) => record.chat);
+  }
+
   async warm() {
     const database = await this.database();
     if (!database) return [];
@@ -79,8 +112,9 @@ export class RecentChatCache {
     const database = await this.database();
     if (!database) return;
     await new Promise<void>((resolve) => {
-      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const transaction = database.transaction([STORE_NAME, SUMMARY_STORE_NAME], "readwrite");
       transaction.objectStore(STORE_NAME).delete(this.key(conversationId));
+      transaction.objectStore(SUMMARY_STORE_NAME).delete(this.key(conversationId));
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => resolve();
       transaction.onabort = () => resolve();
@@ -131,6 +165,38 @@ export class RecentChatCache {
     });
   }
 
+  private async persistSummaries(chats: any[]) {
+    const database = await this.database();
+    if (!database) return;
+    const retainedIds = new Set(chats.map((chat) => String(chat.id)));
+
+    await new Promise<void>((resolve) => {
+      const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(SUMMARY_STORE_NAME);
+      const allRequest = store.getAll();
+      allRequest.onsuccess = () => {
+        for (const record of allRequest.result || []) {
+          if (record.scope === this.scope && !retainedIds.has(String(record.conversationId || ""))) {
+            store.delete(record.key);
+          }
+        }
+        chats.forEach((chat, position) => {
+          const conversationId = String(chat.id);
+          store.put({
+            key: this.key(conversationId),
+            scope: this.scope,
+            conversationId,
+            chat,
+            position,
+          } satisfies CachedChatSummaryRecord);
+        });
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    });
+  }
+
   private database() {
     if (this.databasePromise) return this.databasePromise;
     this.databasePromise = new Promise((resolve) => {
@@ -149,6 +215,9 @@ export class RecentChatCache {
         const database = request.result;
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           database.createObjectStore(STORE_NAME, { keyPath: "key" });
+        }
+        if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) {
+          database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
         }
       };
       request.onsuccess = () => resolve(request.result);

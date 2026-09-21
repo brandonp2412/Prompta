@@ -390,7 +390,8 @@ function setStatusIcon(element, status, label, kind = "") {
 function reconcileOptimisticNew(chats) {
   const pending = state.pendingNewSend;
   if (!pending) return;
-  const matched = matchingOptimisticConversation(chats, pending);
+  const knownConversationIds = new Set(state.chats.map((chat) => String(chat.id)));
+  const matched = matchingOptimisticConversation(chats, pending, knownConversationIds);
   if (!matched) return;
   promotePendingConversationPin(pending, matched.id);
   pending.conversationId = matched.id;
@@ -892,22 +893,28 @@ async function fetchJson(url, timeoutMs = 10_000) {
   }
 }
 async function hydrateRecentChatCache() {
-  const cachedChats = await recentChatCache.warm();
-  if (!cachedChats.length || state.search) return false;
+  const [cachedChats, cachedSummaries] = await Promise.all([
+    recentChatCache.warm(),
+    recentChatCache.warmSummaries(),
+  ]);
+  const sidebarSnapshot = cachedSummaries.length ? cachedSummaries : cachedChats;
+  if (!sidebarSnapshot.length || state.search) return false;
   const unique = new Map();
-  for (const chat of cachedChats) {
+  for (const chat of sidebarSnapshot) {
     if (chat?.id && !unique.has(chat.id)) unique.set(chat.id, chat);
   }
-  state.chats = Array.from(unique.values())
-    .sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
-  state.chatOrderScope = "__cached__";
+  state.chats = Array.from(unique.values());
+  if (!cachedSummaries.length) {
+    state.chats.sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
+  }
+  state.chatOrderScope = cachedSummaries.length ? "" : "__cached__";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
   setTextIfChanged(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
   if (initialId) {
     state.selectedId = initialId;
-    const chat = unique.get(initialId);
+    const chat = recentChatCache.getMemory(initialId);
     if (chat) {
       state.selectedUpdatedAt = chat.updated_at;
       renderConversation(chat);
@@ -942,6 +949,7 @@ async function loadChats() {
     if (requestId !== state.chatsRequestId) return;
     const chats = payload.chats || [];
     reconcileOptimisticNew(chats);
+    if (!state.search) recentChatCache.rememberSummaries(chats);
     completionNotifications.trackCompletions(chats);
     const orderScope = state.search;
     const preserveOrder = state.chatOrderScope === orderScope;
