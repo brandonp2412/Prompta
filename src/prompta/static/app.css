@@ -1276,7 +1276,7 @@ textarea:focus-visible {
   padding: 6px 3px;
   background: transparent;
   color: var(--text);
-  line-height: 1.45;
+  line-height: 22px;
 }
 
 .composer-bar textarea::placeholder {
