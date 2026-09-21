@@ -758,7 +758,7 @@ function clearConversation() {
   els.shareChatButton.disabled = true;
   updatePinButton();
   els.messageInput.placeholder = "Message Prompta…";
-  setTextIfChanged(els.composerStatus, "Select a chat to send a message.");
+  setTextIfChanged(els.composerStatus, "");
   syncComposerDraftTarget();
   updateComposerActionButton();
 }
@@ -862,7 +862,7 @@ function renderNewChat() {
               : "Send failed. The error is shown in the chat.")
             : activity?.statusText || "Sent. Waiting for the cached response…"
         )
-        : "Your first message will open a fresh ChatGPT chat.",
+        : "",
     );
   }
   updateComposerActionButton();
@@ -1696,7 +1696,7 @@ els.messageInput.addEventListener("keydown", (event) => {
       return;
     }
   }
-  const mobileInput = matchMedia("(pointer: coarse)").matches;
+  const mobileInput = matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
     if (els.sendButton.dataset.action === "stop") stopSelectedChat();

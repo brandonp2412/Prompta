@@ -699,7 +699,7 @@ textarea:focus-visible {
 .logs-viewport {
   min-height: 0;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
   scrollbar-width: thin;
   scrollbar-color: #4a4a4a transparent;
 }
@@ -1325,6 +1325,10 @@ textarea:focus-visible {
   color: #777;
 }
 
+.composer-bar textarea:placeholder-shown {
+  overflow-y: hidden !important;
+}
+
 .composer-bar textarea:disabled {
   opacity: 0.55;
 }
@@ -1507,14 +1511,15 @@ textarea:focus-visible {
 }
 
 .composer-status {
+  display: none;
   width: min(760px, 100%);
-  min-height: 15px;
   margin: 5px auto 0;
   padding: 0 8px;
   color: var(--muted);
   font-size: 10px;
   text-align: center;
 }
+
 
 .empty-state {
   width: min(620px, calc(100% - 40px));
@@ -1584,6 +1589,7 @@ textarea:focus-visible {
 @media (max-width: 780px) {
   .app-shell {
     display: block;
+    touch-action: pan-y pinch-zoom;
   }
 
   .sidebar {
@@ -1606,11 +1612,6 @@ textarea:focus-visible {
 
   .chat-list {
     contain: layout paint style;
-  }
-
-  .chat-item {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 75px;
   }
 
   body.sidebar-dragging .sidebar {
@@ -1954,7 +1955,7 @@ textarea:focus-visible {
     max-height: none;
     padding: 0 16px calc(22px + env(safe-area-inset-bottom));
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior: none;
   }
 
   .jobs-dialog[data-presentation="stack"] .jobs-dialog-header {

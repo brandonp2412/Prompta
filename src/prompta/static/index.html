@@ -107,6 +107,14 @@
 
       <footer class="composer-footer" id="composerFooter">
         <form class="composer-bar" id="messageForm">
+          <div class="composer-input-shell">
+            <div class="attachment-chips" id="attachmentChips" hidden></div>
+            <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
+            <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
+              <button type="button" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
+              <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
+            </div>
+          </div>
           <div class="composer-tools">
             <button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -119,14 +127,6 @@
             <input id="fileUploadInput" type="file" hidden>
             <input id="photoUploadInput" type="file" accept="image/*" hidden>
             <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden>
-          </div>
-          <div class="composer-input-shell">
-            <div class="attachment-chips" id="attachmentChips" hidden></div>
-            <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
-            <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
-              <button type="button" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
-              <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
-            </div>
           </div>
           <div class="composer-submit">
             <button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat">
