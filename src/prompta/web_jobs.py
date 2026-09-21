@@ -14,10 +14,13 @@ from typing import Any
 from .jobs import add_job, load_jobs
 
 
-def schedule_job_name(prompt: str) -> str:
-    words = re.findall(r"[a-z0-9]+", prompt.casefold())[:6]
+def schedule_job_name(prompt: str, interval_minutes: float) -> str:
+    normalised_prompt = re.sub(r"\s+", " ", prompt).strip()
+    words = re.findall(r"[a-z0-9]+", normalised_prompt.casefold())[:6]
     slug = "-".join(words) or "job"
-    digest = hashlib.sha256(prompt.strip().encode("utf-8")).hexdigest()[:6]
+    interval_seconds = float(interval_minutes) * 60.0
+    identity = f"{normalised_prompt.casefold()}\0{interval_seconds:.9g}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"ui-{slug[:36]}-{digest}"
 
 
@@ -138,12 +141,44 @@ class WebJobService:
         }
 
     def schedule_every(self, prompt: str, interval_minutes: float) -> dict[str, Any]:
+        prompt = re.sub(r"\s+", " ", prompt).strip()
+        if not prompt:
+            raise ValueError("Schedule prompt is required")
         interval_minutes = float(interval_minutes)
-        if not math.isfinite(interval_minutes):
-            raise ValueError("Schedule interval must be finite")
-        interval_minutes = max(0.1, min(interval_minutes, 60.0 * 24.0 * 30.0))
-        name = schedule_job_name(prompt)
+        if not math.isfinite(interval_minutes) or interval_minutes <= 0:
+            raise ValueError("Schedule interval must be a finite value greater than zero")
+        if interval_minutes < 0.1:
+            raise ValueError("Schedule interval must be at least 6 seconds")
+        if interval_minutes > 60.0 * 24.0 * 30.0:
+            raise ValueError("Schedule interval cannot exceed 30 days")
+
         interval_seconds = interval_minutes * 60.0
+        prompt_identity = prompt.casefold()
+        for existing in load_jobs(self.jobs_path).values():
+            existing_prompt = re.sub(r"\s+", " ", existing.prompt).strip().casefold()
+            if (
+                existing_prompt == prompt_identity
+                and existing.daily_at is None
+                and existing.run_at_epoch is None
+                and existing.exact_interval
+                and math.isclose(
+                    existing.interval_seconds,
+                    interval_seconds,
+                    rel_tol=0.0,
+                    abs_tol=1e-6,
+                )
+            ):
+                scheduler_started = self.start_scheduler()
+                return {
+                    "name": existing.name,
+                    "prompt": existing.prompt,
+                    "interval_minutes": existing.interval_seconds / 60.0,
+                    "scheduler_started": scheduler_started,
+                    "server": self.server_name,
+                    "created": False,
+                }
+
+        name = schedule_job_name(prompt, interval_minutes)
         add_job(
             self.jobs_path,
             name,
@@ -158,6 +193,7 @@ class WebJobService:
             "interval_minutes": interval_minutes,
             "scheduler_started": scheduler_started,
             "server": self.server_name,
+            "created": True,
         }
 
     def schedule_at(self, prompt: str, run_at_epoch: float) -> dict[str, Any]:

@@ -169,10 +169,14 @@ system notification. Recurring jobs can be created directly from the composer:
 
 ```text
 /every 30 fix bugs
+/every 30s check the latest failures
 /every 2h review the latest failures
+/every 1d summarize open work
 ```
 
-Use `/jobs` in the composer to open the scheduled-jobs manager. Its add, edit,
+Intervals accept seconds, minutes, hours, and days from 6 seconds through 30 days.
+Repeating an equivalent command reuses the existing schedule. Use `/jobs` in the
+composer to open the scheduled-jobs manager. Its add, edit,
 pause, resume, remove, and clear actions map to the corresponding Prompta CLI
 commands.
 

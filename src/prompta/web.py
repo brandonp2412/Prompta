@@ -731,11 +731,15 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                     prompt,
                     interval_minutes,
                 )
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
             except Exception as exc:
                 logger.exception("Prompta UI scheduling failed")
                 self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
                 return
-            self._json({"ok": True, **result}, HTTPStatus.CREATED)
+            status = HTTPStatus.CREATED if result.get("created") is not False else HTTPStatus.OK
+            self._json({"ok": True, **result}, status)
             return
 
         if path == "/api/schedule-at":

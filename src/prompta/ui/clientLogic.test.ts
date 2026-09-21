@@ -591,16 +591,37 @@ describe("/every", () => {
     });
   });
 
-  test("supports hour units", () => {
-    expect(parseScheduleSlashCommand("/every 2h review failures")).toEqual({
-      intervalMinutes: 120,
-      prompt: "review failures",
+  test.each([
+    ["/every 30s check quickly", 0.5],
+    ["/every 10 seconds check quickly", 1 / 6],
+    ["/every 15 min review failures", 15],
+    ["/every 1.5 hours review failures", 90],
+    ["/every 2h review failures", 120],
+    ["/every 1 day review failures", 1440],
+    ["/every 2d review failures", 2880],
+  ])("supports useful interval units: %s", (command, intervalMinutes) => {
+    expect(parseScheduleSlashCommand(command)).toEqual({
+      intervalMinutes,
+      prompt: command.includes("check quickly") ? "check quickly" : "review failures",
     });
   });
 
   test("returns usage for malformed commands", () => {
     expect(parseScheduleSlashCommand("/every tomorrow fix bugs")).toEqual({
-      error: "Use /every <minutes> <prompt>, for example: /every 30 fix bugs",
+      error:
+        "Use /every <interval> <prompt>, for example: /every 30 fix bugs or /every 2h review failures",
+    });
+  });
+
+  test("rejects intervals shorter than six seconds", () => {
+    expect(parseScheduleSlashCommand("/every 5s fix bugs")).toEqual({
+      error: "Schedule interval must be at least 6 seconds.",
+    });
+  });
+
+  test("rejects intervals longer than thirty days", () => {
+    expect(parseScheduleSlashCommand("/every 31d fix bugs")).toEqual({
+      error: "Schedule interval cannot exceed 30 days.",
     });
   });
 

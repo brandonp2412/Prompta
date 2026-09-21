@@ -1197,9 +1197,10 @@ async function runScheduleSlashCommand(command, originalMessage) {
     });
     const server = displayServerName(result.server || state.serverName || location.hostname);
     const interval = formatScheduleInterval(Number(result.interval_minutes));
+    const prefix = result.created === false ? "Already scheduled" : "Scheduled";
     setTextIfChanged(
       els.composerStatus,
-      `Scheduled on ${server}: every ${interval} · ${command.prompt}`,
+      `${prefix} on ${server}: every ${interval} · ${command.prompt}`,
     );
   } catch (error) {
     els.messageInput.value = originalMessage;

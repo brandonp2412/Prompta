@@ -438,25 +438,47 @@ export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand
   if (!/^\/every(?:\s|$)/i.test(message)) return null;
 
   const match = message.match(
-    /^\/every\s+(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\s+([\s\S]+)$/i,
+    /^\/every\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i,
   );
   if (!match) {
-    return { error: "Use /every <minutes> <prompt>, for example: /every 30 fix bugs" };
+    return {
+      error:
+        "Use /every <interval> <prompt>, for example: /every 30 fix bugs or /every 2h review failures",
+    };
   }
 
   const amount = Number(match[1]);
   const unit = String(match[2] || "m").toLowerCase();
-  const intervalMinutes = amount * (unit.startsWith("h") ? 60 : 1);
+  const multiplier =
+    unit.startsWith("s") ? 1 / 60 : unit.startsWith("h") ? 60 : unit.startsWith("d") ? 1440 : 1;
+  const intervalMinutes = amount * multiplier;
   const prompt = match[3].trim();
 
-  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0 || !prompt) {
-    return { error: "Schedule interval and prompt are required." };
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
+    return { error: "Schedule interval must be a finite value greater than zero." };
+  }
+  if (intervalMinutes < 0.1) {
+    return { error: "Schedule interval must be at least 6 seconds." };
+  }
+  if (intervalMinutes > 60 * 24 * 30) {
+    return { error: "Schedule interval cannot exceed 30 days." };
+  }
+  if (!prompt) {
+    return { error: "Schedule prompt is required." };
   }
 
   return { intervalMinutes, prompt };
 }
 
 export function formatScheduleInterval(minutes: number): string {
+  if (minutes < 1) {
+    const seconds = minutes * 60;
+    return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  }
+  if (minutes >= 1440 && minutes % 1440 === 0) {
+    const days = minutes / 1440;
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
   if (minutes >= 60 && minutes % 60 === 0) {
     const hours = minutes / 60;
     return `${hours} hour${hours === 1 ? "" : "s"}`;
