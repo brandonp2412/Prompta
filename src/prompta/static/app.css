@@ -1114,6 +1114,8 @@ textarea:focus-visible {
   list-style: none;
   cursor: pointer;
   user-select: none;
+  display: flex;
+  align-items: center;
 }
 
 .tool-call-block > summary::-webkit-details-marker {
@@ -1122,12 +1124,18 @@ textarea:focus-visible {
 
 .tool-call-block > summary::before {
   content: "›";
-  display: inline-block;
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
   margin-right: 7px;
+  align-items: center;
+  justify-content: center;
   color: #7f9fc9;
   font-size: 15px;
-  line-height: 1;
+  line-height: 16px;
   transform: rotate(0deg);
+  transform-origin: center;
   transition: transform 120ms ease;
 }
 
