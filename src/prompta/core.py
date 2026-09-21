@@ -24,7 +24,7 @@ from websockets.exceptions import ConnectionClosed
 from .bidi import FirefoxBiDiDriver, wait_for_port
 from .browser_session import BrowserSession
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
-from .chrome import ChromeDebuggerUnavailableError, ChromeDriverDriver
+from .chrome import ChromeDriverDriver
 from .control_server import (
     _acquire_daemon_lock as _acquire_daemon_lock,
 )
@@ -329,11 +329,11 @@ class Prompta:
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
         try:
             return await self.conversations.recover_cached_conversations(limit=limit)
-        except ChromeDebuggerUnavailableError as exc:
+        except Exception:
             self._next_recovery_retry_at = (
                 time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
             )
-            logger.warning("%s; retrying cached recovery later", exc)
+            logger.exception("Prompta cached recovery failed; retrying later")
             return 0
 
     async def _retry_cached_recovery_if_due(self) -> bool:

@@ -106,6 +106,23 @@ def test_event_headers_ignore_disconnected_client(disconnect_error: OSError) -> 
 
     assert handler._event_headers() is False
 
+def test_response_headers_allow_dynamic_styles_but_not_inline_scripts() -> None:
+    handler = object.__new__(PromptaUIHandler)
+    handler.send_response = MagicMock()  # type: ignore[method-assign]
+    handler.send_header = MagicMock()  # type: ignore[method-assign]
+    handler.end_headers = MagicMock()  # type: ignore[method-assign]
+
+    handler._headers(HTTPStatus.OK, "text/html; charset=utf-8", 0)
+
+    csp = next(
+        call.args[1]
+        for call in handler.send_header.call_args_list
+        if call.args[0] == "Content-Security-Policy"
+    )
+    assert "style-src 'self' 'unsafe-inline'" in csp
+    assert "script-src 'self'" in csp
+    assert "script-src 'self' 'unsafe-inline'" not in csp
+
 
 def test_local_ui_startup_marks_old_active_chats_interrupted(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"

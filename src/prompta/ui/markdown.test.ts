@@ -15,9 +15,12 @@ describe("tool-call rendering", () => {
     ].join("\n"));
 
     expect(rendered).toContain("tool-has-meta");
-    expect(rendered).toContain('class="tool-expanded-meta tool-time-only"');
+    expect(rendered).toContain('class="tool-expanded-meta"');
     expect(rendered).toContain('class="tool-time"');
     expect(rendered).toContain('datetime="2023-11-14T22:13:20.000Z"');
+    const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
+    expect(summary).not.toContain("<button");
+    expect(rendered).toContain('class="copy-code"');
   });
 
   test("syntax-highlights structured tool payloads", () => {
