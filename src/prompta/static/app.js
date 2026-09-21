@@ -494,6 +494,7 @@ var els = {
   openSidebar: requiredElement("#openSidebar"),
   closeSidebar: requiredElement("#closeSidebar"),
   sidebarScrim: requiredElement("#sidebarScrim"),
+  jobsSidebarButton: requiredElement("#jobsSidebarButton"),
   newChatButton: requiredElement("#newChatButton"),
   pinChatButton: requiredElement("#pinChatButton"),
   shareChatButton: requiredElement("#shareChatButton"),
@@ -2477,16 +2478,22 @@ async function runJobCommand(payload, successText) {
     els.saveJobButton.disabled = false;
   }
 }
-async function openJobsDialog() {
-  els.messageInput.value = "";
-  els.slashMenu.hidden = true;
-  resizeComposer();
-  syncSendButton();
+async function openJobsDialog(clearComposer = false) {
+  if (clearComposer) {
+    els.messageInput.value = "";
+    els.slashMenu.hidden = true;
+    resizeComposer();
+    syncSendButton();
+  }
   resetJobForm();
   if (!els.jobsDialog.open)
     els.jobsDialog.showModal();
   await loadJobs();
 }
+els.jobsSidebarButton.addEventListener("click", async () => {
+  closeSidebar();
+  await openJobsDialog();
+});
 els.closeJobsDialog.addEventListener("click", () => els.jobsDialog.close());
 els.jobsDialog.addEventListener("click", (event) => {
   if (event.target === els.jobsDialog)
@@ -2775,7 +2782,7 @@ async function sendSelectedMessage() {
     return;
   }
   if (message.toLowerCase() === "/jobs") {
-    await openJobsDialog();
+    await openJobsDialog(true);
     return;
   }
   requestNotificationPermissionFromGesture();
