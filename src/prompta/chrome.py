@@ -39,6 +39,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         chromedriver_path: str = "/usr/bin/chromedriver",
         headless: bool = True,
         auth_timeout_seconds: float = _BIDI_AUTH_TIMEOUT_SECONDS,
+        debugger_address: str | None = None,
     ) -> None:
         # The inherited class owns all browser-independent helpers.  It expects
         # these bookkeeping fields to exist even though Chromium does not use
@@ -49,7 +50,9 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         self.chromedriver_path = chromedriver_path
         self.headless = headless
         self.auth_timeout_seconds = max(0.1, auth_timeout_seconds)
+        self.debugger_address = debugger_address.strip() if debugger_address else None
         self._driver: webdriver.Chrome | None = None
+        self._owned_contexts: set[str] = set()
 
     @property
     def is_connected(self) -> bool:
@@ -63,21 +66,24 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         return True
 
     def _create_driver(self) -> webdriver.Chrome:
-        self.profile.mkdir(parents=True, exist_ok=True)
         options = Options()
-        options.binary_location = self.chrome_path
-        options.add_argument(f"--user-data-dir={self.profile}")
-        options.add_argument("--profile-directory=Default")
-        options.add_argument("--no-first-run")
-        options.add_argument("--no-default-browser-check")
-        options.add_argument("--disable-background-networking")
-        options.add_argument("--disable-breakpad")
-        options.add_argument("--disable-component-update")
-        options.add_argument("--password-store=basic")
-        options.add_argument("--window-size=1280,1000")
-        if self.headless:
-            options.add_argument("--headless=new")
-            options.add_argument("--disable-gpu")
+        if self.debugger_address:
+            options.add_experimental_option("debuggerAddress", self.debugger_address)
+        else:
+            self.profile.mkdir(parents=True, exist_ok=True)
+            options.binary_location = self.chrome_path
+            options.add_argument(f"--user-data-dir={self.profile}")
+            options.add_argument("--profile-directory=Default")
+            options.add_argument("--no-first-run")
+            options.add_argument("--no-default-browser-check")
+            options.add_argument("--disable-background-networking")
+            options.add_argument("--disable-breakpad")
+            options.add_argument("--disable-component-update")
+            options.add_argument("--password-store=basic")
+            options.add_argument("--window-size=1280,1000")
+            if self.headless:
+                options.add_argument("--headless=new")
+                options.add_argument("--disable-gpu")
         service = Service(executable_path=self.chromedriver_path)
         return webdriver.Chrome(service=service, options=options)
 
@@ -91,7 +97,16 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             handles = await asyncio.to_thread(lambda: list(self._require_driver().window_handles))
             if not handles:
                 raise RuntimeError("ChromeDriver created no browser window")
-            self.context = str(handles[0])
+            if self.debugger_address:
+                def create_owned_tab() -> str:
+                    driver = self._require_driver()
+                    driver.switch_to.new_window("tab")
+                    return str(driver.current_window_handle)
+
+                self.context = await asyncio.to_thread(create_owned_tab)
+                self._owned_contexts.add(self.context)
+            else:
+                self.context = str(handles[0])
             self._network_subscribed = True
             await self.navigate("https://chatgpt.com/")
             deadline = asyncio.get_running_loop().time() + self.auth_timeout_seconds
@@ -175,6 +190,8 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         context = await asyncio.to_thread(create)
         self.context = context
+        if self.debugger_address:
+            self._owned_contexts.add(context)
         await self.navigate(url, context=context)
         return context
 
@@ -194,6 +211,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 self.context = ""
 
         await asyncio.to_thread(close_sync)
+        self._owned_contexts.discard(context)
 
     async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
         def perform() -> None:
@@ -264,8 +282,36 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         self.context = ""
         self._network_subscribed = False
         self._send_capture = None
-        if driver is not None:
-            try:
-                await asyncio.to_thread(driver.quit)
-            except WebDriverException:
-                pass
+        owned_contexts = set(self._owned_contexts)
+        self._owned_contexts.clear()
+        if driver is None:
+            return
+
+        if self.debugger_address:
+            def detach() -> None:
+                try:
+                    handles = set(driver.window_handles)
+                except WebDriverException:
+                    handles = set()
+                for context in owned_contexts & handles:
+                    try:
+                        driver.switch_to.window(context)
+                        driver.close()
+                    except (NoSuchWindowException, WebDriverException):
+                        pass
+                try:
+                    driver.service.stop()
+                except Exception:
+                    pass
+                try:
+                    driver.command_executor.close()
+                except Exception:
+                    pass
+
+            await asyncio.to_thread(detach)
+            return
+
+        try:
+            await asyncio.to_thread(driver.quit)
+        except WebDriverException:
+            pass

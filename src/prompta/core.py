@@ -2751,6 +2751,11 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
         default=os.environ.get("PROMPTA_CHROMEDRIVER_PATH", "/usr/bin/chromedriver"),
     )
     parser.add_argument(
+        "--chrome-debugger-address",
+        default=os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS"),
+        help="Attach ChromeDriver to an existing Chromium-family browser debugger address",
+    )
+    parser.add_argument(
         "--chrome-auth-timeout-seconds",
         type=float,
         default=float(os.environ.get("PROMPTA_CHROME_AUTH_TIMEOUT_SECONDS", "30")),
@@ -2776,6 +2781,7 @@ def _chrome_driver_factory(args: argparse.Namespace) -> DriverFactory:
             chromedriver_path=chromedriver_path,
             headless=headless,
             auth_timeout_seconds=max(0.1, float(args.chrome_auth_timeout_seconds)),
+            debugger_address=args.chrome_debugger_address,
         )
 
     return factory

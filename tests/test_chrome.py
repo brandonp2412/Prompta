@@ -36,6 +36,52 @@ def test_create_driver_uses_dedicated_profile_and_chromedriver(tmp_path: Path) -
     assert "--password-store=basic" in options.arguments
 
 
+def test_create_driver_attaches_to_existing_browser_without_profile_args(tmp_path: Path) -> None:
+    profile = tmp_path / "unused-profile"
+    fake_driver = MagicMock()
+
+    with (
+        patch("prompta.chrome.Service") as service_type,
+        patch("prompta.chrome.webdriver.Chrome", return_value=fake_driver) as chrome_type,
+    ):
+        driver = ChromeDriverDriver(
+            profile=profile,
+            chromedriver_path="/custom/chromedriver",
+            debugger_address="127.0.0.1:9222",
+        )
+        created = driver._create_driver()
+
+    assert created is fake_driver
+    service_type.assert_called_once_with(executable_path="/custom/chromedriver")
+    options = chrome_type.call_args.kwargs["options"]
+    assert options.experimental_options["debuggerAddress"] == "127.0.0.1:9222"
+    assert not profile.exists()
+    assert not any(arg.startswith("--user-data-dir=") for arg in options.arguments)
+
+
+@pytest.mark.asyncio
+async def test_close_detaches_without_quitting_existing_browser() -> None:
+    selenium = MagicMock()
+    selenium.window_handles = ["user-tab", "prompta-tab"]
+    selenium.current_window_handle = "prompta-tab"
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "prompta-tab"
+    driver._owned_contexts.add("prompta-tab")
+
+    await driver.close()
+
+    selenium.switch_to.window.assert_called_once_with("prompta-tab")
+    selenium.close.assert_called_once_with()
+    selenium.quit.assert_not_called()
+    selenium.service.stop.assert_called_once_with()
+    selenium.command_executor.close.assert_called_once_with()
+    assert driver._owned_contexts == set()
+
+
 @pytest.mark.asyncio
 async def test_eval_switches_to_requested_window() -> None:
     selenium = MagicMock()
