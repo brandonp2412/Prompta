@@ -252,6 +252,42 @@ def test_local_ui_uses_control_socket_when_backend_is_running(tmp_path: Path) ->
     control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
 
 
+def test_stop_conversation_routes_to_own_node(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with patch.object(server, "_stop", return_value="chat-1") as stop:
+            result = server.stop_conversation("chat-1")
+    finally:
+        server.server_close()
+
+    assert result == "chat-1"
+    stop.assert_called_once_with("chat-1")
+
+
+def test_stop_conversation_routes_to_remote_node(tmp_path: Path) -> None:
+    local_path = tmp_path / "local.sqlite3"
+    remote_path = tmp_path / "remote.sqlite3"
+    _seed_cache(remote_path)
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(local_path),
+        tmp_path / "state.json",
+        extra_nodes=[("remote-node", ReadOnlyChatStore(remote_path), "remote-node")],
+    )
+    target = server.extra_nodes["remote-node"]
+    try:
+        with patch.object(target, "_stop", return_value="chat-1") as stop:
+            result = server.stop_conversation("remote-node::chat-1")
+    finally:
+        server.server_close()
+
+    assert result == "chat-1"
+    stop.assert_called_once_with("chat-1")
+
+
 def test_send_job_registry_returns_before_sender_finishes() -> None:
     release = Event()
 

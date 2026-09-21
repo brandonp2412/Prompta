@@ -1491,6 +1491,49 @@ class Prompta:
         )
         return enriched
 
+    async def stop_conversation(self, conversation_id: str) -> str:
+        match = next(
+            (
+                (context, active)
+                for context, active in self._active_conversations.items()
+                if active.conversation_id == conversation_id
+            ),
+            None,
+        )
+        if match is None:
+            raise RuntimeError(f"Prompta has no active tab for conversation {conversation_id}")
+        context, active = match
+        driver = await self._ensure_driver()
+        if driver is None:
+            raise RuntimeError("Prompta browser session is unavailable")
+
+        activity = await driver.conversation_activity(context)
+        if bool(activity.get("streaming")):
+            clicked = await driver.click_stop(context)
+            if not clicked:
+                activity = await driver.conversation_activity(context)
+                if bool(activity.get("streaming")):
+                    raise RuntimeError("ChatGPT stop button was not available")
+            else:
+                deadline = asyncio.get_running_loop().time() + 5.0
+                stopped = False
+                while asyncio.get_running_loop().time() < deadline:
+                    if not bool((await driver.conversation_activity(context)).get("streaming")):
+                        stopped = True
+                        break
+                    await asyncio.sleep(0.1)
+                if not stopped:
+                    raise RuntimeError("ChatGPT response did not stop")
+
+        snapshot = await driver.conversation_snapshot(context)
+        snapshot["streaming"] = False
+        self.cache.write_snapshot(conversation_id, snapshot, complete=True)
+        active.last_digest = self.cache.digest(snapshot)
+        active.idle_polls = max(active.idle_polls, 3)
+        active.settled_at = time.monotonic()
+        logger.info("Prompta stopped conversation=%s", conversation_id)
+        return conversation_id
+
     async def _poll_active_conversations(self) -> None:
         if not self._active_conversations:
             return
@@ -2236,6 +2279,12 @@ async def _handle_control_client(
             await prompta._sync_requests.put((conversation_id, sync_future))
             message_count = await sync_future
             response = {"ok": True, "message_count": message_count}
+        elif op == "stop":
+            conversation_id = str(payload.get("conversation_id") or "")
+            if not conversation_id.strip():
+                raise ValueError("conversation id is empty")
+            stopped_id = await prompta.stop_conversation(conversation_id)
+            response = {"ok": True, "conversation_id": stopped_id}
         else:
             prompt = str(payload.get("prompt") or "")
             raw_attachments = payload.get("attachments")
@@ -2419,6 +2468,38 @@ async def _send_reply_via_control(
         },
         rejected_message="Prompta scheduler rejected reply",
     )
+    result = str(payload.get("conversation_id") or "")
+    if not result:
+        raise RuntimeError("Prompta scheduler returned an empty conversation id")
+    return result
+
+
+async def _stop_via_control(state_path: Path, conversation_id: str) -> str:
+    path = _control_socket_path(state_path)
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(path))
+    except OSError as exc:
+        raise RuntimeError(f"Prompta scheduler control socket is unavailable: {path}") from exc
+    try:
+        writer.write(
+            (
+                json.dumps(
+                    {"op": "stop", "conversation_id": conversation_id},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+        )
+        await writer.drain()
+        raw = await asyncio.wait_for(reader.readline(), timeout=10.0)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    if not raw:
+        raise RuntimeError("Prompta scheduler closed the control connection without a response")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise RuntimeError(str(payload.get("error") or "Prompta scheduler rejected stop request"))
     result = str(payload.get("conversation_id") or "")
     if not result:
         raise RuntimeError("Prompta scheduler returned an empty conversation id")

@@ -12,6 +12,8 @@ import logging
 import math
 import mimetypes
 import re
+import shlex
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -19,6 +21,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime
+from html import escape as html_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +37,7 @@ from .core import (
     _daemon_is_running,
     _send_once_via_control,
     _send_reply_via_control,
+    _stop_via_control,
     add_job,
     is_rate_limited_text,
     parse_retry_after,
@@ -44,6 +48,9 @@ _STATIC_ROOT = Path(__file__).with_name("static")
 _DAEMON_STARTUP_CHECKS = 10
 _DAEMON_STARTUP_POLL_SECONDS = 0.1
 _DAEMON_RESTART_GRACE_CHECKS = 120
+_REMOTE_CONTROL_TIMEOUT_SECONDS = 11 * 60
+_HOST_STATUS_TTL_SECONDS = 5.0
+_HOST_CHECK_TIMEOUT_SECONDS = 3.0
 
 
 def _git_short_head() -> str:
@@ -337,12 +344,185 @@ class ReadOnlyChatStore:
             parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
         return "|".join(parts)
 
+    def event_fingerprint(self) -> str:
+        """Compatibility token for older SSE consumers."""
+        return self.change_token()
+
 
 def _schedule_job_name(prompt: str) -> str:
     words = re.findall(r"[a-z0-9]+", prompt.casefold())[:6]
     slug = "-".join(words) or "job"
     digest = hashlib.sha256(prompt.strip().encode("utf-8")).hexdigest()[:6]
     return f"ui-{slug[:36]}-{digest}"
+
+
+def _remote_control(
+    control_host: str,
+    *,
+    operation: str,
+    message: str = "",
+    conversation_id: str = "",
+    attachments: list[str] | None = None,
+) -> str:
+    remote_attachments: list[str] = []
+    remote_dir = ""
+    if attachments:
+        remote_dir = f"/home/brandon/.local/state/prompta/ui-uploads/{uuid.uuid4().hex}"
+        mkdir = subprocess.run(
+            [
+                "ssh",
+                "-F",
+                str(Path.home() / ".ssh" / "config"),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=8",
+                control_host,
+                "mkdir",
+                "-p",
+                remote_dir,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if mkdir.returncode != 0:
+            raise RuntimeError((mkdir.stderr or "remote upload directory creation failed").strip())
+        for index, attachment in enumerate(attachments):
+            name = Path(attachment).name
+            remote_path = f"{remote_dir}/{index}-{name}"
+            copied = subprocess.run(
+                [
+                    "scp",
+                    "-F",
+                    str(Path.home() / ".ssh" / "config"),
+                    "-q",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=8",
+                    attachment,
+                    f"{control_host}:{remote_path}",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if copied.returncode != 0:
+                subprocess.run(
+                    ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                raise RuntimeError((copied.stderr or "remote attachment transfer failed").strip())
+            remote_attachments.append(remote_path)
+
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "operation": operation,
+                "message": message,
+                "conversation_id": conversation_id,
+                "attachments": remote_attachments,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).decode("ascii")
+    code = """
+import asyncio
+import base64
+import json
+import sys
+from prompta.core import DEFAULT_STATE_PATH, _send_once_via_control, _send_reply_via_control, _stop_via_control
+
+payload = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
+try:
+    if payload["operation"] == "once":
+        result = asyncio.run(
+            _send_once_via_control(
+                DEFAULT_STATE_PATH,
+                payload["message"],
+                payload.get("attachments") or [],
+            )
+        )
+    elif payload["operation"] == "reply":
+        result = asyncio.run(
+            _send_reply_via_control(
+                DEFAULT_STATE_PATH,
+                payload["conversation_id"],
+                payload["message"],
+                payload.get("attachments") or [],
+            )
+        )
+    elif payload["operation"] == "stop":
+        result = asyncio.run(
+            _stop_via_control(DEFAULT_STATE_PATH, payload["conversation_id"])
+        )
+    else:
+        raise RuntimeError("unsupported remote Prompta control operation")
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+else:
+    print(json.dumps({"ok": True, "conversation_id": result}, ensure_ascii=False))
+""".strip()
+    remote_command = shlex.join(
+        ["/home/brandon/prompta/.venv/bin/python", "-c", code, payload]
+    )
+    completed = subprocess.run(
+        [
+            "ssh",
+            "-F",
+            str(Path.home() / ".ssh" / "config"),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=8",
+            control_host,
+            remote_command,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=_REMOTE_CONTROL_TIMEOUT_SECONDS,
+    )
+    if completed.returncode != 0:
+        if remote_dir:
+            subprocess.run(
+                ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        detail = (completed.stderr or completed.stdout or "remote control failed").strip()
+        raise RuntimeError(detail[-2000:])
+    if remote_dir:
+        subprocess.run(
+            ["ssh", "-F", str(Path.home() / ".ssh" / "config"), control_host, "rm", "-rf", remote_dir],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    result = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+    if not result:
+        raise RuntimeError("remote Prompta control returned an empty conversation id")
+    try:
+        response = json.loads(result)
+    except json.JSONDecodeError:
+        return result
+    if not isinstance(response, dict):
+        raise RuntimeError("remote Prompta control returned an invalid response")
+    if response.get("ok") is not True:
+        raise RuntimeError(str(response.get("error") or "remote Prompta control failed"))
+    conversation_id = str(response.get("conversation_id") or "")
+    if not conversation_id:
+        raise RuntimeError("remote Prompta control returned an empty conversation id")
+    return conversation_id
 
 
 class SendJobRegistry:
@@ -544,7 +724,7 @@ class SendJobRegistry:
 
 
 class PromptaUIServer(ThreadingHTTPServer):
-    """Single-host Prompta UI bound to the local Nox worker and cache."""
+    """Prompta UI with one local node and optional remote cache/control nodes."""
 
     daemon_threads = True
 
@@ -554,33 +734,147 @@ class PromptaUIServer(ThreadingHTTPServer):
         store: ReadOnlyChatStore,
         state_path: Path = DEFAULT_STATE_PATH,
         jobs_path: Path = DEFAULT_JOBS_PATH,
+        *,
+        control_host: str = "",
+        server_name: str = "",
+        extra_nodes: list[tuple[str, ReadOnlyChatStore, str]] | None = None,
     ) -> None:
         super().__init__(address, PromptaUIHandler)
         self.store = store
         self.state_path = state_path.expanduser()
         self.jobs_path = jobs_path.expanduser()
-        self.host_name = "nox"
+        self.control_host = control_host.strip()
+        self._explicit_server_name = bool(server_name.strip())
+        self.host_name = (server_name.strip() or self.control_host or "nox").split(".", 1)[0]
         self._local_send_lock = threading.Lock()
         self._host_status_lock = threading.Lock()
         self._host_status_checked_at = 0.0
         self._host_status_online = not bool(self.control_host)
         self.send_jobs = SendJobRegistry(self._send)
+        self.extra_nodes: dict[str, PromptaNodeTarget] = {}
+        for node_name, node_store, node_control_host in extra_nodes or []:
+            normalized = str(node_name).strip()
+            if not normalized or normalized == self.host_name:
+                continue
+            self.extra_nodes[normalized] = PromptaNodeTarget(
+                normalized,
+                node_store,
+                self.state_path,
+                str(node_control_host),
+                self.jobs_path,
+            )
 
     @property
     def display_name(self) -> str:
-        return "Nox"
+        return self.host_name.replace("-", " ").replace("_", " ").title()
+
+    def host_online(self, *, force: bool = False) -> bool:
+        if not self.control_host:
+            return True
+        now = time.monotonic()
+        with self._host_status_lock:
+            if not force and now - self._host_status_checked_at < _HOST_STATUS_TTL_SECONDS:
+                return self._host_status_online
+            try:
+                completed = subprocess.run(
+                    [
+                        "ssh",
+                        "-F",
+                        str(Path.home() / ".ssh" / "config"),
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "ConnectTimeout=2",
+                        "-o",
+                        "ConnectionAttempts=1",
+                        self.control_host,
+                        "true",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=_HOST_CHECK_TIMEOUT_SECONDS,
+                )
+                online = completed.returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                online = False
+            self._host_status_checked_at = time.monotonic()
+            self._host_status_online = online
+            return online
+
+    def iter_nodes(self):
+        yield self
+        yield from self.extra_nodes.values()
+
+    def resolve_conversation(self, public_id: str):
+        node_name, separator, actual_id = public_id.partition("::")
+        if separator:
+            target = self.extra_nodes.get(node_name)
+            if target is None:
+                raise KeyError(public_id)
+            return target, actual_id
+        return self, public_id
+
+    @staticmethod
+    def _public_chat(target, chat: dict[str, Any], local_target) -> dict[str, Any]:
+        result = dict(chat)
+        actual_id = str(result.get("id") or "")
+        if target is not local_target:
+            result["id"] = f"{target.host_name}::{actual_id}"
+        result["node"] = target.host_name
+        result["node_display"] = target.display_name
+        return result
 
     def event_token(self) -> str:
-        return f"{self.store.change_token()}|send:{self.send_jobs.revision}"
+        parts = []
+        for target in self.iter_nodes():
+            parts.append(
+                f"{target.host_name}:{target.store.change_token()}:"
+                f"send={target.send_jobs.revision}:online={int(target.host_online())}"
+            )
+        return "|".join(parts)
 
     def conversations(self, *, limit: int = 200, query: str = "") -> list[dict[str, Any]]:
-        return self.store.conversations(limit=limit, query=query)
+        rows: list[dict[str, Any]] = []
+        for target in self.iter_nodes():
+            rows.extend(
+                self._public_chat(target, chat, self)
+                for chat in target.store.conversations(limit=limit, query=query)
+            )
+        rows.sort(
+            key=lambda chat: (
+                0 if str(chat.get("status") or "") == "active" else 1,
+                -float(chat.get("updated_at") or 0.0),
+            )
+        )
+        return rows[: max(1, min(limit, 500))]
 
-    def conversation(self, conversation_id: str) -> dict[str, Any] | None:
-        return self.store.conversation(conversation_id)
+    def conversation(self, public_id: str) -> dict[str, Any] | None:
+        try:
+            target, actual_id = self.resolve_conversation(public_id)
+        except KeyError:
+            return None
+        chat = target.store.conversation(actual_id)
+        if chat is None:
+            return None
+        return self._public_chat(target, chat, self)
+
+    def stop_conversation(self, public_id: str) -> str:
+        target, actual_id = self.resolve_conversation(public_id)
+        if target.store.conversation(actual_id) is None:
+            raise KeyError(public_id)
+        return target._stop(actual_id)
 
     def send_job(self, send_id: str) -> dict[str, Any] | None:
-        return self.send_jobs.get(send_id)
+        for target in self.iter_nodes():
+            job = target.send_jobs.get(send_id)
+            if job is not None:
+                result = dict(job)
+                conversation_id = str(result.get("conversation_id") or "")
+                if conversation_id and target is not self:
+                    result["conversation_id"] = f"{target.host_name}::{conversation_id}"
+                return result
+        return None
 
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
         return self.store.logs(limit=limit)
@@ -621,6 +915,7 @@ class PromptaUIServer(ThreadingHTTPServer):
             raise
         return saved
 
+
     def schedule_every(self, prompt: str, interval_minutes: float) -> dict[str, Any]:
         interval_minutes = float(interval_minutes)
         if not math.isfinite(interval_minutes):
@@ -644,6 +939,7 @@ class PromptaUIServer(ThreadingHTTPServer):
             "server": self.host_name,
         }
 
+
     def schedule_at(self, prompt: str, run_at_epoch: float) -> dict[str, Any]:
         run_at_epoch = float(run_at_epoch)
         if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
@@ -666,6 +962,18 @@ class PromptaUIServer(ThreadingHTTPServer):
             "server": self.host_name,
         }
 
+
+    def _stop(self, conversation_id: str) -> str:
+        if self.control_host:
+            return _remote_control(
+                self.control_host,
+                operation="stop",
+                conversation_id=conversation_id,
+            )
+        if not _daemon_is_running(self.state_path):
+            raise RuntimeError("Prompta scheduler is not running; cannot stop an active chat")
+        return asyncio.run(_stop_via_control(self.state_path, conversation_id))
+
     def _send(
         self,
         operation: str,
@@ -674,6 +982,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         attachments: list[str] | None = None,
     ) -> str:
         attachment_paths = list(attachments or [])
+        if self.control_host:
+            return _remote_control(
+                self.control_host,
+                operation=operation,
+                message=message,
+                conversation_id=conversation_id,
+                attachments=attachment_paths,
+            )
         with self._local_send_lock:
             scheduler_running = _wait_for_local_scheduler(self.state_path)
             if not scheduler_running and _start_local_scheduler_service():
@@ -694,6 +1010,37 @@ class PromptaUIServer(ThreadingHTTPServer):
                     attachment_paths,
                 )
             )
+
+
+class PromptaNodeTarget:
+    """Non-listening Prompta node exposed through the unified UI server."""
+
+    def __init__(
+        self,
+        host_name: str,
+        store: ReadOnlyChatStore,
+        state_path: Path,
+        control_host: str,
+        jobs_path: Path,
+    ) -> None:
+        self.store = store
+        self.state_path = state_path.expanduser()
+        self.jobs_path = jobs_path.expanduser()
+        self.control_host = control_host.strip()
+        self.host_name = host_name.strip()
+        self._local_send_lock = threading.Lock()
+        self._host_status_lock = threading.Lock()
+        self._host_status_checked_at = 0.0
+        self._host_status_online = not bool(self.control_host)
+        self.send_jobs = SendJobRegistry(self._send)
+
+    @property
+    def display_name(self) -> str:
+        return self.host_name.replace("-", " ").replace("_", " ").title()
+
+    host_online = PromptaUIServer.host_online
+    _send = PromptaUIServer._send
+    _stop = PromptaUIServer._stop
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -795,7 +1142,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self._json(
             {
                 "name": app_name,
-                "short_name": f"Prompta {server.display_name}",
+                "short_name": app_name if server._explicit_server_name else f"Prompta {server.display_name}",
                 "description": f"Prompta conversation UI for {server.display_name}",
                 "id": "./",
                 "start_url": "./",
@@ -816,75 +1163,23 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         )
 
     def _index(self) -> None:
+        server = cast(PromptaUIServer, self.server)
         try:
-            body = (_STATIC_ROOT / "index.html").read_text().replace(
-                "__PROMPTA_SERVER_NAME__",
-                html_escape(self.ui_server_name),
-            ).encode()
+            page = (_STATIC_ROOT / "index.html").read_text()
+            display_name = html_escape(server.display_name)
+            page = page.replace("__PROMPTA_SERVER_NAME__", display_name)
+            page = page.replace(
+                "<title>Prompta</title>",
+                f"<title>Prompta · {display_name}</title>",
+            )
+            body = page.encode()
         except OSError:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        self._headers(HTTPStatus.OK, "text/html; charset=utf-8")
-        self.wfile.write(body)
+        self._write_response(HTTPStatus.OK, "text/html; charset=utf-8", body)
 
-    def _manifest(self) -> None:
-        name = f"Prompta · {self.ui_server_name}"
-        payload = {
-            "id": "./",
-            "name": name,
-            "short_name": name,
-            "description": "Fast local-first Prompta conversation UI",
-            "start_url": "./",
-            "scope": "./",
-            "display": "standalone",
-            "background_color": "#212121",
-            "theme_color": "#212121",
-            "icons": [
-                {
-                    "src": "./icon.svg",
-                    "sizes": "any",
-                    "type": "image/svg+xml",
-                    "purpose": "any maskable",
-                }
-            ],
-        }
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-        self._headers(HTTPStatus.OK, "application/manifest+json; charset=utf-8")
-        self.wfile.write(body)
 
-    def _event_stream(self) -> None:
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
 
-        last_fingerprint = self.store.event_fingerprint()
-        last_heartbeat = time.monotonic()
-        try:
-            while True:
-                fingerprint = self.store.event_fingerprint()
-                now = time.monotonic()
-                if fingerprint != last_fingerprint:
-                    payload = json.dumps(
-                        {
-                            "revision": fingerprint[:4],
-                            "conversation_id": fingerprint[4],
-                        },
-                        separators=(",", ":"),
-                    )
-                    body = "event: refresh\ndata: " + payload + "\n\n"
-                    self.wfile.write(body.encode())
-                    self.wfile.flush()
-                    last_fingerprint = fingerprint
-                    last_heartbeat = now
-                elif now - last_heartbeat >= 15.0:
-                    self.wfile.write(b": keepalive\n\n")
-                    self.wfile.flush()
-                    last_heartbeat = now
-                time.sleep(0.75)
-        except (BrokenPipeError, ConnectionResetError):
-            return
 
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
         target = (_STATIC_ROOT / relative_path).resolve()
@@ -936,7 +1231,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                         {
                             "token": token,
                             "server": server.host_name,
-                            "online": True,
+                            "online": server.host_online(),
                             "head": _UI_HEAD,
                         },
                         ensure_ascii=False,
@@ -960,44 +1255,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         self.do_GET()
 
-    def _events(self) -> None:
-        server = cast(PromptaUIServer, self.server)
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache, no-transform")
-        self.send_header("X-Accel-Buffering", "no")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-
-        last_token = ""
-        last_heartbeat = 0.0
-        try:
-            self.wfile.write(b"retry: 1000\n\n")
-            self.wfile.flush()
-            while True:
-                token = server.event_token()
-                now = time.monotonic()
-                if token != last_token:
-                    payload = json.dumps(
-                        {
-                            "token": token,
-                            "server": server.host_name,
-                            "online": server.host_online(),
-                        },
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    )
-                    self.wfile.write(f"event: refresh\ndata: {payload}\n\n".encode())
-                    self.wfile.flush()
-                    last_token = token
-                    last_heartbeat = now
-                elif now - last_heartbeat >= 15.0:
-                    self.wfile.write(b": keepalive\n\n")
-                    self.wfile.flush()
-                    last_heartbeat = now
-                time.sleep(0.2)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            return
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -1142,6 +1399,24 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
 
         prefix = "/api/chats/"
+        stop_suffix = "/stop"
+        if path.startswith(prefix) and path.endswith(stop_suffix):
+            conversation_id = unquote(path[len(prefix) : -len(stop_suffix)]).strip("/")
+            if not conversation_id:
+                self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                stopped_id = cast(PromptaUIServer, self.server).stop_conversation(conversation_id)
+            except KeyError:
+                self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
+                return
+            except Exception as exc:
+                logger.exception("Prompta UI stop failed conversation=%s", conversation_id)
+                self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+                return
+            self._json({"ok": True, "conversation_id": conversation_id, "stopped_id": stopped_id})
+            return
+
         suffix = "/messages"
         if not (path.startswith(prefix) and path.endswith(suffix)):
             self.send_error(HTTPStatus.NOT_FOUND)
