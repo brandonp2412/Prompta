@@ -11,7 +11,16 @@ export type PendingNewSend = {
 };
 
 export type PendingReply = {
+  clientId?: string;
+  sendId?: string;
+  conversationId?: string;
   message?: string;
+  status?: string;
+  error?: string;
+  retryAfterSeconds?: number;
+  retryAttempt?: number;
+  observedInCache?: boolean;
+  responseObservedInCache?: boolean;
   createdAt?: number;
   updatedAt?: number;
 };
@@ -264,6 +273,21 @@ export function messageAgeText(timestampMillis: unknown, nowMillis = Date.now())
   if (elapsed < 2_592_000_000) return `${Math.max(1, Math.floor(elapsed / 604_800_000))}w ago`;
   if (elapsed < 31_536_000_000) return `${Math.max(1, Math.floor(elapsed / 2_592_000_000))}mo ago`;
   return `${Math.max(1, Math.floor(elapsed / 31_536_000_000))}y ago`;
+}
+
+export function pendingConversationSends(
+  conversationId: string,
+  replies: PendingReply[],
+  pendingNew: PendingReply | null | undefined,
+): PendingReply[] {
+  if (!pendingNew || pendingNew.conversationId !== conversationId) return replies;
+
+  const duplicate = replies.some((item) => (
+    item === pendingNew
+    || (pendingNew.clientId && item.clientId === pendingNew.clientId)
+    || (pendingNew.sendId && item.sendId === pendingNew.sendId)
+  ));
+  return duplicate ? replies : [...replies, pendingNew];
 }
 
 export function matchingPendingReplyMessageIndex(

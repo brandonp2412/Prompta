@@ -9,6 +9,7 @@ import {
   messageTimestampMillis,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
+  pendingConversationSends,
   pendingSendActivity,
   postJsonRequest,
   pythonToolCallCode,
@@ -114,6 +115,33 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched).toBeNull();
+  });
+});
+
+describe("pending new-chat selection", () => {
+  test("exposes the optimistic first message after the real conversation id appears", () => {
+    const pending = {
+      clientId: "client-1",
+      sendId: "send-1",
+      conversationId: "WEB:new-chat",
+      message: "show this immediately",
+      createdAt: 1_000,
+    };
+
+    expect(pendingConversationSends("WEB:new-chat", [], pending)).toEqual([pending]);
+    expect(pendingConversationSends("WEB:other-chat", [], pending)).toEqual([]);
+  });
+
+  test("does not duplicate a pending new send already promoted into replies", () => {
+    const pending = {
+      clientId: "client-1",
+      sendId: "send-1",
+      conversationId: "WEB:new-chat",
+      message: "show this immediately",
+      createdAt: 1_000,
+    };
+
+    expect(pendingConversationSends("WEB:new-chat", [pending], pending)).toEqual([pending]);
   });
 });
 

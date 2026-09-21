@@ -198,6 +198,12 @@ function messageAgeText(timestampMillis, nowMillis = Date.now()) {
     return `${Math.max(1, Math.floor(elapsed / 2592000000))}mo ago`;
   return `${Math.max(1, Math.floor(elapsed / 31536000000))}y ago`;
 }
+function pendingConversationSends(conversationId, replies, pendingNew) {
+  if (!pendingNew || pendingNew.conversationId !== conversationId)
+    return replies;
+  const duplicate = replies.some((item) => item === pendingNew || pendingNew.clientId && item.clientId === pendingNew.clientId || pendingNew.sendId && item.sendId === pendingNew.sendId);
+  return duplicate ? replies : [...replies, pendingNew];
+}
 function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = new Set) {
   const content = String(pending.message || "").trim();
   const pendingAt = Number(pending.createdAt || pending.updatedAt || 0);
@@ -1328,7 +1334,7 @@ function restoreConversationViewport(snapshot, forceBottom = false) {
   els.viewport.scrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
 }
 function pendingReplyMessages(conversationId, cachedMessages) {
-  const pending = state.pendingReplies.get(conversationId) || [];
+  const pending = pendingConversationSends(conversationId, state.pendingReplies.get(conversationId) || [], state.pendingNewSend);
   const claimedCachedIndexes = new Set;
   for (const item of pending) {
     const matchedIndex = matchingPendingReplyMessageIndex(cachedMessages, item, claimedCachedIndexes);
@@ -1809,10 +1815,8 @@ async function loadSelectedChat() {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId || chat.id !== state.selectedId)
       return;
-    if (state.pendingNewId === chat.id) {
+    if (state.pendingNewId === chat.id && !state.pendingNewSend) {
       state.pendingNewId = null;
-      if (state.pendingNewSend?.conversationId === chat.id)
-        state.pendingNewSend = null;
     }
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
@@ -1842,8 +1846,9 @@ async function selectChat(id) {
     closeSidebar();
     return;
   }
+  const pendingNew = state.pendingNewSend?.conversationId === id ? state.pendingNewSend : null;
   state.composingNew = false;
-  state.pendingNewId = null;
+  state.pendingNewId = pendingNew ? id : null;
   els.messageInput.placeholder = "Message Prompta…";
   state.selectedId = id;
   state.selectedUpdatedAt = null;
