@@ -90,6 +90,27 @@ class PromptaUIServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
+    _UNUSED_UI_MESSAGE_FIELDS = frozenset(
+        {"parts", "tool_calls", "source_event_count", "version_count"}
+    )
+
+    @classmethod
+    def _compact_conversation_detail(cls, chat: dict[str, Any]) -> dict[str, Any]:
+        result = {key: value for key, value in chat.items() if key != "state_events"}
+        messages = result.get("messages")
+        if isinstance(messages, list):
+            result["messages"] = [
+                {
+                    key: value
+                    for key, value in message.items()
+                    if key not in cls._UNUSED_UI_MESSAGE_FIELDS
+                }
+                if isinstance(message, dict)
+                else message
+                for message in messages
+            ]
+        return result
+
     def __init__(
         self,
         address: tuple[str, int],
@@ -260,9 +281,9 @@ class PromptaUIServer(ThreadingHTTPServer):
         if chat is None:
             for job in self.send_jobs.list_conversation_receipts():
                 if str(job.get("conversation_id") or "") == conversation_id:
-                    return self._send_conversation_detail(job)
+                    return self._compact_conversation_detail(self._send_conversation_detail(job))
             return None
-        result = dict(chat)
+        result = self._compact_conversation_detail(chat)
         self._enrich_image_previews(result, conversation_id)
         return result
 

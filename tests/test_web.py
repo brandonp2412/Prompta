@@ -273,6 +273,41 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
         server.server_close()
 
 
+def test_ui_conversation_detail_drops_unused_structured_payload() -> None:
+    original = {
+        "id": "chat-heavy",
+        "state_events": [{"type": "tool", "payload": "large"}],
+        "messages": [
+            {
+                "message_key": "assistant-1",
+                "role": "assistant",
+                "content": "Visible response",
+                "status": "complete",
+                "parts": [{"type": "tool", "payload": "large"}],
+                "tool_calls": [{"name": "execute_python", "output": "large"}],
+                "source_event_count": 42,
+                "version_count": 3,
+                "attachments": [{"id": "preview-1", "type": "image/png"}],
+            }
+        ],
+    }
+
+    compact = PromptaUIServer._compact_conversation_detail(original)
+
+    assert "state_events" not in compact
+    assert compact["messages"] == [
+        {
+            "message_key": "assistant-1",
+            "role": "assistant",
+            "content": "Visible response",
+            "status": "complete",
+            "attachments": [{"id": "preview-1", "type": "image/png"}],
+        }
+    ]
+    assert "state_events" in original
+    assert "tool_calls" in original["messages"][0]
+
+
 def test_image_attachment_preview_http_route(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
