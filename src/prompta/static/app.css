@@ -282,6 +282,8 @@ textarea:focus-visible {
   border-radius: 10px;
   background: transparent;
   transition: background 120ms ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 66px;
 }
 
 .chat-item:hover {
