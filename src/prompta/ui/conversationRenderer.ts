@@ -111,7 +111,10 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
   const viewport = requiredElement<HTMLElement>("#conversationViewport");
 
   function messageTimestamp(message) {
-    const millis = messageTimestampMillis(message.created_at, message.updated_at);
+    const millis = messageTimestampMillis(
+      message.display_at,
+      message.created_at ?? message.updated_at,
+    );
 
     if (millis === null) return { text: "Time unavailable", iso: "", millis: null, age: "" };
 

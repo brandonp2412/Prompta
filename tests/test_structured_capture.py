@@ -531,6 +531,7 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
     assert chat is not None
     assistant = chat["messages"][-1]
     assert assistant["created_at"] == 100.0
+    assert assistant["display_at"] == 103.0
     assert assistant["source_event_count"] == 4
     assert assistant["version_count"] == 1
     assert assistant["tool_calls"][0]["connector"] == "Glass Serena"

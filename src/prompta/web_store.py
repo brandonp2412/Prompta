@@ -273,7 +273,8 @@ class ReadOnlyChatStore:
                 source_event_counts = (
                     connection.execute(
                         """
-                        SELECT message_key, COUNT(*) AS event_count
+                        SELECT message_key, COUNT(*) AS event_count,
+                               MAX(source_created_at) AS latest_source_created_at
                         FROM source_events
                         WHERE conversation_id = ?
                         GROUP BY message_key
@@ -355,6 +356,11 @@ class ReadOnlyChatStore:
         event_count_by_message = {
             str(row["message_key"]): int(row["event_count"] or 0) for row in source_event_counts
         }
+        latest_source_time_by_message = {
+            str(row["message_key"]): float(row["latest_source_created_at"])
+            for row in source_event_counts
+            if row["latest_source_created_at"] is not None
+        }
         version_count_by_message = {
             str(row["message_key"]): int(row["version_count"] or 0) for row in version_counts
         }
@@ -376,6 +382,9 @@ class ReadOnlyChatStore:
             message["parts"] = structured_parts
             message["tool_calls"] = calls_by_message.get(message_key, [])
             message["source_event_count"] = event_count_by_message.get(message_key, 0)
+            message["display_at"] = latest_source_time_by_message.get(
+                message_key, message.get("created_at")
+            )
             message["version_count"] = version_count_by_message.get(message_key, 0)
             use_structured_content = historical or str(message.get("status") or "") == "complete"
             if use_structured_content and structured_parts:
@@ -403,6 +412,7 @@ class ReadOnlyChatStore:
                     "status": "complete",
                     "created_at": payload["created_at"],
                     "updated_at": payload["updated_at"],
+                    "display_at": payload["created_at"],
                     "parts": [],
                     "tool_calls": [],
                     "source_event_count": 0,
