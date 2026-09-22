@@ -460,13 +460,9 @@ class ReadOnlyChatStore:
         }
 
     def change_token(self) -> str:
-        """Cheap token that changes when SQLite/WAL or synced logs change."""
+        """Cheap token that changes when cached chat state changes."""
         parts: list[str] = []
-        targets = (
-            self.path,
-            Path(f"{self.path}-wal"),
-            self.log_path,
-        )
+        targets = (self.path, Path(f"{self.path}-wal"))
         for target in targets:
             try:
                 stat = target.stat()

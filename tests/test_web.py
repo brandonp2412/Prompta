@@ -1865,6 +1865,17 @@ def test_read_only_store_change_token_changes_after_cache_write(tmp_path: Path) 
     assert store.change_token() != before
 
 
+def test_read_only_store_change_token_ignores_log_writes(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    before = store.change_token()
+
+    store.log_path.write_text("log-only change\n")
+
+    assert store.change_token() == before
+
+
 def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
@@ -1940,7 +1951,7 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             event_payload = json.loads(data_line.removeprefix("data: "))
             assert event_payload["head"] == health["head"]
 
-            store.log_path.write_text("changed\n")
+            path.touch()
             assert response.readline().decode() == "event: refresh\n"
             assert response.readline().decode().startswith("data: ")
     finally:
