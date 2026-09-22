@@ -29,7 +29,7 @@ def _event_key(event: dict[str, Any], index: int) -> str:
 
 def _source_time(event: dict[str, Any]) -> float | None:
     value = event.get("create_time")
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return None
     try:
         timestamp = float(value)
