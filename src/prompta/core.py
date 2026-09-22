@@ -462,35 +462,40 @@ class Prompta:
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
 
     async def close(self) -> None:
-        if self.driver is not None:
+        driver = self.driver
+        if driver is not None:
+            poisoned = getattr(driver, "needs_browser_restart", False) is True
             for context, active in list(self._active_conversations.items()):
                 complete = active.settled_at > 0
-                try:
-                    snapshot = await self.driver.conversation_snapshot(context)
-                    messages = snapshot.get("messages")
-                    if not isinstance(messages, list):
-                        messages = []
-                    last_message = messages[-1] if messages else None
-                    has_assistant = (
-                        isinstance(last_message, dict)
-                        and str(last_message.get("role") or "") == "assistant"
-                        and bool(str(last_message.get("content") or "").strip())
-                    )
-                    complete = complete or (has_assistant and not bool(snapshot.get("streaming")))
-                    self.cache.write_snapshot(
-                        active.conversation_id,
-                        snapshot,
-                        complete=complete,
-                    )
-                except Exception:
-                    logger.debug("Could not flush Prompta cache during shutdown", exc_info=True)
+                if not poisoned:
+                    try:
+                        snapshot = await driver.conversation_snapshot(context)
+                        messages = snapshot.get("messages")
+                        if not isinstance(messages, list):
+                            messages = []
+                        last_message = messages[-1] if messages else None
+                        has_assistant = (
+                            isinstance(last_message, dict)
+                            and str(last_message.get("role") or "") == "assistant"
+                            and bool(str(last_message.get("content") or "").strip())
+                        )
+                        complete = complete or (
+                            has_assistant and not bool(snapshot.get("streaming"))
+                        )
+                        self.cache.write_snapshot(
+                            active.conversation_id,
+                            snapshot,
+                            complete=complete,
+                        )
+                    except Exception:
+                        logger.debug("Could not flush Prompta cache during shutdown", exc_info=True)
                 if not complete:
                     logger.info(
                         "Prompta preserving live conversation=%s for restart recovery",
                         active.conversation_id,
                     )
             self._active_conversations.clear()
-            await self.driver.close()
+            await driver.close()
             self.driver = None
         self.cache.close()
 

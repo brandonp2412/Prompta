@@ -2593,6 +2593,37 @@ async def test_close_preserves_completed_retained_conversation(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_close_skips_webdriver_flush_when_session_needs_restart(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    active = ActiveConversation(
+        conversation_id="conversation-123",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations["context-1"] = active
+
+    driver = MagicMock()
+    driver.needs_browser_restart = True
+    driver.conversation_snapshot = AsyncMock(
+        side_effect=AssertionError("poisoned WebDriver must not be queried during shutdown")
+    )
+    driver.close = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta.close()
+
+    driver.conversation_snapshot.assert_not_awaited()
+    driver.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_scheduler_once_waits_for_started_conversation_cache(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     job = PromptJob("e2e", "Do one thing", interval_seconds=0, exact_interval=True)

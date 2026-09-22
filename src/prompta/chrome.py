@@ -861,6 +861,26 @@ class ChromeDriverDriver(WebDriverBase):
             return
 
         if self.debugger_address:
+            if self.needs_browser_restart:
+                # A poisoned ChromeDriver transport must not be queried during
+                # shutdown. Kill only the disposable driver process and leave
+                # the attached browser tabs intact for restart recovery.
+                try:
+                    service = driver.service
+                    process = getattr(service, "process", None)
+                    if process is not None:
+                        process.kill()
+                    else:
+                        service.stop()
+                except Exception:
+                    pass
+                try:
+                    command_executor = driver.command_executor
+                    if not isinstance(command_executor, str):
+                        command_executor.close()
+                except Exception:
+                    pass
+                return
 
             def detach() -> None:
                 fallback_contexts: set[str] = set()

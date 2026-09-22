@@ -434,6 +434,28 @@ async def test_close_uses_debugger_cleanup_when_webdriver_is_unavailable() -> No
 
 
 @pytest.mark.asyncio
+async def test_close_poisoned_debugger_session_kills_driver_without_webdriver_calls() -> None:
+    selenium = MagicMock()
+    type(selenium).window_handles = PropertyMock(
+        side_effect=AssertionError("poisoned WebDriver must not be queried during shutdown")
+    )
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "prompta-tab"
+    driver._owned_contexts.add("prompta-tab")
+    driver.needs_browser_restart = True
+
+    await driver.close()
+
+    selenium.service.process.kill.assert_called_once_with()
+    selenium.service.stop.assert_not_called()
+    selenium.command_executor.close.assert_called_once_with()
+
+
+@pytest.mark.asyncio
 async def test_close_context_preserves_default_when_closing_background_tab() -> None:
     selenium = MagicMock()
     selenium.window_handles = ["default", "other"]
