@@ -267,6 +267,7 @@ class ConversationTracker:
         for context, active in list(self.active.items()):
             try:
                 activity = await driver.conversation_activity(context)
+                self.cache.record_state(active.conversation_id, dict(activity))
                 streaming_hint = bool(activity.get("streaming"))
                 completion_hint = bool(activity.get("complete", True))
                 transient_hint = bool(activity.get("transient"))
@@ -344,6 +345,7 @@ class ConversationTracker:
                         continue
                     active.last_live_snapshot_at = now
                 snapshot = await driver.conversation_snapshot(context)
+                snapshot["activity"] = dict(activity)
                 if streaming_hint:
                     snapshot["streaming"] = True
             except Exception:

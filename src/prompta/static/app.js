@@ -1425,10 +1425,10 @@ function renderCodeBlock(code, language) {
   const highlightLanguage = pythonCode ? "python" : toolish ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
   const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
   const copyButton = renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : "";
-  const header = toolish ? toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>` : `
-        <span class="code-language">${escapeHtml2(label)}</span>
-        ${toolName ? `<span class="tool-name">${escapeHtml2(toolName)}</span>` : ""}
-        ${toolTime}` : `
+  const header = toolish ? `
+      <span class="code-language">${escapeHtml2(label)}</span>
+      ${toolName ? `<span class="tool-name">${escapeHtml2(toolName)}</span>` : ""}
+      ${toolTime}` : `
       <span class="code-language">${escapeHtml2(label)}</span>
       ${copyButton}`;
   const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : "";
@@ -1437,6 +1437,7 @@ function renderCodeBlock(code, language) {
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml2(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml2(toolName)}</span>` : ""}
+        ${toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>` : ""}
         ${toolTime}
         ${copyButton}
       </div>`;

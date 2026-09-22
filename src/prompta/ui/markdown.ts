@@ -309,12 +309,10 @@ function renderCodeBlock(code, language) {
     ? '<button type="button" class="copy-code">copy</button>'
     : "";
   const header = toolish
-    ? (toolSummary
-      ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>`
-      : `
-        <span class="code-language">${escapeHtml(label)}</span>
-        ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
-        ${toolTime}`)
+    ? `
+      <span class="code-language">${escapeHtml(label)}</span>
+      ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+      ${toolTime}`
     : `
       <span class="code-language">${escapeHtml(label)}</span>
       ${copyButton}`;
@@ -326,6 +324,7 @@ function renderCodeBlock(code, language) {
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+        ${toolSummary ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>` : ""}
         ${toolTime}
         ${copyButton}
       </div>`;
