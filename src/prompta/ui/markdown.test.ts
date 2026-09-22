@@ -84,7 +84,7 @@ describe("tool-call rendering", () => {
     );
   });
 
-  test("syntax-highlights structured tool payloads", () => {
+  test("keeps collapsed structured tool payloads lightweight", () => {
     const rendered = renderMarkdown(
       [
         "```tool:files.search",
@@ -101,9 +101,10 @@ describe("tool-call rendering", () => {
     );
 
     expect(rendered).toContain('class="language-json"');
-    expect(rendered).toContain('class="syntax-property"');
-    expect(rendered).toContain('class="syntax-number"');
-    expect(rendered).toContain('class="syntax-string"');
+    expect(rendered).toContain("&quot;top_k&quot;: 5");
+    expect(rendered).not.toContain('class="syntax-property"');
+    expect(rendered).not.toContain('class="syntax-number"');
+    expect(rendered).not.toContain('class="syntax-string"');
   });
 });
 

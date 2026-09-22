@@ -1688,7 +1688,8 @@ function renderCodeBlock(code, language) {
         ${toolTime}` : `
       <span class="code-language">${escapeHtml2(label)}</span>
       ${copyButton}`;
-  const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : "";
+  const renderedBody = toolish ? escapeHtml2(renderedCode) : highlightCode(renderedCode, highlightLanguage);
+  const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${renderedBody}</code></pre>` : "";
   if (toolish) {
     const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
     const expandedAction = toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
