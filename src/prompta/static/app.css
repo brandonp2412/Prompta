@@ -918,6 +918,68 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
+.pending-message-action-target {
+  -webkit-touch-callout: none;
+}
+
+.pending-message-actions {
+  width: 100%;
+  max-width: none;
+  margin: auto 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.34);
+}
+
+.pending-message-actions::backdrop {
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(2px);
+}
+
+.pending-message-actions-shell {
+  display: grid;
+  gap: 8px;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+}
+
+.pending-message-actions-title {
+  padding: 4px 8px 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.pending-message-action {
+  min-height: 50px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+}
+
+.pending-message-action.danger {
+  color: var(--danger);
+}
+
+.pending-message-action.cancel {
+  margin-top: 2px;
+  text-align: center;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .delete-pending-button {
+    display: none;
+  }
+}
+
 .conversation-loading {
   display: grid;
   gap: 18px;

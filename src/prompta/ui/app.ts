@@ -221,6 +221,7 @@ const jobsDialog = createJobsDialog({
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
   onDelete: deletePendingSend,
+  onEdit: editPendingSend,
 });
 
 const attachmentPicker = createAttachmentPicker({
@@ -1953,6 +1954,88 @@ async function deletePendingSend(deleteKey: string) {
   else if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
 
   renderSidebar();
+}
+
+async function editPendingSend(editKey: string) {
+  let pending: PendingReply | null = null;
+  let creatingNew = false;
+  const conversationId = state.selectedId || "";
+
+  if (
+    state.pendingNewSend &&
+    (state.pendingNewSend.clientId === editKey || state.pendingNewSend.sendId === editKey)
+  ) {
+    pending = state.pendingNewSend;
+    creatingNew = true;
+  } else if (conversationId) {
+    pending =
+      (state.pendingReplies.get(conversationId) || []).find(
+        (item) => item.clientId === editKey || item.sendId === editKey,
+      ) || null;
+  }
+
+  if (!pending) return;
+
+  const sendId = String(pending.sendId || "");
+
+  if (!sendId) {
+    setTextIfChanged(els.composerStatus, "Message is still entering the queue. Try editing again.");
+
+    return;
+  }
+
+  try {
+    const response = await fetch("api/sends/" + encodeURIComponent(sendId), {
+      method: "DELETE",
+      cache: "no-store",
+    });
+
+    if (!response.ok && response.status !== 404) throw new Error(String(response.status));
+  } catch (error) {
+    console.warn("Could not cancel pending Prompta send for editing", error);
+    setTextIfChanged(els.composerStatus, "Could not edit the pending message.");
+
+    return;
+  }
+
+  if (creatingNew) {
+    state.pendingNewSend = null;
+    state.pendingNewId = null;
+    state.newChatFingerprint = "";
+    state.composingNew = true;
+    renderNewChat();
+  } else {
+    const items = state.pendingReplies.get(conversationId) || [];
+    const remaining = items.filter((item) => item !== pending);
+
+    if (remaining.length) state.pendingReplies.set(conversationId, remaining);
+    else state.pendingReplies.delete(conversationId);
+
+    state.selectedFingerprint = "";
+
+    if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
+  }
+
+  els.messageInput.value = pending.message || "";
+  persistComposerDraft();
+  resizeComposer();
+  updateSlashMenu();
+  syncSendButton();
+  renderSidebar();
+
+  const attachmentNames = (pending as UiPendingSend).attachmentNames || [];
+
+  if (attachmentNames.length) {
+    setTextIfChanged(
+      els.composerStatus,
+      "Editing pending message. Reattach the files before sending.",
+    );
+  } else {
+    setTextIfChanged(els.composerStatus, "Editing pending message.");
+  }
+
+  els.messageInput.focus();
+  els.messageInput.setSelectionRange(els.messageInput.value.length, els.messageInput.value.length);
 }
 
 async function watchSend(sendId, creatingNew, conversationId) {

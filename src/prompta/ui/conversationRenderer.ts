@@ -80,7 +80,21 @@ export function pendingImageAttachments(serializedAttachments) {
     }));
 }
 
-export function createConversationRenderer({ onRetry, onDelete }) {
+export function shouldHandlePendingLongPress(pointerType: string, coarsePointer: boolean) {
+  return pointerType !== "mouse" || coarsePointer;
+}
+
+export function pendingLongPressMoved(
+  startX: number,
+  startY: number,
+  currentX: number,
+  currentY: number,
+  tolerance = 12,
+) {
+  return Math.hypot(currentX - startX, currentY - startY) > tolerance;
+}
+
+export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
   const conversation = requiredElement<HTMLElement>("#conversation");
   const viewport = requiredElement<HTMLElement>("#conversationViewport");
 
@@ -191,6 +205,142 @@ export function createConversationRenderer({ onRetry, onDelete }) {
   const boundCopyButtons = new WeakSet();
   const boundRetryButtons = new WeakSet();
   const boundDeleteButtons = new WeakSet();
+  const boundPendingActionTargets = new WeakSet<HTMLElement>();
+  let pendingActionsSheet: HTMLDialogElement | null = null;
+  let activePendingActionKey = "";
+
+  function getPendingActionsSheet() {
+    if (pendingActionsSheet) return pendingActionsSheet;
+
+    const dialog = document.createElement("dialog");
+    dialog.className = "pending-message-actions";
+    dialog.setAttribute("aria-labelledby", "pendingMessageActionsTitle");
+
+    const shell = document.createElement("div");
+    shell.className = "pending-message-actions-shell";
+
+    const title = document.createElement("div");
+    title.id = "pendingMessageActionsTitle";
+    title.className = "pending-message-actions-title";
+    title.textContent = "Pending message";
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "pending-message-action";
+    editButton.textContent = "Edit message";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "pending-message-action danger";
+    deleteButton.textContent = "Delete message";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "pending-message-action cancel";
+    cancelButton.textContent = "Cancel";
+
+    shell.append(title, editButton, deleteButton, cancelButton);
+    dialog.append(shell);
+    document.body.append(dialog);
+
+    editButton.addEventListener("click", () => {
+      const key = activePendingActionKey;
+      dialog.close();
+      activePendingActionKey = "";
+
+      if (key) onEdit(key);
+    });
+    deleteButton.addEventListener("click", () => {
+      const key = activePendingActionKey;
+      dialog.close();
+      activePendingActionKey = "";
+
+      if (key) onDelete(key);
+    });
+    cancelButton.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("close", () => {
+      activePendingActionKey = "";
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+
+    pendingActionsSheet = dialog;
+
+    return dialog;
+  }
+
+  function openPendingActions(deleteKey: string) {
+    if (!deleteKey) return;
+
+    activePendingActionKey = deleteKey;
+    const dialog = getPendingActionsSheet();
+
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function bindPendingActionTargets(root) {
+    const targets = root.matches?.(".message.user")
+      ? [root]
+      : Array.from(root.querySelectorAll(".message.user"));
+
+    for (const target of targets) {
+      const node = target as HTMLElement;
+
+      if (boundPendingActionTargets.has(node)) continue;
+
+      if (!node.querySelector(".delete-pending-button")) continue;
+
+      boundPendingActionTargets.add(node);
+      node.classList.add("pending-message-action-target");
+
+      let timer = 0;
+      let startX = 0;
+      let startY = 0;
+
+      const cancelLongPress = () => {
+        if (!timer) return;
+
+        clearTimeout(timer);
+        timer = 0;
+      };
+      const actionKey = () =>
+        (node.querySelector(".delete-pending-button") as HTMLButtonElement | null)?.dataset
+          .deletePendingKey || "";
+
+      node.addEventListener("pointerdown", (event) => {
+        if (
+          !shouldHandlePendingLongPress(event.pointerType, matchMedia("(pointer: coarse)").matches)
+        ) {
+          return;
+        }
+
+        cancelLongPress();
+        startX = event.clientX;
+        startY = event.clientY;
+        timer = window.setTimeout(() => {
+          timer = 0;
+          openPendingActions(actionKey());
+        }, 480);
+      });
+      node.addEventListener("pointermove", (event) => {
+        if (timer && pendingLongPressMoved(startX, startY, event.clientX, event.clientY)) {
+          cancelLongPress();
+        }
+      });
+      node.addEventListener("pointerup", cancelLongPress);
+      node.addEventListener("pointercancel", cancelLongPress);
+      node.addEventListener("lostpointercapture", cancelLongPress);
+      node.addEventListener("contextmenu", (event) => {
+        if (!matchMedia("(pointer: coarse)").matches) return;
+
+        event.preventDefault();
+        cancelLongPress();
+        openPendingActions(actionKey());
+      });
+    }
+  }
+
   function bindRetryButtons(root) {
     for (const button of root.querySelectorAll(".retry-send-button")) {
       if (boundRetryButtons.has(button)) continue;
@@ -243,6 +393,7 @@ export function createConversationRenderer({ onRetry, onDelete }) {
     bindCopyButtons(node);
     bindRetryButtons(node);
     bindDeleteButtons(node);
+    bindPendingActionTargets(node);
 
     return node;
   }
@@ -386,6 +537,7 @@ export function createConversationRenderer({ onRetry, onDelete }) {
           `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml(deleteKey)}">Delete</button>`,
         );
         bindDeleteButtons(node);
+        bindPendingActionTargets(node);
       }
     } else if (deleteButton) {
       deleteButton.remove();
