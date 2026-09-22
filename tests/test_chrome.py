@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.file_detector import UselessFileDetector
 from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 
@@ -45,6 +46,7 @@ def test_prompta_chrome_applies_timeout_before_start_session() -> None:
         client_config=client_config,
     )
     remote_init.assert_called_once_with(driver, command_executor=executor, options=options)
+    assert isinstance(driver.file_detector, UselessFileDetector)
 
 
 def test_create_driver_uses_dedicated_profile_and_chromedriver(tmp_path: Path) -> None:
