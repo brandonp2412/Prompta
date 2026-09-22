@@ -762,9 +762,10 @@ class SendJobRegistry:
                 status = str(job.get("status") or "")
                 if str(job.get("operation") or "") != "once":
                     continue
-                if not str(job.get("conversation_id") or ""):
-                    continue
+                conversation_id = str(job.get("conversation_id") or "")
                 if status == "succeeded":
+                    if not conversation_id:
+                        continue
                     updated_at = float(job.get("updated_at") or job.get("created_at") or 0.0)
                     if (
                         succeeded_within_seconds >= 0

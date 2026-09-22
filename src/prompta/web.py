@@ -183,8 +183,17 @@ class PromptaUIServer(ThreadingHTTPServer):
         )
 
     @staticmethod
-    def _send_conversation_summary(job: dict[str, Any]) -> dict[str, Any]:
-        conversation_id = str(job.get("conversation_id") or "")
+    def _send_conversation_id(job: dict[str, Any]) -> str:
+        conversation_id = str(job.get("conversation_id") or "").strip()
+        if conversation_id:
+            return conversation_id
+        client_id = str(job.get("client_id") or "").strip()
+        send_id = str(job.get("send_id") or "").strip()
+        return f"pending-new-{client_id or send_id}" if client_id or send_id else ""
+
+    @classmethod
+    def _send_conversation_summary(cls, job: dict[str, Any]) -> dict[str, Any]:
+        conversation_id = cls._send_conversation_id(job)
         message = str(job.get("message") or "")
         created_at = float(job.get("created_at") or 0.0)
         updated_at = float(job.get("updated_at") or created_at)
@@ -280,7 +289,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         chat = self.store.conversation(conversation_id)
         if chat is None:
             for job in self.send_jobs.list_conversation_receipts():
-                if str(job.get("conversation_id") or "") == conversation_id:
+                if self._send_conversation_id(job) == conversation_id:
                     return self._compact_conversation_detail(self._send_conversation_detail(job))
             return None
         result = self._compact_conversation_detail(chat)

@@ -3,6 +3,7 @@ export type ChatSummary = {
   prompt?: string;
   created_at?: number;
   _pending_send?: boolean;
+  _client_id?: string;
 };
 
 export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>): string {
@@ -29,20 +30,43 @@ export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>):
   return suffix ? `api/chats?${suffix}` : "api/chats";
 }
 
-export function preserveSidebarChatOrder<T extends { id: string }>(
-  previous: readonly T[],
-  incoming: readonly T[],
+export type SidebarOrderChat = {
+  id: string;
+  created_at?: unknown;
+  _pending_send?: unknown;
+  _optimisticNew?: unknown;
+  _optimisticReply?: unknown;
+};
+
+export function sidebarChatCreatedAt(chat: SidebarOrderChat | null | undefined): number {
+  const createdAt = Number(chat?.created_at || 0);
+
+  return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
+}
+
+export function sidebarChatIsPending(chat: SidebarOrderChat | null | undefined): boolean {
+  return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
+}
+
+export function sortSidebarChats<T extends SidebarOrderChat>(
+  chats: readonly T[],
+  pinnedIds: ReadonlySet<string>,
 ): T[] {
-  if (!previous.length) return [...incoming];
+  return [...chats].sort((left, right) => {
+    const pinnedDelta = Number(pinnedIds.has(right.id)) - Number(pinnedIds.has(left.id));
 
-  const incomingById = new Map(incoming.map((chat) => [chat.id, chat]));
-  const previousIds = new Set(previous.map((chat) => chat.id));
-  const added = incoming.filter((chat) => !previousIds.has(chat.id));
-  const retained = previous
-    .map((chat) => incomingById.get(chat.id))
-    .filter((chat): chat is T => Boolean(chat));
+    if (pinnedDelta) return pinnedDelta;
 
-  return [...added, ...retained];
+    const pendingDelta = Number(sidebarChatIsPending(right)) - Number(sidebarChatIsPending(left));
+
+    if (pendingDelta) return pendingDelta;
+
+    const createdDelta = sidebarChatCreatedAt(right) - sidebarChatCreatedAt(left);
+
+    if (createdDelta) return createdDelta;
+
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export type PendingNewSend = {
@@ -492,6 +516,14 @@ export function matchingOptimisticConversation(
   knownConversationIds: ReadonlySet<string> = new Set(),
 ): ChatSummary | null {
   if (!pending) return null;
+
+  const clientId = textValue(pending.clientId).trim();
+
+  if (clientId) {
+    const exactClient = chats.find((chat) => textValue(chat._client_id).trim() === clientId);
+
+    if (exactClient) return exactClient;
+  }
 
   if (pending.conversationId) {
     const exact = chats.find((chat) => chat.id === pending.conversationId);

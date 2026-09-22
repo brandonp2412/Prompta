@@ -13,7 +13,9 @@ import {
   parseScheduleSlashCommand,
   pendingConversationSends,
   pendingSendActivity,
-  preserveSidebarChatOrder,
+  sidebarChatCreatedAt,
+  sidebarChatIsPending,
+  sortSidebarChats,
   shouldRenderNewChatView,
   shouldShowStopAction,
   shouldProbeHistoricalActivity,
@@ -597,19 +599,23 @@ function truncate(value, length = 88) {
 }
 
 function sidebarGroupAt(chat) {
-  return Number(chat?._sidebarGroupAt || chatActivityAt(chat) || 0);
+  return sidebarChatCreatedAt(chat);
 }
 
-function groupChats(chats) {
-  const pinned = chats.filter((chat) => state.pinnedIds.has(chat.id));
-  const unpinned = chats.filter((chat) => !state.pinnedIds.has(chat.id));
-  const groups = [
+function groupChats(chats: UiChat[]) {
+  const ordered = sortSidebarChats(chats, state.pinnedIds);
+  const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
+  const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
+  const pending = unpinned.filter((chat) => sidebarChatIsPending(chat));
+  const settled = unpinned.filter((chat) => !sidebarChatIsPending(chat));
+  const groups: Array<[string, UiChat[]]> = [
     ["Pinned", pinned],
-    ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
-    ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
+    ["Pending", pending],
+    ["Today", settled.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
+    ["Yesterday", settled.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
     [
       "Previous",
-      unpinned.filter(
+      settled.filter(
         (chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1),
       ),
     ],
@@ -717,6 +723,7 @@ function sidebarChats(): UiChat[] {
     preview: pending.message,
     message_count: 1,
     job_name: "new chat",
+    created_at: pending.createdAt,
     updated_at: pending.updatedAt,
     _optimisticNew: true,
   };
@@ -1379,13 +1386,8 @@ async function hydrateRecentChatCache() {
     if (chat?.id && !unique.has(chat.id)) unique.set(chat.id, chat);
   }
 
-  state.chats = Array.from(unique.values());
-
-  if (!cachedSummaries.length) {
-    state.chats.sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
-  }
-
-  state.chatOrderScope = cachedSummaries.length ? "" : "__cached__";
+  state.chats = sortSidebarChats(Array.from(unique.values()), state.pinnedIds);
+  state.chatOrderScope = "";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
   setTextIfChanged(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
   const hashId = conversationIdFromHash(location.hash);
@@ -1489,19 +1491,13 @@ async function loadChats(forceSelectedRefresh = false) {
     const chats = payload.chats || [];
     promoteServerPendingPins(chats);
     reconcileOptimisticNew(chats);
+    const orderedChats = sortSidebarChats(chats, state.pinnedIds);
 
-    if (!state.search) recentChatCache.rememberSummaries(chats);
+    if (!state.search) recentChatCache.rememberSummaries(orderedChats);
 
     completionNotifications.trackCompletions(chats);
-    const orderScope = state.search;
-    const preserveOrder = state.chatOrderScope === orderScope;
-    const previousChats = preserveOrder ? state.chats : [];
-    const groupAnchors = new Map(previousChats.map((chat) => [chat.id, sidebarGroupAt(chat)]));
-    state.chats = preserveSidebarChatOrder(previousChats, chats).map((chat) => ({
-      ...chat,
-      _sidebarGroupAt: groupAnchors.get(chat.id) || chatActivityAt(chat),
-    }));
-    state.chatOrderScope = orderScope;
+    state.chats = orderedChats;
+    state.chatOrderScope = state.search;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
 
     setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);

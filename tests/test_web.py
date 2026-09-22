@@ -432,6 +432,29 @@ def test_send_job_registry_calls_success_hook_with_client_id() -> None:
     succeeded.assert_called_with("client-success", "chat-new", "Hello")
 
 
+def test_send_job_registry_exposes_pending_new_chat_receipts_before_conversation_id() -> None:
+    release = Event()
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        assert operation == "once"
+        assert conversation_id == ""
+        assert release.wait(timeout=1.0)
+        return "chat-new"
+
+    registry = SendJobRegistry(sender)
+    queued = registry.submit(
+        operation="once",
+        message="Stay visible while queued",
+        client_id="client-pending-sidebar",
+    )
+    receipts = registry.list_conversation_receipts()
+    release.set()
+
+    assert [receipt["send_id"] for receipt in receipts] == [queued["send_id"]]
+    assert receipts[0]["conversation_id"] == ""
+    assert receipts[0]["status"] in {"queued", "running"}
+
+
 def test_send_job_registry_exposes_recent_successful_new_chat_receipts() -> None:
     registry = SendJobRegistry(MagicMock(return_value="chat-new"))
     queued = registry.submit(
@@ -452,6 +475,37 @@ def test_send_job_registry_exposes_recent_successful_new_chat_receipts() -> None
     assert [receipt["send_id"] for receipt in receipts] == [queued["send_id"]]
     assert receipts[0]["conversation_id"] == "chat-new"
     assert receipts[0]["message"] == "Persist in the sidebar"
+
+
+def test_ui_server_exposes_pending_new_chat_before_chatgpt_assigns_an_id(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    receipt = {
+        "send_id": "send-pending",
+        "operation": "once",
+        "message": "Stay in the sidebar",
+        "client_id": "client-pending",
+        "status": "queued",
+        "conversation_id": "",
+        "created_at": 1_000.0,
+        "updated_at": 1_001.0,
+    }
+    server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
+        return_value=[receipt]
+    )
+    pending_id = "pending-new-client-pending"
+    try:
+        chats = server.conversations()
+        chat = server.conversation(pending_id)
+    finally:
+        server.server_close()
+
+    assert [item["id"] for item in chats] == [pending_id]
+    assert chats[0]["_pending_send"] is True
+    assert chats[0]["created_at"] == 1_000.0
+    assert chat is not None
+    assert chat["id"] == pending_id
+    assert chat["messages"][0]["content"] == "Stay in the sidebar"
 
 
 def test_ui_server_keeps_successful_new_chat_visible_before_cache_adopts_it(tmp_path: Path) -> None:

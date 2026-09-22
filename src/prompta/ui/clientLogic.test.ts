@@ -17,7 +17,6 @@ import {
   pendingConversationSends,
   promotePinnedConversationId,
   pendingSendActivity,
-  preserveSidebarChatOrder,
   shouldRenderNewChatView,
   shouldShowStopAction,
   shouldProbeHistoricalActivity,
@@ -25,8 +24,11 @@ import {
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
+  sidebarChatCreatedAt,
+  sidebarChatIsPending,
   sidebarChatPreviewText,
   sidebarPreviewText,
+  sortSidebarChats,
   toolCallDisplayName,
   toolCallHasUsefulDetail,
   toolCallIsInvocationPlaceholder,
@@ -63,53 +65,43 @@ describe("conversation hash parsing", () => {
   });
 });
 
-describe("sidebar ordering", () => {
-  test("keeps existing chats in place when server activity order changes", () => {
-    const previous = [
-      { id: "chat-a", updated_at: 100 },
-      { id: "chat-b", updated_at: 90 },
-      { id: "chat-c", updated_at: 80 },
-    ];
-    const incoming = [
-      { id: "chat-c", updated_at: 130 },
-      { id: "chat-a", updated_at: 120 },
-      { id: "chat-b", updated_at: 110 },
+describe("deterministic sidebar ordering", () => {
+  test("orders pinned first, then pending, then newest-created chats", () => {
+    const chats = [
+      { id: "older", created_at: 10, updated_at: 500 },
+      { id: "pending-old", created_at: 20, updated_at: 20, _pending_send: true },
+      { id: "newer", created_at: 30, updated_at: 30 },
+      { id: "pinned", created_at: 5, updated_at: 5 },
+      { id: "optimistic", created_at: 40, _optimisticNew: true },
     ];
 
-    expect(preserveSidebarChatOrder(previous, incoming).map((chat) => chat.id)).toEqual([
-      "chat-a",
-      "chat-b",
-      "chat-c",
+    expect(sortSidebarChats(chats, new Set(["pinned"])).map((chat) => chat.id)).toEqual([
+      "pinned",
+      "optimistic",
+      "pending-old",
+      "newer",
+      "older",
     ]);
   });
 
-  test("puts genuinely new chats ahead without shuffling retained chats", () => {
-    const previous = [{ id: "chat-a" }, { id: "chat-b" }, { id: "chat-c" }];
-    const incoming = [
-      { id: "new-2" },
-      { id: "chat-c" },
-      { id: "new-1" },
-      { id: "chat-a" },
-      { id: "chat-b" },
+  test("response activity never changes ordinary chat position", () => {
+    const chats = [
+      { id: "newer", created_at: 30, updated_at: 30 },
+      { id: "older-response", created_at: 10, updated_at: 10_000 },
     ];
 
-    expect(preserveSidebarChatOrder(previous, incoming).map((chat) => chat.id)).toEqual([
-      "new-2",
-      "new-1",
-      "chat-a",
-      "chat-b",
-      "chat-c",
+    expect(sortSidebarChats(chats, new Set()).map((chat) => chat.id)).toEqual([
+      "newer",
+      "older-response",
     ]);
   });
 
-  test("drops chats that are no longer in the current result set", () => {
-    const previous = [{ id: "chat-a" }, { id: "chat-b" }, { id: "chat-c" }];
-    const incoming = [{ id: "chat-c" }, { id: "chat-a" }];
-
-    expect(preserveSidebarChatOrder(previous, incoming).map((chat) => chat.id)).toEqual([
-      "chat-a",
-      "chat-c",
-    ]);
+  test("recognizes every sidebar pending representation and uses creation time only", () => {
+    expect(sidebarChatIsPending({ id: "server", _pending_send: true })).toBe(true);
+    expect(sidebarChatIsPending({ id: "new", _optimisticNew: true })).toBe(true);
+    expect(sidebarChatIsPending({ id: "reply", _optimisticReply: true })).toBe(true);
+    expect(sidebarChatIsPending({ id: "done" })).toBe(false);
+    expect(sidebarChatCreatedAt({ id: "chat", created_at: 123, updated_at: 999 } as any)).toBe(123);
   });
 });
 
@@ -148,6 +140,30 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched).toBeNull();
+  });
+
+  test("matches the server pending row by client id even for duplicate prompts", () => {
+    const matched = matchingOptimisticConversation(
+      [
+        {
+          id: "pending-new-other",
+          prompt: "same prompt",
+          created_at: 1_000,
+          _pending_send: true,
+          _client_id: "other-client",
+        },
+        {
+          id: "pending-new-target",
+          prompt: "same prompt",
+          created_at: 1_000,
+          _pending_send: true,
+          _client_id: "target-client",
+        },
+      ],
+      { clientId: "target-client", message: "same prompt", createdAt: 1_000 },
+    );
+
+    expect(matched?.id).toBe("pending-new-target");
   });
 
   test("matches the timestamp-nearest duplicate prompt", () => {
