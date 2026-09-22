@@ -97,6 +97,18 @@ describe("message markdown", () => {
     expect(rendered).toContain("<ol><li>First</li><li>Second</li></ol>");
     expect(rendered).toContain("<blockquote><p>Quoted <strong>text</strong></p></blockquote>");
     expect(rendered).toContain("<table><thead>");
+    expect(rendered).toContain('class="table-scroll"');
+    expect(rendered).not.toContain("table-scroll-wide");
     expect(rendered).toContain('style="text-align:right"');
+  });
+
+  test("marks tables with three or more columns as horizontally scrollable", () => {
+    const rendered = renderMarkdown([
+      "| Name | State | Owner |",
+      "| --- | --- | --- |",
+      "| tool | done | prompta |",
+    ].join("\n"));
+
+    expect(rendered).toContain('class="table-scroll table-scroll-wide"');
   });
 });
