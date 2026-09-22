@@ -1924,6 +1924,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       message.pending_delete_key,
       message.created_at,
       message.updated_at,
+      message.display_at,
       allowStreaming
     ]);
   }
