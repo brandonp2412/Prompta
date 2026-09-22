@@ -502,8 +502,13 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     else seenRoleKeys.add(key);
   }
   const assistantNodes=roleNodes.filter(node=>node.getAttribute('data-message-author-role')==='assistant');
+  const explicitUserTurns=new Set(roleNodes
+    .filter(node=>node.getAttribute('data-message-author-role')==='user')
+    .map(agentRoot)
+    .filter(Boolean));
   const semanticAssistantTurns=[...document.querySelectorAll(turnSelector)]
     .filter(visible)
+    .filter(turn=>!explicitUserTurns.has(turn))
     .filter(turn=>turn.querySelector(assistantSelector)||turn.querySelector(markdownSelector));
   const candidates=[...new Set([
     ...assistantNodes.map(agentRoot).filter(Boolean),

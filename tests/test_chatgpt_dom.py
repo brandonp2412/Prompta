@@ -46,6 +46,11 @@ def test_selector_contract_has_structural_message_fallbacks() -> None:
     assert '[class*="markdown"]' in MARKDOWN_SELECTORS
 
 
+def test_snapshot_does_not_treat_explicit_user_turns_as_assistant_fallbacks() -> None:
+    assert "const explicitUserTurns=new Set(roleNodes" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert ".filter(turn=>!explicitUserTurns.has(turn))" in CONVERSATION_SNAPSHOT_SCRIPT
+
+
 def test_snapshot_has_page_level_react_fallback() -> None:
     assert "const pageReactRoot=document.querySelector('main')||document.body;" in (
         CONVERSATION_SNAPSHOT_SCRIPT

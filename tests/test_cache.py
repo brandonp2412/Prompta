@@ -1339,6 +1339,108 @@ def test_cache_migration_removes_superseded_streaming_copies(tmp_path: Path) -> 
     assert "__prompta_live_assistant_current__" in keys
 
 
+def test_cache_migration_removes_live_assistant_copy_of_following_user(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Question",
+    )
+    with cache.connection:
+        cache.connection.executemany(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "conversation-1",
+                    "__prompta_live_assistant_user_copy__",
+                    0,
+                    "assistant",
+                    "[https://example.test](https://example.test)",
+                    "complete",
+                    5.0,
+                    5.0,
+                ),
+                (
+                    "conversation-1",
+                    "u1",
+                    1,
+                    "user",
+                    "https://example.test",
+                    "complete",
+                    1.0,
+                    1.0,
+                ),
+            ],
+        )
+    cache.close()
+
+    reopened = ChatCache(path)
+    messages = reopened.messages("conversation-1")
+    reopened.close()
+
+    keys = [message["message_key"] for message in messages]
+    assert "__prompta_live_assistant_user_copy__" not in keys
+    assert "u1" in keys
+
+
+def test_cache_keeps_real_live_assistant_when_later_user_repeats_text(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Question",
+    )
+    with cache.connection:
+        cache.connection.executemany(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "conversation-1",
+                    "__prompta_live_assistant_real__",
+                    0,
+                    "assistant",
+                    "Same text",
+                    "complete",
+                    1.0,
+                    1.0,
+                ),
+                (
+                    "conversation-1",
+                    "u1",
+                    1,
+                    "user",
+                    "Same text",
+                    "complete",
+                    2.0,
+                    2.0,
+                ),
+            ],
+        )
+    cache.close()
+
+    reopened = ChatCache(path)
+    messages = reopened.messages("conversation-1")
+    reopened.close()
+
+    keys = [message["message_key"] for message in messages]
+    assert "__prompta_live_assistant_real__" in keys
+    assert "u1" in keys
+
+
 def test_cache_migration_removes_request_placeholders(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

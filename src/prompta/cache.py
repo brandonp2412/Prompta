@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -31,6 +32,11 @@ from .ui_noise import strip_assistant_ui_noise
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\n]+)\)")
+
+
+def _visible_message_text(content: str) -> str:
+    return " ".join(_MARKDOWN_LINK_RE.sub(r"\1", str(content or "")).split())
 
 
 def strip_delivery_timeout_noise(content: str) -> str:
@@ -414,7 +420,38 @@ class ChatCache:
             """,
             parameters,
         )
-        return cursor.rowcount
+        removed = cursor.rowcount
+
+        duplicate_candidates = self.connection.execute(
+            f"""
+            SELECT transient.rowid AS transient_rowid,
+                   transient.content AS transient_content,
+                   matching_user.content AS user_content
+            FROM messages transient
+            JOIN messages matching_user
+              ON matching_user.conversation_id = transient.conversation_id
+             AND matching_user.role = 'user'
+             AND matching_user.ordinal = transient.ordinal + 1
+            WHERE transient.role = 'assistant'
+              {conversation_filter}
+              AND transient.message_key LIKE '__prompta_live_assistant_%'
+              AND matching_user.created_at <= transient.created_at
+            """,
+            parameters,
+        ).fetchall()
+        duplicate_rowids = [
+            int(row["transient_rowid"])
+            for row in duplicate_candidates
+            if _visible_message_text(str(row["transient_content"] or ""))
+            == _visible_message_text(str(row["user_content"] or ""))
+        ]
+        if duplicate_rowids:
+            self.connection.executemany(
+                "DELETE FROM messages WHERE rowid = ?",
+                [(rowid,) for rowid in duplicate_rowids],
+            )
+            removed += len(duplicate_rowids)
+        return removed
 
     def mark_orphaned_active(self) -> int:
         """Mark tabs from a previous Prompta process as interrupted after restart."""
