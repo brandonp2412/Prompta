@@ -1,3 +1,8 @@
+import shutil
+import subprocess
+
+import pytest
+
 from prompta.chatgpt_dom import (
     COMPOSER_SELECTORS,
     FILE_INPUT_SELECTORS,
@@ -51,3 +56,22 @@ def test_snapshot_has_page_level_react_fallback() -> None:
     assert "if(!entries.length&&pageReactMessages.length)" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "name.startsWith('__reactFiber$')" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "name.startsWith('__reactContainer$')" in CONVERSATION_SNAPSHOT_SCRIPT
+
+
+def test_snapshot_keeps_javascript_newline_escapes_literal() -> None:
+    assert "parts.join('\\n')" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert ".join('\\n\\n').trim()" in CONVERSATION_SNAPSHOT_SCRIPT
+
+
+def test_snapshot_script_parses_as_javascript(tmp_path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable")
+    script_path = tmp_path / "conversation_snapshot.js"
+    script_path.write_text(CONVERSATION_SNAPSHOT_SCRIPT)
+    subprocess.run(
+        [node, "--check", str(script_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

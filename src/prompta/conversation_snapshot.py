@@ -589,13 +589,13 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       const parts=Array.isArray(content?.parts)
         ?content.parts.filter(part=>typeof part==='string'&&part.trim())
         :[];
-      const raw=parts.length?parts.join('\n'):String(content?.text||'');
+      const raw=parts.length?parts.join('\\n'):String(content?.text||'');
       const contentText=(role==='assistant'?cleanAssistantText(raw):raw).trim();
       if(!contentText)continue;
       const id=String(message?.id||'');
       const previous=entries.at(-1);
       if(role==='assistant'&&previous?.role==='assistant'){
-        previous.content=collapseStreamingTextParts([previous.content,contentText]).join('\n\n').trim();
+        previous.content=collapseStreamingTextParts([previous.content,contentText]).join('\\n\\n').trim();
         if(id)previous.id=id;
         continue;
       }
