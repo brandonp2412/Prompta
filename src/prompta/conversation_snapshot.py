@@ -138,9 +138,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       request_id:String(metadata?.request_id||metadata?.requestId||''),
       attachments:safeJsonValue(metadata?.attachments??content?.attachments??[]),
       citations:safeJsonValue(metadata?.citations??content?.citations??[]),
-      content_references:safeJsonValue(metadata?.content_references??content?.content_references??[]),
-      content:safeJsonValue(content),
-      metadata:safeJsonValue(metadata)
+      content_references:safeJsonValue(metadata?.content_references??content?.content_references??[])
     };
   };
   const reactToolBlocks=agent=>{
@@ -494,7 +492,20 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     ordinal:index
   }));
   const latestAgent=candidates.at(-1)||null;
-  const sourceEvents=latestAgent?reactMessages(latestAgent).map(sanitiseSourceEvent):[];
+  const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
+  const sourceEvents=latestAgent?reactMessages(latestAgent).filter(message=>{
+    const role=String(message?.author?.role||message?.role||'');
+    const recipient=String(message?.recipient||'');
+    if(role==='tool'||recipient==='api_tool.call_tool')return true;
+    if(role!=='assistant'||(recipient&&recipient!=='all'))return false;
+    if(message?.end_turn===true)return true;
+    const content=message?.content||{};
+    const parts=Array.isArray(content?.parts)
+      ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+      :[];
+    const text=normalise(parts.length?parts.join(' '):String(content?.text||''));
+    return Boolean(text&&visibleAgentText&&visibleAgentText.includes(text));
+  }).map(sanitiseSourceEvent):[];
   const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
   const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
   const latestAssistant=assistantNodes.at(-1);
