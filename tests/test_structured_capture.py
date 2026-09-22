@@ -102,6 +102,17 @@ def test_browser_snapshot_filters_delivery_timeout_from_react_history() -> None:
     assert "const visibleText=cleanAssistantText(" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
+def test_browser_snapshot_interleaves_tool_calls_by_invocation_time() -> None:
+    assert "prior?.createdAt||Number(message?.create_time)" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const timeline=textEntries.map(entry=>({" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "time:toolBlockTime(block)??" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert (
+        "timeline.sort((left,right)=>left.time-right.time||left.order-right.order);"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "const parts=[],finalTextParts=[];" not in CONVERSATION_SNAPSHOT_SCRIPT
+
+
 def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> None:
     result_text = "x" * 20_000
     events = _source_events(result_text)

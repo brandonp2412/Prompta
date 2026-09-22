@@ -205,7 +205,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         const prior=[...invocations].reverse().find(candidate=>
           candidate.index<=index&&(!action||!candidate.action||candidate.action===action)
         );
-        add(name,action,summary||prior?.summary||'',args,parsed.status,parsed.durationMs,parsed.error,Number(message?.create_time)||prior?.createdAt);
+        add(name,action,summary||prior?.summary||'',args,parsed.status,parsed.durationMs,parsed.error,prior?.createdAt||Number(message?.create_time));
       }
     }
     if(blocks.length)return blocks;
@@ -328,41 +328,68 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
       )
     ));
-    const parts=[],finalTextParts=[];
-    let toolIndex=0;
+    const textEntries=[];
     for(const [index,message] of messages.entries()){
       const role=String(message?.author?.role||message?.role||'');
       const recipient=String(message?.recipient||'');
       const content=message?.content||{};
       const contentType=String(content?.content_type||content?.type||'');
-      if(role==='assistant'&&(!recipient||recipient==='all')&&(
-        contentType==='text'||contentType==='multimodal_text'
-      )){
-        const textParts=Array.isArray(content?.parts)
-          ?content.parts.filter(part=>typeof part==='string'&&part.trim())
-          :[];
-        const visibleText=cleanAssistantText(
-          textParts.length?textParts.join('\\n'):String(content?.text||'')
-        );
-        if(visibleText){
-          if(message?.end_turn===true)finalTextParts.push(visibleText);
-          else parts.push(visibleText);
-        }
-      }
+      if(role!=='assistant'||(recipient&&recipient!=='all')||(
+        contentType!=='text'&&contentType!=='multimodal_text'
+      ))continue;
+      const textParts=Array.isArray(content?.parts)
+        ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+        :[];
+      const visibleText=cleanAssistantText(
+        textParts.length?textParts.join('\\n'):String(content?.text||'')
+      );
+      if(visibleText)textEntries.push({index,message,content:visibleText});
+    }
+    let finalText='';
+    if(textEntries.length&&textEntries.at(-1)?.message?.end_turn===true){
+      finalText=textEntries.pop()?.content||'';
+    }
+    const messageTime=message=>{
+      const value=Number(message?.create_time);
+      return Number.isFinite(value)&&value>0?value:Number.POSITIVE_INFINITY;
+    };
+    const toolBlockTime=block=>{
+      const lines=String(block||'').split('\\n');
+      if(lines.length<3)return null;
+      try{
+        const payload=JSON.parse(lines.slice(1,-1).join('\\n'));
+        const value=Number(payload?.created_at);
+        return Number.isFinite(value)&&value>0?value:null;
+      }catch{return null;}
+    };
+    const timeline=textEntries.map(entry=>({
+      time:messageTime(entry.message),
+      order:entry.index*2,
+      content:entry.content
+    }));
+    const toolSources=[];
+    for(const [index,message] of messages.entries()){
       const parsed=parsedByIndex[index];
+      const recipient=String(message?.recipient||'');
       const path=parsed&&typeof parsed==='object'&&typeof parsed.path==='string'
         ?parsed.path:'';
       const wrapper=Boolean(parsed&&typeof parsed==='object'&&(
         parsed.type==='mcpToolCall'||parsed.appContext||parsed.arguments
       ));
       const invocation=recipient==='api_tool.call_tool'||Boolean(path);
-      if((hasCompletedWrappers?wrapper:invocation)&&toolIndex<tools.length){
-        parts.push(tools[toolIndex]);
-        toolIndex+=1;
-      }
+      if((hasCompletedWrappers?wrapper:invocation))toolSources.push({index,message});
     }
-    if(toolIndex<tools.length)parts.push(...tools.slice(toolIndex));
-    if(finalTextParts.length)parts.push(...finalTextParts);
+    for(const [toolIndex,block] of tools.entries()){
+      const source=toolSources[toolIndex];
+      timeline.push({
+        time:toolBlockTime(block)??(source?messageTime(source.message):Number.POSITIVE_INFINITY),
+        order:source?source.index*2+1:messages.length*2+toolIndex,
+        content:block
+      });
+    }
+    timeline.sort((left,right)=>left.time-right.time||left.order-right.order);
+    const parts=collapseStreamingTextParts(timeline.map(entry=>entry.content).filter(Boolean));
+    if(finalText)parts.push(finalText);
     return collapseStreamingTextParts(parts).join('\\n\\n').trim();
   };
   const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
