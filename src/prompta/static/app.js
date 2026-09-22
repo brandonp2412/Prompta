@@ -11,6 +11,14 @@ function preserveSidebarChatOrder(previous, incoming) {
 var CHATGPT_RICH_START = "";
 var CHATGPT_RICH_END = "";
 var CHATGPT_RICH_SEPARATOR = "";
+function textValue(value, fallback = "") {
+  if (typeof value === "string")
+    return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return fallback;
+}
 function readableRichMarkerFallback(parts) {
   return parts.find((part) => {
     const value = part.trim();
@@ -18,7 +26,7 @@ function readableRichMarkerFallback(parts) {
   })?.trim() || "";
 }
 function replaceChatGptRichMarkers(value, renderUrl = (label) => label) {
-  const source = String(value || "");
+  const source = textValue(value);
   let output = "";
   let cursor = 0;
   while (cursor < source.length) {
@@ -61,7 +69,7 @@ function retryDelayText(seconds) {
   return `${hours}h`;
 }
 function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1000) {
-  const normalized = String(status || "queued").trim().toLowerCase();
+  const normalized = textValue(status, "queued").trim().toLowerCase();
   if (["failed", "dead_lettered"].includes(normalized))
     return null;
   if (!hasSendId)
@@ -101,7 +109,7 @@ function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEp
   return { label: "waiting", statusText: "Waiting for ChatGPT…" };
 }
 function conversationIdFromHash(hash) {
-  const encoded = String(hash || "").replace(/^#\/?/, "").trim();
+  const encoded = textValue(hash).replace(/^#\/?/, "").trim();
   if (!encoded)
     return "";
   try {
@@ -112,14 +120,14 @@ function conversationIdFromHash(hash) {
 }
 var TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
 function toolCallDisplayName(value) {
-  const name = String(value || "").replace(/\s+/g, " ").trim();
+  const name = textValue(value).replace(/\s+/g, " ").trim();
   return name && !TOOL_UI_NOISE.test(name) ? name : "";
 }
 function toolCallIsInvocationPlaceholder(value) {
-  return /^called tool$/i.test(String(value || "").trim());
+  return /^called tool$/i.test(textValue(value).trim());
 }
 function toolCallHasUsefulDetail(value) {
-  return String(value || "").split(/\n+/).map((line) => line.trim()).some((line) => Boolean(toolCallDisplayName(line)));
+  return textValue(value).split(/\n+/).map((line) => line.trim()).some((line) => Boolean(toolCallDisplayName(line)));
 }
 function parsedToolPayload(value) {
   let current = value;
@@ -165,7 +173,7 @@ function toolCallTimestampMillis(value) {
   return null;
 }
 function pythonToolCallCode(toolName, value) {
-  const name = String(toolName || "").trim().toLowerCase();
+  const name = textValue(toolName).trim().toLowerCase();
   const pythonTool = name.includes("execute_python") || name.includes("python") && (name.includes("nox") || name.includes("glass") || name.includes("mcp"));
   if (!pythonTool)
     return "";
@@ -211,7 +219,7 @@ function comparableTimestampSeconds(value) {
   return timestamp >= 1000000000000 ? timestamp / 1000 : timestamp;
 }
 function comparablePrompt(value) {
-  return String(value || "").trim().replace(/\s+/g, " ");
+  return textValue(value).trim().replace(/\s+/g, " ");
 }
 function matchingOptimisticConversation(chats, pending, knownConversationIds = new Set) {
   if (!pending)
@@ -273,7 +281,7 @@ function formatClockTime12Hour(value, includeSeconds = false) {
   return `${hour12}:${minutes}${seconds}${hour24 < 12 ? "am" : "pm"}`;
 }
 function formatDailyTime12Hour(value) {
-  const raw = String(value ?? "");
+  const raw = textValue(value);
   const match = raw.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
   if (!match)
     return raw;
@@ -394,7 +402,7 @@ async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45000, fe
       });
       try {
         data = await response.json();
-      } catch (error) {
+      } catch {
         if (controller.signal.aborted)
           throw new Error("Request timed out");
         if (response.ok)
@@ -423,10 +431,10 @@ function composerHasContent(message, attachmentCount) {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
 function shouldShowStopAction(chatStatus, composingNew, hasComposerContent = false) {
-  return !hasComposerContent && !composingNew && String(chatStatus || "").trim().toLowerCase() === "active";
+  return !hasComposerContent && !composingNew && textValue(chatStatus).trim().toLowerCase() === "active";
 }
 function shouldProbeHistoricalActivity(chatStatus) {
-  return String(chatStatus || "").trim().toLowerCase() === "interrupted";
+  return textValue(chatStatus).trim().toLowerCase() === "interrupted";
 }
 function shouldRefreshSelectedChat(summary, selectedUpdatedAt, selectedFingerprint, force = false) {
   return force || !summary || summary.status === "active" || selectedUpdatedAt !== summary.updated_at || !selectedFingerprint;
@@ -1276,7 +1284,7 @@ function highlightCode(raw, language) {
       index = cursor;
       continue;
     }
-    html += /[\[\]{}(),.:;]/.test(source[index]) ? syntaxToken("punctuation", source[index]) : escapeHtml2(source[index]);
+    html += /[[\]{}(),.:;]/.test(source[index]) ? syntaxToken("punctuation", source[index]) : escapeHtml2(source[index]);
     index += 1;
   }
   return html;
@@ -1740,11 +1748,6 @@ function createConversationRenderer({ onRetry }) {
       index += 1;
     }
   }
-  function patchHtmlChildren(element, html) {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    patchDomChildren(element, template.content);
-  }
   function updateMessageNode(node, message, allowStreaming) {
     const role = message.role === "user" ? "user" : "assistant";
     const sendError = Boolean(message.send_error);
@@ -2106,7 +2109,7 @@ function createAttachmentPicker({ onChange, setStatus }) {
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader;
       reader.onerror = () => reject(reader.error || new Error("Could not read " + file.name));
-      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
       reader.readAsDataURL(file);
     });
     const comma = dataUrl.indexOf(",");
@@ -2357,7 +2360,7 @@ function createLiveUpdates({
   function startTimeRefresh() {
     if (timeRefreshTimer !== null)
       return;
-    timeRefreshTimer = setInterval(refreshDisplayedTimes, 30000);
+    timeRefreshTimer = setInterval(() => refreshDisplayedTimes(), 30000);
   }
   function stopFallbackRefresh() {
     if (fallbackTimer === null)
@@ -2668,7 +2671,7 @@ function loadComposerDrafts() {
     const stored = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_KEY) || "{}");
     if (!stored || Array.isArray(stored) || typeof stored !== "object")
       return new Map;
-    return new Map(Object.entries(stored).filter(([, value]) => typeof value === "string" && value).map(([key, value]) => [String(key), String(value)]));
+    return new Map(Object.entries(stored).filter(([, value]) => typeof value === "string" && value).map(([key, value]) => [key, typeof value === "string" ? value : ""]));
   } catch {
     return new Map;
   }
@@ -3117,7 +3120,7 @@ function sidebarChats() {
     const latest = pending2[pending2.length - 1];
     return {
       ...chat,
-      status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
+      status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
       preview: latest.message,
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
       _optimisticReply: true
@@ -3296,7 +3299,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         pending_activity: true,
         pending_activity_label: activity.label
       });
-    } else if (["failed", "dead_lettered"].includes(item.status)) {
+    } else if (["failed", "dead_lettered"].includes(item.status || "")) {
       messages.push({
         message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
@@ -3305,7 +3308,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt,
         send_error: true,
         retry_scope: "reply",
-        retry_key: item.clientId || item.sendId
+        retry_key: item.clientId || item.sendId || ""
       });
     }
     return messages;
@@ -3314,7 +3317,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 function updatePinButton() {
   const chatId = state.selectedId;
   const available = Boolean(chatId) && !state.composingNew;
-  const pinned = available && state.pinnedIds.has(chatId);
+  const pinned = Boolean(available && chatId && state.pinnedIds.has(chatId));
   els.pinChatButton.disabled = !available;
   els.pinChatButton.classList.toggle("active", Boolean(pinned));
   els.pinChatButton.setAttribute("aria-pressed", String(Boolean(pinned)));
@@ -3969,7 +3972,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
     try {
       job = await fetchJson2(`api/sends/${encodeURIComponent(sendId)}`);
       statusFailures = 0;
-    } catch (error) {
+    } catch {
       statusFailures += 1;
       if (statusFailures >= 3) {
         await loadChats();
@@ -4000,19 +4003,20 @@ async function watchSend(sendId, creatingNew, conversationId) {
     }
     const status = job.status || "running";
     if (creatingNew) {
-      if (state.pendingNewSend?.sendId !== sendId)
+      const pendingNewSend = state.pendingNewSend;
+      if (!pendingNewSend || pendingNewSend.sendId !== sendId)
         return;
       const nextError = job.error || "";
-      const nextConversationId = job.conversation_id || state.pendingNewSend.conversationId || "";
+      const nextConversationId = job.conversation_id || pendingNewSend.conversationId || "";
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
       if (nextConversationId) {
         completionNotifications.markActive(nextConversationId);
-        promotePendingConversationPin(state.pendingNewSend, nextConversationId);
+        promotePendingConversationPin(pendingNewSend, nextConversationId);
       }
-      const changed2 = state.pendingNewSend.status !== status || state.pendingNewSend.error !== nextError || state.pendingNewSend.conversationId !== nextConversationId || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || state.pendingNewSend.retryAt !== nextRetryAt || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
-      Object.assign(state.pendingNewSend, {
+      const changed2 = pendingNewSend.status !== status || pendingNewSend.error !== nextError || pendingNewSend.conversationId !== nextConversationId || pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || pendingNewSend.retryAt !== nextRetryAt || pendingNewSend.retryAttempt !== nextRetryAttempt;
+      Object.assign(pendingNewSend, {
         status,
         error: nextError,
         conversationId: nextConversationId,
@@ -4021,17 +4025,17 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAttempt: nextRetryAttempt
       });
       if (changed2)
-        state.pendingNewSend.updatedAt = Date.now() / 1000;
+        pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
         if (!newId) {
-          state.pendingNewSend.status = "failed";
-          state.pendingNewSend.error = "Prompta reported success without a conversation id";
+          pendingNewSend.status = "failed";
+          pendingNewSend.error = "Prompta reported success without a conversation id";
           if (state.composingNew)
             renderNewChat();
           return;
         }
-        const completedPending = state.pendingNewSend;
+        const completedPending = pendingNewSend;
         promotePendingConversationPin(completedPending, newId);
         completedPending.conversationId = newId;
         state.pendingNewId = newId;
@@ -4105,14 +4109,15 @@ async function retryFailedSend(scope, retryKey) {
       renderNewChat();
     }
   } else if (scope === "reply" && state.selectedId) {
-    const items = state.pendingReplies.get(state.selectedId) || [];
+    const selectedId = state.selectedId;
+    const items = state.pendingReplies.get(selectedId) || [];
     pending = items.find((item) => item.clientId === retryKey || item.sendId === retryKey) || null;
     if (pending) {
       const remaining = items.filter((item) => item !== pending);
       if (remaining.length)
-        state.pendingReplies.set(state.selectedId, remaining);
+        state.pendingReplies.set(selectedId, remaining);
       else
-        state.pendingReplies.delete(state.selectedId);
+        state.pendingReplies.delete(selectedId);
       state.selectedFingerprint = "";
       if (state.selectedChat?.id === state.selectedId)
         renderConversation(state.selectedChat);
@@ -4243,16 +4248,17 @@ async function sendSelectedMessage() {
     renderNewChat();
     renderSidebar();
   } else {
-    const items = state.pendingReplies.get(conversationId) || [];
+    const targetConversationId = conversationId || "";
+    const items = state.pendingReplies.get(targetConversationId) || [];
     items.push(pending);
-    state.pendingReplies.set(conversationId, items);
+    state.pendingReplies.set(targetConversationId, items);
     state.selectedFingerprint = "";
-    if (state.selectedChat?.id === conversationId)
+    if (state.selectedChat?.id === targetConversationId)
       renderConversation(state.selectedChat);
     renderSidebar();
   }
   try {
-    const result = creatingNew ? await postJsonRequest("api/chats", { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3) : await postJsonRequest(`api/chats/${encodeURIComponent(conversationId)}/messages`, { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3);
+    const result = creatingNew ? await postJsonRequest("api/chats", { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3) : await postJsonRequest(`api/chats/${encodeURIComponent(conversationId || "")}/messages`, { message, attachments: serializedAttachments, client_id: pending.clientId }, attachments.length ? 1 : 3);
     if (!result.send_id)
       throw new Error("Prompta did not return a send id");
     if (!creatingNew)
@@ -4312,7 +4318,7 @@ async function copySelectedChatUrl() {
   try {
     await navigator.clipboard.writeText(url.toString());
     setTextIfChanged5(els.composerStatus, "Chat link copied.");
-  } catch (error) {
+  } catch {
     const textarea = document.createElement("textarea");
     textarea.value = url.toString();
     textarea.style.position = "fixed";
@@ -4393,10 +4399,10 @@ window.addEventListener("hashchange", () => {
     selectChat(id);
 });
 function refreshDisplayedTimes() {
-  if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status)) {
+  if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "")) {
     state.newChatFingerprint = "";
     renderNewChat();
-  } else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status))) {
+  } else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status || ""))) {
     state.selectedFingerprint = "";
     loadSelectedChat();
   }
