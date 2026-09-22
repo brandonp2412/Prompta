@@ -23,6 +23,22 @@ function setTextIfChanged(element: Element, value) {
   if (element.textContent !== text) element.textContent = text;
 }
 
+export function renderChangelogEntry(change) {
+  const title = escapeHtml(change?.title || "");
+  const hash = String(change?.hash || "").trim();
+  const hashSuffix = hash
+    ? '<span class="changelog-entry-hash">#' + escapeHtml(hash) + "</span>"
+    : "";
+
+  return (
+    '<li class="changelog-entry"><span class="changelog-entry-title">' +
+    title +
+    "</span>" +
+    hashSuffix +
+    "</li>"
+  );
+}
+
 export function createChangelogDialog({ fetchJson, closeSidebar }) {
   const els = {
     headLabel: requiredElement<HTMLButtonElement>("#headLabel"),
@@ -64,12 +80,7 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
       patchHtmlChildren(
         els.list,
         changes.length
-          ? changes
-              .map(
-                (change) =>
-                  '<li class="changelog-entry">' + escapeHtml(change?.title || "") + "</li>",
-              )
-              .join("")
+          ? changes.map(renderChangelogEntry).join("")
           : '<li class="changelog-empty">No Git commit history is available.</li>',
       );
       setTextIfChanged(

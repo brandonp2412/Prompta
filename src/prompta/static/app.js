@@ -3158,6 +3158,12 @@ function setTextIfChanged4(element, value) {
   if (element.textContent !== text)
     element.textContent = text;
 }
+function renderChangelogEntry(change) {
+  const title = escapeHtml5(change?.title || "");
+  const hash = String(change?.hash || "").trim();
+  const hashSuffix = hash ? '<span class="changelog-entry-hash">#' + escapeHtml5(hash) + "</span>" : "";
+  return '<li class="changelog-entry"><span class="changelog-entry-title">' + title + "</span>" + hashSuffix + "</li>";
+}
 function createChangelogDialog({ fetchJson: fetchJson2, closeSidebar }) {
   const els = {
     headLabel: requiredElement6("#headLabel"),
@@ -3190,7 +3196,7 @@ function createChangelogDialog({ fetchJson: fetchJson2, closeSidebar }) {
     try {
       const payload = await fetchJson2("api/changelog");
       const changes = Array.isArray(payload.changes) ? payload.changes : [];
-      patchHtmlChildren(els.list, changes.length ? changes.map((change) => '<li class="changelog-entry">' + escapeHtml5(change?.title || "") + "</li>").join("") : '<li class="changelog-empty">No Git commit history is available.</li>');
+      patchHtmlChildren(els.list, changes.length ? changes.map(renderChangelogEntry).join("") : '<li class="changelog-empty">No Git commit history is available.</li>');
       setTextIfChanged4(els.status, changes.length + " commit" + (changes.length === 1 ? "" : "s") + " · newest first");
     } catch (error) {
       patchHtmlChildren(els.list, '<li class="changelog-empty">Could not load changelog.</li>');

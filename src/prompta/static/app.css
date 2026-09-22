@@ -1987,6 +1987,25 @@ textarea:focus-visible {
   border-top: 1px solid var(--border);
 }
 
+.changelog-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.changelog-entry-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.changelog-entry-hash {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
 .changelog-entry,
 .changelog-empty {
   padding: 12px 2px;
@@ -2009,6 +2028,7 @@ textarea:focus-visible {
   background: var(--bg);
   color: var(--text);
   box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
 .jobs-dialog::backdrop {
@@ -2352,6 +2372,10 @@ textarea:focus-visible {
   .changelog-dialog[data-presentation="stack"] .changelog-list {
     max-height: none;
     overflow: visible;
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-entry-hash {
+    display: none;
   }
 
   .jobs-dialog[data-presentation="stack"] {
