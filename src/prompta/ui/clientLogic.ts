@@ -115,10 +115,19 @@ export function sortSidebarChats<T extends SidebarOrderChat>(
   chats: readonly T[],
   pinnedIds: ReadonlySet<string>,
 ): T[] {
-  return [...chats].sort((left, right) => {
-    const pinnedDelta = Number(pinnedIds.has(right.id)) - Number(pinnedIds.has(left.id));
+  const pinnedOrder = new Map(Array.from(pinnedIds, (id, index) => [id, index]));
 
-    if (pinnedDelta) return pinnedDelta;
+  return [...chats].sort((left, right) => {
+    const leftPinnedIndex = pinnedOrder.get(left.id);
+    const rightPinnedIndex = pinnedOrder.get(right.id);
+
+    if (leftPinnedIndex !== undefined || rightPinnedIndex !== undefined) {
+      if (leftPinnedIndex === undefined) return 1;
+
+      if (rightPinnedIndex === undefined) return -1;
+
+      return leftPinnedIndex - rightPinnedIndex;
+    }
 
     const createdDelta = sidebarChatCreatedAt(right) - sidebarChatCreatedAt(left);
 

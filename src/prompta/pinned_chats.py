@@ -17,44 +17,46 @@ class PinnedChatStore:
         self._initialized, self._ids = self._load()
 
     @classmethod
-    def _normalize(cls, values: Iterable[object]) -> set[str]:
-        ids: set[str] = set()
+    def _normalize(cls, values: Iterable[object]) -> list[str]:
+        ids: list[str] = []
+        seen: set[str] = set()
         for value in values:
             chat_id = str(value or "").strip()
-            if not chat_id:
+            if not chat_id or chat_id in seen:
                 continue
-            ids.add(chat_id)
+            seen.add(chat_id)
+            ids.append(chat_id)
             if len(ids) >= cls._LIMIT:
                 break
         return ids
 
-    def _load(self) -> tuple[bool, set[str]]:
+    def _load(self) -> tuple[bool, list[str]]:
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return False, set()
+            return False, []
         except (OSError, ValueError):
-            return False, set()
+            return False, []
 
         if not isinstance(payload, dict):
-            return False, set()
+            return False, []
         raw_ids = payload.get("ids")
         if not isinstance(raw_ids, list):
-            return False, set()
+            return False, []
         return True, self._normalize(raw_ids)
 
     def _write_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(
-            json.dumps({"ids": sorted(self._ids)}, ensure_ascii=False),
+            json.dumps({"ids": self._ids}, ensure_ascii=False),
             encoding="utf-8",
         )
         temporary.replace(self.path)
 
     def snapshot(self) -> dict[str, object]:
         with self.lock:
-            return {"initialized": self._initialized, "ids": sorted(self._ids)}
+            return {"initialized": self._initialized, "ids": list(self._ids)}
 
     def seed(self, values: Iterable[object]) -> dict[str, object]:
         with self.lock:
@@ -62,7 +64,7 @@ class PinnedChatStore:
                 self._ids = self._normalize(values)
                 self._initialized = True
                 self._write_locked()
-            return {"initialized": self._initialized, "ids": sorted(self._ids)}
+            return {"initialized": self._initialized, "ids": list(self._ids)}
 
     def set_pinned(self, chat_id: str, pinned: bool) -> dict[str, object]:
         normalized = str(chat_id or "").strip()
@@ -73,7 +75,7 @@ class PinnedChatStore:
             changed = False
             if pinned:
                 if normalized not in self._ids:
-                    self._ids.add(normalized)
+                    self._ids.append(normalized)
                     changed = True
             elif normalized in self._ids:
                 self._ids.remove(normalized)
@@ -83,7 +85,7 @@ class PinnedChatStore:
                 self._initialized = True
                 self._write_locked()
 
-            return {"initialized": self._initialized, "ids": sorted(self._ids)}
+            return {"initialized": self._initialized, "ids": list(self._ids)}
 
     def promote(self, previous_id: str, next_id: str) -> dict[str, object]:
         previous = str(previous_id or "").strip()
@@ -93,9 +95,11 @@ class PinnedChatStore:
 
         with self.lock:
             if previous in self._ids and previous != next_value:
+                previous_index = self._ids.index(previous)
                 self._ids.remove(previous)
-                self._ids.add(next_value)
+                if next_value not in self._ids:
+                    self._ids.insert(previous_index, next_value)
                 self._initialized = True
                 self._write_locked()
 
-            return {"initialized": self._initialized, "ids": sorted(self._ids)}
+            return {"initialized": self._initialized, "ids": list(self._ids)}

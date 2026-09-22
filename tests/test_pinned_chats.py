@@ -42,7 +42,7 @@ def test_pinned_chat_store_persists_and_promotes(tmp_path: Path) -> None:
 
     assert PinnedChatStore(tmp_path).snapshot() == {
         "initialized": True,
-        "ids": ["new-chat", "real-chat"],
+        "ids": ["real-chat", "new-chat"],
     }
 
 

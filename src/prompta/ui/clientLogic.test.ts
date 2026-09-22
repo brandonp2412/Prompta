@@ -125,6 +125,21 @@ describe("deterministic sidebar ordering", () => {
     ]);
   });
 
+  test("keeps pinned chats in pin insertion order with new pins at the end", () => {
+    const chats = [
+      { id: "third-pin", created_at: 300 },
+      { id: "first-pin", created_at: 100 },
+      { id: "second-pin", created_at: 200 },
+      { id: "unpinned", created_at: 400 },
+    ];
+
+    expect(
+      sortSidebarChats(chats, new Set(["first-pin", "second-pin", "third-pin"])).map(
+        (chat) => chat.id,
+      ),
+    ).toEqual(["first-pin", "second-pin", "third-pin", "unpinned"]);
+  });
+
   test("response activity never changes ordinary chat position", () => {
     const chats = [
       { id: "newer", created_at: 30, updated_at: 30 },
