@@ -105,6 +105,24 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       .sort((left,right)=>left.time-right.time||left.index-right.index)
       .map(entry=>entry.message);
   };
+  const reactHasVisibleAssistantText=agent=>{
+    const visibleAgentText=normalise(agent?.innerText||agent?.textContent||'');
+    if(!visibleAgentText)return false;
+    return reactMessages(agent).some(message=>{
+      const role=String(message?.author?.role||message?.role||'');
+      const recipient=String(message?.recipient||'');
+      const content=message?.content||{};
+      const contentType=String(content?.content_type||content?.type||'');
+      if(role!=='assistant'||(recipient&&recipient!=='all')||(
+        contentType!=='text'&&contentType!=='multimodal_text'
+      ))return false;
+      const parts=Array.isArray(content?.parts)
+        ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+        :[];
+      const sourceText=normalise(parts.length?parts.join(' '):String(content?.text||''));
+      return Boolean(sourceText&&visibleAgentText.includes(sourceText));
+    });
+  };
   const safeJsonValue=value=>{try{return JSON.parse(JSON.stringify(value));}catch{return null;}};
   const sanitiseSourceEvent=message=>{
     const content=message?.content||{};
@@ -432,6 +450,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   ])].filter(visible);
   for(const [agentIndex,agent] of candidates.entries()){
     const reactOrdered=reactOrderedContent(agent);
+    const reactHasVisibleText=reactHasVisibleAssistantText(agent);
     const markdownNodes=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible);
     const tools=toolBlocks(agent);
     const currentToolRows=[...agent.querySelectorAll('span[class~=\"group/tool-message\"]')];
@@ -482,7 +501,10 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       const visibleText=normalise(text);
       return !visibleText||reactVisible.includes(visibleText);
     });
-    const content=((reactOrdered&&reactKeepsVisibleText)?reactOrdered:fallbackContent).trim();
+    const content=((reactOrdered&&reactHasVisibleText&&reactKeepsVisibleText)
+      ?reactOrdered
+      :fallbackContent
+    ).trim();
     if(!content)continue;
     const nested=agent.querySelector('[data-message-author-role="assistant"]');
     const id=agent.getAttribute('data-message-id')

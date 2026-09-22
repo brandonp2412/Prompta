@@ -88,9 +88,11 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
         CONVERSATION_SNAPSHOT_SCRIPT
     )
     assert "reactVisible.includes(visibleText)" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert (
-        "const content=((reactOrdered&&reactKeepsVisibleText)?reactOrdered:fallbackContent).trim();"
-        in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const reactHasVisibleText=reactHasVisibleAssistantText(agent);" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "reactOrdered&&reactHasVisibleText&&reactKeepsVisibleText" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
     )
     assert (
         "const content=(reactOrdered||fallbackContent).trim();" not in CONVERSATION_SNAPSHOT_SCRIPT
