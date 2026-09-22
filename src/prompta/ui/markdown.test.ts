@@ -22,7 +22,7 @@ describe("tool-call rendering", () => {
     expect(summary).toContain('<span class="tool-primary-name">files.search</span>');
     expect(summary).not.toContain("<button");
     const expandedHeader = rendered.split("</summary>")[1]?.split("<pre>")[0] || "";
-    expect(expandedHeader).toContain('<span class="tool-name">files.search</span>');
+    expect(expandedHeader).toContain('<span class="tool-expanded-action">files.search</span>');
     expect(expandedHeader).not.toContain("code-language");
     expect(expandedHeader).not.toContain("tool-time");
     expect(expandedHeader).not.toContain("copy-code");
@@ -44,6 +44,11 @@ describe("tool-call rendering", () => {
     expect(summary).not.toContain("Glass Serena · serena_repl");
     expect(summary).not.toContain(">tool call<");
     expect(rendered.match(/<span class="tool-summary">Remembering<\/span>/g)).toHaveLength(1);
+    const expandedHeader = rendered.split("</summary>")[1]?.split("<pre>")[0] || "";
+    expect(expandedHeader).toContain('<span class="tool-expanded-action">serena_repl</span>');
+    expect(expandedHeader).toContain('<span class="tool-expanded-separator">|</span>');
+    expect(expandedHeader).toContain('<span class="tool-expanded-connector">Glass Serena</span>');
+    expect(expandedHeader.indexOf("serena_repl")).toBeLessThan(expandedHeader.indexOf("Glass Serena"));
   });
 
   test("syntax-highlights structured tool payloads", () => {

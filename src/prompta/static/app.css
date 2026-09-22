@@ -1265,15 +1265,26 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-.tool-name {
-  margin-left: 8px;
-  padding-left: 8px;
+.tool-expanded-action,
+.tool-expanded-connector {
   overflow: hidden;
-  border-left: 1px solid var(--border-strong);
-  color: #9fc1f8;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-expanded-action {
+  color: #d8e6fb;
+  font-weight: 650;
+}
+
+.tool-expanded-separator {
+  margin: 0 8px;
+  color: #5f6b7a;
+}
+
+.tool-expanded-connector {
+  color: #7fa7dd;
 }
 
 .syntax-comment {
@@ -1733,7 +1744,6 @@ textarea:focus-visible {
     max-width: 88%;
   }
 
-  .tool-call-block.tool-has-summary > summary .tool-name,
   .tool-call-block.tool-has-summary > summary .copy-code {
     display: none;
   }
@@ -2313,8 +2323,16 @@ textarea:focus-visible {
     color: #244f82;
   }
 
-  .tool-name {
-    color: #315f96;
+  .tool-expanded-action {
+    color: #244f82;
+  }
+
+  .tool-expanded-separator {
+    color: #7b8996;
+  }
+
+  .tool-expanded-connector {
+    color: #5279aa;
   }
 
   .code-block code {

@@ -323,8 +323,15 @@ function renderCodeBlock(code, language) {
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
     : "";
   if (toolish) {
-    const expandedToolHeader = toolName
-      ? `<div class="tool-expanded-meta"><span class="tool-name">${escapeHtml(toolName)}</span></div>`
+    const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
+    const expandedAction = toolIdentityParts.length > 1
+      ? toolIdentityParts[toolIdentityParts.length - 1]
+      : toolName;
+    const expandedConnector = toolIdentityParts.length > 1
+      ? toolIdentityParts.slice(0, -1).join(" · ")
+      : "";
+    const expandedToolHeader = expandedAction
+      ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";
     return `
       <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}">
