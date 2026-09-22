@@ -6625,7 +6625,7 @@ function renderCodeBlock(code, language, deferredToolBodies = null) {
       ${body}
     </div>`;
 }
-function renderMarkdown(raw, deferredToolBodies = null) {
+function renderMarkdown(raw, deferredToolBodies = null, { renderIncompleteFence = false } = {}) {
 	const source = String(raw || "");
 	const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
 	let lastIndex = 0;
@@ -6638,7 +6638,16 @@ function renderMarkdown(raw, deferredToolBodies = null) {
 		html += renderCodeBlock(code, language, deferredToolBodies);
 		lastIndex = pattern.lastIndex;
 	}
-	html += renderTextBlock(source.slice(lastIndex));
+	const remainder = source.slice(lastIndex);
+	if (renderIncompleteFence) {
+		const incompleteMatch = /^ {0,3}```([^\n`]*)(?:\r?\n|$)/gm.exec(remainder);
+		if (incompleteMatch) {
+			html += renderTextBlock(remainder.slice(0, incompleteMatch.index));
+			const language = incompleteMatch[1].trim() || "code";
+			const code = remainder.slice(incompleteMatch.index + incompleteMatch[0].length);
+			html += renderCodeBlock(code, language, deferredToolBodies);
+		} else html += renderTextBlock(remainder);
+	} else html += renderTextBlock(remainder);
 	return html || "<p></p>";
 }
 var LANGUAGE_ALIASES, CODE_KEYWORDS;
@@ -6792,7 +6801,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
 		const activityLabel = message.pending_activity_label || "writing";
 		const label = message.send_error ? "Send error" : "Prompta run";
 		const timestamp = messageTimestamp(message);
-		const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies);
+		const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies, { renderIncompleteFence: streaming });
 		const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
 		return `
       <section class="message ${role}${message.send_error ? " send-error" : ""}${message.pending_activity ? " pending-activity" : ""}">
@@ -7121,7 +7130,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
 			if (nextNode) patchDomNode(currentAttachments, nextNode);
 		}
 		const deferredToolBodies = [];
-		const nextContent = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies);
+		const nextContent = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies, { renderIncompleteFence: allowStreaming && message.status === "streaming" });
 		if (content.innerHTML !== nextContent) {
 			const template = document.createElement("template");
 			template.innerHTML = nextContent;
