@@ -371,6 +371,26 @@ export function createConversationRenderer({ onRetry }) {
   }
 
   const CONVERSATION_BOTTOM_SLOP = 24;
+  type ConversationViewportSnapshot = {
+    pinnedToBottom: boolean;
+    scrollTop: number;
+    anchorElement: HTMLElement | null;
+    anchorKey: string;
+    anchorIndex: number;
+    anchorFingerprint: string;
+    anchorOffset: number;
+  };
+  let trackedViewport: ConversationViewportSnapshot | null = null;
+
+  function scrollAnchorCandidates(root: Element) {
+    return Array.from(root.querySelectorAll<HTMLElement>(
+      ".message-attachments, .message-content > *, .streaming-indicator, .message-timestamp",
+    ));
+  }
+  function scrollAnchorFingerprint(element: HTMLElement) {
+    const text = String(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160);
+    return [element.tagName, element.className, text].join("|");
+  }
   function captureConversationViewport() {
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
     const bottomGap = Math.max(0, maxScrollTop - viewport.scrollTop);
@@ -378,40 +398,93 @@ export function createConversationRenderer({ onRetry }) {
     const snapshot = {
       pinnedToBottom,
       scrollTop: viewport.scrollTop,
+      anchorElement: null as HTMLElement | null,
       anchorKey: "",
+      anchorIndex: -1,
+      anchorFingerprint: "",
       anchorOffset: 0,
     };
     if (pinnedToBottom) return snapshot;
 
     const viewportTop = viewport.getBoundingClientRect().top;
-    for (const node of Array.from(conversation.children) as HTMLElement[]) {
-      const rect = node.getBoundingClientRect();
-      if (rect.bottom <= viewportTop + 1) continue;
-      snapshot.anchorKey = String(node.dataset.messageKey || "");
-      snapshot.anchorOffset = rect.top - viewportTop;
-      break;
-    }
+    const message = (Array.from(conversation.children) as HTMLElement[]).find((node) => (
+      node.getBoundingClientRect().bottom > viewportTop + 1
+    ));
+    if (!message) return snapshot;
+
+    snapshot.anchorKey = String(message.dataset.messageKey || "");
+    const candidates = scrollAnchorCandidates(message);
+    const anchor = candidates.find((node) => node.getBoundingClientRect().bottom > viewportTop + 1) || message;
+    snapshot.anchorElement = anchor;
+    snapshot.anchorIndex = candidates.indexOf(anchor);
+    snapshot.anchorFingerprint = scrollAnchorFingerprint(anchor);
+    snapshot.anchorOffset = anchor.getBoundingClientRect().top - viewportTop;
     return snapshot;
+  }
+  function resolveConversationAnchor(snapshot) {
+    const direct = snapshot.anchorElement as HTMLElement | null;
+    if (
+      direct
+      && direct.isConnected
+      && conversation.contains(direct)
+      && scrollAnchorFingerprint(direct) === snapshot.anchorFingerprint
+    ) return direct;
+
+    const message = (Array.from(conversation.children) as HTMLElement[])
+      .find((node) => node.dataset.messageKey === snapshot.anchorKey);
+    if (!message) return null;
+
+    const candidates = scrollAnchorCandidates(message);
+    if (snapshot.anchorFingerprint) {
+      const matching = candidates
+        .map((node, index) => ({ node, index }))
+        .filter(({ node }) => scrollAnchorFingerprint(node) === snapshot.anchorFingerprint)
+        .sort((left, right) => (
+          Math.abs(left.index - snapshot.anchorIndex) - Math.abs(right.index - snapshot.anchorIndex)
+        ));
+      if (matching.length) return matching[0].node;
+    }
+    return candidates[snapshot.anchorIndex] || message;
   }
   function restoreConversationViewport(snapshot, forceBottom = false) {
     if (forceBottom || snapshot.pinnedToBottom) {
       viewport.scrollTop = viewport.scrollHeight;
+      trackedViewport = captureConversationViewport();
       return;
     }
-    if (snapshot.anchorKey) {
-      const anchor = Array.from(conversation.children)
-        .find((node) => (node as HTMLElement).dataset.messageKey === snapshot.anchorKey) as HTMLElement | undefined;
-      if (anchor) {
-        const viewportTop = viewport.getBoundingClientRect().top;
-        const nextOffset = anchor.getBoundingClientRect().top - viewportTop;
-        const delta = nextOffset - snapshot.anchorOffset;
-        if (Math.abs(delta) > 0.5) viewport.scrollTop += delta;
-        return;
-      }
+
+    const anchor = resolveConversationAnchor(snapshot);
+    if (anchor) {
+      const viewportTop = viewport.getBoundingClientRect().top;
+      const nextOffset = anchor.getBoundingClientRect().top - viewportTop;
+      const delta = nextOffset - snapshot.anchorOffset;
+      if (Math.abs(delta) > 0.5) viewport.scrollTop += delta;
+    } else {
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      viewport.scrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
     }
-    const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-    viewport.scrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
+    trackedViewport = captureConversationViewport();
   }
+
+  viewport.addEventListener("scroll", () => {
+    trackedViewport = captureConversationViewport();
+  }, { passive: true });
+
+  conversation.addEventListener("load", (event) => {
+    if (!(event.target instanceof HTMLImageElement) || !trackedViewport) return;
+    restoreConversationViewport(trackedViewport);
+  }, true);
+
+  if ("ResizeObserver" in window) {
+    const resizeObserver = new ResizeObserver(() => {
+      if (!trackedViewport) trackedViewport = captureConversationViewport();
+      restoreConversationViewport(trackedViewport);
+    });
+    resizeObserver.observe(conversation);
+    resizeObserver.observe(viewport);
+  }
+
+  trackedViewport = captureConversationViewport();
 
   return {
     renderMessageNodes,
