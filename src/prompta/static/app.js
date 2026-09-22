@@ -394,8 +394,15 @@ function pendingConversationSends(conversationId, replies, pendingNew) {
 }
 function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = new Set) {
   const content = comparablePrompt(pending.message);
+  if (!content)
+    return -1;
+  if (pending.origin === "new") {
+    const firstDurableUserIndex = messages.findIndex((message, index) => !claimedIndexes.has(index) && message.role === "user" && comparablePrompt(message.content) === content);
+    if (firstDurableUserIndex >= 0)
+      return firstDurableUserIndex;
+  }
   const pendingTimes = [pending.createdAt, pending.updatedAt].map(comparableTimestampSeconds).filter((timestamp) => timestamp > 0);
-  if (!content || !pendingTimes.length)
+  if (!pendingTimes.length)
     return -1;
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -4083,6 +4090,7 @@ async function hydratePendingSends() {
         status,
         error: String(job.error || ""),
         conversationId,
+        origin: job.operation === "once" ? "new" : "reply",
         createdAt: Number(job.created_at || Date.now() / 1000),
         updatedAt: Number(job.updated_at || Date.now() / 1000),
         retryAfterSeconds: Number(job.retry_after_seconds || 0),
@@ -4789,6 +4797,7 @@ async function sendSelectedMessage() {
     status: "queued",
     error: "",
     conversationId: conversationId || "",
+    origin: creatingNew ? "new" : "reply",
     createdAt: now,
     updatedAt: now,
     attachmentNames: attachments.map((file) => file.name),

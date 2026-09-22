@@ -633,6 +633,31 @@ describe("optimistic reply reconciliation", () => {
     expect(matchedIndex).toBe(0);
   });
 
+  test("reconciles the first new-chat message without relying on cache timestamps", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "start a fresh chat",
+          created_at: 9_000,
+        },
+        {
+          role: "assistant",
+          content: "First reply",
+          created_at: 9_001,
+        },
+      ],
+      {
+        message: "start a fresh chat",
+        origin: "new",
+        createdAt: 1_000,
+        updatedAt: 4_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
+  });
+
   test("matches a delayed durable reply against the latest pending update time", () => {
     const matchedIndex = matchingPendingReplyMessageIndex(
       [

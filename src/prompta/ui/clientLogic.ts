@@ -80,6 +80,7 @@ export type PendingReply = {
   clientId?: string;
   sendId?: string;
   conversationId?: string;
+  origin?: "new" | "reply";
   message?: string;
   status?: string;
   error?: string;
@@ -664,11 +665,25 @@ export function matchingPendingReplyMessageIndex(
   claimedIndexes: ReadonlySet<number> = new Set(),
 ): number {
   const content = comparablePrompt(pending.message);
+
+  if (!content) return -1;
+
+  if (pending.origin === "new") {
+    const firstDurableUserIndex = messages.findIndex(
+      (message, index) =>
+        !claimedIndexes.has(index) &&
+        message.role === "user" &&
+        comparablePrompt(message.content) === content,
+    );
+
+    if (firstDurableUserIndex >= 0) return firstDurableUserIndex;
+  }
+
   const pendingTimes = [pending.createdAt, pending.updatedAt]
     .map(comparableTimestampSeconds)
     .filter((timestamp) => timestamp > 0);
 
-  if (!content || !pendingTimes.length) return -1;
+  if (!pendingTimes.length) return -1;
 
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
