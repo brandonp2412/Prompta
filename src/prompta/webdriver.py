@@ -891,7 +891,7 @@ class WebDriverBase:
               };
               const turnEnded=reactTurnEnd();
               const turnText=(turn?.innerText||turn?.textContent||'').trim();
-              const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i.test(turnText);
+              const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\\.?\\s*Please check your connection and try again\\.?\\s*If this issue persists please contact us through our help center at help\\.openai\\.com\\.?)/i.test(turnText);
               const deliveryFailed=/Message delivery timed out\\.?\\s*Please try again/i.test(turnText);
               const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
                 const testId=(button.getAttribute('data-testid')||'').trim();

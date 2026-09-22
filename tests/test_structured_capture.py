@@ -94,11 +94,13 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
     )
 
 
-def test_browser_snapshot_filters_delivery_timeout_from_react_history() -> None:
+def test_browser_snapshot_filters_transient_connection_noise_from_react_history() -> None:
+    assert "const networkErrorNoise=/a network error occurred" in CONVERSATION_SNAPSHOT_SCRIPT
     assert (
-        "const deliveryTimeoutNoise=/^message delivery timed out\\.?\\s*please try again\\.?$/i;"
+        "const assistantUiNoise=/^(?:connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again\\.?)$/i;"
         in CONVERSATION_SNAPSHOT_SCRIPT
     )
+    assert ".replace(networkErrorNoise,'')" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "const visibleText=cleanAssistantText(" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
@@ -582,3 +584,30 @@ def test_cache_skips_structured_capture_when_transient_target_is_deleted(
     assert transient is None
     assert transient_parts == 0
     assert stable_parts > 0
+
+
+def test_structured_capture_ignores_network_error_banner_between_tool_activity() -> None:
+    events = _source_events()
+    events.insert(
+        2,
+        {
+            "id": "network-error",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": [
+                "A network error occurred. Please check your connection and try again. If this issue persists please contact us through our help center at help.openai.com."
+            ],
+            "text": "",
+            "reasoning_title": "",
+            "create_time": 101.5,
+            "end_turn": False,
+        },
+    )
+
+    parts = message_parts_from_source_events(events)
+    combined = "\n".join(str(part.get("content") or "") for part in parts)
+
+    assert "A network error occurred" not in combined
+    assert "Checking the stored conversation state" in combined
+    assert "Finished" in combined

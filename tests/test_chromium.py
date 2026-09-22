@@ -440,3 +440,39 @@ def test_ordered_assistant_content_keeps_completed_summary_after_tool_calls() ->
 
     assert content.index("Working on it") < content.index("Nox Python MCP · execute_python")
     assert content.index("Nox Python MCP · execute_python") < content.index("Completed summary")
+
+
+def test_ordered_assistant_content_ignores_network_error_banner() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Before tool"],
+            "create_time": 1.0,
+            "end_turn": False,
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": [
+                "A network error occurred. Please check your connection and try again. If this issue persists please contact us through our help center at help.openai.com."
+            ],
+            "create_time": 2.0,
+            "end_turn": False,
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["After retry"],
+            "create_time": 3.0,
+            "end_turn": True,
+        },
+    ]
+
+    content = ordered_assistant_content_from_messages(messages)
+
+    assert content == "Before tool\n\nAfter retry"
+    assert "A network error occurred" not in content

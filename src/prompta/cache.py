@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -20,23 +19,16 @@ from .structured_store import (
     record_conversation_state,
     record_message_version,
 )
+from .ui_noise import strip_assistant_ui_noise
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
-_DELIVERY_TIMEOUT_LINE_RE = re.compile(
-    r"message delivery timed out\.?\s*please try again\.?",
-    flags=re.IGNORECASE,
-)
 
 
 def strip_delivery_timeout_noise(content: str) -> str:
-    """Remove ChatGPT delivery-timeout UI text without touching transcript prose."""
+    """Remove known ChatGPT transport/status UI text without touching transcript prose."""
 
-    return "\n".join(
-        line
-        for line in str(content or "").splitlines()
-        if not _DELIVERY_TIMEOUT_LINE_RE.fullmatch(line.strip())
-    ).strip()
+    return strip_assistant_ui_noise(content)
 
 
 logger = logging.getLogger(__name__)

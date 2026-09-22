@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Any
+
+from .ui_noise import is_assistant_ui_noise
 
 _FENCE = chr(96) * 3
 
@@ -339,11 +340,7 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
         ):
             continue
         visible = _visible_text(event)
-        if not visible or re.fullmatch(
-            r"message delivery timed out\.?\s*please try again\.?",
-            visible,
-            flags=re.IGNORECASE,
-        ):
+        if not visible or is_assistant_ui_noise(visible):
             continue
         if event.get("end_turn") is True:
             final_text_source_index = source_index
@@ -362,11 +359,7 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
             and content_type in {"text", "multimodal_text"}
         ):
             visible = _visible_text(event)
-            if visible and not re.fullmatch(
-                r"message delivery timed out\.?\s*please try again\.?",
-                visible,
-                flags=re.IGNORECASE,
-            ):
+            if visible and not is_assistant_ui_noise(visible):
                 end_turn = event.get("end_turn")
                 is_final_text = source_index == final_text_source_index
                 kind = (

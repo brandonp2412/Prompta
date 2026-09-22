@@ -13,6 +13,8 @@ from urllib.request import Request, urlopen
 
 import websockets
 
+from .ui_noise import is_assistant_ui_noise
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CDP_URL = "http://127.0.0.1:9222"
@@ -421,11 +423,7 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
         visible = (
             chr(10).join(visible_parts) if visible_parts else str(message.get("text") or "")
         ).strip()
-        if not visible or re.fullmatch(
-            r"message delivery timed out\.?\s*please try again\.?",
-            visible,
-            flags=re.IGNORECASE,
-        ):
+        if not visible or is_assistant_ui_noise(visible):
             continue
         text_entries.append((index, message, visible))
 

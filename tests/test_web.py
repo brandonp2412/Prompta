@@ -2581,3 +2581,56 @@ def test_event_stream_sends_presence_heartbeat(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_read_only_store_hides_network_error_ui_noise(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-network-error",
+        context_id="context-network-error",
+        job_name="",
+        prompt="Keep working",
+    )
+    noisy_content = (
+        "Progress before retry.\n\n"
+        + "A network error occurred. Please check your connection and try again. If this issue persists please contact us through our help center at help.openai.com."
+        + "\n\nProgress after retry."
+    )
+    cache.write_snapshot(
+        "chat-network-error",
+        {
+            "title": "Recovered network error",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": noisy_content},
+            ],
+        },
+    )
+
+    persisted = cache.connection.execute(
+        "SELECT content FROM messages WHERE conversation_id = ? AND message_key = ?",
+        ("chat-network-error", "a1"),
+    ).fetchone()
+    assert persisted is not None
+    assert "A network error occurred" not in str(persisted["content"])
+
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET preview = ? WHERE id = ?",
+            (
+                "A network error occurred. Please check your connection and try again. If this issue persists please contact us through our help center at help.openai.com.",
+                "chat-network-error",
+            ),
+        )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-network-error")
+    chats = store.conversations()
+    sidebar_chat = next(item for item in chats if item["id"] == "chat-network-error")
+
+    assert chat is not None
+    assert "A network error occurred" not in chat["messages"][-1]["content"]
+    assert sidebar_chat["preview"] == "Keep working"

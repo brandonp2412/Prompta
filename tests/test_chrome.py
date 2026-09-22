@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import threading
 import time
@@ -16,6 +17,7 @@ from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 
 from prompta.chrome import ChromeDebuggerUnavailableError, ChromeDriverDriver, _PromptaChrome
+from prompta.webdriver import WebDriverBase
 
 
 def test_prompta_chrome_applies_timeout_before_start_session() -> None:
@@ -1056,3 +1058,11 @@ async def test_wait_for_composer_does_not_solve_non_cloudflare_timeout(tmp_path:
         await driver.wait_for_composer(timeout=0.1, context="tab")
 
     recover.assert_not_awaited()
+
+
+def test_webdriver_activity_probe_treats_network_error_banner_as_transient() -> None:
+    source = inspect.getsource(WebDriverBase.conversation_activity)
+
+    assert "A network error occurred" in source
+    assert "help center at help" in source
+    assert "openai" in source
