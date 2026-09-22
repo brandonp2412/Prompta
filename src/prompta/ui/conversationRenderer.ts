@@ -70,6 +70,18 @@ function renderMessageAttachments(message) {
     .join("")}</div>`;
 }
 
+function renderPendingDeleteButton(deleteKey) {
+  return `<button type="button"
+                  class="delete-pending-button"
+                  data-delete-pending-key="${escapeHtml(deleteKey)}"
+                  aria-label="Delete queued message"
+                  title="Delete queued message">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path>
+            </svg>
+          </button>`;
+}
+
 export function pendingImageAttachments(serializedAttachments) {
   return serializedAttachments
     .filter((attachment) => String(attachment.type || "").startsWith("image/"))
@@ -165,11 +177,7 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
           `
               : ""
           }
-          ${
-            message.pending_delete_key
-              ? `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml(message.pending_delete_key)}">Delete</button>`
-              : ""
-          }
+          ${message.pending_delete_key ? renderPendingDeleteButton(message.pending_delete_key) : ""}
           ${
             streaming
               ? `
@@ -604,10 +612,7 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       if (deleteButton) {
         deleteButton.dataset.deletePendingKey = deleteKey;
       } else {
-        content.insertAdjacentHTML(
-          "afterend",
-          `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml(deleteKey)}">Delete</button>`,
-        );
+        content.insertAdjacentHTML("afterend", renderPendingDeleteButton(deleteKey));
         bindDeleteButtons(node);
         bindPendingActionTargets(node);
       }

@@ -916,20 +916,91 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--panel) 78%, var(--text) 8%);
 }
 
+.message.user.pending-message-action-target .message-inner {
+  position: relative;
+  padding-right: 46px;
+}
+
 .delete-pending-button {
-  margin: 10px 0 0 8px;
-  padding: 7px 12px;
-  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 9px;
   background: transparent;
-  color: var(--danger);
-  font-size: 12px;
-  font-weight: 650;
+  color: color-mix(in srgb, var(--text) 45%, transparent);
+  opacity: 0.66;
   cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.delete-pending-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.message.user:hover .delete-pending-button,
+.delete-pending-button:focus-visible {
+  opacity: 1;
 }
 
 .delete-pending-button:hover {
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  color: color-mix(in srgb, var(--danger) 92%, white);
+}
+
+.delete-pending-button:active {
+  transform: scale(0.94);
+}
+
+.delete-pending-button:disabled {
+  cursor: default;
+  opacity: 1;
+  transform: none;
+}
+
+.delete-pending-button[aria-busy="true"] svg {
+  display: none;
+}
+
+.delete-pending-button[aria-busy="true"]::after {
+  width: 13px;
+  height: 13px;
+  content: "";
+  border: 1.5px solid color-mix(in srgb, var(--danger) 32%, transparent);
+  border-top-color: var(--danger);
+  border-radius: 50%;
+  animation: pending-delete-spin 700ms linear infinite;
+}
+
+.message.pending-message-deleting .message-content,
+.message.pending-message-deleting .message-attachments,
+.message.pending-message-deleting .streaming-indicator,
+.message.pending-message-deleting .message-timestamp {
+  opacity: 0.52;
+  transition: opacity 120ms ease;
+}
+
+@keyframes pending-delete-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .pending-message-action-target {
@@ -989,6 +1060,10 @@ textarea:focus-visible {
 }
 
 @media (hover: none), (pointer: coarse) {
+  .message.user.pending-message-action-target .message-inner {
+    padding-right: 15px;
+  }
+
   .delete-pending-button {
     display: none;
   }

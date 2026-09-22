@@ -2015,6 +2015,18 @@ function updatePendingReply(conversationId, sendId, updates) {
   return changed;
 }
 
+function setPendingDeleteBusy(deleteKey: string, busy: boolean) {
+  for (const button of els.conversation.querySelectorAll<HTMLButtonElement>(
+    ".delete-pending-button",
+  )) {
+    if (button.dataset.deletePendingKey !== deleteKey) continue;
+
+    button.disabled = busy;
+    button.toggleAttribute("aria-busy", busy);
+    button.closest(".message")?.classList.toggle("pending-message-deleting", busy);
+  }
+}
+
 async function deletePendingSend(deleteKey: string) {
   let pending: PendingReply | null = null;
   let creatingNew = false;
@@ -2046,9 +2058,12 @@ async function deletePendingSend(deleteKey: string) {
     return;
   }
 
+  setPendingDeleteBusy(deleteKey, true);
+
   try {
     await deleteRequest("api/sends/" + encodeURIComponent(sendId));
   } catch (error) {
+    setPendingDeleteBusy(deleteKey, false);
     console.warn("Could not delete pending Prompta send", error);
     setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
 

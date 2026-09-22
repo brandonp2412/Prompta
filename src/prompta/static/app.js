@@ -1818,6 +1818,17 @@ function renderMessageAttachments(message) {
     return `<img class="message-image-preview" src="${escapeHtml3(src)}" alt="${escapeHtml3(name)}" loading="lazy" decoding="async">`;
   }).join("")}</div>`;
 }
+function renderPendingDeleteButton(deleteKey) {
+  return `<button type="button"
+                  class="delete-pending-button"
+                  data-delete-pending-key="${escapeHtml3(deleteKey)}"
+                  aria-label="Delete queued message"
+                  title="Delete queued message">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path>
+            </svg>
+          </button>`;
+}
 function pendingImageAttachments(serializedAttachments) {
   return serializedAttachments.filter((attachment) => String(attachment.type || "").startsWith("image/")).map((attachment) => ({
     name: attachment.name,
@@ -1883,7 +1894,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
                     data-retry-scope="${escapeHtml3(message.retry_scope)}"
                     data-retry-key="${escapeHtml3(message.retry_key)}">Retry</button>
           ` : ""}
-          ${message.pending_delete_key ? `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml3(message.pending_delete_key)}">Delete</button>` : ""}
+          ${message.pending_delete_key ? renderPendingDeleteButton(message.pending_delete_key) : ""}
           ${streaming ? `
             <div class="streaming-indicator">
               <span class="streaming-dots"><i></i><i></i><i></i></span>
@@ -2247,7 +2258,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       if (deleteButton) {
         deleteButton.dataset.deletePendingKey = deleteKey;
       } else {
-        content.insertAdjacentHTML("afterend", `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml3(deleteKey)}">Delete</button>`);
+        content.insertAdjacentHTML("afterend", renderPendingDeleteButton(deleteKey));
         bindDeleteButtons(node);
         bindPendingActionTargets(node);
       }
@@ -4671,6 +4682,15 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.updatedAt = Date.now() / 1000;
   return changed;
 }
+function setPendingDeleteBusy(deleteKey, busy) {
+  for (const button of els.conversation.querySelectorAll(".delete-pending-button")) {
+    if (button.dataset.deletePendingKey !== deleteKey)
+      continue;
+    button.disabled = busy;
+    button.toggleAttribute("aria-busy", busy);
+    button.closest(".message")?.classList.toggle("pending-message-deleting", busy);
+  }
+}
 async function deletePendingSend(deleteKey) {
   let pending = null;
   let creatingNew = false;
@@ -4688,9 +4708,11 @@ async function deletePendingSend(deleteKey) {
     setTextIfChanged5(els.composerStatus, "Message is still entering the queue. Try deleting again.");
     return;
   }
+  setPendingDeleteBusy(deleteKey, true);
   try {
     await deleteRequest("api/sends/" + encodeURIComponent(sendId));
   } catch (error) {
+    setPendingDeleteBusy(deleteKey, false);
     console.warn("Could not delete pending Prompta send", error);
     setTextIfChanged5(els.composerStatus, "Could not delete the pending message.");
     return;
