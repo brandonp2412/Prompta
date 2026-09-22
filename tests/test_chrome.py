@@ -828,3 +828,184 @@ async def test_eval_serializes_chromedriver_commands() -> None:
     await asyncio.gather(driver.eval("1"), driver.eval("2"))
 
     assert peak == 1
+
+
+def test_request_flaresolverr_filters_non_cloudflare_cookies(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "profile",
+        flaresolverr_url="http://127.0.0.1:8191/",
+    )
+    response = MagicMock()
+    response.read.return_value = json.dumps(
+        {
+            "status": "ok",
+            "solution": {
+                "userAgent": "same-agent",
+                "cookies": [
+                    {
+                        "name": "cf_clearance",
+                        "value": "clear",
+                        "domain": ".chatgpt.com",
+                        "path": "/",
+                    },
+                    {
+                        "name": "__Secure-next-auth.session-token",
+                        "value": "do-not-import",
+                        "domain": ".chatgpt.com",
+                        "path": "/",
+                    },
+                ],
+            },
+        }
+    ).encode()
+    response.__enter__.return_value = response
+    response.__exit__.return_value = None
+
+    with patch("prompta.chrome.urlopen", return_value=response) as open_url:
+        cookies = driver._request_flaresolverr("https://chatgpt.com/", "same-agent")
+
+    assert cookies == [
+        {
+            "name": "cf_clearance",
+            "value": "clear",
+            "domain": ".chatgpt.com",
+            "path": "/",
+        }
+    ]
+    request = open_url.call_args.args[0]
+    assert request.full_url == "http://127.0.0.1:8191/v1"
+    assert json.loads(request.data) == {
+        "cmd": "request.get",
+        "url": "https://chatgpt.com/",
+        "maxTimeout": 60000,
+    }
+
+
+def test_request_flaresolverr_rejects_browser_fingerprint_mismatch(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "profile",
+        flaresolverr_url="http://127.0.0.1:8191",
+    )
+    response = MagicMock()
+    response.read.return_value = json.dumps(
+        {
+            "status": "ok",
+            "solution": {
+                "userAgent": "different-agent",
+                "cookies": [{"name": "cf_clearance", "value": "clear"}],
+            },
+        }
+    ).encode()
+    response.__enter__.return_value = response
+    response.__exit__.return_value = None
+
+    with (
+        patch("prompta.chrome.urlopen", return_value=response),
+        pytest.raises(RuntimeError, match="browser fingerprint"),
+    ):
+        driver._request_flaresolverr("https://chatgpt.com/", "attached-agent")
+
+
+@pytest.mark.asyncio
+async def test_recover_cloudflare_applies_clearance_and_refreshes(tmp_path: Path) -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "tab"
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "profile",
+        flaresolverr_url="http://127.0.0.1:8191",
+    )
+    driver._driver = selenium
+    driver.context = "tab"
+    cookies = [
+        {
+            "name": "cf_clearance",
+            "value": "clear",
+            "domain": ".chatgpt.com",
+            "path": "/",
+            "secure": True,
+            "httpOnly": True,
+            "expires": 2_000_000_000.5,
+            "sameSite": "None",
+        }
+    ]
+
+    with (
+        patch.object(
+            driver,
+            "eval",
+            new_callable=AsyncMock,
+            side_effect=["https://chatgpt.com/", "browser-agent"],
+        ),
+        patch.object(driver, "_request_flaresolverr", return_value=cookies) as solve,
+    ):
+        await driver._recover_cloudflare(context="tab")
+
+    solve.assert_called_once_with("https://chatgpt.com/", "browser-agent")
+    selenium.add_cookie.assert_called_once_with(
+        {
+            "name": "cf_clearance",
+            "value": "clear",
+            "domain": ".chatgpt.com",
+            "path": "/",
+            "secure": True,
+            "httpOnly": True,
+            "expiry": 2_000_000_000,
+            "sameSite": "None",
+        }
+    )
+    selenium.refresh.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_composer_recovers_cloudflare_after_timeout(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "profile",
+        flaresolverr_url="http://127.0.0.1:8191",
+    )
+
+    with (
+        patch(
+            "prompta.chrome.FirefoxBiDiDriver.wait_for_composer",
+            new_callable=AsyncMock,
+            side_effect=[RuntimeError("ChatGPT composer did not become ready"), None],
+        ) as base_wait,
+        patch.object(
+            driver,
+            "_cloudflare_challenge_present",
+            new_callable=AsyncMock,
+            side_effect=[False, True],
+        ) as challenge,
+        patch.object(driver, "_recover_cloudflare", new_callable=AsyncMock) as recover,
+    ):
+        await driver.wait_for_composer(timeout=0.1, context="tab")
+
+    assert base_wait.await_count == 2
+    assert challenge.await_count == 2
+    recover.assert_awaited_once_with(context="tab")
+
+
+@pytest.mark.asyncio
+async def test_wait_for_composer_does_not_solve_non_cloudflare_timeout(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "profile",
+        flaresolverr_url="http://127.0.0.1:8191",
+    )
+
+    with (
+        patch(
+            "prompta.chrome.FirefoxBiDiDriver.wait_for_composer",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("ChatGPT composer did not become ready"),
+        ),
+        patch.object(
+            driver,
+            "_cloudflare_challenge_present",
+            new_callable=AsyncMock,
+            side_effect=[False, False],
+        ),
+        patch.object(driver, "_recover_cloudflare", new_callable=AsyncMock) as recover,
+        pytest.raises(RuntimeError, match="composer did not become ready"),
+    ):
+        await driver.wait_for_composer(timeout=0.1, context="tab")
+
+    recover.assert_not_awaited()

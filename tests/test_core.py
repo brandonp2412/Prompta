@@ -3596,6 +3596,8 @@ def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
             "/custom/chromium",
             "--chromedriver-path",
             "/custom/chromedriver",
+            "--flaresolverr-url",
+            "http://127.0.0.1:8191",
         ]
     )
 
@@ -3605,6 +3607,7 @@ def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
     assert args.chrome_path == "/custom/chromium"
     assert args.chromedriver_path == "/custom/chromedriver"
     assert args.chrome_debugger_address is None
+    assert args.flaresolverr_url == "http://127.0.0.1:8191"
     assert args.chrome_headed is False
     assert args.chrome_auth_timeout_seconds == 30.0
 
@@ -3613,3 +3616,4 @@ def test_parser_defaults_to_chromedriver_backend() -> None:
     args = _parser().parse_args(["sync", "existing-chat"])
 
     assert args.browser == "chrome"
+    assert args.flaresolverr_url is None

@@ -98,6 +98,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         headless: bool = True,
         auth_timeout_seconds: float = _BIDI_AUTH_TIMEOUT_SECONDS,
         debugger_address: str | None = None,
+        flaresolverr_url: str | None = None,
     ) -> None:
         # The inherited class owns all browser-independent helpers.  It expects
         # these bookkeeping fields to exist even though Chromium does not use
@@ -109,6 +110,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         self.headless = headless
         self.auth_timeout_seconds = max(0.1, auth_timeout_seconds)
         self.debugger_address = debugger_address.strip() if debugger_address else None
+        self.flaresolverr_url = flaresolverr_url.rstrip("/") if flaresolverr_url else None
         self._driver: webdriver.Chrome | None = None
         self._owned_contexts: set[str] = set()
         self._bootstrap_url = ""
@@ -238,6 +240,144 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             raise ChromeDebuggerUnavailableError(
                 f"Chromium debugger at {self.debugger_address} is unavailable"
             )
+
+
+    async def _cloudflare_challenge_present(self, *, context: str | None = None) -> bool:
+        expression = (
+            "(()=>{const t=(document.title||'').toLowerCase();"
+            "if(t.includes('just a moment')||t.includes('attention required'))return true;"
+            "return Boolean(document.querySelector("
+            "'#challenge-form,#cf-challenge-running,#cf-please-wait,#challenge-spinner,"
+            "#turnstile-wrapper,input[name=\\\"cf-turnstile-response\\\"],"
+            "iframe[src*=\\\"challenges.cloudflare.com\\\"]'"
+            "));})()"
+        )
+        return bool(
+            await self.eval(expression)
+            if context is None
+            else await self.eval(expression, context=context)
+        )
+
+    def _request_flaresolverr(
+        self,
+        url: str,
+        browser_user_agent: str,
+    ) -> list[dict[str, Any]]:
+        if not self.flaresolverr_url:
+            return []
+        body = json.dumps(
+            {
+                "cmd": "request.get",
+                "url": url,
+                "maxTimeout": 60_000,
+            }
+        ).encode("utf-8")
+        request = Request(
+            f"{self.flaresolverr_url}/v1",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=65.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            message = payload.get("message") if isinstance(payload, dict) else None
+            raise RuntimeError(
+                f"FlareSolverr failed to solve ChatGPT: {message or 'invalid response'}"
+            )
+        solution = payload.get("solution")
+        if not isinstance(solution, dict):
+            raise RuntimeError("FlareSolverr returned no solution for ChatGPT")
+        solver_user_agent = str(solution.get("userAgent") or "")
+        if browser_user_agent and solver_user_agent and solver_user_agent != browser_user_agent:
+            raise RuntimeError(
+                "FlareSolverr browser fingerprint does not match Prompta's attached browser"
+            )
+        raw_cookies = solution.get("cookies")
+        if not isinstance(raw_cookies, list):
+            return []
+        return [
+            cookie
+            for cookie in raw_cookies
+            if isinstance(cookie, dict)
+            and str(cookie.get("name") or "").casefold().startswith(("cf_", "__cf", "_cf"))
+        ]
+
+    async def _recover_cloudflare(self, *, context: str | None = None) -> None:
+        if not self.flaresolverr_url:
+            raise RuntimeError("FlareSolverr is not configured")
+        url = str(
+            await self.eval("location.href")
+            if context is None
+            else await self.eval("location.href", context=context)
+        )
+        user_agent = str(
+            await self.eval("navigator.userAgent")
+            if context is None
+            else await self.eval("navigator.userAgent", context=context)
+        )
+        logger.warning("Cloudflare challenge detected; requesting clearance from FlareSolverr")
+        cookies = await asyncio.to_thread(self._request_flaresolverr, url, user_agent)
+        if not cookies:
+            raise RuntimeError("FlareSolverr solved ChatGPT without returning Cloudflare cookies")
+
+        def apply() -> None:
+            driver = self._activate_context_sync(context)
+            for raw_cookie in cookies:
+                cookie: dict[str, Any] = {
+                    "name": str(raw_cookie["name"]),
+                    "value": str(raw_cookie.get("value") or ""),
+                }
+                domain = raw_cookie.get("domain")
+                path = raw_cookie.get("path")
+                if isinstance(domain, str) and domain:
+                    cookie["domain"] = domain
+                if isinstance(path, str) and path:
+                    cookie["path"] = path
+                if isinstance(raw_cookie.get("secure"), bool):
+                    cookie["secure"] = raw_cookie["secure"]
+                if isinstance(raw_cookie.get("httpOnly"), bool):
+                    cookie["httpOnly"] = raw_cookie["httpOnly"]
+                expiry = raw_cookie.get("expires")
+                if isinstance(expiry, (int, float)) and expiry > 0:
+                    cookie["expiry"] = int(expiry)
+                same_site = raw_cookie.get("sameSite")
+                if same_site in {"Lax", "Strict", "None"}:
+                    cookie["sameSite"] = same_site
+                driver.add_cookie(cookie)
+            driver.refresh()
+
+        await self._run_webdriver_call("apply FlareSolverr Cloudflare clearance", apply)
+        logger.info(
+            "Applied %d Cloudflare clearance cookie(s) from FlareSolverr",
+            len(cookies),
+        )
+
+    async def wait_for_composer(
+        self,
+        timeout: float = 20.0,
+        *,
+        context: str | None = None,
+    ) -> None:
+        if not self.flaresolverr_url:
+            await super().wait_for_composer(timeout=timeout, context=context)
+            return
+
+        recovered = False
+        if await self._cloudflare_challenge_present(context=context):
+            await self._recover_cloudflare(context=context)
+            recovered = True
+        try:
+            await super().wait_for_composer(timeout=timeout, context=context)
+        except RuntimeError as exc:
+            if (
+                recovered
+                or "composer did not become ready" not in str(exc)
+                or not await self._cloudflare_challenge_present(context=context)
+            ):
+                raise
+            await self._recover_cloudflare(context=context)
+            await super().wait_for_composer(timeout=timeout, context=context)
 
     async def _create_driver_session(self) -> webdriver.Chrome:
         attempts = 2 if self.debugger_address else 1
