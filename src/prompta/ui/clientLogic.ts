@@ -5,6 +5,30 @@ export type ChatSummary = {
   _pending_send?: boolean;
 };
 
+export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>): string {
+  const params = new URLSearchParams();
+  const query = search.trim();
+
+  if (query) {
+    params.set("q", search);
+  } else {
+    const seen = new Set<string>();
+
+    for (const rawId of pinnedIds) {
+      const id = String(rawId || "").trim();
+
+      if (!id || seen.has(id)) continue;
+
+      seen.add(id);
+      params.append("include", id);
+    }
+  }
+
+  const suffix = params.toString();
+
+  return suffix ? `api/chats?${suffix}` : "api/chats";
+}
+
 export function preserveSidebarChatOrder<T extends { id: string }>(
   previous: readonly T[],
   incoming: readonly T[],

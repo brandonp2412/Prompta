@@ -42,8 +42,17 @@ class ReadOnlyChatStore:
         connection.execute("PRAGMA busy_timeout=2000")
         return connection
 
-    def conversations(self, *, limit: int = 200, query: str = "") -> list[dict[str, Any]]:
+    def conversations(
+        self,
+        *,
+        limit: int = 200,
+        query: str = "",
+        include_ids: list[str] | tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
         search = query.strip()
+        included_ids = list(
+            dict.fromkeys(str(value).strip() for value in include_ids if str(value).strip())
+        )[:100]
         where = ""
         parameters: list[Any] = []
         if search:
@@ -61,7 +70,12 @@ class ReadOnlyChatStore:
             escaped = search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
             needle = f"%{escaped}%"
             parameters.extend([needle, needle, needle, needle])
-        parameters.append(max(1, min(limit, 500)))
+        include_order = ""
+        if included_ids and not search:
+            placeholders = ", ".join("?" for _ in included_ids)
+            include_order = f"CASE WHEN c.id IN ({placeholders}) THEN 0 ELSE 1 END,"
+            parameters.extend(included_ids)
+        parameters.append(max(1, min(limit, 500)) + (len(included_ids) if not search else 0))
         try:
             with self._connect() as connection:
                 columns = {
@@ -119,6 +133,7 @@ class ReadOnlyChatStore:
                     FROM conversations c
                     {where}
                     ORDER BY
+                        {include_order}
                         CASE c.status WHEN 'active' THEN 0 ELSE 1 END,
                         c.updated_at DESC
                     LIMIT ?
