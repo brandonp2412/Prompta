@@ -452,9 +452,18 @@ function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] 
     ? '<button type="button" class="copy-code">copy</button>'
     : "";
   const collapsedLabel = toolish && toolName ? toolName : label;
+  const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
+  const expandedAction =
+    toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
+  const expandedConnector =
+    toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
+  const inlineToolMeta =
+    toolSummary && expandedAction
+      ? `<span class="tool-inline-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</span>`
+      : "";
   const header = toolish
     ? toolSummary
-      ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>${toolTime}`
+      ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>${inlineToolMeta}${toolTime}`
       : `
         <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml(collapsedLabel)}</span>
         ${toolTime}`
@@ -483,11 +492,6 @@ function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] 
   }
 
   if (toolish) {
-    const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
-    const expandedAction =
-      toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
-    const expandedConnector =
-      toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
     const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction)
       ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";

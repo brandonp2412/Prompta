@@ -1322,10 +1322,6 @@ textarea:focus-visible {
   font-size: 10px;
 }
 
-.tool-call-block.tool-has-meta[open] > .tool-expanded-meta {
-  display: flex;
-}
-
 .tool-summary {
   min-width: 0;
   overflow: hidden;
@@ -1334,6 +1330,15 @@ textarea:focus-visible {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-inline-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  color: #777;
+  font-size: 10px;
 }
 
 .tool-primary-name {
@@ -1894,6 +1899,10 @@ textarea:focus-visible {
   }
 
   .tool-call-block.tool-has-summary > summary .copy-code {
+    display: none;
+  }
+
+  .tool-inline-meta {
     display: none;
   }
 

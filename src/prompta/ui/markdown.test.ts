@@ -75,7 +75,9 @@ describe("tool-call rendering", () => {
     const summary =
       rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
     expect(summary).toContain('<span class="tool-summary">Remembering</span>');
-    expect(summary).not.toContain("Glass Serena · serena_repl");
+    expect(summary).toContain(
+      '<span class="tool-inline-meta"><span class="tool-expanded-action">serena_repl</span><span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">Glass Serena</span></span>',
+    );
     expect(summary).not.toContain(">tool call<");
     expect(rendered.match(/<span class="tool-summary">Remembering<\/span>/g)).toHaveLength(1);
     const expandedHeader = rendered.split("</summary>")[1]?.split("<pre>")[0] || "";
