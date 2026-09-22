@@ -145,7 +145,42 @@ def tool_calls_from_source_events(events: list[dict[str, Any]]) -> list[dict[str
         calls.append(call)
 
     if calls:
+        pending_invocations: list[dict[str, Any]] = []
+        for index, raw in enumerate(events):
+            if not isinstance(raw, dict) or str(raw.get("recipient") or "") != "api_tool.call_tool":
+                continue
+            parsed = _json_load(raw.get("text"))
+            if not isinstance(parsed, dict):
+                continue
+            pending_invocations.append(
+                {
+                    "action": _action_from_path(parsed.get("path")),
+                    "created_at": _source_time(raw),
+                    "source_event_key": _event_key(raw, index),
+                }
+            )
+
         for ordinal, call in enumerate(calls):
+            call_action = str(call.get("action") or "")
+            match_index = next(
+                (
+                    index
+                    for index, invocation in enumerate(pending_invocations)
+                    if not call_action
+                    or not invocation.get("action")
+                    or invocation.get("action") == call_action
+                ),
+                None,
+            )
+            if match_index is not None:
+                invocation = pending_invocations.pop(match_index)
+                result_event_key = str(call.get("source_event_key") or "")
+                call["result_event_key"] = result_event_key
+                call["source_event_key"] = invocation["source_event_key"]
+                created_at = invocation.get("created_at")
+                if created_at is not None:
+                    call["created_at"] = created_at
+                call["call_key"] = _tool_call_key(call, ordinal)
             call["ordinal"] = ordinal
         return calls
 
@@ -292,6 +327,27 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
     }
     parts: list[dict[str, Any]] = []
     final_parts: list[dict[str, Any]] = []
+    final_text_source_index: int | None = None
+    for source_index, event in reversed(indexed):
+        role = str(event.get("role") or "")
+        recipient = str(event.get("recipient") or "")
+        content_type = str(event.get("content_type") or "")
+        if (
+            role != "assistant"
+            or recipient not in {"", "all"}
+            or content_type not in {"text", "multimodal_text"}
+        ):
+            continue
+        visible = _visible_text(event)
+        if not visible or re.fullmatch(
+            r"message delivery timed out\.?\s*please try again\.?",
+            visible,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if event.get("end_turn") is True:
+            final_text_source_index = source_index
+        break
 
     for source_index, event in indexed:
         event_key = _event_key(event, source_index)
@@ -312,9 +368,10 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
                 flags=re.IGNORECASE,
             ):
                 end_turn = event.get("end_turn")
+                is_final_text = source_index == final_text_source_index
                 kind = (
                     "final_text"
-                    if end_turn is True
+                    if is_final_text
                     else ("reasoning" if reasoning_title else "assistant_text")
                 )
                 part = {

@@ -126,6 +126,103 @@ def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> N
     assert parts[-1]["content"] == "Finished"
 
 
+def test_completed_tool_wrappers_keep_invocation_order_with_interleaved_text() -> None:
+    events = [
+        {
+            "id": "text-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["First text"],
+            "create_time": 1.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link_123/first", "args": {"step": 1}}),
+            "create_time": 2.0,
+        },
+        {
+            "id": "text-2",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Between tools"],
+            "create_time": 3.0,
+            "end_turn": True,
+        },
+        {
+            "id": "call-2",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link_123/second", "args": {"step": 2}}),
+            "create_time": 4.0,
+        },
+        {
+            "id": "result-1",
+            "role": "tool",
+            "recipient": "all",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "type": "mcpToolCall",
+                    "appContext": {"appName": "Test MCP", "actionName": "first"},
+                    "arguments": {"step": 1},
+                    "status": "completed",
+                }
+            ),
+            "create_time": 7.0,
+        },
+        {
+            "id": "result-2",
+            "role": "tool",
+            "recipient": "all",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "type": "mcpToolCall",
+                    "appContext": {"appName": "Test MCP", "actionName": "second"},
+                    "arguments": {"step": 2},
+                    "status": "completed",
+                }
+            ),
+            "create_time": 8.0,
+        },
+        {
+            "id": "final-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Done"],
+            "create_time": 9.0,
+            "end_turn": True,
+        },
+    ]
+
+    calls = tool_calls_from_source_events(events)
+    parts = message_parts_from_source_events(events)
+    content = "\n\n".join(part["content"] for part in parts)
+
+    assert [call["created_at"] for call in calls] == [2.0, 4.0]
+    assert [call["source_event_key"] for call in calls] == ["call-1", "call-2"]
+    assert [call["result_event_key"] for call in calls] == ["result-1", "result-2"]
+    assert [part["kind"] for part in parts] == [
+        "assistant_text",
+        "tool_call",
+        "assistant_text",
+        "tool_call",
+        "final_text",
+    ]
+    assert content.index("First text") < content.index("Test MCP · first")
+    assert content.index("Test MCP · first") < content.index("Between tools")
+    assert content.index("Between tools") < content.index("Test MCP · second")
+    assert content.index("Test MCP · second") < content.index("Done")
+
+
 def test_snapshot_digest_includes_structured_source_events() -> None:
     base = {
         "title": "Structured",
