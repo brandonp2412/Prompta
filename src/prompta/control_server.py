@@ -17,6 +17,10 @@ _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 
 
+class ControlUnavailableError(RuntimeError):
+    """The scheduler control channel is unavailable before a request can be sent."""
+
+
 def _control_socket_path(state_path: Path) -> Path:
     return state_path.expanduser().parent / _CONTROL_SOCKET_NAME
 
@@ -153,7 +157,7 @@ async def _open_control_connection(
         except OSError as exc:
             last_error = exc
             if asyncio.get_running_loop().time() >= deadline:
-                raise RuntimeError(
+                raise ControlUnavailableError(
                     f"Prompta scheduler is running but its control socket is unavailable: {path}"
                 ) from last_error
             await asyncio.sleep(0.1)

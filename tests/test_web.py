@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from prompta.cache import ChatCache
+from prompta.control_server import ControlUnavailableError
 from prompta.core import RateLimitError
 from prompta.web import (
     PromptaUIHandler,
@@ -220,6 +221,20 @@ def test_wait_for_local_scheduler_tolerates_restart_gap(tmp_path: Path) -> None:
 
     assert running.call_count == 3
     assert sleep.call_count == 2
+
+
+def test_ui_send_classifies_missing_backend_as_control_outage(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with (
+            patch("prompta.web._wait_for_local_scheduler", return_value=False),
+            patch("prompta.web._start_local_scheduler_service", return_value=False),
+            pytest.raises(ControlUnavailableError, match="backend is unavailable"),
+        ):
+            server._send("once", "Hello", "", [])
+    finally:
+        server.server_close()
 
 
 def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path: Path) -> None:
@@ -1318,6 +1333,33 @@ def test_send_job_registry_retries_transient_background_error() -> None:
     assert result["status"] == "succeeded"
     assert calls == 3
     assert sleeps == [2.0, 4.0]
+
+
+def test_send_job_registry_keeps_control_outages_queued_until_backend_recovers() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        nonlocal calls
+        calls += 1
+        if calls <= 6:
+            raise ControlUnavailableError("scheduler control socket unavailable")
+        return "chat-1"
+
+    registry = SendJobRegistry(sender, sleeper=sleeps.append)
+    queued = registry.submit(operation="reply", message="Continue", conversation_id="chat-1")
+
+    deadline = time.monotonic() + 1.0
+    result = registry.get(queued["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert calls == 7
+    assert sleeps == [2.0, 4.0, 8.0, 16.0, 32.0, 60.0]
+    assert result["retry_attempt"] == 0
 
 
 def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:

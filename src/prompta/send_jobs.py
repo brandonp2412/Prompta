@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .control_server import ControlUnavailableError
 from .rate_limit import (
     RateLimitBackoff,
     RateLimitError,
@@ -839,6 +840,7 @@ class SendJobRegistry:
                 if str(current.get("status") or "") == "retrying"
                 else 0
             )
+            infrastructure_attempt = 0
             local_retry_at = float(current.get("retry_at") or 0.0)
             if str(current.get("status") or "") == "retrying" and local_retry_at > time.time():
                 self._sleep(local_retry_at - time.time())
@@ -898,6 +900,48 @@ class SendJobRegistry:
                 try:
                     result = self._sender(operation, message, conversation_id, attachments)
                 except Exception as exc:
+                    if isinstance(exc, ControlUnavailableError):
+                        infrastructure_attempt += 1
+                        current = self.get(send_id) or {}
+                        delay = min(
+                            _SEND_RETRY_CAP_SECONDS,
+                            _SEND_RETRY_BASE_SECONDS * (2 ** min(infrastructure_attempt - 1, 10)),
+                        )
+                        retry_at = time.time() + delay
+                        logger.warning(
+                            "Prompta UI backend unavailable send_id=%s operation=%s "
+                            "conversation=%s retry=%d backing_off=%.1fs: %s",
+                            send_id,
+                            operation,
+                            conversation_id or "new",
+                            infrastructure_attempt,
+                            delay,
+                            exc,
+                        )
+                        self._update(
+                            send_id,
+                            status="retrying",
+                            error=str(exc),
+                            retry_at=retry_at,
+                            retry_after_seconds=max(1, math.ceil(delay)),
+                            retry_attempt=generic_attempt,
+                        )
+                        self._remember_recoverable(
+                            send_id=send_id,
+                            operation=operation,
+                            message=message,
+                            conversation_id=conversation_id,
+                            attachments=attachments,
+                            client_id=client_id,
+                            created_at=float(current.get("created_at") or time.time()),
+                            status="retrying",
+                            retry_at=retry_at,
+                            retry_attempt=generic_attempt,
+                            last_error=str(exc),
+                        )
+                        self._sleep(delay)
+                        continue
+
                     rate_limit = self._as_rate_limit_error(exc)
                     if rate_limit is None:
                         generic_attempt += 1

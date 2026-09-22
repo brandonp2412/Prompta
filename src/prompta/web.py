@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .attachment_store import AttachmentStore
 from .cache import DEFAULT_CACHE_PATH, ChatCache
+from .control_server import ControlUnavailableError
 from .core import (
     DEFAULT_JOBS_PATH,
     DEFAULT_STATE_PATH,
@@ -373,7 +374,9 @@ class PromptaUIServer(ThreadingHTTPServer):
             if not scheduler_running and _start_local_scheduler_service():
                 scheduler_running = _wait_for_local_scheduler(self.state_path)
             if not scheduler_running:
-                raise RuntimeError("Prompta backend is unavailable after starting prompta.service")
+                raise ControlUnavailableError(
+                    "Prompta backend is unavailable after starting prompta.service"
+                )
             if operation == "once":
                 return asyncio.run(
                     _send_once_via_control(self.state_path, message, attachment_paths)
