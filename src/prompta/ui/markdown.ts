@@ -519,7 +519,11 @@ function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] 
     </div>`;
 }
 
-export function renderMarkdown(raw, deferredToolBodies: DeferredToolBody[] | null = null) {
+export function renderMarkdown(
+  raw,
+  deferredToolBodies: DeferredToolBody[] | null = null,
+  { renderIncompleteFence = false } = {},
+) {
   const source = String(raw || "");
   const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
   let lastIndex = 0;
@@ -534,7 +538,23 @@ export function renderMarkdown(raw, deferredToolBodies: DeferredToolBody[] | nul
     lastIndex = pattern.lastIndex;
   }
 
-  html += renderTextBlock(source.slice(lastIndex));
+  const remainder = source.slice(lastIndex);
+
+  if (renderIncompleteFence) {
+    const incompleteFence = /^ {0,3}```([^\n`]*)(?:\r?\n|$)/gm;
+    const incompleteMatch = incompleteFence.exec(remainder);
+
+    if (incompleteMatch) {
+      html += renderTextBlock(remainder.slice(0, incompleteMatch.index));
+      const language = incompleteMatch[1].trim() || "code";
+      const code = remainder.slice(incompleteMatch.index + incompleteMatch[0].length);
+      html += renderCodeBlock(code, language, deferredToolBodies);
+    } else {
+      html += renderTextBlock(remainder);
+    }
+  } else {
+    html += renderTextBlock(remainder);
+  }
 
   return html || "<p></p>";
 }

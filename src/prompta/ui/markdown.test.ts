@@ -163,6 +163,39 @@ describe("tool-call rendering", () => {
   });
 });
 
+describe("streaming markdown", () => {
+  test("boxes an unterminated streaming tool call before its closing fence arrives", () => {
+    const deferredToolBodies: DeferredToolBody[] = [];
+    const rendered = renderMarkdown(
+      ["Before", "", "```tool:files.search", '{"arguments":{"top_k":'].join("\n"),
+      deferredToolBodies,
+      { renderIncompleteFence: true },
+    );
+
+    expect(rendered).toContain("<p>Before</p>");
+    expect(rendered).toContain("tool-call-block");
+    expect(rendered).toContain("files.search");
+    expect(rendered).not.toContain("```tool:files.search");
+  });
+
+  test("keeps an unterminated fence as prose outside a live stream", () => {
+    const rendered = renderMarkdown(["Before", "", "```tool:files.search", "{}"].join("\n"));
+
+    expect(rendered).not.toContain("tool-call-block");
+    expect(rendered).toContain("```tool:files.search");
+  });
+
+  test("boxes an unterminated ordinary code fence while streaming", () => {
+    const rendered = renderMarkdown(["```python", "print(1)"].join("\n"), null, {
+      renderIncompleteFence: true,
+    });
+
+    expect(rendered).toContain('class="code-block"');
+    expect(rendered).toContain('class="language-python"');
+    expect(rendered).not.toContain("```python");
+  });
+});
+
 describe("message markdown", () => {
   test("syntax-highlights ordinary fenced code", () => {
     const rendered = renderMarkdown(

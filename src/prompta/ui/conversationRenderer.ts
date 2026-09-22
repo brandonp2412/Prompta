@@ -155,7 +155,9 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
     const timestamp = messageTimestamp(message);
     const contentHtml = message.pending_activity
       ? ""
-      : renderMarkdown(message.content, deferredToolBodies);
+      : renderMarkdown(message.content, deferredToolBodies, {
+          renderIncompleteFence: streaming,
+        });
     const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
 
     return `
@@ -598,7 +600,9 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
     const deferredToolBodies: DeferredToolBody[] = [];
     const nextContent = message.pending_activity
       ? ""
-      : renderMarkdown(message.content, deferredToolBodies);
+      : renderMarkdown(message.content, deferredToolBodies, {
+          renderIncompleteFence: allowStreaming && message.status === "streaming",
+        });
 
     if (content.innerHTML !== nextContent) {
       const template = document.createElement("template");
