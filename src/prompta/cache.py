@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .preview import compact_sidebar_preview
+from .structured_store import migrate_structured_capture, persist_structured_capture, record_message_version
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
@@ -205,6 +206,7 @@ class ChatCache:
             END;
             """
         )
+        migrate_structured_capture(self.connection)
         conversation_columns = {
             str(row["name"])
             for row in self.connection.execute("PRAGMA table_info(conversations)").fetchall()
@@ -509,7 +511,8 @@ class ChatCache:
         )
         existing_rows = self.connection.execute(
             """
-            SELECT message_key, ordinal, role, content, status, created_at, updated_at
+            SELECT message_key, ordinal, role, content, status, created_at, updated_at,
+                   source_created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY ordinal, created_at
@@ -634,6 +637,7 @@ class ChatCache:
         )
         next_partial_ordinal = max_existing_ordinal + 1
         snapshot_keys: list[str] = []
+        persisted_message_keys: dict[int, str] = {}
         current_by_key = dict(existing_by_key)
 
         with self.connection:
@@ -700,6 +704,7 @@ class ChatCache:
                             break
 
                 existing = current_by_key.get(message_key)
+                persisted_message_keys[snapshot_index] = message_key
                 if snapshot_is_full:
                     ordinal = snapshot_index
                 elif existing is not None:
@@ -742,6 +747,16 @@ class ChatCache:
                         now,
                     ),
                 )
+                record_message_version(
+                    self.connection,
+                    conversation_id=conversation_id,
+                    message_key=message_key,
+                    role=role,
+                    content=content,
+                    status=message_status,
+                    observed_at=now,
+                    previous=existing,
+                )
                 created_at = float(existing["created_at"]) if existing is not None else now
                 current_by_key[message_key] = {
                     "message_key": message_key,
@@ -754,6 +769,25 @@ class ChatCache:
                 }
                 if role == "user":
                     preceding_user_key = message_key
+
+            source_events = snapshot.get("source_events")
+            if isinstance(source_events, list) and source_events:
+                structured_message_key = ""
+                for snapshot_index, role, _, _ in reversed(incoming):
+                    if role == "assistant":
+                        structured_message_key = persisted_message_keys.get(snapshot_index, "")
+                        if structured_message_key:
+                            break
+                if structured_message_key:
+                    persist_structured_capture(
+                        self.connection,
+                        conversation_id=conversation_id,
+                        message_key=structured_message_key,
+                        source_events=[
+                            event for event in source_events if isinstance(event, dict)
+                        ],
+                        observed_at=now,
+                    )
 
             if snapshot_is_full and superseded_stable_keys:
                 self.connection.executemany(
