@@ -194,7 +194,7 @@ def persist_structured_capture(
     for ordinal, event in enumerate(events):
         created_at = event.get("create_time")
         source_created_at: float | None = None
-        if not isinstance(created_at, bool):
+        if created_at is not None and not isinstance(created_at, bool):
             try:
                 numeric = float(created_at)
             except (TypeError, ValueError):
