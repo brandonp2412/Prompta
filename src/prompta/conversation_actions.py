@@ -559,21 +559,26 @@ class ConversationActions:
 
         activity = await driver.conversation_activity(context)
         if bool(activity.get("streaming")):
-            clicked = await driver.click_stop(context)
-            if not clicked:
+            stop_deadline = asyncio.get_running_loop().time() + 5.0
+            button_deadline = asyncio.get_running_loop().time() + 2.0
+            clicked = False
+            while bool(activity.get("streaming")) and asyncio.get_running_loop().time() < stop_deadline:
+                if not clicked and asyncio.get_running_loop().time() < button_deadline:
+                    clicked = await driver.click_stop(context)
+                await asyncio.sleep(0.1)
                 activity = await driver.conversation_activity(context)
-                if bool(activity.get("streaming")):
+                if (
+                    not clicked
+                    and bool(activity.get("streaming"))
+                    and asyncio.get_running_loop().time() >= button_deadline
+                ):
                     raise RuntimeError("ChatGPT stop button was not available")
-            else:
-                deadline = asyncio.get_running_loop().time() + 5.0
-                stopped = False
-                while asyncio.get_running_loop().time() < deadline:
-                    if not bool((await driver.conversation_activity(context)).get("streaming")):
-                        stopped = True
-                        break
-                    await asyncio.sleep(0.1)
-                if not stopped:
-                    raise RuntimeError("ChatGPT response did not stop")
+            if bool(activity.get("streaming")):
+                raise RuntimeError(
+                    "ChatGPT response did not stop"
+                    if clicked
+                    else "ChatGPT stop button was not available"
+                )
 
         snapshot = await driver.conversation_snapshot(context)
         snapshot["streaming"] = False

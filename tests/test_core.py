@@ -545,6 +545,51 @@ async def test_send_reply_recovers_history_link_after_deep_link_redirect(
 
 
 @pytest.mark.asyncio
+async def test_ensure_conversation_route_recovers_blank_page_by_direct_navigation(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    expected_path = "/c/blank-route"
+
+    class BlankRouteDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__("unused")
+            self.path = ""
+            self.history_activations: list[str] = []
+
+        async def eval(
+            self, expression: str, *, context: str | None = None
+        ) -> str:
+            assert expression == "location.pathname"
+            assert context == "context-blank"
+            return self.path
+
+        async def activate_history_link(
+            self, path: str, *, context: str | None = None
+        ) -> bool:
+            assert context == "context-blank"
+            self.history_activations.append(path)
+            return False
+
+        async def navigate(self, url: str, *, context: str | None = None) -> None:
+            await super().navigate(url, context=context)
+            self.path = expected_path
+
+    fake = BlankRouteDriver()
+
+    await prompta._ensure_conversation_route(
+        cast(Any, fake),
+        expected_path,
+        context="context-blank",
+    )
+
+    assert fake.history_activations == [expected_path]
+    assert fake.navigated == [f"https://chatgpt.com{expected_path}"]
+    assert fake.navigation_contexts == ["context-blank"]
+    await prompta.close()
+
+
+@pytest.mark.asyncio
 async def test_send_reply_recovers_when_deep_link_has_no_composer(tmp_path: Path) -> None:
     prompt = "Continue from the UI"
     conversation_id = "WEB:legacy-chat"
@@ -1770,6 +1815,59 @@ async def test_stop_conversation_clicks_stop_and_settles_cache(tmp_path: Path) -
     driver.click_stop.assert_awaited_once_with("context-live")
     assert active.settled_at > 0
     assert active.idle_polls >= 3
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_conversation_tolerates_completion_race_when_button_disappears(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        "chat-race",
+        context_id="context-race",
+        job_name="",
+        prompt="Keep working",
+    )
+    active = ActiveConversation(
+        conversation_id="chat-race",
+        context_id="context-race",
+        job_name="",
+        prompt="Keep working",
+    )
+    prompta._active_conversations["context-race"] = active
+    driver = MagicMock()
+    driver.conversation_activity = AsyncMock(
+        side_effect=[
+            {"streaming": True},
+            {"streaming": True},
+            {"streaming": False},
+        ]
+    )
+    driver.click_stop = AsyncMock(return_value=False)
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": "Finished naturally"},
+            ],
+        }
+    )
+    prompta.driver = driver
+
+    result = await prompta.stop_conversation("chat-race")
+
+    assert result == "chat-race"
+    assert driver.click_stop.await_count == 2
+    assert active.settled_at > 0
     prompta.cache.close()
 
 

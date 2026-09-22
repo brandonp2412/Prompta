@@ -44,6 +44,7 @@ class BrowserSession:
         expected = expected_path.rstrip("/")
         deadline = asyncio.get_running_loop().time() + 10.0
         activated_history = False
+        direct_navigation_attempted = False
 
         async def current_path() -> str:
             if context is None:
@@ -62,6 +63,13 @@ class BrowserSession:
                         expected,
                         context=context,
                     )
+                if not activated_history and not direct_navigation_attempted:
+                    target_url = f"https://chatgpt.com{expected}"
+                    if context is None:
+                        await driver.navigate(target_url)
+                    else:
+                        await driver.navigate(target_url, context=context)
+                    direct_navigation_attempted = True
             await asyncio.sleep(0.25)
             path = await current_path()
         if path != expected:
