@@ -31,6 +31,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.remote.client_config import ClientConfig
 from selenium.webdriver.remote.command import Command
+from selenium.webdriver.remote.file_detector import UselessFileDetector
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 from urllib3.util.retry import Retry
@@ -79,6 +80,7 @@ class _PromptaChrome(webdriver.Chrome):
         )
         try:
             RemoteWebDriver.__init__(self, command_executor=executor, options=self.options)
+            self.file_detector = UselessFileDetector()
         except Exception:
             self.quit()
             raise
