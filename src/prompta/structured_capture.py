@@ -18,12 +18,13 @@ def _json_load(value: Any) -> Any:
 
 
 def _event_key(event: dict[str, Any], index: int) -> str:
+    del index
     message_id = str(event.get("id") or "").strip()
     if message_id:
         return message_id
     payload = json.dumps(event, sort_keys=True, ensure_ascii=False, default=str)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
-    return f"event-{index}-{digest}"
+    return f"event-{digest}"
 
 
 def _source_time(event: dict[str, Any]) -> float | None:
