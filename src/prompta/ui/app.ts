@@ -16,7 +16,6 @@ import {
   pendingConversationSends,
   pendingSendActivity,
   sidebarChatCreatedAt,
-  sidebarChatIsPending,
   sidebarChatIsSelected,
   sidebarSelectedConversationId,
   sortSidebarChats,
@@ -643,16 +642,13 @@ function groupChats(chats: UiChat[]) {
   const ordered = sortSidebarChats(chats, state.pinnedIds);
   const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
   const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
-  const pending = unpinned.filter((chat) => sidebarChatIsPending(chat));
-  const settled = unpinned.filter((chat) => !sidebarChatIsPending(chat));
   const groups: Array<[string, UiChat[]]> = [
     ["Pinned", pinned],
-    ["Pending", pending],
-    ["Today", settled.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
-    ["Yesterday", settled.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
+    ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
+    ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
     [
       "Previous",
-      settled.filter(
+      unpinned.filter(
         (chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1),
       ),
     ],

@@ -70,7 +70,7 @@ describe("conversation hash parsing", () => {
 });
 
 describe("deterministic sidebar ordering", () => {
-  test("orders pinned first, then pending, then newest-created chats", () => {
+  test("orders pinned first, then every unpinned chat by creation time", () => {
     const chats = [
       { id: "older", created_at: 10, updated_at: 500 },
       { id: "pending-old", created_at: 20, updated_at: 20, _pending_send: true },
@@ -82,8 +82,8 @@ describe("deterministic sidebar ordering", () => {
     expect(sortSidebarChats(chats, new Set(["pinned"])).map((chat) => chat.id)).toEqual([
       "pinned",
       "optimistic",
-      "pending-old",
       "newer",
+      "pending-old",
       "older",
     ]);
   });

@@ -21,9 +21,6 @@ function sidebarChatCreatedAt(chat) {
   const createdAt = Number(chat?.created_at || 0);
   return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
 }
-function sidebarChatIsPending(chat) {
-  return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
-}
 function sidebarSelectedConversationId(selectedId, composingNew, pendingNewDisplayId) {
   const pendingId = String(pendingNewDisplayId || "");
   if (composingNew && pendingId)
@@ -41,9 +38,6 @@ function sortSidebarChats(chats, pinnedIds) {
     const pinnedDelta = Number(pinnedIds.has(right.id)) - Number(pinnedIds.has(left.id));
     if (pinnedDelta)
       return pinnedDelta;
-    const pendingDelta = Number(sidebarChatIsPending(right)) - Number(sidebarChatIsPending(left));
-    if (pendingDelta)
-      return pendingDelta;
     const createdDelta = sidebarChatCreatedAt(right) - sidebarChatCreatedAt(left);
     if (createdDelta)
       return createdDelta;
@@ -3680,16 +3674,13 @@ function groupChats(chats) {
   const ordered = sortSidebarChats(chats, state.pinnedIds);
   const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
   const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
-  const pending = unpinned.filter((chat) => sidebarChatIsPending(chat));
-  const settled = unpinned.filter((chat) => !sidebarChatIsPending(chat));
   const groups = [
     ["Pinned", pinned],
-    ["Pending", pending],
-    ["Today", settled.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
-    ["Yesterday", settled.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
+    ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
+    ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
     [
       "Previous",
-      settled.filter((chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1))
+      unpinned.filter((chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1))
     ]
   ];
   return groups.filter(([, items]) => items.length);

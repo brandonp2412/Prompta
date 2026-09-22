@@ -82,10 +82,6 @@ export function sortSidebarChats<T extends SidebarOrderChat>(
 
     if (pinnedDelta) return pinnedDelta;
 
-    const pendingDelta = Number(sidebarChatIsPending(right)) - Number(sidebarChatIsPending(left));
-
-    if (pendingDelta) return pendingDelta;
-
     const createdDelta = sidebarChatCreatedAt(right) - sidebarChatCreatedAt(left);
 
     if (createdDelta) return createdDelta;
