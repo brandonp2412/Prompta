@@ -384,4 +384,8 @@ def source_event_type(event: dict[str, Any]) -> str:
 
 
 def stable_event_key(event: dict[str, Any], index: int) -> str:
-    return _event_key(event, index)
+    payload = json.dumps(event, sort_keys=True, ensure_ascii=False, default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    message_id = str(event.get("id") or "").strip()
+    base = message_id or f"event-{index}"
+    return f"{base}:{digest}"
