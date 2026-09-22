@@ -311,10 +311,11 @@ function renderCodeBlock(code, language) {
     : "";
   const collapsedLabel = toolish && toolName ? toolName : label;
   const header = toolish
-    ? `
-      <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml(collapsedLabel)}</span>
-      ${toolSummary ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>` : ""}
-      ${toolTime}`
+    ? (toolSummary
+      ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>${toolTime}`
+      : `
+        <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml(collapsedLabel)}</span>
+        ${toolTime}`)
     : `
       <span class="code-language">${escapeHtml(label)}</span>
       ${copyButton}`;

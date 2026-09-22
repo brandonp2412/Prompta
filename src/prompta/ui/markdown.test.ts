@@ -19,6 +19,7 @@ describe("tool-call rendering", () => {
     expect(rendered).toContain('class="tool-time"');
     expect(rendered).toContain('datetime="2023-11-14T22:13:20.000Z"');
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
+    expect(summary).toContain('<span class="tool-primary-name">files.search</span>');
     expect(summary).not.toContain("<button");
     expect(rendered).toContain('class="copy-code"');
   });
@@ -35,8 +36,8 @@ describe("tool-call rendering", () => {
     ].join("\n"));
 
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
-    expect(summary).toContain('<span class="tool-primary-name">Glass Serena · serena_repl</span>');
     expect(summary).toContain('<span class="tool-summary">Remembering</span>');
+    expect(summary).not.toContain("Glass Serena · serena_repl");
     expect(summary).not.toContain(">tool call<");
     expect(rendered.match(/<span class="tool-summary">Remembering<\/span>/g)).toHaveLength(1);
   });

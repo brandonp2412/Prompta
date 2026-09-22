@@ -1427,10 +1427,9 @@ function renderCodeBlock(code, language) {
   const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
   const copyButton = renderedCode.trim() ? '<button type="button" class="copy-code">copy</button>' : "";
   const collapsedLabel = toolish && toolName ? toolName : label;
-  const header = toolish ? `
-      <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml2(collapsedLabel)}</span>
-      ${toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>` : ""}
-      ${toolTime}` : `
+  const header = toolish ? toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>${toolTime}` : `
+        <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml2(collapsedLabel)}</span>
+        ${toolTime}` : `
       <span class="code-language">${escapeHtml2(label)}</span>
       ${copyButton}`;
   const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>` : "";
