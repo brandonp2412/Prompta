@@ -1882,6 +1882,9 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert 'id="composerStatus" hidden' not in index_html
             assert 'id="logsButton"' not in index_html
             assert 'data-slash-command="/logs"' in index_html
+            assert 'id="messageInput"' in index_html
+            assert 'role="combobox"' in index_html
+            assert 'aria-controls="slashMenu"' in index_html
             assert 'id="headLabel"' in index_html
             assert 'aria-controls="changelogDialog"' in index_html
             assert 'id="changelogDialog"' in index_html
