@@ -11,6 +11,7 @@ import {
   conversationIdFromHash,
   deleteRequest,
   formatScheduleInterval,
+  isUnresolvedPendingNewConversation,
   matchingOptimisticConversation,
   missingPendingConversationSummaries,
   pendingConversationDisplayId,
@@ -1775,6 +1776,14 @@ async function selectChat(id) {
   // did not run until /api/chats/:id completed.
   sidebar.close();
 
+  if (isUnresolvedPendingNewConversation(state.pendingNewSend, id)) {
+    rememberConversationViewport(state.selectedId);
+    state.pendingNewId = state.pendingNewSend?.conversationId || null;
+    renderNewChat();
+
+    return;
+  }
+
   if (id === state.selectedId) {
     if (!state.selectedChat || state.selectedChat.id !== id) {
       await loadSelectedChat();
@@ -2013,7 +2022,10 @@ async function deletePendingSend(deleteKey: string) {
 
   const sendId = String(pending.sendId || "");
 
-  if (!sendId) {
+  const canDiscardLocally =
+    !sendId && ["failed", "dead_lettered"].includes(String(pending.status || ""));
+
+  if (!sendId && !canDiscardLocally) {
     setTextIfChanged(
       els.composerStatus,
       "Message is still entering the queue. Try deleting again.",
@@ -2022,16 +2034,18 @@ async function deletePendingSend(deleteKey: string) {
     return;
   }
 
-  setPendingDeleteBusy(deleteKey, true);
+  if (sendId) {
+    setPendingDeleteBusy(deleteKey, true);
 
-  try {
-    await deleteRequest("api/sends/" + encodeURIComponent(sendId));
-  } catch (error) {
-    setPendingDeleteBusy(deleteKey, false);
-    console.warn("Could not delete pending Prompta send", error);
-    setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
+    try {
+      await deleteRequest("api/sends/" + encodeURIComponent(sendId));
+    } catch (error) {
+      setPendingDeleteBusy(deleteKey, false);
+      console.warn("Could not delete pending Prompta send", error);
+      setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
 
-    return;
+      return;
+    }
   }
 
   if (creatingNew) {
@@ -2454,6 +2468,17 @@ async function sendSelectedMessage() {
     }
 
     await runAtSlashCommand(atCommand, message);
+
+    return;
+  }
+
+  if (!creatingNew && isUnresolvedPendingNewConversation(state.pendingNewSend, conversationId)) {
+    state.pendingNewId = state.pendingNewSend?.conversationId || null;
+    renderNewChat();
+    setTextIfChanged(
+      els.composerStatus,
+      "Wait for the pending chat to start before sending another message.",
+    );
 
     return;
   }

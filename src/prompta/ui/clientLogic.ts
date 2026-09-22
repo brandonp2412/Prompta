@@ -215,6 +215,7 @@ export type PendingNewSend = {
   clientId?: string;
   conversationId?: string;
   message?: string;
+  status?: string;
   createdAt?: number;
 };
 
@@ -620,6 +621,19 @@ export function pendingConversationDisplayId(pending: PendingNewSend | null | un
   const clientId = String(pending.clientId || "").trim();
 
   return clientId ? `pending-new-${clientId}` : "";
+}
+
+export function isUnresolvedPendingNewConversation(
+  pending: PendingNewSend | null | undefined,
+  conversationId: string | null | undefined,
+): boolean {
+  if (!pending || !conversationId) return false;
+
+  const status = String(pending.status || "")
+    .trim()
+    .toLowerCase();
+
+  return status !== "succeeded" && pendingConversationDisplayId(pending) === conversationId;
 }
 
 export function promotePinnedConversationId(

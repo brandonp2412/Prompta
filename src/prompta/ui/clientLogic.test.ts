@@ -9,6 +9,7 @@ import {
   deleteRequest,
   formatClockTime12Hour,
   formatDailyTime12Hour,
+  isUnresolvedPendingNewConversation,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
   missingPendingConversationSummaries,
@@ -544,6 +545,36 @@ describe("pending chat pin promotion", () => {
 });
 
 describe("pending new-chat selection", () => {
+  test("keeps unresolved pending ids in the pending-new view", () => {
+    expect(
+      isUnresolvedPendingNewConversation(
+        { clientId: "client-1", conversationId: "", status: "queued" },
+        "pending-new-client-1",
+      ),
+    ).toBe(true);
+    expect(
+      isUnresolvedPendingNewConversation(
+        { clientId: "client-1", conversationId: "WEB:new-chat", status: "running" },
+        "WEB:new-chat",
+      ),
+    ).toBe(true);
+  });
+
+  test("lets a succeeded pending chat resolve to the real conversation route", () => {
+    expect(
+      isUnresolvedPendingNewConversation(
+        { clientId: "client-1", conversationId: "WEB:new-chat", status: "succeeded" },
+        "WEB:new-chat",
+      ),
+    ).toBe(false);
+    expect(
+      isUnresolvedPendingNewConversation(
+        { clientId: "client-1", conversationId: "", status: "failed" },
+        "WEB:other-chat",
+      ),
+    ).toBe(false);
+  });
+
   test("exposes the optimistic first message after the real conversation id appears", () => {
     const pending = {
       clientId: "client-1",

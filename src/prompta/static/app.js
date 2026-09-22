@@ -5389,6 +5389,10 @@ function pendingConversationDisplayId(pending) {
 	const clientId = String(pending.clientId || "").trim();
 	return clientId ? `pending-new-${clientId}` : "";
 }
+function isUnresolvedPendingNewConversation(pending, conversationId) {
+	if (!pending || !conversationId) return false;
+	return String(pending.status || "").trim().toLowerCase() !== "succeeded" && pendingConversationDisplayId(pending) === conversationId;
+}
 function promotePinnedConversationId(pinnedIds, pending, nextConversationId) {
 	const nextId = String(nextConversationId || "").trim();
 	if (!nextId) return false;
@@ -9030,6 +9034,12 @@ async function selectChat(id) {
 	if (!id) return;
 	if (state.mode !== "chats") showMode("chats");
 	sidebar.close();
+	if (isUnresolvedPendingNewConversation(state.pendingNewSend, id)) {
+		rememberConversationViewport(state.selectedId);
+		state.pendingNewId = state.pendingNewSend?.conversationId || null;
+		renderNewChat();
+		return;
+	}
 	if (id === state.selectedId) {
 		if (!state.selectedChat || state.selectedChat.id !== id) await loadSelectedChat();
 		return;
@@ -9169,18 +9179,21 @@ async function deletePendingSend(deleteKey) {
 	} else if (conversationId) pending = (state.pendingReplies.get(conversationId) || []).find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
 	if (!pending) return;
 	const sendId = String(pending.sendId || "");
-	if (!sendId) {
+	const canDiscardLocally = !sendId && ["failed", "dead_lettered"].includes(String(pending.status || ""));
+	if (!sendId && !canDiscardLocally) {
 		setTextIfChanged(els.composerStatus, "Message is still entering the queue. Try deleting again.");
 		return;
 	}
-	setPendingDeleteBusy(deleteKey, true);
-	try {
-		await deleteRequest("api/sends/" + encodeURIComponent(sendId));
-	} catch (error) {
-		setPendingDeleteBusy(deleteKey, false);
-		console.warn("Could not delete pending Prompta send", error);
-		setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
-		return;
+	if (sendId) {
+		setPendingDeleteBusy(deleteKey, true);
+		try {
+			await deleteRequest("api/sends/" + encodeURIComponent(sendId));
+		} catch (error) {
+			setPendingDeleteBusy(deleteKey, false);
+			console.warn("Could not delete pending Prompta send", error);
+			setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
+			return;
+		}
 	}
 	if (creatingNew) {
 		if (state.pendingNewSend === pending) {
@@ -9463,6 +9476,12 @@ async function sendSelectedMessage() {
 			return;
 		}
 		await runAtSlashCommand(atCommand, message);
+		return;
+	}
+	if (!creatingNew && isUnresolvedPendingNewConversation(state.pendingNewSend, conversationId)) {
+		state.pendingNewId = state.pendingNewSend?.conversationId || null;
+		renderNewChat();
+		setTextIfChanged(els.composerStatus, "Wait for the pending chat to start before sending another message.");
 		return;
 	}
 	if (!creatingNew && !conversationId) return;
