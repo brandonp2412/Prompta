@@ -239,13 +239,22 @@ textarea:focus-visible {
   stroke-linejoin: round;
 }
 
-.chat-list {
+.sidebar-scroll {
   min-height: 0;
   flex: 1;
   padding: 0 8px 16px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #3a3a3a transparent;
+}
+
+.sidebar-scroll > .sidebar-action {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.chat-list {
+  min-height: 0;
 }
 
 .chat-group {
