@@ -1,4 +1,4 @@
-import { postJsonRequest as postJson } from "./clientLogic";
+import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest as postJson } from "./clientLogic";
 
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -48,15 +48,13 @@ function formatJobMinutes(value) {
 function jobScheduleText(job) {
   if (job.run_at_epoch) {
     const date = new Date(Number(job.run_at_epoch) * 1000);
-    return `once · ${date.toLocaleString([], {
+    return `once · ${date.toLocaleDateString([], {
       year: "numeric",
       month: "short",
       day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
+    })} ${formatClockTime12Hour(date)}`;
   }
-  if (job.daily_at) return `daily · ${job.daily_at}`;
+  if (job.daily_at) return `daily · ${formatDailyTime12Hour(job.daily_at)}`;
   return `every ${formatJobMinutes(job.interval_minutes)}${job.exact_interval ? " · exact" : ""}`;
 }
 

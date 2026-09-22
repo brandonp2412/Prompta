@@ -1,4 +1,5 @@
 import {
+  formatClockTime12Hour,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
   toolCallDisplayName,
@@ -294,7 +295,7 @@ function renderCodeBlock(code, language) {
   const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
   const toolTimeText = toolTimestamp === null
     ? ""
-    : new Date(toolTimestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    : formatClockTime12Hour(toolTimestamp, true);
   const toolTime = toolTimestamp === null
     ? ""
     : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml(toolTimeText)}</time>`;

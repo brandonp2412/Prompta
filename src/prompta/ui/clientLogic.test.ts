@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   composerHasContent,
   conversationIdFromHash,
+  formatClockTime12Hour,
+  formatDailyTime12Hour,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
   messageAgeText,
@@ -282,6 +284,13 @@ describe("pending new-chat selection", () => {
 });
 
 describe("message timestamps", () => {
+  test("formats clock times explicitly in 12-hour am/pm form", () => {
+    expect(formatClockTime12Hour(new Date(2026, 8, 22, 0, 5, 9), true)).toBe("12:05:09am");
+    expect(formatClockTime12Hour(new Date(2026, 8, 22, 13, 7, 0))).toBe("1:07pm");
+    expect(formatDailyTime12Hour("00:05")).toBe("12:05am");
+    expect(formatDailyTime12Hour("13:07")).toBe("1:07pm");
+  });
+
   test("normalizes seconds and milliseconds", () => {
     expect(messageTimestampMillis(1_700_000_000, null)).toBe(1_700_000_000_000);
     expect(messageTimestampMillis(1_700_000_000_000, null)).toBe(1_700_000_000_000);
@@ -655,13 +664,11 @@ describe("/at", () => {
   test("parses an absolute local date and time", () => {
     expect(parseAtSlashCommand("/at 2026-09-21 09:30 review failures", now)).toEqual({
       runAtEpoch: new Date(2026, 8, 21, 9, 30, 0).getTime() / 1000,
-      runAtLabel: new Date(2026, 8, 21, 9, 30, 0).toLocaleString([], {
+      runAtLabel: `${new Date(2026, 8, 21, 9, 30, 0).toLocaleDateString([], {
         year: "numeric",
         month: "short",
         day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      })} 9:30am`,
       prompt: "review failures",
     });
   });

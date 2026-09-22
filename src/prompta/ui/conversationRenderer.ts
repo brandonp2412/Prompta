@@ -1,4 +1,4 @@
-import { messageAgeText, messageTimestampMillis } from "./clientLogic";
+import { formatClockTime12Hour, messageAgeText, messageTimestampMillis } from "./clientLogic";
 import { renderMarkdown } from "./markdown";
 
 function requiredElement<T extends Element>(selector: string): T {
@@ -65,12 +65,8 @@ export function createConversationRenderer({ onRetry }) {
     const date = new Date(millis);
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const hour24 = date.getHours();
-    const hour12 = hour24 % 12 || 12;
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    const period = hour24 < 12 ? "am" : "pm";
     return {
-      text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${hour12}:${minutes}${period}`,
+      text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${formatClockTime12Hour(date)}`,
       iso: date.toISOString(),
       millis,
       age: messageAgeText(millis),

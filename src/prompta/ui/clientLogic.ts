@@ -372,6 +372,25 @@ export function messageTimestampMillis(
   return null;
 }
 
+export function formatClockTime12Hour(value: Date | number, includeSeconds = false): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const hour24 = date.getHours();
+  const hour12 = hour24 % 12 || 12;
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = includeSeconds ? `:${String(date.getSeconds()).padStart(2, "0")}` : "";
+  return `${hour12}:${minutes}${seconds}${hour24 < 12 ? "am" : "pm"}`;
+}
+
+export function formatDailyTime12Hour(value: unknown): string {
+  const raw = String(value ?? "");
+  const match = raw.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return raw;
+  const hour24 = Number(match[1]);
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${match[2]}${hour24 < 12 ? "am" : "pm"}`;
+}
+
 export function messageAgeText(timestampMillis: unknown, nowMillis = Date.now()): string {
   const timestamp = Number(timestampMillis);
   const now = Number(nowMillis);
@@ -606,12 +625,10 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
     return { error: "Schedule time must be in the future." };
   }
 
-  const runAtLabel = target.toLocaleString([], {
+  const runAtLabel = `${target.toLocaleDateString([], {
     year: "numeric",
     month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  })} ${formatClockTime12Hour(target)}`;
   return { runAtEpoch, runAtLabel, prompt };
 }

@@ -262,6 +262,25 @@ function messageTimestampMillis(createdAt, updatedAt) {
   }
   return null;
 }
+function formatClockTime12Hour(value, includeSeconds = false) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime()))
+    return "";
+  const hour24 = date.getHours();
+  const hour12 = hour24 % 12 || 12;
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = includeSeconds ? `:${String(date.getSeconds()).padStart(2, "0")}` : "";
+  return `${hour12}:${minutes}${seconds}${hour24 < 12 ? "am" : "pm"}`;
+}
+function formatDailyTime12Hour(value) {
+  const raw = String(value ?? "");
+  const match = raw.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match)
+    return raw;
+  const hour24 = Number(match[1]);
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${match[2]}${hour24 < 12 ? "am" : "pm"}`;
+}
 function messageAgeText(timestampMillis, nowMillis = Date.now()) {
   const timestamp = Number(timestampMillis);
   const now = Number(nowMillis);
@@ -453,13 +472,11 @@ function parseAtSlashCommand(message, now = new Date) {
   if (!Number.isFinite(runAtEpoch) || runAtEpoch <= now.getTime() / 1000) {
     return { error: "Schedule time must be in the future." };
   }
-  const runAtLabel = target.toLocaleString([], {
+  const runAtLabel = `${target.toLocaleDateString([], {
     year: "numeric",
     month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+    day: "numeric"
+  })} ${formatClockTime12Hour(target)}`;
   return { runAtEpoch, runAtLabel, prompt };
 }
 
@@ -708,16 +725,14 @@ function formatJobMinutes(value) {
 function jobScheduleText(job) {
   if (job.run_at_epoch) {
     const date = new Date(Number(job.run_at_epoch) * 1000);
-    return `once · ${date.toLocaleString([], {
+    return `once · ${date.toLocaleDateString([], {
       year: "numeric",
       month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    })}`;
+      day: "numeric"
+    })} ${formatClockTime12Hour(date)}`;
   }
   if (job.daily_at)
-    return `daily · ${job.daily_at}`;
+    return `daily · ${formatDailyTime12Hour(job.daily_at)}`;
   return `every ${formatJobMinutes(job.interval_minutes)}${job.exact_interval ? " · exact" : ""}`;
 }
 function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
@@ -1420,7 +1435,7 @@ function renderCodeBlock(code, language) {
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
   const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
   const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
-  const toolTimeText = toolTimestamp === null ? "" : new Date(toolTimestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const toolTimeText = toolTimestamp === null ? "" : formatClockTime12Hour(toolTimestamp, true);
   const toolTime = toolTimestamp === null ? "" : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml2(toolTimeText)}</time>`;
   const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode ? "python" : toolish ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
@@ -1527,12 +1542,8 @@ function createConversationRenderer({ onRetry }) {
     const date = new Date(millis);
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const hour24 = date.getHours();
-    const hour12 = hour24 % 12 || 12;
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    const period = hour24 < 12 ? "am" : "pm";
     return {
-      text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${hour12}:${minutes}${period}`,
+      text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${formatClockTime12Hour(date)}`,
       iso: date.toISOString(),
       millis,
       age: messageAgeText(millis)

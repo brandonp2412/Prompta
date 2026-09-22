@@ -18,6 +18,7 @@ describe("tool-call rendering", () => {
     expect(rendered).toContain('class="tool-expanded-meta"');
     expect(rendered).toContain('class="tool-time"');
     expect(rendered).toContain('datetime="2023-11-14T22:13:20.000Z"');
+    expect(rendered).toMatch(/class="tool-time"[^>]*>\d{1,2}:\d{2}:\d{2}(?:am|pm)<\/time>/);
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
     expect(summary).toContain('<span class="tool-primary-name">files.search</span>');
     expect(summary).not.toContain("<button");
