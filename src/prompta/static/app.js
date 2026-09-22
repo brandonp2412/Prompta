@@ -358,8 +358,8 @@ function pendingConversationSends(conversationId, replies, pendingNew) {
 }
 function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = new Set) {
   const content = comparablePrompt(pending.message);
-  const pendingAt = comparableTimestampSeconds(pending.createdAt || pending.updatedAt);
-  if (!content || pendingAt <= 0)
+  const pendingTimes = [pending.createdAt, pending.updatedAt].map(comparableTimestampSeconds).filter((timestamp) => timestamp > 0);
+  if (!content || !pendingTimes.length)
     return -1;
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -372,7 +372,7 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = ne
     const messageTime = comparableTimestampSeconds(message.created_at || message.updated_at);
     if (messageTime <= 0)
       continue;
-    const distance = Math.abs(messageTime - pendingAt);
+    const distance = Math.min(...pendingTimes.map((pendingTime) => Math.abs(messageTime - pendingTime)));
     if (distance > 30 || distance >= bestDistance)
       continue;
     bestIndex = index;

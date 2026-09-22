@@ -561,6 +561,25 @@ describe("optimistic reply reconciliation", () => {
     expect(matchedIndex).toBe(0);
   });
 
+  test("matches a delayed durable reply against the latest pending update time", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 4_002,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+        updatedAt: 4_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
+  });
+
   test("requires durable timing metadata instead of guessing from duplicate text", () => {
     const matchedIndex = matchingPendingReplyMessageIndex(
       [

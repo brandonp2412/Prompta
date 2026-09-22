@@ -608,9 +608,11 @@ export function matchingPendingReplyMessageIndex(
   claimedIndexes: ReadonlySet<number> = new Set(),
 ): number {
   const content = comparablePrompt(pending.message);
-  const pendingAt = comparableTimestampSeconds(pending.createdAt || pending.updatedAt);
+  const pendingTimes = [pending.createdAt, pending.updatedAt]
+    .map(comparableTimestampSeconds)
+    .filter((timestamp) => timestamp > 0);
 
-  if (!content || pendingAt <= 0) return -1;
+  if (!content || !pendingTimes.length) return -1;
 
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -626,7 +628,9 @@ export function matchingPendingReplyMessageIndex(
 
     if (messageTime <= 0) continue;
 
-    const distance = Math.abs(messageTime - pendingAt);
+    const distance = Math.min(
+      ...pendingTimes.map((pendingTime) => Math.abs(messageTime - pendingTime)),
+    );
 
     if (distance > 30 || distance >= bestDistance) continue;
 
