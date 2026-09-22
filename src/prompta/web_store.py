@@ -85,8 +85,21 @@ class ReadOnlyChatStore:
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
                 }
-                preview_column = "c.preview," if "preview" in columns else ""
-                preview_fallback = "NULLIF(s.preview, '')," if "preview" in columns else ""
+                has_preview_column = "preview" in columns
+                preview_column = "c.preview," if has_preview_column else ""
+                latest_message_preview = """(
+                    SELECT m.content
+                    FROM messages m
+                    WHERE m.conversation_id = s.id
+                      AND m.message_key NOT LIKE 'request-placeholder-%'
+                    ORDER BY m.ordinal DESC
+                    LIMIT 1
+                )"""
+                preview_expression = (
+                    "s.preview"
+                    if has_preview_column
+                    else f"COALESCE({latest_message_preview}, NULLIF(s.prompt, ''))"
+                )
                 rows = connection.execute(
                     f"""
                     WITH selected AS (
@@ -128,18 +141,7 @@ class ReadOnlyChatStore:
                         s.updated_at,
                         s.completed_at,
                         COALESCE(ms.last_message_at, s.created_at) AS last_message_at,
-                        COALESCE(
-                            (
-                                SELECT m.content
-                                FROM messages m
-                                WHERE m.conversation_id = s.id
-                                  AND m.message_key NOT LIKE 'request-placeholder-%'
-                                ORDER BY m.ordinal DESC
-                                LIMIT 1
-                            ),
-                            {preview_fallback}
-                            NULLIF(s.prompt, '')
-                        ) AS preview,
+                        {preview_expression} AS preview,
                         CASE
                             WHEN COALESCE(ms.message_count, 0) > 0 THEN ms.message_count
                             WHEN TRIM(s.prompt) <> '' THEN 1
@@ -155,11 +157,46 @@ class ReadOnlyChatStore:
             return []
 
         result = []
+        fallback_payloads: list[dict[str, Any]] = []
         for row in rows:
             payload = dict(row)
-            preview = compact_sidebar_preview(payload.get("preview"))
+            raw_preview = payload.get("preview")
+            preview = compact_sidebar_preview(raw_preview)
             payload["preview"] = preview or compact_sidebar_preview(payload.get("prompt"))
+            raw_preview_text = str(raw_preview or "")
+            legacy_noise = any(
+                marker in raw_preview_text.casefold()
+                for marker in (
+                    "connection interrupted",
+                    "waiting for the complete answer",
+                    "a network error occurred",
+                    "message delivery timed out",
+                )
+            )
+            if has_preview_column and raw_preview and (not preview or legacy_noise):
+                fallback_payloads.append(payload)
             result.append(payload)
+
+        if fallback_payloads:
+            with self._connect() as connection:
+                for payload in fallback_payloads:
+                    row = connection.execute(
+                        """
+                        SELECT content
+                        FROM messages
+                        WHERE conversation_id = ?
+                          AND message_key NOT LIKE 'request-placeholder-%'
+                        ORDER BY ordinal DESC
+                        LIMIT 1
+                        """,
+                        (payload["id"],),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    preview = compact_sidebar_preview(row["content"])
+                    if preview:
+                        payload["preview"] = preview
+
         return result
 
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
