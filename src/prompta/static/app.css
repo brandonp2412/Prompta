@@ -1589,7 +1589,8 @@ textarea:focus-visible {
 
 .attachment-menu button:hover,
 .slash-menu button:hover,
-.slash-menu button:focus {
+.slash-menu button:focus,
+.slash-menu button[aria-selected="true"] {
   background: var(--surface);
   outline: none;
 }

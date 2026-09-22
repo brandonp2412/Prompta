@@ -536,6 +536,15 @@ async function deleteRequest(url, timeoutMs = 1e4, fetchImpl = fetch) {
     globalThis.clearTimeout(timeout);
   }
 }
+function nextSlashCommandIndex(itemCount, currentIndex, direction) {
+  const count = Math.max(0, Math.trunc(itemCount));
+  if (count === 0)
+    return -1;
+  const step = direction < 0 ? -1 : 1;
+  if (currentIndex < 0 || currentIndex >= count)
+    return step < 0 ? count - 1 : 0;
+  return (currentIndex + step + count) % count;
+}
 function composerHasContent(message, attachmentCount) {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
@@ -4309,7 +4318,7 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape") {
     attachmentPicker.closeMenu();
-    els.slashMenu.hidden = true;
+    closeSlashMenu();
     jobsDialog.close();
     els.searchInput.blur();
     sidebar.close();
@@ -4735,7 +4744,7 @@ async function sendSelectedMessage() {
   if (message.toLowerCase() === "/logs") {
     clearComposerDraft();
     els.messageInput.value = "";
-    els.slashMenu.hidden = true;
+    closeSlashMenu();
     resizeComposer();
     showMode("logs");
     return;
@@ -4900,25 +4909,58 @@ async function copySelectedChatUrl() {
     setTextIfChanged5(els.composerStatus, copied ? "Chat link copied." : "Could not copy the chat link.");
   }
 }
+var activeSlashCommand = "";
+function visibleSlashCommandButtons() {
+  return Array.from(els.slashMenu.querySelectorAll("[data-slash-command]:not([hidden])"));
+}
+function setSlashMenuSelection(button) {
+  activeSlashCommand = button ? String(button.dataset.slashCommand || "") : "";
+  for (const candidate of els.slashMenu.querySelectorAll("[data-slash-command]")) {
+    candidate.setAttribute("aria-selected", String(candidate === button));
+  }
+  if (button?.id)
+    els.messageInput.setAttribute("aria-activedescendant", button.id);
+  else
+    els.messageInput.removeAttribute("aria-activedescendant");
+}
+function closeSlashMenu() {
+  els.slashMenu.hidden = true;
+  els.messageInput.setAttribute("aria-expanded", "false");
+  setSlashMenuSelection(null);
+}
 function updateSlashMenu() {
   const value = els.messageInput.value;
   const firstToken = value.split(/\s/, 1)[0].toLowerCase();
   const candidates = Array.from(els.slashMenu.querySelectorAll("[data-slash-command]"));
   const show = value.startsWith("/") && !value.includes(`
 `) && !value.includes(" ");
-  let visible = 0;
   for (const button of candidates) {
     const command = String(button.dataset.slashCommand || "").trim().toLowerCase();
-    const matches = show && command.startsWith(firstToken);
-    button.hidden = !matches;
-    if (matches)
-      visible += 1;
+    button.hidden = !(show && command.startsWith(firstToken));
   }
-  els.slashMenu.hidden = visible === 0;
+  const visible = visibleSlashCommandButtons();
+  if (!visible.length) {
+    closeSlashMenu();
+    return;
+  }
+  els.slashMenu.hidden = false;
+  els.messageInput.setAttribute("aria-expanded", "true");
+  const selected = visible.find((button) => String(button.dataset.slashCommand || "") === activeSlashCommand) || visible[0];
+  setSlashMenuSelection(selected);
+}
+function moveSlashMenuSelection(direction) {
+  const visible = visibleSlashCommandButtons();
+  if (!visible.length)
+    return null;
+  const currentIndex = visible.findIndex((button) => String(button.dataset.slashCommand || "") === activeSlashCommand);
+  const nextIndex = nextSlashCommandIndex(visible.length, currentIndex, direction);
+  const next = visible[nextIndex] || null;
+  setSlashMenuSelection(next);
+  return next;
 }
 function insertSlashCommand(command) {
   els.messageInput.value = command;
-  els.slashMenu.hidden = true;
+  closeSlashMenu();
   resizeComposer();
   syncSendButton();
   els.messageInput.focus();
@@ -4926,6 +4968,11 @@ function insertSlashCommand(command) {
 }
 els.pinChatButton.addEventListener("click", toggleSelectedPin);
 els.shareChatButton.addEventListener("click", copySelectedChatUrl);
+els.slashMenu.addEventListener("pointermove", (event) => {
+  const button = event.target.closest("[data-slash-command]");
+  if (button && !button.hidden)
+    setSlashMenuSelection(button);
+});
 els.slashMenu.addEventListener("click", (event) => {
   const button = event.target.closest("[data-slash-command]");
   if (!button)
@@ -4946,11 +4993,24 @@ els.messageInput.addEventListener("input", () => {
   syncSendButton();
 });
 els.messageInput.addEventListener("keydown", (event) => {
-  if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {
-    const first = els.slashMenu.querySelector("[data-slash-command]:not([hidden])");
-    if (first) {
+  if (!els.slashMenu.hidden) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      insertSlashCommand(String(first.dataset.slashCommand || ""));
+      moveSlashMenuSelection(event.key === "ArrowUp" ? -1 : 1);
+      return;
+    }
+    if (event.key === "Tab" || event.key === "Enter" && !event.isComposing) {
+      const selected = visibleSlashCommandButtons().find((button) => String(button.dataset.slashCommand || "") === activeSlashCommand);
+      if (selected) {
+        event.preventDefault();
+        insertSlashCommand(String(selected.dataset.slashCommand || ""));
+        return;
+      }
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSlashMenu();
       return;
     }
   }

@@ -109,12 +109,12 @@
         <form class="composer-bar" id="messageForm">
           <div class="composer-input-shell">
             <div class="attachment-chips" id="attachmentChips" hidden></div>
-            <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" disabled></textarea>
+            <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" disabled></textarea>
             <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
-              <button type="button" data-slash-command="/add "><strong>/add</strong><span>Add a repeating scheduled job</span></button>
-              <button type="button" data-slash-command="/list"><strong>/list</strong><span>List and manage scheduled jobs</span></button>
-              <button type="button" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
-              <button type="button" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
+              <button type="button" id="slashCommandAdd" role="option" aria-selected="false" data-slash-command="/add "><strong>/add</strong><span>Add a repeating scheduled job</span></button>
+              <button type="button" id="slashCommandList" role="option" aria-selected="false" data-slash-command="/list"><strong>/list</strong><span>List and manage scheduled jobs</span></button>
+              <button type="button" id="slashCommandLogs" role="option" aria-selected="false" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
+              <button type="button" id="slashCommandAt" role="option" aria-selected="false" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
             </div>
           </div>
           <div class="composer-tools">

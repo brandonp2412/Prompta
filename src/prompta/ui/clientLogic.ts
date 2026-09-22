@@ -883,6 +883,22 @@ export async function deleteRequest(
   }
 }
 
+export function nextSlashCommandIndex(
+  itemCount: number,
+  currentIndex: number,
+  direction: number,
+): number {
+  const count = Math.max(0, Math.trunc(itemCount));
+
+  if (count === 0) return -1;
+
+  const step = direction < 0 ? -1 : 1;
+
+  if (currentIndex < 0 || currentIndex >= count) return step < 0 ? count - 1 : 0;
+
+  return (currentIndex + step + count) % count;
+}
+
 export function composerHasContent(message: string, attachmentCount: number): boolean {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }

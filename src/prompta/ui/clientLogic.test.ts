@@ -12,6 +12,7 @@ import {
   missingPendingConversationSummaries,
   messageAgeText,
   messageTimestampMillis,
+  nextSlashCommandIndex,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   pendingConversationDisplayId,
@@ -403,6 +404,20 @@ describe("pending new-chat selection", () => {
     };
 
     expect(pendingConversationSends("WEB:new-chat", [pending], pending)).toEqual([pending]);
+  });
+});
+
+describe("slash command keyboard navigation", () => {
+  test("moves through visible commands and wraps at either end", () => {
+    expect(nextSlashCommandIndex(4, -1, 1)).toBe(0);
+    expect(nextSlashCommandIndex(4, -1, -1)).toBe(3);
+    expect(nextSlashCommandIndex(4, 0, -1)).toBe(3);
+    expect(nextSlashCommandIndex(4, 3, 1)).toBe(0);
+    expect(nextSlashCommandIndex(4, 1, 1)).toBe(2);
+  });
+
+  test("returns no selection when there are no visible commands", () => {
+    expect(nextSlashCommandIndex(0, 0, 1)).toBe(-1);
   });
 });
 
