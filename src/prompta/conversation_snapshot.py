@@ -432,15 +432,16 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   ])].filter(visible);
   for(const [agentIndex,agent] of candidates.entries()){
     const reactOrdered=reactOrderedContent(agent);
-    const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible);
-    const richText=markdown.map(markdownText).filter(Boolean);
-    const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
+    const markdownNodes=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible);
     const tools=toolBlocks(agent);
     const currentToolRows=[...agent.querySelectorAll('span[class~=\"group/tool-message\"]')];
     const legacyToolRows=[...new Set([
       ...agent.querySelectorAll(toolSelector)
     ])].filter(node=>!node.closest('span[class~=\"group/tool-message\"]')&&!node.querySelector(toolSelector));
     const toolRows=currentToolRows.length?currentToolRows:legacyToolRows;
+    const markdown=markdownNodes.filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)));
+    const richText=markdown.map(markdownText).filter(Boolean);
+    const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
     const orderedNodes=[
       ...markdown.map(node=>({node,kind:'markdown'})),
       ...toolRows.map(node=>({node,kind:'tool'}))
