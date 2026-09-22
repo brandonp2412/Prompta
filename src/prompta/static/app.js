@@ -4042,8 +4042,7 @@ function renderNewChat() {
     }
   }
 }
-async function fetchJson2(url, timeoutMs = 1e4) {
-  const controller = new AbortController;
+async function fetchJson2(url, timeoutMs = 1e4, controller = new AbortController) {
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
@@ -4172,10 +4171,14 @@ async function hydratePendingSends() {
     console.warn("Could not hydrate pending Prompta sends", error);
   }
 }
+var chatsRequestController = null;
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
+  chatsRequestController?.abort();
+  const requestController = new AbortController;
+  chatsRequestController = requestController;
   try {
-    const payload = await fetchJson2(chatListRequestUrl(state.search, state.pinnedIds));
+    const payload = await fetchJson2(chatListRequestUrl(state.search, state.pinnedIds), 1e4, requestController);
     if (requestId !== state.chatsRequestId)
       return;
     const chats = payload.chats || [];
@@ -4221,6 +4224,9 @@ async function loadChats(forceSelectedRefresh = false) {
     }
     setTextIfChanged5(els.cacheSummary, "Cache unavailable");
     console.error(error);
+  } finally {
+    if (chatsRequestController === requestController)
+      chatsRequestController = null;
   }
 }
 var HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30000;

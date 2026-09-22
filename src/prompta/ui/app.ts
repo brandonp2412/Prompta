@@ -1378,8 +1378,7 @@ function renderNewChat() {
   }
 }
 
-async function fetchJson(url, timeoutMs = 10_000) {
-  const controller = new AbortController();
+async function fetchJson(url, timeoutMs = 10_000, controller = new AbortController()) {
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -1535,11 +1534,20 @@ async function hydratePendingSends() {
   }
 }
 
+let chatsRequestController: AbortController | null = null;
+
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
+  chatsRequestController?.abort();
+  const requestController = new AbortController();
+  chatsRequestController = requestController;
 
   try {
-    const payload = await fetchJson(chatListRequestUrl(state.search, state.pinnedIds));
+    const payload = await fetchJson(
+      chatListRequestUrl(state.search, state.pinnedIds),
+      10_000,
+      requestController,
+    );
 
     if (requestId !== state.chatsRequestId) return;
 
@@ -1608,6 +1616,8 @@ async function loadChats(forceSelectedRefresh = false) {
 
     setTextIfChanged(els.cacheSummary, "Cache unavailable");
     console.error(error);
+  } finally {
+    if (chatsRequestController === requestController) chatsRequestController = null;
   }
 }
 
