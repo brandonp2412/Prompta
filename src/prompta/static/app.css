@@ -729,6 +729,7 @@ textarea:focus-visible {
 }
 
 .conversation-viewport {
+  overflow-x: hidden;
   overflow-anchor: none;
 }
 
