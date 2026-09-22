@@ -106,6 +106,29 @@ def _matches(previous: _Block, incoming: _Block) -> bool:
     )
 
 
+def _prose_extension(previous: _Block, incoming: _Block) -> str:
+    """Return only prose newly appended to a matching streaming block."""
+
+    old = previous.normalized
+    new = incoming.normalized
+    raw = incoming.content.strip()
+    if not old or len(new) <= len(old) or not new.startswith(old):
+        return ""
+
+    target_index = 0
+    for raw_index, char in enumerate(raw):
+        if char.isspace():
+            if target_index < len(old) and old[target_index] == " ":
+                target_index += 1
+            continue
+        if target_index >= len(old) or char != old[target_index]:
+            return ""
+        target_index += 1
+        if target_index == len(old):
+            return raw[raw_index + 1 :].strip()
+    return ""
+
+
 def stabilize_streaming_content(previous: str, incoming: str) -> str:
     """Keep already-visible blocks in place while accepting live updates."""
 
@@ -118,9 +141,10 @@ def stabilize_streaming_content(previous: str, incoming: str) -> str:
 
     matched_new: set[int] = set()
     stable: list[_Block] = []
+    novel: list[tuple[int, _Block]] = []
     search_from = 0
 
-    for old in old_blocks:
+    for old_index, old in enumerate(old_blocks):
         match_index = -1
         for index in range(search_from, len(new_blocks)):
             if index not in matched_new and _matches(old, new_blocks[index]):
@@ -142,10 +166,24 @@ def stabilize_streaming_content(previous: str, incoming: str) -> str:
 
         if old.is_tool:
             stable.append(candidate)
-        else:
-            stable.append(candidate if len(candidate.normalized) >= len(old.normalized) else old)
+            continue
 
-    stable.extend(block for index, block in enumerate(new_blocks) if index not in matched_new)
+        candidate_grew = len(candidate.normalized) > len(old.normalized)
+        has_later_tool = any(block.is_tool for block in old_blocks[old_index + 1 :])
+        if candidate_grew and has_later_tool:
+            stable.append(old)
+            extension = _prose_extension(old, candidate)
+            if extension:
+                novel.append((match_index, _Block(content=extension, is_tool=False)))
+            continue
+
+        stable.append(candidate if len(candidate.normalized) >= len(old.normalized) else old)
+
+    novel.extend(
+        (index, block) for index, block in enumerate(new_blocks) if index not in matched_new
+    )
+    novel.sort(key=lambda item: item[0])
+    stable.extend(block for _, block in novel)
     return "\n\n".join(block.content.strip() for block in stable if block.content.strip()).strip()
 
 

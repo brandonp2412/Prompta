@@ -206,6 +206,63 @@ def test_streaming_snapshot_never_reorders_already_visible_blocks(tmp_path: Path
     assert content == "\n\n".join(["Visible intro", tool, "Visible follow-up"])
 
 
+def test_streaming_snapshot_appends_prose_growth_after_existing_tool(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-append-stream",
+        context_id="context-append-stream",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        "conversation-append-stream",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": "Visible intro"},
+            ],
+        },
+    )
+
+    fence = chr(96) * 3
+    tool = f'{fence}tool:Test MCP · inspect\n{{"created_at": 2.0, "status": "running"}}\n{fence}'
+    cache.write_snapshot(
+        "conversation-append-stream",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": f"{tool}\n\nVisible intro"},
+            ],
+        },
+    )
+    cache.write_snapshot(
+        "conversation-append-stream",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": f"{tool}\n\nVisible intro Visible follow-up",
+                },
+            ],
+        },
+    )
+
+    content = cache.messages("conversation-append-stream")[-1]["content"]
+    cache.close()
+
+    assert content == "\n\n".join(["Visible intro", tool, "Visible follow-up"])
+
+
 def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_dom_history(
     tmp_path: Path,
 ) -> None:

@@ -61,6 +61,17 @@ def test_streaming_content_extends_partial_prose_without_duplication() -> None:
     assert stabilize_streaming_content(previous, incoming) == incoming
 
 
+def test_streaming_content_appends_growth_after_already_visible_tool() -> None:
+    intro = "I will inspect."
+    tool = _tool()
+    previous = f"{intro}\n\n{tool}"
+    incoming = f"{tool}\n\n{intro} New streamed text."
+
+    content = stabilize_streaming_content(previous, incoming)
+
+    assert content == f"{intro}\n\n{tool}\n\nNew streamed text."
+
+
 def test_observation_history_repairs_tool_first_stream_order() -> None:
     intro = "I will inspect the ordering."
     tool = _tool(created_at=20.0)
