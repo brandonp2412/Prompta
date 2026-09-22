@@ -65,6 +65,7 @@ class SendJobRegistry:
         )
         self._recovery_lock = threading.Lock()
         self._recoverable: dict[str, dict[str, Any]] = {}
+        self._cancelled: set[str] = set()
         self._initialize_database()
         self._worker = threading.Thread(
             target=self._worker_loop,
@@ -685,6 +686,45 @@ class SendJobRegistry:
             job = self._jobs.get(send_id)
             return dict(job) if job is not None else None
 
+    def cancel(self, send_id: str) -> bool:
+        """Cancel a pending send and remove its durable queue record."""
+        attachments: list[str] = []
+        with self._lock:
+            job = self._jobs.get(send_id)
+            if job is None or str(job.get("status") or "") not in {
+                "queued",
+                "running",
+                "retrying",
+                "rate_limited",
+                "failed",
+                "dead_lettered",
+            }:
+                return False
+            status = str(job.get("status") or "")
+            with self._recovery_lock:
+                recoverable = self._recoverable.get(send_id) or {}
+            attachments = [
+                value for value in recoverable.get("attachments", []) if isinstance(value, str)
+            ]
+            if status == "running":
+                # The browser sender cannot be interrupted safely, but prevent
+                # the result from being surfaced or retried after it returns.
+                self._cancelled.add(send_id)
+                job["status"] = "cancelled"
+                self._revision += 1
+                self._upsert_database_record({**job, "status": "cancelled"})
+                return True
+            self._jobs.pop(send_id, None)
+            client_id = str(job.get("client_id") or "")
+            if client_id and self._client_jobs.get(client_id) == send_id:
+                self._client_jobs.pop(client_id, None)
+            self._fallback_tasks = [task for task in self._fallback_tasks if task[0] != send_id]
+            self._revision += 1
+        self._forget_recoverable(send_id)
+        self._cleanup_attachments(attachments)
+        self._work_event.set()
+        return True
+
     def list_pending(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
@@ -742,6 +782,13 @@ class SendJobRegistry:
         client_id: str = "",
     ) -> None:
         try:
+            with self._lock:
+                cancelled = send_id in self._cancelled
+            if cancelled:
+                self._cancelled.discard(send_id)
+                self._forget_recoverable(send_id)
+                self._jobs.pop(send_id, None)
+                return
             current = self.get(send_id) or {}
             generic_attempt = (
                 max(0, int(current.get("retry_attempt") or 0))
@@ -785,6 +832,13 @@ class SendJobRegistry:
                     retry_at=0.0,
                     retry_after_seconds=0,
                 )
+                with self._lock:
+                    cancelled = send_id in self._cancelled
+                if cancelled:
+                    self._cancelled.discard(send_id)
+                    self._forget_recoverable(send_id)
+                    self._jobs.pop(send_id, None)
+                    return
                 current = self.get(send_id) or {}
                 self._remember_recoverable(
                     send_id=send_id,
@@ -911,6 +965,14 @@ class SendJobRegistry:
                     continue
 
                 self._reset_rate_limit_backoff()
+                with self._lock:
+                    cancelled = send_id in self._cancelled
+                if cancelled:
+                    self._cancelled.discard(send_id)
+                    self._forget_recoverable(send_id)
+                    self._delete_database_record(send_id)
+                    self._jobs.pop(send_id, None)
+                    return
                 current = self.get(send_id) or {}
                 if client_id:
                     self._remember_recoverable(

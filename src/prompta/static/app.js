@@ -1551,7 +1551,7 @@ function pendingImageAttachments(serializedAttachments) {
     src: `data:${attachment.type};base64,${attachment.data}`
   }));
 }
-function createConversationRenderer({ onRetry }) {
+function createConversationRenderer({ onRetry, onDelete }) {
   const conversation = requiredElement3("#conversation");
   const viewport = requiredElement3("#conversationViewport");
   function messageTimestamp(message) {
@@ -1603,6 +1603,7 @@ function createConversationRenderer({ onRetry }) {
                     data-retry-scope="${escapeHtml3(message.retry_scope)}"
                     data-retry-key="${escapeHtml3(message.retry_key)}">Retry</button>
           ` : ""}
+          ${message.pending_delete_key ? `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml3(message.pending_delete_key)}">Delete</button>` : ""}
           ${streaming ? `
             <div class="streaming-indicator">
               <span class="streaming-dots"><i></i><i></i><i></i></span>
@@ -1631,6 +1632,7 @@ function createConversationRenderer({ onRetry }) {
       message.pending_activity_label,
       message.retry_scope,
       message.retry_key,
+      message.pending_delete_key,
       message.created_at,
       message.updated_at,
       allowStreaming
@@ -1638,6 +1640,7 @@ function createConversationRenderer({ onRetry }) {
   }
   const boundCopyButtons = new WeakSet;
   const boundRetryButtons = new WeakSet;
+  const boundDeleteButtons = new WeakSet;
   function bindRetryButtons(root) {
     for (const button of root.querySelectorAll(".retry-send-button")) {
       if (boundRetryButtons.has(button))
@@ -1645,6 +1648,16 @@ function createConversationRenderer({ onRetry }) {
       boundRetryButtons.add(button);
       button.addEventListener("click", () => {
         onRetry(button.dataset.retryScope || "", button.dataset.retryKey || "");
+      });
+    }
+  }
+  function bindDeleteButtons(root) {
+    for (const button of root.querySelectorAll(".delete-pending-button")) {
+      if (boundDeleteButtons.has(button))
+        continue;
+      boundDeleteButtons.add(button);
+      button.addEventListener("click", () => {
+        onDelete(button.dataset.deletePendingKey || "");
       });
     }
   }
@@ -1678,6 +1691,7 @@ function createConversationRenderer({ onRetry }) {
     node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
     bindCopyButtons(node);
     bindRetryButtons(node);
+    bindDeleteButtons(node);
     return node;
   }
   function patchDomNode(current, next) {
@@ -1797,6 +1811,7 @@ function createConversationRenderer({ onRetry }) {
                   data-retry-key="${escapeHtml3(message.retry_key)}">Retry</button>
         `);
         bindRetryButtons(node);
+        bindDeleteButtons(node);
       }
     } else if (retryButton) {
       retryButton.remove();
@@ -2777,7 +2792,8 @@ var jobsDialog = createJobsDialog({
   syncSendButton
 });
 var conversationRenderer = createConversationRenderer({
-  onRetry: retryFailedSend
+  onRetry: retryFailedSend,
+  onDelete: deletePendingSend
 });
 var attachmentPicker = createAttachmentPicker({
   onChange: syncSendButton,
@@ -3285,7 +3301,8 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         content: item.message,
         attachments: item.attachments || [],
         status: "complete",
-        updated_at: item.updatedAt
+        updated_at: item.updatedAt,
+        pending_delete_key: item.clientId || item.sendId || ""
       });
     }
     const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt);
@@ -3522,7 +3539,8 @@ function renderNewChat() {
           content: pending.message,
           attachments: pending.attachments || [],
           status: "complete",
-          updated_at: pending.updatedAt
+          updated_at: pending.updatedAt,
+          pending_delete_key: pending.clientId || pending.sendId || ""
         }
       ];
       const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
@@ -4005,6 +4023,50 @@ function updatePendingReply(conversationId, sendId, updates) {
   if (changed)
     item.updatedAt = Date.now() / 1000;
   return changed;
+}
+async function deletePendingSend(deleteKey) {
+  let pending = null;
+  let creatingNew = false;
+  const conversationId = state.selectedId || "";
+  if (state.pendingNewSend && (state.pendingNewSend.clientId === deleteKey || state.pendingNewSend.sendId === deleteKey)) {
+    pending = state.pendingNewSend;
+    creatingNew = true;
+    state.pendingNewSend = null;
+    state.pendingNewId = null;
+    state.newChatFingerprint = "";
+  } else if (conversationId) {
+    const items = state.pendingReplies.get(conversationId) || [];
+    pending = items.find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
+    if (pending) {
+      const remaining = items.filter((item) => item !== pending);
+      if (remaining.length)
+        state.pendingReplies.set(conversationId, remaining);
+      else
+        state.pendingReplies.delete(conversationId);
+      state.selectedFingerprint = "";
+    }
+  }
+  if (!pending)
+    return;
+  const sendId = String(pending.sendId || "");
+  if (sendId) {
+    try {
+      const response = await fetch(`api/sends/${encodeURIComponent(sendId)}`, {
+        method: "DELETE",
+        cache: "no-store"
+      });
+      if (!response.ok && response.status !== 404)
+        throw new Error(`${response.status}`);
+    } catch (error) {
+      console.warn("Could not delete pending Prompta send", error);
+      setTextIfChanged5(els.composerStatus, "Could not delete the pending message.");
+    }
+  }
+  if (creatingNew)
+    renderNewChat();
+  else if (state.selectedChat?.id === conversationId)
+    renderConversation(state.selectedChat);
+  renderSidebar();
 }
 async function watchSend(sendId, creatingNew, conversationId) {
   let statusFailures = 0;

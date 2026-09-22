@@ -72,7 +72,7 @@ export function pendingImageAttachments(serializedAttachments) {
     }));
 }
 
-export function createConversationRenderer({ onRetry }) {
+export function createConversationRenderer({ onRetry, onDelete }) {
   const conversation = requiredElement<HTMLElement>("#conversation");
   const viewport = requiredElement<HTMLElement>("#conversationViewport");
 
@@ -138,6 +138,11 @@ export function createConversationRenderer({ onRetry }) {
               : ""
           }
           ${
+            message.pending_delete_key
+              ? `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml(message.pending_delete_key)}">Delete</button>`
+              : ""
+          }
+          ${
             streaming
               ? `
             <div class="streaming-indicator">
@@ -169,6 +174,7 @@ export function createConversationRenderer({ onRetry }) {
       message.pending_activity_label,
       message.retry_scope,
       message.retry_key,
+      message.pending_delete_key,
       message.created_at,
       message.updated_at,
       allowStreaming,
@@ -176,6 +182,7 @@ export function createConversationRenderer({ onRetry }) {
   }
   const boundCopyButtons = new WeakSet();
   const boundRetryButtons = new WeakSet();
+  const boundDeleteButtons = new WeakSet();
   function bindRetryButtons(root) {
     for (const button of root.querySelectorAll(".retry-send-button")) {
       if (boundRetryButtons.has(button)) continue;
@@ -183,6 +190,16 @@ export function createConversationRenderer({ onRetry }) {
       boundRetryButtons.add(button);
       button.addEventListener("click", () => {
         onRetry(button.dataset.retryScope || "", button.dataset.retryKey || "");
+      });
+    }
+  }
+  function bindDeleteButtons(root) {
+    for (const button of root.querySelectorAll(".delete-pending-button")) {
+      if (boundDeleteButtons.has(button)) continue;
+
+      boundDeleteButtons.add(button);
+      button.addEventListener("click", () => {
+        onDelete(button.dataset.deletePendingKey || "");
       });
     }
   }
@@ -217,6 +234,7 @@ export function createConversationRenderer({ onRetry }) {
     node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
     bindCopyButtons(node);
     bindRetryButtons(node);
+    bindDeleteButtons(node);
 
     return node;
   }
@@ -366,6 +384,7 @@ export function createConversationRenderer({ onRetry }) {
         `,
         );
         bindRetryButtons(node);
+        bindDeleteButtons(node);
       }
     } else if (retryButton) {
       retryButton.remove();

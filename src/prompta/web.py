@@ -587,6 +587,23 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        prefix = "/api/sends/"
+        if not path.startswith(prefix):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        send_id = unquote(path[len(prefix) :]).strip("/")
+        if not send_id:
+            self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
+            return
+        cancelled = cast(PromptaUIServer, self.server).send_jobs.cancel(send_id)
+        if not cancelled:
+            self._json({"error": "Send is no longer pending"}, HTTPStatus.NOT_FOUND)
+            return
+        self._json({"ok": True, "send_id": send_id})
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path

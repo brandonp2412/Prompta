@@ -902,6 +902,22 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--panel) 78%, var(--text) 8%);
 }
 
+.delete-pending-button {
+  margin: 10px 0 0 8px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-radius: 9px;
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.delete-pending-button:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
 .conversation-loading {
   display: grid;
   gap: 18px;

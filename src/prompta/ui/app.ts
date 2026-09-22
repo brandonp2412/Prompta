@@ -201,6 +201,7 @@ const jobsDialog = createJobsDialog({
 
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
+  onDelete: deletePendingSend,
 });
 
 const attachmentPicker = createAttachmentPicker({
@@ -898,6 +899,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         attachments: item.attachments || [],
         status: "complete",
         updated_at: item.updatedAt,
+        pending_delete_key: item.clientId || item.sendId || "",
       });
     }
 
@@ -1192,6 +1194,7 @@ function renderNewChat() {
           attachments: pending.attachments || [],
           status: "complete",
           updated_at: pending.updatedAt,
+          pending_delete_key: pending.clientId || pending.sendId || "",
         },
       ];
       const activity = pendingSendActivity(
@@ -1846,6 +1849,59 @@ function updatePendingReply(conversationId, sendId, updates) {
   if (changed) item.updatedAt = Date.now() / 1000;
 
   return changed;
+}
+
+async function deletePendingSend(deleteKey: string) {
+  let pending: PendingReply | null = null;
+  let creatingNew = false;
+  const conversationId = state.selectedId || "";
+
+  if (
+    state.pendingNewSend &&
+    (state.pendingNewSend.clientId === deleteKey || state.pendingNewSend.sendId === deleteKey)
+  ) {
+    pending = state.pendingNewSend;
+    creatingNew = true;
+    state.pendingNewSend = null;
+    state.pendingNewId = null;
+    state.newChatFingerprint = "";
+  } else if (conversationId) {
+    const items = state.pendingReplies.get(conversationId) || [];
+    pending =
+      items.find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
+
+    if (pending) {
+      const remaining = items.filter((item) => item !== pending);
+
+      if (remaining.length) state.pendingReplies.set(conversationId, remaining);
+      else state.pendingReplies.delete(conversationId);
+
+      state.selectedFingerprint = "";
+    }
+  }
+
+  if (!pending) return;
+
+  const sendId = String(pending.sendId || "");
+
+  if (sendId) {
+    try {
+      const response = await fetch(`api/sends/${encodeURIComponent(sendId)}`, {
+        method: "DELETE",
+        cache: "no-store",
+      });
+
+      if (!response.ok && response.status !== 404) throw new Error(`${response.status}`);
+    } catch (error) {
+      console.warn("Could not delete pending Prompta send", error);
+      setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
+    }
+  }
+
+  if (creatingNew) renderNewChat();
+  else if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
+
+  renderSidebar();
 }
 
 async function watchSend(sendId, creatingNew, conversationId) {
