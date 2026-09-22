@@ -72,7 +72,9 @@ class SchedulerExecution:
         ):
             return False
         active_scheduled_jobs = sum(
-            1 for active in self.active.values() if active.job_name
+            1
+            for active in self.active.values()
+            if active.job_name and active.job_name != "once"
         )
         if active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
             return False

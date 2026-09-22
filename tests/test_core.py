@@ -1184,6 +1184,32 @@ async def test_active_scheduled_job_blocks_other_scheduled_jobs_until_done(
     assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is True
     prompta.send_once.assert_awaited_once_with("continue", job_name="other")
 
+@pytest.mark.asyncio
+async def test_active_one_shot_does_not_block_scheduled_job(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    prompta._active_conversations["context-once"] = ActiveConversation(
+        conversation_id="manual",
+        context_id="context-once",
+        job_name="once",
+        prompt="manual work still running",
+    )
+
+    assert await prompta._run_job(
+        PromptJob("background", "scheduled work", 1800),
+        now=1000.0,
+    ) is True
+    prompta.send_once.assert_awaited_once_with(
+        "scheduled work",
+        job_name="background",
+    )
+
 
 def test_due_in_uses_uncertain_send_to_prevent_duplicate_retry(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
