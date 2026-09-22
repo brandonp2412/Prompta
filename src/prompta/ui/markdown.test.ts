@@ -40,18 +40,20 @@ describe("tool-call rendering", () => {
     expect(rendered).not.toContain('class="tool-expanded-meta"');
   });
 
-  test("keeps expanded connector context for execution calls", () => {
+  test("hides expanded metadata when the collapsed title already has the tool identity", () => {
     const rendered = renderMarkdown(
       [
-        "```tool:Glass Serena · serena_repl",
-        JSON.stringify({ arguments: { code: "1 + 1" }, status: "completed" }),
+        "```tool:Glass · execute_python",
+        JSON.stringify({ arguments: { code: "print(1)" }, status: "completed" }),
         "```",
       ].join("\n"),
     );
 
-    expect(rendered).toContain("tool-has-meta");
-    expect(rendered).toContain('<span class="tool-expanded-action">serena_repl</span>');
-    expect(rendered).toContain('<span class="tool-expanded-connector">Glass Serena</span>');
+    const summary =
+      rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
+    expect(summary).toContain('<span class="tool-primary-name">Glass · execute_python</span>');
+    expect(rendered).not.toContain("tool-has-meta");
+    expect(rendered).not.toContain('class="tool-expanded-meta"');
   });
 
   test("shows persisted reasoning titles in the collapsed tool row", () => {

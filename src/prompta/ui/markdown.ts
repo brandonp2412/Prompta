@@ -410,14 +410,8 @@ function renderTextBlock(text) {
   return out.join("");
 }
 
-const CONTEXTUAL_TOOL_ACTION = /(?:^|_)(?:repl|execute|shell|python|command)(?:_|$)/i;
-
-function expandedToolMetaAddsInformation(summary, action, connector) {
-  if (!action) return false;
-
-  if (summary) return true;
-
-  return Boolean(connector && CONTEXTUAL_TOOL_ACTION.test(action));
+function expandedToolMetaAddsInformation(summary, action) {
+  return Boolean(summary && action);
 }
 
 function renderCodeBlock(code, language) {
@@ -475,11 +469,7 @@ function renderCodeBlock(code, language) {
       toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
     const expandedConnector =
       toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
-    const expandedToolHeader = expandedToolMetaAddsInformation(
-      toolSummary,
-      expandedAction,
-      expandedConnector,
-    )
+    const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction)
       ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";
 
