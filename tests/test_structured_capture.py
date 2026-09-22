@@ -91,6 +91,35 @@ def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> N
     assert parts[-1]["content"] == "Finished"
 
 
+
+def test_snapshot_digest_includes_structured_source_events() -> None:
+    base = {
+        "title": "Structured",
+        "path": "/c/chat",
+        "streaming": False,
+        "messages": [{"id": "a1", "role": "assistant", "content": "Same answer"}],
+        "source_events": [
+            {
+                "id": "call-1",
+                "role": "assistant",
+                "recipient": "api_tool.call_tool",
+                "reasoning_title": "Remembering",
+                "connector_name": "",
+            }
+        ],
+    }
+    corrected = {
+        **base,
+        "source_events": [
+            {
+                **base["source_events"][0],
+                "connector_name": "Glass Serena",
+            }
+        ],
+    }
+
+    assert ChatCache.digest(base) != ChatCache.digest(corrected)
+
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
 ) -> None:
