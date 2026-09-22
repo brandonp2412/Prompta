@@ -309,10 +309,10 @@ function renderCodeBlock(code, language) {
   const copyButton = renderedCode.trim()
     ? '<button type="button" class="copy-code">copy</button>'
     : "";
+  const collapsedLabel = toolish && toolName ? toolName : label;
   const header = toolish
     ? `
-      <span class="code-language">${escapeHtml(label)}</span>
-      ${toolName ? `<span class="tool-name">${escapeHtml(toolName)}</span>` : ""}
+      <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml(collapsedLabel)}</span>
       ${toolTime}`
     : `
       <span class="code-language">${escapeHtml(label)}</span>
