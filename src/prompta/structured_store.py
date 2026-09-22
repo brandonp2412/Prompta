@@ -84,6 +84,23 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS tool_calls_message_ordinal_idx
             ON tool_calls(conversation_id, message_key, ordinal);
 
+        CREATE TABLE IF NOT EXISTS conversation_state_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id TEXT NOT NULL,
+            observed_at REAL NOT NULL,
+            status TEXT NOT NULL,
+            streaming INTEGER,
+            complete INTEGER,
+            transient INTEGER,
+            failed INTEGER,
+            turn_ended INTEGER,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS conversation_state_events_conversation_idx
+            ON conversation_state_events(conversation_id, observed_at, id);
+
         CREATE TABLE IF NOT EXISTS message_versions (
             conversation_id TEXT NOT NULL,
             message_key TEXT NOT NULL,
@@ -162,6 +179,52 @@ def _json(value: Any) -> str | None:
     if value is None:
         return None
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def record_conversation_state(
+    connection: sqlite3.Connection,
+    *,
+    conversation_id: str,
+    status: str,
+    observed_at: float,
+    activity: dict[str, Any] | None = None,
+) -> None:
+    detail = dict(activity) if isinstance(activity, dict) else {}
+
+    def bool_value(name: str) -> int | None:
+        value = detail.get(name)
+        return int(value) if isinstance(value, bool) else None
+
+    values = (
+        status,
+        bool_value("streaming"),
+        bool_value("complete"),
+        bool_value("transient"),
+        bool_value("failed"),
+        bool_value("turn_ended"),
+        _json(detail) or "{}",
+    )
+    latest = connection.execute(
+        """
+        SELECT status, streaming, complete, transient, failed, turn_ended, detail_json
+        FROM conversation_state_events
+        WHERE conversation_id = ?
+        ORDER BY observed_at DESC, id DESC
+        LIMIT 1
+        """,
+        (conversation_id,),
+    ).fetchone()
+    if latest is not None and tuple(latest) == values:
+        return
+    connection.execute(
+        """
+        INSERT INTO conversation_state_events (
+            conversation_id, observed_at, status, streaming, complete,
+            transient, failed, turn_ended, detail_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (conversation_id, observed_at, *values),
+    )
 
 
 def persist_structured_capture(
