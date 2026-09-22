@@ -2061,23 +2061,13 @@ textarea:focus-visible {
     top: 0;
     z-index: 2;
     justify-content: flex-start;
-    gap: 4px;
+    gap: 11px;
     min-height: 64px;
     margin: 0 -16px 14px;
     padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
     background: color-mix(in srgb, var(--bg) 94%, transparent);
     border-bottom: 1px solid var(--border);
     backdrop-filter: blur(18px);
-  }
-
-  .jobs-dialog[data-presentation="stack"] .jobs-dialog-header h2 {
-    font-size: 20px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .jobs-dialog[data-presentation="stack"] .jobs-dialog-header p {
-    display: none;
   }
 
   .jobs-dialog[data-presentation="stack"] .jobs-icon-button {
