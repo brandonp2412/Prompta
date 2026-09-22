@@ -2484,7 +2484,7 @@ function createAttachmentPicker({ onChange, setStatus }) {
   function setDisabled(disabled) {
     els.button.disabled = disabled;
     if (disabled)
-      els.menu.hidden = true;
+      closeMenu();
     for (const button of els.chips.querySelectorAll("button")) {
       button.disabled = disabled;
     }
@@ -2528,17 +2528,64 @@ function createAttachmentPicker({ onChange, setStatus }) {
     }
     return Promise.all(files.map(payload));
   }
-  function closeMenu() {
+  function menuButtons() {
+    return Array.from(els.menu.querySelectorAll("[data-attachment-kind]"));
+  }
+  function openMenu(focusIndex = 0) {
+    els.menu.hidden = false;
+    els.button.setAttribute("aria-expanded", "true");
+    menuButtons()[focusIndex]?.focus();
+  }
+  function closeMenu(restoreFocus = false) {
     els.menu.hidden = true;
+    els.button.setAttribute("aria-expanded", "false");
+    if (restoreFocus)
+      els.button.focus();
   }
   els.button.addEventListener("click", () => {
-    els.menu.hidden = !els.menu.hidden;
+    if (els.menu.hidden)
+      openMenu();
+    else
+      closeMenu();
+  });
+  els.button.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp")
+      return;
+    event.preventDefault();
+    const buttons = menuButtons();
+    openMenu(event.key === "ArrowUp" ? Math.max(0, buttons.length - 1) : 0);
+  });
+  els.menu.addEventListener("keydown", (event) => {
+    const buttons = menuButtons();
+    const current = buttons.indexOf(document.activeElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu(true);
+      return;
+    }
+    if (event.key === "Tab") {
+      closeMenu();
+      return;
+    }
+    let next = current;
+    if (event.key === "ArrowDown")
+      next = (current + 1 + buttons.length) % buttons.length;
+    else if (event.key === "ArrowUp")
+      next = (current - 1 + buttons.length) % buttons.length;
+    else if (event.key === "Home")
+      next = 0;
+    else if (event.key === "End")
+      next = Math.max(0, buttons.length - 1);
+    else
+      return;
+    event.preventDefault();
+    buttons[next]?.focus();
   });
   els.menu.addEventListener("click", (event) => {
     const button = event.target.closest("[data-attachment-kind]");
     if (!button)
       return;
-    els.menu.hidden = true;
+    closeMenu();
     const kind = button.dataset.attachmentKind;
     if (kind === "photo")
       els.photoInput.click();
@@ -2567,7 +2614,7 @@ function createAttachmentPicker({ onChange, setStatus }) {
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!els.menu.hidden && !els.menu.contains(target) && !els.button.contains(target)) {
-      els.menu.hidden = true;
+      closeMenu();
     }
   });
   return {

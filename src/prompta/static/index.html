@@ -120,13 +120,13 @@
             </div>
           </div>
           <div class="composer-tools">
-            <button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo">
+            <button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu" aria-expanded="false">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </button>
-            <div class="attachment-menu" id="attachmentMenu" hidden>
-              <button type="button" data-attachment-kind="file">Upload file</button>
-              <button type="button" data-attachment-kind="photo">Upload photo</button>
-              <button type="button" data-attachment-kind="camera">Take photo</button>
+            <div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment" hidden>
+              <button type="button" role="menuitem" data-attachment-kind="file">Upload file</button>
+              <button type="button" role="menuitem" data-attachment-kind="photo">Upload photo</button>
+              <button type="button" role="menuitem" data-attachment-kind="camera">Take photo</button>
             </div>
             <input id="fileUploadInput" type="file" hidden>
             <input id="photoUploadInput" type="file" accept="image/*" hidden>
