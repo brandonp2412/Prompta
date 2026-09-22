@@ -1157,7 +1157,8 @@ function createSidebar({ onMotionEnd }) {
     sidebar: requiredElement2("#sidebar"),
     openSidebar: requiredElement2("#openSidebar"),
     closeSidebar: requiredElement2("#closeSidebar"),
-    sidebarScrim: requiredElement2("#sidebarScrim")
+    sidebarScrim: requiredElement2("#sidebarScrim"),
+    mainPanel: requiredElement2(".main-panel")
   };
   const mobileSidebarMedia = window.matchMedia("(max-width: 780px)");
   const swipe = {
@@ -1204,7 +1205,9 @@ function createSidebar({ onMotionEnd }) {
   }
   function syncSidebarVisibility() {
     const hidden = sidebarHidden();
+    const backgroundBlocked = mobileEnabled() && isOpen();
     els.sidebar.toggleAttribute("inert", hidden);
+    els.mainPanel.toggleAttribute("inert", backgroundBlocked);
     if (hidden)
       els.sidebar.setAttribute("aria-hidden", "true");
     else
@@ -1236,20 +1239,20 @@ function createSidebar({ onMotionEnd }) {
       beginMotion();
     els.sidebar.classList.add("is-open");
     els.sidebarScrim.classList.add("is-open");
-    syncExpandedState();
-    if (!animate)
-      syncSidebarVisibility();
+    syncAccessibility();
   }
-  function close() {
+  function close(restoreFocus = false) {
     resetDragStyles();
     const animate = mobileEnabled() && isOpen();
     if (animate)
       beginMotion();
+    const shouldRestoreFocus = restoreFocus && mobileEnabled() && isOpen();
     els.sidebar.classList.remove("is-open");
     els.sidebarScrim.classList.remove("is-open");
-    syncExpandedState();
-    if (!animate)
-      syncSidebarVisibility();
+    syncAccessibility();
+    if (shouldRestoreFocus) {
+      requestAnimationFrame(() => els.openSidebar.focus({ preventScroll: true }));
+    }
   }
   function applyDragPosition(x) {
     const width = swipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
@@ -1280,7 +1283,7 @@ function createSidebar({ onMotionEnd }) {
     const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
     els.sidebar.classList.toggle("is-open", opened);
     els.sidebarScrim.classList.toggle("is-open", opened);
-    syncExpandedState();
+    syncAccessibility();
     els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
     els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
     els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
@@ -1296,9 +1299,14 @@ function createSidebar({ onMotionEnd }) {
       endMotion();
     }, duration + 30);
   }
-  els.openSidebar.addEventListener("click", open);
-  els.closeSidebar.addEventListener("click", close);
-  els.sidebarScrim.addEventListener("click", close);
+  els.openSidebar.addEventListener("click", () => {
+    open();
+    if (mobileEnabled()) {
+      requestAnimationFrame(() => els.closeSidebar.focus({ preventScroll: true }));
+    }
+  });
+  els.closeSidebar.addEventListener("click", () => close(true));
+  els.sidebarScrim.addEventListener("click", () => close());
   mobileSidebarMedia.addEventListener("change", syncAccessibility);
   window.addEventListener("resize", syncAccessibility);
   syncAccessibility();
@@ -4356,7 +4364,7 @@ document.addEventListener("keydown", (event) => {
     closeSlashMenu();
     jobsDialog.close();
     els.searchInput.blur();
-    sidebar.close();
+    sidebar.close(true);
   }
 });
 els.newChatButton.addEventListener("click", () => {

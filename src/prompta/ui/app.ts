@@ -1811,7 +1811,7 @@ document.addEventListener("keydown", (event) => {
     closeSlashMenu();
     jobsDialog.close();
     els.searchInput.blur();
-    sidebar.close();
+    sidebar.close(true);
   }
 });
 

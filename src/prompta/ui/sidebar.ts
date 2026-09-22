@@ -12,6 +12,7 @@ export function createSidebar({ onMotionEnd }) {
     openSidebar: requiredElement<HTMLButtonElement>("#openSidebar"),
     closeSidebar: requiredElement<HTMLButtonElement>("#closeSidebar"),
     sidebarScrim: requiredElement<HTMLElement>("#sidebarScrim"),
+    mainPanel: requiredElement<HTMLElement>(".main-panel"),
   };
   const mobileSidebarMedia = window.matchMedia("(max-width: 780px)");
   const swipe = {
@@ -66,7 +67,9 @@ export function createSidebar({ onMotionEnd }) {
 
   function syncSidebarVisibility() {
     const hidden = sidebarHidden();
+    const backgroundBlocked = mobileEnabled() && isOpen();
     els.sidebar.toggleAttribute("inert", hidden);
+    els.mainPanel.toggleAttribute("inert", backgroundBlocked);
 
     if (hidden) els.sidebar.setAttribute("aria-hidden", "true");
     else els.sidebar.removeAttribute("aria-hidden");
@@ -104,23 +107,24 @@ export function createSidebar({ onMotionEnd }) {
 
     els.sidebar.classList.add("is-open");
     els.sidebarScrim.classList.add("is-open");
-    syncExpandedState();
-
-    if (!animate) syncSidebarVisibility();
+    syncAccessibility();
   }
 
-  function close() {
+  function close(restoreFocus = false) {
     resetDragStyles();
 
     const animate = mobileEnabled() && isOpen();
 
     if (animate) beginMotion();
 
+    const shouldRestoreFocus = restoreFocus && mobileEnabled() && isOpen();
     els.sidebar.classList.remove("is-open");
     els.sidebarScrim.classList.remove("is-open");
-    syncExpandedState();
+    syncAccessibility();
 
-    if (!animate) syncSidebarVisibility();
+    if (shouldRestoreFocus) {
+      requestAnimationFrame(() => els.openSidebar.focus({ preventScroll: true }));
+    }
   }
 
   function applyDragPosition(x) {
@@ -157,7 +161,7 @@ export function createSidebar({ onMotionEnd }) {
     const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
     els.sidebar.classList.toggle("is-open", opened);
     els.sidebarScrim.classList.toggle("is-open", opened);
-    syncExpandedState();
+    syncAccessibility();
     els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
     els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
     els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
@@ -175,9 +179,15 @@ export function createSidebar({ onMotionEnd }) {
     }, duration + 30);
   }
 
-  els.openSidebar.addEventListener("click", open);
-  els.closeSidebar.addEventListener("click", close);
-  els.sidebarScrim.addEventListener("click", close);
+  els.openSidebar.addEventListener("click", () => {
+    open();
+
+    if (mobileEnabled()) {
+      requestAnimationFrame(() => els.closeSidebar.focus({ preventScroll: true }));
+    }
+  });
+  els.closeSidebar.addEventListener("click", () => close(true));
+  els.sidebarScrim.addEventListener("click", () => close());
   mobileSidebarMedia.addEventListener("change", syncAccessibility);
   window.addEventListener("resize", syncAccessibility);
   syncAccessibility();
