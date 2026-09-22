@@ -1373,7 +1373,8 @@ function renderTextBlock(text) {
         rows.push(splitTableRow(lines[index]));
         index += 1;
       }
-      out.push(`<div class="table-scroll"><table><thead><tr>${headers.map((cell, column) => `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((_, column) => `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      const tableScrollClass = headers.length >= 3 ? "table-scroll table-scroll-wide" : "table-scroll";
+      out.push(`<div class="${tableScrollClass}"><table><thead><tr>${headers.map((cell, column) => `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((_, column) => `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
       continue;
     }
     if (/^\s*>\s?/.test(line)) {

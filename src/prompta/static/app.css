@@ -1049,6 +1049,17 @@ textarea:focus-visible {
   font-size: 14px;
 }
 
+.table-scroll-wide table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.table-scroll-wide th,
+.table-scroll-wide td {
+  min-width: 10rem;
+  max-width: min(28rem, 70vw);
+}
+
 .message-content th,
 .message-content td {
   padding: 9px 11px;
