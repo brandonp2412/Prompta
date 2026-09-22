@@ -73,7 +73,7 @@ Each one-shot starts a fresh ChatGPT chat, sends exactly once, passively caches 
 
 ## Manage jobs
 
-Repeating jobs default to every 30 minutes:
+Repeating jobs default to every 40 minutes:
 
 `list` (`ls`) and `show` display each prompt's status and next due time with a
 compact, colour-aware terminal UI. Status icons are `●` healthy, `✗` failing,
@@ -95,7 +95,7 @@ uv run prompta ls
 # Show one prompt
 uv run prompta show flux-roadmap
 
-# Add or replace a 30-minute job
+# Add or replace a 40-minute job
 uv run prompta add my-job "Do the maximum amount of work possible."
 
 # Add or replace a job with another cadence

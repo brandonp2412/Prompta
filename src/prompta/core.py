@@ -1236,7 +1236,11 @@ def main() -> None:
     args = _parser().parse_args()
     _configure_logging()
     if args.command in {"add", "push"}:
-        interval_minutes = 30.0 if args.interval_minutes is None else args.interval_minutes
+        interval_minutes = (
+            DEFAULT_INTERVAL_SECONDS / 60.0
+            if args.interval_minutes is None
+            else args.interval_minutes
+        )
         add_job(
             args.jobs_file,
             args.name,

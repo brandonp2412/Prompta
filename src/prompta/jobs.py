@@ -10,7 +10,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_INTERVAL_SECONDS = 30 * 60
+DEFAULT_INTERVAL_SECONDS = 40 * 60
 
 
 def _normalise_daily_at(value: str) -> str:

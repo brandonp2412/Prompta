@@ -783,7 +783,7 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
     setTextIfChanged(els.jobsFormTitle, "Add job");
     els.jobNameInput.readOnly = false;
     els.jobScheduleType.value = "interval";
-    els.jobIntervalInput.value = "30";
+    els.jobIntervalInput.value = "40";
     els.jobDailyInput.value = "09:00";
     els.jobExactInput.checked = false;
     syncJobScheduleFields();
@@ -919,7 +919,7 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
       els.jobPromptInput.value = job.prompt || "";
       els.jobScheduleType.value = job.daily_at ? "daily" : "interval";
       els.jobDailyInput.value = job.daily_at || "09:00";
-      els.jobIntervalInput.value = String(job.interval_minutes || 30);
+      els.jobIntervalInput.value = String(job.interval_minutes || 40);
       els.jobExactInput.checked = Boolean(job.exact_interval);
       syncJobScheduleFields();
       els.jobPromptInput.focus();

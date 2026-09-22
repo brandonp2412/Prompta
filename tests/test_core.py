@@ -1079,14 +1079,16 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
     add_job(jobs_path, "immediate", "Run immediately", 0)
     add_job(jobs_path, "exact", "Run exactly", 1800, exact_interval=True)
     add_job(jobs_path, "daily", "Daily check", daily_at="07:00")
+    add_job(jobs_path, "default", "Default interval")
     jobs = load_jobs(jobs_path)
-    assert set(jobs) == {"flux", "tv", "immediate", "exact", "daily"}
+    assert set(jobs) == {"flux", "tv", "immediate", "exact", "daily", "default"}
     assert jobs["flux"].interval_seconds == 1800
     assert jobs["immediate"].interval_seconds == 0
     assert jobs["exact"].exact_interval is True
     assert jobs["daily"].daily_at == "07:00"
+    assert jobs["default"].interval_seconds == 2400
     remove_job(jobs_path, "tv")
-    assert set(load_jobs(jobs_path)) == {"flux", "immediate", "exact", "daily"}
+    assert set(load_jobs(jobs_path)) == {"flux", "immediate", "exact", "daily", "default"}
     clear_jobs(jobs_path)
     assert load_jobs(jobs_path) == {}
 
