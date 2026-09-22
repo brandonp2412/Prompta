@@ -8,7 +8,11 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .cache import ActiveConversation, ChatCache
-from .chromium import ChromiumToolEnricher, merge_tool_blocks
+from .chromium import (
+    ChromiumToolEnricher,
+    merge_tool_blocks,
+    preserves_non_tool_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +230,7 @@ class ConversationTracker:
             return snapshot
         if active is not None:
             active.structured_tool_blocks = tuple(blocks)
-        if ordered_content:
+        if ordered_content and preserves_non_tool_text(content, ordered_content):
             enriched = dict(snapshot)
             enriched_messages = [
                 dict(message) if isinstance(message, dict) else message for message in messages
@@ -246,6 +250,12 @@ class ConversationTracker:
             else:
                 enriched = self.apply_structured_tool_blocks(snapshot, blocks)
         else:
+            if ordered_content:
+                logger.warning(
+                    "Prompta ignored stale Chromium ordered content for conversation=%s "
+                    "because it omitted visible assistant text",
+                    conversation_id,
+                )
             enriched = self.apply_structured_tool_blocks(snapshot, blocks)
         logger.info(
             "Prompta enriched conversation=%s with %d structured Chromium tool call(s)",

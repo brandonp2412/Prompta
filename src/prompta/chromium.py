@@ -407,6 +407,20 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
     parts.extend(final_text_parts)
     return (chr(10) * 2).join(part for part in parts if part).strip()
 
+def preserves_non_tool_text(source: str, candidate: str) -> bool:
+    """Return whether candidate keeps all visible non-tool assistant text."""
+
+    source_text = re.sub(
+        r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(source or ""))
+    ).strip()
+    if not source_text:
+        return True
+    candidate_text = re.sub(
+        r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(candidate or ""))
+    ).strip()
+    return source_text in candidate_text
+
+
 def merge_tool_blocks(content: str, blocks: list[str]) -> str:
     if not blocks:
         return content

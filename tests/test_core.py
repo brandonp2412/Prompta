@@ -3364,6 +3364,69 @@ async def test_open_control_connection_retries_transient_socket_startup(
     assert attempts == 3
 
 @pytest.mark.asyncio
+async def test_completed_tool_enrichment_does_not_drop_fresh_final_text_from_stale_tab(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-stale-enrichment"
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-stale-enrichment",
+        job_name="",
+        prompt="Run a tool",
+    )
+    fence = chr(96) * 3
+    nl = chr(10)
+    generic_block = (
+        fence
+        + "tool:tool"
+        + nl
+        + json.dumps({"status": "running"})
+        + nl
+        + fence
+    )
+    rich_block = (
+        fence
+        + "tool:Glass · execute_python"
+        + nl
+        + json.dumps({"status": "completed", "arguments": {"code": "print(1)"}})
+        + nl
+        + fence
+    )
+    final_text = "Fixed and deployed to Nox. Final verification passed."
+    snapshot = {
+        "title": "Tool chat",
+        "path": f"/c/{conversation_id}",
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Run a tool"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": generic_block + nl * 2 + final_text,
+            },
+        ],
+        "streaming": False,
+    }
+    prompta.tool_enricher.enrichment = AsyncMock(
+        return_value=([rich_block], rich_block)
+    )  # type: ignore[method-assign]
+
+    enriched = await prompta._enrich_completed_tool_calls(conversation_id, snapshot)
+
+    content = enriched["messages"][-1]["content"]
+    assert final_text in content
+    assert "Glass · execute_python" in content
+    assert '"status": "running"' not in content
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_retained_completed_tool_enrichment_is_not_overwritten_by_firefox_snapshot(
     tmp_path: Path,
 ) -> None:
