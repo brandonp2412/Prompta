@@ -48,6 +48,18 @@ export function sidebarChatIsPending(chat: SidebarOrderChat | null | undefined):
   return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
 
+export function sidebarSelectedConversationId(
+  selectedId: string | null | undefined,
+  composingNew: boolean,
+  pendingNewDisplayId: string | null | undefined,
+): string {
+  const pendingId = String(pendingNewDisplayId || "");
+
+  if (composingNew && pendingId) return pendingId;
+
+  return String(selectedId || "");
+}
+
 export function sidebarChatIsSelected(
   chat: SidebarOrderChat | null | undefined,
   selectedId: string | null | undefined,
@@ -58,9 +70,7 @@ export function sidebarChatIsSelected(
 
   if (!chatId) return false;
 
-  if (chatId === String(selectedId || "")) return true;
-
-  return Boolean(composingNew && pendingNewDisplayId && chatId === pendingNewDisplayId);
+  return chatId === sidebarSelectedConversationId(selectedId, composingNew, pendingNewDisplayId);
 }
 
 export function sortSidebarChats<T extends SidebarOrderChat>(

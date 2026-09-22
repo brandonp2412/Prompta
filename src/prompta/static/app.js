@@ -24,13 +24,17 @@ function sidebarChatCreatedAt(chat) {
 function sidebarChatIsPending(chat) {
   return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
+function sidebarSelectedConversationId(selectedId, composingNew, pendingNewDisplayId) {
+  const pendingId = String(pendingNewDisplayId || "");
+  if (composingNew && pendingId)
+    return pendingId;
+  return String(selectedId || "");
+}
 function sidebarChatIsSelected(chat, selectedId, composingNew, pendingNewDisplayId) {
   const chatId = String(chat?.id || "");
   if (!chatId)
     return false;
-  if (chatId === String(selectedId || ""))
-    return true;
-  return Boolean(composingNew && pendingNewDisplayId && chatId === pendingNewDisplayId);
+  return chatId === sidebarSelectedConversationId(selectedId, composingNew, pendingNewDisplayId);
 }
 function sortSidebarChats(chats, pinnedIds) {
   return [...chats].sort((left, right) => {
@@ -3752,6 +3756,19 @@ function sidebarChats() {
 }
 var boundSidebarItems = new WeakSet;
 var boundSidebarPins = new WeakSet;
+var sidebarRowsById = new Map;
+var renderedSidebarSelectionId = "";
+function syncSidebarSelection(selectionId) {
+  if (selectionId === renderedSidebarSelectionId)
+    return;
+  const previousRow = sidebarRowsById.get(renderedSidebarSelectionId);
+  previousRow?.classList.remove("selected");
+  previousRow?.querySelector("[data-chat-id]")?.removeAttribute("aria-current");
+  const nextRow = sidebarRowsById.get(selectionId);
+  nextRow?.classList.add("selected");
+  nextRow?.querySelector("[data-chat-id]")?.setAttribute("aria-current", "true");
+  renderedSidebarSelectionId = selectionId;
+}
 function renderSidebar(force = false) {
   if (sidebar.isMoving()) {
     sidebarRenderDeferred = true;
@@ -3759,6 +3776,7 @@ function renderSidebar(force = false) {
   }
   const chats = sidebarChats();
   const pendingNewDisplayId = state.composingNew ? pendingConversationDisplayId(state.pendingNewSend) : "";
+  const selectionId = sidebarSelectedConversationId(state.selectedId, state.composingNew, pendingNewDisplayId);
   const fingerprint = JSON.stringify(chats.map((chat) => [
     chat.id,
     chat.status,
@@ -3770,11 +3788,15 @@ function renderSidebar(force = false) {
     Boolean(chat._optimisticNew),
     Boolean(chat._optimisticReply),
     state.pinnedIds.has(chat.id)
-  ])) + state.selectedId + state.composingNew + new Date().toDateString();
-  if (!force && fingerprint === state.sidebarFingerprint)
+  ])) + new Date().toDateString();
+  if (!force && fingerprint === state.sidebarFingerprint) {
+    syncSidebarSelection(selectionId);
     return;
+  }
   state.sidebarFingerprint = fingerprint;
   if (!chats.length) {
+    sidebarRowsById.clear();
+    renderedSidebarSelectionId = "";
     patchHtmlChildren3(els.chatList, `
       <div class="list-empty">
         ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
@@ -3791,7 +3813,8 @@ function renderSidebar(force = false) {
           <button type="button"
                   class="chat-item-select"
                   data-chat-id="${escapeHtml6(chat.id)}"
-                  data-optimistic-new="${chat._optimisticNew ? "true" : "false"}">
+                  data-optimistic-new="${chat._optimisticNew ? "true" : "false"}"
+                  ${selected ? 'aria-current="true"' : ""}>
             <div class="chat-item-top">
               ${sidebarStatusDot(chat.status)}
               <span class="chat-title">${escapeHtml6(chatTitle(chat))}</span>
@@ -3814,7 +3837,12 @@ function renderSidebar(force = false) {
   }).join("")}
     </section>
   `).join(""));
+  sidebarRowsById.clear();
   for (const item of els.chatList.querySelectorAll("[data-chat-id]")) {
+    const chatId = item.dataset.chatId;
+    const row = item.closest(".chat-item");
+    if (chatId && row)
+      sidebarRowsById.set(chatId, row);
     if (boundSidebarItems.has(item))
       continue;
     boundSidebarItems.add(item);
@@ -3827,6 +3855,7 @@ function renderSidebar(force = false) {
       selectChat(item.dataset.chatId);
     });
   }
+  renderedSidebarSelectionId = selectionId;
   for (const pin of els.chatList.querySelectorAll("[data-pin-chat-id]")) {
     if (boundSidebarPins.has(pin))
       continue;

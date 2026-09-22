@@ -18,6 +18,7 @@ import {
   sidebarChatCreatedAt,
   sidebarChatIsPending,
   sidebarChatIsSelected,
+  sidebarSelectedConversationId,
   sortSidebarChats,
   shouldRenderNewChatView,
   shouldShowStopAction,
@@ -782,6 +783,25 @@ const boundSidebarItems = new WeakSet();
 
 const boundSidebarPins = new WeakSet();
 
+const sidebarRowsById = new Map<string, HTMLElement>();
+
+let renderedSidebarSelectionId = "";
+
+function syncSidebarSelection(selectionId: string) {
+  if (selectionId === renderedSidebarSelectionId) return;
+
+  const previousRow = sidebarRowsById.get(renderedSidebarSelectionId);
+
+  previousRow?.classList.remove("selected");
+  previousRow?.querySelector<HTMLElement>("[data-chat-id]")?.removeAttribute("aria-current");
+
+  const nextRow = sidebarRowsById.get(selectionId);
+
+  nextRow?.classList.add("selected");
+  nextRow?.querySelector<HTMLElement>("[data-chat-id]")?.setAttribute("aria-current", "true");
+  renderedSidebarSelectionId = selectionId;
+}
+
 function renderSidebar(force = false) {
   if (sidebar.isMoving()) {
     sidebarRenderDeferred = true;
@@ -793,6 +813,11 @@ function renderSidebar(force = false) {
   const pendingNewDisplayId = state.composingNew
     ? pendingConversationDisplayId(state.pendingNewSend)
     : "";
+  const selectionId = sidebarSelectedConversationId(
+    state.selectedId,
+    state.composingNew,
+    pendingNewDisplayId,
+  );
   const fingerprint =
     JSON.stringify(
       chats.map((chat) => [
@@ -807,16 +832,19 @@ function renderSidebar(force = false) {
         Boolean(chat._optimisticReply),
         state.pinnedIds.has(chat.id),
       ]),
-    ) +
-    state.selectedId +
-    state.composingNew +
-    new Date().toDateString();
+    ) + new Date().toDateString();
 
-  if (!force && fingerprint === state.sidebarFingerprint) return;
+  if (!force && fingerprint === state.sidebarFingerprint) {
+    syncSidebarSelection(selectionId);
+
+    return;
+  }
 
   state.sidebarFingerprint = fingerprint;
 
   if (!chats.length) {
+    sidebarRowsById.clear();
+    renderedSidebarSelectionId = "";
     patchHtmlChildren(
       els.chatList,
       `
@@ -849,7 +877,8 @@ function renderSidebar(force = false) {
           <button type="button"
                   class="chat-item-select"
                   data-chat-id="${escapeHtml(chat.id)}"
-                  data-optimistic-new="${chat._optimisticNew ? "true" : "false"}">
+                  data-optimistic-new="${chat._optimisticNew ? "true" : "false"}"
+                  ${selected ? 'aria-current="true"' : ""}>
             <div class="chat-item-top">
               ${sidebarStatusDot(chat.status)}
               <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
@@ -877,7 +906,14 @@ function renderSidebar(force = false) {
       .join(""),
   );
 
+  sidebarRowsById.clear();
+
   for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
+    const chatId = item.dataset.chatId;
+    const row = item.closest<HTMLElement>(".chat-item");
+
+    if (chatId && row) sidebarRowsById.set(chatId, row);
+
     if (boundSidebarItems.has(item)) continue;
 
     boundSidebarItems.add(item);
@@ -892,6 +928,8 @@ function renderSidebar(force = false) {
       void selectChat(item.dataset.chatId);
     });
   }
+
+  renderedSidebarSelectionId = selectionId;
 
   for (const pin of els.chatList.querySelectorAll<HTMLElement>("[data-pin-chat-id]")) {
     if (boundSidebarPins.has(pin)) continue;

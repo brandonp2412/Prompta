@@ -30,6 +30,7 @@ import {
   sidebarChatIsPending,
   sidebarChatIsSelected,
   sidebarChatPreviewText,
+  sidebarSelectedConversationId,
   sidebarPreviewText,
   sortSidebarChats,
   toolCallDisplayName,
@@ -130,6 +131,20 @@ describe("deterministic sidebar ordering", () => {
         null,
         true,
         "WEB:real-chat",
+      ),
+    ).toBe(false);
+  });
+
+  test("pending new-chat selection takes precedence over the previous durable selection", () => {
+    expect(sidebarSelectedConversationId("WEB:previous-chat", true, "pending-new-client-1")).toBe(
+      "pending-new-client-1",
+    );
+    expect(
+      sidebarChatIsSelected(
+        { id: "WEB:previous-chat" },
+        "WEB:previous-chat",
+        true,
+        "pending-new-client-1",
       ),
     ).toBe(false);
   });
