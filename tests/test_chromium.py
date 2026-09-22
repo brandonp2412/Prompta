@@ -289,6 +289,107 @@ def test_ordered_assistant_content_uses_message_timestamps() -> None:
     assert '"code": "print(1)"' in content
 
 
+def test_ordered_assistant_content_interleaves_completed_wrappers_by_invocation_time() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 1.0,
+            "parts": ["First text"],
+            "text": "",
+            "end_turn": False,
+        },
+        {
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "create_time": 2.0,
+            "text": json.dumps(
+                {
+                    "path": "/Test MCP/link_123/first",
+                    "args": {"step": 1},
+                }
+            ),
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 3.0,
+            "parts": ["Between tools"],
+            "text": "",
+            "end_turn": True,
+        },
+        {
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "create_time": 4.0,
+            "text": json.dumps(
+                {
+                    "path": "/Test MCP/link_123/second",
+                    "args": {"step": 2},
+                }
+            ),
+        },
+        {
+            "role": "tool",
+            "recipient": "all",
+            "content_type": "code",
+            "create_time": 7.0,
+            "text": json.dumps(
+                {
+                    "appContext": {
+                        "actionName": "first",
+                        "appName": "Test MCP",
+                    },
+                    "arguments": {"step": 1},
+                    "status": "completed",
+                    "type": "mcpToolCall",
+                }
+            ),
+        },
+        {
+            "role": "tool",
+            "recipient": "all",
+            "content_type": "code",
+            "create_time": 8.0,
+            "text": json.dumps(
+                {
+                    "appContext": {
+                        "actionName": "second",
+                        "appName": "Test MCP",
+                    },
+                    "arguments": {"step": 2},
+                    "status": "completed",
+                    "type": "mcpToolCall",
+                }
+            ),
+        },
+        {
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "create_time": 9.0,
+            "parts": ["Done"],
+            "text": "",
+            "end_turn": True,
+        },
+    ]
+
+    content = ordered_assistant_content_from_messages(messages)
+
+    first_text = content.index("First text")
+    first_tool = content.index("Test MCP · first")
+    between = content.index("Between tools")
+    second_tool = content.index("Test MCP · second")
+    done = content.index("Done")
+    assert first_text < first_tool < between < second_tool < done
+    assert '"created_at": 2.0' in content
+    assert '"created_at": 4.0' in content
+
+
 def test_ordered_assistant_content_keeps_completed_summary_after_tool_calls() -> None:
     messages = [
         {

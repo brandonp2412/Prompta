@@ -223,6 +223,43 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
             completed_wrapper_count += 1
 
     if completed_wrapper_count:
+        pending_invocations: list[dict[str, Any]] = []
+        for raw in messages:
+            if not isinstance(raw, dict) or str(raw.get("recipient") or "") != "api_tool.call_tool":
+                continue
+            parsed = _json_load(raw.get("text"))
+            if not isinstance(parsed, dict):
+                continue
+            pending_invocations.append(
+                {
+                    "action": _action_from_path(parsed.get("path")),
+                    "created_at": raw.get("create_time"),
+                }
+            )
+
+        for call in calls:
+            call_action = str(call.get("action") or "")
+            match_index = next(
+                (
+                    index
+                    for index, invocation in enumerate(pending_invocations)
+                    if not call_action
+                    or not invocation.get("action")
+                    or invocation.get("action") == call_action
+                ),
+                None,
+            )
+            if match_index is None:
+                continue
+            invocation = pending_invocations.pop(match_index)
+            created_at = invocation.get("created_at")
+            if (
+                isinstance(created_at, (int, float))
+                and not isinstance(created_at, bool)
+                and created_at > 0
+            ):
+                call["created_at"] = created_at
+
         return [_format_tool_block(call) for call in calls]
 
     invocations: list[dict[str, Any]] = []
@@ -333,6 +370,19 @@ def _message_create_time(message: dict[str, Any]) -> float:
     return float(value) if isinstance(value, (int, float)) else float("inf")
 
 
+def _tool_block_create_time(block: str) -> float | None:
+    lines = str(block or "").splitlines()
+    if len(lines) < 3:
+        return None
+    payload = _json_load(chr(10).join(lines[1:-1]))
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("created_at")
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+        return None
+    return float(value)
+
+
 def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> str:
     """Build the latest assistant turn from React messages in event order."""
 
@@ -350,53 +400,78 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
         )
         for message in ordered
     )
-    parts: list[str] = []
-    final_text_parts: list[str] = []
-    tool_index = 0
-    for message in ordered:
+
+    text_entries: list[tuple[int, dict[str, Any], str]] = []
+    for index, message in enumerate(ordered):
         role = str(message.get("role") or "")
         recipient = str(message.get("recipient") or "")
         content_type = str(message.get("content_type") or "")
         if (
-            role == "assistant"
-            and recipient in {"", "all"}
-            and content_type in {"text", "multimodal_text"}
+            role != "assistant"
+            or recipient not in {"", "all"}
+            or content_type not in {"text", "multimodal_text"}
         ):
-            raw_parts = message.get("parts")
-            visible_parts = (
-                [part for part in raw_parts if isinstance(part, str) and part.strip()]
-                if isinstance(raw_parts, list)
-                else []
-            )
-            visible = (
-                "\n".join(visible_parts) if visible_parts else str(message.get("text") or "")
-            ).strip()
-            if visible and not re.fullmatch(
-                r"message delivery timed out\.?\s*please try again\.?",
-                visible,
-                flags=re.IGNORECASE,
-            ):
-                if message.get("end_turn") is True:
-                    final_text_parts.append(visible)
-                else:
-                    parts.append(visible)
+            continue
+        raw_parts = message.get("parts")
+        visible_parts = (
+            [part for part in raw_parts if isinstance(part, str) and part.strip()]
+            if isinstance(raw_parts, list)
+            else []
+        )
+        visible = (
+            chr(10).join(visible_parts) if visible_parts else str(message.get("text") or "")
+        ).strip()
+        if not visible or re.fullmatch(
+            r"message delivery timed out\.?\s*please try again\.?",
+            visible,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        text_entries.append((index, message, visible))
 
+    final_text: str | None = None
+    if text_entries and text_entries[-1][1].get("end_turn") is True:
+        _, _, final_text = text_entries.pop()
+
+    timeline: list[tuple[float, int, str]] = [
+        (_message_create_time(message), index * 2, visible)
+        for index, message, visible in text_entries
+    ]
+
+    tool_sources: list[tuple[int, dict[str, Any]]] = []
+    for index, message in enumerate(ordered):
         parsed = _json_load(message.get("text"))
         wrapper = isinstance(parsed, dict) and (
             parsed.get("type") == "mcpToolCall"
             or parsed.get("appContext")
             or parsed.get("arguments") is not None
         )
-        invocation = recipient == "api_tool.call_tool"
+        invocation = str(message.get("recipient") or "") == "api_tool.call_tool"
         if (completed_wrappers and wrapper) or (not completed_wrappers and invocation):
-            if tool_index < len(blocks):
-                parts.append(blocks[tool_index])
-                tool_index += 1
+            tool_sources.append((index, message))
 
-    if tool_index < len(blocks):
-        parts.extend(blocks[tool_index:])
-    parts.extend(final_text_parts)
-    return (chr(10) * 2).join(part for part in parts if part).strip()
+    for tool_index, block in enumerate(blocks):
+        if tool_index < len(tool_sources):
+            source_index, source_message = tool_sources[tool_index]
+            fallback_time = _message_create_time(source_message)
+            order_index = source_index * 2 + 1
+        else:
+            fallback_time = float("inf")
+            order_index = len(ordered) * 2 + tool_index
+        created_at = _tool_block_create_time(block)
+        timeline.append(
+            (
+                created_at if created_at is not None else fallback_time,
+                order_index,
+                block,
+            )
+        )
+
+    timeline.sort(key=lambda entry: (entry[0], entry[1]))
+    parts = [content for _, _, content in timeline if content]
+    if final_text:
+        parts.append(final_text)
+    return (chr(10) * 2).join(parts).strip()
 
 
 def preserves_non_tool_text(source: str, candidate: str) -> bool:
