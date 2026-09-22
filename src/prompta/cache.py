@@ -16,6 +16,7 @@ from .preview import compact_sidebar_preview
 from .structured_store import (
     migrate_structured_capture,
     persist_structured_capture,
+    record_conversation_state,
     record_message_version,
 )
 
@@ -354,6 +355,12 @@ class ChatCache:
         """Mark tabs from a previous Prompta process as interrupted after restart."""
 
         now = time.time()
+        conversation_ids = [
+            str(row["id"])
+            for row in self.connection.execute(
+                "SELECT id FROM conversations WHERE status = 'active'"
+            ).fetchall()
+        ]
         cursor = self.connection.execute(
             """
             UPDATE conversations
@@ -362,6 +369,21 @@ class ChatCache:
             """,
             (now, now),
         )
+        for conversation_id in conversation_ids:
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status="interrupted",
+                observed_at=now,
+                activity={
+                    "streaming": False,
+                    "complete": False,
+                    "transient": False,
+                    "failed": False,
+                    "turn_ended": None,
+                    "reason": "process_restart",
+                },
+            )
         self.connection.commit()
         return cursor.rowcount
 
@@ -427,6 +449,19 @@ class ChatCache:
                         conversation_id,
                     ),
                 )
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status="active",
+                observed_at=now,
+                activity={
+                    "streaming": False,
+                    "complete": False,
+                    "transient": False,
+                    "failed": False,
+                    "turn_ended": None,
+                },
+            )
 
     def metadata(self, conversation_id: str) -> dict[str, Any]:
         row = self.connection.execute(
@@ -471,6 +506,19 @@ class ChatCache:
                 """,
                 (context_id, now, conversation_id),
             )
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status="active",
+                observed_at=now,
+                activity={
+                    "streaming": False,
+                    "complete": False,
+                    "transient": False,
+                    "failed": False,
+                    "turn_ended": None,
+                },
+            )
         return dict(row)
 
     @staticmethod
@@ -481,6 +529,7 @@ class ChatCache:
             "streaming": bool(snapshot.get("streaming")),
             "messages": snapshot.get("messages") or [],
             "source_events": snapshot.get("source_events") or [],
+            "activity": snapshot.get("activity") or {},
         }
         return hashlib.sha256(
             json.dumps(stable, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -495,6 +544,19 @@ class ChatCache:
             WHERE id = ?
             """,
             (now, now, conversation_id),
+        )
+        record_conversation_state(
+            self.connection,
+            conversation_id=conversation_id,
+            status="interrupted",
+            observed_at=now,
+            activity={
+                "streaming": False,
+                "complete": False,
+                "transient": False,
+                "failed": True,
+                "turn_ended": None,
+            },
         )
         self.connection.commit()
 
