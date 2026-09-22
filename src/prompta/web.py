@@ -273,16 +273,21 @@ class PromptaUIServer(ThreadingHTTPServer):
             rows.append(summary)
             known_ids.add(summary["id"])
 
+        pinned_ids = set(included_ids)
         rows.sort(
             key=lambda chat: (
-                0 if str(chat.get("status") or "") == "active" else 1,
-                -float(chat.get("updated_at") or 0.0),
+                0 if str(chat.get("id") or "") in pinned_ids else 1,
+                0 if bool(chat.get("_pending_send")) else 1,
+                -float(chat.get("created_at") or 0.0),
+                str(chat.get("id") or ""),
             )
         )
-        selected_ids = {
-            str(chat.get("id") or "") for chat in rows[:bounded_limit] if str(chat.get("id") or "")
-        }
-        selected_ids.update(included_ids)
+        unpinned_ids = [
+            str(chat.get("id") or "")
+            for chat in rows
+            if str(chat.get("id") or "") and str(chat.get("id") or "") not in pinned_ids
+        ]
+        selected_ids = set(included_ids) | set(unpinned_ids[:bounded_limit])
         return [chat for chat in rows if str(chat.get("id") or "") in selected_ids]
 
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:

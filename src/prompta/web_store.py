@@ -134,8 +134,8 @@ class ReadOnlyChatStore:
                     {where}
                     ORDER BY
                         {include_order}
-                        CASE c.status WHEN 'active' THEN 0 ELSE 1 END,
-                        c.updated_at DESC
+                        c.created_at DESC,
+                        c.id
                     LIMIT ?
                     """,
                     parameters,

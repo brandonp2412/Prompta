@@ -1390,6 +1390,78 @@ def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
     assert [message["role"] for message in chat["messages"]] == ["user", "assistant"]
 
 
+def test_sidebar_window_is_selected_by_creation_time_not_response_activity(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    for conversation_id in ("older-with-late-response", "newer-chat"):
+        cache.start(
+            conversation_id,
+            context_id=f"context-{conversation_id}",
+            job_name="",
+            prompt=conversation_id,
+        )
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET created_at = 10, updated_at = 10000 WHERE id = ?",
+            ("older-with-late-response",),
+        )
+        cache.connection.execute(
+            "UPDATE conversations SET created_at = 20, updated_at = 20 WHERE id = ?",
+            ("newer-chat",),
+        )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+
+    assert [chat["id"] for chat in store.conversations(limit=1)] == ["newer-chat"]
+
+
+def test_ui_server_orders_pinned_then_pending_then_created(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    for conversation_id, created_at in (("pinned-old", 10), ("newer", 40), ("older", 30)):
+        cache.start(
+            conversation_id,
+            context_id=f"context-{conversation_id}",
+            job_name="",
+            prompt=conversation_id,
+        )
+        with cache.connection:
+            cache.connection.execute(
+                "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+                (created_at, created_at, conversation_id),
+            )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            {
+                "send_id": "pending-send",
+                "operation": "once",
+                "message": "pending",
+                "client_id": "pending-client",
+                "status": "queued",
+                "conversation_id": "",
+                "created_at": 20.0,
+                "updated_at": 9999.0,
+            }
+        ]
+    )
+    try:
+        chats = server.conversations(limit=3, include_ids=["pinned-old"])
+    finally:
+        server.server_close()
+
+    assert [chat["id"] for chat in chats] == [
+        "pinned-old",
+        "pending-new-pending-client",
+        "newer",
+        "older",
+    ]
+
+
 def test_pinned_chat_is_included_outside_bounded_sidebar_limit(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
