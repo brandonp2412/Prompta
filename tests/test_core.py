@@ -1802,6 +1802,7 @@ async def test_stop_conversation_clicks_stop_and_settles_cache(tmp_path: Path) -
     )
     prompta._active_conversations["context-live"] = active
     driver = MagicMock()
+    driver.find_context_for_path = AsyncMock(return_value="context-live")
     driver.conversation_activity = AsyncMock(
         side_effect=[{"streaming": True}, {"streaming": False}]
     )
@@ -1852,6 +1853,7 @@ async def test_stop_conversation_tolerates_completion_race_when_button_disappear
     )
     prompta._active_conversations["context-race"] = active
     driver = MagicMock()
+    driver.find_context_for_path = AsyncMock(return_value="context-race")
     driver.conversation_activity = AsyncMock(
         side_effect=[
             {"streaming": True},
@@ -1876,6 +1878,57 @@ async def test_stop_conversation_tolerates_completion_race_when_button_disappear
     assert result == "chat-race"
     assert driver.click_stop.await_count == 2
     assert active.settled_at > 0
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_conversation_rebinds_stale_context_to_live_route(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        "chat-live",
+        context_id="context-stale",
+        job_name="",
+        prompt="Keep working",
+    )
+    active = ActiveConversation(
+        conversation_id="chat-live",
+        context_id="context-stale",
+        job_name="",
+        prompt="Keep working",
+    )
+    prompta._active_conversations["context-stale"] = active
+    driver = MagicMock()
+    driver.find_context_for_path = AsyncMock(return_value="context-live")
+    driver.conversation_activity = AsyncMock(
+        side_effect=[{"streaming": True}, {"streaming": False}]
+    )
+    driver.click_stop = AsyncMock(return_value=True)
+    driver.conversation_snapshot = AsyncMock(
+        return_value={
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": "Partial answer"},
+            ],
+        }
+    )
+    prompta.driver = driver
+
+    result = await prompta.stop_conversation("chat-live")
+
+    assert result == "chat-live"
+    driver.find_context_for_path.assert_awaited_once_with("/c/chat-live")
+    driver.click_stop.assert_awaited_once_with("context-live")
+    assert "context-stale" not in prompta._active_conversations
+    assert prompta._active_conversations["context-live"] is active
+    assert active.context_id == "context-live"
     prompta.cache.close()
 
 

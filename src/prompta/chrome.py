@@ -14,7 +14,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 from selenium import webdriver
@@ -571,6 +571,37 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             driver.get(url)
 
         await self._run_webdriver_call("navigate Chromium tab", navigate_sync)
+
+    async def find_context_for_path(self, expected_path: str) -> str | None:
+        target_path = urlsplit(expected_path).path.rstrip("/") or "/"
+
+        def find() -> str | None:
+            driver = self._require_driver()
+            try:
+                original = str(driver.current_window_handle)
+            except WebDriverException:
+                original = ""
+            try:
+                handles = list(driver.window_handles)
+                for handle in handles:
+                    try:
+                        driver.switch_to.window(handle)
+                        current_path = (
+                            urlsplit(str(driver.current_url or "")).path.rstrip("/") or "/"
+                        )
+                    except (NoSuchWindowException, WebDriverException):
+                        continue
+                    if current_path == target_path:
+                        return str(handle)
+                return None
+            finally:
+                if original:
+                    try:
+                        driver.switch_to.window(original)
+                    except (NoSuchWindowException, WebDriverException):
+                        pass
+
+        return await self._run_webdriver_call("find Chromium tab by route", find)
 
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         def create() -> str:

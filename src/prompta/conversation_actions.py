@@ -560,6 +560,29 @@ class ConversationActions:
         if driver is None:
             raise RuntimeError("Prompta browser session is unavailable")
 
+        metadata = self.cache.metadata(conversation_id)
+        target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
+        expected_path = urlsplit(target_url).path.rstrip("/") or "/"
+        resolved_context = await driver.find_context_for_path(expected_path)
+        if resolved_context and resolved_context != context:
+            displaced = self.active.get(resolved_context)
+            if displaced is not None and displaced is not active:
+                logger.warning(
+                    "Prompta stop route displaced stale conversation=%s from context=%s",
+                    displaced.conversation_id,
+                    resolved_context,
+                )
+            self.active.pop(context, None)
+            active.context_id = resolved_context
+            self.active[resolved_context] = active
+            context = resolved_context
+            self.cache.resume(conversation_id, context_id=context)
+            logger.warning(
+                "Prompta rebound stop conversation=%s from stale context to context=%s",
+                conversation_id,
+                context,
+            )
+
         activity = await driver.conversation_activity(context)
         if bool(activity.get("streaming")):
             stop_deadline = asyncio.get_running_loop().time() + 5.0

@@ -640,6 +640,30 @@ async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_context_for_path_recovers_moved_conversation_tab() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "original"
+    selenium.window_handles = ["original", "target"]
+    urls = {
+        "original": "https://chatgpt.com/c/other-chat",
+        "target": "https://chatgpt.com/c/chat-live",
+    }
+
+    def switch_window(handle: str) -> None:
+        selenium.current_url = urls[handle]
+
+    selenium.switch_to.window.side_effect = switch_window
+
+    driver = ChromeDriverDriver(profile=Path("/tmp/profile"))
+    driver._driver = selenium
+    driver.context = "original"
+
+    assert await driver.find_context_for_path("/c/chat-live") == "target"
+
+    assert selenium.switch_to.window.call_args_list[-1].args == ("original",)
+
+
+@pytest.mark.asyncio
 async def test_click_stop_uses_chromedriver_instead_of_bidi() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "window"

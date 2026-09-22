@@ -367,6 +367,21 @@ class FirefoxBiDiDriver:
             )
         )
 
+    async def find_context_for_path(self, expected_path: str) -> str | None:
+        target_path = urlsplit(expected_path).path.rstrip("/") or "/"
+        tree = await self._call("browsingContext.getTree", {})
+        contexts = list(tree.get("result", {}).get("contexts") or [])
+        while contexts:
+            candidate = contexts.pop(0)
+            contexts.extend(candidate.get("children") or [])
+            url = str(candidate.get("url") or "")
+            if (urlsplit(url).path.rstrip("/") or "/") != target_path:
+                continue
+            context = str(candidate.get("context") or "")
+            if context:
+                return context
+        return None
+
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         response = await self._call("browsingContext.create", {"type": "tab"})
         context = str(response.get("result", {}).get("context") or "")
