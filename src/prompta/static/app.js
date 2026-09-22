@@ -3361,6 +3361,7 @@ function requiredElement7(selector) {
 }
 var els = {
   chatList: requiredElement7("#chatList"),
+  sidebarScroll: requiredElement7(".sidebar-scroll"),
   searchInput: requiredElement7("#searchInput"),
   conversation: requiredElement7("#conversation"),
   emptyState: requiredElement7("#emptyState"),
@@ -3797,6 +3798,10 @@ function syncSidebarSelection(selectionId) {
   nextRow?.querySelector("[data-chat-id]")?.setAttribute("aria-current", "true");
   renderedSidebarSelectionId = selectionId;
 }
+function scrollSidebarToNewest() {
+  if (els.sidebarScroll.scrollTop)
+    els.sidebarScroll.scrollTop = 0;
+}
 function renderSidebar(force = false) {
   if (sidebar.isMoving()) {
     sidebarRenderDeferred = true;
@@ -4222,6 +4227,7 @@ function renderNewChat() {
     logsPanel.setVisible(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
+    scrollSidebarToNewest();
     sidebar.close();
     if (!waiting && matchMedia("(pointer: fine)").matches) {
       requestAnimationFrame(() => els.messageInput.focus());
@@ -5082,6 +5088,7 @@ async function sendSelectedMessage() {
     state.newChatFingerprint = "";
     renderNewChat();
     renderSidebar();
+    scrollSidebarToNewest();
   } else {
     const targetConversationId = conversationId || "";
     const items = state.pendingReplies.get(targetConversationId) || [];

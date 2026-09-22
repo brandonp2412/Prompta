@@ -217,6 +217,7 @@ function requiredElement<T extends Element>(selector: string): T {
 
 const els = {
   chatList: requiredElement<HTMLElement>("#chatList"),
+  sidebarScroll: requiredElement<HTMLElement>(".sidebar-scroll"),
   searchInput: requiredElement<HTMLInputElement>("#searchInput"),
   conversation: requiredElement<HTMLElement>("#conversation"),
   emptyState: requiredElement<HTMLElement>("#emptyState"),
@@ -800,6 +801,10 @@ function syncSidebarSelection(selectionId: string) {
   nextRow?.classList.add("selected");
   nextRow?.querySelector<HTMLElement>("[data-chat-id]")?.setAttribute("aria-current", "true");
   renderedSidebarSelectionId = selectionId;
+}
+
+function scrollSidebarToNewest() {
+  if (els.sidebarScroll.scrollTop) els.sidebarScroll.scrollTop = 0;
 }
 
 function renderSidebar(force = false) {
@@ -1409,6 +1414,7 @@ function renderNewChat() {
     logsPanel.setVisible(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
+    scrollSidebarToNewest();
     sidebar.close();
 
     if (!waiting && matchMedia("(pointer: fine)").matches) {
@@ -2548,6 +2554,7 @@ async function sendSelectedMessage() {
     state.newChatFingerprint = "";
     renderNewChat();
     renderSidebar();
+    scrollSidebarToNewest();
   } else {
     const targetConversationId = conversationId || "";
     const items = state.pendingReplies.get(targetConversationId) || [];
