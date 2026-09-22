@@ -279,7 +279,8 @@ const deploymentMonitor = createDeploymentMonitor({
 
 els.versionUpdateNotice.addEventListener("click", () => {
   els.versionUpdateNotice.disabled = true;
-  els.versionUpdateNotice.textContent = "Updating Prompta…";
+  els.versionUpdateNotice.textContent = "Updating…";
+  els.versionUpdateNotice.setAttribute("aria-label", "Updating Prompta");
   void deploymentMonitor.applyUpdate();
 });
 

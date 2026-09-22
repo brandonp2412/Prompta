@@ -1737,20 +1737,23 @@ textarea:focus-visible {
 
 .version-update-notice {
   position: fixed;
-  top: calc(74px + env(safe-area-inset-top));
+  top: calc(70px + env(safe-area-inset-top));
   right: max(16px, env(safe-area-inset-right));
   z-index: 50;
-  max-width: min(360px, calc(100vw - 32px));
-  padding: 11px 14px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 8px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   color: var(--text);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(18px);
   font: inherit;
+  font-size: 13px;
   font-weight: 600;
-  text-align: left;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1783,10 +1786,10 @@ textarea:focus-visible {
 
 @media (max-width: 780px) {
   .version-update-notice {
-    top: calc(68px + env(safe-area-inset-top));
-    right: 12px;
-    left: 12px;
-    max-width: none;
+    top: calc(62px + env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+    left: auto;
+    max-width: min(220px, calc(100vw - 24px));
   }
 
   .app-shell {
