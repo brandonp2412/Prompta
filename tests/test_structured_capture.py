@@ -394,6 +394,58 @@ def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale
     assert "Glass Serena · serena_repl" in assistant["content"]
 
 
+def test_active_conversation_uses_structured_order_for_completed_assistant_turn(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-active-completed-turn",
+        context_id="context-active-completed-turn",
+        job_name="",
+        prompt="Inspect this",
+    )
+    cache.write_snapshot(
+        "conversation-active-completed-turn",
+        {
+            "title": "Structured",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Inspect this"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": "Checking the stored conversation state\n\nFinished",
+                },
+            ],
+            "source_events": _source_events(),
+        },
+    )
+    correct = cache.messages("conversation-active-completed-turn")[-1]["content"]
+    fence = chr(96) * 3
+    tool_start = correct.index(f"{fence}tool:")
+    final_start = correct.rindex("\n\nFinished")
+    tool_block = correct[tool_start:final_start]
+    grouped = "\n\n".join(["Checking the stored conversation state", "Finished", tool_block])
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE messages SET content = ? WHERE conversation_id = ? AND message_key = ?",
+            (grouped, "conversation-active-completed-turn", "a1"),
+        )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation("conversation-active-completed-turn")
+    assert chat is not None
+    assert chat["status"] == "active"
+    assistant = chat["messages"][-1]
+    assert assistant["status"] == "complete"
+    content = assistant["content"]
+    assert content.index("Checking the stored conversation state") < content.index(
+        "Glass Serena · serena_repl"
+    )
+    assert content.index("Glass Serena · serena_repl") < content.index("Finished")
+
+
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
 ) -> None:

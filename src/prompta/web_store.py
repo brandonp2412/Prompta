@@ -377,7 +377,8 @@ class ReadOnlyChatStore:
             message["tool_calls"] = calls_by_message.get(message_key, [])
             message["source_event_count"] = event_count_by_message.get(message_key, 0)
             message["version_count"] = version_count_by_message.get(message_key, 0)
-            if historical and structured_parts:
+            use_structured_content = historical or str(message.get("status") or "") == "complete"
+            if use_structured_content and structured_parts:
                 structured_content = "\n\n".join(
                     str(part.get("content") or "").strip()
                     for part in structured_parts
