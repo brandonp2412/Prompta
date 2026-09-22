@@ -1157,7 +1157,30 @@ class ChatCache:
             """,
             (conversation_id,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        messages = [dict(row) for row in rows]
+        tool_prefix = chr(96) * 3 + "tool:"
+        for message in messages:
+            if (
+                str(message.get("role") or "") != "assistant"
+                or str(message.get("status") or "") != "streaming"
+            ):
+                continue
+            content = str(message.get("content") or "")
+            if tool_prefix not in content:
+                continue
+            observations = _dom_prose_observations(
+                self.connection,
+                conversation_id=conversation_id,
+                message_key=str(message.get("message_key") or ""),
+                source_events=[],
+                observed_at=0.0,
+            )
+            if observations and has_stream_order_inversion(content, observations):
+                message["content"] = recover_stream_order_from_observations(
+                    content,
+                    observations,
+                )
+        return messages
 
     def close(self) -> None:
         self.connection.close()

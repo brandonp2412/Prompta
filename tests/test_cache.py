@@ -270,6 +270,9 @@ def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_dom_history(
             (legacy_reordered, "conversation-recover-stream", "a1"),
         )
 
+    repaired_cached = cache.messages("conversation-recover-stream")[-1]["content"]
+    assert repaired_cached == "\n\n".join(["Visible intro", tool])
+
     incoming = "\n\n".join([tool, "Visible intro", "Visible follow-up"])
     cache.write_snapshot(
         "conversation-recover-stream",
