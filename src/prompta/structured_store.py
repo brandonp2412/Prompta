@@ -321,8 +321,16 @@ def persist_structured_capture(
         connection.execute(
             """
             UPDATE messages
-            SET source_created_at = COALESCE(source_created_at, ?)
+            SET source_created_at = CASE
+                WHEN source_created_at IS NULL OR ? < source_created_at THEN ?
+                ELSE source_created_at
+            END
             WHERE conversation_id = ? AND message_key = ?
             """,
-            (min(source_times), conversation_id, message_key),
+            (
+                min(source_times),
+                min(source_times),
+                conversation_id,
+                message_key,
+            ),
         )
