@@ -1174,9 +1174,9 @@ async def test_send_attempts_are_spaced_across_jobs_and_restarts(tmp_path: Path)
     assert await restarted._run_job(second_job, now=1030.0) is False
     assert restarted.send_once.await_count == 0
 
-    assert await restarted._run_job(second_job, now=1299.0) is False
-    with patch("prompta.core.time.time", return_value=1301.0):
-        assert await restarted._run_job(second_job, now=1301.0) is True
+    assert await restarted._run_job(second_job, now=1059.0) is False
+    with patch("prompta.core.time.time", return_value=1061.0):
+        assert await restarted._run_job(second_job, now=1061.0) is True
     assert restarted.send_once.await_count == 1
 
 
@@ -1232,7 +1232,16 @@ def test_backoff_round_trip() -> None:
     restored = RateLimitBackoff()
     restored.restore(snapshot, now=200.0, wall_time=1000.0)
     assert restored.attempts == 1
-    assert restored.remaining(now=200.0) == 300.0
+    assert restored.remaining(now=200.0) == 120.0
+
+
+def test_backoff_honors_explicit_retry_after_without_escalating() -> None:
+    backoff = RateLimitBackoff()
+    with patch("prompta.core.random.uniform", return_value=0.0):
+        assert backoff.record(300, now=100.0) == 300.0
+        backoff.blocked_until = 0.0
+        assert backoff.record(3, now=401.0) == 3.0
+    assert backoff.attempts == 2
 
 
 def test_backoff_resets_escalation_after_quiet_period() -> None:

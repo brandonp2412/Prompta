@@ -110,7 +110,8 @@ class RateLimitBackoff:
             _RATE_LIMIT_BACKOFF_CAP_SECONDS,
             float(DEFAULT_RETRY_AFTER) * (2 ** min(self.attempts - 1, 20)),
         )
-        floor = max(exponential, max(0.0, float(retry_after)))
+        explicit_retry_after = max(0.0, float(retry_after))
+        floor = explicit_retry_after if explicit_retry_after > 0 else exponential
         jitter_cap = min(_RATE_LIMIT_JITTER_CAP_SECONDS, floor * _RATE_LIMIT_JITTER_FRACTION)
         delay = floor + random.uniform(0.0, jitter_cap)
         self.last_limited_at = now

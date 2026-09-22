@@ -14,7 +14,7 @@ from .rate_limit import RateLimitBackoff, RateLimitError
 
 logger = logging.getLogger(__name__)
 
-_MIN_SEND_GAP_SECONDS = 5 * 60.0
+_MIN_SEND_GAP_SECONDS = 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
 _RECURRING_JITTER_FRACTION = 0.20
 _RECURRING_JITTER_CAP_SECONDS = 5 * 60.0

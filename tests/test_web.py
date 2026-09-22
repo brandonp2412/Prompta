@@ -857,7 +857,7 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
     registry_ref: list[SendJobRegistry] = []
 
     def sleeper(delay: float) -> None:
-        assert delay == pytest.approx(300.0, abs=0.01)
+        assert delay == pytest.approx(120.0, abs=0.01)
         sleeping.set()
         assert release.wait(timeout=1.0)
         registry = registry_ref[0]
@@ -877,7 +877,7 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
         limited = registry.get(queued["send_id"])
         assert limited is not None
         assert limited["status"] == "rate_limited"
-        assert limited["retry_after_seconds"] == 300
+        assert limited["retry_after_seconds"] == 120
         assert limited["retry_attempt"] == 1
         assert attachment.exists()
         recovery = json.loads(recovery_path.read_text())
