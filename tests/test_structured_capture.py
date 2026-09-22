@@ -120,9 +120,64 @@ def test_snapshot_digest_includes_structured_source_events() -> None:
 
     assert ChatCache.digest(base) != ChatCache.digest(corrected)
 
-    active = {**base, "activity": {"streaming": True, "complete": False}}
-    settled = {**base, "activity": {"streaming": False, "complete": True}}
-    assert ChatCache.digest(active) != ChatCache.digest(settled)
+
+def test_activity_history_is_persisted_without_changing_message_digest(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-state",
+        context_id="context-state",
+        job_name="",
+        prompt="Track state",
+    )
+    snapshot = {
+        "title": "State",
+        "path": "/c/conversation-state",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Track state"},
+            {"id": "a1", "role": "assistant", "content": "Working"},
+        ],
+    }
+    digest = ChatCache.digest(snapshot)
+
+    cache.record_state(
+        "conversation-state",
+        {
+            "streaming": True,
+            "complete": False,
+            "transient": False,
+            "failed": False,
+            "turn_ended": False,
+        },
+    )
+    cache.record_state(
+        "conversation-state",
+        {
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+            "turn_ended": True,
+        },
+    )
+
+    assert ChatCache.digest(snapshot) == digest
+    rows = cache.connection.execute(
+        """
+        SELECT status, streaming, complete, turn_ended
+        FROM conversation_state_events
+        WHERE conversation_id = ?
+        ORDER BY observed_at, id
+        """,
+        ("conversation-state",),
+    ).fetchall()
+    cache.close()
+
+    assert [(row["status"], row["streaming"], row["complete"], row["turn_ended"]) for row in rows] == [
+        ("active", 0, 0, None),
+        ("active", 1, 0, 0),
+        ("active", 0, 1, 1),
+    ]
 
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
