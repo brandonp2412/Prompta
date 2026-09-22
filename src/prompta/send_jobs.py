@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import queue
 import threading
 import time
 import uuid
@@ -52,13 +53,30 @@ class SendJobRegistry:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
+        self._send_queue: queue.Queue[tuple[str, str, str, str, list[str], str]] = queue.Queue()
         self._rate_limit_lock = threading.Lock()
         self._rate_limit_backoff = RateLimitBackoff()
         self._revision = 0
         self._recovery_path = recovery_path
         self._recovery_lock = threading.Lock()
         self._recoverable: dict[str, dict[str, Any]] = {}
+        self._worker = threading.Thread(
+            target=self._worker_loop,
+            name="prompta-ui-send-worker",
+            daemon=True,
+        )
+        self._worker.start()
         self._restore_recoverable()
+
+    def _worker_loop(self) -> None:
+        while True:
+            task = self._send_queue.get()
+            try:
+                self._run(*task)
+            except Exception:
+                logger.exception("Prompta UI send worker failed")
+            finally:
+                self._send_queue.task_done()
 
     def _write_recovery_locked(self) -> None:
         if self._recovery_path is None:
@@ -325,19 +343,16 @@ class SendJobRegistry:
         if restored:
             logger.info("Restoring %d durable Prompta UI send(s)", len(restored))
             for record in restored:
-                threading.Thread(
-                    target=self._run,
-                    args=(
+                self._send_queue.put(
+                    (
                         record["send_id"],
                         record["operation"],
                         record["message"],
                         record["conversation_id"],
                         list(record["attachments"]),
                         record["client_id"],
-                    ),
-                    name=f"prompta-ui-send-{record['send_id'][:8]}",
-                    daemon=True,
-                ).start()
+                    )
+                )
         elif not self._recoverable:
             try:
                 path.unlink(missing_ok=True)
@@ -453,19 +468,16 @@ class SendJobRegistry:
             if normalized_client_id:
                 self._client_jobs[normalized_client_id] = send_id
             self._revision += 1
-        threading.Thread(
-            target=self._run,
-            args=(
-                send_id,
-                operation,
-                message,
-                conversation_id,
-                attachment_paths,
-                normalized_client_id,
-            ),
-            name=f"prompta-ui-send-{send_id[:8]}",
-            daemon=True,
-        ).start()
+            self._send_queue.put(
+                (
+                    send_id,
+                    operation,
+                    message,
+                    conversation_id,
+                    attachment_paths,
+                    normalized_client_id,
+                )
+            )
         return dict(job)
 
     def get(self, send_id: str) -> dict[str, Any] | None:

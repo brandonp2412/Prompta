@@ -1038,6 +1038,49 @@ def test_send_job_registry_reuses_client_id_concurrently() -> None:
     assert calls == 1
 
 
+def test_send_job_registry_processes_sends_in_fifo_order() -> None:
+    first_started = Event()
+    release_first = Event()
+    calls: list[str] = []
+    calls_lock = Lock()
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        del operation, conversation_id, attachments
+        with calls_lock:
+            calls.append(message)
+        if message == "first":
+            first_started.set()
+            assert release_first.wait(timeout=1.0)
+        return f"chat-{message}"
+
+    registry = SendJobRegistry(sender)
+    first = registry.submit(operation="once", message="first")
+    assert first_started.wait(timeout=1.0)
+    second = registry.submit(operation="once", message="second")
+
+    time.sleep(0.05)
+    assert calls == ["first"]
+    queued_second = registry.get(second["send_id"])
+    assert queued_second is not None
+    assert queued_second["status"] == "queued"
+
+    release_first.set()
+    deadline = time.monotonic() + 1.0
+    first_result = registry.get(first["send_id"])
+    second_result = registry.get(second["send_id"])
+    while (
+        (first_result is None or first_result["status"] != "succeeded")
+        or (second_result is None or second_result["status"] != "succeeded")
+    ) and time.monotonic() < deadline:
+        time.sleep(0.01)
+        first_result = registry.get(first["send_id"])
+        second_result = registry.get(second["send_id"])
+
+    assert calls == ["first", "second"]
+    assert first_result is not None and first_result["status"] == "succeeded"
+    assert second_result is not None and second_result["status"] == "succeeded"
+
+
 def test_send_job_registry_retries_transient_background_error() -> None:
     calls = 0
     sleeps: list[float] = []
