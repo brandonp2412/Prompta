@@ -31,9 +31,7 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
             model_slug TEXT NOT NULL DEFAULT '',
             raw_json TEXT NOT NULL,
             observed_at REAL NOT NULL,
-            PRIMARY KEY (conversation_id, message_key, event_key),
-            FOREIGN KEY (conversation_id, message_key)
-                REFERENCES messages(conversation_id, message_key) ON DELETE CASCADE
+            PRIMARY KEY (conversation_id, message_key, event_key)
         );
 
         CREATE INDEX IF NOT EXISTS source_events_message_ordinal_idx
@@ -93,9 +91,7 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
             content TEXT NOT NULL,
             status TEXT NOT NULL,
             observed_at REAL NOT NULL,
-            PRIMARY KEY (conversation_id, message_key, version),
-            FOREIGN KEY (conversation_id, message_key)
-                REFERENCES messages(conversation_id, message_key) ON DELETE CASCADE
+            PRIMARY KEY (conversation_id, message_key, version)
         );
         """
     )
@@ -184,10 +180,6 @@ def persist_structured_capture(
     calls = tool_calls_from_source_events(events)
 
     connection.execute(
-        "DELETE FROM source_events WHERE conversation_id = ? AND message_key = ?",
-        (conversation_id, message_key),
-    )
-    connection.execute(
         "DELETE FROM message_parts WHERE conversation_id = ? AND message_key = ?",
         (conversation_id, message_key),
     )
@@ -216,6 +208,22 @@ def persist_structured_capture(
                 role, recipient, content_type, text, reasoning_title,
                 source_created_at, end_turn, model_slug, raw_json, observed_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id, message_key, event_key) DO UPDATE SET
+                ordinal = excluded.ordinal,
+                event_type = excluded.event_type,
+                role = excluded.role,
+                recipient = excluded.recipient,
+                content_type = excluded.content_type,
+                text = excluded.text,
+                reasoning_title = excluded.reasoning_title,
+                source_created_at = COALESCE(excluded.source_created_at, source_events.source_created_at),
+                end_turn = COALESCE(excluded.end_turn, source_events.end_turn),
+                model_slug = CASE
+                    WHEN excluded.model_slug != '' THEN excluded.model_slug
+                    ELSE source_events.model_slug
+                END,
+                raw_json = excluded.raw_json,
+                observed_at = excluded.observed_at
             """,
             (
                 conversation_id,
