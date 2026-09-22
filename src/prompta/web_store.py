@@ -70,76 +70,90 @@ class ReadOnlyChatStore:
             escaped = search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
             needle = f"%{escaped}%"
             parameters.extend([needle, needle, needle, needle])
-        include_order = ""
+
+        include_rank = "1"
         if included_ids and not search:
             placeholders = ", ".join("?" for _ in included_ids)
-            include_order = f"CASE WHEN c.id IN ({placeholders}) THEN 0 ELSE 1 END,"
+            include_rank = f"CASE WHEN c.id IN ({placeholders}) THEN 0 ELSE 1 END"
             parameters.extend(included_ids)
+
         parameters.append(max(1, min(limit, 500)) + (len(included_ids) if not search else 0))
+
         try:
             with self._connect() as connection:
                 columns = {
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
                 }
-                latest_message_preview = """(
-                    SELECT m.content FROM messages m
-                    WHERE m.conversation_id = c.id
-                      AND m.message_key NOT LIKE 'request-placeholder-%'
-                    ORDER BY m.ordinal DESC LIMIT 1
-                )"""
-                preview_expression = (
-                    f"COALESCE({latest_message_preview}, NULLIF(c.preview, ''), NULLIF(c.prompt, ''))"
-                    if "preview" in columns
-                    else f"COALESCE({latest_message_preview}, NULLIF(c.prompt, ''))"
-                )
+                preview_column = "c.preview," if "preview" in columns else ""
+                preview_fallback = "NULLIF(s.preview, '')," if "preview" in columns else ""
                 rows = connection.execute(
                     f"""
+                    WITH selected AS (
+                        SELECT
+                            c.id,
+                            c.job_name,
+                            c.prompt,
+                            c.url,
+                            c.title,
+                            c.status,
+                            c.created_at,
+                            c.updated_at,
+                            c.completed_at,
+                            {preview_column}
+                            {include_rank} AS include_rank
+                        FROM conversations c
+                        {where}
+                        ORDER BY include_rank, c.created_at DESC, c.id
+                        LIMIT ?
+                    ),
+                    message_stats AS (
+                        SELECT
+                            m.conversation_id,
+                            MAX(m.created_at) AS last_message_at,
+                            COUNT(*) AS message_count
+                        FROM messages m
+                        JOIN selected s ON s.id = m.conversation_id
+                        WHERE m.message_key NOT LIKE 'request-placeholder-%'
+                        GROUP BY m.conversation_id
+                    )
                     SELECT
-                        c.id,
-                        c.job_name,
-                        c.prompt,
-                        c.url,
-                        c.title,
-                        c.status,
-                        c.created_at,
-                        c.updated_at,
-                        c.completed_at,
+                        s.id,
+                        s.job_name,
+                        s.prompt,
+                        s.url,
+                        s.title,
+                        s.status,
+                        s.created_at,
+                        s.updated_at,
+                        s.completed_at,
+                        COALESCE(ms.last_message_at, s.created_at) AS last_message_at,
                         COALESCE(
                             (
-                                SELECT MAX(m.created_at) FROM messages m
-                                WHERE m.conversation_id = c.id
+                                SELECT m.content
+                                FROM messages m
+                                WHERE m.conversation_id = s.id
                                   AND m.message_key NOT LIKE 'request-placeholder-%'
+                                ORDER BY m.ordinal DESC
+                                LIMIT 1
                             ),
-                            c.created_at
-                        ) AS last_message_at,
-                        {preview_expression} AS preview,
+                            {preview_fallback}
+                            NULLIF(s.prompt, '')
+                        ) AS preview,
                         CASE
-                            WHEN EXISTS (
-                                SELECT 1 FROM messages m
-                                WHERE m.conversation_id = c.id
-                                  AND m.message_key NOT LIKE 'request-placeholder-%'
-                            )
-                            THEN (
-                                SELECT COUNT(*) FROM messages m
-                                WHERE m.conversation_id = c.id
-                                  AND m.message_key NOT LIKE 'request-placeholder-%'
-                            )
-                            WHEN TRIM(c.prompt) <> '' THEN 1
+                            WHEN COALESCE(ms.message_count, 0) > 0 THEN ms.message_count
+                            WHEN TRIM(s.prompt) <> '' THEN 1
                             ELSE 0
                         END AS message_count
-                    FROM conversations c
-                    {where}
-                    ORDER BY
-                        {include_order}
-                        c.created_at DESC,
-                        c.id
-                    LIMIT ?
+                    FROM selected s
+                    LEFT JOIN message_stats ms ON ms.conversation_id = s.id
+                    ORDER BY s.include_rank, s.created_at DESC, s.id
                     """,
                     parameters,
                 ).fetchall()
         except (FileNotFoundError, sqlite3.DatabaseError):
             return []
+
         result = []
         for row in rows:
             payload = dict(row)

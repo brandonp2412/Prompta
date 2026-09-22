@@ -4343,7 +4343,7 @@ async function loadSelectedChat() {
   }
   const requestId = ++state.selectedRequestId;
   try {
-    const chat = await fetchJson2(`api/chats/${encodeURIComponent(selectedId)}`);
+    const chat = await fetchJson2(`api/chats/${encodeURIComponent(selectedId)}`, 30000);
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId || chat.id !== state.selectedId)
       return;
     if (state.pendingNewId === chat.id && !state.pendingNewSend) {

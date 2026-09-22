@@ -1721,7 +1721,7 @@ async function loadSelectedChat() {
   const requestId = ++state.selectedRequestId;
 
   try {
-    const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
+    const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`, 30_000);
 
     if (
       requestId !== state.selectedRequestId ||
