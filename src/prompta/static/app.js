@@ -24,6 +24,14 @@ function sidebarChatCreatedAt(chat) {
 function sidebarChatIsPending(chat) {
   return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
+function sidebarChatIsSelected(chat, selectedId, composingNew, pendingNewDisplayId) {
+  const chatId = String(chat?.id || "");
+  if (!chatId)
+    return false;
+  if (chatId === String(selectedId || ""))
+    return true;
+  return Boolean(composingNew && pendingNewDisplayId && chatId === pendingNewDisplayId);
+}
 function sortSidebarChats(chats, pinnedIds) {
   return [...chats].sort((left, right) => {
     const pinnedDelta = Number(pinnedIds.has(right.id)) - Number(pinnedIds.has(left.id));
@@ -3575,6 +3583,7 @@ function renderSidebar(force = false) {
     return;
   }
   const chats = sidebarChats();
+  const pendingNewDisplayId = state.composingNew ? pendingConversationDisplayId(state.pendingNewSend) : "";
   const fingerprint = JSON.stringify(chats.map((chat) => [
     chat.id,
     chat.status,
@@ -3601,7 +3610,7 @@ function renderSidebar(force = false) {
     <section class="chat-group" data-dom-key="group:${escapeHtml6(label)}">
       <div class="chat-group-label">${escapeHtml6(label)}</div>
       ${groupedChats.map((chat) => {
-    const selected = chat.id === state.selectedId || chat._optimisticNew && state.composingNew;
+    const selected = sidebarChatIsSelected(chat, state.selectedId, state.composingNew, pendingNewDisplayId);
     return `
         <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml6(chat.id)}">
           <button type="button"

@@ -27,6 +27,7 @@ import {
   replaceChatGptRichMarkers,
   sidebarChatCreatedAt,
   sidebarChatIsPending,
+  sidebarChatIsSelected,
   sidebarChatPreviewText,
   sidebarPreviewText,
   sortSidebarChats,
@@ -103,6 +104,33 @@ describe("deterministic sidebar ordering", () => {
     expect(sidebarChatIsPending({ id: "reply", _optimisticReply: true })).toBe(true);
     expect(sidebarChatIsPending({ id: "done" })).toBe(false);
     expect(sidebarChatCreatedAt({ id: "chat", created_at: 123, updated_at: 999 } as any)).toBe(123);
+  });
+
+  test("keeps the pending new chat selected after the server assigns its conversation id", () => {
+    expect(
+      sidebarChatIsSelected(
+        { id: "pending-new-client-1", _optimisticNew: true },
+        null,
+        true,
+        "pending-new-client-1",
+      ),
+    ).toBe(true);
+    expect(
+      sidebarChatIsSelected(
+        { id: "WEB:real-chat", _pending_send: true },
+        null,
+        true,
+        "WEB:real-chat",
+      ),
+    ).toBe(true);
+    expect(
+      sidebarChatIsSelected(
+        { id: "WEB:other-chat", _pending_send: true },
+        null,
+        true,
+        "WEB:real-chat",
+      ),
+    ).toBe(false);
   });
 });
 

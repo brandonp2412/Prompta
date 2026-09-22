@@ -16,6 +16,7 @@ import {
   pendingSendActivity,
   sidebarChatCreatedAt,
   sidebarChatIsPending,
+  sidebarChatIsSelected,
   sortSidebarChats,
   shouldRenderNewChatView,
   shouldShowStopAction,
@@ -756,6 +757,9 @@ function renderSidebar(force = false) {
   }
 
   const chats = sidebarChats();
+  const pendingNewDisplayId = state.composingNew
+    ? pendingConversationDisplayId(state.pendingNewSend)
+    : "";
   const fingerprint =
     JSON.stringify(
       chats.map((chat) => [
@@ -800,8 +804,12 @@ function renderSidebar(force = false) {
       <div class="chat-group-label">${escapeHtml(label)}</div>
       ${groupedChats
         .map((chat) => {
-          const selected =
-            chat.id === state.selectedId || (chat._optimisticNew && state.composingNew);
+          const selected = sidebarChatIsSelected(
+            chat,
+            state.selectedId,
+            state.composingNew,
+            pendingNewDisplayId,
+          );
 
           return `
         <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml(chat.id)}">
