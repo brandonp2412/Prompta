@@ -112,6 +112,61 @@ def test_live_snapshot_uses_source_event_timeline_for_assistant_content(tmp_path
     assert content.index("Between tools") < content.index("Test MCP · second")
 
 
+def test_live_snapshot_keeps_dom_order_when_source_prose_has_no_timestamp(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-dom-prose",
+        context_id="context-dom-prose",
+        job_name="",
+        prompt="Do work",
+    )
+    fence = chr(96) * 3
+    tool = f"{fence}tool:Test MCP · inspect\nCalled tool\n{fence}"
+    visible_content = "\n\n".join(["Visible intro", tool, "Visible follow-up"])
+    source_events = [
+        {
+            "id": "call-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link_123/inspect", "args": {}}),
+            "create_time": 2.0,
+        },
+        {
+            "id": "__prompta_live_assistant_abc__:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Visible intro", "Visible follow-up"],
+            "text": "",
+            "create_time": None,
+            "end_turn": None,
+        },
+    ]
+
+    cache.write_snapshot(
+        "conversation-dom-prose",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": visible_content},
+            ],
+            "source_events": source_events,
+        },
+    )
+
+    content = cache.messages("conversation-dom-prose")[-1]["content"]
+    cache.close()
+
+    assert content == visible_content
+    assert content.index("Visible intro") < content.index("Test MCP · inspect")
+    assert content.index("Test MCP · inspect") < content.index("Visible follow-up")
+
+
 def test_completed_snapshot_moves_fallback_final_text_after_late_tool_blocks(
     tmp_path: Path,
 ) -> None:

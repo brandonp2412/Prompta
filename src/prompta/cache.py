@@ -599,10 +599,16 @@ class ChatCache:
         if not isinstance(messages, list):
             messages = []
         source_events = snapshot.get("source_events")
-        if isinstance(source_events, list) and source_events:
-            ordered_parts = message_parts_from_source_events(
-                [event for event in source_events if isinstance(event, dict)]
-            )
+        structured_events = (
+            [event for event in source_events if isinstance(event, dict)]
+            if isinstance(source_events, list)
+            else []
+        )
+        has_dom_prose_fallback = any(
+            str(event.get("id") or "").endswith(":dom-prose") for event in structured_events
+        )
+        if structured_events and not has_dom_prose_fallback:
+            ordered_parts = message_parts_from_source_events(structured_events)
             ordered_content = rendered_content_from_parts(ordered_parts)
             if ordered_content:
                 for message_index in range(len(messages) - 1, -1, -1):
