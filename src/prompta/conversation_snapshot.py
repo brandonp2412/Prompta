@@ -309,6 +309,11 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     }
     return collapsed;
   };
+  const deliveryTimeoutNoise=/^message delivery timed out\\.?\\s*please try again\\.?$/i;
+  const cleanAssistantText=text=>String(text||'').split(/\\n+/)
+    .map(line=>line.trim())
+    .filter(line=>line&&!deliveryTimeoutNoise.test(line))
+    .join('\\n').trim();
   const reactOrderedContent=agent=>{
     const messages=reactMessages(agent);
     if(!messages.length)return '';
@@ -336,7 +341,9 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         const textParts=Array.isArray(content?.parts)
           ?content.parts.filter(part=>typeof part==='string'&&part.trim())
           :[];
-        const visibleText=(textParts.length?textParts.join('\\n'):String(content?.text||'')).trim();
+        const visibleText=cleanAssistantText(
+          textParts.length?textParts.join('\\n'):String(content?.text||'')
+        );
         if(visibleText){
           if(message?.end_turn===true)finalTextParts.push(visibleText);
           else parts.push(visibleText);
@@ -421,7 +428,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     }).filter(Boolean);
     if(orderedToolIndex<tools.length)orderedParts.push(...tools.slice(orderedToolIndex));
     const rawVisible=(agent.innerText||agent.textContent||'').trim();
-    const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again)$/i;
+    const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again\\.?)$/i;
     const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
       line
       && !uiNoise.test(line)

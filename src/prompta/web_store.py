@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .cache import DEFAULT_CACHE_PATH
+from .cache import DEFAULT_CACHE_PATH, strip_delivery_timeout_noise
 from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
 
@@ -297,6 +297,19 @@ class ReadOnlyChatStore:
         for message in message_payloads:
             message_key = str(message.get("message_key") or "")
             structured_parts = parts_by_message.get(message_key, [])
+            if str(message.get("role") or "") == "assistant":
+                message["content"] = strip_delivery_timeout_noise(
+                    str(message.get("content") or "")
+                )
+                for part in structured_parts:
+                    if str(part.get("kind") or "") in {
+                        "assistant_text",
+                        "final_text",
+                        "reasoning",
+                    }:
+                        part["content"] = strip_delivery_timeout_noise(
+                            str(part.get("content") or "")
+                        )
             message["parts"] = structured_parts
             message["tool_calls"] = calls_by_message.get(message_key, [])
             message["source_event_count"] = event_count_by_message.get(message_key, 0)

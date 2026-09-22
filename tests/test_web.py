@@ -1301,6 +1301,54 @@ def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
     assert [message["role"] for message in chat["messages"]] == ["user", "assistant"]
 
 
+
+def test_read_only_store_hides_delivery_timeout_ui_noise(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-timeout",
+        context_id="context-timeout",
+        job_name="",
+        prompt="Keep working",
+    )
+    noisy_content = (
+        "Progress before timeout.\n\n"
+        "Message delivery timed out. Please try again.\n\n"
+        "Progress after retry."
+    )
+    cache.write_snapshot(
+        "chat-timeout",
+        {
+            "title": "Recovered delivery",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": noisy_content},
+            ],
+        },
+    )
+    persisted = cache.connection.execute(
+        "SELECT content FROM messages WHERE conversation_id = ? AND message_key = ?",
+        ("chat-timeout", "a1"),
+    ).fetchone()
+    assert persisted is not None
+    assert "Message delivery timed out" not in str(persisted["content"])
+
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE messages SET content = ? WHERE conversation_id = ? AND message_key = ?",
+            (noisy_content, "chat-timeout", "a1"),
+        )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation("chat-timeout")
+
+    assert chat is not None
+    content = chat["messages"][-1]["content"]
+    assert content == "Progress before timeout.\n\n\nProgress after retry."
+    assert "Message delivery timed out" not in content
+
+
 def test_read_only_store_clears_stale_streaming_status_for_finished_chat(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)

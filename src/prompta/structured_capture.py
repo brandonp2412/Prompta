@@ -307,7 +307,7 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
         ):
             visible = _visible_text(event)
             if visible and not re.fullmatch(
-                r"message delivery timed out\.?\s*please try again",
+                r"message delivery timed out\.?\s*please try again\.?",
                 visible,
                 flags=re.IGNORECASE,
             ):

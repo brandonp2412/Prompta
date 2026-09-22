@@ -372,7 +372,7 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
                 "\n".join(visible_parts) if visible_parts else str(message.get("text") or "")
             ).strip()
             if visible and not re.fullmatch(
-                r"message delivery timed out\.?\s*please try again",
+                r"message delivery timed out\.?\s*please try again\.?",
                 visible,
                 flags=re.IGNORECASE,
             ):

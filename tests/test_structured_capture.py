@@ -94,6 +94,15 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
     )
 
 
+
+def test_browser_snapshot_filters_delivery_timeout_from_react_history() -> None:
+    assert (
+        "const deliveryTimeoutNoise=/^message delivery timed out\\.?\\s*please try again\\.?$/i;"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "const visibleText=cleanAssistantText(" in CONVERSATION_SNAPSHOT_SCRIPT
+
+
 def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> None:
     result_text = "x" * 20_000
     events = _source_events(result_text)
