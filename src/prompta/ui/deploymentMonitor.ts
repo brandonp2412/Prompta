@@ -1,7 +1,20 @@
-export function createDeploymentMonitor() {
+export function createDeploymentMonitor({
+  shouldDeferReload = () => false,
+  deferRetryMs = 250,
+}: {
+  shouldDeferReload?: () => boolean;
+  deferRetryMs?: number;
+} = {}) {
   let head = "";
   let reloading = false;
   let reloadPending = false;
+  let deferredRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearDeferredRefresh() {
+    if (deferredRefreshTimer === null) return;
+    clearTimeout(deferredRefreshTimer);
+    deferredRefreshTimer = null;
+  }
 
   async function updateServiceWorker() {
     try {
@@ -16,10 +29,26 @@ export function createDeploymentMonitor() {
 
   async function refresh() {
     if (reloading) return;
+    clearDeferredRefresh();
     reloading = true;
     reloadPending = false;
     await updateServiceWorker();
     window.location.reload();
+  }
+
+  function scheduleRefresh() {
+    if (!reloadPending || reloading) return;
+    if (shouldDeferReload()) {
+      if (deferredRefreshTimer === null) {
+        deferredRefreshTimer = setTimeout(() => {
+          deferredRefreshTimer = null;
+          scheduleRefresh();
+        }, deferRetryMs);
+      }
+      return;
+    }
+    clearDeferredRefresh();
+    void refresh();
   }
 
   function observeHead(value) {
@@ -32,12 +61,11 @@ export function createDeploymentMonitor() {
     if (nextHead === head || reloading) return;
     head = nextHead;
     reloadPending = true;
-    void refresh();
+    scheduleRefresh();
   }
 
   function handleVisibilityChange() {
-    if (!reloadPending || reloading) return;
-    void refresh();
+    scheduleRefresh();
   }
 
   function registerServiceWorker() {

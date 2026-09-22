@@ -132,7 +132,13 @@ const logsPanel = createLogsPanel({
   fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
   formatRelativeTime,
 });
-const deploymentMonitor = createDeploymentMonitor();
+const deploymentMonitor = createDeploymentMonitor({
+  shouldDeferReload: () => (
+    document.activeElement === els.messageInput
+    || document.activeElement === els.searchInput
+    || state.sending
+  ),
+});
 createChangelogDialog({
   fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
   closeSidebar: sidebar.close,

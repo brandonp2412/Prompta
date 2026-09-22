@@ -2213,10 +2213,20 @@ function createLogsPanel({ fetchJson: fetchJson2, formatRelativeTime }) {
 }
 
 // src/prompta/ui/deploymentMonitor.ts
-function createDeploymentMonitor() {
+function createDeploymentMonitor({
+  shouldDeferReload = () => false,
+  deferRetryMs = 250
+} = {}) {
   let head = "";
   let reloading = false;
   let reloadPending = false;
+  let deferredRefreshTimer = null;
+  function clearDeferredRefresh() {
+    if (deferredRefreshTimer === null)
+      return;
+    clearTimeout(deferredRefreshTimer);
+    deferredRefreshTimer = null;
+  }
   async function updateServiceWorker() {
     try {
       if ("serviceWorker" in navigator) {
@@ -2230,10 +2240,26 @@ function createDeploymentMonitor() {
   async function refresh() {
     if (reloading)
       return;
+    clearDeferredRefresh();
     reloading = true;
     reloadPending = false;
     await updateServiceWorker();
     window.location.reload();
+  }
+  function scheduleRefresh() {
+    if (!reloadPending || reloading)
+      return;
+    if (shouldDeferReload()) {
+      if (deferredRefreshTimer === null) {
+        deferredRefreshTimer = setTimeout(() => {
+          deferredRefreshTimer = null;
+          scheduleRefresh();
+        }, deferRetryMs);
+      }
+      return;
+    }
+    clearDeferredRefresh();
+    refresh();
   }
   function observeHead(value) {
     const nextHead = String(value || "").trim().toLowerCase();
@@ -2247,12 +2273,10 @@ function createDeploymentMonitor() {
       return;
     head = nextHead;
     reloadPending = true;
-    refresh();
+    scheduleRefresh();
   }
   function handleVisibilityChange() {
-    if (!reloadPending || reloading)
-      return;
-    refresh();
+    scheduleRefresh();
   }
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator))
@@ -2748,7 +2772,9 @@ var logsPanel = createLogsPanel({
   fetchJson: (url, timeoutMs) => fetchJson2(url, timeoutMs),
   formatRelativeTime
 });
-var deploymentMonitor = createDeploymentMonitor();
+var deploymentMonitor = createDeploymentMonitor({
+  shouldDeferReload: () => document.activeElement === els.messageInput || document.activeElement === els.searchInput || state.sending
+});
 createChangelogDialog({
   fetchJson: (url, timeoutMs) => fetchJson2(url, timeoutMs),
   closeSidebar: sidebar.close
