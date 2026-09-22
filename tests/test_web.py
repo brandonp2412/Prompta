@@ -1680,8 +1680,7 @@ def test_service_worker_prefers_network_updates_with_offline_shell_fallback() ->
     assert network_fetch < cache_fallback
     assert 'const BUILD_ID = "__PROMPTA_UI_HEAD__";' in script
     assert 'const CACHE_NAME = "prompta-shell-" + (BUILD_ID || "dev");' in script
-    assert 'key.startsWith("prompta-shell-")' in script
-    assert 'client.navigate(client.url)' in script
+    assert "client.navigate(client.url)" not in script
     assert "url.pathname.startsWith(apiPrefix)" in script
     assert "await cache.put(event.request, response.clone())" in script
     assert 'const shell = await caches.match(assetUrl("./"));' in script

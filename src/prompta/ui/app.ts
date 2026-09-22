@@ -95,6 +95,7 @@ const els = {
   syncLabel: requiredElement<HTMLElement>("#syncLabel"),
   cacheSummary: requiredElement<HTMLElement>("#cacheSummary"),
   headLabel: requiredElement<HTMLElement>("#headLabel"),
+  versionUpdateNotice: requiredElement<HTMLButtonElement>("#versionUpdateNotice"),
   globalLiveOrb: requiredElement<HTMLElement>("#globalLiveOrb"),
   serverLabel: requiredElement<HTMLElement>("#serverLabel"),
   newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
@@ -133,11 +134,14 @@ const logsPanel = createLogsPanel({
   formatRelativeTime,
 });
 const deploymentMonitor = createDeploymentMonitor({
-  shouldDeferReload: () => (
-    document.activeElement === els.messageInput
-    || document.activeElement === els.searchInput
-    || state.sending
-  ),
+  onUpdateAvailable: () => {
+    els.versionUpdateNotice.hidden = false;
+  },
+});
+els.versionUpdateNotice.addEventListener("click", () => {
+  els.versionUpdateNotice.disabled = true;
+  els.versionUpdateNotice.textContent = "Updating Prompta…";
+  void deploymentMonitor.applyUpdate();
 });
 createChangelogDialog({
   fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),

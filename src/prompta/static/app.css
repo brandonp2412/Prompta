@@ -1637,6 +1637,39 @@ textarea:focus-visible {
 }
 
 
+.version-update-notice {
+  position: fixed;
+  top: calc(74px + env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  z-index: 50;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 11px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.version-update-notice:hover,
+.version-update-notice:focus-visible {
+  background: var(--surface-hover);
+}
+
+.version-update-notice:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.version-update-notice[hidden] {
+  display: none;
+}
+
 @keyframes pulse {
   0%, 80%, 100% {
     opacity: 0.35;
@@ -1651,6 +1684,13 @@ textarea:focus-visible {
 
 
 @media (max-width: 780px) {
+  .version-update-notice {
+    top: calc(68px + env(safe-area-inset-top));
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+
   .app-shell {
     display: block;
     touch-action: pan-y pinch-zoom;

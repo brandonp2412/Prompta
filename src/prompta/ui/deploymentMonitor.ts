@@ -1,20 +1,11 @@
 export function createDeploymentMonitor({
-  shouldDeferReload = () => false,
-  deferRetryMs = 250,
+  onUpdateAvailable = () => {},
 }: {
-  shouldDeferReload?: () => boolean;
-  deferRetryMs?: number;
+  onUpdateAvailable?: (head: string) => void;
 } = {}) {
   let head = "";
+  let updateAvailable = false;
   let reloading = false;
-  let reloadPending = false;
-  let deferredRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function clearDeferredRefresh() {
-    if (deferredRefreshTimer === null) return;
-    clearTimeout(deferredRefreshTimer);
-    deferredRefreshTimer = null;
-  }
 
   async function updateServiceWorker() {
     try {
@@ -27,28 +18,11 @@ export function createDeploymentMonitor({
     }
   }
 
-  async function refresh() {
+  async function applyUpdate() {
     if (reloading) return;
-    clearDeferredRefresh();
     reloading = true;
-    reloadPending = false;
     await updateServiceWorker();
     window.location.reload();
-  }
-
-  function scheduleRefresh() {
-    if (!reloadPending || reloading) return;
-    if (shouldDeferReload()) {
-      if (deferredRefreshTimer === null) {
-        deferredRefreshTimer = setTimeout(() => {
-          deferredRefreshTimer = null;
-          scheduleRefresh();
-        }, deferRetryMs);
-      }
-      return;
-    }
-    clearDeferredRefresh();
-    void refresh();
   }
 
   function observeHead(value) {
@@ -58,14 +32,14 @@ export function createDeploymentMonitor({
       head = nextHead;
       return;
     }
-    if (nextHead === head || reloading) return;
+    if (nextHead === head) return;
     head = nextHead;
-    reloadPending = true;
-    scheduleRefresh();
+    updateAvailable = true;
+    onUpdateAvailable(head);
   }
 
   function handleVisibilityChange() {
-    scheduleRefresh();
+    if (updateAvailable) onUpdateAvailable(head);
   }
 
   function registerServiceWorker() {
@@ -76,6 +50,7 @@ export function createDeploymentMonitor({
   }
 
   return {
+    applyUpdate,
     handleVisibilityChange,
     observeHead,
     registerServiceWorker,

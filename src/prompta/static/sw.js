@@ -12,16 +12,8 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    const replacingShell = keys.some(
-      (key) => key.startsWith("prompta-shell-") && key !== CACHE_NAME,
-    );
     await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
     await self.clients.claim();
-    if (!replacingShell) return;
-    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const client of clients) {
-      if ("navigate" in client) await client.navigate(client.url);
-    }
   })());
 });
 

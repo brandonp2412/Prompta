@@ -32,45 +32,10 @@ afterEach(() => {
 });
 
 describe("deployment monitor", () => {
-  test("reloads immediately when the deployed head changes while the UI is idle", async () => {
+  test("announces a new version and only reloads after the user applies it", async () => {
     let updates = 0;
     let reloads = 0;
-    replaceGlobal("navigator", {
-      serviceWorker: {
-        getRegistration: async () => ({
-          update: async () => {
-            updates += 1;
-          },
-        }),
-      },
-    });
-    replaceGlobal("window", {
-      location: {
-        reload() {
-          reloads += 1;
-        },
-      },
-    });
-
-    const monitor = createDeploymentMonitor();
-    monitor.observeHead("aaaaaaaa");
-    monitor.observeHead("bbbbbbbb");
-    await settle();
-
-    expect(updates).toBe(1);
-    expect(reloads).toBe(1);
-
-    monitor.observeHead("bbbbbbbb");
-    await settle();
-
-    expect(updates).toBe(1);
-    expect(reloads).toBe(1);
-  });
-
-  test("defers a deploy reload while the UI is busy", async () => {
-    let updates = 0;
-    let reloads = 0;
-    let deferReload = true;
+    const availableHeads = [];
     replaceGlobal("navigator", {
       serviceWorker: {
         getRegistration: async () => ({
@@ -89,22 +54,33 @@ describe("deployment monitor", () => {
     });
 
     const monitor = createDeploymentMonitor({
-      shouldDeferReload: () => deferReload,
-      deferRetryMs: 10_000,
+      onUpdateAvailable: (head) => availableHeads.push(head),
     });
     monitor.observeHead("aaaaaaaa");
     monitor.observeHead("bbbbbbbb");
     await settle();
 
+    expect(availableHeads).toEqual(["bbbbbbbb"]);
     expect(updates).toBe(0);
     expect(reloads).toBe(0);
 
-    deferReload = false;
-    monitor.handleVisibilityChange();
-    await settle();
+    await monitor.applyUpdate();
 
     expect(updates).toBe(1);
     expect(reloads).toBe(1);
+  });
+
+  test("re-announces a pending update after the page is restored", () => {
+    const availableHeads = [];
+    const monitor = createDeploymentMonitor({
+      onUpdateAvailable: (head) => availableHeads.push(head),
+    });
+
+    monitor.observeHead("aaaaaaaa");
+    monitor.observeHead("bbbbbbbb");
+    monitor.handleVisibilityChange();
+
+    expect(availableHeads).toEqual(["bbbbbbbb", "bbbbbbbb"]);
   });
 
   test("registers the service worker without HTTP cache reuse", async () => {

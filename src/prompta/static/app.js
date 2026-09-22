@@ -2225,19 +2225,11 @@ function createLogsPanel({ fetchJson: fetchJson2, formatRelativeTime }) {
 
 // src/prompta/ui/deploymentMonitor.ts
 function createDeploymentMonitor({
-  shouldDeferReload = () => false,
-  deferRetryMs = 250
+  onUpdateAvailable = () => {}
 } = {}) {
   let head = "";
+  let updateAvailable = false;
   let reloading = false;
-  let reloadPending = false;
-  let deferredRefreshTimer = null;
-  function clearDeferredRefresh() {
-    if (deferredRefreshTimer === null)
-      return;
-    clearTimeout(deferredRefreshTimer);
-    deferredRefreshTimer = null;
-  }
   async function updateServiceWorker() {
     try {
       if ("serviceWorker" in navigator) {
@@ -2248,29 +2240,12 @@ function createDeploymentMonitor({
       console.warn("Could not update Prompta service worker for deployment", error);
     }
   }
-  async function refresh() {
+  async function applyUpdate() {
     if (reloading)
       return;
-    clearDeferredRefresh();
     reloading = true;
-    reloadPending = false;
     await updateServiceWorker();
     window.location.reload();
-  }
-  function scheduleRefresh() {
-    if (!reloadPending || reloading)
-      return;
-    if (shouldDeferReload()) {
-      if (deferredRefreshTimer === null) {
-        deferredRefreshTimer = setTimeout(() => {
-          deferredRefreshTimer = null;
-          scheduleRefresh();
-        }, deferRetryMs);
-      }
-      return;
-    }
-    clearDeferredRefresh();
-    refresh();
   }
   function observeHead(value) {
     const nextHead = String(value || "").trim().toLowerCase();
@@ -2280,14 +2255,15 @@ function createDeploymentMonitor({
       head = nextHead;
       return;
     }
-    if (nextHead === head || reloading)
+    if (nextHead === head)
       return;
     head = nextHead;
-    reloadPending = true;
-    scheduleRefresh();
+    updateAvailable = true;
+    onUpdateAvailable(head);
   }
   function handleVisibilityChange() {
-    scheduleRefresh();
+    if (updateAvailable)
+      onUpdateAvailable(head);
   }
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator))
@@ -2297,6 +2273,7 @@ function createDeploymentMonitor({
     });
   }
   return {
+    applyUpdate,
     handleVisibilityChange,
     observeHead,
     registerServiceWorker
@@ -2746,6 +2723,7 @@ var els = {
   syncLabel: requiredElement7("#syncLabel"),
   cacheSummary: requiredElement7("#cacheSummary"),
   headLabel: requiredElement7("#headLabel"),
+  versionUpdateNotice: requiredElement7("#versionUpdateNotice"),
   globalLiveOrb: requiredElement7("#globalLiveOrb"),
   serverLabel: requiredElement7("#serverLabel"),
   newChatButton: requiredElement7("#newChatButton"),
@@ -2784,7 +2762,14 @@ var logsPanel = createLogsPanel({
   formatRelativeTime
 });
 var deploymentMonitor = createDeploymentMonitor({
-  shouldDeferReload: () => document.activeElement === els.messageInput || document.activeElement === els.searchInput || state.sending
+  onUpdateAvailable: () => {
+    els.versionUpdateNotice.hidden = false;
+  }
+});
+els.versionUpdateNotice.addEventListener("click", () => {
+  els.versionUpdateNotice.disabled = true;
+  els.versionUpdateNotice.textContent = "Updating Prompta…";
+  deploymentMonitor.applyUpdate();
 });
 createChangelogDialog({
   fetchJson: (url, timeoutMs) => fetchJson2(url, timeoutMs),
