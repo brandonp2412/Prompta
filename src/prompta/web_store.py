@@ -83,6 +83,12 @@ class ReadOnlyChatStore:
 
         try:
             with self._connect() as connection:
+                tables = {
+                    str(row["name"])
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
                 columns = {
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
@@ -106,10 +112,40 @@ class ReadOnlyChatStore:
                     ORDER BY m.ordinal DESC
                     LIMIT 1
                 )"""
+                structured_final_preview = """
+                    (
+                        SELECT p.content
+                        FROM message_parts p
+                        JOIN messages pm
+                          ON pm.conversation_id = p.conversation_id
+                         AND pm.message_key = p.message_key
+                        WHERE p.conversation_id = s.id
+                          AND pm.role = 'assistant'
+                          AND p.kind = 'final_text'
+                          AND p.end_turn = 1
+                          AND p.source_event_key NOT LIKE '%:dom-prose'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM source_events pe
+                              WHERE pe.conversation_id = p.conversation_id
+                                AND pe.message_key = p.message_key
+                                AND pe.event_key LIKE '%:dom-prose:%'
+                          )
+                        ORDER BY pm.ordinal DESC, p.ordinal DESC
+                        LIMIT 1
+                    )
+                """
+                has_structured_preview = {"message_parts", "source_events"} <= tables
+                stored_preview = "s.preview" if has_preview_column else "NULL"
                 preview_expression = (
-                    "s.preview"
-                    if has_preview_column
-                    else f"COALESCE({latest_message_preview}, NULLIF(s.prompt, ''))"
+                    f"COALESCE({structured_final_preview}, {stored_preview}, "
+                    f"{latest_message_preview}, NULLIF(s.prompt, ''))"
+                    if has_structured_preview
+                    else (
+                        stored_preview
+                        if has_preview_column
+                        else f"COALESCE({latest_message_preview}, NULLIF(s.prompt, ''))"
+                    )
                 )
                 rows = connection.execute(
                     f"""

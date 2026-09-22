@@ -403,6 +403,10 @@ def test_read_only_store_trusts_completed_structured_final_over_corrupt_cached_c
     assert "FinishedFinished" not in assistant["content"]
     assert "Glass Serena" in assistant["content"]
 
+    sidebar = ReadOnlyChatStore(path).conversations()
+    summary = next(item for item in sidebar if item["id"] == conversation_id)
+    assert summary["preview"] == "Finished"
+
 
 def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale(
     tmp_path: Path,
