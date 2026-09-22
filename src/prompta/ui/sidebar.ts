@@ -251,6 +251,8 @@ export function createSidebar({ onMotionEnd }) {
 
       if (!swipe.horizontal) return;
 
+      event.preventDefault();
+
       const width = swipe.sidebarWidth;
       const startX = swipe.wasOpen ? 0 : -width;
       const x = Math.max(-width, Math.min(0, startX + deltaX));
@@ -261,7 +263,7 @@ export function createSidebar({ onMotionEnd }) {
       swipe.lastTime = now;
       queueDragPosition(x);
     },
-    { passive: true },
+    { passive: false },
   );
 
   document.addEventListener(

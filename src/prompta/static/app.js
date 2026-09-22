@@ -1381,6 +1381,7 @@ function createSidebar({ onMotionEnd }) {
     }
     if (!swipe.horizontal)
       return;
+    event.preventDefault();
     const width = swipe.sidebarWidth;
     const startX = swipe.wasOpen ? 0 : -width;
     const x = Math.max(-width, Math.min(0, startX + deltaX));
@@ -1390,7 +1391,7 @@ function createSidebar({ onMotionEnd }) {
     swipe.lastX = touch.clientX;
     swipe.lastTime = now;
     queueDragPosition(x);
-  }, { passive: true });
+  }, { passive: false });
   document.addEventListener("touchend", () => {
     if (!swipe.tracking)
       return;
