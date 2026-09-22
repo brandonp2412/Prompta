@@ -61,6 +61,8 @@ const state = {
   selectedChat: null,
   selectedVisibleMessageCount: 0,
   renderedConversationId: "",
+  conversationViewports: new Map(),
+  chatSwitchToken: 0,
   optimisticSequence: 0,
   serverName: "",
   serverOnline: null,
@@ -673,6 +675,40 @@ function renderConversationMeta(chat, visibleMessageCount) {
       : "Cached in SQLite";
   setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
 }
+function rememberConversationViewport(conversationId) {
+  if (!conversationId || state.renderedConversationId !== conversationId) return;
+  const snapshot = {
+    ...conversationRenderer.captureConversationViewport(),
+    anchorElement: null,
+  };
+  state.conversationViewports.delete(conversationId);
+  state.conversationViewports.set(conversationId, snapshot);
+  while (state.conversationViewports.size > 20) {
+    const oldest = state.conversationViewports.keys().next().value;
+    if (!oldest) break;
+    state.conversationViewports.delete(oldest);
+  }
+}
+function beginChatSwitch() {
+  state.chatSwitchToken += 1;
+  els.viewport.classList.add("chat-switching");
+  els.viewport.setAttribute("aria-busy", "true");
+}
+function cancelChatSwitch() {
+  state.chatSwitchToken += 1;
+  els.viewport.classList.remove("chat-switching");
+  els.viewport.removeAttribute("aria-busy");
+}
+function finishChatSwitch(conversationId) {
+  if (!els.viewport.classList.contains("chat-switching")) return;
+  const token = state.chatSwitchToken;
+  requestAnimationFrame(() => {
+    if (token !== state.chatSwitchToken || state.selectedId !== conversationId) return;
+    getComputedStyle(els.conversation).opacity;
+    els.viewport.classList.remove("chat-switching");
+    els.viewport.removeAttribute("aria-busy");
+  });
+}
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
@@ -690,13 +726,15 @@ function renderConversation(chat) {
     ]),
   ]);
   if (fingerprint !== state.selectedFingerprint) {
-    const viewportSnapshot = conversationRenderer.captureConversationViewport();
     const isInitial = state.renderedConversationId !== chat.id;
+    const rememberedViewport = isInitial ? state.conversationViewports.get(chat.id) : null;
+    const viewportSnapshot = rememberedViewport || conversationRenderer.captureConversationViewport();
     state.selectedFingerprint = fingerprint;
     conversationRenderer.renderMessageNodes(visibleMessages, allowStreaming);
     state.renderedConversationId = chat.id;
-    conversationRenderer.restoreConversationViewport(viewportSnapshot, isInitial);
+    conversationRenderer.restoreConversationViewport(viewportSnapshot, isInitial && !rememberedViewport);
   }
+  finishChatSwitch(chat.id);
   renderConversationMeta(chat, visibleMessages.length);
   setHiddenIfChanged(els.emptyState, true);
   setHiddenIfChanged(els.conversation, false);
@@ -731,6 +769,7 @@ function showMode(mode) {
   logsPanel.setVisible(logsMode);
   els.composerFooter.hidden = logsMode;
   if (logsMode) {
+    cancelChatSwitch();
     state.selectedMetaFingerprint = "";
     const display = displayServerName(state.serverName || location.hostname);
     setConversationHeading(`${display} Prompta logs`, `journalctl · prompta.service · ${display}`);
@@ -751,6 +790,7 @@ function showMode(mode) {
   }
 }
 function clearConversation() {
+  cancelChatSwitch();
   state.composingNew = false;
   state.selectedId = null;
   state.selectedUpdatedAt = null;
@@ -773,6 +813,7 @@ function clearConversation() {
   updateComposerActionButton();
 }
 function renderNewChat() {
+  cancelChatSwitch();
   const enteringNewChat = !state.composingNew;
   state.composingNew = true;
   state.selectedId = null;
@@ -1077,9 +1118,11 @@ function renderRecentChatSnapshot(conversationId) {
     return;
   }
 
-  conversationRenderer.renderLoadingState();
-  setHiddenIfChanged(els.emptyState, true);
-  setHiddenIfChanged(els.conversation, false);
+  if (!state.renderedConversationId) {
+    conversationRenderer.renderLoadingState();
+    setHiddenIfChanged(els.emptyState, true);
+    setHiddenIfChanged(els.conversation, false);
+  }
   void recentChatCache.get(conversationId).then((chat) => {
     if (
       !chat
@@ -1126,6 +1169,7 @@ async function loadSelectedChat() {
       clearConversation();
     }
     if (!missing || state.pendingNewId !== state.selectedId) console.error(error);
+    finishChatSwitch(selectedId);
   }
 }
 async function selectChat(id) {
@@ -1143,6 +1187,8 @@ async function selectChat(id) {
     }
     return;
   }
+  rememberConversationViewport(state.selectedId);
+  beginChatSwitch();
   const pendingNew = state.pendingNewSend?.conversationId === id
     ? state.pendingNewSend
     : null;

@@ -791,6 +791,11 @@ textarea:focus-visible {
   width: min(100%, 840px);
   margin: 0 auto;
   padding: 34px 24px 90px;
+  transition: opacity 100ms ease-out;
+}
+
+.conversation-viewport.chat-switching .conversation {
+  opacity: 0.82;
 }
 
 .message {
