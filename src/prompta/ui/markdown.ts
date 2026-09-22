@@ -459,9 +459,11 @@ function renderCodeBlock(code, language) {
     : `
       <span class="code-language">${escapeHtml(label)}</span>
       ${copyButton}`;
-  const renderedBody = toolish
-    ? escapeHtml(renderedCode)
-    : highlightCode(renderedCode, highlightLanguage);
+  const renderedBody = pythonCode
+    ? highlightCode(renderedCode, highlightLanguage)
+    : toolish
+      ? escapeHtml(renderedCode)
+      : highlightCode(renderedCode, highlightLanguage);
   const body = renderedCode.trim()
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${renderedBody}</code></pre>`
     : "";

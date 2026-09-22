@@ -54,6 +54,9 @@ describe("tool-call rendering", () => {
     expect(summary).toContain('<span class="tool-primary-name">Glass · execute_python</span>');
     expect(rendered).not.toContain("tool-has-meta");
     expect(rendered).not.toContain('class="tool-expanded-meta"');
+    expect(rendered).toContain('class="language-python"');
+    expect(rendered).toContain('<span class="syntax-function">print</span>');
+    expect(rendered).toContain('<span class="syntax-number">1</span>');
   });
 
   test("shows persisted reasoning titles in the collapsed tool row", () => {
