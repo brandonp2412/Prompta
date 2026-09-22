@@ -35,7 +35,8 @@ describe("tool-call rendering", () => {
     ].join("\n"));
 
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
-    expect(summary).toContain("Glass Serena · serena_repl");
+    expect(summary).toContain('<span class="code-language">Glass Serena · serena_repl</span>');
+    expect(summary).not.toContain(">tool call<");
     expect(summary).not.toContain("Remembering");
     expect(rendered).toContain('<span class="tool-summary">Remembering</span>');
   });
