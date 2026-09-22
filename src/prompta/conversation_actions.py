@@ -275,10 +275,8 @@ class ConversationActions:
         context = await driver.new_tab(target_url)
         retain_context = False
         try:
-            await driver.wait_for_composer()
             expected_path = urlsplit(target_url).path.rstrip("/")
             await self.ensure_route(driver, expected_path)
-            await driver.wait_for_composer()
 
             deadline = asyncio.get_running_loop().time() + _SYNC_OBSERVE_SECONDS
             last_digest = ""

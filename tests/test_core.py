@@ -2824,9 +2824,13 @@ async def test_sync_conversation_retains_live_context_for_background_polling(
 
     fake = LiveSyncFakeDriver("Long task")
     fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    fake.wait_for_composer = AsyncMock(
+        side_effect=AssertionError("read-only sync must not wait for composer")
+    )  # type: ignore[method-assign]
     prompta.driver = cast(Any, fake)
 
     assert await prompta.sync_conversation(conversation_id) == 2
+    fake.wait_for_composer.assert_not_awaited()  # type: ignore[attr-defined]
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.recent_conversations()[0]["status"] == "active"
     fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
