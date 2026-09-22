@@ -1171,28 +1171,38 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     first = registry.submit(operation="once", message="first")
     assert first_started.wait(timeout=1.0)
     second = registry.submit(operation="once", message="second")
+    third = registry.submit(operation="once", message="third")
 
     time.sleep(0.05)
     assert calls == ["first"]
     queued_second = registry.get(second["send_id"])
     assert queued_second is not None
     assert queued_second["status"] == "queued"
+    assert queued_second["queue_position"] == 1
+    queued_third = registry.get(third["send_id"])
+    assert queued_third is not None
+    assert queued_third["status"] == "queued"
+    assert queued_third["queue_position"] == 2
 
     release_first.set()
     deadline = time.monotonic() + 1.0
     first_result = registry.get(first["send_id"])
     second_result = registry.get(second["send_id"])
+    third_result = registry.get(third["send_id"])
     while (
         (first_result is None or first_result["status"] != "succeeded")
         or (second_result is None or second_result["status"] != "succeeded")
+        or (third_result is None or third_result["status"] != "succeeded")
     ) and time.monotonic() < deadline:
         time.sleep(0.01)
         first_result = registry.get(first["send_id"])
         second_result = registry.get(second["send_id"])
+        third_result = registry.get(third["send_id"])
 
-    assert calls == ["first", "second"]
+    assert calls == ["first", "second", "third"]
     assert first_result is not None and first_result["status"] == "succeeded"
     assert second_result is not None and second_result["status"] == "succeeded"
+    assert third_result is not None and third_result["status"] == "succeeded"
 
 
 def test_send_job_registry_retries_transient_background_error() -> None:

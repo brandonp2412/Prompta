@@ -68,14 +68,22 @@ function retryDelayText(seconds) {
   const hours = Math.ceil(minutes / 60);
   return `${hours}h`;
 }
-function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1000) {
+function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1000, queuePosition = 0) {
   const normalized = textValue(status, "queued").trim().toLowerCase();
   if (["failed", "dead_lettered"].includes(normalized))
     return null;
   if (!hasSendId)
     return { label: "sending", statusText: "Sending…" };
-  if (normalized === "queued")
+  if (normalized === "queued") {
+    const position = Number(queuePosition);
+    if (Number.isFinite(position) && position > 0) {
+      return {
+        label: "queued · #" + Math.floor(position),
+        statusText: "Queued in Prompta · #" + Math.floor(position)
+      };
+    }
     return { label: "queued", statusText: "Queued in Prompta…" };
+  }
   if (normalized === "retrying") {
     const deadline = Number(retryAtEpoch);
     const now = Number(nowEpoch);
@@ -3445,7 +3453,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       return true;
     if (item.responseObservedInCache)
       return false;
-    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt));
+    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, undefined, item.queuePosition));
   });
   if (remaining.length)
     state.pendingReplies.set(conversationId, remaining);
@@ -3464,7 +3472,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         pending_delete_key: item.clientId || item.sendId || ""
       });
     }
-    const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt);
+    const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, undefined, item.queuePosition);
     if (activity) {
       messages.push({
         message_key: `pending-activity-${item.clientId || item.sendId}`,
@@ -3602,7 +3610,7 @@ function renderConversation(chat) {
   els.shareChatButton.disabled = false;
   updatePinButton();
   syncSendButton();
-  const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt)).find(Boolean);
+  const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, undefined, item.queuePosition)).find(Boolean);
   if (pendingActivity) {
     setTextIfChanged5(els.composerStatus, pendingActivity.statusText);
   } else if (!state.sending) {
@@ -3681,6 +3689,7 @@ function renderNewChat() {
     pending?.retryAfterSeconds || 0,
     pending?.retryAt || 0,
     pending?.retryAttempt || 0,
+    pending?.queuePosition || 0,
     imageAttachments(pending).map((attachment) => [
       attachment.id || "",
       attachment.name || "",
@@ -3702,7 +3711,7 @@ function renderNewChat() {
           pending_delete_key: pending.clientId || pending.sendId || ""
         }
       ];
-      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, undefined, pending.queuePosition);
       if (activity2) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
@@ -3742,7 +3751,7 @@ function renderNewChat() {
     els.shareChatButton.disabled = true;
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
-    const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt) : null;
+    const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, undefined, pending.queuePosition) : null;
     setTextIfChanged5(els.composerStatus, pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
   }
   updateComposerActionButton();
@@ -3852,6 +3861,7 @@ async function hydratePendingSends() {
         retryAfterSeconds: Number(job.retry_after_seconds || 0),
         retryAt: Number(job.retry_at || 0),
         retryAttempt: Number(job.retry_attempt || 0),
+        queuePosition: Number(job.queue_position || 0),
         attachmentNames: Array.isArray(job.attachment_names) ? job.attachment_names.map((value) => String(value)) : []
       };
       if (job.operation === "reply" && conversationId) {
@@ -4170,7 +4180,8 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.error || "",
     item.retryAfterSeconds || 0,
     item.retryAt || 0,
-    item.retryAttempt || 0
+    item.retryAttempt || 0,
+    item.queuePosition || 0
   ]);
   Object.assign(item, updates);
   const changed = JSON.stringify([
@@ -4178,7 +4189,8 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.error || "",
     item.retryAfterSeconds || 0,
     item.retryAt || 0,
-    item.retryAttempt || 0
+    item.retryAttempt || 0,
+    item.queuePosition || 0
   ]) !== previous;
   if (changed)
     item.updatedAt = Date.now() / 1000;
@@ -4275,18 +4287,20 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
+      const nextQueuePosition = Number(job.queue_position || 0);
       if (nextConversationId) {
         completionNotifications.markActive(nextConversationId);
         promotePendingConversationPin(pendingNewSend, nextConversationId);
       }
-      const changed2 = pendingNewSend.status !== status || pendingNewSend.error !== nextError || pendingNewSend.conversationId !== nextConversationId || pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || pendingNewSend.retryAt !== nextRetryAt || pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed2 = pendingNewSend.status !== status || pendingNewSend.error !== nextError || pendingNewSend.conversationId !== nextConversationId || pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || pendingNewSend.retryAt !== nextRetryAt || pendingNewSend.retryAttempt !== nextRetryAttempt || pendingNewSend.queuePosition !== nextQueuePosition;
       Object.assign(pendingNewSend, {
         status,
         error: nextError,
         conversationId: nextConversationId,
         retryAfterSeconds: nextRetryAfterSeconds,
         retryAt: nextRetryAt,
-        retryAttempt: nextRetryAttempt
+        retryAttempt: nextRetryAttempt,
+        queuePosition: nextQueuePosition
       });
       if (changed2)
         pendingNewSend.updatedAt = Date.now() / 1000;
@@ -4343,7 +4357,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
       error: job.error || "",
       retryAfterSeconds: Number(job.retry_after_seconds || 0),
       retryAt: Number(job.retry_at || 0),
-      retryAttempt: Number(job.retry_attempt || 0)
+      retryAttempt: Number(job.retry_attempt || 0),
+      queuePosition: Number(job.queue_position || 0)
     });
     if (changed)
       renderSidebar();
@@ -4529,6 +4544,7 @@ async function sendSelectedMessage() {
       completionNotifications.markActive(conversationId);
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
+    pending.queuePosition = Number(result.queue_position || 0);
     pending.updatedAt = Date.now() / 1000;
     if (attachments.length)
       attachmentPicker.clear();

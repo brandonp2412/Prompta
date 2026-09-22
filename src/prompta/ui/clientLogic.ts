@@ -38,6 +38,7 @@ export type PendingReply = {
   retryAfterSeconds?: number;
   retryAt?: number;
   retryAttempt?: number;
+  queuePosition?: number;
   observedInCache?: boolean;
   responseObservedInCache?: boolean;
   createdAt?: number;
@@ -188,6 +189,7 @@ export function pendingSendActivity(
   retryAfterSeconds: unknown = 0,
   retryAtEpoch: unknown = 0,
   nowEpoch: unknown = Date.now() / 1000,
+  queuePosition: unknown = 0,
 ): PendingSendActivity | null {
   const normalized = textValue(status, "queued").trim().toLowerCase();
 
@@ -195,7 +197,18 @@ export function pendingSendActivity(
 
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
 
-  if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
+  if (normalized === "queued") {
+    const position = Number(queuePosition);
+
+    if (Number.isFinite(position) && position > 0) {
+      return {
+        label: "queued · #" + Math.floor(position),
+        statusText: "Queued in Prompta · #" + Math.floor(position),
+      };
+    }
+
+    return { label: "queued", statusText: "Queued in Prompta…" };
+  }
 
   if (normalized === "retrying") {
     const deadline = Number(retryAtEpoch);

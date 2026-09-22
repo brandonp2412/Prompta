@@ -582,6 +582,22 @@ class SendJobRegistry:
         with self._rate_limit_lock:
             self._rate_limit_backoff.reset()
 
+    def _job_with_queue_position_locked(self, job: dict[str, Any]) -> dict[str, Any]:
+        result = dict(job)
+        if str(job.get("status") or "") != "queued":
+            return result
+
+        send_id = str(job.get("send_id") or "")
+        position = 0
+        for candidate in self._jobs.values():
+            if str(candidate.get("status") or "") in {"queued", "retrying", "rate_limited"}:
+                position += 1
+            if str(candidate.get("send_id") or "") == send_id:
+                break
+        if position > 0:
+            result["queue_position"] = position
+        return result
+
     def submit(
         self,
         *,
@@ -648,7 +664,7 @@ class SendJobRegistry:
                                 existing_send_id,
                                 exc_info=True,
                             )
-                    return dict(existing)
+                    return self._job_with_queue_position_locked(existing)
             try:
                 self._remember_recoverable(
                     send_id=send_id,
@@ -678,13 +694,14 @@ class SendJobRegistry:
                         normalized_client_id,
                     )
                 )
+            result = self._job_with_queue_position_locked(job)
             self._work_event.set()
-        return dict(job)
+        return result
 
     def get(self, send_id: str) -> dict[str, Any] | None:
         with self._lock:
             job = self._jobs.get(send_id)
-            return dict(job) if job is not None else None
+            return self._job_with_queue_position_locked(job) if job is not None else None
 
     def cancel(self, send_id: str) -> bool:
         """Cancel a pending send and remove its durable queue record."""
@@ -728,7 +745,7 @@ class SendJobRegistry:
     def list_pending(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
-                dict(job)
+                self._job_with_queue_position_locked(job)
                 for job in self._jobs.values()
                 if str(job.get("status") or "") in {"queued", "running", "retrying", "rate_limited"}
             ]

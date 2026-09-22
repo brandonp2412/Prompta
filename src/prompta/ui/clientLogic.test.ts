@@ -389,6 +389,10 @@ describe("pending send activity", () => {
       label: "queued",
       statusText: "Queued in Prompta…",
     });
+    expect(pendingSendActivity("queued", true, 0, 0, undefined, 3)).toEqual({
+      label: "queued · #3",
+      statusText: "Queued in Prompta · #3",
+    });
     expect(pendingSendActivity("running", true)).toEqual({
       label: "waiting",
       statusText: "Waiting for ChatGPT…",

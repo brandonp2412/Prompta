@@ -907,7 +907,14 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     if (item.responseObservedInCache) return false;
 
     return Boolean(
-      pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt),
+      pendingSendActivity(
+        item.status,
+        Boolean(item.sendId),
+        item.retryAfterSeconds,
+        item.retryAt,
+        undefined,
+        item.queuePosition,
+      ),
     );
   });
 
@@ -934,6 +941,8 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       Boolean(item.sendId),
       item.retryAfterSeconds,
       item.retryAt,
+      undefined,
+      item.queuePosition,
     );
 
     if (activity) {
@@ -1105,7 +1114,14 @@ function renderConversation(chat) {
   const pendingActivity = [...(state.pendingReplies.get(chat.id) || [])]
     .reverse()
     .map((item) =>
-      pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt),
+      pendingSendActivity(
+        item.status,
+        Boolean(item.sendId),
+        item.retryAfterSeconds,
+        item.retryAt,
+        undefined,
+        item.queuePosition,
+      ),
     )
     .find(Boolean);
 
@@ -1200,6 +1216,7 @@ function renderNewChat() {
     pending?.retryAfterSeconds || 0,
     pending?.retryAt || 0,
     pending?.retryAttempt || 0,
+    pending?.queuePosition || 0,
     imageAttachments(pending).map((attachment) => [
       attachment.id || "",
       attachment.name || "",
@@ -1228,6 +1245,8 @@ function renderNewChat() {
         Boolean(pending.sendId),
         pending.retryAfterSeconds,
         pending.retryAt,
+        undefined,
+        pending.queuePosition,
       );
 
       if (activity) {
@@ -1285,6 +1304,8 @@ function renderNewChat() {
           Boolean(pending.sendId),
           pending.retryAfterSeconds,
           pending.retryAt,
+          undefined,
+          pending.queuePosition,
         )
       : null;
     setTextIfChanged(
@@ -1428,6 +1449,7 @@ async function hydratePendingSends() {
         retryAfterSeconds: Number(job.retry_after_seconds || 0),
         retryAt: Number(job.retry_at || 0),
         retryAttempt: Number(job.retry_attempt || 0),
+        queuePosition: Number(job.queue_position || 0),
         attachmentNames: Array.isArray(job.attachment_names)
           ? job.attachment_names.map((value) => String(value))
           : [],
@@ -1861,6 +1883,7 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.retryAfterSeconds || 0,
     item.retryAt || 0,
     item.retryAttempt || 0,
+    item.queuePosition || 0,
   ]);
   Object.assign(item, updates);
 
@@ -1871,6 +1894,7 @@ function updatePendingReply(conversationId, sendId, updates) {
       item.retryAfterSeconds || 0,
       item.retryAt || 0,
       item.retryAttempt || 0,
+      item.queuePosition || 0,
     ]) !== previous;
 
   if (changed) item.updatedAt = Date.now() / 1000;
@@ -1995,6 +2019,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
+      const nextQueuePosition = Number(job.queue_position || 0);
 
       if (nextConversationId) {
         completionNotifications.markActive(nextConversationId);
@@ -2007,7 +2032,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
         pendingNewSend.conversationId !== nextConversationId ||
         pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds ||
         pendingNewSend.retryAt !== nextRetryAt ||
-        pendingNewSend.retryAttempt !== nextRetryAttempt;
+        pendingNewSend.retryAttempt !== nextRetryAttempt ||
+        pendingNewSend.queuePosition !== nextQueuePosition;
       Object.assign(pendingNewSend, {
         status,
         error: nextError,
@@ -2015,6 +2041,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAfterSeconds: nextRetryAfterSeconds,
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt,
+        queuePosition: nextQueuePosition,
       });
 
       if (changed) pendingNewSend.updatedAt = Date.now() / 1000;
@@ -2087,6 +2114,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       retryAfterSeconds: Number(job.retry_after_seconds || 0),
       retryAt: Number(job.retry_at || 0),
       retryAttempt: Number(job.retry_attempt || 0),
+      queuePosition: Number(job.queue_position || 0),
     });
 
     if (changed) renderSidebar();
@@ -2282,7 +2310,7 @@ async function sendSelectedMessage() {
   }
 
   const now = Date.now() / 1000;
-  const pending = {
+  const pending: UiPendingSend = {
     sendId: "",
     clientId: `${Date.now()}-${++state.optimisticSequence}`,
     message,
@@ -2336,6 +2364,7 @@ async function sendSelectedMessage() {
 
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
+    pending.queuePosition = Number(result.queue_position || 0);
     pending.updatedAt = Date.now() / 1000;
 
     if (attachments.length) attachmentPicker.clear();
