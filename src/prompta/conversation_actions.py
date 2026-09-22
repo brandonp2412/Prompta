@@ -13,6 +13,7 @@ from .rate_limit import RateLimitError, is_rate_limited_text
 logger = logging.getLogger(__name__)
 
 _SEND_CONFIRM_POLL_SECONDS = 0.2
+_SYNC_OBSERVE_SECONDS = 15.0
 
 
 class SendVerificationError(RuntimeError):
@@ -251,7 +252,8 @@ class ConversationActions:
             raise ValueError("conversation id is empty")
 
         metadata = self.cache.metadata(conversation_id)
-        if str(metadata.get("status") or "") == "active":
+        previous_status = str(metadata.get("status") or "")
+        if previous_status == "active":
             live = next(
                 (
                     active
@@ -278,8 +280,7 @@ class ConversationActions:
             await self.ensure_route(driver, expected_path)
             await driver.wait_for_composer()
 
-            self.cache.resume(conversation_id, context_id=context)
-            deadline = asyncio.get_running_loop().time() + 15.0
+            deadline = asyncio.get_running_loop().time() + _SYNC_OBSERVE_SECONDS
             last_digest = ""
             stable_polls = 0
             failure_polls = 0
@@ -299,19 +300,27 @@ class ConversationActions:
                 digest = self.cache.digest(latest)
                 streaming = bool(latest.get("streaming"))
 
-                self.cache.write_snapshot(conversation_id, latest)
-
                 if failure_hint:
                     failure_polls += 1
                     stable_polls = 0
                     if failure_polls < 3:
                         await asyncio.sleep(0.5)
                         continue
+                    if messages:
+                        self.cache.write_snapshot(conversation_id, latest)
                     self.cache.mark_interrupted(conversation_id)
                     raise RuntimeError("ChatGPT conversation has a persistent delivery failure")
                 failure_polls = 0
 
+                if not messages:
+                    stable_polls = 0
+                    last_digest = digest
+                    await asyncio.sleep(0.5)
+                    continue
+
                 if streaming or transient_hint:
+                    self.cache.resume(conversation_id, context_id=context)
+                    self.cache.write_snapshot(conversation_id, latest)
                     self.active[context] = ActiveConversation(
                         conversation_id=conversation_id,
                         context_id=context,
@@ -337,6 +346,8 @@ class ConversationActions:
                     self.cache.write_snapshot(conversation_id, latest, complete=True)
                     return len(messages)
                 if stable_polls >= 2 and not completion_hint:
+                    self.cache.resume(conversation_id, context_id=context)
+                    self.cache.write_snapshot(conversation_id, latest)
                     self.active[context] = ActiveConversation(
                         conversation_id=conversation_id,
                         context_id=context,
@@ -351,7 +362,11 @@ class ConversationActions:
 
             messages = latest.get("messages")
             if not isinstance(messages, list) or not messages:
+                if previous_status == "active":
+                    self.cache.mark_interrupted(conversation_id)
                 raise RuntimeError("ChatGPT conversation did not expose any messages")
+            self.cache.resume(conversation_id, context_id=context)
+            self.cache.write_snapshot(conversation_id, latest)
             self.active[context] = ActiveConversation(
                 conversation_id=conversation_id,
                 context_id=context,

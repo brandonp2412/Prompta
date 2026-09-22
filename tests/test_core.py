@@ -2893,6 +2893,50 @@ async def test_sync_conversation_preserves_persistent_delivery_failure(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("initial_status", ["active", "interrupted"])
+async def test_sync_conversation_does_not_leave_phantom_active_when_probe_has_no_messages(
+    tmp_path: Path,
+    initial_status: str,
+) -> None:
+    conversation_id = "empty-sync-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="flux",
+        prompt="Long task",
+    )
+    if initial_status == "interrupted":
+        prompta.cache.mark_interrupted(conversation_id)
+
+    class EmptySyncFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def activate_history_link(self, path: str) -> bool:
+            return False
+
+    fake = EmptySyncFakeDriver("Long task")
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+
+    with (
+        patch("prompta.conversation_actions._SYNC_OBSERVE_SECONDS", 0.0),
+        pytest.raises(RuntimeError, match="did not expose any messages"),
+    ):
+        await prompta.sync_conversation(conversation_id)
+
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert [message["content"] for message in prompta.cache.messages(conversation_id)] == [
+        "Long task"
+    ]
+    assert not prompta._active_conversations
+    fake.close_context.assert_awaited_once_with("context-new")  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_sync_conversation_waits_for_final_turn_evidence(
     tmp_path: Path,
 ) -> None:
