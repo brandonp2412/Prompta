@@ -88,6 +88,8 @@ textarea:focus-visible {
 }
 
 .sidebar-top {
+  position: relative;
+  z-index: 1;
   padding: 14px 12px 8px;
 }
 
@@ -242,7 +244,8 @@ textarea:focus-visible {
 .sidebar-scroll {
   min-height: 0;
   flex: 1;
-  padding: 0 8px 16px;
+  margin-top: -46px;
+  padding: 46px 8px 16px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #3a3a3a transparent;
@@ -1474,12 +1477,17 @@ textarea:focus-visible {
   flex: 1;
   resize: none;
   overflow-y: hidden;
+  scrollbar-width: none;
   border: 0;
   outline: 0;
   padding: 6px 3px;
   background: transparent;
   color: var(--text);
   line-height: 22px;
+}
+
+.composer-bar textarea::-webkit-scrollbar {
+  display: none;
 }
 
 .composer-bar textarea::placeholder {
