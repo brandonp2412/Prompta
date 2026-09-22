@@ -394,6 +394,71 @@ def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale
     assert "Glass Serena · serena_repl" in assistant["content"]
 
 
+def test_read_only_store_recovers_completed_turn_order_from_dom_observations(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-observed-order",
+        context_id="context-observed-order",
+        job_name="",
+        prompt="Do work",
+    )
+    fence = chr(96) * 3
+    first_tool = (
+        f'{fence}tool:Test MCP · first\n{{"created_at": 20.0, "status": "completed"}}\n{fence}'
+    )
+    second_tool = (
+        f'{fence}tool:Test MCP · second\n{{"created_at": 40.0, "status": "completed"}}\n{fence}'
+    )
+    grouped = "\n\n".join(["Intro text", "Between tools", first_tool, second_tool])
+    cache.write_snapshot(
+        "conversation-observed-order",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": grouped},
+            ],
+        },
+    )
+    for index, (observed_at, parts) in enumerate(
+        [
+            (10.0, ["Intro text"]),
+            (30.0, ["Intro text", "Between tools"]),
+        ],
+        start=1,
+    ):
+        event = {
+            "id": f"observation-{index}:dom-prose",
+            "parts": parts,
+        }
+        with cache.connection:
+            cache.connection.execute(
+                "INSERT INTO source_events (conversation_id, message_key, event_key, ordinal, raw_json, observed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "conversation-observed-order",
+                    "a1",
+                    f"observation-{index}:dom-prose:source",
+                    index,
+                    json.dumps(event),
+                    observed_at,
+                ),
+            )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation("conversation-observed-order")
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert assistant["status"] == "complete"
+    content = assistant["content"]
+    assert content.index("Intro text") < content.index("Test MCP · first")
+    assert content.index("Test MCP · first") < content.index("Between tools")
+    assert content.index("Between tools") < content.index("Test MCP · second")
+
+
 def test_active_conversation_uses_structured_order_for_completed_assistant_turn(
     tmp_path: Path,
 ) -> None:

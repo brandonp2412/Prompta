@@ -7,9 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .cache import DEFAULT_CACHE_PATH, strip_delivery_timeout_noise
+from .cache import DEFAULT_CACHE_PATH, _dom_prose_text, strip_delivery_timeout_noise
 from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
+from .stream_order import has_stream_order_inversion, recover_stream_order_from_observations
 
 
 class ReadOnlyChatStore:
@@ -284,6 +285,20 @@ class ReadOnlyChatStore:
                     if "source_events" in tables
                     else []
                 )
+                dom_prose_events = (
+                    connection.execute(
+                        """
+                        SELECT message_key, observed_at, raw_json
+                        FROM source_events
+                        WHERE conversation_id = ?
+                          AND event_key LIKE '%:dom-prose:%'
+                        ORDER BY message_key, observed_at, rowid
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "source_events" in tables
+                    else []
+                )
                 version_counts = (
                     connection.execute(
                         """
@@ -361,6 +376,20 @@ class ReadOnlyChatStore:
             for row in source_event_counts
             if row["latest_source_created_at"] is not None
         }
+        dom_prose_by_message: dict[str, list[tuple[float, str]]] = {}
+        for row in dom_prose_events:
+            try:
+                event = json.loads(str(row["raw_json"] or "{}"))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            prose = _dom_prose_text(event)
+            if not prose:
+                continue
+            dom_prose_by_message.setdefault(str(row["message_key"]), []).append(
+                (float(row["observed_at"]), prose)
+            )
         version_count_by_message = {
             str(row["message_key"]): int(row["version_count"] or 0) for row in version_counts
         }
@@ -398,6 +427,13 @@ class ReadOnlyChatStore:
                     canonical_content, structured_content
                 ):
                     message["content"] = structured_content
+            if use_structured_content:
+                observations = dom_prose_by_message.get(message_key, [])
+                content = str(message.get("content") or "")
+                if observations and has_stream_order_inversion(content, observations):
+                    message["content"] = recover_stream_order_from_observations(
+                        content, observations
+                    )
         if historical:
             for message in message_payloads:
                 message["status"] = "complete"
