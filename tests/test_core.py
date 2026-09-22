@@ -948,9 +948,7 @@ async def test_paused_job_is_not_run(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_active_scheduled_job_blocks_other_scheduled_jobs_until_done(
-    tmp_path: Path,
-) -> None:
+async def test_active_scheduled_job_only_blocks_the_same_job(tmp_path: Path) -> None:
     prompta = Prompta(
         PromptaConfig(
             jobs_file=tmp_path / "jobs.json",
@@ -967,13 +965,31 @@ async def test_active_scheduled_job_blocks_other_scheduled_jobs_until_done(
     )
 
     assert await prompta._run_job(PromptJob("flux", "continue", 1800), now=1000.0) is False
-    assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is False
-    assert prompta.send_once.await_count == 0
-
-    prompta._active_conversations.clear()
-
     assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is True
     prompta.send_once.assert_awaited_once_with("continue", job_name="other")
+
+
+@pytest.mark.asyncio
+async def test_active_scheduled_jobs_remain_bounded(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    for index in range(4):
+        context_id = f"context-{index}"
+        prompta._active_conversations[context_id] = ActiveConversation(
+            conversation_id=f"conversation-{index}",
+            context_id=context_id,
+            job_name=f"job-{index}",
+            prompt="still working",
+        )
+
+    assert await prompta._run_job(PromptJob("next", "continue", 1800), now=1000.0) is False
+    assert prompta.send_once.await_count == 0
 
 
 @pytest.mark.asyncio

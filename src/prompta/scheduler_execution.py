@@ -20,7 +20,7 @@ from .scheduler_runtime import SchedulerRuntime
 logger = logging.getLogger(__name__)
 
 _FAILURE_RETRY_SECONDS = 300.0
-_MAX_ACTIVE_SCHEDULED_JOBS = 1
+_MAX_ACTIVE_SCHEDULED_JOBS = 4
 
 
 def prompt_hash(prompt: str) -> str:
