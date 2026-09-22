@@ -1301,7 +1301,6 @@ def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
     assert [message["role"] for message in chat["messages"]] == ["user", "assistant"]
 
 
-
 def test_read_only_store_hides_delivery_timeout_ui_noise(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
@@ -1347,6 +1346,28 @@ def test_read_only_store_hides_delivery_timeout_ui_noise(tmp_path: Path) -> None
     content = chat["messages"][-1]["content"]
     assert content == "Progress before timeout.\n\n\nProgress after retry."
     assert "Message delivery timed out" not in content
+
+
+def test_read_only_store_hides_legacy_delivery_timeout_sidebar_preview(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-timeout-preview",
+        context_id="context-timeout-preview",
+        job_name="",
+        prompt="Keep working on the roadmap",
+    )
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET preview = ? WHERE id = ?",
+            ("Message delivery timed out. Please try again.", "chat-timeout-preview"),
+        )
+    cache.close()
+
+    chats = ReadOnlyChatStore(path).conversations()
+    chat = next(item for item in chats if item["id"] == "chat-timeout-preview")
+
+    assert chat["preview"] == "Keep working on the roadmap"
 
 
 def test_read_only_store_clears_stale_streaming_status_for_finished_chat(tmp_path: Path) -> None:

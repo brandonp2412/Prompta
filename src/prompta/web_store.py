@@ -130,7 +130,8 @@ class ReadOnlyChatStore:
         result = []
         for row in rows:
             payload = dict(row)
-            payload["preview"] = compact_sidebar_preview(payload.get("preview"))
+            preview = compact_sidebar_preview(payload.get("preview"))
+            payload["preview"] = preview or compact_sidebar_preview(payload.get("prompt"))
             result.append(payload)
         return result
 
@@ -298,9 +299,7 @@ class ReadOnlyChatStore:
             message_key = str(message.get("message_key") or "")
             structured_parts = parts_by_message.get(message_key, [])
             if str(message.get("role") or "") == "assistant":
-                message["content"] = strip_delivery_timeout_noise(
-                    str(message.get("content") or "")
-                )
+                message["content"] = strip_delivery_timeout_noise(str(message.get("content") or ""))
                 for part in structured_parts:
                     if str(part.get("kind") or "") in {
                         "assistant_text",

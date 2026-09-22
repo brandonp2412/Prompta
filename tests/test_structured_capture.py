@@ -94,7 +94,6 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
     )
 
 
-
 def test_browser_snapshot_filters_delivery_timeout_from_react_history() -> None:
     assert (
         "const deliveryTimeoutNoise=/^message delivery timed out\\.?\\s*please try again\\.?$/i;"
