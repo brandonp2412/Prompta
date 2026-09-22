@@ -120,6 +120,10 @@ def test_snapshot_digest_includes_structured_source_events() -> None:
 
     assert ChatCache.digest(base) != ChatCache.digest(corrected)
 
+    active = {**base, "activity": {"streaming": True, "complete": False}}
+    settled = {**base, "activity": {"streaming": False, "complete": True}}
+    assert ChatCache.digest(active) != ChatCache.digest(settled)
+
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
 ) -> None:
@@ -210,6 +214,8 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
     assert assistant["tool_calls"][0]["connector"] == "Glass Serena"
     assert "Glass Serena · serena_repl" in assistant["content"]
     assert assistant["content"].endswith("Finished")
+    assert [event["status"] for event in chat["state_events"]] == ["active", "complete"]
+    assert chat["state_events"][-1]["complete"] is True
 
     revised_events = _source_events()
     revised_events[-1] = {
