@@ -1,10 +1,115 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from pathlib import Path
 
 from prompta.cache import ChatCache
+
+
+def test_live_snapshot_uses_source_event_timeline_for_assistant_content(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+    source_events = [
+        {
+            "id": "text-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["First text"],
+            "text": "",
+            "create_time": 1.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link_123/first", "args": {"step": 1}}),
+            "create_time": 2.0,
+        },
+        {
+            "id": "text-2",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Between tools"],
+            "text": "",
+            "create_time": 3.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-2",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link_123/second", "args": {"step": 2}}),
+            "create_time": 4.0,
+        },
+        {
+            "id": "result-1",
+            "role": "tool",
+            "recipient": "all",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "type": "mcpToolCall",
+                    "appContext": {"appName": "Test MCP", "actionName": "first"},
+                    "arguments": {"step": 1},
+                    "status": "completed",
+                }
+            ),
+            "create_time": 5.0,
+        },
+        {
+            "id": "result-2",
+            "role": "tool",
+            "recipient": "all",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "type": "mcpToolCall",
+                    "appContext": {"appName": "Test MCP", "actionName": "second"},
+                    "arguments": {"step": 2},
+                    "status": "completed",
+                }
+            ),
+            "create_time": 6.0,
+        },
+    ]
+    fence = chr(96) * 3
+    grouped_content = (
+        "First text\n\nBetween tools\n\n"
+        f"{fence}tool:Test MCP · first\nCalled tool\n{fence}\n\n"
+        f"{fence}tool:Test MCP · second\nCalled tool\n{fence}"
+    )
+
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": grouped_content},
+            ],
+            "source_events": source_events,
+        },
+    )
+
+    content = cache.messages("conversation-1")[-1]["content"]
+    cache.close()
+
+    assert content.index("First text") < content.index("Test MCP · first")
+    assert content.index("Test MCP · first") < content.index("Between tools")
+    assert content.index("Between tools") < content.index("Test MCP · second")
 
 
 def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> None:

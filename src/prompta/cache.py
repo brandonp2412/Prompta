@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
+from .structured_capture import message_parts_from_source_events, rendered_content_from_parts
 from .structured_store import (
     migrate_structured_capture,
     persist_structured_capture,
@@ -596,6 +598,27 @@ class ChatCache:
         messages = snapshot.get("messages")
         if not isinstance(messages, list):
             messages = []
+        source_events = snapshot.get("source_events")
+        if isinstance(source_events, list) and source_events:
+            ordered_parts = message_parts_from_source_events(
+                [event for event in source_events if isinstance(event, dict)]
+            )
+            ordered_content = rendered_content_from_parts(ordered_parts)
+            if ordered_content:
+                for message_index in range(len(messages) - 1, -1, -1):
+                    message = messages[message_index]
+                    if (
+                        not isinstance(message, dict)
+                        or str(message.get("role") or "") != "assistant"
+                    ):
+                        continue
+                    visible_content = str(message.get("content") or "")
+                    if preserves_non_tool_text(visible_content, ordered_content):
+                        messages = [
+                            dict(item) if isinstance(item, dict) else item for item in messages
+                        ]
+                        messages[message_index]["content"] = ordered_content
+                    break
         completed_at = now if complete else None
         snapshot_path = str(snapshot.get("path") or "")
         snapshot_url = (
