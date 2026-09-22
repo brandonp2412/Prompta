@@ -15,6 +15,7 @@ import {
   shouldRenderNewChatView,
   shouldShowStopAction,
   shouldProbeHistoricalActivity,
+  shouldRefreshSelectedChat,
   postJsonRequest as postJson,
   sidebarChatPreviewText,
   sidebarPreviewText,
@@ -1010,7 +1011,7 @@ async function loadServerIdentity() {
     console.warn("Could not load Prompta server identity", error);
   }
 }
-async function loadChats() {
+async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
   try {
     const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
@@ -1057,10 +1058,12 @@ async function loadChats() {
     if (state.mode === "chats") {
       if (state.selectedId) {
         const summary = state.chats.find((chat) => chat.id === state.selectedId);
-        const shouldRefresh = !summary
-          || summary.status === "active"
-          || state.selectedUpdatedAt !== summary.updated_at
-          || !state.selectedFingerprint;
+        const shouldRefresh = shouldRefreshSelectedChat(
+          summary,
+          state.selectedUpdatedAt,
+          state.selectedFingerprint,
+          forceSelectedRefresh,
+        );
         if (shouldRefresh) await loadSelectedChat();
       } else if (!state.composingNew) {
         clearConversation();
@@ -1833,7 +1836,11 @@ async function startApp() {
     setHiddenIfChanged(els.conversation, false);
   }
   document.documentElement.classList.remove("booting");
-  await loadChats();
+  // Cached detail gives us an instant first paint, but it is never authoritative
+  // for a new app session. Server rendering/persistence semantics can change
+  // without changing a conversation's updated_at, so fetch the selected detail
+  // once before live updates take over.
+  await loadChats(true);
   liveUpdates.start();
 }
 startApp();

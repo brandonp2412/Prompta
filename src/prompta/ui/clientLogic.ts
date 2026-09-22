@@ -577,6 +577,19 @@ export function shouldProbeHistoricalActivity(chatStatus: unknown): boolean {
   return String(chatStatus || "").trim().toLowerCase() === "interrupted";
 }
 
+export function shouldRefreshSelectedChat(
+  summary: { status?: unknown; updated_at?: unknown } | null | undefined,
+  selectedUpdatedAt: unknown,
+  selectedFingerprint: unknown,
+  force = false,
+): boolean {
+  return force
+    || !summary
+    || summary.status === "active"
+    || selectedUpdatedAt !== summary.updated_at
+    || !selectedFingerprint;
+}
+
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
   if (!/^\/at(?:\s|$)/i.test(message)) return null;
 

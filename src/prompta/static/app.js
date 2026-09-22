@@ -428,6 +428,9 @@ function shouldShowStopAction(chatStatus, composingNew, hasComposerContent = fal
 function shouldProbeHistoricalActivity(chatStatus) {
   return String(chatStatus || "").trim().toLowerCase() === "interrupted";
 }
+function shouldRefreshSelectedChat(summary, selectedUpdatedAt, selectedFingerprint, force = false) {
+  return force || !summary || summary.status === "active" || selectedUpdatedAt !== summary.updated_at || !selectedFingerprint;
+}
 function parseAtSlashCommand(message, now = new Date) {
   if (!/^\/at(?:\s|$)/i.test(message))
     return null;
@@ -3640,7 +3643,7 @@ async function loadServerIdentity() {
     console.warn("Could not load Prompta server identity", error);
   }
 }
-async function loadChats() {
+async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
   try {
     const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
@@ -3678,7 +3681,7 @@ async function loadChats() {
     if (state.mode === "chats") {
       if (state.selectedId) {
         const summary = state.chats.find((chat) => chat.id === state.selectedId);
-        const shouldRefresh = !summary || summary.status === "active" || state.selectedUpdatedAt !== summary.updated_at || !state.selectedFingerprint;
+        const shouldRefresh = shouldRefreshSelectedChat(summary, state.selectedUpdatedAt, state.selectedFingerprint, forceSelectedRefresh);
         if (shouldRefresh)
           await loadSelectedChat();
       } else if (!state.composingNew) {
@@ -4416,7 +4419,7 @@ async function startApp() {
     setHiddenIfChanged(els.conversation, false);
   }
   document.documentElement.classList.remove("booting");
-  await loadChats();
+  await loadChats(true);
   liveUpdates.start();
 }
 startApp();

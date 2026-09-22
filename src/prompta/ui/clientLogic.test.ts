@@ -19,6 +19,7 @@ import {
   shouldRenderNewChatView,
   shouldShowStopAction,
   shouldProbeHistoricalActivity,
+  shouldRefreshSelectedChat,
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
@@ -555,6 +556,24 @@ describe("optimistic reply reconciliation", () => {
 });
 
 
+
+describe("selected chat refresh", () => {
+  const summary = { status: "complete", updated_at: 123 };
+
+  test("forces a server detail refresh after cached startup hydration", () => {
+    expect(shouldRefreshSelectedChat(summary, 123, "cached-fingerprint", true)).toBe(true);
+  });
+
+  test("can reuse an unchanged selected detail after the startup refresh", () => {
+    expect(shouldRefreshSelectedChat(summary, 123, "server-fingerprint")).toBe(false);
+  });
+
+  test("refreshes when status or timestamp says the cached detail may be stale", () => {
+    expect(shouldRefreshSelectedChat({ status: "active", updated_at: 123 }, 123, "fingerprint")).toBe(true);
+    expect(shouldRefreshSelectedChat(summary, 122, "fingerprint")).toBe(true);
+    expect(shouldRefreshSelectedChat(summary, 123, "")).toBe(true);
+  });
+});
 
 describe("historical activity probing", () => {
   test("probes interrupted chats because they may still be live in ChatGPT", () => {
