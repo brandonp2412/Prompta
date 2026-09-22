@@ -14,19 +14,37 @@ describe("tool-call rendering", () => {
       "```",
     ].join("\n"));
 
-    expect(rendered).toContain("tool-has-meta");
-    expect(rendered).toContain('class="tool-expanded-meta"');
+    expect(rendered).not.toContain("tool-has-meta");
+    expect(rendered).not.toContain('class="tool-expanded-meta"');
     expect(rendered).toContain('class="tool-time"');
     expect(rendered).toContain('datetime="2023-11-14T22:13:20.000Z"');
     expect(rendered).toMatch(/class="tool-time"[^>]*>\d{1,2}:\d{2}:\d{2}(?:am|pm)<\/time>/);
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
     expect(summary).toContain('<span class="tool-primary-name">files.search</span>');
     expect(summary).not.toContain("<button");
-    const expandedHeader = rendered.split("</summary>")[1]?.split("<pre>")[0] || "";
-    expect(expandedHeader).toContain('<span class="tool-expanded-action">files.search</span>');
-    expect(expandedHeader).not.toContain("code-language");
-    expect(expandedHeader).not.toContain("tool-time");
-    expect(expandedHeader).not.toContain("copy-code");
+  });
+
+  test("hides redundant expanded metadata for Serena control-plane calls", () => {
+    const rendered = renderMarkdown([
+      "```tool:Glass Serena · activate_project",
+      JSON.stringify({ arguments: { project: "/home/example/project" }, status: "completed" }),
+      "```",
+    ].join("\n"));
+
+    expect(rendered).not.toContain("tool-has-meta");
+    expect(rendered).not.toContain('class="tool-expanded-meta"');
+  });
+
+  test("keeps expanded connector context for execution calls", () => {
+    const rendered = renderMarkdown([
+      "```tool:Glass Serena · serena_repl",
+      JSON.stringify({ arguments: { code: "1 + 1" }, status: "completed" }),
+      "```",
+    ].join("\n"));
+
+    expect(rendered).toContain("tool-has-meta");
+    expect(rendered).toContain('<span class="tool-expanded-action">serena_repl</span>');
+    expect(rendered).toContain('<span class="tool-expanded-connector">Glass Serena</span>');
   });
 
   test("shows persisted reasoning titles in the collapsed tool row", () => {

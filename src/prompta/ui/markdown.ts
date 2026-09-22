@@ -278,6 +278,14 @@ function renderTextBlock(text) {
   }
   return out.join("");
 }
+const CONTEXTUAL_TOOL_ACTION = /(?:^|_)(?:repl|execute|shell|python|command)(?:_|$)/i;
+
+function expandedToolMetaAddsInformation(summary, action, connector) {
+  if (!action) return false;
+  if (summary) return true;
+  return Boolean(connector && CONTEXTUAL_TOOL_ACTION.test(action));
+}
+
 function renderCodeBlock(code, language) {
   const rawLanguage = String(language || "").trim();
   const normalized = normalizeLanguage(rawLanguage);
@@ -331,7 +339,7 @@ function renderCodeBlock(code, language) {
     const expandedConnector = toolIdentityParts.length > 1
       ? toolIdentityParts.slice(0, -1).join(" · ")
       : "";
-    const expandedToolHeader = expandedAction
+    const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction, expandedConnector)
       ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";
     return `
