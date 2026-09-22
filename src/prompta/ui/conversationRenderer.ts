@@ -1,5 +1,5 @@
 import { formatClockTime12Hour, messageAgeText, messageTimestampMillis } from "./clientLogic";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, type DeferredToolBody } from "./markdown";
 
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -127,14 +127,20 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       age: messageAgeText(millis),
     };
   }
-  function renderMessageSection(message, allowStreaming = true) {
+  function renderMessageSection(
+    message,
+    allowStreaming = true,
+    deferredToolBodies: DeferredToolBody[] | null = null,
+  ) {
     const role = message.role === "user" ? "user" : "assistant";
     const streaming =
       Boolean(message.pending_activity) || (allowStreaming && message.status === "streaming");
     const activityLabel = message.pending_activity_label || "writing";
     const label = message.send_error ? "Send error" : "Prompta run";
     const timestamp = messageTimestamp(message);
-    const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content);
+    const contentHtml = message.pending_activity
+      ? ""
+      : renderMarkdown(message.content, deferredToolBodies);
     const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
 
     return `
@@ -206,6 +212,8 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
   const boundRetryButtons = new WeakSet();
   const boundDeleteButtons = new WeakSet();
   const boundPendingActionTargets = new WeakSet<HTMLElement>();
+  const deferredToolBodyData = new WeakMap<HTMLDetailsElement, DeferredToolBody>();
+  const boundDeferredToolBodies = new WeakSet<HTMLDetailsElement>();
   let pendingActionsSheet: HTMLDialogElement | null = null;
   let activePendingActionKey = "";
 
@@ -361,6 +369,55 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       });
     }
   }
+  function renderDeferredToolBody(details: HTMLDetailsElement) {
+    const deferred = deferredToolBodyData.get(details);
+    const placeholder = details.querySelector<HTMLElement>(":scope > .deferred-tool-body");
+    const existing = details.querySelector<HTMLElement>(":scope > pre[data-deferred-tool-body]");
+
+    if (!deferred) return;
+
+    if (details.open) {
+      if (existing) return;
+
+      const pre = document.createElement("pre");
+      pre.dataset.deferredToolBody = "true";
+      const code = document.createElement("code");
+      code.className = `language-${deferred.language}`;
+      code.textContent = deferred.code;
+      pre.append(code);
+      placeholder?.replaceWith(pre);
+
+      return;
+    }
+
+    if (!existing) return;
+
+    const nextPlaceholder = document.createElement("div");
+    nextPlaceholder.className = "deferred-tool-body";
+    nextPlaceholder.setAttribute("aria-hidden", "true");
+    existing.replaceWith(nextPlaceholder);
+  }
+
+  function bindDeferredToolBodies(root: Element, bodies: DeferredToolBody[]) {
+    for (const details of root.querySelectorAll<HTMLDetailsElement>(
+      ".tool-call-block[data-deferred-tool-body-index]",
+    )) {
+      const index = Number(details.dataset.deferredToolBodyIndex);
+      const deferred = Number.isInteger(index) ? bodies[index] : undefined;
+
+      if (!deferred) continue;
+
+      deferredToolBodyData.set(details, deferred);
+
+      if (!boundDeferredToolBodies.has(details)) {
+        boundDeferredToolBodies.add(details);
+        details.addEventListener("toggle", () => renderDeferredToolBody(details));
+      }
+
+      renderDeferredToolBody(details);
+    }
+  }
+
   function bindCopyButtons(root) {
     for (const button of root.querySelectorAll(".copy-code")) {
       if (boundCopyButtons.has(button)) continue;
@@ -385,11 +442,13 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
     }
   }
   function createMessageNode(message, allowStreaming, messageKey) {
+    const deferredToolBodies: DeferredToolBody[] = [];
     const template = document.createElement("template");
-    template.innerHTML = renderMessageSection(message, allowStreaming).trim();
+    template.innerHTML = renderMessageSection(message, allowStreaming, deferredToolBodies).trim();
     const node = template.content.firstElementChild as HTMLElement;
     node.dataset.messageKey = messageKey;
     node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
+    bindDeferredToolBodies(node, deferredToolBodies);
     bindCopyButtons(node);
     bindRetryButtons(node);
     bindDeleteButtons(node);
@@ -516,7 +575,10 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       if (nextNode) patchDomNode(currentAttachments, nextNode);
     }
 
-    const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
+    const deferredToolBodies: DeferredToolBody[] = [];
+    const nextContent = message.pending_activity
+      ? ""
+      : renderMarkdown(message.content, deferredToolBodies);
 
     if (content.innerHTML !== nextContent) {
       const template = document.createElement("template");
@@ -524,6 +586,8 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       patchDomChildren(content, template.content);
       bindCopyButtons(content);
     }
+
+    bindDeferredToolBodies(content, deferredToolBodies);
 
     const deleteButton = node.querySelector(".delete-pending-button") as HTMLButtonElement | null;
     const deleteKey = String(message.pending_delete_key || "");

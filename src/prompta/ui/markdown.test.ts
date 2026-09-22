@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, type DeferredToolBody } from "./markdown";
 
 describe("tool-call rendering", () => {
   test("shows a tool call timestamp even without a reasoning summary", () => {
@@ -85,6 +85,29 @@ describe("tool-call rendering", () => {
     expect(expandedHeader.indexOf("serena_repl")).toBeLessThan(
       expandedHeader.indexOf("Glass Serena"),
     );
+  });
+
+  test("can defer collapsed tool payloads out of the rendered DOM", () => {
+    const deferredToolBodies: DeferredToolBody[] = [];
+    const rendered = renderMarkdown(
+      [
+        "```tool:files.search",
+        JSON.stringify({
+          arguments: { top_k: 5 },
+          result: "VERY_LARGE_TOOL_BODY",
+          status: "completed",
+        }),
+        "```",
+      ].join("\n"),
+      deferredToolBodies,
+    );
+
+    expect(rendered).toContain('data-deferred-tool-body-index="0"');
+    expect(rendered).toContain('class="deferred-tool-body"');
+    expect(rendered).not.toContain("VERY_LARGE_TOOL_BODY");
+    expect(deferredToolBodies).toHaveLength(1);
+    expect(deferredToolBodies[0]?.code).toContain("VERY_LARGE_TOOL_BODY");
+    expect(deferredToolBodies[0]?.language).toBe("json");
   });
 
   test("keeps collapsed structured tool payloads lightweight", () => {

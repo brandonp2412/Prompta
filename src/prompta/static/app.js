@@ -1682,7 +1682,7 @@ function renderTextBlock(text) {
 function expandedToolMetaAddsInformation(summary, action) {
   return Boolean(summary && action);
 }
-function renderCodeBlock(code, language) {
+function renderCodeBlock(code, language, deferredToolBodies = null) {
   const rawLanguage = String(language || "").trim();
   const normalized = normalizeLanguage(rawLanguage);
   const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
@@ -1710,15 +1710,28 @@ function renderCodeBlock(code, language) {
         ${toolTime}` : `
       <span class="code-language">${escapeHtml2(label)}</span>
       ${copyButton}`;
-  const renderedBody = pythonCode ? highlightCode(renderedCode, highlightLanguage) : toolish ? escapeHtml2(renderedCode) : highlightCode(renderedCode, highlightLanguage);
-  const body = renderedCode.trim() ? `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${renderedBody}</code></pre>` : "";
+  let deferredToolBodyIndex = -1;
+  let body = "";
+  if (renderedCode.trim()) {
+    if (toolish && deferredToolBodies) {
+      deferredToolBodyIndex = deferredToolBodies.push({
+        code: renderedCode,
+        language: highlightLanguage
+      }) - 1;
+      body = '<div class="deferred-tool-body" aria-hidden="true"></div>';
+    } else {
+      const renderedBody = pythonCode ? highlightCode(renderedCode, highlightLanguage) : toolish ? escapeHtml2(renderedCode) : highlightCode(renderedCode, highlightLanguage);
+      body = `<pre><code class="language-${escapeHtml2(highlightLanguage)}">${renderedBody}</code></pre>`;
+    }
+  }
   if (toolish) {
     const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
     const expandedAction = toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
     const expandedConnector = toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
     const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction) ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml2(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml2(expandedConnector)}</span>` : ""}</div>` : "";
+    const deferredAttribute = deferredToolBodyIndex < 0 ? "" : ` data-deferred-tool-body-index="${deferredToolBodyIndex}"`;
     return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}">
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}"${deferredAttribute}>
         <summary class="code-header">${header}</summary>
         ${expandedToolHeader}
         ${body}
@@ -1730,7 +1743,7 @@ function renderCodeBlock(code, language) {
       ${body}
     </div>`;
 }
-function renderMarkdown(raw) {
+function renderMarkdown(raw, deferredToolBodies = null) {
   const source = String(raw || "");
   const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
   let lastIndex = 0;
@@ -1740,7 +1753,7 @@ function renderMarkdown(raw) {
     html += renderTextBlock(source.slice(lastIndex, match.index));
     const language = match[1].trim() || "code";
     const code = match[2].replace(/\n$/, "");
-    html += renderCodeBlock(code, language);
+    html += renderCodeBlock(code, language, deferredToolBodies);
     lastIndex = pattern.lastIndex;
   }
   html += renderTextBlock(source.slice(lastIndex));
@@ -1839,13 +1852,13 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       age: messageAgeText(millis)
     };
   }
-  function renderMessageSection(message, allowStreaming = true) {
+  function renderMessageSection(message, allowStreaming = true, deferredToolBodies = null) {
     const role = message.role === "user" ? "user" : "assistant";
     const streaming = Boolean(message.pending_activity) || allowStreaming && message.status === "streaming";
     const activityLabel = message.pending_activity_label || "writing";
     const label = message.send_error ? "Send error" : "Prompta run";
     const timestamp = messageTimestamp(message);
-    const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content);
+    const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies);
     const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
     return `
       <section class="message ${role}${message.send_error ? " send-error" : ""}">
@@ -1900,6 +1913,8 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
   const boundRetryButtons = new WeakSet;
   const boundDeleteButtons = new WeakSet;
   const boundPendingActionTargets = new WeakSet;
+  const deferredToolBodyData = new WeakMap;
+  const boundDeferredToolBodies = new WeakSet;
   let pendingActionsSheet = null;
   let activePendingActionKey = "";
   function getPendingActionsSheet() {
@@ -2031,6 +2046,45 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       });
     }
   }
+  function renderDeferredToolBody(details) {
+    const deferred = deferredToolBodyData.get(details);
+    const placeholder = details.querySelector(":scope > .deferred-tool-body");
+    const existing = details.querySelector(":scope > pre[data-deferred-tool-body]");
+    if (!deferred)
+      return;
+    if (details.open) {
+      if (existing)
+        return;
+      const pre = document.createElement("pre");
+      pre.dataset.deferredToolBody = "true";
+      const code = document.createElement("code");
+      code.className = `language-${deferred.language}`;
+      code.textContent = deferred.code;
+      pre.append(code);
+      placeholder?.replaceWith(pre);
+      return;
+    }
+    if (!existing)
+      return;
+    const nextPlaceholder = document.createElement("div");
+    nextPlaceholder.className = "deferred-tool-body";
+    nextPlaceholder.setAttribute("aria-hidden", "true");
+    existing.replaceWith(nextPlaceholder);
+  }
+  function bindDeferredToolBodies(root, bodies) {
+    for (const details of root.querySelectorAll(".tool-call-block[data-deferred-tool-body-index]")) {
+      const index = Number(details.dataset.deferredToolBodyIndex);
+      const deferred = Number.isInteger(index) ? bodies[index] : undefined;
+      if (!deferred)
+        continue;
+      deferredToolBodyData.set(details, deferred);
+      if (!boundDeferredToolBodies.has(details)) {
+        boundDeferredToolBodies.add(details);
+        details.addEventListener("toggle", () => renderDeferredToolBody(details));
+      }
+      renderDeferredToolBody(details);
+    }
+  }
   function bindCopyButtons(root) {
     for (const button of root.querySelectorAll(".copy-code")) {
       if (boundCopyButtons.has(button))
@@ -2054,11 +2108,13 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
     }
   }
   function createMessageNode(message, allowStreaming, messageKey) {
+    const deferredToolBodies = [];
     const template = document.createElement("template");
-    template.innerHTML = renderMessageSection(message, allowStreaming).trim();
+    template.innerHTML = renderMessageSection(message, allowStreaming, deferredToolBodies).trim();
     const node = template.content.firstElementChild;
     node.dataset.messageKey = messageKey;
     node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
+    bindDeferredToolBodies(node, deferredToolBodies);
     bindCopyButtons(node);
     bindRetryButtons(node);
     bindDeleteButtons(node);
@@ -2161,13 +2217,15 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       if (nextNode)
         patchDomNode2(currentAttachments, nextNode);
     }
-    const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
+    const deferredToolBodies = [];
+    const nextContent = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies);
     if (content.innerHTML !== nextContent) {
       const template = document.createElement("template");
       template.innerHTML = nextContent;
       patchDomChildren2(content, template.content);
       bindCopyButtons(content);
     }
+    bindDeferredToolBodies(content, deferredToolBodies);
     const deleteButton = node.querySelector(".delete-pending-button");
     const deleteKey = String(message.pending_delete_key || "");
     if (deleteKey) {

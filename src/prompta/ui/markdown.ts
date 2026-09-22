@@ -414,7 +414,9 @@ function expandedToolMetaAddsInformation(summary, action) {
   return Boolean(summary && action);
 }
 
-function renderCodeBlock(code, language) {
+export type DeferredToolBody = { code: string; language: string };
+
+function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] | null = null) {
   const rawLanguage = String(language || "").trim();
   const normalized = normalizeLanguage(rawLanguage);
   const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
@@ -459,14 +461,26 @@ function renderCodeBlock(code, language) {
     : `
       <span class="code-language">${escapeHtml(label)}</span>
       ${copyButton}`;
-  const renderedBody = pythonCode
-    ? highlightCode(renderedCode, highlightLanguage)
-    : toolish
-      ? escapeHtml(renderedCode)
-      : highlightCode(renderedCode, highlightLanguage);
-  const body = renderedCode.trim()
-    ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${renderedBody}</code></pre>`
-    : "";
+  let deferredToolBodyIndex = -1;
+  let body = "";
+
+  if (renderedCode.trim()) {
+    if (toolish && deferredToolBodies) {
+      deferredToolBodyIndex =
+        deferredToolBodies.push({
+          code: renderedCode,
+          language: highlightLanguage,
+        }) - 1;
+      body = '<div class="deferred-tool-body" aria-hidden="true"></div>';
+    } else {
+      const renderedBody = pythonCode
+        ? highlightCode(renderedCode, highlightLanguage)
+        : toolish
+          ? escapeHtml(renderedCode)
+          : highlightCode(renderedCode, highlightLanguage);
+      body = `<pre><code class="language-${escapeHtml(highlightLanguage)}">${renderedBody}</code></pre>`;
+    }
+  }
 
   if (toolish) {
     const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
@@ -478,8 +492,11 @@ function renderCodeBlock(code, language) {
       ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";
 
+    const deferredAttribute =
+      deferredToolBodyIndex < 0 ? "" : ` data-deferred-tool-body-index="${deferredToolBodyIndex}"`;
+
     return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}">
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}"${deferredAttribute}>
         <summary class="code-header">${header}</summary>
         ${expandedToolHeader}
         ${body}
@@ -493,7 +510,7 @@ function renderCodeBlock(code, language) {
     </div>`;
 }
 
-export function renderMarkdown(raw) {
+export function renderMarkdown(raw, deferredToolBodies: DeferredToolBody[] | null = null) {
   const source = String(raw || "");
   const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
   let lastIndex = 0;
@@ -504,7 +521,7 @@ export function renderMarkdown(raw) {
     html += renderTextBlock(source.slice(lastIndex, match.index));
     const language = match[1].trim() || "code";
     const code = match[2].replace(/\n$/, "");
-    html += renderCodeBlock(code, language);
+    html += renderCodeBlock(code, language, deferredToolBodies);
     lastIndex = pattern.lastIndex;
   }
 
