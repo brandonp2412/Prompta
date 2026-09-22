@@ -1,3 +1,6 @@
+import { mount } from "svelte";
+import SidebarList from "./SidebarList.svelte";
+
 import {
   chatListRequestUrl,
   composerHasContent,
@@ -248,6 +251,27 @@ const sidebar = createSidebar({
 
     sidebarRenderDeferred = false;
     renderSidebar();
+  },
+});
+
+const sidebarList = mount(SidebarList, {
+  target: els.chatList,
+  props: {
+    onSelect: (chatId: string, optimisticNew: boolean) => {
+      if (optimisticNew && state.pendingNewSend) {
+        renderNewChat();
+        sidebar.close();
+
+        return;
+      }
+
+      void selectChat(chatId);
+    },
+    onPin: (chatId: string) => {
+      setChatPinned(chatId, !state.pinnedIds.has(chatId));
+      renderSidebar(true);
+      updatePinButton();
+    },
   },
 });
 
@@ -561,15 +585,6 @@ function setServerStatus(server, online) {
         : `${display} status unknown`;
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function formatRelativeTime(epochSeconds) {
   if (!epochSeconds) return "";
 
@@ -656,14 +671,6 @@ function groupChats(chats: UiChat[]) {
   ];
 
   return groups.filter(([, items]) => items.length);
-}
-
-function sidebarStatusDot(status) {
-  if (status === "interrupted") return "";
-
-  const statusClass = ["active", "complete"].includes(status) ? status : "neutral";
-
-  return `<span class="item-status-dot ${statusClass}"></span>`;
 }
 
 const iconStatusClasses = new Set([
@@ -777,29 +784,6 @@ function sidebarChats(): UiChat[] {
   return [optimistic, ...chats];
 }
 
-const boundSidebarItems = new WeakSet();
-
-const boundSidebarPins = new WeakSet();
-
-const sidebarRowsById = new Map<string, HTMLElement>();
-
-let renderedSidebarSelectionId = "";
-
-function syncSidebarSelection(selectionId: string) {
-  if (selectionId === renderedSidebarSelectionId) return;
-
-  const previousRow = sidebarRowsById.get(renderedSidebarSelectionId);
-
-  previousRow?.classList.remove("selected");
-  previousRow?.querySelector<HTMLElement>("[data-chat-id]")?.removeAttribute("aria-current");
-
-  const nextRow = sidebarRowsById.get(selectionId);
-
-  nextRow?.classList.add("selected");
-  nextRow?.querySelector<HTMLElement>("[data-chat-id]")?.setAttribute("aria-current", "true");
-  renderedSidebarSelectionId = selectionId;
-}
-
 function scrollSidebarToNewest() {
   if (els.sidebarScroll.scrollTop) els.sidebarScroll.scrollTop = 0;
 }
@@ -834,122 +818,60 @@ function renderSidebar(force = false) {
         Boolean(chat._optimisticReply),
         state.pinnedIds.has(chat.id),
       ]),
-    ) + new Date().toDateString();
+    ) +
+    new Date().toDateString() +
+    selectionId;
 
-  if (!force && fingerprint === state.sidebarFingerprint) {
-    syncSidebarSelection(selectionId);
-
-    return;
-  }
+  if (!force && fingerprint === state.sidebarFingerprint) return;
 
   state.sidebarFingerprint = fingerprint;
 
   if (!chats.length) {
-    sidebarRowsById.clear();
-    renderedSidebarSelectionId = "";
-    patchHtmlChildren(
-      els.chatList,
-      `
-      <div class="list-empty">
-        ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
-      </div>`,
-    );
+    sidebarList.update({
+      emptyState: state.search ? "search" : "empty",
+      groups: [],
+    });
 
     return;
   }
 
-  patchHtmlChildren(
-    els.chatList,
-    groupChats(chats)
-      .map(
-        ([label, groupedChats]) => `
-    <section class="chat-group" data-dom-key="group:${escapeHtml(label)}">
-      <div class="chat-group-label">${escapeHtml(label)}</div>
-      ${groupedChats
-        .map((chat) => {
-          const selected = sidebarChatIsSelected(
-            chat,
-            state.selectedId,
-            state.composingNew,
-            pendingNewDisplayId,
-          );
+  sidebarList.update({
+    emptyState: "none",
+    groups: groupChats(chats).map(([label, groupedChats]) => ({
+      label,
+      chats: groupedChats.map((chat) => {
+        const selected = sidebarChatIsSelected(
+          chat,
+          state.selectedId,
+          state.composingNew,
+          pendingNewDisplayId,
+        );
+        let statusClass: "active" | "complete" | "neutral" | null = null;
 
-          return `
-        <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml(chat.id)}">
-          <button type="button"
-                  class="chat-item-select"
-                  data-chat-id="${escapeHtml(chat.id)}"
-                  data-optimistic-new="${chat._optimisticNew ? "true" : "false"}"
-                  ${selected ? 'aria-current="true"' : ""}>
-            <div class="chat-item-top">
-              ${sidebarStatusDot(chat.status)}
-              <span class="chat-title">${escapeHtml(chatTitle(chat))}</span>
-            </div>
-            <div class="chat-preview">${escapeHtml(truncate(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"))}</div>
-            <div class="chat-meta">
-              <span class="chat-job">${escapeHtml(chat.job_name || `${chat.message_count || 0} messages`)}</span>
-              <span class="chat-time" data-activity-at="${escapeHtml(chatActivityAt(chat))}">${escapeHtml(formatRelativeTime(chatActivityAt(chat)))}</span>
-            </div>
-          </button>
-          <button type="button"
-                  class="chat-row-pin ${state.pinnedIds.has(chat.id) ? "active" : ""}"
-                  data-pin-chat-id="${escapeHtml(chat.id)}"
-                  aria-label="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
-                  title="${state.pinnedIds.has(chat.id) ? "Unpin chat" : "Pin chat"}"
-                  aria-pressed="${String(state.pinnedIds.has(chat.id))}">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg>
-          </button>
-        </div>`;
-        })
-        .join("")}
-    </section>
-  `,
-      )
-      .join(""),
-  );
+        if (chat.status !== "interrupted") {
+          statusClass =
+            chat.status === "active" || chat.status === "complete" ? chat.status : "neutral";
+        }
 
-  sidebarRowsById.clear();
+        const activityAt = chatActivityAt(chat);
 
-  for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
-    const chatId = item.dataset.chatId;
-    const row = item.closest<HTMLElement>(".chat-item");
-
-    if (chatId && row) sidebarRowsById.set(chatId, row);
-
-    if (boundSidebarItems.has(item)) continue;
-
-    boundSidebarItems.add(item);
-    item.addEventListener("click", () => {
-      if (item.dataset.optimisticNew === "true" && state.pendingNewSend) {
-        renderNewChat();
-        sidebar.close();
-
-        return;
-      }
-
-      void selectChat(item.dataset.chatId);
-    });
-  }
-
-  renderedSidebarSelectionId = selectionId;
-
-  for (const pin of els.chatList.querySelectorAll<HTMLElement>("[data-pin-chat-id]")) {
-    if (boundSidebarPins.has(pin)) continue;
-
-    boundSidebarPins.add(pin);
-    pin.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const chatId = pin.dataset.pinChatId;
-
-      if (!chatId) return;
-
-      setChatPinned(chatId, !state.pinnedIds.has(chatId));
-
-      renderSidebar(true);
-      updatePinButton();
-    });
-  }
+        return {
+          id: chat.id,
+          selected,
+          optimisticNew: Boolean(chat._optimisticNew),
+          statusClass,
+          title: String(chatTitle(chat)),
+          preview: truncate(
+            sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…",
+          ),
+          jobLabel: String(chat.job_name || String(chat.message_count || 0) + " messages"),
+          activityAt,
+          relativeTime: formatRelativeTime(activityAt),
+          pinned: state.pinnedIds.has(chat.id),
+        };
+      }),
+    })),
+  });
 }
 
 function pendingReplyMessages(conversationId, cachedMessages) {

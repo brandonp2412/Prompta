@@ -207,8 +207,10 @@ The unit files are `systemd/prompta.service` and `systemd/prompta-ui.service`.
 
 ## Development
 
-The browser source is TypeScript in `src/prompta/ui/app.ts`; Bun builds the committed
-browser bundle at `src/prompta/static/app.js`.
+The browser UI uses Svelte 5 and TypeScript in src/prompta/ui/. Vite builds the
+committed browser bundle at src/prompta/static/app.js, which is served by the existing
+Python UI server. The legacy behavior modules are being migrated incrementally into
+Svelte components so live conversation DOM nodes keep stable identity during updates.
 
 ```bash
 uv sync --locked

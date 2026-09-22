@@ -1,0 +1,199 @@
+<script lang="ts">
+  let { serverName }: { serverName: string } = $props();
+</script>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="brand-row">
+          <button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div class="brand-mark" aria-hidden="true">P</div>
+          <div class="brand-copy">
+            <strong>Prompta</strong>
+            <span id="serverLabel">Server · {serverName}</span>
+          </div>
+          <div class="live-orb" id="globalLiveOrb" title="Cache status"></div>
+        </div>
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+      </div>
+
+      <div class="sidebar-scroll">
+        <button type="button" class="sidebar-action" id="jobsSidebarButton">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/><path d="M8 12h3M8 16h3M14 12h2M14 16h2"/></svg>
+          <span>Jobs</span>
+        </button>
+        <nav class="chat-list" id="chatList" aria-label="Cached conversations"></nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="cache-summary">
+          <span class="summary-dot"></span>
+          <span id="cacheSummary">Reading local cache</span>
+        </div>
+        <button type="button" class="read-only-pill" id="headLabel" title="View changelog" aria-haspopup="dialog" aria-controls="changelogDialog">…</button>
+      </div>
+    </aside>
+
+    <div class="sidebar-scrim" id="sidebarScrim"></div>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="chat-heading" id="chatHeading">
+          <div class="heading-title">Prompta</div>
+          <div class="heading-meta">Local conversation history</div>
+        </div>
+        <div class="topbar-actions" aria-label="Prompta actions">
+          <button class="icon-button" id="pinChatButton" aria-label="Pin chat" title="Pin chat" aria-pressed="false" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"/></svg>
+          </button>
+          <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+          </button>
+          <span class="status-icon sync neutral" id="syncLabel" role="img" aria-label="Local cache" title="Local cache">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"/></svg>
+          </span>
+        </div>
+      </header>
+
+      <section class="conversation-viewport" id="conversationViewport">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-logo">P</div>
+          <h1>Your Prompta chats, locally.</h1>
+          <p>Active runs and completed history stream from Prompta's SQLite cache.</p>
+          <div class="empty-features">
+            <span>Reply from here</span>
+            <span>Live SSE updates</span>
+            <span>SQLite source of truth</span>
+          </div>
+        </div>
+        <article class="conversation" id="conversation" hidden></article>
+      </section>
+
+      <section class="logs-viewport" id="logsViewport" hidden>
+        <div class="logs-shell">
+          <div class="logs-header">
+            <div>
+              <strong id="logsServerTitle">Prompta · prompta.service</strong>
+              <span id="logsMeta">Waiting for synced journal</span>
+            </div>
+            <span class="logs-live"><i></i> live</span>
+          </div>
+          <pre class="log-output" id="logOutput">Loading logs…</pre>
+        </div>
+      </section>
+
+      <footer class="composer-footer" id="composerFooter">
+        <form class="composer-bar" id="messageForm">
+          <div class="composer-input-shell">
+            <div class="attachment-chips" id="attachmentChips" hidden></div>
+            <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" disabled></textarea>
+            <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden>
+              <button type="button" id="slashCommandAdd" role="option" aria-selected="false" data-slash-command="/add "><strong>/add</strong><span>Add a repeating scheduled job</span></button>
+              <button type="button" id="slashCommandList" role="option" aria-selected="false" data-slash-command="/list"><strong>/list</strong><span>List and manage scheduled jobs</span></button>
+              <button type="button" id="slashCommandLogs" role="option" aria-selected="false" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button>
+              <button type="button" id="slashCommandAt" role="option" aria-selected="false" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button>
+            </div>
+          </div>
+          <div class="composer-tools">
+            <button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment" hidden>
+              <button type="button" role="menuitem" data-attachment-kind="file">Upload file</button>
+              <button type="button" role="menuitem" data-attachment-kind="photo">Upload photo</button>
+              <button type="button" role="menuitem" data-attachment-kind="camera">Take photo</button>
+            </div>
+            <input id="fileUploadInput" type="file" hidden>
+            <input id="photoUploadInput" type="file" accept="image/*" hidden>
+            <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden>
+          </div>
+          <div class="composer-submit">
+            <button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"/>
+                <path d="M18 3v6M15 6h6"/>
+              </svg>
+            </button>
+            <button type="submit" class="send-button" id="sendButton" aria-label="Send message" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
+          </div>
+        </form>
+        <div class="composer-status" id="composerStatus"></div>
+      </footer>
+    </main>
+  </div>
+  <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-label="New Prompta version available. Tap to update" aria-live="polite" hidden>Update available</button>
+  <dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle">
+    <div class="jobs-dialog-shell">
+      <header class="jobs-dialog-header">
+        <div class="chat-heading">
+          <div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div>
+          <div class="heading-meta">Create and manage scheduled prompts.</div>
+        </div>
+        <button type="button" class="jobs-icon-button" id="closeJobsDialog" aria-label="Close scheduled jobs">×</button>
+      </header>
+      <div class="jobs-dialog-status" id="jobsDialogStatus" role="status"></div>
+      <div class="jobs-list" id="jobsList"></div>
+      <form class="jobs-form" id="jobsForm">
+        <h3 id="jobsFormTitle">Add job</h3>
+        <label>
+          <span>Name</span>
+          <input id="jobNameInput" name="name" autocomplete="off" required>
+        </label>
+        <label>
+          <span>Prompt</span>
+          <textarea id="jobPromptInput" name="prompt" rows="3" required></textarea>
+        </label>
+        <div class="jobs-form-grid">
+          <label>
+            <span>Schedule</span>
+            <select id="jobScheduleType">
+              <option value="interval">Interval</option>
+              <option value="daily">Daily</option>
+            </select>
+          </label>
+          <label id="jobIntervalField">
+            <span>Every (minutes)</span>
+            <input id="jobIntervalInput" type="number" min="0.1" step="0.1" value="40">
+          </label>
+          <label id="jobDailyField" hidden>
+            <span>At</span>
+            <input id="jobDailyInput" type="time" value="09:00">
+          </label>
+        </div>
+        <label class="jobs-check" id="jobExactField">
+          <input id="jobExactInput" type="checkbox">
+          <span>Exact interval</span>
+        </label>
+        <div class="jobs-form-actions">
+          <button type="button" class="jobs-secondary-button" id="resetJobForm">Reset</button>
+          <button type="submit" class="jobs-primary-button" id="saveJobButton">Save job</button>
+        </div>
+      </form>
+      <div class="jobs-dialog-footer">
+        <button type="button" class="jobs-danger-button" id="clearJobsButton">Clear all jobs</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle">
+    <div class="changelog-dialog-shell">
+      <header class="changelog-dialog-header">
+        <div>
+          <h2 id="changelogDialogTitle">Changelog</h2>
+          <p id="changelogDialogStatus">Commit titles from this Prompta checkout.</p>
+        </div>
+        <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button>
+      </header>
+      <ol class="changelog-list" id="changelogList"></ol>
+    </div>
+  </dialog>

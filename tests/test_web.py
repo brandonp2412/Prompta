@@ -1889,22 +1889,8 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
         with urlopen(f"{base_url}/", timeout=2) as response:
             assert response.status == 200
             index_html = response.read().decode()
-            assert '<div class="composer-status" id="composerStatus">' in index_html
-            assert 'id="composerStatus" hidden' not in index_html
-            assert 'id="logsButton"' not in index_html
-            assert 'data-slash-command="/logs"' in index_html
-            assert 'id="messageInput"' in index_html
-            assert 'role="combobox"' in index_html
-            assert 'aria-controls="slashMenu"' in index_html
-            assert 'id="attachmentButton"' in index_html
-            assert 'aria-haspopup="menu"' in index_html
-            assert 'aria-controls="attachmentMenu"' in index_html
-            assert 'aria-expanded="false"' in index_html
-            assert 'id="attachmentMenu" role="menu"' in index_html
-            assert index_html.count('role="menuitem"') == 3
-            assert 'id="headLabel"' in index_html
-            assert 'aria-controls="changelogDialog"' in index_html
-            assert 'id="changelogDialog"' in index_html
+            assert '<div id="app" data-server-name="Nox"></div>' in index_html
+            assert '<script type="module" src="./app.js"></script>' in index_html
 
         with urlopen(Request(f"{base_url}/", method="HEAD"), timeout=2) as response:
             assert response.status == 200
@@ -2392,7 +2378,7 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
     assert "<title>Prompta · Nox</title>" in index
     assert '<meta name="application-name" content="Prompta · Nox">' in index
     assert '<meta name="apple-mobile-web-app-title" content="Prompta Nox">' in index
-    assert '<span id="serverLabel">Server · Nox</span>' in index
+    assert '<div id="app" data-server-name="Nox"></div>' in index
     assert "__PROMPTA_SERVER_NAME__" not in index
     assert manifest["name"] == "Prompta · Nox"
     assert manifest["short_name"] == "Prompta Nox"
