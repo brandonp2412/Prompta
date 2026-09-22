@@ -14,14 +14,18 @@ describe("tool-call rendering", () => {
       "```",
     ].join("\n"));
 
-    expect(rendered).not.toContain("tool-has-meta");
-    expect(rendered).not.toContain('class="tool-expanded-meta"');
+    expect(rendered).toContain("tool-has-meta");
+    expect(rendered).toContain('class="tool-expanded-meta"');
     expect(rendered).toContain('class="tool-time"');
     expect(rendered).toContain('datetime="2023-11-14T22:13:20.000Z"');
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
     expect(summary).toContain('<span class="tool-primary-name">files.search</span>');
     expect(summary).not.toContain("<button");
-    expect(rendered).not.toContain('class="copy-code"');
+    const expandedHeader = rendered.split("</summary>")[1]?.split("<pre>")[0] || "";
+    expect(expandedHeader).toContain('<span class="tool-name">files.search</span>');
+    expect(expandedHeader).not.toContain("code-language");
+    expect(expandedHeader).not.toContain("tool-time");
+    expect(expandedHeader).not.toContain("copy-code");
   });
 
   test("shows persisted reasoning titles in the collapsed tool row", () => {

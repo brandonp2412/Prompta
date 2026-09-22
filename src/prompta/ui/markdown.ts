@@ -323,9 +323,13 @@ function renderCodeBlock(code, language) {
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
     : "";
   if (toolish) {
+    const expandedToolHeader = toolName
+      ? `<div class="tool-expanded-meta"><span class="tool-name">${escapeHtml(toolName)}</span></div>`
+      : "";
     return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}">
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}">
         <summary class="code-header">${header}</summary>
+        ${expandedToolHeader}
         ${body}
       </details>`;
   }
