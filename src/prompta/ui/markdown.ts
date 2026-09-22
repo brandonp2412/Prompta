@@ -39,6 +39,7 @@ const LANGUAGE_ALIASES = {
   svg: "markup",
   md: "markdown",
 };
+
 const CODE_KEYWORDS = {
   javascript: new Set(
     "as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(
@@ -77,6 +78,7 @@ const CODE_KEYWORDS = {
   ),
   json: new Set(["true", "false", "null"]),
 };
+
 function normalizeLanguage(language) {
   const raw = String(language || "")
     .trim()
@@ -84,9 +86,11 @@ function normalizeLanguage(language) {
     .split(/\s+/)[0];
   return LANGUAGE_ALIASES[raw] || raw || "code";
 }
+
 function syntaxToken(className, value) {
   return `<span class="syntax-${className}">${escapeHtml(value)}</span>`;
 }
+
 function highlightCode(raw, language) {
   const source = String(raw || "");
   const normalized = normalizeLanguage(language);
@@ -170,6 +174,7 @@ function highlightCode(raw, language) {
   }
   return html;
 }
+
 function inlineMarkdown(text) {
   const placeholders: Array<[string, string]> = [];
   let source = String(text || "");
@@ -200,6 +205,7 @@ function inlineMarkdown(text) {
   for (const [token, value] of placeholders) html = html.replaceAll(token, value);
   return html;
 }
+
 function splitTableRow(line) {
   return line
     .trim()
@@ -207,12 +213,14 @@ function splitTableRow(line) {
     .split("|")
     .map((cell) => cell.trim());
 }
+
 function renderListItem(content) {
   const task = content.match(/^\[([ xX])\]\s+(.+)$/);
   if (!task) return `<li>${inlineMarkdown(content)}</li>`;
   const checked = task[1].toLowerCase() === "x";
   return `<li class="task-item"><input type="checkbox" disabled${checked ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
 }
+
 function listLine(line) {
   const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
   if (!match) return null;
@@ -222,6 +230,7 @@ function listLine(line) {
     content: match[3],
   };
 }
+
 function renderListBlock(lines, startIndex, baseIndent = null) {
   const first = listLine(lines[startIndex]);
   if (!first) return { html: "", index: startIndex };
@@ -247,6 +256,7 @@ function renderListBlock(lines, startIndex, baseIndent = null) {
   }
   return { html: `<${tag}>${items.join("")}</${tag}>`, index };
 }
+
 function renderTextBlock(text) {
   const lines = String(text || "")
     .replace(/\r/g, "")
@@ -340,6 +350,7 @@ function renderTextBlock(text) {
   }
   return out.join("");
 }
+
 const CONTEXTUAL_TOOL_ACTION = /(?:^|_)(?:repl|execute|shell|python|command)(?:_|$)/i;
 
 function expandedToolMetaAddsInformation(summary, action, connector) {
@@ -420,6 +431,7 @@ function renderCodeBlock(code, language) {
       ${body}
     </div>`;
 }
+
 export function renderMarkdown(raw) {
   const source = String(raw || "");
   const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;

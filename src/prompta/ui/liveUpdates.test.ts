@@ -35,6 +35,7 @@ function emitWindow(type: string) {
 }
 
 const originalWindow = globalThis.window;
+
 const originalEventSource = globalThis.EventSource;
 
 beforeEach(() => {

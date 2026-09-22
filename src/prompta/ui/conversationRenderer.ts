@@ -30,12 +30,14 @@ export function imageAttachments(message) {
     return type.startsWith("image/") && (Boolean(attachment.id) || src.startsWith("data:image/"));
   });
 }
+
 function imageAttachmentSrc(attachment) {
   const inline = String(attachment?.src || "");
   if (inline.startsWith("data:image/")) return inline;
   const id = String(attachment?.id || "");
   return id ? `api/attachment-previews/${encodeURIComponent(id)}` : "";
 }
+
 function renderMessageAttachments(message) {
   const images = imageAttachments(message);
   if (!images.length) return "";
@@ -47,6 +49,7 @@ function renderMessageAttachments(message) {
     })
     .join("")}</div>`;
 }
+
 export function pendingImageAttachments(serializedAttachments) {
   return serializedAttachments
     .filter((attachment) => String(attachment.type || "").startsWith("image/"))

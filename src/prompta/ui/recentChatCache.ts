@@ -1,7 +1,11 @@
 const DATABASE_NAME = "prompta-recent-chats";
+
 const DATABASE_VERSION = 2;
+
 const STORE_NAME = "chats";
+
 const SUMMARY_STORE_NAME = "summaries";
+
 const SUMMARY_LIMIT = 200;
 
 type CachedChatRecord = {

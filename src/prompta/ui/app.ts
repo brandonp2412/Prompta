@@ -41,19 +41,23 @@ import {
   saveComposerDrafts,
   savePinnedIds,
 } from "./clientStorage";
+
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+
 type UiChat = {
   id: string;
   prompt?: string;
   status?: string;
   [key: string]: any;
 };
+
 type UiPendingSend = PendingReply & {
   message: string;
   status: string;
   updatedAt: number;
   attachmentNames?: string[];
 };
+
 type UiState = {
   chats: UiChat[];
   selectedId: string | null;
@@ -87,6 +91,7 @@ type UiState = {
   activityProbes: Set<string>;
   activityProbeAt: Map<string, number>;
 };
+
 function promotePendingConversationPin(pending, nextConversationId) {
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
   if (changed) {
@@ -95,6 +100,7 @@ function promotePendingConversationPin(pending, nextConversationId) {
   }
   return changed;
 }
+
 const state: UiState = {
   chats: [],
   selectedId: null,
@@ -128,19 +134,26 @@ const state: UiState = {
   activityProbes: new Set(),
   activityProbeAt: new Map<string, number>(),
 };
+
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
   document.documentElement.style.setProperty("--app-height", `${Math.round(viewportHeight)}px`);
 }
+
 syncViewportHeight();
+
 window.setTimeout(() => document.documentElement.classList.remove("booting"), 1200);
+
 window.addEventListener("resize", syncViewportHeight);
+
 window.visualViewport?.addEventListener("resize", syncViewportHeight);
+
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing required UI element: ${selector}`);
   return element;
 }
+
 const els = {
   chatList: requiredElement<HTMLElement>("#chatList"),
   searchInput: requiredElement<HTMLInputElement>("#searchInput"),
@@ -166,6 +179,7 @@ const els = {
 };
 
 let sidebarRenderDeferred = false;
+
 const sidebar = createSidebar({
   onMotionEnd: () => {
     if (!sidebarRenderDeferred) return;
@@ -173,41 +187,50 @@ const sidebar = createSidebar({
     renderSidebar();
   },
 });
+
 const jobsDialog = createJobsDialog({
   closeSidebar: sidebar.close,
   resizeComposer,
   syncSendButton,
 });
+
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
 });
+
 const attachmentPicker = createAttachmentPicker({
   onChange: syncSendButton,
   setStatus: (message) => setTextIfChanged(els.composerStatus, message),
 });
+
 const logsPanel = createLogsPanel({
   fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
   formatRelativeTime,
 });
+
 const deploymentMonitor = createDeploymentMonitor({
   onUpdateAvailable: () => {
     els.versionUpdateNotice.hidden = false;
   },
 });
+
 els.versionUpdateNotice.addEventListener("click", () => {
   els.versionUpdateNotice.disabled = true;
   els.versionUpdateNotice.textContent = "Updating Prompta…";
   void deploymentMonitor.applyUpdate();
 });
+
 createChangelogDialog({
   fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
   closeSidebar: sidebar.close,
 });
+
 const completionNotifications = createCompletionNotifications({
   displayServerName,
   getServerName: () => state.serverName,
   chatTitle,
 });
+
 const liveUpdates = createLiveUpdates({
   loadChats: () => loadChats(),
   loadServerIdentity: () => loadServerIdentity(),
@@ -222,6 +245,7 @@ function composerDraftTarget() {
   if (state.composingNew) return "new";
   return state.selectedId ? "chat:" + state.selectedId : "";
 }
+
 function setStoredComposerDraft(target, value) {
   if (!target) return;
   const draft = String(value || "");
@@ -229,16 +253,19 @@ function setStoredComposerDraft(target, value) {
   else state.composerDrafts.delete(target);
   saveComposerDrafts(state.composerDrafts);
 }
+
 function persistComposerDraft() {
   const target = composerDraftTarget();
   if (!target) return;
   state.composerDraftTarget = target;
   setStoredComposerDraft(target, els.messageInput.value);
 }
+
 function clearComposerDraft(target = composerDraftTarget()) {
   if (!target) return;
   if (state.composerDrafts.delete(target)) saveComposerDrafts(state.composerDrafts);
 }
+
 function syncComposerDraftTarget() {
   const nextTarget = composerDraftTarget();
   if (nextTarget === state.composerDraftTarget) return;
@@ -252,13 +279,16 @@ function syncComposerDraftTarget() {
   updateSlashMenu();
   syncSendButton();
 }
+
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
   if (element.textContent !== text) element.textContent = text;
 }
+
 function setHiddenIfChanged(element: HTMLElement, hidden) {
   if (element.hidden !== hidden) element.hidden = hidden;
 }
+
 function patchDomNode(current, next) {
   if (
     current.nodeType !== next.nodeType ||
@@ -289,10 +319,12 @@ function patchDomNode(current, next) {
   if (preserveDetailsOpen) (current as HTMLDetailsElement).open = detailsOpen;
   return current;
 }
+
 function domPatchKey(node) {
   if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
   return (node as HTMLElement).dataset.domKey || "";
 }
+
 function patchDomChildren(currentParent, nextParent) {
   let index = 0;
   while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
@@ -325,6 +357,7 @@ function patchDomChildren(currentParent, nextParent) {
     index += 1;
   }
 }
+
 function patchHtmlChildren(element: Element, html: string) {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -347,10 +380,13 @@ function setConversationHeading(title, meta) {
   setTextIfChanged(titleNode, title);
   setTextIfChanged(metaNode, meta);
 }
+
 const SEND_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+
 const STOP_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
+
 function syncSendButton() {
   const waitingNew =
     state.composingNew &&
@@ -376,9 +412,11 @@ function syncSendButton() {
     probingActivity ||
     (!stopMode && (Boolean(waitingNew) || !hasContent));
 }
+
 function updateComposerActionButton() {
   syncSendButton();
 }
+
 function displayServerName(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -388,6 +426,7 @@ function displayServerName(value) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
+
 function setServerStatus(server, online) {
   const raw = String(server || "").trim();
   if (raw) state.serverName = raw;
@@ -410,6 +449,7 @@ function setServerStatus(server, online) {
         ? `${display} is online`
         : `${display} status unknown`;
 }
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -418,6 +458,7 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
 function formatRelativeTime(epochSeconds) {
   if (!epochSeconds) return "";
   const delta = Date.now() - epochSeconds * 1000;
@@ -430,6 +471,7 @@ function formatRelativeTime(epochSeconds) {
     new Date(epochSeconds * 1000),
   );
 }
+
 function chatActivityAt(chat) {
   if (!chat) return 0;
   if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") {
@@ -437,6 +479,7 @@ function chatActivityAt(chat) {
   }
   return Number(chat.last_message_at || chat.updated_at || 0);
 }
+
 function sameLocalDay(epochSeconds, offsetDays = 0) {
   if (!epochSeconds) return false;
   const d = new Date(epochSeconds * 1000);
@@ -448,6 +491,7 @@ function sameLocalDay(epochSeconds, offsetDays = 0) {
     d.getDate() === target.getDate()
   );
 }
+
 function chatTitle(chat) {
   const title = (chat.title || "").replace(/^ChatGPT\s*[-–—:]?\s*/i, "").trim();
   if (title && title.toLowerCase() !== "chatgpt") return title;
@@ -456,15 +500,18 @@ function chatTitle(chat) {
   if (preview) return preview.slice(0, 72);
   return "Untitled conversation";
 }
+
 function truncate(value, length = 88) {
   const text = String(value || "")
     .replace(/\s+/g, " ")
     .trim();
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
+
 function sidebarGroupAt(chat) {
   return Number(chat?._sidebarGroupAt || chatActivityAt(chat) || 0);
 }
+
 function groupChats(chats) {
   const pinned = chats.filter((chat) => state.pinnedIds.has(chat.id));
   const unpinned = chats.filter((chat) => !state.pinnedIds.has(chat.id));
@@ -481,11 +528,13 @@ function groupChats(chats) {
   ];
   return groups.filter(([, items]) => items.length);
 }
+
 function sidebarStatusDot(status) {
   if (status === "interrupted") return "";
   const statusClass = ["active", "complete"].includes(status) ? status : "neutral";
   return `<span class="item-status-dot ${statusClass}"></span>`;
 }
+
 const iconStatusClasses = new Set([
   "active",
   "running",
@@ -504,12 +553,14 @@ const iconStatusClasses = new Set([
   "new",
   "idle",
 ]);
+
 function setStatusIcon(element, status, label, kind = "") {
   const statusClassName = iconStatusClasses.has(status) ? status : "neutral";
   element.className = ["status-icon", kind, statusClassName].filter(Boolean).join(" ");
   element.title = label;
   element.setAttribute("aria-label", label);
 }
+
 function reconcileOptimisticNew(chats) {
   const pending = state.pendingNewSend;
   if (!pending) return;
@@ -524,6 +575,7 @@ function reconcileOptimisticNew(chats) {
     state.pendingNewId = null;
   }
 }
+
 function sidebarChats(): UiChat[] {
   const chats: UiChat[] = state.chats.map((chat) => {
     const pending = state.pendingReplies.get(chat.id) || [];
@@ -570,8 +622,11 @@ function sidebarChats(): UiChat[] {
   }
   return [optimistic, ...chats];
 }
+
 const boundSidebarItems = new WeakSet();
+
 const boundSidebarPins = new WeakSet();
+
 function renderSidebar(force = false) {
   if (sidebar.isMoving()) {
     sidebarRenderDeferred = true;
@@ -680,6 +735,7 @@ function renderSidebar(force = false) {
     });
   }
 }
+
 function pendingReplyMessages(conversationId, cachedMessages) {
   const pending = pendingConversationSends(
     conversationId,
@@ -766,6 +822,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     return messages;
   });
 }
+
 function updatePinButton() {
   const chatId = state.selectedId;
   const available = Boolean(chatId) && !state.composingNew;
@@ -777,6 +834,7 @@ function updatePinButton() {
   els.pinChatButton.title = label;
   els.pinChatButton.setAttribute("aria-label", label);
 }
+
 function toggleSelectedPin() {
   const chatId = state.selectedId;
   if (!chatId || state.composingNew) return;
@@ -787,6 +845,7 @@ function toggleSelectedPin() {
   renderSidebar(true);
   updatePinButton();
 }
+
 function renderConversationMeta(chat, visibleMessageCount) {
   const title = chatTitle(chat);
   const activityLabel =
@@ -814,6 +873,7 @@ function renderConversationMeta(chat, visibleMessageCount) {
         : "Cached in SQLite";
   setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
 }
+
 function rememberConversationViewport(conversationId) {
   if (!conversationId || state.renderedConversationId !== conversationId) return;
   const snapshot = {
@@ -828,16 +888,19 @@ function rememberConversationViewport(conversationId) {
     state.conversationViewports.delete(oldest);
   }
 }
+
 function beginChatSwitch() {
   state.chatSwitchToken += 1;
   els.viewport.classList.add("chat-switching");
   els.viewport.setAttribute("aria-busy", "true");
 }
+
 function cancelChatSwitch() {
   state.chatSwitchToken += 1;
   els.viewport.classList.remove("chat-switching");
   els.viewport.removeAttribute("aria-busy");
 }
+
 function finishChatSwitch(conversationId) {
   if (!els.viewport.classList.contains("chat-switching")) return;
   const token = state.chatSwitchToken;
@@ -848,6 +911,7 @@ function finishChatSwitch(conversationId) {
     els.viewport.removeAttribute("aria-busy");
   });
 }
+
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
@@ -904,6 +968,7 @@ function renderConversation(chat) {
     );
   }
 }
+
 function showMode(mode) {
   state.mode = mode === "logs" ? "logs" : "chats";
   const logsMode = state.mode === "logs";
@@ -931,6 +996,7 @@ function showMode(mode) {
     clearConversation();
   }
 }
+
 function clearConversation() {
   cancelChatSwitch();
   state.composingNew = false;
@@ -954,6 +1020,7 @@ function clearConversation() {
   syncComposerDraftTarget();
   updateComposerActionButton();
 }
+
 function renderNewChat() {
   cancelChatSwitch();
   const enteringNewChat = !state.composingNew;
@@ -1080,6 +1147,7 @@ function renderNewChat() {
     }
   }
 }
+
 async function fetchJson(url, timeoutMs = 10_000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1094,6 +1162,7 @@ async function fetchJson(url, timeoutMs = 10_000) {
     window.clearTimeout(timeout);
   }
 }
+
 async function hydrateRecentChatCache() {
   let timeout: number | undefined;
   const cached = await Promise.race([
@@ -1151,6 +1220,7 @@ async function loadServerIdentity() {
     console.warn("Could not load Prompta server identity", error);
   }
 }
+
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
   try {
@@ -1218,7 +1288,9 @@ async function loadChats(forceSelectedRefresh = false) {
     console.error(error);
   }
 }
+
 const HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30_000;
+
 async function probeHistoricalActivity(conversationId) {
   if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status)) return;
   const now = Date.now();
@@ -1329,6 +1401,7 @@ async function loadSelectedChat() {
     finishChatSwitch(selectedId);
   }
 }
+
 async function selectChat(id) {
   if (!id) return;
   if (state.mode !== "chats") showMode("chats");
@@ -1359,7 +1432,9 @@ async function selectChat(id) {
   renderSidebar();
   await loadSelectedChat();
 }
+
 let searchTimer;
+
 els.searchInput.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
@@ -1368,6 +1443,7 @@ els.searchInput.addEventListener("input", () => {
     void loadChats();
   }, 140);
 });
+
 document.addEventListener("keydown", (event) => {
   const typing =
     document.activeElement === els.searchInput || document.activeElement === els.messageInput;
@@ -1383,11 +1459,13 @@ document.addEventListener("keydown", (event) => {
     sidebar.close();
   }
 });
+
 els.newChatButton.addEventListener("click", () => {
   state.pendingNewSend = null;
   state.newChatFingerprint = "";
   renderNewChat();
 });
+
 function resizeComposer() {
   els.messageInput.style.overflowY = "hidden";
   if (!els.messageInput.value) {
@@ -1399,6 +1477,7 @@ function resizeComposer() {
   els.messageInput.style.height = `${Math.min(180, contentHeight)}px`;
   els.messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
 }
+
 async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
   els.messageInput.disabled = true;
@@ -1439,6 +1518,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
+
 async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
   els.messageInput.disabled = true;
@@ -1477,9 +1557,11 @@ async function runAtSlashCommand(command, originalMessage) {
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
+
 function pendingReply(conversationId, sendId) {
   return (state.pendingReplies.get(conversationId) || []).find((item) => item.sendId === sendId);
 }
+
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
   if (!item) return false;
@@ -1502,6 +1584,7 @@ function updatePendingReply(conversationId, sendId, updates) {
   if (changed) item.updatedAt = Date.now() / 1000;
   return changed;
 }
+
 async function watchSend(sendId, creatingNew, conversationId) {
   let statusFailures = 0;
   while (true) {
@@ -1642,6 +1725,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
     }
   }
 }
+
 async function retryFailedSend(scope, retryKey) {
   if (!retryKey || state.sending) return;
   let pending: PendingReply | null = null;
@@ -1857,6 +1941,7 @@ async function sendSelectedMessage() {
     updateComposerActionButton();
   }
 }
+
 async function copySelectedChatUrl() {
   if (!state.selectedId) return;
   const url = new URL(location.href);
@@ -1879,6 +1964,7 @@ async function copySelectedChatUrl() {
     );
   }
 }
+
 function updateSlashMenu() {
   const value = els.messageInput.value;
   const firstToken = value.split(/\s/, 1)[0].toLowerCase();
@@ -1897,6 +1983,7 @@ function updateSlashMenu() {
   }
   els.slashMenu.hidden = visible === 0;
 }
+
 function insertSlashCommand(command) {
   els.messageInput.value = command;
   els.slashMenu.hidden = true;
@@ -1905,24 +1992,30 @@ function insertSlashCommand(command) {
   els.messageInput.focus();
   els.messageInput.setSelectionRange(command.length, command.length);
 }
+
 els.pinChatButton.addEventListener("click", toggleSelectedPin);
+
 els.shareChatButton.addEventListener("click", copySelectedChatUrl);
+
 els.slashMenu.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slash-command]");
   if (!button) return;
   insertSlashCommand(String(button.dataset.slashCommand || ""));
 });
+
 els.messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
   else void sendSelectedMessage();
 });
+
 els.messageInput.addEventListener("input", () => {
   persistComposerDraft();
   resizeComposer();
   updateSlashMenu();
   syncSendButton();
 });
+
 els.messageInput.addEventListener("keydown", (event) => {
   if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {
     const first = els.slashMenu.querySelector<HTMLButtonElement>(
@@ -1942,10 +2035,12 @@ els.messageInput.addEventListener("keydown", (event) => {
     else void sendSelectedMessage();
   }
 });
+
 window.addEventListener("hashchange", () => {
   const id = conversationIdFromHash(location.hash);
   if (id && id !== state.selectedId) void selectChat(id);
 });
+
 function refreshDisplayedTimes() {
   if (
     state.composingNew &&
@@ -1983,6 +2078,7 @@ function refreshDisplayedTimes() {
     renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
   }
 }
+
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
   void loadServerIdentity();
@@ -2001,4 +2097,5 @@ async function startApp() {
   await loadChats(true);
   liveUpdates.start();
 }
+
 void startApp();

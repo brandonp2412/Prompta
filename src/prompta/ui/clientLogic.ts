@@ -72,7 +72,9 @@ export type PendingSendActivity = {
 };
 
 const CHATGPT_RICH_START = "\uE200";
+
 const CHATGPT_RICH_END = "\uE201";
+
 const CHATGPT_RICH_SEPARATOR = "\uE202";
 
 function textValue(value: unknown, fallback = ""): string {

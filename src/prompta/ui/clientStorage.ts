@@ -1,4 +1,5 @@
 const PINNED_CHATS_KEY = "prompta:pinned-chats";
+
 const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
 
 export function loadPinnedIds(): Set<string> {
