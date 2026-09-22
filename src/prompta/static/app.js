@@ -549,8 +549,9 @@ function parseAtSlashCommand(message, now = new Date) {
 
 // src/prompta/ui/recentChatCache.ts
 var DATABASE_NAME = "prompta-recent-chats";
-var DATABASE_VERSION = 2;
+var DATABASE_VERSION = 3;
 var STORE_NAME = "chats";
+var ACCESSED_AT_INDEX_NAME = "scope-accessed-at";
 var SUMMARY_STORE_NAME = "summaries";
 var SUMMARY_LIMIT = 200;
 
@@ -675,11 +676,17 @@ class RecentChatCache {
         chat,
         accessedAt: Date.now()
       });
-      const allRequest = store.getAll();
-      allRequest.onsuccess = () => {
-        const records = (allRequest.result || []).filter((record) => record.scope === this.scope).sort((left, right) => right.accessedAt - left.accessedAt);
-        for (const record of records.slice(this.limit))
-          store.delete(record.key);
+      const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+      const cursorRequest = store.index(ACCESSED_AT_INDEX_NAME).openKeyCursor(range, "prev");
+      let retained = 0;
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor)
+          return;
+        retained += 1;
+        if (retained > this.limit)
+          store.delete(cursor.primaryKey);
+        cursor.continue();
       };
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => resolve();
@@ -732,10 +739,15 @@ class RecentChatCache {
         resolve(null);
         return;
       }
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (event) => {
         const database = request.result;
-        if (!database.objectStoreNames.contains(STORE_NAME)) {
-          database.createObjectStore(STORE_NAME, { keyPath: "key" });
+        const transaction = request.transaction;
+        const chatStore = database.objectStoreNames.contains(STORE_NAME) ? transaction?.objectStore(STORE_NAME) : database.createObjectStore(STORE_NAME, { keyPath: "key" });
+        if (chatStore && !chatStore.indexNames.contains(ACCESSED_AT_INDEX_NAME)) {
+          chatStore.createIndex(ACCESSED_AT_INDEX_NAME, ["scope", "accessedAt"]);
+        }
+        if (chatStore && event.oldVersion > 0 && event.oldVersion < DATABASE_VERSION) {
+          chatStore.clear();
         }
         if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) {
           database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
