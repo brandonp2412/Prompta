@@ -534,7 +534,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   }));
   const latestAgent=candidates.at(-1)||null;
   const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
-  const sourceEvents=latestAgent?reactMessages(latestAgent).filter(message=>{
+  let sourceEvents=latestAgent?reactMessages(latestAgent).filter(message=>{
     const role=String(message?.author?.role||message?.role||'');
     const recipient=String(message?.recipient||'');
     if(role==='tool'||recipient==='api_tool.call_tool')return true;
@@ -559,6 +559,50 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         .filter(value=>typeof value==='boolean')
     : [];
   const turnEnded=endStates.includes(true)?true:(endStates.includes(false)?false:null);
+  const sourceHasAssistantText=sourceEvents.some(event=>(
+    event.role==='assistant'
+    &&(event.recipient===''||event.recipient==='all')
+    &&(event.content_type==='text'||event.content_type==='multimodal_text')
+  ));
+  if(latestAgent&&!sourceHasAssistantText){
+    const toolRows=[...latestAgent.querySelectorAll('span[class~="group/tool-message"],'+toolSelector+')'];
+    const visibleProse=[...latestAgent.querySelectorAll('.markdown,.markdown-new-styling')]
+      .filter(visible)
+      .filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)))
+      .map(markdownText)
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+    if(visibleProse){
+      const latestAssistantMessage=[...messages].reverse().find(message=>message.role==='assistant');
+      const syntheticEndTurn=typeof turnEnded==='boolean'
+        ?turnEnded
+        :(!(stop||streamActive)?true:null);
+      sourceEvents=[...sourceEvents,{
+        id:(visibleMessageId||latestAssistantMessage?.id||'__prompta_visible_assistant__')+':dom-prose',
+        parent_id:'',
+        create_time:null,
+        update_time:null,
+        end_turn:syntheticEndTurn,
+        status:'',
+        role:'assistant',
+        recipient:'all',
+        content_type:'text',
+        text:'',
+        parts:[visibleProse],
+        connector_tool_payload:'',
+        reasoning_title:'',
+        reasoning_titles:[],
+        invoked_resource:null,
+        connector_name:'',
+        model_slug:'',
+        request_id:'',
+        attachments:[],
+        citations:[],
+        content_references:[]
+      }];
+    }
+  }
   return {
     path:location.pathname,
     title:document.title||'',
