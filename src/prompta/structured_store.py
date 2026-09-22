@@ -240,7 +240,50 @@ def persist_structured_capture(
     if not events:
         return
 
-    parts = message_parts_from_source_events(events)
+    retained_text_events: dict[str, dict[str, Any]] = {}
+    for row in connection.execute(
+        """
+        SELECT event_key, raw_json
+        FROM source_events
+        WHERE conversation_id = ?
+          AND message_key = ?
+          AND role = 'assistant'
+          AND recipient IN ('', 'all')
+          AND content_type IN ('text', 'multimodal_text')
+        ORDER BY observed_at, rowid
+        """,
+        (conversation_id, message_key),
+    ).fetchall():
+        event_key = str(row[0] or "")
+        try:
+            retained = json.loads(str(row[1] or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(retained, dict):
+            continue
+        identity = str(retained.get("id") or "").strip() or event_key
+        retained_text_events[identity] = retained
+
+    incoming_text_identities: set[str] = set()
+    for index, event in enumerate(events):
+        role = str(event.get("role") or "")
+        recipient = str(event.get("recipient") or "")
+        content_type = str(event.get("content_type") or "")
+        if (
+            role == "assistant"
+            and recipient in {"", "all"}
+            and content_type in {"text", "multimodal_text"}
+        ):
+            identity = str(event.get("id") or "").strip() or stable_event_key(event, index)
+            incoming_text_identities.add(identity)
+
+    derived_events = list(events)
+    derived_events.extend(
+        retained
+        for identity, retained in retained_text_events.items()
+        if identity not in incoming_text_identities
+    )
+    parts = message_parts_from_source_events(derived_events)
     calls = tool_calls_from_source_events(events)
 
     connection.execute(

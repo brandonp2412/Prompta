@@ -523,6 +523,67 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
     assert any("Finished, revised" in row["raw_json"] for row in raw_final_events)
 
 
+def test_partial_structured_capture_preserves_known_assistant_text_parts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-partial-structured"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Inspect this",
+    )
+    events = _source_events()
+    snapshot = {
+        "title": "Structured",
+        "path": f"/c/{conversation_id}",
+        "streaming": True,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Inspect this"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": "Checking the stored conversation state\n\nFinished",
+            },
+        ],
+        "source_events": events,
+    }
+    cache.write_snapshot(conversation_id, snapshot)
+
+    snapshot["streaming"] = False
+    snapshot["source_events"] = [events[1], events[2]]
+    cache.write_snapshot(conversation_id, snapshot, complete=True)
+
+    parts = cache.connection.execute(
+        """
+        SELECT kind, content
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id, "a1"),
+    ).fetchall()
+    source_count = cache.connection.execute(
+        "SELECT COUNT(*) FROM source_events WHERE conversation_id = ?",
+        (conversation_id,),
+    ).fetchone()[0]
+    cache.close()
+
+    assert [row["kind"] for row in parts] == ["reasoning", "tool_call", "final_text"]
+    assert parts[0]["content"] == "Checking the stored conversation state"
+    assert parts[-1]["content"] == "Finished"
+    assert source_count == 4
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert "Checking the stored conversation state" in assistant["content"]
+    assert "Glass Serena · serena_repl" in assistant["content"]
+    assert assistant["content"].endswith("Finished")
+
+
 def test_cache_skips_structured_capture_when_transient_target_is_deleted(
     tmp_path: Path,
 ) -> None:
