@@ -2,6 +2,7 @@ export type ChatSummary = {
   id: string;
   prompt?: string;
   created_at?: number;
+  _pending_send?: boolean;
 };
 
 export function preserveSidebarChatOrder<T extends { id: string }>(
@@ -69,6 +70,18 @@ export type AtSlashCommand =
 export type PendingSendActivity = {
   label: string;
   statusText: string;
+};
+
+export type PendingConversationSummary = {
+  id: string;
+  status: string;
+  title: string;
+  preview: string;
+  message_count: number;
+  job_name: string;
+  created_at: number;
+  updated_at: number;
+  _optimisticReply: true;
 };
 
 const CHATGPT_RICH_START = "\uE200";
@@ -349,6 +362,50 @@ export function sidebarPreviewText(value: unknown): string {
 
 export function sidebarChatPreviewText(preview: unknown, prompt: unknown): string {
   return sidebarPreviewText(preview) || sidebarPreviewText(prompt);
+}
+
+export function missingPendingConversationSummaries(
+  chats: readonly { id: string }[],
+  pendingReplies: ReadonlyMap<string, PendingReply[]>,
+  query = "",
+): PendingConversationSummary[] {
+  const existingIds = new Set(chats.map((chat) => String(chat.id)));
+  const needle = query.trim().toLowerCase();
+  const summaries: PendingConversationSummary[] = [];
+
+  for (const [conversationId, replies] of pendingReplies) {
+    if (!conversationId || existingIds.has(conversationId) || !replies.length) continue;
+
+    const latest = replies[replies.length - 1];
+    const message = textValue(latest.message).trim();
+    const title = message.slice(0, 72) || "New chat";
+    const status = ["failed", "dead_lettered"].includes(textValue(latest.status))
+      ? textValue(latest.status)
+      : "active";
+
+    if (
+      needle &&
+      ![title, message, "new chat"].some((value) => value.toLowerCase().includes(needle))
+    ) {
+      continue;
+    }
+
+    const createdAt = Number(latest.createdAt || latest.updatedAt || 0);
+    const updatedAt = Number(latest.updatedAt || latest.createdAt || 0);
+    summaries.push({
+      id: conversationId,
+      status,
+      title,
+      preview: message,
+      message_count: 1,
+      job_name: "new chat",
+      created_at: Number.isFinite(createdAt) ? createdAt : 0,
+      updated_at: Number.isFinite(updatedAt) ? updatedAt : 0,
+      _optimisticReply: true,
+    });
+  }
+
+  return summaries.sort((left, right) => right.updated_at - left.updated_at);
 }
 
 export function pendingConversationDisplayId(pending: PendingNewSend | null | undefined): string {

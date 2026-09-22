@@ -7,6 +7,7 @@ import {
   formatDailyTime12Hour,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
+  missingPendingConversationSummaries,
   messageAgeText,
   messageTimestampMillis,
   parseAtSlashCommand,
@@ -202,6 +203,73 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched).toBeNull();
+  });
+});
+
+describe("pending sidebar conversations", () => {
+  test("keeps a succeeded new chat visible until the durable chat list adopts it", () => {
+    const pending = new Map([
+      [
+        "WEB:new-chat",
+        [
+          {
+            clientId: "client-1",
+            sendId: "send-1",
+            conversationId: "WEB:new-chat",
+            message: "keep this visible",
+            status: "succeeded",
+            createdAt: 1_000,
+            updatedAt: 1_005,
+          },
+        ],
+      ],
+    ]);
+
+    expect(missingPendingConversationSummaries([{ id: "WEB:other-chat" }], pending)).toEqual([
+      expect.objectContaining({
+        id: "WEB:new-chat",
+        status: "active",
+        title: "keep this visible",
+        preview: "keep this visible",
+      }),
+    ]);
+  });
+
+  test("stops synthesizing a pending row once the server chat list contains it", () => {
+    const pending = new Map([
+      [
+        "WEB:new-chat",
+        [
+          {
+            conversationId: "WEB:new-chat",
+            message: "keep this visible",
+            status: "succeeded",
+            updatedAt: 1_005,
+          },
+        ],
+      ],
+    ]);
+
+    expect(missingPendingConversationSummaries([{ id: "WEB:new-chat" }], pending)).toEqual([]);
+  });
+
+  test("applies sidebar search to synthetic pending rows", () => {
+    const pending = new Map([
+      [
+        "WEB:new-chat",
+        [
+          {
+            conversationId: "WEB:new-chat",
+            message: "fix sidebar persistence",
+            status: "running",
+            updatedAt: 1_005,
+          },
+        ],
+      ],
+    ]);
+
+    expect(missingPendingConversationSummaries([], pending, "sidebar")).toHaveLength(1);
+    expect(missingPendingConversationSummaries([], pending, "unrelated")).toEqual([]);
   });
 });
 

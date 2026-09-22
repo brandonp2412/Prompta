@@ -193,6 +193,36 @@ function sidebarPreviewText(value) {
 function sidebarChatPreviewText(preview, prompt) {
   return sidebarPreviewText(preview) || sidebarPreviewText(prompt);
 }
+function missingPendingConversationSummaries(chats, pendingReplies, query = "") {
+  const existingIds = new Set(chats.map((chat) => String(chat.id)));
+  const needle = query.trim().toLowerCase();
+  const summaries = [];
+  for (const [conversationId, replies] of pendingReplies) {
+    if (!conversationId || existingIds.has(conversationId) || !replies.length)
+      continue;
+    const latest = replies[replies.length - 1];
+    const message = textValue(latest.message).trim();
+    const title = message.slice(0, 72) || "New chat";
+    const status = ["failed", "dead_lettered"].includes(textValue(latest.status)) ? textValue(latest.status) : "active";
+    if (needle && ![title, message, "new chat"].some((value) => value.toLowerCase().includes(needle))) {
+      continue;
+    }
+    const createdAt = Number(latest.createdAt || latest.updatedAt || 0);
+    const updatedAt = Number(latest.updatedAt || latest.createdAt || 0);
+    summaries.push({
+      id: conversationId,
+      status,
+      title,
+      preview: message,
+      message_count: 1,
+      job_name: "new chat",
+      created_at: Number.isFinite(createdAt) ? createdAt : 0,
+      updated_at: Number.isFinite(updatedAt) ? updatedAt : 0,
+      _optimisticReply: true
+    });
+  }
+  return summaries.sort((left, right) => right.updated_at - left.updated_at);
+}
 function pendingConversationDisplayId(pending) {
   if (!pending)
     return "";
@@ -2707,6 +2737,19 @@ function promotePendingConversationPin(pending, nextConversationId) {
   }
   return changed;
 }
+function promoteServerPendingPins(chats) {
+  let changed = false;
+  for (const chat of chats) {
+    const clientId = String(chat._client_id || "").trim();
+    if (!chat._pending_send || !clientId)
+      continue;
+    changed = promotePinnedConversationId(state.pinnedIds, { clientId }, String(chat.id || "")) || changed;
+  }
+  if (changed) {
+    savePinnedIds(state.pinnedIds);
+    state.sidebarFingerprint = "";
+  }
+}
 var state = {
   chats: [],
   selectedId: null,
@@ -3123,7 +3166,7 @@ function reconcileOptimisticNew(chats) {
   promotePendingConversationPin(pending, matched.id);
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
-  if (!state.composingNew && state.selectedId !== matched.id) {
+  if (pending.status === "succeeded" && !matched._pending_send && !state.composingNew && state.selectedId !== matched.id) {
     state.pendingNewSend = null;
     state.pendingNewId = null;
   }
@@ -3142,6 +3185,7 @@ function sidebarChats() {
       _optimisticReply: true
     };
   });
+  chats.unshift(...missingPendingConversationSummaries(chats, state.pendingReplies, state.search));
   const pending = state.pendingNewSend;
   if (!pending)
     return chats;
@@ -3721,6 +3765,7 @@ async function loadChats(forceSelectedRefresh = false) {
     if (requestId !== state.chatsRequestId)
       return;
     const chats = payload.chats || [];
+    promoteServerPendingPins(chats);
     reconcileOptimisticNew(chats);
     if (!state.search)
       recentChatCache.rememberSummaries(chats);

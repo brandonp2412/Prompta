@@ -733,6 +733,32 @@ class SendJobRegistry:
                 if str(job.get("status") or "") in {"queued", "running", "retrying", "rate_limited"}
             ]
 
+    def list_conversation_receipts(
+        self,
+        *,
+        succeeded_within_seconds: float = 3600.0,
+    ) -> list[dict[str, Any]]:
+        now = time.time()
+        with self._lock:
+            result = []
+            for job in self._jobs.values():
+                status = str(job.get("status") or "")
+                if str(job.get("operation") or "") != "once":
+                    continue
+                if not str(job.get("conversation_id") or ""):
+                    continue
+                if status == "succeeded":
+                    updated_at = float(job.get("updated_at") or job.get("created_at") or 0.0)
+                    if (
+                        succeeded_within_seconds >= 0
+                        and now - updated_at > succeeded_within_seconds
+                    ):
+                        continue
+                elif status not in {"queued", "running", "retrying", "rate_limited"}:
+                    continue
+                result.append(dict(job))
+            return result
+
     @property
     def revision(self) -> int:
         with self._lock:

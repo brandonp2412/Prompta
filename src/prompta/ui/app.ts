@@ -3,6 +3,7 @@ import {
   conversationIdFromHash,
   formatScheduleInterval,
   matchingOptimisticConversation,
+  missingPendingConversationSummaries,
   pendingConversationDisplayId,
   promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
@@ -101,6 +102,24 @@ function promotePendingConversationPin(pending, nextConversationId) {
   }
 
   return changed;
+}
+
+function promoteServerPendingPins(chats: UiChat[]) {
+  let changed = false;
+
+  for (const chat of chats) {
+    const clientId = String(chat._client_id || "").trim();
+
+    if (!chat._pending_send || !clientId) continue;
+
+    changed =
+      promotePinnedConversationId(state.pinnedIds, { clientId }, String(chat.id || "")) || changed;
+  }
+
+  if (changed) {
+    savePinnedIds(state.pinnedIds);
+    state.sidebarFingerprint = "";
+  }
 }
 
 const state: UiState = {
@@ -645,7 +664,12 @@ function reconcileOptimisticNew(chats) {
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
 
-  if (!state.composingNew && state.selectedId !== matched.id) {
+  if (
+    pending.status === "succeeded" &&
+    !matched._pending_send &&
+    !state.composingNew &&
+    state.selectedId !== matched.id
+  ) {
     state.pendingNewSend = null;
     state.pendingNewId = null;
   }
@@ -667,6 +691,8 @@ function sidebarChats(): UiChat[] {
       _optimisticReply: true,
     };
   });
+  chats.unshift(...missingPendingConversationSummaries(chats, state.pendingReplies, state.search));
+
   const pending = state.pendingNewSend;
 
   if (!pending) return chats;
@@ -1438,6 +1464,7 @@ async function loadChats(forceSelectedRefresh = false) {
     if (requestId !== state.chatsRequestId) return;
 
     const chats = payload.chats || [];
+    promoteServerPendingPins(chats);
     reconcileOptimisticNew(chats);
 
     if (!state.search) recentChatCache.rememberSummaries(chats);

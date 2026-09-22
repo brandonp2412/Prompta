@@ -161,19 +161,86 @@ class PromptaUIServer(ThreadingHTTPServer):
             f"send={self.send_jobs.revision}:online={int(self.host_online())}"
         )
 
+    @staticmethod
+    def _send_conversation_summary(job: dict[str, Any]) -> dict[str, Any]:
+        conversation_id = str(job.get("conversation_id") or "")
+        message = str(job.get("message") or "")
+        created_at = float(job.get("created_at") or 0.0)
+        updated_at = float(job.get("updated_at") or created_at)
+        return {
+            "id": conversation_id,
+            "job_name": "new chat",
+            "prompt": message,
+            "url": "",
+            "title": message[:72] or "New chat",
+            "status": "active",
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "completed_at": None,
+            "last_message_at": created_at,
+            "preview": message,
+            "message_count": 1,
+            "_pending_send": True,
+            "_send_id": str(job.get("send_id") or ""),
+            "_client_id": str(job.get("client_id") or ""),
+        }
+
+    @classmethod
+    def _send_conversation_detail(cls, job: dict[str, Any]) -> dict[str, Any]:
+        summary = cls._send_conversation_summary(job)
+        message = str(job.get("message") or "")
+        created_at = float(job.get("created_at") or 0.0)
+        updated_at = float(job.get("updated_at") or created_at)
+        summary["messages"] = [
+            {
+                "message_key": f"pending-send-{str(job.get('send_id') or job.get('client_id') or 'new')}",
+                "ordinal": 0,
+                "role": "user",
+                "content": message,
+                "status": "complete",
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "parts": [],
+                "tool_calls": [],
+                "source_event_count": 0,
+                "version_count": 0,
+            }
+        ]
+        summary["state_events"] = []
+        return summary
+
     def conversations(self, *, limit: int = 200, query: str = "") -> list[dict[str, Any]]:
-        rows = [dict(chat) for chat in self.store.conversations(limit=limit, query=query)]
+        bounded_limit = max(1, min(limit, 500))
+        rows = [dict(chat) for chat in self.store.conversations(limit=bounded_limit, query=query)]
+        known_ids = {str(chat.get("id") or "") for chat in rows}
+        needle = query.strip().casefold()
+
+        for job in self.send_jobs.list_conversation_receipts():
+            summary = self._send_conversation_summary(job)
+            if not summary["id"] or summary["id"] in known_ids:
+                continue
+            if needle and not any(
+                needle in str(summary.get(field) or "").casefold()
+                for field in ("title", "job_name", "prompt", "preview")
+            ):
+                continue
+            rows.append(summary)
+            known_ids.add(summary["id"])
+
         rows.sort(
             key=lambda chat: (
                 0 if str(chat.get("status") or "") == "active" else 1,
                 -float(chat.get("updated_at") or 0.0),
             )
         )
-        return rows[: max(1, min(limit, 500))]
+        return rows[:bounded_limit]
 
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
         chat = self.store.conversation(conversation_id)
         if chat is None:
+            for job in self.send_jobs.list_conversation_receipts():
+                if str(job.get("conversation_id") or "") == conversation_id:
+                    return self._send_conversation_detail(job)
             return None
         result = dict(chat)
         self._enrich_image_previews(result, conversation_id)

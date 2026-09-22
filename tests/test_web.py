@@ -397,6 +397,112 @@ def test_send_job_registry_calls_success_hook_with_client_id() -> None:
     succeeded.assert_called_with("client-success", "chat-new", "Hello")
 
 
+def test_send_job_registry_exposes_recent_successful_new_chat_receipts() -> None:
+    registry = SendJobRegistry(MagicMock(return_value="chat-new"))
+    queued = registry.submit(
+        operation="once",
+        message="Persist in the sidebar",
+        client_id="client-sidebar",
+    )
+
+    deadline = time.monotonic() + 1.0
+    result = registry.get(queued["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(queued["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    receipts = registry.list_conversation_receipts()
+    assert [receipt["send_id"] for receipt in receipts] == [queued["send_id"]]
+    assert receipts[0]["conversation_id"] == "chat-new"
+    assert receipts[0]["message"] == "Persist in the sidebar"
+
+
+def test_ui_server_keeps_successful_new_chat_visible_before_cache_adopts_it(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    receipt = {
+        "send_id": "send-sidebar",
+        "operation": "once",
+        "message": "Persist in the sidebar",
+        "client_id": "client-sidebar",
+        "status": "succeeded",
+        "conversation_id": "WEB:new-chat",
+        "created_at": 1_000.0,
+        "updated_at": 1_005.0,
+    }
+    server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
+        return_value=[receipt]
+    )
+    try:
+        chats = server.conversations()
+        chat = server.conversation("WEB:new-chat")
+    finally:
+        server.server_close()
+
+    assert chats == [
+        {
+            "id": "WEB:new-chat",
+            "job_name": "new chat",
+            "prompt": "Persist in the sidebar",
+            "url": "",
+            "title": "Persist in the sidebar",
+            "status": "active",
+            "created_at": 1_000.0,
+            "updated_at": 1_005.0,
+            "completed_at": None,
+            "last_message_at": 1_000.0,
+            "preview": "Persist in the sidebar",
+            "message_count": 1,
+            "_pending_send": True,
+            "_send_id": "send-sidebar",
+            "_client_id": "client-sidebar",
+        }
+    ]
+    assert chat is not None
+    assert chat["id"] == "WEB:new-chat"
+    assert chat["_pending_send"] is True
+    assert chat["messages"][0]["role"] == "user"
+    assert chat["messages"][0]["content"] == "Persist in the sidebar"
+
+
+def test_ui_server_prefers_durable_chat_over_send_receipt(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(path),
+        tmp_path / "state.json",
+    )
+    server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            {
+                "send_id": "send-sidebar",
+                "operation": "once",
+                "message": "Temporary title",
+                "client_id": "client-sidebar",
+                "status": "succeeded",
+                "conversation_id": "chat-1",
+                "created_at": 1_000.0,
+                "updated_at": 1_005.0,
+            }
+        ]
+    )
+    try:
+        chats = server.conversations()
+        chat = server.conversation("chat-1")
+    finally:
+        server.server_close()
+
+    assert [item["id"] for item in chats].count("chat-1") == 1
+    durable = next(item for item in chats if item["id"] == "chat-1")
+    assert "_pending_send" not in durable
+    assert chat is not None
+    assert "_pending_send" not in chat
+    assert chat["title"] == "Kite roadmap work"
+
+
 def test_local_ui_rejects_send_when_backend_cannot_start(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
