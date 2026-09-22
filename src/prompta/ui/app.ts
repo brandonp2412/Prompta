@@ -3,6 +3,7 @@ import SidebarList from "./SidebarList.svelte";
 
 import {
   chatListRequestUrl,
+  clientIdBelongsToSession,
   composerHasContent,
   conversationIdFromHash,
   deleteRequest,
@@ -22,6 +23,7 @@ import {
   sidebarChatCreatedAt,
   sidebarChatIsSelected,
   sidebarSelectedConversationId,
+  selectedConversationAfterChatRefresh,
   sortSidebarChats,
   shouldRenderNewChatView,
   shouldShowStopAction,
@@ -47,6 +49,7 @@ import { createLiveUpdates } from "./liveUpdates";
 import { createCompletionNotifications } from "./completionNotifications";
 import { createChangelogDialog } from "./changelogDialog";
 import {
+  loadClientSessionId,
   loadComposerDrafts,
   loadPinnedIds,
   saveComposerDrafts,
@@ -54,6 +57,7 @@ import {
 } from "./clientStorage";
 
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+const clientSessionId = loadClientSessionId();
 
 type UiChat = {
   id: string;
@@ -1490,7 +1494,12 @@ async function hydratePendingSends() {
         }
 
         void watchSend(sendId, false, conversationId);
-      } else if (job.operation === "once" && !conversationId && !state.pendingNewSend) {
+      } else if (
+        job.operation === "once" &&
+        !conversationId &&
+        !state.pendingNewSend &&
+        clientIdBelongsToSession(pending.clientId, clientSessionId)
+      ) {
         state.pendingNewSend = pending;
         state.composingNew = true;
         void watchSend(sendId, true, "");
@@ -1542,21 +1551,11 @@ async function loadChats(forceSelectedRefresh = false) {
       state.selectedId = hashId;
     }
 
-    if (!state.selectedId && state.chats.length && !state.composingNew) {
-      state.selectedId = state.chats[0].id;
-    }
-
-    if (
-      state.selectedId &&
-      !state.composingNew &&
-      state.pendingNewId !== state.selectedId &&
-      !state.chats.some((chat) => chat.id === state.selectedId) &&
-      !state.search &&
-      hashId !== state.selectedId
-    ) {
-      state.selectedId = state.chats[0]?.id || null;
-      state.selectedFingerprint = "";
-    }
+    state.selectedId = selectedConversationAfterChatRefresh(
+      state.selectedId,
+      state.composingNew,
+      state.chats,
+    );
 
     renderSidebar();
 
@@ -2125,7 +2124,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 
           if (!pending || pending.sendId !== sendId) return;
 
-          if (pending.conversationId) {
+          if (pending.conversationId && state.composingNew && state.mode === "chats") {
             state.composingNew = false;
             state.selectedId = pending.conversationId;
             state.pendingNewId = pending.conversationId;
@@ -2457,7 +2456,7 @@ async function sendSelectedMessage() {
   const now = Date.now() / 1000;
   const pending: UiPendingSend = {
     sendId: "",
-    clientId: `${Date.now()}-${++state.optimisticSequence}`,
+    clientId: `${clientSessionId}:${Date.now()}-${++state.optimisticSequence}`,
     message,
     status: "queued",
     error: "",

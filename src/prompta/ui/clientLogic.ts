@@ -85,6 +85,32 @@ export function sidebarChatIsSelected(
   return chatId === sidebarSelectedConversationId(selectedId, composingNew, pendingNewDisplayId);
 }
 
+export function selectedConversationAfterChatRefresh<T extends { id: string }>(
+  selectedId: string | null | undefined,
+  composingNew: boolean,
+  chats: readonly T[],
+): string | null {
+  const current = String(selectedId || "").trim();
+
+  if (current) return current;
+
+  if (composingNew) return null;
+
+  const first = String(chats[0]?.id || "").trim();
+
+  return first || null;
+}
+
+export function clientIdBelongsToSession(
+  clientId: string | null | undefined,
+  sessionId: string | null | undefined,
+): boolean {
+  const client = String(clientId || "").trim();
+  const session = String(sessionId || "").trim();
+
+  return Boolean(client && session && client.startsWith(`${session}:`));
+}
+
 export function sortSidebarChats<T extends SidebarOrderChat>(
   chats: readonly T[],
   pinnedIds: ReadonlySet<string>,

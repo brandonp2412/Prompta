@@ -2,6 +2,29 @@ const PINNED_CHATS_KEY = "prompta:pinned-chats";
 
 const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
 
+const CLIENT_SESSION_ID_KEY = "prompta:client-session-id";
+
+function createClientSessionId() {
+  const randomId = globalThis.crypto?.randomUUID?.();
+
+  return randomId || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function loadClientSessionId(): string {
+  try {
+    const existing = sessionStorage.getItem(CLIENT_SESSION_ID_KEY);
+
+    if (existing) return existing;
+
+    const created = createClientSessionId();
+    sessionStorage.setItem(CLIENT_SESSION_ID_KEY, created);
+
+    return created;
+  } catch {
+    return createClientSessionId();
+  }
+}
+
 export function loadPinnedIds(): Set<string> {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");

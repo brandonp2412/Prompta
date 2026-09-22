@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   chatListRequestUrl,
+  clientIdBelongsToSession,
   composerHasContent,
   conversationIdFromHash,
   deleteRequest,
@@ -31,6 +32,7 @@ import {
   sidebarChatIsSelected,
   sidebarChatPreviewText,
   sidebarSelectedConversationId,
+  selectedConversationAfterChatRefresh,
   sidebarPreviewText,
   sortSidebarChats,
   toolCallDisplayName,
@@ -51,6 +53,41 @@ describe("chat list request URL", () => {
     expect(chatListRequestUrl("Kite work", new Set(["WEB:old-chat"]))).toBe(
       "api/chats?q=Kite+work",
     );
+  });
+});
+
+describe("chat refresh focus", () => {
+  test("keeps the current conversation selected when newer chats arrive", () => {
+    expect(
+      selectedConversationAfterChatRefresh("focused-chat", false, [
+        { id: "new-chat-2" },
+        { id: "new-chat-1" },
+      ]),
+    ).toBe("focused-chat");
+  });
+
+  test("selects the newest chat only when there is no existing focus", () => {
+    expect(
+      selectedConversationAfterChatRefresh(null, false, [
+        { id: "newest-chat" },
+        { id: "older-chat" },
+      ]),
+    ).toBe("newest-chat");
+  });
+
+  test("does not select a sidebar chat while composing a new chat", () => {
+    expect(
+      selectedConversationAfterChatRefresh(null, true, [{ id: "background-chat" }]),
+    ).toBeNull();
+  });
+});
+
+describe("client send ownership", () => {
+  test("matches only client ids created by the current UI session", () => {
+    expect(clientIdBelongsToSession("session-a:123-1", "session-a")).toBe(true);
+    expect(clientIdBelongsToSession("session-b:123-1", "session-a")).toBe(false);
+    expect(clientIdBelongsToSession("legacy-client-id", "session-a")).toBe(false);
+    expect(clientIdBelongsToSession("", "session-a")).toBe(false);
   });
 });
 
