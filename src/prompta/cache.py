@@ -14,6 +14,7 @@ from typing import Any
 
 from .chromium import finalize_completed_assistant_content, preserves_non_tool_text
 from .preview import compact_sidebar_preview
+from .stream_order import recover_streaming_content, stabilize_streaming_content
 from .structured_capture import message_parts_from_source_events, rendered_content_from_parts
 from .structured_store import (
     migrate_structured_capture,
@@ -873,6 +874,41 @@ class ChatCache:
                     and role == "assistant"
                     else "complete"
                 )
+                if (
+                    role == "assistant"
+                    and existing is not None
+                    and str(existing["status"]) == "streaming"
+                    and preserves_non_tool_text(
+                        str(existing["content"] or ""),
+                        content,
+                    )
+                ):
+                    previous_content = str(existing["content"] or "")
+                    tool_prefix = chr(96) * 3 + "tool:"
+                    recover_history = previous_content.lstrip().startswith(tool_prefix)
+                    if recover_history:
+                        first_version = self.connection.execute(
+                            "SELECT content FROM message_versions "
+                            "WHERE conversation_id = ? AND message_key = ? "
+                            "ORDER BY version LIMIT 1",
+                            (conversation_id, message_key),
+                        ).fetchone()
+                        recover_history = first_version is not None and not str(
+                            first_version["content"] or ""
+                        ).lstrip().startswith(tool_prefix)
+                    if recover_history:
+                        history = [
+                            str(row["content"] or "")
+                            for row in self.connection.execute(
+                                "SELECT content FROM message_versions "
+                                "WHERE conversation_id = ? AND message_key = ? "
+                                "ORDER BY version",
+                                (conversation_id, message_key),
+                            ).fetchall()
+                        ]
+                        content = recover_streaming_content(history, content)
+                    else:
+                        content = stabilize_streaming_content(previous_content, content)
                 self.connection.execute(
                     """
                     INSERT INTO messages (

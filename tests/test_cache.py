@@ -167,6 +167,99 @@ def test_live_snapshot_keeps_dom_order_when_source_prose_has_no_timestamp(
     assert content.index("Test MCP · inspect") < content.index("Visible follow-up")
 
 
+def test_streaming_snapshot_never_reorders_already_visible_blocks(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-stable-stream",
+        context_id="context-stable-stream",
+        job_name="",
+        prompt="Do work",
+    )
+    first_snapshot = {
+        "title": "Work",
+        "streaming": True,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Do work"},
+            {"id": "a1", "role": "assistant", "content": "Visible intro"},
+        ],
+    }
+    cache.write_snapshot("conversation-stable-stream", first_snapshot)
+
+    fence = chr(96) * 3
+    tool = f'{fence}tool:Test MCP · inspect\n{{"created_at": 2.0, "status": "completed"}}\n{fence}'
+    reordered = "\n\n".join([tool, "Visible intro", "Visible follow-up"])
+    cache.write_snapshot(
+        "conversation-stable-stream",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": reordered},
+            ],
+        },
+    )
+
+    content = cache.messages("conversation-stable-stream")[-1]["content"]
+    cache.close()
+
+    assert content == "\n\n".join(["Visible intro", tool, "Visible follow-up"])
+
+
+def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_versions(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-recover-stream",
+        context_id="context-recover-stream",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        "conversation-recover-stream",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": "Visible intro"},
+            ],
+        },
+    )
+
+    fence = chr(96) * 3
+    tool = f'{fence}tool:Test MCP · inspect\n{{"created_at": 2.0, "status": "completed"}}\n{fence}'
+    legacy_reordered = "\n\n".join([tool, "Visible intro"])
+    with cache.connection:
+        cache.connection.execute(
+            """
+            UPDATE messages
+            SET content = ?, status = 'streaming'
+            WHERE conversation_id = ? AND message_key = ?
+            """,
+            (legacy_reordered, "conversation-recover-stream", "a1"),
+        )
+
+    incoming = "\n\n".join([tool, "Visible intro", "Visible follow-up"])
+    cache.write_snapshot(
+        "conversation-recover-stream",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": incoming},
+            ],
+        },
+    )
+
+    content = cache.messages("conversation-recover-stream")[-1]["content"]
+    cache.close()
+
+    assert content == "\n\n".join(["Visible intro", tool, "Visible follow-up"])
+
+
 def test_completed_snapshot_moves_fallback_final_text_after_late_tool_blocks(
     tmp_path: Path,
 ) -> None:
