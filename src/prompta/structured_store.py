@@ -31,7 +31,8 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
             model_slug TEXT NOT NULL DEFAULT '',
             raw_json TEXT NOT NULL,
             observed_at REAL NOT NULL,
-            PRIMARY KEY (conversation_id, message_key, event_key)
+            PRIMARY KEY (conversation_id, message_key, event_key),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS source_events_message_ordinal_idx
@@ -91,7 +92,8 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
             content TEXT NOT NULL,
             status TEXT NOT NULL,
             observed_at REAL NOT NULL,
-            PRIMARY KEY (conversation_id, message_key, version)
+            PRIMARY KEY (conversation_id, message_key, version),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
         """
     )
