@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -22,6 +23,21 @@ from .structured_store import (
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
+_DELIVERY_TIMEOUT_LINE_RE = re.compile(
+    r"message delivery timed out\.?\s*please try again\.?",
+    flags=re.IGNORECASE,
+)
+
+
+def strip_delivery_timeout_noise(content: str) -> str:
+    """Remove ChatGPT delivery-timeout UI text without touching transcript prose."""
+
+    return "\n".join(
+        line
+        for line in str(content or "").splitlines()
+        if not _DELIVERY_TIMEOUT_LINE_RE.fullmatch(line.strip())
+    ).strip()
+
 
 logger = logging.getLogger(__name__)
 
@@ -614,6 +630,8 @@ class ChatCache:
                 continue
             role = str(message.get("role") or "")
             content = str(message.get("content") or "")
+            if role == "assistant":
+                content = strip_delivery_timeout_noise(content)
             raw_key = str(message.get("id") or "")
             message_key = raw_key or f"{role}:{snapshot_index}"
             if role == "assistant" and message_key.startswith("request-placeholder-"):
