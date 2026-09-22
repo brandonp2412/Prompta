@@ -5,6 +5,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "strict": false,
+    "strictNullChecks": true,
     "skipLibCheck": true,
     "noEmit": true
   },

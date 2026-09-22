@@ -19,6 +19,7 @@ import {
   postJsonRequest as postJson,
   sidebarChatPreviewText,
   sidebarPreviewText,
+  type PendingReply,
 } from "./clientLogic";
 import { RecentChatCache } from "./recentChatCache";
 import { createJobsDialog } from "./jobsDialog";
@@ -41,6 +42,51 @@ import {
   savePinnedIds,
 } from "./clientStorage";
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+type UiChat = {
+  id: string;
+  prompt?: string;
+  status?: string;
+  [key: string]: any;
+};
+type UiPendingSend = PendingReply & {
+  message: string;
+  status: string;
+  updatedAt: number;
+  attachmentNames?: string[];
+};
+type UiState = {
+  chats: UiChat[];
+  selectedId: string | null;
+  selectedUpdatedAt: number | string | null;
+  selectedFingerprint: string;
+  search: string;
+  sidebarFingerprint: string;
+  mode: string;
+  sending: boolean;
+  stopping: boolean;
+  composingNew: boolean;
+  pendingNewId: string | null;
+  pendingNewSend: UiPendingSend | null;
+  pendingReplies: Map<string, PendingReply[]>;
+  newChatFingerprint: string;
+  selectedMetaFingerprint: string;
+  chatsRequestId: number;
+  chatOrderScope: string | null;
+  selectedRequestId: number;
+  selectedChat: UiChat | null;
+  selectedVisibleMessageCount: number;
+  renderedConversationId: string;
+  conversationViewports: Map<string, Record<string, unknown>>;
+  chatSwitchToken: number;
+  optimisticSequence: number;
+  serverName: string;
+  serverOnline: boolean | null;
+  pinnedIds: Set<string>;
+  composerDrafts: Map<string, string>;
+  composerDraftTarget: string;
+  activityProbes: Set<string>;
+  activityProbeAt: Map<string, number>;
+};
 function promotePendingConversationPin(pending, nextConversationId) {
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
   if (changed) {
@@ -49,7 +95,7 @@ function promotePendingConversationPin(pending, nextConversationId) {
   }
   return changed;
 }
-const state = {
+const state: UiState = {
   chats: [],
   selectedId: null,
   selectedUpdatedAt: null,
@@ -62,7 +108,7 @@ const state = {
   composingNew: false,
   pendingNewId: null,
   pendingNewSend: null,
-  pendingReplies: new Map(),
+  pendingReplies: new Map<string, PendingReply[]>(),
   newChatFingerprint: "",
   selectedMetaFingerprint: "",
   chatsRequestId: 0,
@@ -71,7 +117,7 @@ const state = {
   selectedChat: null,
   selectedVisibleMessageCount: 0,
   renderedConversationId: "",
-  conversationViewports: new Map(),
+  conversationViewports: new Map<string, Record<string, unknown>>(),
   chatSwitchToken: 0,
   optimisticSequence: 0,
   serverName: "",
@@ -80,7 +126,7 @@ const state = {
   composerDrafts: loadComposerDrafts(),
   composerDraftTarget: "",
   activityProbes: new Set(),
-  activityProbeAt: new Map(),
+  activityProbeAt: new Map<string, number>(),
 };
 function syncViewportHeight() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
@@ -478,14 +524,14 @@ function reconcileOptimisticNew(chats) {
     state.pendingNewId = null;
   }
 }
-function sidebarChats() {
-  const chats = state.chats.map((chat) => {
+function sidebarChats(): UiChat[] {
+  const chats: UiChat[] = state.chats.map((chat) => {
     const pending = state.pendingReplies.get(chat.id) || [];
     if (!pending.length) return chat;
     const latest = pending[pending.length - 1];
     return {
       ...chat,
-      status: ["failed", "dead_lettered"].includes(latest.status) ? chat.status : "active",
+      status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
       preview: latest.message,
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
       _optimisticReply: true,
@@ -614,7 +660,7 @@ function renderSidebar(force = false) {
         sidebar.close();
         return;
       }
-      selectChat(item.dataset.chatId);
+      void selectChat(item.dataset.chatId);
     });
   }
   for (const pin of els.chatList.querySelectorAll<HTMLElement>("[data-pin-chat-id]")) {
@@ -678,7 +724,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
   return remaining.flatMap((item) => {
-    const messages = [];
+    const messages: Record<string, unknown>[] = [];
     if (!item.observedInCache) {
       messages.push({
         message_key: `pending-user-${item.clientId || item.sendId}`,
@@ -705,7 +751,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         pending_activity: true,
         pending_activity_label: activity.label,
       });
-    } else if (["failed", "dead_lettered"].includes(item.status)) {
+    } else if (["failed", "dead_lettered"].includes(item.status || "")) {
       messages.push({
         message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
@@ -714,7 +760,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt,
         send_error: true,
         retry_scope: "reply",
-        retry_key: item.clientId || item.sendId,
+        retry_key: item.clientId || item.sendId || "",
       });
     }
     return messages;
@@ -723,7 +769,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 function updatePinButton() {
   const chatId = state.selectedId;
   const available = Boolean(chatId) && !state.composingNew;
-  const pinned = available && state.pinnedIds.has(chatId);
+  const pinned = Boolean(available && chatId && state.pinnedIds.has(chatId));
   els.pinChatButton.disabled = !available;
   els.pinChatButton.classList.toggle("active", Boolean(pinned));
   els.pinChatButton.setAttribute("aria-pressed", String(Boolean(pinned)));
@@ -797,7 +843,7 @@ function finishChatSwitch(conversationId) {
   const token = state.chatSwitchToken;
   requestAnimationFrame(() => {
     if (token !== state.chatSwitchToken || state.selectedId !== conversationId) return;
-    getComputedStyle(els.conversation).opacity;
+    void getComputedStyle(els.conversation).opacity;
     els.viewport.classList.remove("chat-switching");
     els.viewport.removeAttribute("aria-busy");
   });
@@ -878,7 +924,7 @@ function showMode(mode) {
     return;
   }
   if (state.selectedId) {
-    loadSelectedChat();
+    void loadSelectedChat();
   } else if (state.composingNew) {
     renderNewChat();
   } else {
@@ -1319,7 +1365,7 @@ els.searchInput.addEventListener("input", () => {
   searchTimer = setTimeout(() => {
     state.search = els.searchInput.value.trim();
     state.sidebarFingerprint = "";
-    loadChats();
+    void loadChats();
   }, 140);
 });
 document.addEventListener("keydown", (event) => {
@@ -1464,7 +1510,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
     try {
       job = await fetchJson(`api/sends/${encodeURIComponent(sendId)}`);
       statusFailures = 0;
-    } catch (error) {
+    } catch {
       statusFailures += 1;
 
       // A failed status read is not evidence that the send itself failed. The
@@ -1499,24 +1545,25 @@ async function watchSend(sendId, creatingNew, conversationId) {
     }
     const status = job.status || "running";
     if (creatingNew) {
-      if (state.pendingNewSend?.sendId !== sendId) return;
+      const pendingNewSend = state.pendingNewSend;
+      if (!pendingNewSend || pendingNewSend.sendId !== sendId) return;
       const nextError = job.error || "";
-      const nextConversationId = job.conversation_id || state.pendingNewSend.conversationId || "";
+      const nextConversationId = job.conversation_id || pendingNewSend.conversationId || "";
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
       if (nextConversationId) {
         completionNotifications.markActive(nextConversationId);
-        promotePendingConversationPin(state.pendingNewSend, nextConversationId);
+        promotePendingConversationPin(pendingNewSend, nextConversationId);
       }
       const changed =
-        state.pendingNewSend.status !== status ||
-        state.pendingNewSend.error !== nextError ||
-        state.pendingNewSend.conversationId !== nextConversationId ||
-        state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds ||
-        state.pendingNewSend.retryAt !== nextRetryAt ||
-        state.pendingNewSend.retryAttempt !== nextRetryAttempt;
-      Object.assign(state.pendingNewSend, {
+        pendingNewSend.status !== status ||
+        pendingNewSend.error !== nextError ||
+        pendingNewSend.conversationId !== nextConversationId ||
+        pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds ||
+        pendingNewSend.retryAt !== nextRetryAt ||
+        pendingNewSend.retryAttempt !== nextRetryAttempt;
+      Object.assign(pendingNewSend, {
         status,
         error: nextError,
         conversationId: nextConversationId,
@@ -1524,16 +1571,16 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt,
       });
-      if (changed) state.pendingNewSend.updatedAt = Date.now() / 1000;
+      if (changed) pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
         if (!newId) {
-          state.pendingNewSend.status = "failed";
-          state.pendingNewSend.error = "Prompta reported success without a conversation id";
+          pendingNewSend.status = "failed";
+          pendingNewSend.error = "Prompta reported success without a conversation id";
           if (state.composingNew) renderNewChat();
           return;
         }
-        const completedPending = state.pendingNewSend;
+        const completedPending = pendingNewSend;
         promotePendingConversationPin(completedPending, newId);
         completedPending.conversationId = newId;
         state.pendingNewId = newId;
@@ -1597,7 +1644,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 }
 async function retryFailedSend(scope, retryKey) {
   if (!retryKey || state.sending) return;
-  let pending = null;
+  let pending: PendingReply | null = null;
   if (scope === "new") {
     if (
       state.pendingNewSend &&
@@ -1610,12 +1657,13 @@ async function retryFailedSend(scope, retryKey) {
       renderNewChat();
     }
   } else if (scope === "reply" && state.selectedId) {
-    const items = state.pendingReplies.get(state.selectedId) || [];
+    const selectedId = state.selectedId;
+    const items = state.pendingReplies.get(selectedId) || [];
     pending = items.find((item) => item.clientId === retryKey || item.sendId === retryKey) || null;
     if (pending) {
       const remaining = items.filter((item) => item !== pending);
-      if (remaining.length) state.pendingReplies.set(state.selectedId, remaining);
-      else state.pendingReplies.delete(state.selectedId);
+      if (remaining.length) state.pendingReplies.set(selectedId, remaining);
+      else state.pendingReplies.delete(selectedId);
       state.selectedFingerprint = "";
       if (state.selectedChat?.id === state.selectedId) renderConversation(state.selectedChat);
     }
@@ -1624,7 +1672,7 @@ async function retryFailedSend(scope, retryKey) {
   els.messageInput.value = pending.message || "";
   resizeComposer();
   syncSendButton();
-  if ((pending.attachmentNames || []).length) {
+  if (((pending as UiPendingSend).attachmentNames || []).length) {
     setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
     els.messageInput.focus();
     return;
@@ -1672,7 +1720,7 @@ async function sendSelectedMessage() {
     await jobsDialog.open(true);
     return;
   }
-  completionNotifications.requestPermissionFromGesture();
+  void completionNotifications.requestPermissionFromGesture();
   const scheduleCommand = parseScheduleSlashCommand(message);
   if (scheduleCommand) {
     if (attachments.length) {
@@ -1700,7 +1748,7 @@ async function sendSelectedMessage() {
     return;
   }
   if (!creatingNew && !conversationId) return;
-  let serializedAttachments = [];
+  let serializedAttachments: Array<{ name: string; type: string; data: string }> = [];
   if (attachments.length) {
     state.sending = true;
     els.messageInput.disabled = true;
@@ -1746,11 +1794,12 @@ async function sendSelectedMessage() {
     renderNewChat();
     renderSidebar();
   } else {
-    const items = state.pendingReplies.get(conversationId) || [];
+    const targetConversationId = conversationId || "";
+    const items = state.pendingReplies.get(targetConversationId) || [];
     items.push(pending);
-    state.pendingReplies.set(conversationId, items);
+    state.pendingReplies.set(targetConversationId, items);
     state.selectedFingerprint = "";
-    if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
+    if (state.selectedChat?.id === targetConversationId) renderConversation(state.selectedChat);
     renderSidebar();
   }
   try {
@@ -1761,7 +1810,7 @@ async function sendSelectedMessage() {
           attachments.length ? 1 : 3,
         )
       : await postJson(
-          `api/chats/${encodeURIComponent(conversationId)}/messages`,
+          `api/chats/${encodeURIComponent(conversationId || "")}/messages`,
           { message, attachments: serializedAttachments, client_id: pending.clientId },
           attachments.length ? 1 : 3,
         );
@@ -1779,7 +1828,7 @@ async function sendSelectedMessage() {
       if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
     }
     renderSidebar();
-    watchSend(result.send_id, creatingNew, conversationId);
+    void watchSend(result.send_id, creatingNew, conversationId);
   } catch (error) {
     pending.status = "failed";
     pending.error = String(error).replace(/^Error:\s*/, "");
@@ -1815,7 +1864,7 @@ async function copySelectedChatUrl() {
   try {
     await navigator.clipboard.writeText(url.toString());
     setTextIfChanged(els.composerStatus, "Chat link copied.");
-  } catch (error) {
+  } catch {
     const textarea = document.createElement("textarea");
     textarea.value = url.toString();
     textarea.style.position = "fixed";
@@ -1865,8 +1914,8 @@ els.slashMenu.addEventListener("click", (event) => {
 });
 els.messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (els.sendButton.dataset.action === "stop") stopSelectedChat();
-  else sendSelectedMessage();
+  if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
+  else void sendSelectedMessage();
 });
 els.messageInput.addEventListener("input", () => {
   persistComposerDraft();
@@ -1889,22 +1938,25 @@ els.messageInput.addEventListener("keydown", (event) => {
     matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
-    if (els.sendButton.dataset.action === "stop") stopSelectedChat();
-    else sendSelectedMessage();
+    if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
+    else void sendSelectedMessage();
   }
 });
 window.addEventListener("hashchange", () => {
   const id = conversationIdFromHash(location.hash);
-  if (id && id !== state.selectedId) selectChat(id);
+  if (id && id !== state.selectedId) void selectChat(id);
 });
 function refreshDisplayedTimes() {
-  if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status)) {
+  if (
+    state.composingNew &&
+    ["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "")
+  ) {
     state.newChatFingerprint = "";
     renderNewChat();
   } else if (
     state.selectedId &&
     (state.pendingReplies.get(state.selectedId) || []).some((item) =>
-      ["rate_limited", "retrying"].includes(item.status),
+      ["rate_limited", "retrying"].includes(item.status || ""),
     )
   ) {
     state.selectedFingerprint = "";
@@ -1949,4 +2001,4 @@ async function startApp() {
   await loadChats(true);
   liveUpdates.start();
 }
-startApp();
+void startApp();

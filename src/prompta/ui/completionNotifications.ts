@@ -4,7 +4,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
   const pendingFinishedChats = new Map();
   const notifiedCompletions = new Set();
   let baselineReady = false;
-  let permissionRequest = null;
+  let permissionRequest: Promise<string> | null = null;
   let flushingNotifications = false;
 
   function completionKey(chat) {
@@ -24,7 +24,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
     };
     if ("serviceWorker" in navigator) {
       try {
-        let registration: ServiceWorkerRegistration | null =
+        let registration: ServiceWorkerRegistration | null | undefined =
           typeof navigator.serviceWorker.getRegistration === "function"
             ? await navigator.serviceWorker.getRegistration()
             : null;

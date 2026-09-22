@@ -75,6 +75,14 @@ const CHATGPT_RICH_START = "\uE200";
 const CHATGPT_RICH_END = "\uE201";
 const CHATGPT_RICH_SEPARATOR = "\uE202";
 
+function textValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return fallback;
+}
+
 function readableRichMarkerFallback(parts: string[]): string {
   return (
     parts
@@ -96,7 +104,7 @@ export function replaceChatGptRichMarkers(
   value: unknown,
   renderUrl: (label: string, url: string) => string = (label) => label,
 ): string {
-  const source = String(value || "");
+  const source = textValue(value);
   let output = "";
   let cursor = 0;
 
@@ -154,9 +162,7 @@ export function pendingSendActivity(
   retryAtEpoch: unknown = 0,
   nowEpoch: unknown = Date.now() / 1000,
 ): PendingSendActivity | null {
-  const normalized = String(status || "queued")
-    .trim()
-    .toLowerCase();
+  const normalized = textValue(status, "queued").trim().toLowerCase();
   if (["failed", "dead_lettered"].includes(normalized)) return null;
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
@@ -197,9 +203,7 @@ export function pendingSendActivity(
 }
 
 export function conversationIdFromHash(hash: unknown): string {
-  const encoded = String(hash || "")
-    .replace(/^#\/?/, "")
-    .trim();
+  const encoded = textValue(hash).replace(/^#\/?/, "").trim();
   if (!encoded) return "";
   try {
     return decodeURIComponent(encoded);
@@ -212,18 +216,16 @@ const TOOL_UI_NOISE =
   /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
 
 export function toolCallDisplayName(value: unknown): string {
-  const name = String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const name = textValue(value).replace(/\s+/g, " ").trim();
   return name && !TOOL_UI_NOISE.test(name) ? name : "";
 }
 
 export function toolCallIsInvocationPlaceholder(value: unknown): boolean {
-  return /^called tool$/i.test(String(value || "").trim());
+  return /^called tool$/i.test(textValue(value).trim());
 }
 
 export function toolCallHasUsefulDetail(value: unknown): boolean {
-  return String(value || "")
+  return textValue(value)
     .split(/\n+/)
     .map((line) => line.trim())
     .some((line) => Boolean(toolCallDisplayName(line)));
@@ -269,9 +271,7 @@ export function toolCallTimestampMillis(value: unknown): number | null {
 }
 
 export function pythonToolCallCode(toolName: unknown, value: unknown): string {
-  const name = String(toolName || "")
-    .trim()
-    .toLowerCase();
+  const name = textValue(toolName).trim().toLowerCase();
   const pythonTool =
     name.includes("execute_python") ||
     (name.includes("python") &&
@@ -327,9 +327,7 @@ function comparableTimestampSeconds(value: unknown): number {
 }
 
 function comparablePrompt(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ");
+  return textValue(value).trim().replace(/\s+/g, " ");
 }
 
 export function matchingOptimisticConversation(
@@ -393,7 +391,7 @@ export function formatClockTime12Hour(value: Date | number, includeSeconds = fal
 }
 
 export function formatDailyTime12Hour(value: unknown): string {
-  const raw = String(value ?? "");
+  const raw = textValue(value);
   const match = raw.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
   if (!match) return raw;
   const hour24 = Number(match[1]);
@@ -544,7 +542,7 @@ export async function postJsonRequest(
       });
       try {
         data = await response.json();
-      } catch (error) {
+      } catch {
         if (controller.signal.aborted) throw new Error("Request timed out");
         if (response.ok) throw new Error("Prompta returned an invalid response");
       }
@@ -583,20 +581,12 @@ export function shouldShowStopAction(
   hasComposerContent = false,
 ): boolean {
   return (
-    !hasComposerContent &&
-    !composingNew &&
-    String(chatStatus || "")
-      .trim()
-      .toLowerCase() === "active"
+    !hasComposerContent && !composingNew && textValue(chatStatus).trim().toLowerCase() === "active"
   );
 }
 
 export function shouldProbeHistoricalActivity(chatStatus: unknown): boolean {
-  return (
-    String(chatStatus || "")
-      .trim()
-      .toLowerCase() === "interrupted"
-  );
+  return textValue(chatStatus).trim().toLowerCase() === "interrupted";
 }
 
 export function shouldRefreshSelectedChat(

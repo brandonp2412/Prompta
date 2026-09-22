@@ -163,7 +163,7 @@ function highlightCode(raw, language) {
       index = cursor;
       continue;
     }
-    html += /[\[\]{}(),.:;]/.test(source[index])
+    html += /[[\]{}(),.:;]/.test(source[index])
       ? syntaxToken("punctuation", source[index])
       : escapeHtml(source[index]);
     index += 1;
@@ -171,7 +171,7 @@ function highlightCode(raw, language) {
   return html;
 }
 function inlineMarkdown(text) {
-  const placeholders = [];
+  const placeholders: Array<[string, string]> = [];
   let source = String(text || "");
   const stash = (html) => {
     let token = `\uE000PROMPTA_INLINE_${placeholders.length}\uE001`;
@@ -228,7 +228,7 @@ function renderListBlock(lines, startIndex, baseIndent = null) {
   const indent = baseIndent ?? first.indent;
   const ordered = first.ordered;
   const tag = ordered ? "ol" : "ul";
-  const items = [];
+  const items: string[] = [];
   let index = startIndex;
   while (index < lines.length) {
     const current = listLine(lines[index]);
@@ -251,7 +251,7 @@ function renderTextBlock(text) {
   const lines = String(text || "")
     .replace(/\r/g, "")
     .split("\n");
-  const out = [];
+  const out: string[] = [];
   let index = 0;
   const startsBlock = (line, next = "") =>
     !line.trim() ||
@@ -287,7 +287,7 @@ function renderTextBlock(text) {
         return left && right ? "center" : right ? "right" : left ? "left" : "";
       });
       index += 2;
-      const rows = [];
+      const rows: string[][] = [];
       while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
         rows.push(splitTableRow(lines[index]));
         index += 1;
@@ -315,7 +315,7 @@ function renderTextBlock(text) {
       continue;
     }
     if (/^\s*>\s?/.test(line)) {
-      const quoted = [];
+      const quoted: string[] = [];
       while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
         quoted.push(lines[index].replace(/^\s*>\s?/, ""));
         index += 1;

@@ -48,7 +48,7 @@ export function createLiveUpdates({
 
   function startTimeRefresh() {
     if (timeRefreshTimer !== null) return;
-    timeRefreshTimer = setInterval(refreshDisplayedTimes, 30_000);
+    timeRefreshTimer = setInterval(() => refreshDisplayedTimes(), 30_000);
   }
 
   function stopFallbackRefresh() {

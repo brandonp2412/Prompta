@@ -263,11 +263,6 @@ export function createConversationRenderer({ onRetry }) {
       index += 1;
     }
   }
-  function patchHtmlChildren(element: Element, html: string) {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    patchDomChildren(element, template.content);
-  }
   function updateMessageNode(node, message, allowStreaming) {
     const role = message.role === "user" ? "user" : "assistant";
     const sendError = Boolean(message.send_error);

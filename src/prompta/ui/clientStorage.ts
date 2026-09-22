@@ -23,7 +23,7 @@ export function loadComposerDrafts() {
     return new Map(
       Object.entries(stored)
         .filter(([, value]) => typeof value === "string" && value)
-        .map(([key, value]) => [String(key), String(value)]),
+        .map(([key, value]) => [key, typeof value === "string" ? value : ""]),
     );
   } catch {
     return new Map();
