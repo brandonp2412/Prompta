@@ -108,18 +108,6 @@ _RECURRING_JITTER_FRACTION = 0.20
 _RECURRING_JITTER_CAP_SECONDS = 5 * 60.0
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 @dataclass(frozen=True)
 class PromptaConfig:
     jobs_file: Path = DEFAULT_JOBS_PATH
@@ -169,14 +157,18 @@ class Prompta:
                 expected_path,
                 **kwargs,
             ),
-            enrich_completed_tool_calls=lambda conversation_id, snapshot, **kwargs: self._enrich_completed_tool_calls(
-                conversation_id,
-                snapshot,
-                **kwargs,
+            enrich_completed_tool_calls=lambda conversation_id, snapshot, **kwargs: (
+                self._enrich_completed_tool_calls(
+                    conversation_id,
+                    snapshot,
+                    **kwargs,
+                )
             ),
-            wait_for_cached_response=lambda conversation_id, **kwargs: self.wait_for_cached_response(
-                conversation_id,
-                **kwargs,
+            wait_for_cached_response=lambda conversation_id, **kwargs: (
+                self.wait_for_cached_response(
+                    conversation_id,
+                    **kwargs,
+                )
             ),
         )
         self.scheduler = SchedulerRuntime(config.state_path, config.jobs_file)
@@ -330,9 +322,7 @@ class Prompta:
         try:
             return await self.conversations.recover_cached_conversations(limit=limit)
         except Exception:
-            self._next_recovery_retry_at = (
-                time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
-            )
+            self._next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
             logger.exception("Prompta cached recovery failed; retrying later")
             return 0
 
@@ -525,8 +515,6 @@ class Prompta:
         self.cache.close()
 
 
-
-
 def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
     """Set a job's paused state and return whether the job exists."""
     jobs = load_jobs(path)
@@ -650,20 +638,6 @@ def _print_job_table(prompta: Prompta, jobs: dict[str, PromptJob]) -> None:
     print(bottom)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 async def _wait_for_scheduler_restart(state_path: Path) -> None:
     """Wait for the poisoned scheduler process to release and then reacquire its daemon lock."""
 
@@ -704,7 +678,9 @@ async def _control_send_request(
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         error = str(payload.get("error") or rejected_message)
         if isinstance(payload, dict) and payload.get("error_type") == "rate_limit":
-            raise RateLimitError(error, retry_after=int(payload.get("retry_after") or DEFAULT_RETRY_AFTER))
+            raise RateLimitError(
+                error, retry_after=int(payload.get("retry_after") or DEFAULT_RETRY_AFTER)
+            )
         raise RuntimeError(error)
     return payload
 
@@ -865,8 +841,6 @@ async def _wait_for_cache_completion(
                     return False
         await asyncio.sleep(_IDLE_POLL_SECONDS)
     return False
-
-
 
 
 async def _spawn_firefox(
@@ -1183,16 +1157,9 @@ async def _run(args: argparse.Namespace) -> None:
                 )
             recovered = await prompta.recover_cached_conversations()
             if recovered:
-                logger.info(
-                    "Prompta recovered %d live conversation(s) after restart", recovered
-                )
+                logger.info("Prompta recovered %d live conversation(s) after restart", recovered)
 
-        if (
-            args.command != "run"
-            and using_firefox
-            and not args.bidi_url
-            and firefox is None
-        ):
+        if args.command != "run" and using_firefox and not args.bidi_url and firefox is None:
             firefox = await _recover_disappeared_reused_firefox(
                 prompta,
                 args.firefox_profile,

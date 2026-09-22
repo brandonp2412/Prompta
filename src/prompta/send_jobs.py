@@ -26,6 +26,7 @@ _SEND_RETRY_MAX_ATTEMPTS = 5
 _DEAD_LETTER_LIMIT = 100
 _SUCCEEDED_RECEIPT_LIMIT = 1000
 
+
 class SendJobRegistry:
     """Run UI sends off-request and expose their status for polling."""
 
@@ -220,7 +221,10 @@ class SendJobRegistry:
                 status = "rate_limited" if retry_at > 0 or retry_attempt > 0 else "queued"
             if status == "running":
                 status = "dead_lettered"
-                last_error = last_error or "Delivery state unknown after Prompta restarted during an in-flight send"
+                last_error = (
+                    last_error
+                    or "Delivery state unknown after Prompta restarted during an in-flight send"
+                )
             if status in {"dead_lettered", "succeeded"}:
                 record = {
                     "send_id": send_id,
@@ -273,7 +277,9 @@ class SendJobRegistry:
             if last_error:
                 record["last_error"] = last_error
             self._recoverable[send_id] = record
-            remaining = max(0.0, retry_at - now) if restored_status in {"rate_limited", "retrying"} else 0.0
+            remaining = (
+                max(0.0, retry_at - now) if restored_status in {"rate_limited", "retrying"} else 0.0
+            )
             self._jobs[send_id] = {
                 "send_id": send_id,
                 "operation": operation,
@@ -282,14 +288,18 @@ class SendJobRegistry:
                 "error": (
                     "ChatGPT rate limited this account"
                     if restored_status == "rate_limited"
-                    else last_error if restored_status == "retrying" else ""
+                    else last_error
+                    if restored_status == "retrying"
+                    else ""
                 ),
                 "created_at": created_at,
                 "updated_at": now,
                 "attachment_count": len(attachments),
                 "retry_at": retry_at if restored_status in {"rate_limited", "retrying"} else 0.0,
                 "retry_after_seconds": max(0, math.ceil(remaining)),
-                "retry_attempt": retry_attempt if restored_status in {"rate_limited", "retrying"} else 0,
+                "retry_attempt": retry_attempt
+                if restored_status in {"rate_limited", "retrying"}
+                else 0,
             }
             if client_id:
                 self._client_jobs[client_id] = send_id
@@ -332,7 +342,9 @@ class SendJobRegistry:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
-                logger.warning("Could not clear invalid Prompta UI retry state %s", path, exc_info=True)
+                logger.warning(
+                    "Could not clear invalid Prompta UI retry state %s", path, exc_info=True
+                )
 
     @staticmethod
     def _as_rate_limit_error(exc: Exception) -> RateLimitError | None:

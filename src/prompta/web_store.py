@@ -288,12 +288,10 @@ class ReadOnlyChatStore:
                     call[target] = str(encoded)
             calls_by_message.setdefault(str(call["message_key"]), []).append(call)
         event_count_by_message = {
-            str(row["message_key"]): int(row["event_count"] or 0)
-            for row in source_event_counts
+            str(row["message_key"]): int(row["event_count"] or 0) for row in source_event_counts
         }
         version_count_by_message = {
-            str(row["message_key"]): int(row["version_count"] or 0)
-            for row in version_counts
+            str(row["message_key"]): int(row["version_count"] or 0) for row in version_counts
         }
         historical = payload.get("status") != "active"
         for message in message_payloads:

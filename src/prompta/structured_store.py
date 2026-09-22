@@ -115,8 +115,7 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
         """
     )
     columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+        str(row["name"]) for row in connection.execute("PRAGMA table_info(messages)").fetchall()
     }
     if "source_created_at" not in columns:
         connection.execute("ALTER TABLE messages ADD COLUMN source_created_at REAL")

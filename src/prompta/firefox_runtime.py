@@ -8,6 +8,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 async def firefox_port_is_open(port: int) -> bool:
     try:
         _reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -16,6 +17,8 @@ async def firefox_port_is_open(port: int) -> bool:
     writer.close()
     await writer.wait_closed()
     return True
+
+
 async def terminate_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
@@ -31,6 +34,8 @@ async def terminate_process(process: asyncio.subprocess.Process) -> None:
         except ProcessLookupError:
             return
         await process.wait()
+
+
 def firefox_profile_owner_pid(profile: Path) -> int | None:
     try:
         target = os.readlink(profile / "lock")
@@ -38,6 +43,8 @@ def firefox_profile_owner_pid(profile: Path) -> int | None:
         return None
     match = re.search(r"\+(\d+)$", target)
     return int(match.group(1)) if match is not None else None
+
+
 def firefox_process_uses_profile(pid: int, profile: Path) -> bool:
     try:
         os.kill(pid, 0)
@@ -62,6 +69,7 @@ def firefox_process_uses_profile(pid: int, profile: Path) -> bool:
         for index, argument in enumerate(arguments)
         if index > 0 and arguments[index - 1] == "--profile"
     )
+
 
 async def spawn_firefox(
     profile: Path,
@@ -100,10 +108,7 @@ async def spawn_firefox(
             "Prompta Firefox profile is still owned by pid=%d; waiting for it to exit",
             owner_pid,
         )
-        deadline = (
-            asyncio.get_running_loop().time()
-            + profile_release_timeout_seconds
-        )
+        deadline = asyncio.get_running_loop().time() + profile_release_timeout_seconds
         while process_uses_profile(owner_pid, resolved):
             if asyncio.get_running_loop().time() >= deadline:
                 raise RuntimeError(

@@ -267,6 +267,7 @@ async def test_stale_owned_context_cleanup_preserves_only_failed_targets(tmp_pat
     assert driver._owned_contexts == {"still-open"}
     assert json.loads(registry.read_text()) == ["still-open"]
 
+
 @pytest.mark.asyncio
 async def test_find_debugger_bootstrap_url_prefers_existing_conversation_tab() -> None:
     current = {"handle": "user-tab"}
@@ -276,9 +277,7 @@ async def test_find_debugger_bootstrap_url_prefers_existing_conversation_tab() -
         current["handle"] = handle
 
     selenium.switch_to.window.side_effect = switch
-    type(selenium).current_window_handle = PropertyMock(
-        side_effect=lambda: current["handle"]
-    )
+    type(selenium).current_window_handle = PropertyMock(side_effect=lambda: current["handle"])
     type(selenium).current_url = PropertyMock(
         side_effect=lambda: {
             "user-tab": "http://127.0.0.1:8765/",
@@ -295,6 +294,7 @@ async def test_find_debugger_bootstrap_url_prefers_existing_conversation_tab() -
 
     assert url == "https://chatgpt.com/c/existing"
     assert current["handle"] == "user-tab"
+
 
 @pytest.mark.asyncio
 async def test_find_debugger_bootstrap_url_survives_closed_current_tab() -> None:
@@ -637,6 +637,7 @@ async def test_click_send_button_uses_live_chatgpt_send_element() -> None:
     composer.find_element.assert_called_once_with(By.XPATH, "./ancestor::form[1]")
     form.find_elements.assert_called_once_with(By.CSS_SELECTOR, '[data-testid="send-button"]')
     send.click.assert_called_once_with()
+
 
 @pytest.mark.asyncio
 async def test_click_stop_uses_chromedriver_instead_of_bidi() -> None:

@@ -16,11 +16,14 @@ _CONTROL_SOCKET_NAME = "control.sock"
 _DAEMON_LOCK_NAME = "daemon.lock"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 
+
 def _control_socket_path(state_path: Path) -> Path:
     return state_path.expanduser().parent / _CONTROL_SOCKET_NAME
 
+
 def _daemon_lock_path(state_path: Path) -> Path:
     return state_path.expanduser().parent / _DAEMON_LOCK_NAME
+
 
 def _daemon_is_running(state_path: Path) -> bool:
     path = _daemon_lock_path(state_path)
@@ -37,6 +40,7 @@ def _daemon_is_running(state_path: Path) -> bool:
     handle.close()
     return False
 
+
 def _acquire_daemon_lock(state_path: Path) -> Any:
     path = _daemon_lock_path(state_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,6 +52,7 @@ def _acquire_daemon_lock(state_path: Path) -> Any:
         handle.close()
         raise RuntimeError("another Prompta scheduler is already running") from exc
     return handle
+
 
 async def _handle_control_client(
     prompta: Any,
@@ -77,11 +82,11 @@ async def _handle_control_client(
         else:
             prompt = str(payload.get("prompt") or "")
             raw_attachments = payload.get("attachments")
-            attachments = [
-                str(path)
-                for path in raw_attachments
-                if isinstance(path, str) and path.strip()
-            ] if isinstance(raw_attachments, list) else []
+            attachments = (
+                [str(path) for path in raw_attachments if isinstance(path, str) and path.strip()]
+                if isinstance(raw_attachments, list)
+                else []
+            )
             if not prompt.strip() and not attachments:
                 raise ValueError("prompta prompt is empty")
             future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
@@ -117,6 +122,7 @@ async def _handle_control_client(
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+
 async def _start_control_server(
     prompta: Any,
     state_path: Path,
@@ -133,6 +139,7 @@ async def _start_control_server(
     )
     os.chmod(path, 0o600)
     return server, path
+
 
 async def _open_control_connection(
     state_path: Path,

@@ -67,11 +67,10 @@ async def test_navigate_can_target_a_specific_context() -> None:
         },
     )
 
+
 async def test_click_stop_uses_trusted_pointer_in_requested_context() -> None:
     driver = FirefoxBiDiDriver("ws://unused")
-    driver.eval = AsyncMock(
-        return_value='{"x":120,"y":64,"label":"Stop generating"}'
-    )  # type: ignore[method-assign]
+    driver.eval = AsyncMock(return_value='{"x":120,"y":64,"label":"Stop generating"}')  # type: ignore[method-assign]
     driver._call = AsyncMock(return_value={"type": "success"})  # type: ignore[method-assign]
 
     assert await driver.click_stop("context-live") is True
@@ -456,13 +455,19 @@ async def test_conversation_activity_does_not_match_sidebar_stop_titles() -> Non
     assert 'button[aria-label="Stop generating"]' in expression
     assert "const turnEnded=reactTurnEnd();" in expression
     assert "const streaming=stop||streamActive||turnEnded===false;" in expression
-    assert "const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));" in expression
+    assert (
+        "const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));"
+        in expression
+    )
     assert "const transient=transientText&&!complete;" in expression
     assert "const failed=deliveryFailed&&!complete&&!streaming;" in expression
     assert "turn_ended:turnEnded" in expression
     assert "message?.end_turn" in expression
     assert "Message delivery timed out" in expression
-    assert "const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i" in expression
+    assert (
+        "const transientText=/(?:Connection interrupted|Waiting for the complete answer)/i"
+        in expression
+    )
     assert "testId==='copy-turn-action-button'" in expression
     assert "/^Copy response$/i.test(label)" in expression
     assert "regenerate|share" not in expression
@@ -527,7 +532,7 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "detail.arguments=args" in expression
     assert "detail.duration_ms=duration" in expression
     assert "if(structuredBlocks.length)return structuredBlocks" in expression
-    assert 'span[class~=\"group/tool-message\"]' in expression
+    assert 'span[class~="group/tool-message"]' in expression
     assert "Called tool" in expression
     assert "node.getAttribute('aria-label')" in expression
     assert "normalise(detail)===normalise(name)" in expression
@@ -552,7 +557,10 @@ async def test_conversation_snapshot_uses_live_agent_turn_fallback() -> None:
     assert "...toolRows.map(node=>({node,kind:'tool'}))" in expression
     assert "left.node.compareDocumentPosition(right.node)" in expression
     assert "if(orderedToolIndex<tools.length)orderedParts.push" in expression
-    assert "const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible)" in expression
+    assert (
+        "const markdown=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible)"
+        in expression
+    )
     assert "const content=(reactOrdered||fallbackContent).trim()" in expression
     assert "const activity=!richText.length&&!tools.length&&activityLines.length" in expression
     assert "'```tool:'+label" in expression
@@ -702,7 +710,7 @@ async def test_click_delivery_retry_uses_failed_turn_and_trusted_pointer_action(
     expression = eval_call.args[0]
     assert "Message delivery timed out" in expression
     assert "try again|retry" in expression.lower()
-    assert "button,[role=\"button\"]" in expression
+    assert 'button,[role="button"]' in expression
     assert "turn.parentElement?.parentElement" in expression
     assert "document.querySelectorAll(actionSelector)" in expression
     assert "scrollIntoView" in expression

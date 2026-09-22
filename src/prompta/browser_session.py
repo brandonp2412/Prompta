@@ -49,9 +49,7 @@ class BrowserSession:
         async def current_path() -> str:
             if context is None:
                 return str(await driver.eval("location.pathname") or "").rstrip("/")
-            return str(
-                await driver.eval("location.pathname", context=context) or ""
-            ).rstrip("/")
+            return str(await driver.eval("location.pathname", context=context) or "").rstrip("/")
 
         path = await current_path()
         while path != expected and asyncio.get_running_loop().time() < deadline:

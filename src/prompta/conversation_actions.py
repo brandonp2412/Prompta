@@ -93,7 +93,9 @@ class ConversationActions:
                 await driver.click_send()
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
                 post_submit = await driver.dom_state()
-                if self.normalise(str(post_submit.get("composer_text") or "")) == self.normalise(prompt):
+                if self.normalise(str(post_submit.get("composer_text") or "")) == self.normalise(
+                    prompt
+                ):
                     logger.warning(
                         "Prompta Enter submit left the prompt in the composer; retrying with the send button"
                     )
@@ -306,9 +308,7 @@ class ConversationActions:
                         await asyncio.sleep(0.5)
                         continue
                     self.cache.mark_interrupted(conversation_id)
-                    raise RuntimeError(
-                        "ChatGPT conversation has a persistent delivery failure"
-                    )
+                    raise RuntimeError("ChatGPT conversation has a persistent delivery failure")
                 failure_polls = 0
 
                 if streaming or transient_hint:
@@ -414,6 +414,7 @@ class ConversationActions:
         capture: dict[str, Any] | None = None
         probe_armed = False
         try:
+
             async def prepare_conversation_route() -> None:
                 try:
                     await driver.wait_for_composer()
@@ -464,7 +465,9 @@ class ConversationActions:
                 await driver.click_send()
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
                 post_submit = await driver.dom_state()
-                if self.normalise(str(post_submit.get("composer_text") or "")) == self.normalise(prompt):
+                if self.normalise(str(post_submit.get("composer_text") or "")) == self.normalise(
+                    prompt
+                ):
                     logger.warning(
                         "Prompta Enter reply left the prompt in the composer; retrying with the send button"
                     )
@@ -562,7 +565,10 @@ class ConversationActions:
             stop_deadline = asyncio.get_running_loop().time() + 5.0
             button_deadline = asyncio.get_running_loop().time() + 2.0
             clicked = False
-            while bool(activity.get("streaming")) and asyncio.get_running_loop().time() < stop_deadline:
+            while (
+                bool(activity.get("streaming"))
+                and asyncio.get_running_loop().time() < stop_deadline
+            ):
                 if not clicked and asyncio.get_running_loop().time() < button_deadline:
                     clicked = await driver.click_stop(context)
                 await asyncio.sleep(0.1)

@@ -130,29 +130,38 @@ def test_merge_tool_blocks_replaces_generic_running_placeholder() -> None:
 
 def test_merge_tool_blocks_preserves_existing_interleaving() -> None:
     first = (
-        FENCE + "tool:tool" + NL
-        + json.dumps({"status": "running", "slot": 1}, indent=2) + NL
+        FENCE
+        + "tool:tool"
+        + NL
+        + json.dumps({"status": "running", "slot": 1}, indent=2)
+        + NL
         + FENCE
     )
     second = (
-        FENCE + "tool:tool" + NL
-        + json.dumps({"status": "running", "slot": 2}, indent=2) + NL
+        FENCE
+        + "tool:tool"
+        + NL
+        + json.dumps({"status": "running", "slot": 2}, indent=2)
+        + NL
         + FENCE
     )
     rich_first = (
-        FENCE + "tool:Nox Python MCP · execute_python" + NL
-        + json.dumps({"arguments": {"code": "print(1)"}, "status": "completed"}, indent=2) + NL
+        FENCE
+        + "tool:Nox Python MCP · execute_python"
+        + NL
+        + json.dumps({"arguments": {"code": "print(1)"}, "status": "completed"}, indent=2)
+        + NL
         + FENCE
     )
     rich_second = (
-        FENCE + "tool:Chrome DevTools · take_snapshot" + NL
-        + json.dumps({"arguments": {"pageId": 4}, "status": "completed"}, indent=2) + NL
+        FENCE
+        + "tool:Chrome DevTools · take_snapshot"
+        + NL
+        + json.dumps({"arguments": {"pageId": 4}, "status": "completed"}, indent=2)
+        + NL
         + FENCE
     )
-    content = (
-        "Before" + NL * 2 + first + NL * 2
-        + "Between" + NL * 2 + second + NL * 2 + "After"
-    )
+    content = "Before" + NL * 2 + first + NL * 2 + "Between" + NL * 2 + second + NL * 2 + "After"
 
     merged = merge_tool_blocks(content, [rich_first, rich_second])
 
@@ -173,8 +182,11 @@ def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
     )
     placeholder = FENCE + "tool:Nox Python MCP · execute_python" + NL + body + NL + FENCE
     rich = (
-        FENCE + "tool:Nox Python MCP · execute_python" + NL
-        + json.dumps({"arguments": {"code": "print('ok')"}, "status": "completed"}, indent=2) + NL
+        FENCE
+        + "tool:Nox Python MCP · execute_python"
+        + NL
+        + json.dumps({"arguments": {"code": "print('ok')"}, "status": "completed"}, indent=2)
+        + NL
         + FENCE
     )
 
@@ -188,7 +200,9 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "const latestAssistant=assistants.at(-1)" in _REACT_TOOL_SCRIPT
     assert "create_time:Number.isFinite(Number(message?.create_time))" in _REACT_TOOL_SCRIPT
     assert "reasoning_title:trimString(metadata?.reasoning_title" in _REACT_TOOL_SCRIPT
-    assert "end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null" in _REACT_TOOL_SCRIPT
+    assert (
+        "end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null" in _REACT_TOOL_SCRIPT
+    )
     assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
     assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT
@@ -231,10 +245,12 @@ def test_ordered_assistant_content_uses_message_timestamps() -> None:
             "recipient": "api_tool.call_tool",
             "content_type": "code",
             "create_time": 2.0,
-            "text": json.dumps({
-                "path": "/Nox Python MCP/link_123/execute_python",
-                "args": {"code": "print(1)"},
-            }),
+            "text": json.dumps(
+                {
+                    "path": "/Nox Python MCP/link_123/execute_python",
+                    "args": {"code": "print(1)"},
+                }
+            ),
             "connector_tool_payload": json.dumps({"code": "print(1)"}),
         },
         {

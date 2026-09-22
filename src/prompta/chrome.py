@@ -241,15 +241,14 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                 f"Chromium debugger at {self.debugger_address} is unavailable"
             )
 
-
     async def _cloudflare_challenge_present(self, *, context: str | None = None) -> bool:
         expression = (
             "(()=>{const t=(document.title||'').toLowerCase();"
             "if(t.includes('just a moment')||t.includes('attention required'))return true;"
             "return Boolean(document.querySelector("
             "'#challenge-form,#cf-challenge-running,#cf-please-wait,#challenge-spinner,"
-            "#turnstile-wrapper,input[name=\\\"cf-turnstile-response\\\"],"
-            "iframe[src*=\\\"challenges.cloudflare.com\\\"]'"
+            '#turnstile-wrapper,input[name=\\"cf-turnstile-response\\"],'
+            'iframe[src*=\\"challenges.cloudflare.com\\"]\''
             "));})()"
         )
         return bool(
@@ -440,7 +439,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         )
         clicked = await self.eval(
             "(()=>{const links=[...document.querySelectorAll("
-            "'a[href=\"/\"],a[href=\"https://chatgpt.com/\"]'"
+            '\'a[href="/"],a[href="https://chatgpt.com/"]\''
             ")];const a=links.find(e=>/new chat/i.test("
             "(e.textContent||'')+' '+(e.getAttribute('aria-label')||'')"
             "));if(!a)return false;a.click();return true})()",
@@ -592,11 +591,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                     )
             else:
                 await self.navigate(url, context=context)
-                if (
-                    self.debugger_address
-                    and self._is_chatgpt_url(url)
-                    and "/c/" in url
-                ):
+                if self.debugger_address and self._is_chatgpt_url(url) and "/c/" in url:
                     self._bootstrap_url = url
         except BaseException:
             try:

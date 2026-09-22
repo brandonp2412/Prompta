@@ -49,8 +49,12 @@ class SchedulerExecution:
         self.interrupt_active = interrupt_active
         self.current_driver = current_driver
         self.set_driver = set_driver
-        self.once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = asyncio.Queue()
-        self.reply_requests: asyncio.Queue[tuple[str, str, list[str], asyncio.Future[str]]] = asyncio.Queue()
+        self.once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = (
+            asyncio.Queue()
+        )
+        self.reply_requests: asyncio.Queue[tuple[str, str, list[str], asyncio.Future[str]]] = (
+            asyncio.Queue()
+        )
         self.sync_requests: asyncio.Queue[tuple[str, asyncio.Future[int]]] = asyncio.Queue()
 
     @property
@@ -66,15 +70,10 @@ class SchedulerExecution:
             return False
         if self.scheduler.due_in(job, now) > 0:
             return False
-        if any(
-            active.job_name == job.name
-            for active in self.active.values()
-        ):
+        if any(active.job_name == job.name for active in self.active.values()):
             return False
         active_scheduled_jobs = sum(
-            1
-            for active in self.active.values()
-            if active.job_name and active.job_name != "once"
+            1 for active in self.active.values() if active.job_name and active.job_name != "once"
         )
         if active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
             return False
@@ -265,7 +264,9 @@ class SchedulerExecution:
                         "ChatGPT account-wide rate limit backoff is active",
                         retry_after=max(1, int(remaining + 0.999)),
                     )
-                result = await self.send_reply_callback(conversation_id, prompt, attachments=attachments)
+                result = await self.send_reply_callback(
+                    conversation_id, prompt, attachments=attachments
+                )
             except RateLimitError as exc:
                 self.scheduler.record_global_rate_limit(exc)
                 if not future.done():

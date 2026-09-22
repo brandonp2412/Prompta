@@ -71,7 +71,10 @@ def _source_events(result_text: str = "RESULT") -> list[dict]:
 def test_browser_source_capture_excludes_unfiltered_react_internals() -> None:
     assert "content:safeJsonValue(content)" not in CONVERSATION_SNAPSHOT_SCRIPT
     assert "metadata:safeJsonValue(metadata)" not in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "if(role==='tool'||recipient==='api_tool.call_tool')return true;" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert (
+        "if(role==='tool'||recipient==='api_tool.call_tool')return true;"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
     assert "if(message?.end_turn===true)return true;" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "visibleAgentText.includes(text)" in CONVERSATION_SNAPSHOT_SCRIPT
 
@@ -98,7 +101,6 @@ def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> N
     assert parts[0]["title"] == "Remembering"
     assert "Glass Serena · serena_repl" in parts[1]["content"]
     assert parts[-1]["content"] == "Finished"
-
 
 
 def test_snapshot_digest_includes_structured_source_events() -> None:
@@ -182,11 +184,14 @@ def test_activity_history_is_persisted_without_changing_message_digest(tmp_path:
     ).fetchall()
     cache.close()
 
-    assert [(row["status"], row["streaming"], row["complete"], row["turn_ended"]) for row in rows] == [
+    assert [
+        (row["status"], row["streaming"], row["complete"], row["turn_ended"]) for row in rows
+    ] == [
         ("active", 0, 0, None),
         ("active", 1, 0, 0),
         ("active", 0, 1, 1),
     ]
+
 
 def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale(
     tmp_path: Path,
@@ -340,7 +345,9 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
         **revised_events[-1],
         "parts": ["Finished, revised"],
     }
-    snapshot["messages"][1]["content"] = "Checking the stored conversation state\n\nFinished, revised"
+    snapshot["messages"][1]["content"] = (
+        "Checking the stored conversation state\n\nFinished, revised"
+    )
     snapshot["source_events"] = revised_events
     cache.write_snapshot("conversation-structured", snapshot, complete=True)
 
@@ -372,6 +379,7 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
     assert len(raw_final_events) == 2
     assert any("Finished" in row["raw_json"] for row in raw_final_events)
     assert any("Finished, revised" in row["raw_json"] for row in raw_final_events)
+
 
 def test_cache_skips_structured_capture_when_transient_target_is_deleted(
     tmp_path: Path,

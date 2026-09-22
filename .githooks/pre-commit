@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+bun run check
+uv run ruff format --check src tests scripts
+uv run ruff check src tests scripts
+uv run ty check

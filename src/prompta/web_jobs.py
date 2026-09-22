@@ -93,9 +93,8 @@ class WebJobService:
                 command += ["--daily-at", daily_at]
             else:
                 raw_interval_minutes = payload.get("interval_minutes")
-                if (
-                    not isinstance(raw_interval_minutes, (str, int, float))
-                    or isinstance(raw_interval_minutes, bool)
+                if not isinstance(raw_interval_minutes, (str, int, float)) or isinstance(
+                    raw_interval_minutes, bool
                 ):
                     raise ValueError("Interval minutes must be a number")
                 try:

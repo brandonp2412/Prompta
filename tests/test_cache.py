@@ -45,7 +45,6 @@ def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> N
     assert path.stat().st_mode & 0o777 == 0o600
 
 
-
 def test_cache_persists_compact_sidebar_preview(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(
@@ -104,9 +103,7 @@ def test_cache_quarantines_corrupt_database_and_recreates_cache(tmp_path: Path) 
 
     quarantined = sorted(tmp_path.glob("chats.sqlite3.corrupt-*"))
     quarantined_databases = [
-        candidate
-        for candidate in quarantined
-        if not candidate.name.endswith(("-wal", "-shm"))
+        candidate for candidate in quarantined if not candidate.name.endswith(("-wal", "-shm"))
     ]
     assert len(quarantined_databases) == 1
     quarantine = quarantined_databases[0]
@@ -446,10 +443,7 @@ def test_snapshot_with_middle_gap_is_treated_as_partial(tmp_path: Path) -> None:
     messages = cache.messages("conversation-1")
     cache.close()
 
-    assert [
-        (message["message_key"], message["ordinal"])
-        for message in messages
-    ] == [
+    assert [(message["message_key"], message["ordinal"]) for message in messages] == [
         ("u1", 0),
         ("a1", 1),
         ("u2", 2),
@@ -560,8 +554,7 @@ def test_full_snapshot_collapses_stale_same_turn_assistant_sibling(tmp_path: Pat
     cache.close()
 
     assert [
-        (message["message_key"], message["ordinal"], message["content"])
-        for message in messages
+        (message["message_key"], message["ordinal"], message["content"]) for message in messages
     ] == [
         ("u1", 0, "Do work"),
         ("a1-final", 1, "Finished with the tool result"),
@@ -611,10 +604,7 @@ def test_missing_only_assistant_in_user_turn_still_marks_snapshot_partial(
     messages = cache.messages("conversation-1")
     cache.close()
 
-    assert [
-        (message["message_key"], message["ordinal"])
-        for message in messages
-    ] == [
+    assert [(message["message_key"], message["ordinal"]) for message in messages] == [
         ("u1", 0),
         ("a1", 1),
         ("u2", 2),
@@ -829,7 +819,9 @@ def test_cache_migration_removes_request_placeholders(tmp_path: Path) -> None:
     messages = cache.messages("conversation-1")
     cache.close()
 
-    assert all(not message["message_key"].startswith("request-placeholder-") for message in messages)
+    assert all(
+        not message["message_key"].startswith("request-placeholder-") for message in messages
+    )
 
 
 def test_cache_migration_backfills_prompt_for_legacy_empty_conversation(tmp_path: Path) -> None:

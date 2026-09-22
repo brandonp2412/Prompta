@@ -106,6 +106,7 @@ def test_event_headers_ignore_disconnected_client(disconnect_error: OSError) -> 
 
     assert handler._event_headers() is False
 
+
 def test_response_headers_allow_dynamic_styles_but_not_inline_scripts() -> None:
     handler = object.__new__(PromptaUIHandler)
     handler.send_response = MagicMock()  # type: ignore[method-assign]
@@ -260,9 +261,12 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
             }
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
-        assert json.loads(server._image_preview_path.read_text())["records"]["image-client"][
-            "conversation_id"
-        ] == "chat-1"
+        assert (
+            json.loads(server._image_preview_path.read_text())["records"]["image-client"][
+                "conversation_id"
+            ]
+            == "chat-1"
+        )
     finally:
         for target in saved:
             Path(target).unlink(missing_ok=True)
@@ -501,7 +505,6 @@ def test_stop_conversation_uses_local_backend(tmp_path: Path) -> None:
     stop.assert_called_once_with("chat-1")
 
 
-
 def test_send_job_registry_returns_before_sender_finishes() -> None:
     release = Event()
 
@@ -637,18 +640,26 @@ def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) ->
 
 def test_send_job_registry_dead_letters_inflight_send_after_restart(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
-    recovery_path.write_text(json.dumps({"jobs": [{
-        "send_id": "running-before-restart",
-        "operation": "reply",
-        "message": "Possibly delivered",
-        "conversation_id": "chat-1",
-        "attachments": [],
-        "client_id": "browser-running-restart",
-        "status": "running",
-        "retry_at": 0.0,
-        "retry_attempt": 1,
-        "created_at": time.time() - 10,
-    }]}))
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": "running-before-restart",
+                        "operation": "reply",
+                        "message": "Possibly delivered",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-running-restart",
+                        "status": "running",
+                        "retry_at": 0.0,
+                        "retry_attempt": 1,
+                        "created_at": time.time() - 10,
+                    }
+                ]
+            }
+        )
+    )
     sender = MagicMock(return_value="chat-1")
 
     registry = SendJobRegistry(sender, recovery_path=recovery_path)
@@ -727,7 +738,9 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
         release.set()
         deadline = time.monotonic() + 1.0
         result = registry.get(queued["send_id"])
-        while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        while (
+            result is not None and result["status"] != "succeeded" and time.monotonic() < deadline
+        ):
             time.sleep(0.01)
             result = registry.get(queued["send_id"])
 
@@ -796,19 +809,27 @@ def test_send_job_registry_restores_rate_limited_send_after_restart(tmp_path: Pa
 def test_send_job_registry_restores_generic_retry_after_restart(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
     send_id = "retry-before-restart"
-    recovery_path.write_text(json.dumps({"jobs": [{
-        "send_id": send_id,
-        "operation": "reply",
-        "message": "Resume retry",
-        "conversation_id": "chat-1",
-        "attachments": [],
-        "client_id": "browser-retry-restart",
-        "status": "retrying",
-        "retry_at": time.time() - 1,
-        "retry_attempt": 2,
-        "created_at": time.time() - 10,
-        "last_error": "browser temporarily unavailable",
-    }]}))
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": send_id,
+                        "operation": "reply",
+                        "message": "Resume retry",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-retry-restart",
+                        "status": "retrying",
+                        "retry_at": time.time() - 1,
+                        "retry_attempt": 2,
+                        "created_at": time.time() - 10,
+                        "last_error": "browser temporarily unavailable",
+                    }
+                ]
+            }
+        )
+    )
     calls = 0
 
     def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
@@ -870,19 +891,27 @@ def test_send_job_registry_deduplicates_succeeded_send_after_restart(tmp_path: P
 
 def test_send_job_registry_does_not_replay_dead_letters(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
-    recovery_path.write_text(json.dumps({"jobs": [{
-        "send_id": "dead-before-restart",
-        "operation": "reply",
-        "message": "Do not replay",
-        "conversation_id": "chat-1",
-        "attachments": [],
-        "client_id": "browser-dead-restart",
-        "status": "dead_lettered",
-        "retry_at": 0.0,
-        "retry_attempt": 5,
-        "created_at": time.time() - 10,
-        "last_error": "browser unavailable",
-    }]}))
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": "dead-before-restart",
+                        "operation": "reply",
+                        "message": "Do not replay",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-dead-restart",
+                        "status": "dead_lettered",
+                        "retry_at": 0.0,
+                        "retry_attempt": 5,
+                        "created_at": time.time() - 10,
+                        "last_error": "browser unavailable",
+                    }
+                ]
+            }
+        )
+    )
     calls = 0
 
     def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
@@ -1056,7 +1085,9 @@ def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:
 
     deadline = time.monotonic() + 1.0
     result = registry.get(queued["send_id"])
-    while result is not None and result["status"] != "dead_lettered" and time.monotonic() < deadline:
+    while (
+        result is not None and result["status"] != "dead_lettered" and time.monotonic() < deadline
+    ):
         time.sleep(0.01)
         result = registry.get(queued["send_id"])
 
@@ -1350,12 +1381,11 @@ def test_schedule_api_deduplicates_and_exposes_jobs(tmp_path: Path) -> None:
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
     try:
+
         def post_schedule(prompt: str, interval_minutes: float) -> tuple[int, dict[str, object]]:
             request = Request(
                 f"{base_url}/api/schedule",
-                data=json.dumps(
-                    {"prompt": prompt, "interval_minutes": interval_minutes}
-                ).encode(),
+                data=json.dumps({"prompt": prompt, "interval_minutes": interval_minutes}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -1539,12 +1569,16 @@ def test_read_only_store_keeps_unparseable_journal_poll_stable(tmp_path: Path) -
         first = store.logs()
         second = store.logs()
 
-    assert first == second == {
-        "exists": True,
-        "lines": ["unexpected journal line"],
-        "updated_at": None,
-        "source": "journal",
-    }
+    assert (
+        first
+        == second
+        == {
+            "exists": True,
+            "lines": ["unexpected journal line"],
+            "updated_at": None,
+            "source": "journal",
+        }
+    )
 
 
 def test_read_only_store_hides_request_placeholder_messages(tmp_path: Path) -> None:
@@ -1729,7 +1763,7 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
         server.server_close()
         thread.join(timeout=2)
 
-    assert '<title>Prompta · Nox</title>' in index
+    assert "<title>Prompta · Nox</title>" in index
     assert '<meta name="application-name" content="Prompta · Nox">' in index
     assert '<meta name="apple-mobile-web-app-title" content="Prompta Nox">' in index
     assert '<span id="serverLabel">Server · Nox</span>' in index
@@ -1751,6 +1785,7 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
         }
     ]
     assert manifest_type == "application/manifest+json"
+
 
 def test_jobs_cli_add_maps_to_prompta_cli(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
@@ -1909,7 +1944,6 @@ def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
     ]
 
 
-
 def test_event_stream_sends_presence_heartbeat(tmp_path: Path) -> None:
     with patch("prompta.web.socket.gethostname", return_value="nox.presley.nz"):
         server = PromptaUIServer(
@@ -1921,7 +1955,9 @@ def test_event_stream_sends_presence_heartbeat(tmp_path: Path) -> None:
     thread.start()
     try:
         with patch("prompta.web._EVENT_HEARTBEAT_SECONDS", 0.01):
-            with urlopen(f"http://127.0.0.1:{server.server_port}/api/events", timeout=2) as response:
+            with urlopen(
+                f"http://127.0.0.1:{server.server_port}/api/events", timeout=2
+            ) as response:
                 lines = []
                 heartbeat_seen = False
                 deadline = time.monotonic() + 1

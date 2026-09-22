@@ -60,9 +60,7 @@ class AttachmentStore:
                     preview_target.write_bytes(content)
                     preview_target.chmod(0o600)
                     preview_files.append(preview_target)
-                    preview_images.append(
-                        {"id": preview_id, "name": name, "type": media_type}
-                    )
+                    preview_images.append({"id": preview_id, "name": name, "type": media_type})
         except Exception:
             for target in saved:
                 Path(target).unlink(missing_ok=True)

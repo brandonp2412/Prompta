@@ -126,9 +126,7 @@ def tool_calls_from_source_events(events: list[dict[str, Any]]) -> list[dict[str
         if not isinstance(invoked, dict):
             invoked = {}
         connector = str(
-            app_context.get("appName")
-            or invoked.get("app_name")
-            or connector_hint
+            app_context.get("appName") or invoked.get("app_name") or connector_hint
         ).strip()
         call = {
             "connector": connector,
@@ -279,11 +277,7 @@ def _visible_text(event: dict[str, Any]) -> str:
 
 
 def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    indexed = [
-        (index, event)
-        for index, event in enumerate(events)
-        if isinstance(event, dict)
-    ]
+    indexed = [(index, event) for index, event in enumerate(events) if isinstance(event, dict)]
     indexed.sort(
         key=lambda item: (
             _source_time(item[1]) if _source_time(item[1]) is not None else float("inf"),
@@ -318,8 +312,10 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
                 flags=re.IGNORECASE,
             ):
                 end_turn = event.get("end_turn")
-                kind = "final_text" if end_turn is True else (
-                    "reasoning" if reasoning_title else "assistant_text"
+                kind = (
+                    "final_text"
+                    if end_turn is True
+                    else ("reasoning" if reasoning_title else "assistant_text")
                 )
                 part = {
                     "part_key": event_key,
@@ -361,11 +357,15 @@ def rendered_content_from_parts(parts: list[dict[str, Any]]) -> str:
         (part for part in parts if isinstance(part, dict)),
         key=lambda part: int(part.get("ordinal") or 0),
     )
-    return (chr(10) * 2).join(
-        str(part.get("content") or "").strip()
-        for part in ordered
-        if str(part.get("content") or "").strip()
-    ).strip()
+    return (
+        (chr(10) * 2)
+        .join(
+            str(part.get("content") or "").strip()
+            for part in ordered
+            if str(part.get("content") or "").strip()
+        )
+        .strip()
+    )
 
 
 def source_event_type(event: dict[str, Any]) -> str:

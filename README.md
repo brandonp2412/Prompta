@@ -221,6 +221,7 @@ bun install --frozen-lockfile
 bun run check
 uv run pytest
 uv run ruff check src tests scripts
+uv run ruff format --check src tests scripts
 uv run ty check
 uv run python scripts/generate_readme_screenshot.py
 ```

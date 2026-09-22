@@ -205,9 +205,7 @@ def tool_blocks_from_messages(messages: list[dict[str, Any]]) -> list[str]:
             if not isinstance(invoked, dict):
                 invoked = {}
             connector = str(
-                app_context.get("appName")
-                or invoked.get("app_name")
-                or connector_hint
+                app_context.get("appName") or invoked.get("app_name") or connector_hint
             ).strip()
             calls.append(
                 {
@@ -312,11 +310,7 @@ def _format_tool_block(call: dict[str, Any]) -> str:
     if summary:
         detail["summary"] = summary
     created_at = call.get("created_at")
-    if (
-        isinstance(created_at, (int, float))
-        and not isinstance(created_at, bool)
-        and created_at > 0
-    ):
+    if isinstance(created_at, (int, float)) and not isinstance(created_at, bool) and created_at > 0:
         detail["created_at"] = created_at
     if call.get("arguments") is not None:
         detail["arguments"] = _bounded(call["arguments"], 12000)
@@ -332,7 +326,6 @@ def _format_tool_block(call: dict[str, Any]) -> str:
         detail["result"] = _bounded(call["result"])
     body = json.dumps(detail, indent=2, ensure_ascii=False) if detail else "Called tool"
     return _FENCE + "tool:" + label + chr(10) + body + chr(10) + _FENCE
-
 
 
 def _message_create_time(message: dict[str, Any]) -> float:
@@ -376,9 +369,7 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
                 else []
             )
             visible = (
-                "\n".join(visible_parts)
-                if visible_parts
-                else str(message.get("text") or "")
+                "\n".join(visible_parts) if visible_parts else str(message.get("text") or "")
             ).strip()
             if visible and not re.fullmatch(
                 r"message delivery timed out\.?\s*please try again",
@@ -407,17 +398,14 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
     parts.extend(final_text_parts)
     return (chr(10) * 2).join(part for part in parts if part).strip()
 
+
 def preserves_non_tool_text(source: str, candidate: str) -> bool:
     """Return whether candidate keeps all visible non-tool assistant text."""
 
-    source_text = re.sub(
-        r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(source or ""))
-    ).strip()
+    source_text = re.sub(r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(source or ""))).strip()
     if not source_text:
         return True
-    candidate_text = re.sub(
-        r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(candidate or ""))
-    ).strip()
+    candidate_text = re.sub(r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(candidate or ""))).strip()
     return source_text in candidate_text
 
 
@@ -526,9 +514,7 @@ class ChromiumToolEnricher:
                 request_id += 1
                 current_id = request_id
                 await websocket.send(
-                    json.dumps(
-                        {"id": current_id, "method": method, "params": params or {}}
-                    )
+                    json.dumps({"id": current_id, "method": method, "params": params or {}})
                 )
                 while True:
                     remaining = max(
@@ -555,9 +541,7 @@ class ChromiumToolEnricher:
                         latest = [item for item in messages if isinstance(item, dict)]
                     if value.get("ready") and latest:
                         blocks = tool_blocks_from_messages(latest)
-                        if blocks and not any(
-                            '"status": "running"' in block for block in blocks
-                        ):
+                        if blocks and not any('"status": "running"' in block for block in blocks):
                             return latest
                 await asyncio.sleep(0.35)
             return latest

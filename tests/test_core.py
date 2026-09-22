@@ -197,7 +197,9 @@ async def test_scheduled_send_requires_high_effort(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_once_falls_back_to_send_button_when_enter_does_not_submit(tmp_path: Path) -> None:
+async def test_send_once_falls_back_to_send_button_when_enter_does_not_submit(
+    tmp_path: Path,
+) -> None:
     prompt = "PROMPTA TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt, enter_submits=False)
@@ -557,16 +559,12 @@ async def test_ensure_conversation_route_recovers_blank_page_by_direct_navigatio
             self.path = ""
             self.history_activations: list[str] = []
 
-        async def eval(
-            self, expression: str, *, context: str | None = None
-        ) -> str:
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
             assert expression == "location.pathname"
             assert context == "context-blank"
             return self.path
 
-        async def activate_history_link(
-            self, path: str, *, context: str | None = None
-        ) -> bool:
+        async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
             assert context == "context-blank"
             self.history_activations.append(path)
             return False
@@ -1229,6 +1227,7 @@ async def test_active_scheduled_job_blocks_other_scheduled_jobs_until_done(
     assert await prompta._run_job(PromptJob("other", "continue", 1800), now=1000.0) is True
     prompta.send_once.assert_awaited_once_with("continue", job_name="other")
 
+
 @pytest.mark.asyncio
 async def test_active_one_shot_does_not_block_scheduled_job(tmp_path: Path) -> None:
     prompta = Prompta(
@@ -1246,10 +1245,13 @@ async def test_active_one_shot_does_not_block_scheduled_job(tmp_path: Path) -> N
         prompt="manual work still running",
     )
 
-    assert await prompta._run_job(
-        PromptJob("background", "scheduled work", 1800),
-        now=1000.0,
-    ) is True
+    assert (
+        await prompta._run_job(
+            PromptJob("background", "scheduled work", 1800),
+            now=1000.0,
+        )
+        is True
+    )
     prompta.send_once.assert_awaited_once_with(
         "scheduled work",
         job_name="background",
@@ -1284,7 +1286,9 @@ async def test_uncertain_send_is_persisted_instead_of_retried_rapidly(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_scheduled_send_retries_once_when_chatgpt_does_not_accept_prompt(tmp_path: Path) -> None:
+async def test_scheduled_send_retries_once_when_chatgpt_does_not_accept_prompt(
+    tmp_path: Path,
+) -> None:
     prompta = Prompta(
         PromptaConfig(
             jobs_file=tmp_path / "jobs.json",
@@ -1761,7 +1765,9 @@ async def test_control_socket_routes_reply_through_scheduler(tmp_path: Path) -> 
         assert not prompta._reply_requests.empty()
         await prompta._drain_reply_requests()
         assert await client == "existing-chat"
-        prompta.send_reply.assert_awaited_once_with("existing-chat", "Continue here", attachments=[])  # type: ignore[attr-defined]
+        prompta.send_reply.assert_awaited_once_with(
+            "existing-chat", "Continue here", attachments=[]
+        )  # type: ignore[attr-defined]
         prompta.wait_for_cached_response.assert_not_awaited()  # type: ignore[attr-defined]
     finally:
         server.close()
@@ -2305,7 +2311,12 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
         "title": "Existing chat",
         "messages": [
             {"id": "user-1", "role": "user", "content": "First request", "status": "complete"},
-            {"id": "assistant-1", "role": "assistant", "content": "First answer", "status": "complete"},
+            {
+                "id": "assistant-1",
+                "role": "assistant",
+                "content": "First answer",
+                "status": "complete",
+            },
             {"id": "user-2", "role": "user", "content": "Follow-up", "status": "complete"},
         ],
         "streaming": False,
@@ -3068,6 +3079,7 @@ async def test_recover_cached_conversations_defers_when_chrome_debugger_is_offli
 
     prompta.cache.close()
 
+
 @pytest.mark.asyncio
 async def test_recover_cached_conversations_defers_transient_driver_failure(
     tmp_path: Path,
@@ -3080,9 +3092,7 @@ async def test_recover_cached_conversations_defers_transient_driver_failure(
         "ws://unused",
     )
     prompta.conversations.recover_cached_conversations = AsyncMock(
-        side_effect=RuntimeError(
-            "create ChromeDriver session: timed out; browser restart required"
-        )
+        side_effect=RuntimeError("create ChromeDriver session: timed out; browser restart required")
     )
     before = time.monotonic()
 
@@ -3127,9 +3137,7 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
             assert context == "context-new"
             return f"/c/{conversation_id}"
 
-        async def activate_history_link(
-            self, path: str, *, context: str | None = None
-        ) -> bool:
+        async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
             assert context == "context-new"
             return False
 
@@ -3150,7 +3158,9 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
             }
 
     fake = RecoveryFakeDriver("Keep working")
-    fake.wait_for_composer = AsyncMock(side_effect=AssertionError("recovery must not wait for composer"))  # type: ignore[method-assign]
+    fake.wait_for_composer = AsyncMock(
+        side_effect=AssertionError("recovery must not wait for composer")
+    )  # type: ignore[method-assign]
     prompta.driver = cast(Any, fake)
 
     assert await prompta.recover_cached_conversations() == 1
@@ -3192,9 +3202,7 @@ async def test_recover_cached_conversations_reloads_slow_chat_before_interruptin
             assert context == "context-new"
             return f"/c/{conversation_id}"
 
-        async def activate_history_link(
-            self, path: str, *, context: str | None = None
-        ) -> bool:
+        async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
             assert context == "context-new"
             return False
 
@@ -3288,9 +3296,7 @@ async def test_recover_cached_conversations_uses_history_after_direct_loads_stay
             assert context == "context-new"
             return self.current_path
 
-        async def activate_history_link(
-            self, path: str, *, context: str | None = None
-        ) -> bool:
+        async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
             assert context == "context-new"
             self.history_activations.append(path)
             self.history_activated = True
@@ -3432,6 +3438,7 @@ async def test_open_control_connection_retries_transient_socket_startup(
 ) -> None:
     state_path = tmp_path / "state.json"
     socket_path = tmp_path / "control.sock"
+
     async def close_client(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         writer.close()
         await writer.wait_closed()
@@ -3461,6 +3468,7 @@ async def test_open_control_connection_retries_transient_socket_startup(
 
     assert attempts == 3
 
+
 @pytest.mark.asyncio
 async def test_completed_tool_enrichment_does_not_drop_fresh_final_text_from_stale_tab(
     tmp_path: Path,
@@ -3481,14 +3489,7 @@ async def test_completed_tool_enrichment_does_not_drop_fresh_final_text_from_sta
     )
     fence = chr(96) * 3
     nl = chr(10)
-    generic_block = (
-        fence
-        + "tool:tool"
-        + nl
-        + json.dumps({"status": "running"})
-        + nl
-        + fence
-    )
+    generic_block = fence + "tool:tool" + nl + json.dumps({"status": "running"}) + nl + fence
     rich_block = (
         fence
         + "tool:Glass · execute_python"
@@ -3511,9 +3512,7 @@ async def test_completed_tool_enrichment_does_not_drop_fresh_final_text_from_sta
         ],
         "streaming": False,
     }
-    prompta.tool_enricher.enrichment = AsyncMock(
-        return_value=([rich_block], rich_block)
-    )  # type: ignore[method-assign]
+    prompta.tool_enricher.enrichment = AsyncMock(return_value=([rich_block], rich_block))  # type: ignore[method-assign]
 
     enriched = await prompta._enrich_completed_tool_calls(conversation_id, snapshot)
 
@@ -3688,14 +3687,7 @@ async def test_retained_completed_tool_enrichment_refreshes_late_final_text(
     )
     prompta._active_conversations[context_id] = active
 
-    generic_block = (
-        fence
-        + "tool:tool"
-        + nl
-        + json.dumps({"status": "running"})
-        + nl
-        + fence
-    )
+    generic_block = fence + "tool:tool" + nl + json.dumps({"status": "running"}) + nl + fence
     late_snapshot = {
         **initial_source,
         "messages": [
@@ -3721,9 +3713,7 @@ async def test_retained_completed_tool_enrichment_refreshes_late_final_text(
     driver.conversation_snapshot = AsyncMock(return_value=late_snapshot)
     driver.close_context = AsyncMock()
     prompta.driver = cast(Any, driver)
-    prompta.tool_enricher.enrichment = AsyncMock(
-        return_value=([rich_block], ordered_late)
-    )  # type: ignore[method-assign]
+    prompta.tool_enricher.enrichment = AsyncMock(return_value=([rich_block], ordered_late))  # type: ignore[method-assign]
 
     await prompta._poll_active_conversations()
 

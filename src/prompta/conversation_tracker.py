@@ -52,9 +52,7 @@ class ConversationTracker:
 
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
 
-        attached_ids = {
-            active.conversation_id for active in self.active.values()
-        }
+        attached_ids = {active.conversation_id for active in self.active.values()}
         recoverable = [
             row
             for row in self.cache.recoverable_conversations(
@@ -64,18 +62,14 @@ class ConversationTracker:
             if str(row.get("id") or "") not in attached_ids
         ][: max(1, limit)]
         if not recoverable:
-            self.next_recovery_retry_at = (
-                time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
-            )
+            self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
             return 0
 
         driver = await self.ensure_driver()
         recovered = 0
         for row in recoverable:
             conversation_id = str(row.get("id") or "")
-            target_url = str(
-                row.get("url") or f"https://chatgpt.com/c/{conversation_id}"
-            )
+            target_url = str(row.get("url") or f"https://chatgpt.com/c/{conversation_id}")
             context = ""
             try:
                 context = await driver.new_tab(target_url)
@@ -85,8 +79,7 @@ class ConversationTracker:
                 messages: list[Any] = []
                 for load_attempt in range(RESTART_RECOVERY_LOAD_ATTEMPTS):
                     deadline = (
-                        asyncio.get_running_loop().time()
-                        + self.recovery_message_timeout_seconds()
+                        asyncio.get_running_loop().time() + self.recovery_message_timeout_seconds()
                     )
                     while asyncio.get_running_loop().time() < deadline:
                         snapshot = await driver.conversation_snapshot(context)
@@ -114,8 +107,7 @@ class ConversationTracker:
                     await driver.navigate("https://chatgpt.com/", context=context)
                     await self.ensure_route(driver, expected_path, context=context)
                     deadline = (
-                        asyncio.get_running_loop().time()
-                        + self.recovery_message_timeout_seconds()
+                        asyncio.get_running_loop().time() + self.recovery_message_timeout_seconds()
                     )
                     while asyncio.get_running_loop().time() < deadline:
                         snapshot = await driver.conversation_snapshot(context)
@@ -213,8 +205,7 @@ class ConversationTracker:
             (
                 message
                 for message in reversed(messages)
-                if isinstance(message, dict)
-                and str(message.get("role") or "") == "assistant"
+                if isinstance(message, dict) and str(message.get("role") or "") == "assistant"
             ),
             None,
         )
@@ -405,10 +396,7 @@ class ConversationTracker:
                 self.cache.write_snapshot(active.conversation_id, snapshot)
                 active.last_digest = digest
                 if not (
-                    active.settled_at > 0
-                    and completion_hint
-                    and not streaming
-                    and not failure_hint
+                    active.settled_at > 0 and completion_hint and not streaming and not failure_hint
                 ):
                     active.idle_polls = 0
                     active.settled_at = 0.0
@@ -448,9 +436,7 @@ class ConversationTracker:
                             active.delivery_retry_attempts,
                         )
                         continue
-                    discovery_deadline = (
-                        DELIVERY_FAILURE_POLLS + DELIVERY_RETRY_DISCOVERY_POLLS
-                    )
+                    discovery_deadline = DELIVERY_FAILURE_POLLS + DELIVERY_RETRY_DISCOVERY_POLLS
                     if active.idle_polls < discovery_deadline:
                         logger.warning(
                             "Prompta delivery retry control not available conversation=%s "
@@ -518,11 +504,7 @@ class ConversationTracker:
                 active.settled_at = 0.0
 
             completion_polls = 3
-            if (
-                completion_hint
-                and "turn_ended" in activity
-                and activity.get("turn_ended") is None
-            ):
+            if completion_hint and "turn_ended" in activity and activity.get("turn_ended") is None:
                 completion_polls = FALLBACK_COMPLETION_POLLS
             if active.idle_polls < completion_polls:
                 continue

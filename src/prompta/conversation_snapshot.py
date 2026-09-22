@@ -527,5 +527,6 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   };
 })())"""
 
+
 def parse_conversation_snapshot(raw: str) -> dict[str, Any]:
     return json.loads(raw or "{}")

@@ -85,8 +85,6 @@ def _git_changelog() -> list[dict[str, str]]:
 _UI_HEAD = _git_short_head()
 
 
-
-
 class PromptaUIServer(ThreadingHTTPServer):
     """Prompta UI and local backend control surface."""
 
@@ -249,9 +247,7 @@ class PromptaUIServer(ThreadingHTTPServer):
             if not scheduler_running and _start_local_scheduler_service():
                 scheduler_running = _wait_for_local_scheduler(self.state_path)
             if not scheduler_running:
-                raise RuntimeError(
-                    "Prompta backend is unavailable after starting prompta.service"
-                )
+                raise RuntimeError("Prompta backend is unavailable after starting prompta.service")
             if operation == "once":
                 return asyncio.run(
                     _send_once_via_control(self.state_path, message, attachment_paths)
@@ -399,9 +395,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         self._write_response(HTTPStatus.OK, "text/html; charset=utf-8", body)
 
-
-
-
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
         target = (_STATIC_ROOT / relative_path).resolve()
         try:
@@ -493,7 +486,6 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         self.do_GET()
 
-
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
@@ -520,12 +512,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/health":
             server = cast(PromptaUIServer, self.server)
-            self._json({
-                **self.store.stats(),
-                "server": server.host_name,
-                "online": server.host_online(force=True),
-                "head": _UI_HEAD,
-            })
+            self._json(
+                {
+                    **self.store.stats(),
+                    "server": server.host_name,
+                    "online": server.host_online(force=True),
+                    "head": _UI_HEAD,
+                }
+            )
             return
         if path == "/api/changelog":
             self._json({"changes": _git_changelog()})
@@ -537,7 +531,13 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 limit = int(query.get("limit", ["200"])[0])
             except ValueError:
                 limit = 200
-            self._json({"chats": cast(PromptaUIServer, self.server).conversations(limit=limit, query=search)})
+            self._json(
+                {
+                    "chats": cast(PromptaUIServer, self.server).conversations(
+                        limit=limit, query=search
+                    )
+                }
+            )
             return
         if path == "/api/logs":
             query = parse_qs(parsed.query)
@@ -614,7 +614,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
                 return
             if not math.isfinite(interval_minutes) or interval_minutes <= 0:
-                self._json({"error": "Schedule interval must be a finite value greater than zero"}, HTTPStatus.BAD_REQUEST)
+                self._json(
+                    {"error": "Schedule interval must be a finite value greater than zero"},
+                    HTTPStatus.BAD_REQUEST,
+                )
                 return
             try:
                 result = cast(PromptaUIServer, self.server).schedule_every(
@@ -645,7 +648,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
                 return
             if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
-                self._json({"error": "Schedule time must be a finite timestamp in the future"}, HTTPStatus.BAD_REQUEST)
+                self._json(
+                    {"error": "Schedule time must be a finite timestamp in the future"},
+                    HTTPStatus.BAD_REQUEST,
+                )
                 return
             try:
                 result = cast(PromptaUIServer, self.server).schedule_at(prompt, run_at_epoch)
@@ -678,12 +684,16 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
                 return
             try:
-                chat, message_count = cast(PromptaUIServer, self.server).probe_conversation(conversation_id)
+                chat, message_count = cast(PromptaUIServer, self.server).probe_conversation(
+                    conversation_id
+                )
             except KeyError:
                 self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
                 return
             except Exception as exc:
-                logger.exception("Prompta UI activity probe failed conversation=%s", conversation_id)
+                logger.exception(
+                    "Prompta UI activity probe failed conversation=%s", conversation_id
+                )
                 self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
                 return
             self._json({"ok": True, "chat": chat, "message_count": message_count})
@@ -794,11 +804,7 @@ def serve(
     jobs_path: Path = DEFAULT_JOBS_PATH,
     preserve_active: bool = False,
 ) -> None:
-    orphaned = (
-        0
-        if preserve_active
-        else _reconcile_orphaned_local_chats(cache_path, state_path)
-    )
+    orphaned = 0 if preserve_active else _reconcile_orphaned_local_chats(cache_path, state_path)
     if orphaned:
         logger.info(
             "Prompta UI marked %d orphaned local conversation(s) interrupted",

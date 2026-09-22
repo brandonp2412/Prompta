@@ -128,9 +128,7 @@ class ChatCache:
             )
         ):
             sequence += 1
-            quarantine = self.path.with_name(
-                f"{self.path.name}.corrupt-{timestamp}-{sequence}"
-            )
+            quarantine = self.path.with_name(f"{self.path.name}.corrupt-{timestamp}-{sequence}")
 
         for suffix in ("", "-wal", "-shm"):
             source = Path(f"{self.path}{suffix}")
@@ -680,9 +678,7 @@ class ChatCache:
                 matched_stable_keys.add(existing_key)
                 unmatched_incoming.pop(match_index)
 
-            stable_users = [
-                row for row in stable_existing if str(row["role"]) == "user"
-            ]
+            stable_users = [row for row in stable_existing if str(row["role"]) == "user"]
             for missing in missing_stable:
                 if str(missing["role"]) != "assistant":
                     snapshot_is_full = False
@@ -707,9 +703,7 @@ class ChatCache:
                 matched_assistant_sibling = any(
                     str(row["role"]) == "assistant"
                     and str(row["message_key"]) in matched_stable_keys
-                    and previous_user_ordinal
-                    < int(row["ordinal"])
-                    < next_user_ordinal
+                    and previous_user_ordinal < int(row["ordinal"]) < next_user_ordinal
                     for row in stable_existing
                 )
                 if not matched_assistant_sibling:
