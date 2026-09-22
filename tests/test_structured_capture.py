@@ -318,3 +318,74 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
     assert len(raw_final_events) == 2
     assert any("Finished" in row["raw_json"] for row in raw_final_events)
     assert any("Finished, revised" in row["raw_json"] for row in raw_final_events)
+
+def test_cache_skips_structured_capture_when_transient_target_is_deleted(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation_id = "conversation-transient-structured"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Inspect this",
+    )
+    stable_snapshot = {
+        "title": "Structured",
+        "path": f"/c/{conversation_id}",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Inspect this"},
+            {"id": "a1", "role": "assistant", "content": "Canonical response"},
+        ],
+    }
+    cache.write_snapshot(conversation_id, stable_snapshot)
+
+    transient_snapshot = {
+        "title": "Structured",
+        "path": f"/c/{conversation_id}",
+        "streaming": True,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Inspect this"},
+            {
+                "id": "__prompta_live_assistant_transient",
+                "role": "assistant",
+                "content": "Different streaming draft",
+            },
+        ],
+        "source_events": _source_events(),
+    }
+    cache.write_snapshot(conversation_id, transient_snapshot)
+
+    transient = cache.connection.execute(
+        """
+        SELECT 1
+        FROM messages
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (conversation_id, "__prompta_live_assistant_transient"),
+    ).fetchone()
+    transient_parts = cache.connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (conversation_id, "__prompta_live_assistant_transient"),
+    ).fetchone()[0]
+
+    stable_snapshot["source_events"] = _source_events()
+    cache.write_snapshot(conversation_id, stable_snapshot, complete=True)
+    stable_parts = cache.connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (conversation_id, "a1"),
+    ).fetchone()[0]
+    cache.close()
+
+    assert transient is None
+    assert transient_parts == 0
+    assert stable_parts > 0

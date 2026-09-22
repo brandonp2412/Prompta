@@ -885,15 +885,24 @@ class ChatCache:
                         if structured_message_key:
                             break
                 if structured_message_key:
-                    persist_structured_capture(
-                        self.connection,
-                        conversation_id=conversation_id,
-                        message_key=structured_message_key,
-                        source_events=[
-                            event for event in source_events if isinstance(event, dict)
-                        ],
-                        observed_at=now,
-                    )
+                    structured_target = self.connection.execute(
+                        """
+                        SELECT 1
+                        FROM messages
+                        WHERE conversation_id = ? AND message_key = ?
+                        """,
+                        (conversation_id, structured_message_key),
+                    ).fetchone()
+                    if structured_target is not None:
+                        persist_structured_capture(
+                            self.connection,
+                            conversation_id=conversation_id,
+                            message_key=structured_message_key,
+                            source_events=[
+                                event for event in source_events if isinstance(event, dict)
+                            ],
+                            observed_at=now,
+                        )
 
             if snapshot_is_full and superseded_stable_keys:
                 self.connection.executemany(
