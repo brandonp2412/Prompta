@@ -296,6 +296,34 @@ async def test_find_debugger_bootstrap_url_prefers_existing_conversation_tab() -
     assert url == "https://chatgpt.com/c/existing"
     assert current["handle"] == "user-tab"
 
+@pytest.mark.asyncio
+async def test_find_debugger_bootstrap_url_survives_closed_current_tab() -> None:
+    current = {"handle": ""}
+    selenium = MagicMock()
+
+    def switch(handle: str) -> None:
+        current["handle"] = handle
+
+    selenium.switch_to.window.side_effect = switch
+    type(selenium).current_window_handle = PropertyMock(
+        side_effect=WebDriverException("no such window")
+    )
+    type(selenium).current_url = PropertyMock(
+        side_effect=lambda: {
+            "user-tab": "http://127.0.0.1:8765/",
+            "chat-tab": "https://chatgpt.com/c/existing",
+        }[current["handle"]]
+    )
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+
+    url = await driver._find_debugger_bootstrap_url(["user-tab", "chat-tab"])
+
+    assert url == "https://chatgpt.com/c/existing"
+
 
 @pytest.mark.asyncio
 async def test_navigate_debugger_new_chat_uses_spa_route() -> None:

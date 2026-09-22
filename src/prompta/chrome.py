@@ -260,7 +260,10 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
 
         def find() -> str:
             driver = self._require_driver()
-            original = str(driver.current_window_handle)
+            try:
+                original = str(driver.current_window_handle)
+            except WebDriverException:
+                original = ""
             try:
                 for raw_handle in handles:
                     handle = str(raw_handle)
@@ -273,10 +276,11 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                         return url
                 return ""
             finally:
-                try:
-                    driver.switch_to.window(original)
-                except WebDriverException:
-                    pass
+                if original:
+                    try:
+                        driver.switch_to.window(original)
+                    except WebDriverException:
+                        pass
 
         return str(
             await self._run_webdriver_call(
