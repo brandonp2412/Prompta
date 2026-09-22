@@ -553,6 +553,8 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
     )
 
     assert started.wait(timeout=1.0)
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    assert queue_path.exists()
     persisted = json.loads(recovery_path.read_text())
     assert persisted["jobs"] == [
         {
@@ -585,6 +587,12 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
     assert receipt["client_id"] == "browser-durable-1"
     assert receipt["attachments"] == []
     assert receipt["finished_at"] >= receipt["created_at"]
+
+    restarted = SendJobRegistry(lambda *_args: "unexpected", recovery_path=recovery_path)
+    restored = restarted.get(queued["send_id"])
+    assert restored is not None
+    assert restored["status"] == "succeeded"
+    assert restored["conversation_id"] == "chat-new"
 
 
 def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) -> None:

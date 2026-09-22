@@ -1151,6 +1151,7 @@ function renderNewChat() {
 async function fetchJson(url, timeoutMs = 10_000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const response = await fetch(url, {
       cache: "no-store",
@@ -1173,6 +1174,7 @@ async function hydrateRecentChatCache() {
   ]);
   if (timeout !== undefined) window.clearTimeout(timeout);
   if (!cached) return false;
+
   const [cachedChats, cachedSummaries] = cached;
   const sidebarSnapshot = cachedSummaries.length ? cachedSummaries : cachedChats;
   if (!sidebarSnapshot.length || state.search) return false;
@@ -1189,6 +1191,7 @@ async function hydrateRecentChatCache() {
   setTextIfChanged(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
+
   if (initialId) {
     state.selectedId = initialId;
     const chat = recentChatCache.getMemory(initialId);
@@ -1208,6 +1211,7 @@ async function hydrateRecentChatCache() {
 async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
+
     setServerStatus(payload.server, payload.online);
     const head = String(payload.head || "")
       .trim()
@@ -1221,12 +1225,59 @@ async function loadServerIdentity() {
   }
 }
 
+async function hydratePendingSends() {
+  try {
+    const payload = await fetchJson("api/sends");
+    const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+
+    for (const job of jobs) {
+      const status = String(job.status || "queued");
+      const sendId = String(job.send_id || "");
+      if (!sendId || ["succeeded", "failed", "dead_lettered"].includes(status)) continue;
+      const conversationId = String(job.conversation_id || "");
+      const pending: UiPendingSend = {
+        sendId,
+        clientId: String(job.client_id || ""),
+        message: String(job.message || ""),
+        status,
+        error: String(job.error || ""),
+        conversationId,
+        createdAt: Number(job.created_at || Date.now() / 1000),
+        updatedAt: Number(job.updated_at || Date.now() / 1000),
+        retryAfterSeconds: Number(job.retry_after_seconds || 0),
+        retryAt: Number(job.retry_at || 0),
+        retryAttempt: Number(job.retry_attempt || 0),
+        attachmentNames: Array.isArray(job.attachment_names)
+          ? job.attachment_names.map((value) => String(value))
+          : [],
+      };
+      if (job.operation === "reply" && conversationId) {
+        const items = state.pendingReplies.get(conversationId) || [];
+        if (!items.some((item) => item.sendId === sendId)) {
+          items.push(pending);
+          items.sort((left, right) => Number(left.createdAt || 0) - Number(right.createdAt || 0));
+          state.pendingReplies.set(conversationId, items);
+        }
+        void watchSend(sendId, false, conversationId);
+      } else if (job.operation === "once" && !conversationId && !state.pendingNewSend) {
+        state.pendingNewSend = pending;
+        state.composingNew = true;
+        void watchSend(sendId, true, "");
+      }
+    }
+  } catch (error) {
+    console.warn("Could not hydrate pending Prompta sends", error);
+  }
+}
+
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
+
   try {
     const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
     const payload = await fetchJson(`api/chats${query}`);
     if (requestId !== state.chatsRequestId) return;
+
     const chats = payload.chats || [];
     reconcileOptimisticNew(chats);
     if (!state.search) recentChatCache.rememberSummaries(chats);
@@ -1241,6 +1292,7 @@ async function loadChats(forceSelectedRefresh = false) {
     }));
     state.chatOrderScope = orderScope;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
+
     setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
     const hashId = conversationIdFromHash(location.hash);
     if (!state.selectedId && hashId) {
@@ -1263,6 +1315,7 @@ async function loadChats(forceSelectedRefresh = false) {
       state.selectedFingerprint = "";
     }
     renderSidebar();
+
     if (state.mode === "chats") {
       if (state.selectedId) {
         const summary = state.chats.find((chat) => chat.id === state.selectedId);
@@ -1293,6 +1346,7 @@ const HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30_000;
 
 async function probeHistoricalActivity(conversationId) {
   if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status)) return;
+
   const now = Date.now();
   const lastProbeAt = Number(state.activityProbeAt.get(conversationId) || 0);
   if (
@@ -1303,6 +1357,7 @@ async function probeHistoricalActivity(conversationId) {
 
   state.activityProbeAt.set(conversationId, now);
   state.activityProbes.add(conversationId);
+
   if (state.selectedId === conversationId) {
     setTextIfChanged(els.composerStatus, "Checking whether ChatGPT is still running…");
     syncSendButton();
@@ -1316,6 +1371,7 @@ async function probeHistoricalActivity(conversationId) {
       30_000,
     );
     if (state.selectedId !== conversationId || state.mode !== "chats") return;
+
     const chat = payload?.chat;
     if (!chat || chat.id !== conversationId) return;
     state.selectedUpdatedAt = chat.updated_at;
@@ -1338,6 +1394,7 @@ async function probeHistoricalActivity(conversationId) {
 
 function renderRecentChatSnapshot(conversationId) {
   if (!conversationId || state.mode !== "chats") return;
+
   const memoryChat = recentChatCache.getMemory(conversationId);
   if (memoryChat) {
     state.selectedUpdatedAt = memoryChat.updated_at;
@@ -1366,10 +1423,12 @@ function renderRecentChatSnapshot(conversationId) {
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
   const selectedId = state.selectedId;
+
   if (!state.selectedChat || state.selectedChat.id !== selectedId) {
     renderRecentChatSnapshot(selectedId);
   }
   const requestId = ++state.selectedRequestId;
+
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
     if (
@@ -1378,6 +1437,7 @@ async function loadSelectedChat() {
       chat.id !== state.selectedId
     )
       return;
+
     if (state.pendingNewId === chat.id && !state.pendingNewSend) {
       state.pendingNewId = null;
     }
@@ -1468,6 +1528,7 @@ els.newChatButton.addEventListener("click", () => {
 
 function resizeComposer() {
   els.messageInput.style.overflowY = "hidden";
+
   if (!els.messageInput.value) {
     els.messageInput.style.height = "34px";
     return;
@@ -1488,6 +1549,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
   resizeComposer();
   updateComposerActionButton();
   setTextIfChanged(els.composerStatus, "Saving schedule…");
+
   try {
     const result = await postJson("api/schedule", {
       interval_minutes: command.intervalMinutes,
@@ -1529,6 +1591,7 @@ async function runAtSlashCommand(command, originalMessage) {
   resizeComposer();
   updateSlashMenu();
   setTextIfChanged(els.composerStatus, "Saving one-time schedule…");
+
   try {
     const result = await postJson("api/schedule-at", {
       run_at_epoch: command.runAtEpoch,
@@ -1565,6 +1628,7 @@ function pendingReply(conversationId, sendId) {
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
   if (!item) return false;
+
   const previous = JSON.stringify([
     item.status || "",
     item.error || "",
@@ -1573,6 +1637,7 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.retryAttempt || 0,
   ]);
   Object.assign(item, updates);
+
   const changed =
     JSON.stringify([
       item.status || "",
@@ -1587,9 +1652,11 @@ function updatePendingReply(conversationId, sendId, updates) {
 
 async function watchSend(sendId, creatingNew, conversationId) {
   let statusFailures = 0;
+
   while (true) {
     await new Promise((resolve) => setTimeout(resolve, 400));
     let job;
+
     try {
       job = await fetchJson(`api/sends/${encodeURIComponent(sendId)}`);
       statusFailures = 0;
@@ -1626,10 +1693,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
       await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 250 * statusFailures)));
       continue;
     }
+
     const status = job.status || "running";
     if (creatingNew) {
       const pendingNewSend = state.pendingNewSend;
       if (!pendingNewSend || pendingNewSend.sendId !== sendId) return;
+
       const nextError = job.error || "";
       const nextConversationId = job.conversation_id || pendingNewSend.conversationId || "";
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
@@ -1654,6 +1723,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt,
       });
+
       if (changed) pendingNewSend.updatedAt = Date.now() / 1000;
       if (status === "succeeded") {
         const newId = job.conversation_id;
@@ -1728,6 +1798,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 
 async function retryFailedSend(scope, retryKey) {
   if (!retryKey || state.sending) return;
+
   let pending: PendingReply | null = null;
   if (scope === "new") {
     if (
@@ -1753,6 +1824,7 @@ async function retryFailedSend(scope, retryKey) {
     }
   }
   if (!pending) return;
+
   els.messageInput.value = pending.message || "";
   resizeComposer();
   syncSendButton();
@@ -1767,6 +1839,7 @@ async function retryFailedSend(scope, retryKey) {
 async function stopSelectedChat() {
   const conversationId = state.selectedId;
   if (!conversationId || state.mode !== "chats" || state.stopping) return;
+
   state.stopping = true;
   syncSendButton();
   setTextIfChanged(els.composerStatus, "Stopping response…");
@@ -2082,6 +2155,7 @@ function refreshDisplayedTimes() {
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
   void loadServerIdentity();
+  await hydratePendingSends();
   resizeComposer();
   const hydrated = await hydrateRecentChatCache();
   if (!hydrated) {

@@ -3653,6 +3653,48 @@ async function loadServerIdentity() {
     console.warn("Could not load Prompta server identity", error);
   }
 }
+async function hydratePendingSends() {
+  try {
+    const payload = await fetchJson2("api/sends");
+    const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+    for (const job of jobs) {
+      const status = String(job.status || "queued");
+      const sendId = String(job.send_id || "");
+      if (!sendId || ["succeeded", "failed", "dead_lettered"].includes(status))
+        continue;
+      const conversationId = String(job.conversation_id || "");
+      const pending = {
+        sendId,
+        clientId: String(job.client_id || ""),
+        message: String(job.message || ""),
+        status,
+        error: String(job.error || ""),
+        conversationId,
+        createdAt: Number(job.created_at || Date.now() / 1000),
+        updatedAt: Number(job.updated_at || Date.now() / 1000),
+        retryAfterSeconds: Number(job.retry_after_seconds || 0),
+        retryAt: Number(job.retry_at || 0),
+        retryAttempt: Number(job.retry_attempt || 0),
+        attachmentNames: Array.isArray(job.attachment_names) ? job.attachment_names.map((value) => String(value)) : []
+      };
+      if (job.operation === "reply" && conversationId) {
+        const items = state.pendingReplies.get(conversationId) || [];
+        if (!items.some((item) => item.sendId === sendId)) {
+          items.push(pending);
+          items.sort((left, right) => Number(left.createdAt || 0) - Number(right.createdAt || 0));
+          state.pendingReplies.set(conversationId, items);
+        }
+        watchSend(sendId, false, conversationId);
+      } else if (job.operation === "once" && !conversationId && !state.pendingNewSend) {
+        state.pendingNewSend = pending;
+        state.composingNew = true;
+        watchSend(sendId, true, "");
+      }
+    }
+  } catch (error) {
+    console.warn("Could not hydrate pending Prompta sends", error);
+  }
+}
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
   try {
@@ -4424,6 +4466,7 @@ function refreshDisplayedTimes() {
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
   loadServerIdentity();
+  await hydratePendingSends();
   resizeComposer();
   const hydrated = await hydrateRecentChatCache();
   if (!hydrated) {

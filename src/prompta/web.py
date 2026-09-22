@@ -115,6 +115,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.send_jobs = SendJobRegistry(
             self._send,
             recovery_path=self.state_path.parent / "ui-send-retries.json",
+            queue_path=self.state_path.parent / "ui-send-jobs.sqlite3",
             on_success=self._bind_image_previews,
         )
 
@@ -195,6 +196,9 @@ class PromptaUIServer(ThreadingHTTPServer):
     def send_job(self, send_id: str) -> dict[str, Any] | None:
         job = self.send_jobs.get(send_id)
         return dict(job) if job is not None else None
+
+    def pending_sends(self) -> list[dict[str, Any]]:
+        return self.send_jobs.list_pending()
 
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
         return self.store.logs(limit=limit)
@@ -549,6 +553,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/jobs":
             self._json(cast(PromptaUIServer, self.server).scheduled_jobs())
+            return
+        if path == "/api/sends":
+            self._json({"jobs": cast(PromptaUIServer, self.server).pending_sends()})
             return
         preview_prefix = "/api/attachment-previews/"
         if path.startswith(preview_prefix):

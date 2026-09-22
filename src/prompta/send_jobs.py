@@ -4,7 +4,7 @@ import json
 import logging
 import math
 import os
-import queue
+import sqlite3
 import threading
 import time
 import uuid
@@ -45,6 +45,7 @@ class SendJobRegistry:
         *,
         sleeper: Callable[[float], None] = time.sleep,
         recovery_path: Path | None = None,
+        queue_path: Path | None = None,
         on_success: Callable[[str, str, str], None] | None = None,
     ) -> None:
         self._sender = sender
@@ -53,13 +54,18 @@ class SendJobRegistry:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
-        self._send_queue: queue.Queue[tuple[str, str, str, str, list[str], str]] = queue.Queue()
+        self._work_event = threading.Event()
+        self._fallback_tasks: list[tuple[str, str, str, str, list[str], str]] = []
         self._rate_limit_lock = threading.Lock()
         self._rate_limit_backoff = RateLimitBackoff()
         self._revision = 0
         self._recovery_path = recovery_path
+        self._queue_path = queue_path or (
+            recovery_path.with_name("ui-send-jobs.sqlite3") if recovery_path else None
+        )
         self._recovery_lock = threading.Lock()
         self._recoverable: dict[str, dict[str, Any]] = {}
+        self._initialize_database()
         self._worker = threading.Thread(
             target=self._worker_loop,
             name="prompta-ui-send-worker",
@@ -68,15 +74,182 @@ class SendJobRegistry:
         self._worker.start()
         self._restore_recoverable()
 
+    def _connect_database(self) -> sqlite3.Connection | None:
+        if self._queue_path is None:
+            return None
+        self._queue_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(self._queue_path, timeout=30.0)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute("PRAGMA busy_timeout=30000")
+        return connection
+
+    def _initialize_database(self) -> None:
+        connection = self._connect_database()
+        if connection is None:
+            return
+        try:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS send_jobs (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    send_id TEXT NOT NULL UNIQUE,
+                    operation TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL DEFAULT '',
+                    attachments_json TEXT NOT NULL DEFAULT '[]',
+                    client_id TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    error TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    retry_at REAL NOT NULL DEFAULT 0,
+                    retry_attempt INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    finished_at REAL NOT NULL DEFAULT 0
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS send_jobs_client_id
+                    ON send_jobs(client_id) WHERE client_id <> '';
+                CREATE INDEX IF NOT EXISTS send_jobs_fifo
+                    ON send_jobs(status, sequence);
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _record_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            attachments = json.loads(str(row["attachments_json"] or "[]"))
+        except (TypeError, ValueError):
+            attachments = []
+        return {
+            "send_id": str(row["send_id"]),
+            "operation": str(row["operation"]),
+            "message": str(row["message"]),
+            "conversation_id": str(row["conversation_id"] or ""),
+            "attachments": [value for value in attachments if isinstance(value, str)]
+            if isinstance(attachments, list)
+            else [],
+            "client_id": str(row["client_id"] or ""),
+            "status": str(row["status"]),
+            "retry_at": float(row["retry_at"] or 0.0),
+            "retry_attempt": max(0, int(row["retry_attempt"] or 0)),
+            "created_at": float(row["created_at"] or 0.0),
+            "last_error": str(row["last_error"] or ""),
+            "finished_at": float(row["finished_at"] or 0.0),
+        }
+
+    def _database_records(self) -> list[dict[str, Any]]:
+        connection = self._connect_database()
+        if connection is None:
+            return []
+        try:
+            rows = connection.execute("SELECT * FROM send_jobs ORDER BY sequence").fetchall()
+            return [self._record_from_row(row) for row in rows]
+        finally:
+            connection.close()
+
+    def _upsert_database_record(self, record: dict[str, Any]) -> None:
+        connection = self._connect_database()
+        if connection is None:
+            return
+        try:
+            connection.execute(
+                """
+                INSERT INTO send_jobs (
+                    send_id, operation, message, conversation_id, attachments_json,
+                    client_id, status, error, created_at, updated_at, retry_at,
+                    retry_attempt, last_error, finished_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(send_id) DO UPDATE SET
+                    operation=excluded.operation,
+                    message=excluded.message,
+                    conversation_id=excluded.conversation_id,
+                    attachments_json=excluded.attachments_json,
+                    client_id=excluded.client_id,
+                    status=excluded.status,
+                    error=excluded.error,
+                    updated_at=excluded.updated_at,
+                    retry_at=excluded.retry_at,
+                    retry_attempt=excluded.retry_attempt,
+                    last_error=excluded.last_error,
+                    finished_at=excluded.finished_at
+                """,
+                (
+                    record["send_id"],
+                    record["operation"],
+                    record["message"],
+                    record.get("conversation_id", ""),
+                    json.dumps(record.get("attachments", [])),
+                    record.get("client_id", ""),
+                    record.get("status", "queued"),
+                    record.get("error", record.get("last_error", "")),
+                    float(record.get("created_at") or time.time()),
+                    float(record.get("updated_at") or time.time()),
+                    float(record.get("retry_at") or 0.0),
+                    max(0, int(record.get("retry_attempt") or 0)),
+                    record.get("last_error", ""),
+                    float(record.get("finished_at") or 0.0),
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def _delete_database_record(self, send_id: str) -> None:
+        connection = self._connect_database()
+        if connection is None:
+            return
+        try:
+            connection.execute("DELETE FROM send_jobs WHERE send_id = ?", (send_id,))
+            connection.commit()
+        finally:
+            connection.close()
+
     def _worker_loop(self) -> None:
         while True:
-            task = self._send_queue.get()
+            task = self._next_database_task()
+            if task is None:
+                self._work_event.wait(timeout=1.0)
+                self._work_event.clear()
+                continue
             try:
                 self._run(*task)
             except Exception:
                 logger.exception("Prompta UI send worker failed")
-            finally:
-                self._send_queue.task_done()
+
+    def _next_database_task(
+        self,
+    ) -> tuple[str, str, str, str, list[str], str] | None:
+        connection = self._connect_database()
+        if connection is None:
+            with self._lock:
+                return self._fallback_tasks.pop(0) if self._fallback_tasks else None
+        try:
+            row = connection.execute(
+                """
+                SELECT * FROM send_jobs
+                WHERE status IN ('queued', 'retrying', 'rate_limited')
+                ORDER BY sequence
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            record = self._record_from_row(row)
+            return (
+                record["send_id"],
+                record["operation"],
+                record["message"],
+                record["conversation_id"],
+                record["attachments"],
+                record["client_id"],
+            )
+        finally:
+            connection.close()
 
     def _write_recovery_locked(self) -> None:
         if self._recovery_path is None:
@@ -128,6 +301,7 @@ class SendJobRegistry:
             record["last_error"] = last_error
         if finished_at > 0:
             record["finished_at"] = finished_at
+        self._upsert_database_record(record)
         expired_attachments: list[str] = []
         retained_attachments: set[str] = set()
         with self._recovery_lock:
@@ -188,6 +362,7 @@ class SendJobRegistry:
             )
 
     def _forget_recoverable(self, send_id: str) -> None:
+        self._delete_database_record(send_id)
         if self._recovery_path is None:
             return
         with self._recovery_lock:
@@ -196,14 +371,19 @@ class SendJobRegistry:
 
     def _restore_recoverable(self) -> None:
         path = self._recovery_path
-        if path is None or not path.exists():
-            return
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            records = payload.get("jobs", []) if isinstance(payload, dict) else []
-            records = records if isinstance(records, list) else []
-        except (OSError, ValueError):
-            logger.warning("Could not restore Prompta UI retry state %s", path, exc_info=True)
+        records = self._database_records()
+        if not records and path is not None and path.exists():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                legacy_records = payload.get("jobs", []) if isinstance(payload, dict) else []
+                records = legacy_records if isinstance(legacy_records, list) else []
+                for record in records:
+                    if isinstance(record, dict):
+                        self._upsert_database_record(record)
+            except (OSError, ValueError):
+                logger.warning("Could not restore Prompta UI retry state %s", path, exc_info=True)
+                return
+        if not records:
             return
 
         now = time.time()
@@ -264,6 +444,8 @@ class SendJobRegistry:
                 self._jobs[send_id] = {
                     "send_id": send_id,
                     "operation": operation,
+                    "message": message,
+                    "client_id": client_id,
                     "status": status,
                     "conversation_id": conversation_id,
                     "error": last_error if status == "dead_lettered" else "",
@@ -273,9 +455,11 @@ class SendJobRegistry:
                     "retry_at": 0.0,
                     "retry_after_seconds": 0,
                     "retry_attempt": retry_attempt,
+                    "attachment_names": [Path(value).name for value in attachments],
                 }
                 if client_id:
                     self._client_jobs[client_id] = send_id
+                self._upsert_database_record(record)
                 continue
             if status not in {"queued", "rate_limited", "retrying"}:
                 status = "queued"
@@ -301,6 +485,8 @@ class SendJobRegistry:
             self._jobs[send_id] = {
                 "send_id": send_id,
                 "operation": operation,
+                "message": message,
+                "client_id": client_id,
                 "status": restored_status,
                 "conversation_id": conversation_id,
                 "error": (
@@ -318,13 +504,32 @@ class SendJobRegistry:
                 "retry_attempt": retry_attempt
                 if restored_status in {"rate_limited", "retrying"}
                 else 0,
+                "attachment_names": [Path(value).name for value in attachments],
             }
             if client_id:
                 self._client_jobs[client_id] = send_id
+            self._upsert_database_record(record)
             if restored_status == "rate_limited":
                 max_retry_at = max(max_retry_at, retry_at)
                 max_attempt = max(max_attempt, retry_attempt)
             restored.append(record)
+
+        # Recovery preserves FIFO ordering. Only the queue head owns retry
+        # timing; later jobs wait as plain queued work until it completes.
+        if restored:
+            for record in restored[1:]:
+                if record["status"] not in {"queued", "rate_limited", "retrying"}:
+                    continue
+                record["status"] = "queued"
+                record["retry_at"] = 0.0
+                job = self._jobs.get(record["send_id"])
+                if job is not None:
+                    job.update(
+                        status="queued",
+                        retry_at=0.0,
+                        retry_after_seconds=0,
+                    )
+                self._upsert_database_record(record)
 
         if self._recoverable:
             with self._recovery_lock:
@@ -342,18 +547,8 @@ class SendJobRegistry:
             self._revision += 1
         if restored:
             logger.info("Restoring %d durable Prompta UI send(s)", len(restored))
-            for record in restored:
-                self._send_queue.put(
-                    (
-                        record["send_id"],
-                        record["operation"],
-                        record["message"],
-                        record["conversation_id"],
-                        list(record["attachments"]),
-                        record["client_id"],
-                    )
-                )
-        elif not self._recoverable:
+            self._work_event.set()
+        elif path is not None and not self._recoverable:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -402,12 +597,15 @@ class SendJobRegistry:
         job = {
             "send_id": send_id,
             "operation": operation,
+            "message": message,
+            "client_id": normalized_client_id,
             "status": "queued",
             "conversation_id": conversation_id,
             "error": "",
             "created_at": now,
             "updated_at": now,
             "attachment_count": len(attachment_paths),
+            "attachment_names": [Path(value).name for value in attachment_paths],
         }
         with self._lock:
             cutoff = now - 3600.0
@@ -468,22 +666,32 @@ class SendJobRegistry:
             if normalized_client_id:
                 self._client_jobs[normalized_client_id] = send_id
             self._revision += 1
-            self._send_queue.put(
-                (
-                    send_id,
-                    operation,
-                    message,
-                    conversation_id,
-                    attachment_paths,
-                    normalized_client_id,
+            if self._queue_path is None:
+                self._fallback_tasks.append(
+                    (
+                        send_id,
+                        operation,
+                        message,
+                        conversation_id,
+                        attachment_paths,
+                        normalized_client_id,
+                    )
                 )
-            )
+            self._work_event.set()
         return dict(job)
 
     def get(self, send_id: str) -> dict[str, Any] | None:
         with self._lock:
             job = self._jobs.get(send_id)
             return dict(job) if job is not None else None
+
+    def list_pending(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                dict(job)
+                for job in self._jobs.values()
+                if str(job.get("status") or "") in {"queued", "running", "retrying", "rate_limited"}
+            ]
 
     @property
     def revision(self) -> int:
@@ -497,6 +705,31 @@ class SendJobRegistry:
                 return
             job.update(updates)
             job["updated_at"] = time.time()
+            database_updates = {
+                key: updates[key]
+                for key in (
+                    "status",
+                    "error",
+                    "conversation_id",
+                    "retry_at",
+                    "retry_attempt",
+                )
+                if key in updates
+            }
+            if database_updates:
+                connection = self._connect_database()
+                if connection is not None:
+                    try:
+                        assignments = ", ".join(f"{key} = ?" for key in database_updates)
+                        values = list(database_updates.values())
+                        values.extend([time.time(), send_id])
+                        connection.execute(
+                            f"UPDATE send_jobs SET {assignments}, updated_at = ? WHERE send_id = ?",
+                            values,
+                        )
+                        connection.commit()
+                    finally:
+                        connection.close()
             self._revision += 1
 
     def _run(
