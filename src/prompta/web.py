@@ -209,9 +209,25 @@ class PromptaUIServer(ThreadingHTTPServer):
         summary["state_events"] = []
         return summary
 
-    def conversations(self, *, limit: int = 200, query: str = "") -> list[dict[str, Any]]:
+    def conversations(
+        self,
+        *,
+        limit: int = 200,
+        query: str = "",
+        include_ids: list[str] | tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
         bounded_limit = max(1, min(limit, 500))
-        rows = [dict(chat) for chat in self.store.conversations(limit=bounded_limit, query=query)]
+        included_ids = list(
+            dict.fromkeys(str(value).strip() for value in include_ids if str(value).strip())
+        )[:100]
+        rows = [
+            dict(chat)
+            for chat in self.store.conversations(
+                limit=bounded_limit,
+                query=query,
+                include_ids=included_ids,
+            )
+        ]
         known_ids = {str(chat.get("id") or "") for chat in rows}
         needle = query.strip().casefold()
 
@@ -233,7 +249,11 @@ class PromptaUIServer(ThreadingHTTPServer):
                 -float(chat.get("updated_at") or 0.0),
             )
         )
-        return rows[:bounded_limit]
+        selected_ids = {
+            str(chat.get("id") or "") for chat in rows[:bounded_limit] if str(chat.get("id") or "")
+        }
+        selected_ids.update(included_ids)
+        return [chat for chat in rows if str(chat.get("id") or "") in selected_ids]
 
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
         chat = self.store.conversation(conversation_id)
@@ -598,6 +618,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if path == "/api/chats":
             query = parse_qs(parsed.query)
             search = query.get("q", [""])[0]
+            include_ids = query.get("include", [])
             try:
                 limit = int(query.get("limit", ["200"])[0])
             except ValueError:
@@ -605,7 +626,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json(
                 {
                     "chats": cast(PromptaUIServer, self.server).conversations(
-                        limit=limit, query=search
+                        limit=limit,
+                        query=search,
+                        include_ids=include_ids,
                     )
                 }
             )

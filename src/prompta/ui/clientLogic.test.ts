@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  chatListRequestUrl,
   composerHasContent,
   conversationIdFromHash,
   formatClockTime12Hour,
@@ -32,6 +33,20 @@ import {
   toolCallSummary,
   toolCallTimestampMillis,
 } from "./clientLogic";
+
+describe("chat list request URL", () => {
+  test("keeps pinned chats in the sidebar request even when they are older than the recent limit", () => {
+    expect(chatListRequestUrl("", new Set(["WEB:old-chat", "chat-2"]))).toBe(
+      "api/chats?include=WEB%3Aold-chat&include=chat-2",
+    );
+  });
+
+  test("search does not force unrelated pinned chats into filtered results", () => {
+    expect(chatListRequestUrl("Kite work", new Set(["WEB:old-chat"]))).toBe(
+      "api/chats?q=Kite+work",
+    );
+  });
+});
 
 describe("conversation hash parsing", () => {
   test("decodes a deep-linked conversation id", () => {

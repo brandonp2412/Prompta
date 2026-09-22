@@ -1,4 +1,22 @@
 // src/prompta/ui/clientLogic.ts
+function chatListRequestUrl(search, pinnedIds) {
+  const params = new URLSearchParams;
+  const query = search.trim();
+  if (query) {
+    params.set("q", search);
+  } else {
+    const seen = new Set;
+    for (const rawId of pinnedIds) {
+      const id = String(rawId || "").trim();
+      if (!id || seen.has(id))
+        continue;
+      seen.add(id);
+      params.append("include", id);
+    }
+  }
+  const suffix = params.toString();
+  return suffix ? `api/chats?${suffix}` : "api/chats";
+}
 function preserveSidebarChatOrder(previous, incoming) {
   if (!previous.length)
     return [...incoming];
@@ -4023,8 +4041,7 @@ async function hydratePendingSends() {
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
   try {
-    const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
-    const payload = await fetchJson2(`api/chats${query}`);
+    const payload = await fetchJson2(chatListRequestUrl(state.search, state.pinnedIds));
     if (requestId !== state.chatsRequestId)
       return;
     const chats = payload.chats || [];

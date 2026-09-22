@@ -1,4 +1,5 @@
 import {
+  chatListRequestUrl,
   composerHasContent,
   conversationIdFromHash,
   formatScheduleInterval,
@@ -1481,8 +1482,7 @@ async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
 
   try {
-    const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
-    const payload = await fetchJson(`api/chats${query}`);
+    const payload = await fetchJson(chatListRequestUrl(state.search, state.pinnedIds));
 
     if (requestId !== state.chatsRequestId) return;
 

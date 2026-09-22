@@ -1301,6 +1301,44 @@ def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
     assert [message["role"] for message in chat["messages"]] == ["user", "assistant"]
 
 
+def test_pinned_chat_is_included_outside_bounded_sidebar_limit(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    for conversation_id in ("old-pinned", "recent-one", "recent-two"):
+        cache.start(
+            conversation_id,
+            context_id=f"context-{conversation_id}",
+            job_name="",
+            prompt=conversation_id,
+        )
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET created_at = 10, updated_at = 10 WHERE id = ?",
+            ("old-pinned",),
+        )
+        cache.connection.execute(
+            "UPDATE conversations SET created_at = 20, updated_at = 20 WHERE id = ?",
+            ("recent-one",),
+        )
+        cache.connection.execute(
+            "UPDATE conversations SET created_at = 30, updated_at = 30 WHERE id = ?",
+            ("recent-two",),
+        )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    store_rows = store.conversations(limit=1, include_ids=["old-pinned"])
+    assert {chat["id"] for chat in store_rows} == {"old-pinned", "recent-two"}
+
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        chats = server.conversations(limit=1, include_ids=["old-pinned"])
+    finally:
+        server.server_close()
+
+    assert {chat["id"] for chat in chats} == {"old-pinned", "recent-two"}
+
+
 def test_read_only_store_hides_delivery_timeout_ui_noise(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
