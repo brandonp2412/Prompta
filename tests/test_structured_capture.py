@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from prompta.cache import ChatCache
+from prompta.conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT
 from prompta.structured_capture import (
     message_parts_from_source_events,
     tool_calls_from_source_events,
@@ -65,6 +66,14 @@ def _source_events(result_text: str = "RESULT") -> list[dict]:
             "end_turn": True,
         },
     ]
+
+
+def test_browser_source_capture_excludes_unfiltered_react_internals() -> None:
+    assert "content:safeJsonValue(content)" not in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "metadata:safeJsonValue(metadata)" not in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "if(role==='tool'||recipient==='api_tool.call_tool')return true;" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "if(message?.end_turn===true)return true;" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "visibleAgentText.includes(text)" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
 def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> None:
