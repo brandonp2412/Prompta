@@ -109,6 +109,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         self.debugger_address = debugger_address.strip() if debugger_address else None
         self._driver: webdriver.Chrome | None = None
         self._owned_contexts: set[str] = set()
+        self._bootstrap_url = ""
         self._owned_contexts_path = self.profile.with_name(
             f"{self.profile.name}.owned-contexts.json"
         )
@@ -251,6 +252,65 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
                     raise self._driver_runtime_error("create ChromeDriver session", exc) from exc
         raise RuntimeError("ChromeDriver session creation failed") from last_error
 
+    async def _find_debugger_bootstrap_url(self, handles: list[str]) -> str:
+        if not self.debugger_address:
+            return ""
+
+        def find() -> str:
+            driver = self._require_driver()
+            original = str(driver.current_window_handle)
+            try:
+                for raw_handle in handles:
+                    handle = str(raw_handle)
+                    try:
+                        driver.switch_to.window(handle)
+                        url = str(driver.current_url or "")
+                    except WebDriverException:
+                        continue
+                    if self._is_chatgpt_url(url) and "/c/" in url:
+                        return url
+                return ""
+            finally:
+                try:
+                    driver.switch_to.window(original)
+                except WebDriverException:
+                    pass
+
+        return str(
+            await self._run_webdriver_call(
+                "find authenticated Chromium bootstrap tab",
+                find,
+            )
+            or ""
+        )
+
+    async def _navigate_debugger_new_chat(self, context: str) -> bool:
+        if not self._bootstrap_url:
+            return False
+        await self.navigate(self._bootstrap_url, context=context)
+        await self.wait_for_composer(
+            timeout=max(5.0, self.auth_timeout_seconds),
+            context=context,
+        )
+        clicked = await self.eval(
+            "(()=>{const links=[...document.querySelectorAll("
+            "'a[href=\"/\"],a[href=\"https://chatgpt.com/\"]'"
+            ")];const a=links.find(e=>/new chat/i.test("
+            "(e.textContent||'')+' '+(e.getAttribute('aria-label')||'')"
+            "));if(!a)return false;a.click();return true})()",
+            context=context,
+        )
+        if not clicked:
+            return False
+        deadline = asyncio.get_running_loop().time() + 10.0
+        while asyncio.get_running_loop().time() < deadline:
+            path = str(await self.eval("location.pathname", context=context) or "")
+            if path == "/":
+                await self.wait_for_composer(timeout=5.0, context=context)
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
     async def connect(self) -> None:
         if self.is_connected:
             return
@@ -268,6 +328,9 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             if not handles:
                 raise RuntimeError("ChromeDriver created no browser window")
             if self.debugger_address:
+                self._bootstrap_url = await self._find_debugger_bootstrap_url(
+                    [str(handle) for handle in handles]
+                )
 
                 def create_owned_tab() -> str:
                     driver = self._require_driver()
@@ -282,7 +345,14 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
             else:
                 self.context = str(handles[0])
             self._network_subscribed = True
-            await self.navigate("https://chatgpt.com/")
+            if self.debugger_address and self._bootstrap_url:
+                if not await self._navigate_debugger_new_chat(self.context):
+                    raise RuntimeError(
+                        "Prompta could not open a fresh ChatGPT conversation "
+                        "from the authenticated browser session"
+                    )
+            else:
+                await self.navigate("https://chatgpt.com/")
             deadline = asyncio.get_running_loop().time() + self.auth_timeout_seconds
             last_error: Exception | None = None
             while asyncio.get_running_loop().time() < deadline:
@@ -367,7 +437,21 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         self.context = context
         self._remember_owned_context(context)
         try:
-            await self.navigate(url, context=context)
+            is_new_chat = url.rstrip("/") == "https://chatgpt.com"
+            if self.debugger_address and self._bootstrap_url and is_new_chat:
+                if not await self._navigate_debugger_new_chat(context):
+                    raise RuntimeError(
+                        "Prompta could not open a fresh ChatGPT conversation "
+                        "from the authenticated browser session"
+                    )
+            else:
+                await self.navigate(url, context=context)
+                if (
+                    self.debugger_address
+                    and self._is_chatgpt_url(url)
+                    and "/c/" in url
+                ):
+                    self._bootstrap_url = url
         except BaseException:
             try:
                 await self.close_context(context)

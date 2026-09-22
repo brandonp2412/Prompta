@@ -265,6 +265,91 @@ async def test_stale_owned_context_cleanup_preserves_only_failed_targets(tmp_pat
     assert driver._owned_contexts == {"still-open"}
     assert json.loads(registry.read_text()) == ["still-open"]
 
+@pytest.mark.asyncio
+async def test_find_debugger_bootstrap_url_prefers_existing_conversation_tab() -> None:
+    current = {"handle": "user-tab"}
+    selenium = MagicMock()
+
+    def switch(handle: str) -> None:
+        current["handle"] = handle
+
+    selenium.switch_to.window.side_effect = switch
+    type(selenium).current_window_handle = PropertyMock(
+        side_effect=lambda: current["handle"]
+    )
+    type(selenium).current_url = PropertyMock(
+        side_effect=lambda: {
+            "user-tab": "http://127.0.0.1:8765/",
+            "chat-tab": "https://chatgpt.com/c/existing",
+        }[current["handle"]]
+    )
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+
+    url = await driver._find_debugger_bootstrap_url(["user-tab", "chat-tab"])
+
+    assert url == "https://chatgpt.com/c/existing"
+    assert current["handle"] == "user-tab"
+
+
+@pytest.mark.asyncio
+async def test_navigate_debugger_new_chat_uses_spa_route() -> None:
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._bootstrap_url = "https://chatgpt.com/c/existing"
+
+    with (
+        patch.object(driver, "navigate", new_callable=AsyncMock) as navigate,
+        patch.object(driver, "wait_for_composer", new_callable=AsyncMock) as wait,
+        patch.object(
+            driver,
+            "eval",
+            new_callable=AsyncMock,
+            side_effect=[True, "/"],
+        ) as evaluate,
+    ):
+        ready = await driver._navigate_debugger_new_chat("prompta-tab")
+
+    assert ready is True
+    navigate.assert_awaited_once_with(
+        "https://chatgpt.com/c/existing",
+        context="prompta-tab",
+    )
+    assert evaluate.await_count == 2
+    assert wait.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_new_tab_avoids_direct_root_navigation_when_bootstrap_exists() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "prompta-tab"
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver._bootstrap_url = "https://chatgpt.com/c/existing"
+
+    with (
+        patch.object(
+            driver,
+            "_navigate_debugger_new_chat",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as new_chat,
+        patch.object(driver, "navigate", new_callable=AsyncMock) as navigate,
+    ):
+        context = await driver.new_tab()
+
+    assert context == "prompta-tab"
+    new_chat.assert_awaited_once_with("prompta-tab")
+    navigate.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 async def test_connect_cleans_stale_targets_before_creating_driver(tmp_path: Path) -> None:
