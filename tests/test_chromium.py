@@ -4,6 +4,7 @@ import json
 
 from prompta.chromium import (
     _REACT_TOOL_SCRIPT,
+    finalize_completed_assistant_content,
     merge_tool_blocks,
     ordered_assistant_content_from_messages,
     tool_blocks_from_messages,
@@ -170,6 +171,28 @@ def test_merge_tool_blocks_preserves_existing_interleaving() -> None:
     assert merged.index("Between") < merged.index("Chrome DevTools")
     assert merged.index("Chrome DevTools") < merged.index("After")
     assert '"status": "running"' not in merged
+
+
+def test_finalize_completed_assistant_content_moves_final_prose_after_hidden_tools() -> None:
+    first = FENCE + "tool:One" + NL + "{}" + NL + FENCE
+    second = FENCE + "tool:Two" + NL + "{}" + NL + FENCE
+    third = FENCE + "tool:Three" + NL + "{}" + NL + FENCE
+    content = (NL * 2).join([first, "Still working", second, "Final answer", third])
+
+    finalized = finalize_completed_assistant_content(content)
+
+    assert finalized.index(first) < finalized.index("Still working")
+    assert finalized.index("Still working") < finalized.index(second)
+    assert finalized.index(second) < finalized.index(third)
+    assert finalized.index(third) < finalized.index("Final answer")
+
+
+def test_finalize_completed_assistant_content_leaves_correct_final_prose_in_place() -> None:
+    first = FENCE + "tool:One" + NL + "{}" + NL + FENCE
+    second = FENCE + "tool:Two" + NL + "{}" + NL + FENCE
+    content = (NL * 2).join([first, "Still working", second, "Final answer"])
+
+    assert finalize_completed_assistant_content(content) == content
 
 
 def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:

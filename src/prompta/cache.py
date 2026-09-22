@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .chromium import preserves_non_tool_text
+from .chromium import finalize_completed_assistant_content, preserves_non_tool_text
 from .preview import compact_sidebar_preview
 from .structured_capture import message_parts_from_source_events, rendered_content_from_parts
 from .structured_store import (
@@ -619,6 +619,18 @@ class ChatCache:
                         ]
                         messages[message_index]["content"] = ordered_content
                     break
+        if complete:
+            for message_index in range(len(messages) - 1, -1, -1):
+                message = messages[message_index]
+                if not isinstance(message, dict) or str(message.get("role") or "") != "assistant":
+                    continue
+                content = str(message.get("content") or "")
+                finalized_content = finalize_completed_assistant_content(content)
+                if finalized_content != content:
+                    messages = [dict(item) if isinstance(item, dict) else item for item in messages]
+                    messages[message_index]["content"] = finalized_content
+                break
+
         completed_at = now if complete else None
         snapshot_path = str(snapshot.get("path") or "")
         snapshot_url = (

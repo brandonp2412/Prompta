@@ -482,6 +482,38 @@ def preserves_non_tool_text(source: str, candidate: str) -> bool:
     return source_text in candidate_text
 
 
+def finalize_completed_assistant_content(content: str) -> str:
+    """Keep the last completed assistant prose after every tool call.
+
+    ChatGPT can collapse a long tool timeline in the DOM. When Prompta has more
+    structured tool blocks than visible tool rows, the fallback DOM merge may
+    append those hidden blocks after the final answer. On a completed turn,
+    move only the last non-tool segment that is sandwiched between tool blocks
+    to the end. Already-correct content and tool-only turns are unchanged.
+    """
+
+    source = str(content or "")
+    matches = list(_TOOL_BLOCK_RE.finditer(source))
+    if len(matches) < 2:
+        return source
+    if source[matches[-1].end() :].strip():
+        return source
+
+    final_gap: tuple[int, int, str] | None = None
+    for previous, current in zip(matches, matches[1:]):
+        gap = source[previous.end() : current.start()]
+        if gap.strip():
+            final_gap = (previous.end(), current.start(), gap)
+    if final_gap is None:
+        return source
+
+    start, end, prose = final_gap
+    before = source[:start].rstrip()
+    after = source[end:].strip()
+    final_prose = prose.strip()
+    return (chr(10) * 2).join(part for part in (before, after, final_prose) if part).strip()
+
+
 def merge_tool_blocks(content: str, blocks: list[str]) -> str:
     if not blocks:
         return content

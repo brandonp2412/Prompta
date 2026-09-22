@@ -112,6 +112,40 @@ def test_live_snapshot_uses_source_event_timeline_for_assistant_content(tmp_path
     assert content.index("Between tools") < content.index("Test MCP · second")
 
 
+def test_completed_snapshot_moves_fallback_final_text_after_late_tool_blocks(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-final-order",
+        context_id="context-final-order",
+        job_name="",
+        prompt="Do work",
+    )
+    fence = chr(96) * 3
+    first = f"{fence}tool:One\n{{}}\n{fence}"
+    second = f"{fence}tool:Two\n{{}}\n{fence}"
+    misordered = "\n\n".join([first, "Final answer", second])
+    snapshot = {
+        "title": "Work",
+        "path": "/c/conversation-final-order",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Do work"},
+            {"id": "a1", "role": "assistant", "content": misordered},
+        ],
+    }
+
+    cache.write_snapshot("conversation-final-order", snapshot)
+    live_content = cache.messages("conversation-final-order")[-1]["content"]
+    cache.write_snapshot("conversation-final-order", snapshot, complete=True)
+    completed_content = cache.messages("conversation-final-order")[-1]["content"]
+    cache.close()
+
+    assert live_content.index("Final answer") < live_content.index("tool:Two")
+    assert completed_content.index("tool:Two") < completed_content.index("Final answer")
+
+
 def test_cache_tracks_streaming_then_completed_conversation(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
