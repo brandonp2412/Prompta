@@ -156,7 +156,7 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
     const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
 
     return `
-      <section class="message ${role}${message.send_error ? " send-error" : ""}">
+      <section class="message ${role}${message.send_error ? " send-error" : ""}${message.pending_activity ? " pending-activity" : ""}">
         <div class="message-inner">
           ${
             role === "assistant"

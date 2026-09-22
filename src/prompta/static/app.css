@@ -844,6 +844,42 @@ textarea:focus-visible {
   padding: 0 3px;
 }
 
+.message.assistant.pending-activity {
+  justify-content: flex-end;
+  margin-top: -13px;
+}
+
+.message.assistant.pending-activity .message-inner {
+  width: auto;
+  max-width: min(76%, 650px);
+  padding: 8px 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 13px 4px 13px 13px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+}
+
+.message.assistant.pending-activity .message-label {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.message.assistant.pending-activity .streaming-indicator,
+.message.assistant.pending-activity .message-timestamp {
+  margin: 0;
+}
+
+.message.assistant.pending-activity .message-timestamp {
+  padding-left: 2px;
+  color: color-mix(in srgb, var(--text) 42%, transparent);
+}
+
+.message.assistant.pending-activity .message-age {
+  display: none;
+}
+
 .message-label {
   margin-bottom: 8px;
   display: flex;
@@ -1969,8 +2005,17 @@ textarea:focus-visible {
     font-size: 10px;
   }
 
-  .message.user .message-inner {
+  .message.user .message-inner,
+  .message.assistant.pending-activity .message-inner {
     max-width: 88%;
+  }
+
+  .message.assistant.pending-activity {
+    margin-top: -9px;
+  }
+
+  .message.assistant.pending-activity .message-inner {
+    flex-wrap: wrap;
   }
 
   .tool-call-block.tool-has-summary > summary .copy-code {

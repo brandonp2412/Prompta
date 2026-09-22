@@ -1881,7 +1881,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
     const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies);
     const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
     return `
-      <section class="message ${role}${message.send_error ? " send-error" : ""}">
+      <section class="message ${role}${message.send_error ? " send-error" : ""}${message.pending_activity ? " pending-activity" : ""}">
         <div class="message-inner">
           ${role === "assistant" ? `
             <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
