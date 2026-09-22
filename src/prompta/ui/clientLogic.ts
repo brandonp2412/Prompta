@@ -826,6 +826,33 @@ export async function postJsonRequest(
   throw lastError;
 }
 
+export async function deleteRequest(
+  url: string,
+  timeoutMs = 10_000,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(url, {
+      method: "DELETE",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok && response.status !== 404) {
+      throw new Error((String(response.status) + " " + response.statusText).trim());
+    }
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Request timed out");
+
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
 export function composerHasContent(message: string, attachmentCount: number): boolean {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }

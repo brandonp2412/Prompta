@@ -501,6 +501,26 @@ async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45000, fe
   }
   throw lastError;
 }
+async function deleteRequest(url, timeoutMs = 1e4, fetchImpl = fetch) {
+  const controller = new AbortController;
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method: "DELETE",
+      cache: "no-store",
+      signal: controller.signal
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error((String(response.status) + " " + response.statusText).trim());
+    }
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new Error("Request timed out");
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
 function composerHasContent(message, attachmentCount) {
   return Boolean(String(message || "").trim()) || attachmentCount > 0;
 }
@@ -4403,38 +4423,40 @@ async function deletePendingSend(deleteKey) {
   if (state.pendingNewSend && (state.pendingNewSend.clientId === deleteKey || state.pendingNewSend.sendId === deleteKey)) {
     pending = state.pendingNewSend;
     creatingNew = true;
-    state.pendingNewSend = null;
-    state.pendingNewId = null;
-    state.newChatFingerprint = "";
   } else if (conversationId) {
-    const items = state.pendingReplies.get(conversationId) || [];
-    pending = items.find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
-    if (pending) {
-      const remaining = items.filter((item) => item !== pending);
-      if (remaining.length)
-        state.pendingReplies.set(conversationId, remaining);
-      else
-        state.pendingReplies.delete(conversationId);
-      state.selectedFingerprint = "";
-    }
+    pending = (state.pendingReplies.get(conversationId) || []).find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
   }
   if (!pending)
     return;
   const sendId = String(pending.sendId || "");
-  if (sendId) {
-    try {
-      const response = await fetch(`api/sends/${encodeURIComponent(sendId)}`, {
-        method: "DELETE",
-        cache: "no-store"
-      });
-      if (!response.ok && response.status !== 404)
-        throw new Error(`${response.status}`);
-    } catch (error) {
-      console.warn("Could not delete pending Prompta send", error);
-      setTextIfChanged5(els.composerStatus, "Could not delete the pending message.");
-    }
+  if (!sendId) {
+    setTextIfChanged5(els.composerStatus, "Message is still entering the queue. Try deleting again.");
+    return;
   }
-  if (creatingNew)
+  try {
+    await deleteRequest("api/sends/" + encodeURIComponent(sendId));
+  } catch (error) {
+    console.warn("Could not delete pending Prompta send", error);
+    setTextIfChanged5(els.composerStatus, "Could not delete the pending message.");
+    return;
+  }
+  if (creatingNew) {
+    if (state.pendingNewSend === pending) {
+      state.pendingNewSend = null;
+      state.pendingNewId = null;
+      state.newChatFingerprint = "";
+    }
+  } else {
+    const items = state.pendingReplies.get(conversationId) || [];
+    const remaining = items.filter((item) => item !== pending);
+    if (remaining.length)
+      state.pendingReplies.set(conversationId, remaining);
+    else
+      state.pendingReplies.delete(conversationId);
+    if (state.selectedId === conversationId)
+      state.selectedFingerprint = "";
+  }
+  if (creatingNew && state.composingNew)
     renderNewChat();
   else if (state.selectedChat?.id === conversationId)
     renderConversation(state.selectedChat);
@@ -4458,12 +4480,7 @@ async function editPendingSend(editKey) {
     return;
   }
   try {
-    const response = await fetch("api/sends/" + encodeURIComponent(sendId), {
-      method: "DELETE",
-      cache: "no-store"
-    });
-    if (!response.ok && response.status !== 404)
-      throw new Error(String(response.status));
+    await deleteRequest("api/sends/" + encodeURIComponent(sendId));
   } catch (error) {
     console.warn("Could not cancel pending Prompta send for editing", error);
     setTextIfChanged5(els.composerStatus, "Could not edit the pending message.");

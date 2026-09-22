@@ -4,6 +4,7 @@ import {
   chatListRequestUrl,
   composerHasContent,
   conversationIdFromHash,
+  deleteRequest,
   formatClockTime12Hour,
   formatDailyTime12Hour,
   matchingOptimisticConversation,
@@ -516,6 +517,46 @@ describe("POST request recovery", () => {
     await expect(
       postJsonRequest("api/chats", { message: "hello" }, 1, 1_000, malformedFetch),
     ).rejects.toThrow("Prompta returned an invalid response");
+  });
+});
+
+describe("DELETE request recovery", () => {
+  test("times out a stalled delete instead of hiding a still-running send", async () => {
+    const stalledFetch = ((_: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      })) as typeof fetch;
+
+    await expect(deleteRequest("api/sends/send-1", 10, stalledFetch)).rejects.toThrow(
+      "Request timed out",
+    );
+  });
+
+  test("treats an already-missing send as successfully deleted", async () => {
+    const missingFetch = (async (_: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("DELETE");
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    await expect(deleteRequest("api/sends/send-1", 1_000, missingFetch)).resolves.toBeUndefined();
+  });
+
+  test("keeps server delete failures visible to the caller", async () => {
+    const failingFetch = (async () =>
+      new Response("", {
+        status: 500,
+        statusText: "Internal Server Error",
+      })) as typeof fetch;
+
+    await expect(deleteRequest("api/sends/send-1", 1_000, failingFetch)).rejects.toThrow(
+      "500 Internal Server Error",
+    );
   });
 });
 

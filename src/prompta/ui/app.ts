@@ -2,6 +2,7 @@ import {
   chatListRequestUrl,
   composerHasContent,
   conversationIdFromHash,
+  deleteRequest,
   formatScheduleInterval,
   matchingOptimisticConversation,
   missingPendingConversationSummaries,
@@ -1910,43 +1911,52 @@ async function deletePendingSend(deleteKey: string) {
   ) {
     pending = state.pendingNewSend;
     creatingNew = true;
-    state.pendingNewSend = null;
-    state.pendingNewId = null;
-    state.newChatFingerprint = "";
   } else if (conversationId) {
-    const items = state.pendingReplies.get(conversationId) || [];
     pending =
-      items.find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
-
-    if (pending) {
-      const remaining = items.filter((item) => item !== pending);
-
-      if (remaining.length) state.pendingReplies.set(conversationId, remaining);
-      else state.pendingReplies.delete(conversationId);
-
-      state.selectedFingerprint = "";
-    }
+      (state.pendingReplies.get(conversationId) || []).find(
+        (item) => item.clientId === deleteKey || item.sendId === deleteKey,
+      ) || null;
   }
 
   if (!pending) return;
 
   const sendId = String(pending.sendId || "");
 
-  if (sendId) {
-    try {
-      const response = await fetch(`api/sends/${encodeURIComponent(sendId)}`, {
-        method: "DELETE",
-        cache: "no-store",
-      });
+  if (!sendId) {
+    setTextIfChanged(
+      els.composerStatus,
+      "Message is still entering the queue. Try deleting again.",
+    );
 
-      if (!response.ok && response.status !== 404) throw new Error(`${response.status}`);
-    } catch (error) {
-      console.warn("Could not delete pending Prompta send", error);
-      setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
-    }
+    return;
   }
 
-  if (creatingNew) renderNewChat();
+  try {
+    await deleteRequest("api/sends/" + encodeURIComponent(sendId));
+  } catch (error) {
+    console.warn("Could not delete pending Prompta send", error);
+    setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
+
+    return;
+  }
+
+  if (creatingNew) {
+    if (state.pendingNewSend === pending) {
+      state.pendingNewSend = null;
+      state.pendingNewId = null;
+      state.newChatFingerprint = "";
+    }
+  } else {
+    const items = state.pendingReplies.get(conversationId) || [];
+    const remaining = items.filter((item) => item !== pending);
+
+    if (remaining.length) state.pendingReplies.set(conversationId, remaining);
+    else state.pendingReplies.delete(conversationId);
+
+    if (state.selectedId === conversationId) state.selectedFingerprint = "";
+  }
+
+  if (creatingNew && state.composingNew) renderNewChat();
   else if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
 
   renderSidebar();
@@ -1981,12 +1991,7 @@ async function editPendingSend(editKey: string) {
   }
 
   try {
-    const response = await fetch("api/sends/" + encodeURIComponent(sendId), {
-      method: "DELETE",
-      cache: "no-store",
-    });
-
-    if (!response.ok && response.status !== 404) throw new Error(String(response.status));
+    await deleteRequest("api/sends/" + encodeURIComponent(sendId));
   } catch (error) {
     console.warn("Could not cancel pending Prompta send for editing", error);
     setTextIfChanged(els.composerStatus, "Could not edit the pending message.");
