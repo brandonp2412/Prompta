@@ -23,7 +23,7 @@ describe("tool-call rendering", () => {
     expect(rendered).toContain('class="copy-code"');
   });
 
-  test("keeps reasoning titles out of the collapsed tool name", () => {
+  test("shows persisted reasoning titles in the collapsed tool row", () => {
     const rendered = renderMarkdown([
       "```tool:Glass Serena · serena_repl",
       JSON.stringify({
@@ -36,9 +36,9 @@ describe("tool-call rendering", () => {
 
     const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
     expect(summary).toContain('<span class="tool-primary-name">Glass Serena · serena_repl</span>');
+    expect(summary).toContain('<span class="tool-summary">Remembering</span>');
     expect(summary).not.toContain(">tool call<");
-    expect(summary).not.toContain("Remembering");
-    expect(rendered).toContain('<span class="tool-summary">Remembering</span>');
+    expect(rendered.match(/<span class="tool-summary">Remembering<\/span>/g)).toHaveLength(1);
   });
 
   test("syntax-highlights structured tool payloads", () => {

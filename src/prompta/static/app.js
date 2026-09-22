@@ -1429,6 +1429,7 @@ function renderCodeBlock(code, language) {
   const collapsedLabel = toolish && toolName ? toolName : label;
   const header = toolish ? `
       <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml2(collapsedLabel)}</span>
+      ${toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>` : ""}
       ${toolTime}` : `
       <span class="code-language">${escapeHtml2(label)}</span>
       ${copyButton}`;
@@ -1438,7 +1439,6 @@ function renderCodeBlock(code, language) {
       <div class="tool-expanded-meta">
         <span class="code-language">${escapeHtml2(label)}</span>
         ${toolName ? `<span class="tool-name">${escapeHtml2(toolName)}</span>` : ""}
-        ${toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>` : ""}
         ${toolTime}
         ${copyButton}
       </div>`;
