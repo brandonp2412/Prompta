@@ -1686,6 +1686,9 @@ function renderTextBlock(text) {
 function expandedToolMetaAddsInformation(summary, action) {
   return Boolean(summary && action);
 }
+function renderDeferredToolCode(body) {
+  return body.highlight ? highlightCode(body.code, body.language) : escapeHtml2(body.code);
+}
 function renderCodeBlock(code, language, deferredToolBodies = null) {
   const rawLanguage = String(language || "").trim();
   const normalized = normalizeLanguage(rawLanguage);
@@ -1724,7 +1727,8 @@ function renderCodeBlock(code, language, deferredToolBodies = null) {
     if (toolish && deferredToolBodies) {
       deferredToolBodyIndex = deferredToolBodies.push({
         code: renderedCode,
-        language: highlightLanguage
+        language: highlightLanguage,
+        highlight: Boolean(pythonCode)
       }) - 1;
       body = '<div class="deferred-tool-body" aria-hidden="true"></div>';
     } else {
@@ -2064,7 +2068,13 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       pre.dataset.deferredToolBody = "true";
       const code = document.createElement("code");
       code.className = `language-${deferred.language}`;
-      code.textContent = deferred.code;
+      if (deferred.highlight) {
+        const template = document.createElement("template");
+        template.innerHTML = renderDeferredToolCode(deferred);
+        code.append(template.content);
+      } else {
+        code.textContent = deferred.code;
+      }
       pre.append(code);
       placeholder?.replaceWith(pre);
       return;

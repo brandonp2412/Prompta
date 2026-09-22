@@ -1,5 +1,5 @@
 import { formatClockTime12Hour, messageAgeText, messageTimestampMillis } from "./clientLogic";
-import { renderMarkdown, type DeferredToolBody } from "./markdown";
+import { renderDeferredToolCode, renderMarkdown, type DeferredToolBody } from "./markdown";
 
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -383,7 +383,15 @@ export function createConversationRenderer({ onRetry, onDelete, onEdit }) {
       pre.dataset.deferredToolBody = "true";
       const code = document.createElement("code");
       code.className = `language-${deferred.language}`;
-      code.textContent = deferred.code;
+
+      if (deferred.highlight) {
+        const template = document.createElement("template");
+        template.innerHTML = renderDeferredToolCode(deferred);
+        code.append(template.content);
+      } else {
+        code.textContent = deferred.code;
+      }
+
       pre.append(code);
       placeholder?.replaceWith(pre);
 

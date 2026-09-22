@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderMarkdown, type DeferredToolBody } from "./markdown";
+import { renderDeferredToolCode, renderMarkdown, type DeferredToolBody } from "./markdown";
 
 describe("tool-call rendering", () => {
   test("shows a tool call timestamp even without a reasoning summary", () => {
@@ -110,8 +110,35 @@ describe("tool-call rendering", () => {
     expect(deferredToolBodies).toHaveLength(1);
     expect(deferredToolBodies[0]?.code).toContain("VERY_LARGE_TOOL_BODY");
     expect(deferredToolBodies[0]?.language).toBe("json");
+    expect(deferredToolBodies[0]?.highlight).toBe(false);
   });
 
+  test("preserves Python highlighting when a deferred tool body is expanded", () => {
+    const deferredToolBodies: DeferredToolBody[] = [];
+    const rendered = renderMarkdown(
+      [
+        "```tool:Glass · execute_python",
+        JSON.stringify({ arguments: { code: "print(1)" }, status: "completed" }),
+        "```",
+      ].join("\n"),
+      deferredToolBodies,
+    );
+
+    expect(rendered).toContain('class="deferred-tool-body"');
+    expect(rendered).not.toContain('<span class="syntax-function">print</span>');
+    expect(deferredToolBodies).toHaveLength(1);
+    expect(deferredToolBodies[0]).toMatchObject({
+      code: "print(1)",
+      language: "python",
+      highlight: true,
+    });
+    expect(renderDeferredToolCode(deferredToolBodies[0]!)).toContain(
+      '<span class="syntax-function">print</span>',
+    );
+    expect(renderDeferredToolCode(deferredToolBodies[0]!)).toContain(
+      '<span class="syntax-number">1</span>',
+    );
+  });
   test("keeps collapsed structured tool payloads lightweight", () => {
     const rendered = renderMarkdown(
       [

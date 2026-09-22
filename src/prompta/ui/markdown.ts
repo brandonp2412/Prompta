@@ -414,7 +414,11 @@ function expandedToolMetaAddsInformation(summary, action) {
   return Boolean(summary && action);
 }
 
-export type DeferredToolBody = { code: string; language: string };
+export type DeferredToolBody = { code: string; language: string; highlight: boolean };
+
+export function renderDeferredToolCode(body: DeferredToolBody): string {
+  return body.highlight ? highlightCode(body.code, body.language) : escapeHtml(body.code);
+}
 
 function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] | null = null) {
   const rawLanguage = String(language || "").trim();
@@ -479,6 +483,7 @@ function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] 
         deferredToolBodies.push({
           code: renderedCode,
           language: highlightLanguage,
+          highlight: Boolean(pythonCode),
         }) - 1;
       body = '<div class="deferred-tool-body" aria-hidden="true"></div>';
     } else {
