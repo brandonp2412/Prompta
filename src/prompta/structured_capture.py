@@ -314,6 +314,22 @@ def _visible_text(event: dict[str, Any]) -> str:
 
 def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     indexed = [(index, event) for index, event in enumerate(events) if isinstance(event, dict)]
+    source_text_indices = {
+        index
+        for index, event in indexed
+        if not str(event.get("id") or "").endswith(":dom-prose")
+        and str(event.get("role") or "") == "assistant"
+        and str(event.get("recipient") or "") in {"", "all"}
+        and str(event.get("content_type") or "") in {"text", "multimodal_text"}
+        and _visible_text(event)
+        and not is_assistant_ui_noise(_visible_text(event))
+    }
+    if source_text_indices:
+        indexed = [
+            (index, event)
+            for index, event in indexed
+            if not str(event.get("id") or "").endswith(":dom-prose")
+        ]
     indexed.sort(
         key=lambda item: (
             _source_time(item[1]) if _source_time(item[1]) is not None else float("inf"),

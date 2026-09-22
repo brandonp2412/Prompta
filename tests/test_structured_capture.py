@@ -446,6 +446,33 @@ def test_active_conversation_uses_structured_order_for_completed_assistant_turn(
     assert content.index("Glass Serena · serena_repl") < content.index("Finished")
 
 
+def test_structured_parts_ignore_dom_prose_when_timestamped_text_exists() -> None:
+    events = _source_events()
+    events.append(
+        {
+            "id": "a1:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Checking the stored conversation state", "Finished"],
+            "text": "",
+            "create_time": None,
+            "end_turn": None,
+        }
+    )
+
+    parts = message_parts_from_source_events(events)
+
+    assert [part["kind"] for part in parts] == [
+        "reasoning",
+        "tool_call",
+        "final_text",
+    ]
+    combined = "\n".join(str(part["content"]) for part in parts)
+    assert combined.count("Checking the stored conversation state") == 1
+    assert combined.count("Finished") == 1
+
+
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
 ) -> None:
