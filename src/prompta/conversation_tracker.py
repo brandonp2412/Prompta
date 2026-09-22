@@ -344,6 +344,7 @@ class ConversationTracker:
                         continue
                     active.last_live_snapshot_at = now
                 snapshot = await driver.conversation_snapshot(context)
+                snapshot["activity"] = dict(activity)
                 if streaming_hint:
                     snapshot["streaming"] = True
             except Exception:
