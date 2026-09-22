@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from .preview import compact_sidebar_preview
-from .structured_store import migrate_structured_capture, persist_structured_capture, record_message_version
+from .structured_store import (
+    migrate_structured_capture,
+    persist_structured_capture,
+    record_message_version,
+)
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
@@ -476,6 +480,7 @@ class ChatCache:
             "path": str(snapshot.get("path") or ""),
             "streaming": bool(snapshot.get("streaming")),
             "messages": snapshot.get("messages") or [],
+            "source_events": snapshot.get("source_events") or [],
         }
         return hashlib.sha256(
             json.dumps(stable, sort_keys=True, ensure_ascii=False).encode("utf-8")
