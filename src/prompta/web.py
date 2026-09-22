@@ -307,14 +307,24 @@ class PromptaUIServer(ThreadingHTTPServer):
             raise KeyError(conversation_id)
         return self._stop(conversation_id)
 
-    def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int]:
+    def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int, bool]:
         if self.store.conversation(conversation_id) is None:
             raise KeyError(conversation_id)
-        message_count = self._sync(conversation_id)
+        verified = True
+        try:
+            message_count = self._sync(conversation_id)
+        except RuntimeError as exc:
+            if str(exc) != "ChatGPT conversation did not expose any messages":
+                raise
+            verified = False
+            message_count = 0
         chat = self.conversation(conversation_id)
         if chat is None:
             raise KeyError(conversation_id)
-        return chat, message_count
+        if not verified:
+            messages = chat.get("messages")
+            message_count = len(messages) if isinstance(messages, list) else 0
+        return chat, message_count, verified
 
     def send_job(self, send_id: str) -> dict[str, Any] | None:
         job = self.send_jobs.get(send_id)
@@ -836,9 +846,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
                 return
             try:
-                chat, message_count = cast(PromptaUIServer, self.server).probe_conversation(
-                    conversation_id
-                )
+                chat, message_count, verified = cast(
+                    PromptaUIServer, self.server
+                ).probe_conversation(conversation_id)
             except KeyError:
                 self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -848,7 +858,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 )
                 self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
                 return
-            self._json({"ok": True, "chat": chat, "message_count": message_count})
+            self._json(
+                {
+                    "ok": True,
+                    "chat": chat,
+                    "message_count": message_count,
+                    "verified": verified,
+                }
+            )
             return
 
         stop_suffix = "/stop"

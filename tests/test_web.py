@@ -691,13 +691,51 @@ def test_probe_conversation_uses_local_backend(tmp_path: Path) -> None:
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
         with patch.object(server, "_sync", return_value=2) as sync:
-            chat, message_count = server.probe_conversation("chat-1")
+            chat, message_count, verified = server.probe_conversation("chat-1")
     finally:
         server.server_close()
 
     assert chat["id"] == "chat-1"
     assert message_count == 2
+    assert verified is True
     sync.assert_called_once_with("chat-1")
+
+
+def test_probe_conversation_returns_cached_chat_when_live_probe_is_inconclusive(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with patch.object(
+            server,
+            "_sync",
+            side_effect=RuntimeError("ChatGPT conversation did not expose any messages"),
+        ):
+            chat, message_count, verified = server.probe_conversation("chat-1")
+    finally:
+        server.server_close()
+
+    assert chat["id"] == "chat-1"
+    assert message_count == len(chat["messages"])
+    assert verified is False
+
+
+def test_probe_conversation_propagates_real_backend_failure(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    try:
+        with (
+            patch.object(server, "_sync", side_effect=RuntimeError("browser crashed")),
+            pytest.raises(RuntimeError, match="browser crashed"),
+        ):
+            server.probe_conversation("chat-1")
+    finally:
+        server.server_close()
 
 
 def test_stop_conversation_uses_local_backend(tmp_path: Path) -> None:
