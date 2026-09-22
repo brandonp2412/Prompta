@@ -23,6 +23,23 @@ describe("tool-call rendering", () => {
     expect(rendered).toContain('class="copy-code"');
   });
 
+  test("keeps reasoning titles out of the collapsed tool name", () => {
+    const rendered = renderMarkdown([
+      "```tool:Glass Serena · serena_repl",
+      JSON.stringify({
+        summary: "Remembering",
+        arguments: { expression: "1 + 1" },
+        status: "completed",
+      }),
+      "```",
+    ].join("\n"));
+
+    const summary = rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
+    expect(summary).toContain("Glass Serena · serena_repl");
+    expect(summary).not.toContain("Remembering");
+    expect(rendered).toContain('<span class="tool-summary">Remembering</span>');
+  });
+
   test("syntax-highlights structured tool payloads", () => {
     const rendered = renderMarkdown([
       "```tool:files.search",
