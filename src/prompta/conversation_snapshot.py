@@ -493,7 +493,9 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     content:message.content,
     ordinal:index
   }));
-  const latestAgent=candidates.at(-1)||null;\n  const sourceEvents=latestAgent?reactMessages(latestAgent).map(sanitiseSourceEvent):[];\n  const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
+  const latestAgent=candidates.at(-1)||null;
+  const sourceEvents=latestAgent?reactMessages(latestAgent).map(sanitiseSourceEvent):[];
+  const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
   const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
   const latestAssistant=assistantNodes.at(-1);
   const latestTurn=latestAssistant?agentRoot(latestAssistant):null;
