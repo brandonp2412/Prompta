@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .cache import DEFAULT_CACHE_PATH
+from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
 
 
@@ -308,7 +309,10 @@ class ReadOnlyChatStore:
                     for part in structured_parts
                     if str(part.get("content") or "").strip()
                 ).strip()
-                if structured_content:
+                canonical_content = str(message.get("content") or "")
+                if structured_content and preserves_non_tool_text(
+                    canonical_content, structured_content
+                ):
                     message["content"] = structured_content
         if historical:
             for message in message_payloads:

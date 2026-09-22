@@ -188,6 +188,60 @@ def test_activity_history_is_persisted_without_changing_message_digest(tmp_path:
         ("active", 0, 1, 1),
     ]
 
+def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-stale-parts"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Inspect this",
+    )
+    fence = chr(96) * 3
+    tool_block = (
+        fence
+        + "tool:Glass Serena · serena_repl\n"
+        + json.dumps({"status": "completed"})
+        + "\n"
+        + fence
+    )
+    final_text = "Fixed and deployed to Nox."
+    snapshot = {
+        "title": "Structured",
+        "path": f"/c/{conversation_id}",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Inspect this"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": tool_block + "\n\n" + final_text,
+            },
+        ],
+        "source_events": _source_events(),
+    }
+    cache.write_snapshot(conversation_id, snapshot, complete=True)
+    cache.connection.execute(
+        """
+        DELETE FROM message_parts
+        WHERE conversation_id = ? AND message_key = ? AND kind = 'final_text'
+        """,
+        (conversation_id, "a1"),
+    )
+    cache.connection.commit()
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert final_text in assistant["content"]
+    assert "Glass Serena · serena_repl" in assistant["content"]
+
+
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
 ) -> None:
