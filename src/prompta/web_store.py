@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 from datetime import datetime
@@ -146,10 +147,25 @@ class ReadOnlyChatStore:
                 ).fetchone()
                 if conversation is None:
                     return None
+                tables = {
+                    str(row["name"])
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
+                message_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+                }
+                created_at_expression = (
+                    "COALESCE(source_created_at, created_at)"
+                    if "source_created_at" in message_columns
+                    else "created_at"
+                )
                 messages = connection.execute(
-                    """
+                    f"""
                     SELECT message_key, ordinal, role, content, status,
-                           created_at, updated_at
+                           {created_at_expression} AS created_at, updated_at
                     FROM messages
                     WHERE conversation_id = ?
                       AND message_key NOT LIKE 'request-placeholder-%'
@@ -157,11 +173,118 @@ class ReadOnlyChatStore:
                     """,
                     (conversation_id,),
                 ).fetchall()
+                parts = (
+                    connection.execute(
+                        """
+                        SELECT message_key, part_key, ordinal, kind, title, content,
+                               source_created_at, source_event_key, tool_call_key,
+                               end_turn, metadata_json
+                        FROM message_parts
+                        WHERE conversation_id = ?
+                        ORDER BY message_key, ordinal
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "message_parts" in tables
+                    else []
+                )
+                tool_calls = (
+                    connection.execute(
+                        """
+                        SELECT message_key, call_key, ordinal, connector, action,
+                               summary, arguments_json, status, result_json,
+                               error_json, duration_ms, source_created_at,
+                               source_event_key, result_event_key
+                        FROM tool_calls
+                        WHERE conversation_id = ?
+                        ORDER BY message_key, ordinal
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "tool_calls" in tables
+                    else []
+                )
+                source_event_counts = (
+                    connection.execute(
+                        """
+                        SELECT message_key, COUNT(*) AS event_count
+                        FROM source_events
+                        WHERE conversation_id = ?
+                        GROUP BY message_key
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "source_events" in tables
+                    else []
+                )
+                version_counts = (
+                    connection.execute(
+                        """
+                        SELECT message_key, COUNT(*) AS version_count
+                        FROM message_versions
+                        WHERE conversation_id = ?
+                        GROUP BY message_key
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "message_versions" in tables
+                    else []
+                )
         except (FileNotFoundError, sqlite3.DatabaseError):
             return None
         payload = dict(conversation)
         message_payloads = [dict(message) for message in messages]
-        if payload.get("status") != "active":
+        parts_by_message: dict[str, list[dict[str, Any]]] = {}
+        for row in parts:
+            part = dict(row)
+            metadata_json = str(part.pop("metadata_json", "") or "")
+            try:
+                part["metadata"] = json.loads(metadata_json) if metadata_json else {}
+            except json.JSONDecodeError:
+                part["metadata"] = {}
+            parts_by_message.setdefault(str(part["message_key"]), []).append(part)
+        calls_by_message: dict[str, list[dict[str, Any]]] = {}
+        for row in tool_calls:
+            call = dict(row)
+            for source, target in (
+                ("arguments_json", "arguments"),
+                ("result_json", "result"),
+                ("error_json", "error"),
+            ):
+                encoded = call.pop(source, None)
+                if encoded is None:
+                    call[target] = None
+                    continue
+                try:
+                    call[target] = json.loads(str(encoded))
+                except json.JSONDecodeError:
+                    call[target] = str(encoded)
+            calls_by_message.setdefault(str(call["message_key"]), []).append(call)
+        event_count_by_message = {
+            str(row["message_key"]): int(row["event_count"] or 0)
+            for row in source_event_counts
+        }
+        version_count_by_message = {
+            str(row["message_key"]): int(row["version_count"] or 0)
+            for row in version_counts
+        }
+        historical = payload.get("status") != "active"
+        for message in message_payloads:
+            message_key = str(message.get("message_key") or "")
+            structured_parts = parts_by_message.get(message_key, [])
+            message["parts"] = structured_parts
+            message["tool_calls"] = calls_by_message.get(message_key, [])
+            message["source_event_count"] = event_count_by_message.get(message_key, 0)
+            message["version_count"] = version_count_by_message.get(message_key, 0)
+            if historical and structured_parts:
+                structured_content = "\n\n".join(
+                    str(part.get("content") or "").strip()
+                    for part in structured_parts
+                    if str(part.get("content") or "").strip()
+                ).strip()
+                if structured_content:
+                    message["content"] = structured_content
+        if historical:
             for message in message_payloads:
                 message["status"] = "complete"
         prompt = str(payload.get("prompt") or "")
@@ -175,6 +298,10 @@ class ReadOnlyChatStore:
                     "status": "complete",
                     "created_at": payload["created_at"],
                     "updated_at": payload["updated_at"],
+                    "parts": [],
+                    "tool_calls": [],
+                    "source_event_count": 0,
+                    "version_count": 0,
                 }
             ]
         payload["messages"] = message_payloads
