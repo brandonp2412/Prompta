@@ -79,6 +79,21 @@ def test_browser_source_capture_excludes_unfiltered_react_internals() -> None:
     assert "visibleAgentText.includes(text)" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
+def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_content() -> None:
+    assert "const reactVisible=normalise(reactOrdered);" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const reactKeepsVisibleText=!richPlain.length||richPlain.every(text=>" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "reactVisible.includes(visibleText)" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert (
+        "const content=((reactOrdered&&reactKeepsVisibleText)?reactOrdered:fallbackContent).trim();"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert (
+        "const content=(reactOrdered||fallbackContent).trim();" not in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+
+
 def test_structured_capture_keeps_reasoning_tool_identity_and_full_result() -> None:
     result_text = "x" * 20_000
     events = _source_events(result_text)

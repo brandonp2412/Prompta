@@ -441,7 +441,12 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
         ]).join('\\n\\n')
       : cleanVisible
     ).trim();
-    const content=(reactOrdered||fallbackContent).trim();
+    const reactVisible=normalise(reactOrdered);
+    const reactKeepsVisibleText=!richPlain.length||richPlain.every(text=>{
+      const visibleText=normalise(text);
+      return !visibleText||reactVisible.includes(visibleText);
+    });
+    const content=((reactOrdered&&reactKeepsVisibleText)?reactOrdered:fallbackContent).trim();
     if(!content)continue;
     const nested=agent.querySelector('[data-message-author-role="assistant"]');
     const id=agent.getAttribute('data-message-id')
