@@ -2910,14 +2910,25 @@ function createChangelogDialog({ fetchJson: fetchJson2, closeSidebar }) {
     list: requiredElement6("#changelogList"),
     status: requiredElement6("#changelogDialogStatus")
   };
+  const mobileChangelogScreen = window.matchMedia("(max-width: 600px)");
+  const appShell = document.querySelector(".app-shell");
   function close() {
     if (els.dialog.open)
       els.dialog.close();
   }
   async function open() {
     closeSidebar();
-    if (!els.dialog.open)
-      els.dialog.showModal();
+    if (!els.dialog.open) {
+      const stacked = mobileChangelogScreen.matches;
+      els.dialog.dataset.presentation = stacked ? "stack" : "modal";
+      if (stacked) {
+        els.dialog.show();
+        if (appShell)
+          appShell.inert = true;
+      } else {
+        els.dialog.showModal();
+      }
+    }
     setTextIfChanged4(els.status, "Loading changelog…");
     patchHtmlChildren(els.list, '<li class="changelog-empty">Loading changes…</li>');
     try {
@@ -2933,8 +2944,13 @@ function createChangelogDialog({ fetchJson: fetchJson2, closeSidebar }) {
   els.headLabel.addEventListener("click", () => void open());
   els.closeButton.addEventListener("click", close);
   els.dialog.addEventListener("click", (event) => {
-    if (event.target === els.dialog)
+    if (event.target === els.dialog && els.dialog.dataset.presentation !== "stack")
       close();
+  });
+  els.dialog.addEventListener("close", () => {
+    if (appShell)
+      appShell.inert = false;
+    delete els.dialog.dataset.presentation;
   });
   return { open, close };
 }
