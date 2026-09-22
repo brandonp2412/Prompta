@@ -431,6 +431,23 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.item-status-dot.broken {
+  background: #ef6c6c;
+  box-shadow: 0 0 0 3px rgba(239, 108, 108, 0.13);
+}
+
+.chat-broken-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: rgba(239, 108, 108, 0.13);
+  color: #ef8c8c;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
 .chat-preview {
   margin-top: 5px;
   overflow: hidden;
@@ -640,7 +657,8 @@ textarea:focus-visible {
   color: #e3bc59;
 }
 
-.status-icon.failed {
+.status-icon.failed,
+.status-icon.broken {
   background: rgba(239, 108, 108, 0.13);
   color: #ef6c6c;
 }
@@ -2723,8 +2741,13 @@ textarea:focus-visible {
     color: #806000;
   }
 
-  .status-icon.failed {
+  .status-icon.failed,
+  .status-icon.broken {
     color: #b33d3d;
+  }
+
+  .chat-broken-badge {
+    color: #a33232;
   }
 
   .status-icon.live,

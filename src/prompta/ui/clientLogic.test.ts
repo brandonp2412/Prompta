@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  chatIsBroken,
   chatListRequestUrl,
   clientIdBelongsToSession,
   composerHasContent,
@@ -88,6 +89,101 @@ describe("client send ownership", () => {
     expect(clientIdBelongsToSession("session-b:123-1", "session-a")).toBe(false);
     expect(clientIdBelongsToSession("legacy-client-id", "session-a")).toBe(false);
     expect(clientIdBelongsToSession("", "session-a")).toBe(false);
+  });
+});
+
+describe("broken chat detection", () => {
+  const now = 10_000;
+
+  test("marks an active chat broken at the 40 minute boundary", () => {
+    expect(
+      chatIsBroken(
+        {
+          id: "stale",
+          status: "active",
+          created_at: 1,
+          last_assistant_at: now - 40 * 60,
+          last_user_at: now - 50 * 60,
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps a recently responding active chat healthy", () => {
+    expect(
+      chatIsBroken(
+        {
+          id: "live",
+          status: "active",
+          created_at: 1,
+          last_assistant_at: now - 39 * 60,
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  test("gives a fresh user reply its own 40 minute response window", () => {
+    expect(
+      chatIsBroken(
+        {
+          id: "reply",
+          status: "active",
+          created_at: 1,
+          last_assistant_at: now - 3 * 60 * 60,
+          last_user_at: now - 5 * 60,
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  test("uses message activity timestamps for selected chat details", () => {
+    expect(
+      chatIsBroken(
+        {
+          id: "detail",
+          status: "interrupted",
+          created_at: 1,
+          messages: [
+            {
+              role: "assistant",
+              created_at: now - 2 * 60 * 60,
+              updated_at: now,
+              activity_at: now - 41 * 60,
+            },
+          ],
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  test("never marks completed or optimistic chats broken", () => {
+    expect(
+      chatIsBroken(
+        {
+          id: "complete",
+          status: "complete",
+          created_at: 1,
+          last_assistant_at: now - 5 * 60 * 60,
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      chatIsBroken(
+        {
+          id: "pending",
+          status: "active",
+          created_at: 1,
+          last_assistant_at: now - 5 * 60 * 60,
+          _pending_send: true,
+        },
+        now,
+      ),
+    ).toBe(false);
   });
 });
 

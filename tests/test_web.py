@@ -2193,6 +2193,66 @@ def test_read_only_store_keeps_unparseable_journal_poll_stable(tmp_path: Path) -
     )
 
 
+def test_read_only_store_tracks_real_message_activity_for_broken_chat_detection(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+
+    with patch("prompta.cache.time.time", return_value=1_000.0):
+        cache.start(
+            "chat-health",
+            context_id="context-health",
+            job_name="",
+            prompt="Keep working",
+        )
+
+    snapshot = {
+        "title": "Health check",
+        "streaming": True,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Keep working"},
+            {"id": "a1", "role": "assistant", "content": "Working"},
+        ],
+    }
+
+    with patch("prompta.cache.time.time", return_value=2_000.0):
+        cache.write_snapshot("chat-health", snapshot)
+
+    with patch("prompta.cache.time.time", return_value=5_000.0):
+        cache.write_snapshot("chat-health", snapshot)
+
+    unchanged = cache.connection.execute(
+        "SELECT role, activity_at FROM messages WHERE conversation_id = ? ORDER BY ordinal",
+        ("chat-health",),
+    ).fetchall()
+    assert [(row["role"], row["activity_at"]) for row in unchanged] == [
+        ("user", 2_000.0),
+        ("assistant", 2_000.0),
+    ]
+
+    changed_snapshot = {
+        **snapshot,
+        "messages": [
+            snapshot["messages"][0],
+            {"id": "a1", "role": "assistant", "content": "Still working"},
+        ],
+    }
+    with patch("prompta.cache.time.time", return_value=5_001.0):
+        cache.write_snapshot("chat-health", changed_snapshot)
+
+    store = ReadOnlyChatStore(path)
+    summary = next(item for item in store.conversations() if item["id"] == "chat-health")
+    detail = store.conversation("chat-health")
+    cache.close()
+
+    assert summary["last_user_at"] == 2_000.0
+    assert summary["last_assistant_at"] == 5_001.0
+    assert detail is not None
+    assistant = next(message for message in detail["messages"] if message["role"] == "assistant")
+    assert assistant["activity_at"] == 5_001.0
+
+
 def test_read_only_store_hides_request_placeholder_messages(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

@@ -2,6 +2,9 @@ import { mount } from "svelte";
 import SidebarList from "./SidebarList.svelte";
 
 import {
+  chatBrokenReferenceAt,
+  chatIsBroken,
+  chatLastAssistantAt,
   chatListRequestUrl,
   clientIdBelongsToSession,
   composerHasContent,
@@ -618,6 +621,20 @@ function chatActivityAt(chat) {
   return Number(chat.last_message_at || chat.updated_at || 0);
 }
 
+function brokenChatLabel(chat) {
+  const lastAssistantAt = chatLastAssistantAt(chat);
+
+  if (lastAssistantAt) {
+    return "broken · ChatGPT last responded " + formatRelativeTime(lastAssistantAt);
+  }
+
+  const referenceAt = chatBrokenReferenceAt(chat);
+
+  return referenceAt
+    ? "broken · no ChatGPT response · " + formatRelativeTime(referenceAt)
+    : "broken";
+}
+
 function sameLocalDay(epochSeconds, offsetDays = 0) {
   if (!epochSeconds) return false;
 
@@ -689,6 +706,7 @@ const iconStatusClasses = new Set([
   "pending",
   "retrying",
   "failed",
+  "broken",
   "dead_lettered",
   "live",
   "journal",
@@ -818,6 +836,7 @@ function renderSidebar(force = false) {
         chat.message_count,
         chat.job_name,
         chatActivityAt(chat),
+        chatIsBroken(chat),
         Boolean(chat._optimisticNew),
         Boolean(chat._optimisticReply),
         state.pinnedIds.has(chat.id),
@@ -850,9 +869,12 @@ function renderSidebar(force = false) {
           state.composingNew,
           pendingNewDisplayId,
         );
-        let statusClass: "active" | "complete" | "neutral" | null = null;
+        const broken = chatIsBroken(chat);
+        let statusClass: "active" | "complete" | "broken" | "neutral" | null = null;
 
-        if (chat.status !== "interrupted") {
+        if (broken) {
+          statusClass = "broken";
+        } else if (chat.status !== "interrupted") {
           statusClass =
             chat.status === "active" || chat.status === "complete" ? chat.status : "neutral";
         }
@@ -864,6 +886,10 @@ function renderSidebar(force = false) {
           selected,
           optimisticNew: Boolean(chat._optimisticNew),
           statusClass,
+          broken,
+          statusLabel: broken
+            ? "No ChatGPT response for at least 40 minutes"
+            : String(chat.status || ""),
           title: String(chatTitle(chat)),
           preview: truncate(
             sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…",
@@ -1010,8 +1036,10 @@ function toggleSelectedPin() {
 
 function renderConversationMeta(chat, visibleMessageCount) {
   const title = chatTitle(chat);
-  const activityLabel =
-    chat.status === "active"
+  const broken = chatIsBroken(chat);
+  const activityLabel = broken
+    ? brokenChatLabel(chat)
+    : chat.status === "active"
       ? "updating live"
       : chat.status === "interrupted"
         ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}`
@@ -1021,16 +1049,22 @@ function renderConversationMeta(chat, visibleMessageCount) {
     `${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
     activityLabel,
   ].join(" · ");
-  const metaFingerprint = JSON.stringify([title, meta, chat.status]);
+  const metaFingerprint = JSON.stringify([title, meta, chat.status, broken]);
 
   if (metaFingerprint === state.selectedMetaFingerprint) return;
 
   state.selectedMetaFingerprint = metaFingerprint;
   setConversationHeading(title, meta);
-  const syncStatus =
-    chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
-  const syncLabel =
-    chat.status === "active"
+  const syncStatus = broken
+    ? "broken"
+    : chat.status === "active"
+      ? "active"
+      : chat.status === "interrupted"
+        ? "interrupted"
+        : "cached";
+  const syncLabel = broken
+    ? "No ChatGPT response for at least 40 minutes"
+    : chat.status === "active"
       ? "Syncing from SQLite"
       : chat.status === "interrupted"
         ? "Last run was interrupted"

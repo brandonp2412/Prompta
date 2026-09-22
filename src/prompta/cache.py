@@ -238,6 +238,7 @@ class ChatCache:
                 status TEXT NOT NULL,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
+                activity_at REAL,
                 PRIMARY KEY (conversation_id, message_key),
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
             );
@@ -301,9 +302,10 @@ class ChatCache:
             """
             INSERT INTO messages (
                 conversation_id, message_key, ordinal, role, content, status,
-                created_at, updated_at
+                created_at, updated_at, activity_at
             )
-            SELECT c.id, ?, 0, 'user', c.prompt, 'complete', c.created_at, c.updated_at
+            SELECT c.id, ?, 0, 'user', c.prompt, 'complete',
+                   c.created_at, c.updated_at, c.created_at
             FROM conversations c
             WHERE TRIM(c.prompt) <> ''
               AND NOT EXISTS (
@@ -535,9 +537,9 @@ class ChatCache:
                     """
                     INSERT INTO messages (
                         conversation_id, message_key, ordinal, role, content, status,
-                        created_at, updated_at
+                        created_at, updated_at, activity_at
                     )
-                    SELECT ?, ?, 0, 'user', ?, 'complete', ?, ?
+                    SELECT ?, ?, 0, 'user', ?, 'complete', ?, ?, ?
                     WHERE NOT EXISTS (
                         SELECT 1 FROM messages WHERE conversation_id = ?
                     )
@@ -546,6 +548,7 @@ class ChatCache:
                         conversation_id,
                         _SEEDED_PROMPT_KEY,
                         prompt,
+                        now,
                         now,
                         now,
                         conversation_id,
@@ -739,7 +742,7 @@ class ChatCache:
         existing_rows = self.connection.execute(
             """
             SELECT message_key, ordinal, role, content, status, created_at, updated_at,
-                   source_created_at
+                   activity_at, source_created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY ordinal, created_at
@@ -1048,15 +1051,22 @@ class ChatCache:
                     """
                     INSERT INTO messages (
                         conversation_id, message_key, ordinal, role, content, status,
-                        created_at, updated_at
+                        created_at, updated_at, activity_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(conversation_id, message_key) DO UPDATE SET
                         ordinal = excluded.ordinal,
                         role = excluded.role,
                         content = excluded.content,
                         status = excluded.status,
-                        updated_at = excluded.updated_at
+                        updated_at = excluded.updated_at,
+                        activity_at = CASE
+                            WHEN messages.role != excluded.role
+                              OR messages.content != excluded.content
+                              OR messages.status != excluded.status
+                            THEN excluded.activity_at
+                            ELSE messages.activity_at
+                        END
                     """,
                     (
                         conversation_id,
@@ -1065,6 +1075,7 @@ class ChatCache:
                         role,
                         content,
                         message_status,
+                        now,
                         now,
                         now,
                     ),
@@ -1088,6 +1099,14 @@ class ChatCache:
                     "status": message_status,
                     "created_at": created_at,
                     "updated_at": now,
+                    "activity_at": (
+                        now
+                        if existing is None
+                        or str(existing.get("role") or "") != role
+                        or str(existing.get("content") or "") != content
+                        or str(existing.get("status") or "") != message_status
+                        else float(existing.get("activity_at") or created_at)
+                    ),
                 }
                 if role == "user":
                     preceding_user_key = message_key

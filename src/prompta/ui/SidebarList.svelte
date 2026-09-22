@@ -7,7 +7,9 @@
         id: string;
         selected: boolean;
         optimisticNew: boolean;
-        statusClass: "active" | "complete" | "neutral" | null;
+        statusClass: "active" | "complete" | "broken" | "neutral" | null;
+        broken: boolean;
+        statusLabel: string;
         title: string;
         preview: string;
         jobLabel: string;
@@ -57,9 +59,19 @@
           >
             <div class="chat-item-top">
               {#if chat.statusClass}
-                <span class={"item-status-dot " + chat.statusClass}></span>
+                <span
+                  class={"item-status-dot " + chat.statusClass}
+                  title={chat.statusLabel || undefined}
+                  aria-label={chat.statusLabel || undefined}
+                ></span>
               {/if}
               <span class="chat-title">{chat.title}</span>
+              {#if chat.broken}
+                <span
+                  class="chat-broken-badge"
+                  title="No ChatGPT response for at least 40 minutes"
+                >Broken</span>
+              {/if}
             </div>
             <div class="chat-preview">{chat.preview}</div>
             <div class="chat-meta">

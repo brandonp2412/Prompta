@@ -87,6 +87,15 @@ class ReadOnlyChatStore:
                     for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
                 }
                 has_preview_column = "preview" in columns
+                message_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+                }
+                message_activity = (
+                    "COALESCE(m.activity_at, m.created_at)"
+                    if "activity_at" in message_columns
+                    else "m.created_at"
+                )
                 preview_column = "c.preview," if has_preview_column else ""
                 latest_message_preview = """(
                     SELECT m.content
@@ -125,6 +134,8 @@ class ReadOnlyChatStore:
                         SELECT
                             m.conversation_id,
                             MAX(m.created_at) AS last_message_at,
+                            MAX(CASE WHEN m.role = 'assistant' THEN {message_activity} END) AS last_assistant_at,
+                            MAX(CASE WHEN m.role = 'user' THEN {message_activity} END) AS last_user_at,
                             COUNT(*) AS message_count
                         FROM messages m
                         JOIN selected s ON s.id = m.conversation_id
@@ -142,6 +153,8 @@ class ReadOnlyChatStore:
                         s.updated_at,
                         s.completed_at,
                         COALESCE(ms.last_message_at, s.created_at) AS last_message_at,
+                        ms.last_assistant_at,
+                        COALESCE(ms.last_user_at, s.created_at) AS last_user_at,
                         {preview_expression} AS preview,
                         CASE
                             WHEN COALESCE(ms.message_count, 0) > 0 THEN ms.message_count
@@ -229,10 +242,16 @@ class ReadOnlyChatStore:
                     if "source_created_at" in message_columns
                     else "created_at"
                 )
+                activity_at_expression = (
+                    "COALESCE(activity_at, created_at)"
+                    if "activity_at" in message_columns
+                    else "created_at"
+                )
                 messages = connection.execute(
                     f"""
                     SELECT message_key, ordinal, role, content, status,
-                           {created_at_expression} AS created_at, updated_at
+                           {created_at_expression} AS created_at, updated_at,
+                           {activity_at_expression} AS activity_at
                     FROM messages
                     WHERE conversation_id = ?
                       AND message_key NOT LIKE 'request-placeholder-%'

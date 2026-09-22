@@ -60,6 +60,80 @@ export function sidebarChatIsPending(chat: SidebarOrderChat | null | undefined):
   return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
 
+export const BROKEN_CHAT_AFTER_SECONDS = 40 * 60;
+
+type ChatHealthMessage = {
+  role?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+  activity_at?: unknown;
+};
+
+type ChatHealth = SidebarOrderChat & {
+  status?: unknown;
+  last_assistant_at?: unknown;
+  last_user_at?: unknown;
+  messages?: readonly ChatHealthMessage[];
+};
+
+function positiveEpoch(value: unknown): number {
+  const epoch = Number(value || 0);
+
+  return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
+}
+
+function roleActivityAt(chat: ChatHealth | null | undefined, role: "assistant" | "user"): number {
+  if (!chat) return 0;
+
+  const summaryValue = role === "assistant" ? chat.last_assistant_at : chat.last_user_at;
+  let latest = positiveEpoch(summaryValue);
+
+  for (const message of chat.messages || []) {
+    const messageRole = typeof message?.role === "string" ? message.role : "";
+
+    if (messageRole !== role) continue;
+
+    latest = Math.max(
+      latest,
+      positiveEpoch(message.activity_at),
+      positiveEpoch(message.created_at),
+    );
+  }
+
+  return latest;
+}
+
+export function chatLastAssistantAt(chat: ChatHealth | null | undefined): number {
+  return roleActivityAt(chat, "assistant");
+}
+
+export function chatBrokenReferenceAt(chat: ChatHealth | null | undefined): number {
+  if (!chat) return 0;
+
+  return Math.max(
+    chatLastAssistantAt(chat),
+    roleActivityAt(chat, "user"),
+    positiveEpoch(chat.created_at),
+  );
+}
+
+export function chatIsBroken(
+  chat: ChatHealth | null | undefined,
+  nowSeconds = Date.now() / 1000,
+): boolean {
+  if (!chat || sidebarChatIsPending(chat)) return false;
+
+  const status = typeof chat.status === "string" ? chat.status : "";
+
+  if (status !== "active" && status !== "interrupted") return false;
+
+  const referenceAt = chatBrokenReferenceAt(chat);
+
+  if (!referenceAt) return false;
+
+  return nowSeconds - referenceAt >= BROKEN_CHAT_AFTER_SECONDS;
+}
+
 export function sidebarSelectedConversationId(
   selectedId: string | null | undefined,
   composingNew: boolean,

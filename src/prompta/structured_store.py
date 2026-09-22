@@ -119,6 +119,9 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
     }
     if "source_created_at" not in columns:
         connection.execute("ALTER TABLE messages ADD COLUMN source_created_at REAL")
+    if "activity_at" not in columns:
+        connection.execute("ALTER TABLE messages ADD COLUMN activity_at REAL")
+    connection.execute("UPDATE messages SET activity_at = created_at WHERE activity_at IS NULL")
 
 
 def record_message_version(

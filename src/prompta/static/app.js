@@ -4993,32 +4993,44 @@ function SidebarList($$anchor, $$props) {
 	var alternate_1 = ($$anchor) => {
 		var fragment_2 = comment();
 		each(first_child(fragment_2), 17, () => get(model).groups, (group) => group.label, ($$anchor, group) => {
-			var section = root_4();
+			var section = root_5();
 			var div_1 = child(section);
 			var text_1 = only_child(div_1, true);
 			each(sibling(div_1, 2), 17, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
-				var div_2 = root_3();
+				var div_2 = root_4();
 				let classes;
 				var button = child(div_2);
 				var div_3 = child(button);
 				var node_4 = child(div_3);
 				var consequent_2 = ($$anchor) => {
 					var span = root_2();
-					template_effect(() => set_class(span, 1, "item-status-dot " + get(chat).statusClass));
+					template_effect(() => {
+						set_class(span, 1, "item-status-dot " + get(chat).statusClass);
+						set_attribute(span, "title", get(chat).statusLabel || void 0);
+						set_attribute(span, "aria-label", get(chat).statusLabel || void 0);
+					});
 					append($$anchor, span);
 				};
 				if_block(node_4, ($$render) => {
 					if (get(chat).statusClass) $$render(consequent_2);
 				});
-				var text_2 = only_child(sibling(node_4, 2), true);
+				var span_1 = sibling(node_4, 2);
+				var text_2 = only_child(span_1, true);
+				var node_5 = sibling(span_1, 2);
+				var consequent_3 = ($$anchor) => {
+					append($$anchor, root_3());
+				};
+				if_block(node_5, ($$render) => {
+					if (get(chat).broken) $$render(consequent_3);
+				});
 				reset(div_3);
 				var div_4 = sibling(div_3, 2);
 				var text_3 = only_child(div_4, true);
 				var div_5 = sibling(div_4, 2);
-				var span_2 = child(div_5);
-				var text_4 = only_child(span_2, true);
-				var span_3 = sibling(span_2, 2);
-				var text_5 = only_child(span_3, true);
+				var span_3 = child(div_5);
+				var text_4 = only_child(span_3, true);
+				var span_4 = sibling(span_3, 2);
+				var text_5 = only_child(span_4, true);
 				reset(div_5);
 				reset(button);
 				var button_1 = sibling(button, 2);
@@ -5033,7 +5045,7 @@ function SidebarList($$anchor, $$props) {
 					set_text(text_2, get(chat).title);
 					set_text(text_3, get(chat).preview);
 					set_text(text_4, get(chat).jobLabel);
-					set_attribute(span_3, "data-activity-at", get(chat).activityAt);
+					set_attribute(span_4, "data-activity-at", get(chat).activityAt);
 					set_text(text_5, get(chat).relativeTime);
 					classes_1 = set_class(button_1, 1, "chat-row-pin", null, classes_1, { active: get(chat).pinned });
 					set_attribute(button_1, "data-pin-chat-id", get(chat).id);
@@ -5061,15 +5073,16 @@ function SidebarList($$anchor, $$props) {
 	append($$anchor, fragment);
 	return pop($$exports);
 }
-var root, root_1, root_2, root_3, root_4;
+var root, root_1, root_2, root_3, root_4, root_5;
 var init_SidebarList = __esmMin((() => {
 	init_disclose_version();
 	init_client();
 	root = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
 	root_1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
 	root_2 = /* @__PURE__ */ from_html(`<span></span>`);
-	root_3 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
-	root_4 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
+	root_3 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
+	root_4 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
+	root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
 	delegate(["click"]);
 }));
 //#endregion
@@ -5095,6 +5108,37 @@ function sidebarChatCountSummary(chatCount, activeCount, search) {
 function sidebarChatCreatedAt(chat) {
 	const createdAt = Number(chat?.created_at || 0);
 	return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
+}
+function sidebarChatIsPending(chat) {
+	return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
+}
+function positiveEpoch(value) {
+	const epoch = Number(value || 0);
+	return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
+}
+function roleActivityAt(chat, role) {
+	if (!chat) return 0;
+	let latest = positiveEpoch(role === "assistant" ? chat.last_assistant_at : chat.last_user_at);
+	for (const message of chat.messages || []) {
+		if ((typeof message?.role === "string" ? message.role : "") !== role) continue;
+		latest = Math.max(latest, positiveEpoch(message.activity_at), positiveEpoch(message.created_at));
+	}
+	return latest;
+}
+function chatLastAssistantAt(chat) {
+	return roleActivityAt(chat, "assistant");
+}
+function chatBrokenReferenceAt(chat) {
+	if (!chat) return 0;
+	return Math.max(chatLastAssistantAt(chat), roleActivityAt(chat, "user"), positiveEpoch(chat.created_at));
+}
+function chatIsBroken(chat, nowSeconds = Date.now() / 1e3) {
+	if (!chat || sidebarChatIsPending(chat)) return false;
+	const status = typeof chat.status === "string" ? chat.status : "";
+	if (status !== "active" && status !== "interrupted") return false;
+	const referenceAt = chatBrokenReferenceAt(chat);
+	if (!referenceAt) return false;
+	return nowSeconds - referenceAt >= BROKEN_CHAT_AFTER_SECONDS;
 }
 function sidebarSelectedConversationId(selectedId, composingNew, pendingNewDisplayId) {
 	const pendingId = String(pendingNewDisplayId || "");
@@ -5606,8 +5650,9 @@ function parseAtSlashCommand(message, now = /* @__PURE__ */ new Date()) {
 		prompt
 	};
 }
-var CHATGPT_RICH_START, CHATGPT_RICH_END, CHATGPT_RICH_SEPARATOR, TOOL_UI_NOISE;
+var BROKEN_CHAT_AFTER_SECONDS, CHATGPT_RICH_START, CHATGPT_RICH_END, CHATGPT_RICH_SEPARATOR, TOOL_UI_NOISE;
 var init_clientLogic = __esmMin((() => {
+	BROKEN_CHAT_AFTER_SECONDS = 2400;
 	CHATGPT_RICH_START = "";
 	CHATGPT_RICH_END = "";
 	CHATGPT_RICH_SEPARATOR = "";
@@ -8288,6 +8333,12 @@ function chatActivityAt(chat) {
 	if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") return Number(chat.updated_at || chat.last_message_at || 0);
 	return Number(chat.last_message_at || chat.updated_at || 0);
 }
+function brokenChatLabel(chat) {
+	const lastAssistantAt = chatLastAssistantAt(chat);
+	if (lastAssistantAt) return "broken · ChatGPT last responded " + formatRelativeTime(lastAssistantAt);
+	const referenceAt = chatBrokenReferenceAt(chat);
+	return referenceAt ? "broken · no ChatGPT response · " + formatRelativeTime(referenceAt) : "broken";
+}
 function sameLocalDay(epochSeconds, offsetDays = 0) {
 	if (!epochSeconds) return false;
 	const d = /* @__PURE__ */ new Date(epochSeconds * 1e3);
@@ -8404,6 +8455,7 @@ function renderSidebar(force = false) {
 		chat.message_count,
 		chat.job_name,
 		chatActivityAt(chat),
+		chatIsBroken(chat),
 		Boolean(chat._optimisticNew),
 		Boolean(chat._optimisticReply),
 		state.pinnedIds.has(chat.id)
@@ -8423,14 +8475,18 @@ function renderSidebar(force = false) {
 			label,
 			chats: groupedChats.map((chat) => {
 				const selected = sidebarChatIsSelected(chat, state.selectedId, state.composingNew, pendingNewDisplayId);
+				const broken = chatIsBroken(chat);
 				let statusClass = null;
-				if (chat.status !== "interrupted") statusClass = chat.status === "active" || chat.status === "complete" ? chat.status : "neutral";
+				if (broken) statusClass = "broken";
+				else if (chat.status !== "interrupted") statusClass = chat.status === "active" || chat.status === "complete" ? chat.status : "neutral";
 				const activityAt = chatActivityAt(chat);
 				return {
 					id: chat.id,
 					selected,
 					optimisticNew: Boolean(chat._optimisticNew),
 					statusClass,
+					broken,
+					statusLabel: broken ? "No ChatGPT response for at least 40 minutes" : String(chat.status || ""),
 					title: String(chatTitle(chat)),
 					preview: truncate(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"),
 					jobLabel: String(chat.job_name || String(chat.message_count || 0) + " messages"),
@@ -8516,7 +8572,8 @@ function toggleSelectedPin() {
 }
 function renderConversationMeta(chat, visibleMessageCount) {
 	const title = chatTitle(chat);
-	const activityLabel = chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
+	const broken = chatIsBroken(chat);
+	const activityLabel = broken ? brokenChatLabel(chat) : chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
 	const meta = [
 		chat.job_name || "one-shot",
 		`${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
@@ -8525,13 +8582,14 @@ function renderConversationMeta(chat, visibleMessageCount) {
 	const metaFingerprint = JSON.stringify([
 		title,
 		meta,
-		chat.status
+		chat.status,
+		broken
 	]);
 	if (metaFingerprint === state.selectedMetaFingerprint) return;
 	state.selectedMetaFingerprint = metaFingerprint;
 	setConversationHeading(title, meta);
-	const syncStatus = chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
-	const syncLabel = chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
+	const syncStatus = broken ? "broken" : chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
+	const syncLabel = broken ? "No ChatGPT response for at least 40 minutes" : chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
 	setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
 }
 function rememberConversationViewport(conversationId) {
@@ -9777,6 +9835,7 @@ var init_app = __esmMin((() => {
 		"pending",
 		"retrying",
 		"failed",
+		"broken",
 		"dead_lettered",
 		"live",
 		"journal",
