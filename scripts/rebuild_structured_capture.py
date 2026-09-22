@@ -29,7 +29,9 @@ def _event_from_row(row: sqlite3.Row) -> dict[str, Any]:
     except json.JSONDecodeError:
         raw = {}
     event = dict(raw) if isinstance(raw, dict) else {}
-    event.setdefault("id", str(row["event_key"] or ""))
+    # Persisted event keys include a digest even when several source events share one ChatGPT message id.
+    # Use that unique key while rebuilding so derived part/tool keys cannot collide.
+    event["id"] = str(row["event_key"] or "")
     event.setdefault("role", str(row["role"] or ""))
     event.setdefault("recipient", str(row["recipient"] or ""))
     event.setdefault("content_type", str(row["content_type"] or ""))
