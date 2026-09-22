@@ -1709,7 +1709,7 @@ function renderCodeBlock(code, language, deferredToolBodies = null) {
   const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
   const expandedAction = toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
   const expandedConnector = toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
-  const inlineToolMeta = toolSummary && expandedAction ? `<span class="tool-inline-meta"><span class="tool-expanded-action">${escapeHtml2(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml2(expandedConnector)}</span>` : ""}</span>` : "";
+  const inlineToolMeta = toolSummary && expandedAction ? `<span class="tool-inline-meta"><span class="tool-expanded-separator">|</span><span class="tool-expanded-action">${escapeHtml2(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml2(expandedConnector)}</span>` : ""}</span>` : "";
   const header = toolish ? toolSummary ? `<span class="tool-summary">${escapeHtml2(toolSummary)}</span>${inlineToolMeta}${toolTime}` : `
         <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml2(collapsedLabel)}</span>
         ${toolTime}` : `

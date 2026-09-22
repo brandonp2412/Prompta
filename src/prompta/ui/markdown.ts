@@ -463,7 +463,7 @@ function renderCodeBlock(code, language, deferredToolBodies: DeferredToolBody[] 
     toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
   const inlineToolMeta =
     toolSummary && expandedAction
-      ? `<span class="tool-inline-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</span>`
+      ? `<span class="tool-inline-meta"><span class="tool-expanded-separator">|</span><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</span>`
       : "";
   const header = toolish
     ? toolSummary
