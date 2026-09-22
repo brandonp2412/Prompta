@@ -84,17 +84,31 @@ class BrowserSession:
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             raw = await driver.eval(
-                """JSON.stringify((()=>{
-                  const levels=['Instant','Medium','High','Extra high','Extra High'];
-                  const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
-                  const visible=el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+                r"""JSON.stringify((()=>{
+                  const normalise=value=>(value||'').replace(/\s+/g,' ').trim();
+                  const visible=el=>{if(!el)return false;const r=el.getBoundingClientRect(),s=getComputedStyle(el);
                     return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
-                  const composer=document.querySelector('main form[data-type="unified-composer"],main form,[data-composer-surface]');
+                  const level=value=>{
+                    const match=normalise(value).match(/\b(extra\s+high|instant|medium|high)\b/i);
+                    if(!match)return '';
+                    return match[1].replace(/\s+/g,' ').toLowerCase().replace(/^./,ch=>ch.toUpperCase());
+                  };
+                  const composer=document.querySelector('[data-composer-surface],form[data-type="unified-composer"],main form');
                   const roots=composer?[composer,document]:[document];
-                  let button=null;
+                  let button=null,selected='';
                   for(const root of roots){
-                    button=[...root.querySelectorAll('button[aria-haspopup="menu"]')]
-                      .find(el=>visible(el)&&levels.includes(normalise(el.innerText||el.textContent||'')));
+                    const candidates=[...root.querySelectorAll('button[aria-haspopup="menu"],button[aria-haspopup="listbox"],[role="button"][aria-haspopup]')]
+                      .filter(visible);
+                    for(const candidate of candidates){
+                      selected=level(
+                        candidate.getAttribute('aria-label')
+                        ||candidate.getAttribute('title')
+                        ||candidate.innerText
+                        ||candidate.textContent
+                        ||''
+                      );
+                      if(selected){button=candidate;break;}
+                    }
                     if(button)break;
                   }
                   if(!button)return null;
@@ -104,7 +118,7 @@ class BrowserSession:
                   const height=document.documentElement.clientHeight||window.innerHeight;
                   const x=r.left+r.width/2,y=r.top+r.height/2;
                   if(x<0||y<0||x>=width||y>=height)return null;
-                  return {text:normalise(button.innerText||button.textContent||''),x,y};
+                  return {text:selected,x,y};
                 })())"""
             )
             if raw and raw != "null":
@@ -118,14 +132,27 @@ class BrowserSession:
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
             raw = await driver.eval(
-                """JSON.stringify((()=>{
-                  const slider=document.querySelector('[data-model-reasoning-effort-slider] [role="slider"]');
+                r"""JSON.stringify((()=>{
+                  const visible=el=>{if(!el)return false;const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+                    return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+                  const candidates=[...document.querySelectorAll(
+                    '[data-model-reasoning-effort-slider] [role="slider"],[role="slider"][aria-valuemin][aria-valuemax]'
+                  )].filter(visible);
+                  const slider=candidates.find(el=>el.closest('[data-model-reasoning-effort-slider]'))
+                    ||candidates.find(el=>{
+                      const popup=el.closest('[role="menu"],[role="dialog"],[role="listbox"],[data-radix-popper-content-wrapper]');
+                      return /\b(?:instant|medium|high|extra\s+high)\b/i.test(popup?.innerText||popup?.textContent||'');
+                    })
+                    ||null;
                   if(!slider)return null;
-                  const root=slider.parentElement?.parentElement;
+                  const root=slider.closest('[data-model-reasoning-effort-slider]')
+                    ||slider.parentElement?.parentElement
+                    ||slider.parentElement;
                   if(!root)return null;
                   const min=Number(slider.getAttribute('aria-valuemin')||0);
                   const max=Number(slider.getAttribute('aria-valuemax')||3);
                   const target=2;
+                  if(!Number.isFinite(min)||!Number.isFinite(max)||max<=min)return {error:'invalid-range'};
                   if(target<min||target>max)return {error:'high-out-of-range'};
                   const ticks=[...root.querySelectorAll('[data-locked]')];
                   if(ticks[target]?.getAttribute('data-locked')==='true')return {error:'high-locked'};
@@ -181,7 +208,15 @@ class BrowserSession:
         while asyncio.get_running_loop().time() < deadline:
             value = str(
                 await driver.eval(
-                    "document.querySelector('[data-model-reasoning-effort-slider] [role=\"slider\"]')?.getAttribute('aria-valuenow')||''"
+                    r"""(()=>{
+                      const visible=el=>{if(!el)return false;const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+                        return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
+                      const sliders=[...document.querySelectorAll(
+                        '[data-model-reasoning-effort-slider] [role="slider"],[role="slider"][aria-valuemin][aria-valuemax]'
+                      )].filter(visible);
+                      const slider=sliders.find(el=>el.closest('[data-model-reasoning-effort-slider]'))||sliders[0];
+                      return slider?.getAttribute('aria-valuenow')||'';
+                    })()"""
                 )
                 or ""
             )

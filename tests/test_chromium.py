@@ -227,8 +227,11 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
         "end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null" in _REACT_TOOL_SCRIPT
     )
     assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
-    assert "latestAssistant?.closest('[data-testid^=\"conversation-turn-\"]')" in _REACT_TOOL_SCRIPT
-    assert "latestAssistant?.closest('.agent-turn')" in _REACT_TOOL_SCRIPT
+    assert "const turnSelector=" in _REACT_TOOL_SCRIPT
+    assert "latestAssistant?.closest(turnSelector)" in _REACT_TOOL_SCRIPT
+    assert "name.startsWith('__reactProps$')" in _REACT_TOOL_SCRIPT
+    assert "name.startsWith('__reactFiber$')" in _REACT_TOOL_SCRIPT
+    assert "name.startsWith('__reactContainer$')" in _REACT_TOOL_SCRIPT
 
 
 def test_ordered_assistant_content_tolerates_missing_and_invalid_timestamps() -> None:

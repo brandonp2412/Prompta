@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 import websockets
 
+from .chatgpt_dom import ASSISTANT_MESSAGE_SELECTOR, MESSAGE_ROLE_SELECTOR, TURN_SELECTOR
 from .ui_noise import is_assistant_ui_noise
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,12 @@ _TOOL_BLOCK_RE = re.compile(
 )
 _REACT_TOOL_SCRIPT = r"""
 (()=>{
-  const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
+  const assistantSelector=__ASSISTANT_SELECTOR__;
+  const messageRoleSelector=__MESSAGE_ROLE_SELECTOR__;
+  const turnSelector=__TURN_SELECTOR__;
+  const assistants=[...document.querySelectorAll(assistantSelector)];
   const latestAssistant=assistants.at(-1);
-  const root=latestAssistant?.closest('[data-testid^="conversation-turn-"]')
-    ||latestAssistant?.closest('.agent-turn')
+  const root=latestAssistant?.closest(turnSelector)
     ||document.querySelector('main')
     ||document.body;
   if(!root)return {ready:false,messages:[]};
@@ -61,8 +64,15 @@ _REACT_TOOL_SCRIPT = r"""
     }
   };
   for(const node of [root,...root.querySelectorAll('*')]){
-    const key=Object.keys(node).find(name=>name.startsWith('__reactProps$'));
-    if(key)walk(node[key],0);
+    let keys=[];
+    try{
+      keys=Object.getOwnPropertyNames(node).filter(name=>
+        name.startsWith('__reactProps$')
+        ||name.startsWith('__reactFiber$')
+        ||name.startsWith('__reactContainer$')
+      );
+    }catch{}
+    for(const key of keys)walk(node[key],0);
   }
   const seen=new Set(),messages=[];
   const trimString=value=>typeof value==='string'?value.slice(0,20000):value;
@@ -106,13 +116,18 @@ _REACT_TOOL_SCRIPT = r"""
     return leftTime-rightTime;
   });
   return {
-    ready:Boolean(document.querySelector('[data-message-author-role]')),
+    ready:Boolean(messages.length||document.querySelector(messageRoleSelector)||root),
     href:location.href,
     title:document.title||'',
     messages
   };
 })()
 """
+_REACT_TOOL_SCRIPT = (
+    _REACT_TOOL_SCRIPT.replace("__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR))
+    .replace("__MESSAGE_ROLE_SELECTOR__", json.dumps(MESSAGE_ROLE_SELECTOR))
+    .replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
+)
 
 
 def _json_load(value: Any) -> Any:

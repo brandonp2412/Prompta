@@ -11,6 +11,17 @@ from urllib.parse import urlsplit
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidMessage
 
+from .chatgpt_dom import (
+    ASSISTANT_MESSAGE_SELECTOR,
+    COMPOSER_SELECTORS,
+    FILE_INPUT_SELECTORS,
+    MESSAGE_ROLE_SELECTOR,
+    RATE_LIMIT_SELECTOR,
+    SEND_BUTTON_SELECTORS,
+    STOP_BUTTON_SELECTORS,
+    STREAMING_SELECTOR,
+    TURN_SELECTOR,
+)
 from .conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT, parse_conversation_snapshot
 
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
@@ -401,7 +412,16 @@ class WebDriverBase:
     async def login_required(self) -> bool:
         return bool(
             await self.eval(
-                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};return visible(document.querySelector('button[data-testid="login-button"]'));})()"""
+                r"""(()=>{
+                  const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+                  const label=e=>(e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+                  const direct=[
+                    ...document.querySelectorAll('button[data-testid="login-button"],a[href*="/auth/login"],a[href*="/login"]')
+                  ].find(visible);
+                  if(direct)return true;
+                  return [...document.querySelectorAll('header button,header a,nav button,nav a')]
+                    .some(e=>visible(e)&&/^(?:log ?in|sign ?in)$/i.test(label(e)));
+                })()"""
             )
         )
 
@@ -425,12 +445,16 @@ class WebDriverBase:
         context: str | None = None,
     ) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
+        selectors = json.dumps(COMPOSER_SELECTORS)
         expression = (
-            "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
+            "(()=>{const selectors="
+            + selectors
+            + ";const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
             "s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&"
-            "s.visibility!=='hidden';};return [...document.querySelectorAll("
-            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt'"
-            ")].some(visible)})()"
+            "s.visibility!=='hidden'&&s.opacity!=='0';};"
+            "for(const selector of selectors){for(const e of document.querySelectorAll(selector)){"
+            "if(visible(e)&&!e.disabled&&e.getAttribute('aria-disabled')!=='true')return true;}}"
+            "return false;})()"
         )
         while asyncio.get_running_loop().time() < deadline:
             ready = (
@@ -444,12 +468,17 @@ class WebDriverBase:
         raise RuntimeError("ChatGPT composer did not become ready")
 
     async def _focus_composer(self) -> None:
+        selectors = json.dumps(COMPOSER_SELECTORS)
         expression = (
-            "(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
+            "(()=>{const selectors="
+            + selectors
+            + ";const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),"
             "s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&"
-            "s.visibility!=='hidden';};const e=[...document.querySelectorAll("
-            "'#prompt-textarea,div[role=\\\"textbox\\\"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt'"
-            ")].find(visible);if(!e)return false;e.focus();return true})()"
+            "s.visibility!=='hidden'&&s.opacity!=='0';};"
+            "for(const selector of selectors){for(const e of document.querySelectorAll(selector)){"
+            "if(!visible(e)||e.disabled||e.getAttribute('aria-disabled')==='true')continue;"
+            "e.focus();return document.activeElement===e||e.contains(document.activeElement);}}"
+            "return false;})()"
         )
         if not await self.eval(expression):
             raise RuntimeError("ChatGPT composer could not be focused")
@@ -504,10 +533,20 @@ class WebDriverBase:
                 raise RuntimeError(f"Prompta attachment does not exist: {path}")
 
         async def file_input() -> dict[str, Any] | None:
+            script = """(()=>{
+              const selectors=__FILE_INPUT_SELECTORS__;
+              for(const selector of selectors){
+                for(const input of document.querySelectorAll(selector)){
+                  if(input.disabled||input.getAttribute('aria-disabled')==='true')continue;
+                  return input;
+                }
+              }
+              return null;
+            })()""".replace("__FILE_INPUT_SELECTORS__", json.dumps(FILE_INPUT_SELECTORS))
             response = await self._call(
                 "script.evaluate",
                 {
-                    "expression": "document.querySelector('input[type=file]')",
+                    "expression": script,
                     "target": {"context": self.context},
                     "awaitPromise": False,
                     "resultOwnership": "root",
@@ -522,7 +561,20 @@ class WebDriverBase:
         remote = await file_input()
         if remote is None:
             opened = await self.eval(
-                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};const buttons=[...document.querySelectorAll('button')].filter(visible);const b=buttons.find(e=>/attach|upload|add (?:file|photo)/i.test((e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'')));if(!b)return false;b.click();return true})()"""
+                r"""(()=>{
+                  const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+                  const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
+                  const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+                  const composer=document.querySelector('[data-composer-surface],form[data-type="unified-composer"]');
+                  const roots=composer?[composer,document]:[document];
+                  for(const root of roots){
+                    const buttons=[...root.querySelectorAll('button')].filter(e=>visible(e)&&enabled(e));
+                    const button=buttons.find(e=>e.getAttribute('data-testid')==='composer-plus-btn')
+                      ||buttons.find(e=>/add files and more|attach|upload|add (?:file|photo)/i.test(label(e)));
+                    if(button){button.click();return true;}
+                  }
+                  return false;
+                })()"""
             )
             if opened:
                 await asyncio.sleep(0.25)
@@ -564,24 +616,34 @@ class WebDriverBase:
     async def type_message(self, text: str) -> None:
         await self.wait_for_composer()
         await self._focus_composer()
-        await self.eval(
-            f"""(()=>{{
-              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
-              const visible=e=>{{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
-                return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';}};
-              const e=[...document.querySelectorAll(selector)].find(visible);
-              if(!e)return false;e.focus();
-              const text={json.dumps(text)};
-              if('value' in e){{
-                const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')?.set;
-                if(setter)setter.call(e,text);else e.value=text;
-                e.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:text}}));
-              }}else{{
-                document.execCommand('insertText',false,text);
-              }}
-              return true;
-            }})()"""
-        )
+        script = """(()=>{
+          const selectors=__COMPOSER_SELECTORS__;
+          const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+            return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+          let e=null;
+          for(const selector of selectors){
+            e=[...document.querySelectorAll(selector)].find(node=>visible(node)&&!node.disabled&&node.getAttribute('aria-disabled')!=='true');
+            if(e)break;
+          }
+          if(!e)return false;e.focus();
+          const text=__PROMPT_TEXT__;
+          if('value' in e){
+            const prototype=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+            const setter=Object.getOwnPropertyDescriptor(prototype,'value')?.set;
+            if(setter)setter.call(e,text);else e.value=text;
+            e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));
+            e.dispatchEvent(new Event('change',{bubbles:true}));
+          }else{
+            const selection=window.getSelection(),range=document.createRange();
+            range.selectNodeContents(e);selection?.removeAllRanges();selection?.addRange(range);
+            document.execCommand('insertText',false,text);
+            e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));
+          }
+          return true;
+        })()"""
+        script = script.replace("__COMPOSER_SELECTORS__", json.dumps(COMPOSER_SELECTORS))
+        script = script.replace("__PROMPT_TEXT__", json.dumps(text))
+        await self.eval(script)
         state = await self.dom_state()
         actual = " ".join(str(state.get("composer_text") or "").split()).strip()
         expected = " ".join(text.split()).strip()
@@ -594,26 +656,31 @@ class WebDriverBase:
     async def clear_composer(self, timeout: float = 3.0) -> None:
         await self.wait_for_composer()
         await self._focus_composer()
-        cleared = await self.eval(
-            """(()=>{
-              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
-              const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
-                return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
-              const e=[...document.querySelectorAll(selector)].find(visible);
-              if(!e)return false;e.focus();
-              if('value' in e){
-                const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')?.set;
-                if(setter)setter.call(e,'');else e.value='';
-              }else{
-                const selection=window.getSelection(),range=document.createRange();
-                range.selectNodeContents(e);selection?.removeAllRanges();selection?.addRange(range);
-                document.execCommand('delete');
-                if((e.innerText||e.textContent||'').trim())e.replaceChildren();
-              }
-              e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward'}));
-              return true;
-            })()"""
-        )
+        script = """(()=>{
+          const selectors=__COMPOSER_SELECTORS__;
+          const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+            return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+          let e=null;
+          for(const selector of selectors){
+            e=[...document.querySelectorAll(selector)].find(node=>visible(node)&&!node.disabled&&node.getAttribute('aria-disabled')!=='true');
+            if(e)break;
+          }
+          if(!e)return false;e.focus();
+          if('value' in e){
+            const prototype=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+            const setter=Object.getOwnPropertyDescriptor(prototype,'value')?.set;
+            if(setter)setter.call(e,'');else e.value='';
+          }else{
+            const selection=window.getSelection(),range=document.createRange();
+            range.selectNodeContents(e);selection?.removeAllRanges();selection?.addRange(range);
+            document.execCommand('delete');
+            if((e.innerText||e.textContent||'').trim())e.replaceChildren();
+          }
+          e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward'}));
+          e.dispatchEvent(new Event('change',{bubbles:true}));
+          return true;
+        })()""".replace("__COMPOSER_SELECTORS__", json.dumps(COMPOSER_SELECTORS))
+        cleared = await self.eval(script)
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             state = await self.dom_state()
@@ -682,9 +749,39 @@ class WebDriverBase:
     async def click_send_button(self, timeout: float = 120.0) -> None:
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
         while asyncio.get_running_loop().time() < deadline:
-            raw = await self.eval(
-                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const composer=[...document.querySelectorAll('#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt')].find(visible);const scope=composer?.closest('form')||composer?.parentElement?.parentElement||document;const buttons=[...scope.querySelectorAll('button')].filter(visible);const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>enabled(e)&&e.matches('button[type="submit"]'))||buttons.find(e=>enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>enabled(e)&&/send/i.test(label(e)));if(!button)return null;button.scrollIntoView({block:'center',inline:'center'});const r=button.getBoundingClientRect();const width=document.documentElement.clientWidth||window.innerWidth;const height=document.documentElement.clientHeight||window.innerHeight;const x=r.left+r.width/2,y=r.top+r.height/2;if(x<0||y<0||x>=width||y>=height)return null;return {x,y,label:label(button)};})())"""
-            )
+            script = r"""JSON.stringify((()=>{
+              const composerSelectors=__COMPOSER_SELECTORS__;
+              const sendSelectors=__SEND_SELECTORS__;
+              const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+              const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
+              const label=e=>(e.getAttribute('data-testid')||e.id||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+              let composer=null;
+              for(const selector of composerSelectors){
+                composer=[...document.querySelectorAll(selector)].find(e=>visible(e)&&enabled(e));
+                if(composer)break;
+              }
+              const scope=composer?.closest('form')||composer?.closest('[data-composer-surface]')||document;
+              let button=null;
+              for(const selector of sendSelectors){
+                if(scope===document&&selector==='button[type="submit"]')continue;
+                button=[...scope.querySelectorAll(selector)].find(e=>visible(e)&&enabled(e));
+                if(button)break;
+              }
+              if(!button){
+                button=[...scope.querySelectorAll('button')].find(e=>visible(e)&&enabled(e)&&/(?:^|[-_ ])send(?:$|[-_ ])/i.test(label(e)));
+              }
+              if(!button)return null;
+              button.scrollIntoView({block:'center',inline:'center'});
+              const r=button.getBoundingClientRect();
+              const width=document.documentElement.clientWidth||window.innerWidth;
+              const height=document.documentElement.clientHeight||window.innerHeight;
+              const x=r.left+r.width/2,y=r.top+r.height/2;
+              if(x<0||y<0||x>=width||y>=height)return null;
+              return {x,y,label:label(button)};
+            })())"""
+            script = script.replace("__COMPOSER_SELECTORS__", json.dumps(COMPOSER_SELECTORS))
+            script = script.replace("__SEND_SELECTORS__", json.dumps(SEND_BUTTON_SELECTORS))
+            raw = await self.eval(script)
             candidate = json.loads(raw or "null")
             if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
                 try:
@@ -695,8 +792,6 @@ class WebDriverBase:
                 try:
                     await self._click_viewport_point(self.context, x, y)
                 except RuntimeError as exc:
-                    # Re-read the button after any scroll/resize race changes the
-                    # viewport between DOM measurement and the trusted click.
                     if "out of bounds" not in str(exc).lower():
                         raise
                     await asyncio.sleep(0.1)
@@ -710,37 +805,44 @@ class WebDriverBase:
 
         deadline = asyncio.get_running_loop().time() + max(0.1, timeout)
         while asyncio.get_running_loop().time() < deadline:
-            raw = await self.eval(
-                r"""JSON.stringify((()=>{
-                  const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
-                  const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
-                  const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
-                  const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
-                  const assistant=assistants.at(-1);
-                  const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
-                  const turnText=(turn?.innerText||turn?.textContent||'').trim();
-                  if(!turn||!/Message delivery timed out\.?\s*Please try again/i.test(turnText))return null;
-                  const scopes=[turn,turn.parentElement,turn.parentElement?.parentElement].filter(Boolean);
-                  const actionSelector='button,[role="button"]';
-                  const actions=scopes.flatMap(scope=>[...scope.querySelectorAll(actionSelector)]).filter((action,index,all)=>visible(action)&&enabled(action)&&all.indexOf(action)===index);
-                  const exactRetry=action=>/^(?:try again|retry|regenerate(?: response)?)$/i.test(label(action));
-                  const looseRetry=action=>/(?:try again|retry)/i.test(label(action));
-                  let button=actions.find(exactRetry)||actions.find(looseRetry);
-                  if(!button){
-                    const globalActions=[...document.querySelectorAll(actionSelector)].filter(action=>visible(action)&&enabled(action));
-                    button=globalActions.find(exactRetry)||globalActions.find(looseRetry);
-                  }
-                  if(!button)return null;
-                  button.scrollIntoView({block:'center',inline:'center'});
-                  const r=button.getBoundingClientRect();
-                  const width=document.documentElement.clientWidth||window.innerWidth;
-                  const height=document.documentElement.clientHeight||window.innerHeight;
-                  const x=r.left+r.width/2,y=r.top+r.height/2;
-                  if(x<0||y<0||x>=width||y>=height)return null;
-                  return {x,y,label:label(button)};
-                })())""",
-                context=context,
+            script = r"""JSON.stringify((()=>{
+              const assistantSelector=__ASSISTANT_SELECTOR__;
+              const turnSelector=__TURN_SELECTOR__;
+              const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+              const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
+              const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+              const assistants=[...document.querySelectorAll(assistantSelector)];
+              const assistant=assistants.at(-1);
+              let turn=assistant?.closest(turnSelector)||assistant?.parentElement||null;
+              if(!turn){
+                turn=[...document.querySelectorAll(turnSelector)].filter(visible).reverse().find(node=>/Message delivery timed out\.?\s*Please try again/i.test(node.innerText||node.textContent||''))||null;
+              }
+              const turnText=(turn?.innerText||turn?.textContent||'').trim();
+              if(!turn||!/Message delivery timed out\.?\s*Please try again/i.test(turnText))return null;
+              const scopes=[turn,turn.parentElement,turn.parentElement?.parentElement].filter(Boolean);
+              const actionSelector='button,[role="button"]';
+              const actions=scopes.flatMap(scope=>[...scope.querySelectorAll(actionSelector)]).filter((action,index,all)=>visible(action)&&enabled(action)&&all.indexOf(action)===index);
+              const exactRetry=action=>/^(?:try again|retry|regenerate(?: response)?)$/i.test(label(action));
+              const looseRetry=action=>/(?:try again|retry)/i.test(label(action));
+              let button=actions.find(exactRetry)||actions.find(looseRetry);
+              if(!button){
+                const globalActions=[...document.querySelectorAll(actionSelector)].filter(action=>visible(action)&&enabled(action));
+                button=globalActions.find(exactRetry)||globalActions.find(looseRetry);
+              }
+              if(!button)return null;
+              button.scrollIntoView({block:'center',inline:'center'});
+              const r=button.getBoundingClientRect();
+              const width=document.documentElement.clientWidth||window.innerWidth;
+              const height=document.documentElement.clientHeight||window.innerHeight;
+              const x=r.left+r.width/2,y=r.top+r.height/2;
+              if(x<0||y<0||x>=width||y>=height)return null;
+              return {x,y,label:label(button)};
+            })())"""
+            script = script.replace(
+                "__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR)
             )
+            script = script.replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
+            raw = await self.eval(script, context=context)
             candidate = json.loads(raw or "null")
             if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
                 try:
@@ -751,8 +853,6 @@ class WebDriverBase:
                 try:
                     await self._click_viewport_point(context, x, y)
                 except RuntimeError as exc:
-                    # The browser may reject stale viewport coordinates if the page scrolls or
-                    # resizes between the DOM lookup and the trusted pointer action.
                     if "out of bounds" not in str(exc).lower():
                         raise
                     await asyncio.sleep(0.1)
@@ -765,10 +865,24 @@ class WebDriverBase:
         deadline = asyncio.get_running_loop().time() + max(0.2, timeout)
         point: dict[str, Any] | None = None
         while asyncio.get_running_loop().time() < deadline:
-            raw = await self.eval(
-                """JSON.stringify((()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';const buttons=[...document.querySelectorAll('button')].filter(e=>visible(e)&&enabled(e));const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim();const button=buttons.find(e=>e.matches('button[data-testid="stop-button"]'))||buttons.find(e=>/(?:^|[-_ ])stop(?:$|[-_ ])/i.test(label(e)))||buttons.find(e=>/stop (?:generating|response|streaming)/i.test(label(e)));if(!button)return null;const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};})())""",
-                context=context,
-            )
+            script = r"""JSON.stringify((()=>{
+              const selectors=__STOP_SELECTORS__;
+              const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+              const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
+              const label=e=>(e.getAttribute('data-testid')||e.id||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+              let button=null;
+              for(const selector of selectors){
+                button=[...document.querySelectorAll(selector)].find(e=>visible(e)&&enabled(e));
+                if(button)break;
+              }
+              if(!button){
+                button=[...document.querySelectorAll('button')].find(e=>visible(e)&&enabled(e)&&/(?:^|[-_ ])stop(?:$|[-_ ])/i.test(label(e)));
+              }
+              if(!button)return null;
+              const r=button.getBoundingClientRect();
+              return {x:r.left+r.width/2,y:r.top+r.height/2,label:label(button)};
+            })())""".replace("__STOP_SELECTORS__", json.dumps(STOP_BUTTON_SELECTORS))
+            raw = await self.eval(script, context=context)
             candidate = json.loads(raw or "null")
             if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
                 point = candidate
@@ -781,131 +895,137 @@ class WebDriverBase:
             y = float(point["y"])
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("ChatGPT stop button position was invalid") from exc
-        await self._call(
-            "input.performActions",
-            {
-                "context": context,
-                "actions": [
-                    {
-                        "type": "pointer",
-                        "id": "mouse",
-                        "parameters": {"pointerType": "mouse"},
-                        "actions": [
-                            {
-                                "type": "pointerMove",
-                                "duration": 0,
-                                "origin": "viewport",
-                                "x": round(x),
-                                "y": round(y),
-                            },
-                            {"type": "pointerDown", "button": 0},
-                            {"type": "pointerUp", "button": 0},
-                        ],
-                    }
-                ],
-            },
-        )
-        await self._call("input.releaseActions", {"context": context})
+        await self._click_viewport_point(context, x, y)
         return True
 
     async def dom_state(self) -> dict[str, Any]:
-        raw = await self.eval(
-            """JSON.stringify((()=>{
-              const selector='#prompt-textarea,div[role="textbox"].ProseMirror,textarea#prompt-textarea,textarea#mobile-composer-prompt';
-              const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
-              const composer=[...document.querySelectorAll(selector)].find(visible);
-              const messageText=root=>{
-                if(!root)return '';
-                const clone=root.cloneNode(true);
-                clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-                const text=(clone.textContent||'').trim();
-                const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
-                return (actionSuffix?text.slice(0,-actionSuffix.length):text).trim();
-              };
-              const messages=[...document.querySelectorAll('[data-message-author-role]')];
-              const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
-              const rateLimitNodes=[...document.querySelectorAll('[role="alert"],[aria-live="assertive"],[aria-live="polite"],[data-testid="conversation-fetch-error-toaster"],[data-testid*="rate-limit"]')]
-                .filter(visible);
-              const rateLimitText=rateLimitNodes.map(e=>e.innerText||'').filter(Boolean).join('\\n');
-              const rateLimitModal=document.querySelector('[data-testid="modal-conversation-history-rate-limit"]');
-              if(rateLimitModal&&visible(rateLimitModal)){
-                const acknowledge=[...rateLimitModal.querySelectorAll('button')].find(
-                  button=>visible(button)&&(button.innerText||'').trim().toLowerCase()==='got it'
-                );
-                acknowledge?.click();
-              }
-              return {
-                composer_text:(composer&&(composer.innerText||composer.value)||''),
-                last_user_id:(users.at(-1)?.getAttribute('data-message-id')||''),
-                last_user_text:messageText(users.at(-1)),
-                rate_limit_text:rateLimitText
-              };
-            })())"""
-        )
+        script = r"""JSON.stringify((()=>{
+          const composerSelectors=__COMPOSER_SELECTORS__;
+          const messageSelector=__MESSAGE_SELECTOR__;
+          const rateLimitSelector=__RATE_LIMIT_SELECTOR__;
+          const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+          let composer=null;
+          for(const selector of composerSelectors){
+            composer=[...document.querySelectorAll(selector)].find(node=>visible(node)&&!node.disabled&&node.getAttribute('aria-disabled')!=='true');
+            if(composer)break;
+          }
+          const messageText=root=>{
+            if(!root)return '';
+            const clone=root.cloneNode(true);
+            clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
+            const text=(clone.textContent||'').trim();
+            const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
+            return (actionSuffix?text.slice(0,-actionSuffix.length):text).trim();
+          };
+          const messages=[...document.querySelectorAll(messageSelector)];
+          const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
+          const rateLimitNodes=[...document.querySelectorAll(rateLimitSelector)].filter(visible);
+          let rateLimitText=rateLimitNodes.map(e=>e.innerText||e.textContent||'').filter(Boolean).join('\n');
+          const rateLimitPattern=/(?:too many requests|temporarily limited access|requests too quickly|rate limit)/i;
+          if(!rateLimitText&&rateLimitPattern.test(document.body?.innerText||'')){
+            rateLimitText=(document.body?.innerText||'').split('\n').filter(line=>rateLimitPattern.test(line)).join('\n');
+          }
+          const rateLimitModal=[...document.querySelectorAll('dialog,[role="dialog"],[data-testid*="rate-limit" i]')]
+            .find(node=>visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
+          if(rateLimitModal){
+            const acknowledge=[...rateLimitModal.querySelectorAll('button')].find(button=>{
+              const label=(button.innerText||button.textContent||button.getAttribute('aria-label')||'').trim();
+              return visible(button)&&/^(?:got it|ok|okay|dismiss|close)$/i.test(label);
+            });
+            acknowledge?.click();
+          }
+          const lastUser=users.at(-1)||null;
+          return {
+            composer_text:(composer&&('value' in composer?composer.value:(composer.innerText||composer.textContent))||''),
+            last_user_id:(lastUser?.getAttribute('data-message-id')||lastUser?.getAttribute('data-message-uuid')||''),
+            last_user_text:messageText(lastUser),
+            rate_limit_text:rateLimitText
+          };
+        })())"""
+        script = script.replace("__COMPOSER_SELECTORS__", json.dumps(COMPOSER_SELECTORS))
+        script = script.replace("__MESSAGE_SELECTOR__", json.dumps(MESSAGE_ROLE_SELECTOR))
+        script = script.replace("__RATE_LIMIT_SELECTOR__", json.dumps(RATE_LIMIT_SELECTOR))
+        raw = await self.eval(script)
         return json.loads(raw or "{}")
 
     async def conversation_activity(self, context: str) -> dict[str, Any]:
-        raw = await self.eval(
-            """JSON.stringify((()=>{
-              const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
-              const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
-              const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
-              const assistants=[...document.querySelectorAll('[data-message-author-role="assistant"]')];
-              const assistant=assistants.at(-1);
-              const turn=assistant?.closest('[data-testid^="conversation-turn-"]')||assistant?.closest('.agent-turn')||assistant?.parentElement;
-              const visibleMessageId=assistant?.getAttribute('data-message-id')||assistant?.getAttribute('data-message-uuid')||'';
-              const reactTurnEnd=()=>{
-                if(!turn||!visibleMessageId)return null;
-                const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
-                const add=messages=>{
-                  if(!Array.isArray(messages)||seenArrays.has(messages))return;
-                  seenArrays.add(messages);
-                  found.push(...messages.filter(message=>message&&typeof message==='object'&&message.content&&message.author));
-                };
-                const walk=(value,depth)=>{
-                  if(!value||depth>6||(typeof value!=='object'&&typeof value!=='function'))return;
-                  if(seenObjects.has(value))return;
-                  seenObjects.add(value);
-                  if(Array.isArray(value)){if(depth<=4)add(value);return;}
-                  let keys=[];
-                  try{keys=Object.keys(value);}catch{return;}
-                  for(const key of keys.slice(0,220)){
-                    if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
-                    let next;
-                    try{next=value[key];}catch{continue;}
-                    if(key==='messages')add(next);
-                    if(next&&depth<6&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
-                  }
-                };
-                for(const node of [turn,...turn.querySelectorAll('*')]){
-                  const key=Object.keys(node).find(name=>name.startsWith('__reactProps$'));
-                  if(key)walk(node[key],0);
-                }
-                const states=found
-                  .filter(message=>String(message?.id||'')===visibleMessageId&&String(message?.author?.role||'')==='assistant')
-                  .map(message=>message?.end_turn)
-                  .filter(value=>typeof value==='boolean');
-                if(states.includes(true))return true;
-                if(states.includes(false))return false;
-                return null;
-              };
-              const turnEnded=reactTurnEnd();
-              const turnText=(turn?.innerText||turn?.textContent||'').trim();
-              const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\\.?\\s*Please check your connection and try again\\.?\\s*If this issue persists please contact us through our help center at help\\.openai\\.com\\.?)/i.test(turnText);
-              const deliveryFailed=/Message delivery timed out\\.?\\s*Please try again/i.test(turnText);
-              const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
-                const testId=(button.getAttribute('data-testid')||'').trim();
-                const label=(button.getAttribute('aria-label')||'').trim();
-                return testId==='copy-turn-action-button'||/^Copy response$/i.test(label);
-              }));
-              const streaming=stop||streamActive||turnEnded===false;
-              const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));
-              const transient=transientText&&!complete;
-              const failed=deliveryFailed&&!complete&&!streaming;
-              return {streaming,complete,transient,failed,turn_ended:turnEnded};
-            })())""",
-            context=context,
-        )
+        script = r"""JSON.stringify((()=>{
+          const assistantSelector=__ASSISTANT_SELECTOR__;
+          const turnSelector=__TURN_SELECTOR__;
+          const stopSelector=__STOP_SELECTOR__;
+          const streamingSelector=__STREAMING_SELECTOR__;
+          const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+          const stop=[...document.querySelectorAll(stopSelector)].some(visible);
+          const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
+          const assistants=[...document.querySelectorAll(assistantSelector)];
+          const assistant=assistants.at(-1);
+          const candidateTurns=[...document.querySelectorAll(turnSelector)].filter(visible);
+          const turn=assistant?.closest(turnSelector)||assistant?.parentElement||candidateTurns.at(-1)||null;
+          const visibleMessageId=assistant?.getAttribute('data-message-id')
+            ||assistant?.getAttribute('data-message-uuid')
+            ||turn?.getAttribute('data-message-id')
+            ||turn?.getAttribute('data-message-uuid')
+            ||turn?.querySelector('[data-message-id]')?.getAttribute('data-message-id')
+            ||turn?.querySelector('[data-message-uuid]')?.getAttribute('data-message-uuid')
+            ||'';
+          const reactTurnEnd=()=>{
+            const root=turn||document.querySelector('main')||document.body;
+            if(!root)return null;
+            const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
+            const add=messages=>{
+              if(!Array.isArray(messages)||seenArrays.has(messages))return;
+              seenArrays.add(messages);
+              found.push(...messages.filter(message=>message&&typeof message==='object'&&message.content&&message.author));
+            };
+            const walk=(value,depth)=>{
+              if(!value||depth>7||(typeof value!=='object'&&typeof value!=='function'))return;
+              if(seenObjects.has(value))return;
+              seenObjects.add(value);
+              if(Array.isArray(value)){if(depth<=5)add(value);return;}
+              let keys=[];
+              try{keys=Object.keys(value);}catch{return;}
+              for(const key of keys.slice(0,260)){
+                if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
+                let next;
+                try{next=value[key];}catch{continue;}
+                if(key==='messages')add(next);
+                if(next&&depth<7&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
+              }
+            };
+            for(const node of [root,...root.querySelectorAll('*')]){
+              let keys=[];
+              try{keys=Object.getOwnPropertyNames(node).filter(name=>name.startsWith('__reactProps$')||name.startsWith('__reactFiber$')||name.startsWith('__reactContainer$'));}catch{}
+              for(const key of keys)walk(node[key],0);
+            }
+            const assistantMessages=found.filter(message=>String(message?.author?.role||message?.role||'')==='assistant');
+            const target=visibleMessageId
+              ?assistantMessages.filter(message=>String(message?.id||'')===visibleMessageId)
+              :assistantMessages.slice(-8);
+            const states=target.map(message=>message?.end_turn).filter(value=>typeof value==='boolean');
+            if(states.includes(true))return true;
+            if(states.includes(false))return false;
+            return null;
+          };
+          const turnEnded=reactTurnEnd();
+          const turnText=(turn?.innerText||turn?.textContent||'').trim();
+          const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\.?\s*Please check your connection and try again\.?\s*If this issue persists please contact us through our help center at help\.openai\.com\.?)/i.test(turnText);
+          const deliveryFailed=/Message delivery timed out\.?\s*Please try again/i.test(turnText);
+          const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
+            const testId=(button.getAttribute('data-testid')||'').trim();
+            const label=(button.getAttribute('aria-label')||button.getAttribute('title')||button.textContent||'').trim();
+            return testId==='copy-turn-action-button'||/^Copy(?: response)?$/i.test(label);
+          }));
+          const streaming=stop||streamActive||turnEnded===false;
+          const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));
+          const transient=transientText&&!complete;
+          const failed=deliveryFailed&&!complete&&!streaming;
+          return {streaming,complete,transient,failed,turn_ended:turnEnded};
+        })())"""
+        script = script.replace("__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR))
+        script = script.replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
+        script = script.replace("__STOP_SELECTOR__", json.dumps(",".join(STOP_BUTTON_SELECTORS)))
+        script = script.replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
+        raw = await self.eval(script, context=context)
         return json.loads(raw or "{}")
 
     async def conversation_snapshot(self, context: str) -> dict[str, Any]:

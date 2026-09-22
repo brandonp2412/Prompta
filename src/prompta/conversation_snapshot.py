@@ -3,10 +3,25 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .chatgpt_dom import (
+    ASSISTANT_MESSAGE_SELECTOR,
+    MARKDOWN_SELECTOR,
+    MESSAGE_ROLE_SELECTOR,
+    STOP_BUTTON_SELECTOR,
+    STREAMING_SELECTOR,
+    TURN_SELECTOR,
+)
+
 CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
   const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
   const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
+  const messageRoleSelector=__MESSAGE_ROLE_SELECTOR__;
+  const assistantSelector=__ASSISTANT_SELECTOR__;
+  const turnSelector=__TURN_SELECTOR__;
+  const markdownSelector=__MARKDOWN_SELECTOR__;
+  const stopSelector=__STOP_SELECTOR__;
+  const streamingSelector=__STREAMING_SELECTOR__;
   const messageText=root=>{
     if(!root)return '';
     const clone=root.cloneNode(true);
@@ -82,8 +97,15 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       }
     };
     for(const node of [agent,...agent.querySelectorAll('*')]){
-      const key=Object.keys(node).find(name=>name.startsWith('__reactProps$'));
-      if(key)walk(node[key],0);
+      let keys=[];
+      try{
+        keys=Object.getOwnPropertyNames(node).filter(name=>
+          name.startsWith('__reactProps$')
+          ||name.startsWith('__reactFiber$')
+          ||name.startsWith('__reactContainer$')
+        );
+      }catch{}
+      for(const key of keys)walk(node[key],0);
     }
     const unique=[],seen=new Set();
     for(const message of found){
@@ -411,8 +433,8 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     if(finalText)parts.push(finalText);
     return collapseStreamingTextParts(parts).join('\\n\\n').trim();
   };
-  const roleNodes=[...document.querySelectorAll('[data-message-author-role]')];
-  const agentRoot=node=>node.closest('[data-testid^="conversation-turn-"]')||node.closest('.agent-turn')||node.parentElement;
+  const roleNodes=[...document.querySelectorAll(messageRoleSelector)];
+  const agentRoot=node=>node?.closest?.(turnSelector)||node?.parentElement||null;
   const seededAssistantTurns=new Set();
   const entryNodes=roleNodes.filter(node=>{
     if(node.getAttribute('data-message-author-role')!=='assistant')return true;
@@ -425,7 +447,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const entries=entryNodes.map(e=>{
     const role=e.getAttribute('data-message-author-role')||'';
     const rich=role==='assistant'
-      ? [...e.querySelectorAll('.markdown,.markdown-new-styling')].map(markdownText).filter(Boolean).join('\\n\\n').trim()
+      ? [...e.querySelectorAll(markdownSelector)].map(markdownText).filter(Boolean).join('\\n\\n').trim()
       : '';
     return {
       node:e,
@@ -444,14 +466,17 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     else seenRoleKeys.add(key);
   }
   const assistantNodes=roleNodes.filter(node=>node.getAttribute('data-message-author-role')==='assistant');
+  const semanticAssistantTurns=[...document.querySelectorAll(turnSelector)]
+    .filter(visible)
+    .filter(turn=>turn.querySelector(assistantSelector)||turn.querySelector(markdownSelector));
   const candidates=[...new Set([
     ...assistantNodes.map(agentRoot).filter(Boolean),
-    ...document.querySelectorAll('.agent-turn')
+    ...semanticAssistantTurns
   ])].filter(visible);
   for(const [agentIndex,agent] of candidates.entries()){
     const reactOrdered=reactOrderedContent(agent);
     const reactHasVisibleText=reactHasVisibleAssistantText(agent);
-    const markdownNodes=[...agent.querySelectorAll('.markdown,.markdown-new-styling')].filter(visible);
+    const markdownNodes=[...agent.querySelectorAll(markdownSelector)].filter(visible);
     const tools=toolBlocks(agent);
     const currentToolRows=[...agent.querySelectorAll('span[class~=\"group/tool-message\"]')];
     const legacyToolRows=[...new Set([
@@ -506,7 +531,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       :fallbackContent
     ).trim();
     if(!content)continue;
-    const nested=agent.querySelector('[data-message-author-role="assistant"]');
+    const nested=agent.querySelector(assistantSelector);
     const id=agent.getAttribute('data-message-id')
       ||agent.getAttribute('data-message-uuid')
       ||nested?.getAttribute('data-message-id')
@@ -546,8 +571,37 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   }
   entries.sort((left,right)=>{
     if(left.node===right.node)return 0;
+    if(!left.node)return 1;
+    if(!right.node)return -1;
     return left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
   });
+  const pageReactRoot=document.querySelector('main')||document.body;
+  const pageReactMessages=pageReactRoot?reactMessages(pageReactRoot):[];
+  if(!entries.length&&pageReactMessages.length){
+    for(const message of pageReactMessages){
+      const role=String(message?.author?.role||message?.role||'');
+      const recipient=String(message?.recipient||'');
+      const content=message?.content||{};
+      const contentType=String(content?.content_type||content?.type||'');
+      if(!['user','assistant'].includes(role)||(recipient&&recipient!=='all')||(
+        contentType!=='text'&&contentType!=='multimodal_text'
+      ))continue;
+      const parts=Array.isArray(content?.parts)
+        ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+        :[];
+      const raw=parts.length?parts.join('\n'):String(content?.text||'');
+      const contentText=(role==='assistant'?cleanAssistantText(raw):raw).trim();
+      if(!contentText)continue;
+      const id=String(message?.id||'');
+      const previous=entries.at(-1);
+      if(role==='assistant'&&previous?.role==='assistant'){
+        previous.content=collapseStreamingTextParts([previous.content,contentText]).join('\n\n').trim();
+        if(id)previous.id=id;
+        continue;
+      }
+      entries.push({node:null,id,role,content:contentText});
+    }
+  }
   const messages=entries.map((message,index)=>({
     id:message.id,
     role:message.role,
@@ -556,30 +610,46 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   }));
   const latestAgent=candidates.at(-1)||null;
   const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
-  let sourceEvents=latestAgent?reactMessages(latestAgent).filter(message=>{
+  let latestTurnReactMessages=latestAgent?reactMessages(latestAgent):[];
+  if(!latestTurnReactMessages.length&&pageReactMessages.length){
+    const lastUserIndex=pageReactMessages.findLastIndex(message=>
+      String(message?.author?.role||message?.role||'')==='user'
+    );
+    latestTurnReactMessages=pageReactMessages.slice(lastUserIndex+1);
+  }
+  let sourceEvents=latestTurnReactMessages.filter(message=>{
     const role=String(message?.author?.role||message?.role||'');
     const recipient=String(message?.recipient||'');
     if(role==='tool'||recipient==='api_tool.call_tool')return true;
     if(role!=='assistant'||(recipient&&recipient!=='all'))return false;
     if(message?.end_turn===true)return true;
     const content=message?.content||{};
+    const contentType=String(content?.content_type||content?.type||'');
     const parts=Array.isArray(content?.parts)
       ?content.parts.filter(part=>typeof part==='string'&&part.trim())
       :[];
     const text=normalise(parts.length?parts.join(' '):String(content?.text||''));
+    if(!latestAgent&&(
+      contentType==='text'||contentType==='multimodal_text'
+    ))return Boolean(text);
     return Boolean(text&&visibleAgentText&&visibleAgentText.includes(text));
-  }).map(sanitiseSourceEvent):[];
-  const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
-  const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
-  const latestAssistant=assistantNodes.at(-1);
-  const latestTurn=latestAssistant?agentRoot(latestAssistant):null;
-  const visibleMessageId=latestAssistant?.getAttribute('data-message-id')||latestAssistant?.getAttribute('data-message-uuid')||'';
-  const endStates=visibleMessageId&&latestTurn
-    ? reactMessages(latestTurn)
-        .filter(message=>String(message?.id||'')===visibleMessageId&&String(message?.author?.role||'')==='assistant')
-        .map(message=>message?.end_turn)
-        .filter(value=>typeof value==='boolean')
-    : [];
+  }).map(sanitiseSourceEvent);
+  const stop=[...document.querySelectorAll(stopSelector)].some(visible);
+  const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
+  const latestAssistant=assistantNodes.at(-1)||latestAgent?.querySelector(assistantSelector)||null;
+  const latestTurn=latestAssistant?agentRoot(latestAssistant):latestAgent;
+  const visibleMessageId=latestAssistant?.getAttribute('data-message-id')
+    ||latestAssistant?.getAttribute('data-message-uuid')
+    ||latestTurn?.getAttribute('data-message-id')
+    ||latestTurn?.getAttribute('data-message-uuid')
+    ||'';
+  const endStateMessages=latestTurn?reactMessages(latestTurn):latestTurnReactMessages;
+  const endStates=(visibleMessageId
+    ?endStateMessages.filter(message=>String(message?.id||'')===visibleMessageId)
+    :endStateMessages.slice(-8)
+  ).filter(message=>String(message?.author?.role||message?.role||'')==='assistant')
+    .map(message=>message?.end_turn)
+    .filter(value=>typeof value==='boolean');
   const turnEnded=endStates.includes(true)?true:(endStates.includes(false)?false:null);
   const sourceHasAssistantText=sourceEvents.some(event=>(
     event.role==='assistant'
@@ -588,7 +658,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   ));
   if(latestAgent&&!sourceHasAssistantText){
     const toolRows=[...latestAgent.querySelectorAll('span[class~="group/tool-message"],'+toolSelector)];
-    const visibleProse=[...latestAgent.querySelectorAll('.markdown,.markdown-new-styling')]
+    const visibleProse=[...latestAgent.querySelectorAll(markdownSelector)]
       .filter(visible)
       .filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)))
       .map(markdownText)
@@ -633,6 +703,17 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     streaming:stop||streamActive||turnEnded===false
   };
 })())"""
+
+CONVERSATION_SNAPSHOT_SCRIPT = (
+    CONVERSATION_SNAPSHOT_SCRIPT.replace(
+        "__MESSAGE_ROLE_SELECTOR__", json.dumps(MESSAGE_ROLE_SELECTOR)
+    )
+    .replace("__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR))
+    .replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
+    .replace("__MARKDOWN_SELECTOR__", json.dumps(MARKDOWN_SELECTOR))
+    .replace("__STOP_SELECTOR__", json.dumps(STOP_BUTTON_SELECTOR))
+    .replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
+)
 
 
 def parse_conversation_snapshot(raw: str) -> dict[str, Any]:

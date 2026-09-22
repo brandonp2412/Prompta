@@ -30,6 +30,12 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 from urllib3.util.retry import Retry
 
+from .chatgpt_dom import (
+    COMPOSER_SELECTORS,
+    FILE_INPUT_SELECTORS,
+    SEND_BUTTON_SELECTORS,
+    STOP_BUTTON_SELECTORS,
+)
 from .webdriver import _BIDI_AUTH_TIMEOUT_SECONDS, WebDriverBase
 
 logger = logging.getLogger(__name__)
@@ -661,47 +667,49 @@ class ChromeDriverDriver(WebDriverBase):
         await self._run_webdriver_call("perform Chromium input actions", perform)
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
-        """Click ChatGPT's actual send control through ChromeDriver.
+        """Click ChatGPT's live send control through ChromeDriver."""
 
-        Selenium's element click lets ChromeDriver resolve scrolling and hit-testing
-        against the live element instead of relying on coordinates captured just
-        before the click. ChatGPT can reflow the composer while enabling Send,
-        which made the inherited coordinate click occasionally hit a stale point.
-        """
-
-        composer_selector = (
-            '#prompt-textarea,div[role="textbox"].ProseMirror,'
-            "textarea#prompt-textarea,textarea#mobile-composer-prompt"
-        )
-        selectors = (
-            '[data-testid="send-button"]',
-            'button[aria-label="Send prompt"]',
-            'button[type="submit"]',
-        )
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
 
         def click_sync() -> bool:
             driver = self._activate_context_sync(None)
             scope: Any | None = None
-            for composer in driver.find_elements(By.CSS_SELECTOR, composer_selector):
+            found_composer = False
+            for composer_selector in COMPOSER_SELECTORS:
                 try:
-                    if not composer.is_displayed():
-                        continue
-                    try:
-                        scope = composer.find_element(By.XPATH, "./ancestor::form[1]")
-                    except NoSuchElementException:
-                        scope = None
-                    break
+                    composers = driver.find_elements(By.CSS_SELECTOR, composer_selector)
                 except WebDriverException as exc:
                     if self._is_fatal_webdriver_error(exc):
                         raise
                     continue
+                for composer in composers:
+                    try:
+                        if (
+                            not composer.is_displayed()
+                            or not composer.is_enabled()
+                            or composer.get_attribute("aria-disabled") == "true"
+                        ):
+                            continue
+                        found_composer = True
+                        try:
+                            scope = composer.find_element(By.XPATH, "./ancestor::form[1]")
+                        except NoSuchElementException:
+                            try:
+                                scope = composer.find_element(
+                                    By.XPATH,
+                                    "./ancestor::*[@data-composer-surface][1]",
+                                )
+                            except NoSuchElementException:
+                                scope = None
+                        break
+                    except WebDriverException as exc:
+                        if self._is_fatal_webdriver_error(exc):
+                            raise
+                        continue
+                if found_composer:
+                    break
 
-            for selector in selectors:
-                # The generic submit fallback is only safe inside the active
-                # composer form. ChatGPT has other visible submit controls, and
-                # clicking one of those looks like a successful Selenium click
-                # while leaving the prompt untouched in the composer.
+            for selector in SEND_BUTTON_SELECTORS:
                 if scope is None and selector == 'button[type="submit"]':
                     continue
                 root = scope if scope is not None else driver
@@ -713,9 +721,11 @@ class ChromeDriverDriver(WebDriverBase):
                     continue
                 for element in elements:
                     try:
-                        if not element.is_displayed() or not element.is_enabled():
-                            continue
-                        if element.get_attribute("aria-disabled") == "true":
+                        if (
+                            not element.is_displayed()
+                            or not element.is_enabled()
+                            or element.get_attribute("aria-disabled") == "true"
+                        ):
                             continue
                         element.click()
                         return True
@@ -732,16 +742,11 @@ class ChromeDriverDriver(WebDriverBase):
         raise RuntimeError("ChatGPT send button did not become enabled")
 
     async def click_stop(self, context: str, timeout: float = 5.0) -> bool:
-        selectors = (
-            '[data-testid="stop-button"]',
-            'button[aria-label="Stop answering"]',
-            'button[aria-label="Stop generating"]',
-        )
         deadline = asyncio.get_running_loop().time() + max(0.2, timeout)
 
         def click_sync() -> bool:
             driver = self._activate_context_sync(context)
-            for selector in selectors:
+            for selector in STOP_BUTTON_SELECTORS:
                 try:
                     elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 except WebDriverException as exc:
@@ -750,9 +755,11 @@ class ChromeDriverDriver(WebDriverBase):
                     continue
                 for element in elements:
                     try:
-                        if not element.is_displayed() or not element.is_enabled():
-                            continue
-                        if element.get_attribute("aria-disabled") == "true":
+                        if (
+                            not element.is_displayed()
+                            or not element.is_enabled()
+                            or element.get_attribute("aria-disabled") == "true"
+                        ):
                             continue
                         element.click()
                         return True
@@ -779,18 +786,51 @@ class ChromeDriverDriver(WebDriverBase):
         async def locate_and_upload() -> bool:
             def upload_sync() -> bool:
                 driver = self._activate_context_sync(None)
-                try:
-                    element = driver.find_element(By.CSS_SELECTOR, "input[type=file]")
-                except NoSuchElementException:
-                    return False
-                element.send_keys("\n".join(paths))
-                return True
+                for selector in FILE_INPUT_SELECTORS:
+                    try:
+                        elements = list(driver.find_elements(By.CSS_SELECTOR, selector))
+                        if not elements:
+                            try:
+                                elements = [driver.find_element(By.CSS_SELECTOR, selector)]
+                            except NoSuchElementException:
+                                elements = []
+                    except WebDriverException as exc:
+                        if self._is_fatal_webdriver_error(exc):
+                            raise
+                        continue
+                    for element in elements:
+                        try:
+                            if (
+                                not element.is_enabled()
+                                or element.get_attribute("aria-disabled") == "true"
+                            ):
+                                continue
+                            element.send_keys("\n".join(paths))
+                            return True
+                        except WebDriverException as exc:
+                            if self._is_fatal_webdriver_error(exc):
+                                raise
+                            continue
+                return False
 
             return bool(await self._run_webdriver_call("upload ChatGPT attachment", upload_sync))
 
         if not await locate_and_upload():
             opened = await self.eval(
-                """(()=>{const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};const buttons=[...document.querySelectorAll('button')].filter(visible);const b=buttons.find(e=>/attach|upload|add (?:file|photo)/i.test((e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'')));if(!b)return false;b.click();return true})()"""
+                r"""(()=>{
+                  const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+                  const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true';
+                  const label=e=>(e.getAttribute('data-testid')||e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').replace(/\s+/g,' ').trim();
+                  const composer=document.querySelector('[data-composer-surface],form[data-type="unified-composer"]');
+                  const roots=composer?[composer,document]:[document];
+                  for(const root of roots){
+                    const buttons=[...root.querySelectorAll('button')].filter(e=>visible(e)&&enabled(e));
+                    const button=buttons.find(e=>e.getAttribute('data-testid')==='composer-plus-btn')
+                      ||buttons.find(e=>/add files and more|attach|upload|add (?:file|photo)/i.test(label(e)));
+                    if(button){button.click();return true;}
+                  }
+                  return false;
+                })()"""
             )
             if opened:
                 await asyncio.sleep(0.25)
