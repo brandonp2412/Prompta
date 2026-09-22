@@ -753,9 +753,12 @@ class RecentChatCache {
           database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
         }
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const database = request.result;
+        database.onversionchange = () => database.close();
+        resolve(database);
+      };
       request.onerror = () => resolve(null);
-      request.onblocked = () => resolve(null);
     });
     return this.databasePromise;
   }
