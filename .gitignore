@@ -9,3 +9,6 @@ dist/
 build/
 node_modules/
 .env
+
+# Local agent workflow instructions may contain machine-specific paths.
+AGENTS.md
