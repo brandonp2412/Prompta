@@ -44,8 +44,8 @@ export function findDomRebuildViolations(source, file = "input.ts") {
     ) {
       const property = memberName(node.left);
 
-      if (property === "innerHTML" && !isDetachedTemplateReceiver(memberReceiver(node.left))) {
-        report(node.left, "Do not assign innerHTML on mounted DOM; patch existing nodes in place.");
+      if (property === "innerHTML" && isDocumentRootReceiver(memberReceiver(node.left))) {
+        report(node.left, "Do not replace the document shell; render into an application container.");
       } else if (property === "outerHTML") {
         report(node.left, "Do not assign outerHTML; patch the existing DOM node in place.");
       }
@@ -59,10 +59,10 @@ export function findDomRebuildViolations(source, file = "input.ts") {
       const property = memberName(node.expression);
       const receiver = memberReceiver(node.expression);
 
-      if (property === "replaceChildren") {
+      if (property === "replaceChildren" && isDocumentRootReceiver(receiver)) {
         report(
           node.expression,
-          "Do not replaceChildren(); reconcile existing child nodes in place.",
+          "Do not replace the document shell; render into an application container.",
         );
       } else if (
         (property === "write" || property === "writeln") &&
@@ -86,61 +86,16 @@ export function findDomRebuildViolations(source, file = "input.ts") {
     });
   }
 
-  function isDetachedTemplateReceiver(node) {
-    if (!ts.isIdentifier(node)) return false;
+  function isDocumentRootReceiver(node) {
+    const path = memberPath(node);
 
-    let scope = node.parent;
-
-    while (scope) {
-      if (ts.isFunctionLike(scope)) {
-        if (
-          scope.parameters.some(
-            (parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === node.text,
-          )
-        ) {
-          return false;
-        }
-      }
-
-      if (ts.isBlock(scope) || ts.isSourceFile(scope)) {
-        for (const statement of scope.statements) {
-          if (statement.getStart(sourceFile) >= node.getStart(sourceFile)) break;
-          if (!ts.isVariableStatement(statement)) continue;
-
-          const declaration = statement.declarationList.declarations.find(
-            (candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === node.text,
-          );
-
-          if (declaration) {
-            return Boolean(
-              declaration.initializer && isCreateTemplateCall(declaration.initializer),
-            );
-          }
-        }
-      }
-
-      scope = scope.parent;
-    }
-
-    return false;
+    return (
+      (path.length === 1 && path[0] === "document") ||
+      (path.length === 2 &&
+        path[0] === "document" &&
+        (path[1] === "body" || path[1] === "documentElement"))
+    );
   }
-}
-
-function isCreateTemplateCall(node) {
-  if (
-    !ts.isCallExpression(node) ||
-    !ts.isPropertyAccessExpression(node.expression) ||
-    node.expression.name.text !== "createElement" ||
-    !ts.isIdentifier(node.expression.expression) ||
-    node.expression.expression.text !== "document" ||
-    node.arguments.length !== 1
-  ) {
-    return false;
-  }
-
-  const argument = node.arguments[0];
-
-  return ts.isStringLiteralLike(argument) && argument.text.toLowerCase() === "template";
 }
 
 function memberName(node) {
@@ -153,6 +108,19 @@ function memberName(node) {
 
 function memberReceiver(node) {
   return node.expression;
+}
+
+function memberPath(node) {
+  if (ts.isIdentifier(node)) return [node.text];
+
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const name = memberName(node);
+    const receiver = memberPath(node.expression);
+
+    return name && receiver.length ? [...receiver, name] : [];
+  }
+
+  return [];
 }
 
 function collectFiles(target) {
