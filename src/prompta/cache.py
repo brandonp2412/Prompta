@@ -1210,10 +1210,7 @@ class ChatCache:
         messages = [dict(row) for row in rows]
         tool_prefix = chr(96) * 3 + "tool:"
         for message in messages:
-            if (
-                str(message.get("role") or "") != "assistant"
-                or str(message.get("status") or "") != "streaming"
-            ):
+            if str(message.get("role") or "") != "assistant":
                 continue
             content = str(message.get("content") or "")
             if tool_prefix not in content:

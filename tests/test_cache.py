@@ -112,6 +112,71 @@ def test_live_snapshot_uses_source_event_timeline_for_assistant_content(tmp_path
     assert content.index("Between tools") < content.index("Test MCP · second")
 
 
+def test_completed_message_recovers_observed_stream_order_on_read(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-complete-order",
+        context_id="context-complete-order",
+        job_name="",
+        prompt="Do work",
+    )
+    fence = chr(96) * 3
+    first_tool = (
+        f'{fence}tool:Test MCP · first\n{{"created_at": 20.0, "status": "completed"}}\n{fence}'
+    )
+    second_tool = (
+        f'{fence}tool:Test MCP · second\n{{"created_at": 40.0, "status": "completed"}}\n{fence}'
+    )
+    grouped_content = "\n\n".join(["Intro text", "Between tools", first_tool, second_tool])
+    cache.write_snapshot(
+        "conversation-complete-order",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": grouped_content},
+            ],
+        },
+    )
+    for index, (observed_at, parts) in enumerate(
+        [
+            (10.0, ["Intro text"]),
+            (30.0, ["Intro text", "Between tools"]),
+        ],
+        start=1,
+    ):
+        event = {
+            "id": f"observation-{index}:dom-prose",
+            "parts": parts,
+        }
+        cache.connection.execute(
+            """
+            INSERT INTO source_events (
+                conversation_id, message_key, event_key, ordinal, raw_json, observed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "conversation-complete-order",
+                "a1",
+                f"observation-{index}:dom-prose:source",
+                index,
+                json.dumps(event),
+                observed_at,
+            ),
+        )
+    cache.connection.commit()
+
+    message = cache.messages("conversation-complete-order")[-1]
+    cache.close()
+
+    assert message["status"] == "complete"
+    content = message["content"]
+    assert content.index("Intro text") < content.index("Test MCP · first")
+    assert content.index("Test MCP · first") < content.index("Between tools")
+    assert content.index("Between tools") < content.index("Test MCP · second")
+
+
 def test_live_snapshot_keeps_dom_order_when_source_prose_has_no_timestamp(
     tmp_path: Path,
 ) -> None:
