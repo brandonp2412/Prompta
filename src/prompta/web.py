@@ -237,6 +237,36 @@ class PromptaUIServer(ThreadingHTTPServer):
                 "version_count": 0,
             }
         ]
+        send_status = str(job.get("status") or "")
+        if send_status in {"queued", "running", "retrying", "rate_limited"}:
+            queue_position = int(job.get("queue_position") or 0)
+            if send_status == "queued":
+                activity_label = f"queued · #{queue_position}" if queue_position > 0 else "queued"
+            elif send_status == "retrying":
+                activity_label = "retrying"
+            elif send_status == "rate_limited":
+                activity_label = "rate limited"
+            else:
+                activity_label = "waiting"
+            summary["messages"].append(
+                {
+                    "message_key": (
+                        f"pending-activity-{str(job.get('send_id') or job.get('client_id') or 'new')}"
+                    ),
+                    "ordinal": 1,
+                    "role": "assistant",
+                    "content": "",
+                    "status": "pending",
+                    "created_at": updated_at,
+                    "updated_at": updated_at,
+                    "pending_activity": True,
+                    "pending_activity_label": activity_label,
+                    "parts": [],
+                    "tool_calls": [],
+                    "source_event_count": 0,
+                    "version_count": 0,
+                }
+            )
         summary["state_events"] = []
         return summary
 

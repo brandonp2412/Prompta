@@ -504,6 +504,7 @@ def test_ui_server_exposes_pending_new_chat_before_chatgpt_assigns_an_id(tmp_pat
         "conversation_id": "",
         "created_at": 1_000.0,
         "updated_at": 1_001.0,
+        "queue_position": 3,
     }
     server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
         return_value=[receipt]
@@ -521,6 +522,8 @@ def test_ui_server_exposes_pending_new_chat_before_chatgpt_assigns_an_id(tmp_pat
     assert chat is not None
     assert chat["id"] == pending_id
     assert chat["messages"][0]["content"] == "Stay in the sidebar"
+    assert chat["messages"][1]["pending_activity"] is True
+    assert chat["messages"][1]["pending_activity_label"] == "queued · #3"
 
 
 def test_ui_server_keeps_successful_new_chat_visible_before_cache_adopts_it(tmp_path: Path) -> None:
@@ -1410,6 +1413,9 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     assert queued_third is not None
     assert queued_third["status"] == "queued"
     assert queued_third["queue_position"] == 2
+    receipts = {job["message"]: job for job in registry.list_conversation_receipts()}
+    assert receipts["second"]["queue_position"] == 1
+    assert receipts["third"]["queue_position"] == 2
 
     release_first.set()
     deadline = time.monotonic() + 1.0

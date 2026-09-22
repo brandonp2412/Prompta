@@ -794,7 +794,7 @@ class SendJobRegistry:
                         continue
                 elif status not in {"queued", "running", "retrying", "rate_limited"}:
                     continue
-                result.append(dict(job))
+                result.append(self._job_with_queue_position_locked(job))
             return result
 
     @property
