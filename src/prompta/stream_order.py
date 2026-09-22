@@ -149,12 +149,79 @@ def stabilize_streaming_content(previous: str, incoming: str) -> str:
     return "\n\n".join(block.content.strip() for block in stable if block.content.strip()).strip()
 
 
-def recover_streaming_content(history: list[str], incoming: str) -> str:
-    """Replay historical snapshots to recover first-seen block order."""
+_TRANSIENT_ACTIVITY = {
+    "**Tool activity**",
+    "Thinking",
+}
 
-    stable = ""
-    for content in [*history, incoming]:
-        if not content or not content.strip():
+
+def _is_transient_activity(block: _Block) -> bool:
+    return block.normalized in _TRANSIENT_ACTIVITY
+
+
+def _collapsed_observation_blocks(content: str) -> list[_Block]:
+    collapsed: list[_Block] = []
+    for block in _split_prose(content):
+        if collapsed and _prose_matches(collapsed[-1], block):
+            if len(block.normalized) >= len(collapsed[-1].normalized):
+                collapsed[-1] = block
             continue
-        stable = stabilize_streaming_content(stable, content)
-    return stable
+        collapsed.append(block)
+    return collapsed
+
+
+def _observed_at(block: _Block, observations: list[tuple[float, str]]) -> float | None:
+    if block.is_tool:
+        if not block.created_at:
+            return None
+        try:
+            value = float(block.created_at)
+        except ValueError:
+            return None
+        return value if value > 0 else None
+
+    for observed_at, content in observations:
+        for observed in _collapsed_observation_blocks(content):
+            if _prose_matches(observed, block):
+                return observed_at
+    return None
+
+
+def has_stream_order_inversion(
+    content: str,
+    observations: list[tuple[float, str]],
+) -> bool:
+    """Return whether known first-seen times disagree with current block order."""
+
+    last_time: float | None = None
+    for block in _split_stream_blocks(content):
+        if _is_transient_activity(block):
+            continue
+        current_time = _observed_at(block, observations)
+        if current_time is None:
+            continue
+        if last_time is not None and current_time < last_time:
+            return True
+        last_time = current_time
+    return False
+
+
+def recover_stream_order_from_observations(
+    content: str,
+    observations: list[tuple[float, str]],
+) -> str:
+    """Reorder a corrupted stream using persisted first-seen prose/tool times."""
+
+    blocks = [block for block in _split_stream_blocks(content) if not _is_transient_activity(block)]
+    timed = [
+        (_observed_at(block, observations), index, block) for index, block in enumerate(blocks)
+    ]
+    timed.sort(
+        key=lambda item: (
+            item[0] if item[0] is not None else float("inf"),
+            item[1],
+        )
+    )
+    return "\n\n".join(
+        block.content.strip() for _, _, block in timed if block.content.strip()
+    ).strip()

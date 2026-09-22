@@ -14,7 +14,11 @@ from typing import Any
 
 from .chromium import finalize_completed_assistant_content, preserves_non_tool_text
 from .preview import compact_sidebar_preview
-from .stream_order import recover_streaming_content, stabilize_streaming_content
+from .stream_order import (
+    has_stream_order_inversion,
+    recover_stream_order_from_observations,
+    stabilize_streaming_content,
+)
 from .structured_capture import message_parts_from_source_events, rendered_content_from_parts
 from .structured_store import (
     migrate_structured_capture,
@@ -32,6 +36,57 @@ def strip_delivery_timeout_noise(content: str) -> str:
     """Remove known ChatGPT transport/status UI text without touching transcript prose."""
 
     return strip_assistant_ui_noise(content)
+
+
+def _dom_prose_text(event: dict[str, Any]) -> str:
+    event_id = str(event.get("id") or "")
+    if not event_id.endswith(":dom-prose"):
+        return ""
+    parts = event.get("parts")
+    if not isinstance(parts, list):
+        return ""
+    return "\n\n".join(str(part).strip() for part in parts if str(part).strip()).strip()
+
+
+def _dom_prose_observations(
+    connection: sqlite3.Connection,
+    *,
+    conversation_id: str,
+    message_key: str,
+    source_events: list[Any],
+    observed_at: float,
+) -> list[tuple[float, str]]:
+    observations: list[tuple[float, str]] = []
+    for row in connection.execute(
+        """
+        SELECT observed_at, raw_json
+        FROM source_events
+        WHERE conversation_id = ?
+          AND message_key = ?
+          AND event_key LIKE '%:dom-prose:%'
+        ORDER BY observed_at, rowid
+        """,
+        (conversation_id, message_key),
+    ).fetchall():
+        try:
+            event = json.loads(str(row["raw_json"] or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        text = _dom_prose_text(event)
+        if text:
+            observations.append((float(row["observed_at"]), text))
+
+    for event in source_events:
+        if not isinstance(event, dict):
+            continue
+        text = _dom_prose_text(event)
+        if text:
+            observations.append((observed_at, text))
+
+    observations.sort(key=lambda item: item[0])
+    return observations
 
 
 logger = logging.getLogger(__name__)
@@ -878,36 +933,29 @@ class ChatCache:
                     role == "assistant"
                     and existing is not None
                     and str(existing["status"]) == "streaming"
-                    and preserves_non_tool_text(
-                        str(existing["content"] or ""),
-                        content,
-                    )
                 ):
                     previous_content = str(existing["content"] or "")
-                    tool_prefix = chr(96) * 3 + "tool:"
-                    recover_history = previous_content.lstrip().startswith(tool_prefix)
-                    if recover_history:
-                        first_version = self.connection.execute(
-                            "SELECT content FROM message_versions "
-                            "WHERE conversation_id = ? AND message_key = ? "
-                            "ORDER BY version LIMIT 1",
-                            (conversation_id, message_key),
-                        ).fetchone()
-                        recover_history = first_version is not None and not str(
-                            first_version["content"] or ""
-                        ).lstrip().startswith(tool_prefix)
-                    if recover_history:
-                        history = [
-                            str(row["content"] or "")
-                            for row in self.connection.execute(
-                                "SELECT content FROM message_versions "
-                                "WHERE conversation_id = ? AND message_key = ? "
-                                "ORDER BY version",
-                                (conversation_id, message_key),
-                            ).fetchall()
-                        ]
-                        content = recover_streaming_content(history, content)
-                    else:
+                    observations: list[tuple[float, str]] = []
+                    if (chr(96) * 3 + "tool:") in previous_content:
+                        observations = _dom_prose_observations(
+                            self.connection,
+                            conversation_id=conversation_id,
+                            message_key=message_key,
+                            source_events=source_events if isinstance(source_events, list) else [],
+                            observed_at=now,
+                        )
+                    recovered_order = bool(
+                        observations and has_stream_order_inversion(previous_content, observations)
+                    )
+                    if recovered_order:
+                        previous_content = recover_stream_order_from_observations(
+                            previous_content,
+                            observations,
+                        )
+                    if recovered_order or preserves_non_tool_text(
+                        previous_content,
+                        content,
+                    ):
                         content = stabilize_streaming_content(previous_content, content)
                 self.connection.execute(
                     """

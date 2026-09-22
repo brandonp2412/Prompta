@@ -206,7 +206,7 @@ def test_streaming_snapshot_never_reorders_already_visible_blocks(tmp_path: Path
     assert content == "\n\n".join(["Visible intro", tool, "Visible follow-up"])
 
 
-def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_versions(
+def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_dom_history(
     tmp_path: Path,
 ) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
@@ -216,6 +216,16 @@ def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_versions(
         job_name="",
         prompt="Do work",
     )
+    dom_prose = {
+        "id": "a1:dom-prose",
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "parts": ["Visible intro"],
+        "text": "",
+        "create_time": None,
+        "end_turn": None,
+    }
     cache.write_snapshot(
         "conversation-recover-stream",
         {
@@ -225,12 +235,31 @@ def test_streaming_snapshot_recovers_legacy_tool_first_cache_from_versions(
                 {"id": "u1", "role": "user", "content": "Do work"},
                 {"id": "a1", "role": "assistant", "content": "Visible intro"},
             ],
+            "source_events": [dom_prose],
         },
     )
 
+    first_observed = float(
+        cache.connection.execute(
+            """
+            SELECT observed_at
+            FROM source_events
+            WHERE conversation_id = ?
+              AND message_key = ?
+              AND event_key LIKE '%:dom-prose:%'
+            ORDER BY observed_at
+            LIMIT 1
+            """,
+            ("conversation-recover-stream", "a1"),
+        ).fetchone()["observed_at"]
+    )
     fence = chr(96) * 3
-    tool = f'{fence}tool:Test MCP · inspect\n{{"created_at": 2.0, "status": "completed"}}\n{fence}'
-    legacy_reordered = "\n\n".join([tool, "Visible intro"])
+    tool = (
+        f"{fence}tool:Test MCP · inspect\n"
+        f'{{"created_at": {first_observed + 1.0}, "status": "completed"}}\n'
+        f"{fence}"
+    )
+    legacy_reordered = "\n\n".join(["**Tool activity**", "Thinking", tool, "Visible intro"])
     with cache.connection:
         cache.connection.execute(
             """
