@@ -1798,15 +1798,27 @@ els.searchInput.addEventListener("input", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  const typing =
-    document.activeElement === els.searchInput || document.activeElement === els.messageInput;
+  const searchFocused = document.activeElement === els.searchInput;
+  const typing = searchFocused || document.activeElement === els.messageInput;
 
   if (event.key === "/" && !typing) {
     event.preventDefault();
-    els.searchInput.focus();
+    sidebar.open();
+    els.searchInput.focus({ preventScroll: true });
   }
 
   if (event.key === "Escape") {
+    if (searchFocused && els.searchInput.value) {
+      event.preventDefault();
+      clearTimeout(searchTimer);
+      els.searchInput.value = "";
+      state.search = "";
+      state.sidebarFingerprint = "";
+      void loadChats();
+
+      return;
+    }
+
     attachmentPicker.closeMenu();
     closeSlashMenu();
     jobsDialog.close();
