@@ -48,6 +48,7 @@ export function createSidebar({ onMotionEnd }) {
     if (!moving) return;
 
     moving = false;
+    syncSidebarVisibility();
     onMotionEnd();
   }
 
@@ -55,14 +56,25 @@ export function createSidebar({ onMotionEnd }) {
     return mobileSidebarMedia.matches;
   }
 
-  function syncAccessibility() {
-    const hidden = mobileSidebarMedia.matches && !isOpen();
+  function sidebarHidden() {
+    return mobileSidebarMedia.matches && !isOpen();
+  }
+
+  function syncExpandedState() {
+    els.openSidebar.setAttribute("aria-expanded", String(!sidebarHidden()));
+  }
+
+  function syncSidebarVisibility() {
+    const hidden = sidebarHidden();
     els.sidebar.toggleAttribute("inert", hidden);
 
     if (hidden) els.sidebar.setAttribute("aria-hidden", "true");
     else els.sidebar.removeAttribute("aria-hidden");
+  }
 
-    els.openSidebar.setAttribute("aria-expanded", String(!hidden));
+  function syncAccessibility() {
+    syncExpandedState();
+    syncSidebarVisibility();
   }
 
   function resetDragStyles() {
@@ -86,21 +98,29 @@ export function createSidebar({ onMotionEnd }) {
   function open() {
     resetDragStyles();
 
-    if (mobileEnabled() && !isOpen()) beginMotion();
+    const animate = mobileEnabled() && !isOpen();
+
+    if (animate) beginMotion();
 
     els.sidebar.classList.add("is-open");
     els.sidebarScrim.classList.add("is-open");
-    syncAccessibility();
+    syncExpandedState();
+
+    if (!animate) syncSidebarVisibility();
   }
 
   function close() {
     resetDragStyles();
 
-    if (mobileEnabled() && isOpen()) beginMotion();
+    const animate = mobileEnabled() && isOpen();
+
+    if (animate) beginMotion();
 
     els.sidebar.classList.remove("is-open");
     els.sidebarScrim.classList.remove("is-open");
-    syncAccessibility();
+    syncExpandedState();
+
+    if (!animate) syncSidebarVisibility();
   }
 
   function applyDragPosition(x) {
@@ -137,7 +157,7 @@ export function createSidebar({ onMotionEnd }) {
     const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
     els.sidebar.classList.toggle("is-open", opened);
     els.sidebarScrim.classList.toggle("is-open", opened);
-    syncAccessibility();
+    syncExpandedState();
     els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
     els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
     els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
