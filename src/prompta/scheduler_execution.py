@@ -212,17 +212,21 @@ class SchedulerExecution:
     async def drain_once_requests(self) -> bool:
         did_work = False
         while True:
+            remaining = self.scheduler.global_backoff.remaining()
+            attempted_at = time.time()
+            if remaining <= 0 and self.scheduler.send_gap_remaining(attempted_at) > 0:
+                return did_work
             try:
                 prompt, attachments, future = self.once_requests.get_nowait()
             except asyncio.QueueEmpty:
                 return did_work
             try:
-                remaining = self.scheduler.global_backoff.remaining()
                 if remaining > 0:
                     raise RateLimitError(
                         "ChatGPT account-wide rate limit backoff is active",
                         retry_after=max(1, int(remaining + 0.999)),
                     )
+                self.scheduler.update_scheduler_state({"last_attempt_at": attempted_at})
                 conversation_id = await self.send_once_callback(prompt, attachments=attachments)
             except RateLimitError as exc:
                 self.scheduler.record_global_rate_limit(exc)
@@ -248,6 +252,10 @@ class SchedulerExecution:
         did_work = False
         pending = self.reply_requests.qsize()
         for _ in range(pending):
+            remaining = self.scheduler.global_backoff.remaining()
+            attempted_at = time.time()
+            if remaining <= 0 and self.scheduler.send_gap_remaining(attempted_at) > 0:
+                return did_work
             try:
                 item = self.reply_requests.get_nowait()
             except asyncio.QueueEmpty:
@@ -258,12 +266,12 @@ class SchedulerExecution:
                 await self.reply_requests.put(item)
                 continue
             try:
-                remaining = self.scheduler.global_backoff.remaining()
                 if remaining > 0:
                     raise RateLimitError(
                         "ChatGPT account-wide rate limit backoff is active",
                         retry_after=max(1, int(remaining + 0.999)),
                     )
+                self.scheduler.update_scheduler_state({"last_attempt_at": attempted_at})
                 result = await self.send_reply_callback(
                     conversation_id, prompt, attachments=attachments
                 )

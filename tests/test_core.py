@@ -1486,6 +1486,71 @@ async def test_scheduler_prioritises_ui_send_before_active_poll(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_control_one_shots_share_scheduler_send_pacing(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(side_effect=["first-chat", "second-chat"])  # type: ignore[method-assign]
+    first: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    second: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._once_requests.put(("First send", [], first))
+    await prompta._once_requests.put(("Second send", [], second))
+    prompta._update_scheduler_state({"last_attempt_at": time.time()})
+
+    assert await prompta._drain_once_requests() is False
+    assert prompta._once_requests.qsize() == 2
+    assert prompta.send_once.await_count == 0
+    assert not first.done()
+    assert not second.done()
+
+    prompta._update_scheduler_state({"last_attempt_at": 0.0})
+    assert await prompta._drain_once_requests() is True
+    assert await first == "first-chat"
+    assert prompta._once_requests.qsize() == 1
+    assert prompta.send_once.await_count == 1
+    assert not second.done()
+    assert prompta._send_gap_remaining(time.time()) > 0
+
+    prompta._update_scheduler_state({"last_attempt_at": 0.0})
+    assert await prompta._drain_once_requests() is True
+    assert await second == "second-chat"
+    assert prompta._once_requests.empty()
+    assert prompta.send_once.await_count == 2
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_control_reply_and_scheduled_jobs_share_send_pacing(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_reply = AsyncMock(return_value="existing-chat")  # type: ignore[method-assign]
+    prompta.send_once = AsyncMock(return_value="scheduled-chat")  # type: ignore[method-assign]
+    future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._reply_requests.put(("existing-chat", "Continue", [], future))
+    prompta._update_scheduler_state({"last_attempt_at": 0.0})
+
+    assert await prompta._drain_reply_requests() is True
+    assert await future == "existing-chat"
+    assert prompta._send_gap_remaining(time.time()) > 0
+
+    scheduled = PromptJob("background", "Background send", 1800)
+    assert await prompta._run_job(scheduled, now=time.time()) is False
+    prompta.send_once.assert_not_awaited()
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_control_send_rate_limit_pauses_scheduler_jobs(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     prompta = Prompta(
