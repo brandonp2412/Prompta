@@ -432,32 +432,39 @@ class Prompta:
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
             did_work = await self._drain_sync_requests() or did_work
+
+            # Dispatch due scheduled work before cache maintenance. A stale
+            # recovered browser tab can block or poison WebDriver calls, but it
+            # must not starve unrelated scheduled jobs indefinitely.
+            jobs = self.read_jobs()
+            if jobs:
+                now = time.time()
+                scheduled_jobs = list(jobs.values())
+                self._ensure_initial_schedules(scheduled_jobs, now)
+                for job in scheduled_jobs:
+                    if await self._run_job(job, now=now):
+                        did_work = True
+                    if self._global_backoff.remaining() > 0:
+                        break
+                if once:
+                    for active in list(self._active_conversations.values()):
+                        await self.wait_for_cached_response(active.conversation_id)
+                    return
+
             did_work = await self._retry_cached_recovery_if_due() or did_work
             await self._poll_active_conversations()
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
                     "Browser session was lost; restarting Prompta to recycle browser"
                 )
-            jobs = self.read_jobs()
+
             if not jobs:
                 await self._release_driver_if_idle()
                 if once:
                     return
                 await asyncio.sleep(_IDLE_POLL_SECONDS)
                 continue
-            now = time.time()
-            scheduled_jobs = list(jobs.values())
-            self._ensure_initial_schedules(scheduled_jobs, now)
-            for job in scheduled_jobs:
-                if await self._run_job(job, now=now):
-                    did_work = True
-                if self._global_backoff.remaining() > 0:
-                    break
-            if once:
-                for active in list(self._active_conversations.values()):
-                    await self.wait_for_cached_response(active.conversation_id)
-                return
-            await self._poll_active_conversations()
+
             await self._release_driver_if_idle()
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
 

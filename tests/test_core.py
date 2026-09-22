@@ -2555,6 +2555,42 @@ async def test_run_checks_deferred_recovery_before_scheduler_work(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_run_dispatches_due_job_before_active_poll_can_poison_browser(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    job = PromptJob("due", "Do work", interval_seconds=0, exact_interval=True)
+    driver = MagicMock()
+    driver.needs_browser_restart = False
+    prompta.driver = cast(Any, driver)
+    order: list[str] = []
+
+    async def run_job(*_args: Any, **_kwargs: Any) -> bool:
+        order.append("job")
+        return True
+
+    async def poison_on_poll() -> None:
+        order.append("poll")
+        driver.needs_browser_restart = True
+
+    prompta.read_jobs = MagicMock(return_value={"due": job})  # type: ignore[method-assign]
+    prompta._ensure_initial_schedules = MagicMock()  # type: ignore[method-assign]
+    prompta._run_job = AsyncMock(side_effect=run_job)  # type: ignore[method-assign]
+    prompta._retry_cached_recovery_if_due = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._poll_active_conversations = AsyncMock(side_effect=poison_on_poll)  # type: ignore[method-assign]
+    prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_sync_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="recycle browser"):
+        await prompta.run()
+
+    assert order == ["job", "poll"]
+    prompta._run_job.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_run_restarts_owned_browser_after_poisoned_bidi_session(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
