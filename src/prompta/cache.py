@@ -737,6 +737,26 @@ class ChatCache:
                     conversation_id,
                 ),
             )
+            state_row = self.connection.execute(
+                "SELECT status FROM conversations WHERE id = ?",
+                (conversation_id,),
+            ).fetchone()
+            state_status = (
+                str(state_row["status"])
+                if state_row is not None
+                else ("complete" if complete else "active")
+            )
+            raw_activity = snapshot.get("activity")
+            activity = dict(raw_activity) if isinstance(raw_activity, dict) else {}
+            activity.setdefault("streaming", bool(snapshot.get("streaming")))
+            activity.setdefault("complete", state_status == "complete")
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status=state_status,
+                observed_at=now,
+                activity=activity,
+            )
 
             preceding_user_key = ""
             for snapshot_index, role, content, raw_message_key in incoming:
