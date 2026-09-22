@@ -15,6 +15,7 @@ from typing import Any
 from .chromium import finalize_completed_assistant_content, preserves_non_tool_text
 from .preview import compact_sidebar_preview
 from .stream_order import (
+    compact_prose_observation,
     has_stream_order_inversion,
     recover_stream_order_from_observations,
     stabilize_streaming_content,
@@ -919,6 +920,55 @@ class ChatCache:
                 else:
                     ordinal = next_partial_ordinal
                     next_partial_ordinal += 1
+
+                transient_candidate: dict[str, Any] | None = None
+                if (
+                    role == "assistant"
+                    and not message_key.startswith("__prompta_live_assistant_")
+                    and existing is None
+                    and preceding_user_key in current_by_key
+                ):
+                    expected_ordinal = int(current_by_key[preceding_user_key]["ordinal"]) + 1
+                    transient_candidate = next(
+                        (
+                            candidate
+                            for candidate_key, candidate in current_by_key.items()
+                            if candidate_key.startswith("__prompta_live_assistant_")
+                            and str(candidate.get("role") or "") == "assistant"
+                            and int(candidate.get("ordinal") or -1) == expected_ordinal
+                        ),
+                        None,
+                    )
+                    if transient_candidate is not None:
+                        ordinal = expected_ordinal
+                        transient_key = str(transient_candidate["message_key"])
+                        transient_observations = _dom_prose_observations(
+                            self.connection,
+                            conversation_id=conversation_id,
+                            message_key=transient_key,
+                            source_events=[],
+                            observed_at=now,
+                        )
+                        if transient_observations:
+                            live_prose = compact_prose_observation(transient_observations[-1][1])
+                            if live_prose and not preserves_non_tool_text(
+                                live_prose,
+                                content,
+                            ):
+                                content = stabilize_streaming_content(live_prose, content)
+                                current_observations = [
+                                    (now, prose)
+                                    for event in (
+                                        source_events if isinstance(source_events, list) else []
+                                    )
+                                    if isinstance(event, dict) and (prose := _dom_prose_text(event))
+                                ]
+                                observations = transient_observations + current_observations
+                                if has_stream_order_inversion(content, observations):
+                                    content = recover_stream_order_from_observations(
+                                        content,
+                                        observations,
+                                    )
 
                 snapshot_keys.append(message_key)
                 message_status = (

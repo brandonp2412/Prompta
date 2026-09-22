@@ -980,6 +980,119 @@ def test_final_assistant_replaces_streaming_row_when_message_id_changes(tmp_path
     ]
 
 
+def test_final_assistant_preserves_live_dom_prose_when_message_id_changes(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation_id = "conversation-live-prose-handoff"
+    transient_key = "__prompta_live_assistant_handoff__"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Do work",
+    )
+
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": transient_key,
+                    "role": "assistant",
+                    "content": "Starting the work",
+                },
+            ],
+            "source_events": [
+                {
+                    "id": f"{transient_key}:dom-prose",
+                    "role": "assistant",
+                    "recipient": "all",
+                    "content_type": "text",
+                    "parts": ["Starting the work"],
+                    "text": "",
+                    "create_time": None,
+                    "end_turn": None,
+                }
+            ],
+        },
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": transient_key,
+                    "role": "assistant",
+                    "content": "Starting the work\n\nChecks now pass",
+                },
+            ],
+            "source_events": [
+                {
+                    "id": f"{transient_key}:dom-prose",
+                    "role": "assistant",
+                    "recipient": "all",
+                    "content_type": "text",
+                    "parts": ["Starting the work", "Checks now pass"],
+                    "text": "",
+                    "create_time": None,
+                    "end_turn": None,
+                }
+            ],
+        },
+    )
+
+    fence = chr(96) * 3
+    tool = f"{fence}tool:Glass · execute_python\n{{}}\n{fence}"
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "final-assistant-id",
+                    "role": "assistant",
+                    "content": f"{tool}\n\nImplemented",
+                },
+            ],
+            "source_events": [
+                {
+                    "id": "final-assistant-id:dom-prose",
+                    "role": "assistant",
+                    "recipient": "all",
+                    "content_type": "text",
+                    "parts": ["Implemented"],
+                    "text": "",
+                    "create_time": None,
+                    "end_turn": True,
+                }
+            ],
+        },
+        complete=True,
+    )
+
+    messages = cache.messages(conversation_id)
+    cache.close()
+
+    assert [(message["message_key"], message["status"]) for message in messages] == [
+        ("u1", "complete"),
+        ("final-assistant-id", "complete"),
+    ]
+    content = messages[-1]["content"]
+    assert content.count("Starting the work") == 1
+    assert content.count("Checks now pass") == 1
+    assert "Glass · execute_python" in content
+    assert content.endswith("Implemented")
+
+
 def test_full_snapshot_removes_old_streaming_copy_from_completed_turn(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

@@ -170,6 +170,16 @@ def _collapsed_observation_blocks(content: str) -> list[_Block]:
     return collapsed
 
 
+def compact_prose_observation(content: str) -> str:
+    """Collapse adjacent partial copies in one cumulative DOM prose observation."""
+
+    return "\n\n".join(
+        block.content.strip()
+        for block in _collapsed_observation_blocks(content)
+        if block.content.strip()
+    ).strip()
+
+
 def _observed_at(block: _Block, observations: list[tuple[float, str]]) -> float | None:
     if block.is_tool:
         if not block.created_at:
