@@ -102,7 +102,11 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
 def test_browser_snapshot_filters_transient_connection_noise_from_react_history() -> None:
     assert "const networkErrorNoise=/a network error occurred" in CONVERSATION_SNAPSHOT_SCRIPT
     assert (
-        "const assistantUiNoise=/^(?:connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again\\.?)$/i;"
+        "connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert (
+        "a network error occurred\\.?(?:\\s*please check your connection and try again"
         in CONVERSATION_SNAPSHOT_SCRIPT
     )
     assert ".replace(networkErrorNoise,'')" in CONVERSATION_SNAPSHOT_SCRIPT

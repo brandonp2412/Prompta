@@ -2633,4 +2633,51 @@ def test_read_only_store_hides_network_error_ui_noise(tmp_path: Path) -> None:
 
     assert chat is not None
     assert "A network error occurred" not in chat["messages"][-1]["content"]
-    assert sidebar_chat["preview"] == "Keep working"
+    assert sidebar_chat["preview"] == "Progress before retry. Progress after retry."
+
+
+def test_read_only_store_hides_combined_connection_interruption_from_legacy_chat(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-connection-interrupted",
+        context_id="context-connection-interrupted",
+        job_name="",
+        prompt="Keep working",
+    )
+    cache.write_snapshot(
+        "chat-connection-interrupted",
+        {
+            "title": "Interrupted response",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": "Useful progress.\n\nConnection interrupted. Waiting for the complete answer",
+                },
+            ],
+        },
+    )
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET preview = ? WHERE id = ?",
+            (
+                "Useful progress. Connection interrupted. Waiting for the complete answer",
+                "chat-connection-interrupted",
+            ),
+        )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-connection-interrupted")
+    sidebar_chat = next(
+        item for item in store.conversations() if item["id"] == "chat-connection-interrupted"
+    )
+
+    assert chat is not None
+    assert chat["messages"][-1]["content"] == "Useful progress."
+    assert sidebar_chat["preview"] == "Useful progress."

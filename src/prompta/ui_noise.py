@@ -11,12 +11,13 @@ _NETWORK_ERROR_RE = re.compile(
 )
 _ASSISTANT_UI_NOISE_RE = re.compile(
     r"(?:"
-    r"connection interrupted\.?|"
-    r"waiting for the complete answer|"
+    r"connection interrupted\.?(?:\s*waiting for (?:the )?complete answer\.?)?|"
+    r"waiting for (?:the )?complete answer\.?|"
     r"message delivery timed out\.?\s*please try again\.?|"
-    r"a network error occurred\.?\s*"
-    r"please check your connection and try again\.?\s*"
-    r"if this issue persists please contact us through our help center at help\.openai\.com\.?"
+    r"a network error occurred\.?"
+    r"(?:\s*please check your connection and try again\.?"
+    r"(?:\s*if this issue persists please contact us through our help center at help\.openai\.com\.?)?"
+    r")?"
     r")",
     re.IGNORECASE,
 )

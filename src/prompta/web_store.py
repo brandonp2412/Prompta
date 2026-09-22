@@ -82,18 +82,16 @@ class ReadOnlyChatStore:
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
                 }
+                latest_message_preview = """(
+                    SELECT m.content FROM messages m
+                    WHERE m.conversation_id = c.id
+                      AND m.message_key NOT LIKE 'request-placeholder-%'
+                    ORDER BY m.ordinal DESC LIMIT 1
+                )"""
                 preview_expression = (
-                    "c.preview"
+                    f"COALESCE({latest_message_preview}, NULLIF(c.preview, ''), NULLIF(c.prompt, ''))"
                     if "preview" in columns
-                    else """COALESCE(
-                        (
-                            SELECT m.content FROM messages m
-                            WHERE m.conversation_id = c.id
-                              AND m.message_key NOT LIKE 'request-placeholder-%'
-                            ORDER BY m.ordinal DESC LIMIT 1
-                        ),
-                        NULLIF(c.prompt, '')
-                    )"""
+                    else f"COALESCE({latest_message_preview}, NULLIF(c.prompt, ''))"
                 )
                 rows = connection.execute(
                     f"""

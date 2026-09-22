@@ -31,3 +31,17 @@ def test_similar_assistant_prose_is_not_filtered() -> None:
 
     assert not is_assistant_ui_noise(prose)
     assert strip_assistant_ui_noise(prose) == prose
+
+
+def test_partial_transport_status_variants_are_assistant_ui_noise() -> None:
+    variants = (
+        "Connection interrupted.",
+        "Waiting for the complete answer",
+        "Connection interrupted. Waiting for the complete answer",
+        "A network error occurred.",
+        "A network error occurred. Please check your connection and try again.",
+    )
+
+    for variant in variants:
+        assert is_assistant_ui_noise(variant)
+        assert strip_assistant_ui_noise(variant) == ""

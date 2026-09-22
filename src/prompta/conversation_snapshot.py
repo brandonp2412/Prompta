@@ -310,7 +310,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     return collapsed;
   };
   const networkErrorNoise=/a network error occurred\\.?\\s*please check your connection and try again\\.?\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?/i;
-  const assistantUiNoise=/^(?:connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again\\.?)$/i;
+  const assistantUiNoise=/^(?:connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer\\.?)?|waiting for (?:the )?complete answer\\.?|message delivery timed out\\.?\\s*please try again\\.?|a network error occurred\\.?(?:\\s*please check your connection and try again\\.?(?:\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?)?)?)$/i;
   const cleanAssistantText=text=>String(text||'').replace(networkErrorNoise,'').split(/\\n+/)
     .map(line=>line.trim())
     .filter(line=>line&&!assistantUiNoise.test(line))
@@ -457,7 +457,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     }).filter(Boolean);
     if(orderedToolIndex<tools.length)orderedParts.push(...tools.slice(orderedToolIndex));
     const rawVisible=(agent.innerText||agent.textContent||'').replace(networkErrorNoise,'').trim();
-    const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?|waiting for the complete answer|message delivery timed out\\.?\\s*please try again\\.?)$/i;
+    const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer\\.?)?|waiting for (?:the )?complete answer\\.?|message delivery timed out\\.?\\s*please try again\\.?|a network error occurred\\.?(?:\\s*please check your connection and try again\\.?(?:\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?)?)?)$/i;
     const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
       line
       && !uiNoise.test(line)
