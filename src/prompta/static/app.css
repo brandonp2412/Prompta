@@ -1189,6 +1189,7 @@ textarea:focus-visible {
   user-select: none;
   display: flex;
   align-items: center;
+  column-gap: 12px;
 }
 
 .tool-call-block > summary::-webkit-details-marker {
@@ -1239,6 +1240,13 @@ textarea:focus-visible {
   color: #d8e6fb;
   font-size: 11px;
   font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-primary-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
