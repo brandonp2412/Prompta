@@ -529,11 +529,30 @@ class ChatCache:
             "streaming": bool(snapshot.get("streaming")),
             "messages": snapshot.get("messages") or [],
             "source_events": snapshot.get("source_events") or [],
-            "activity": snapshot.get("activity") or {},
         }
         return hashlib.sha256(
             json.dumps(stable, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
+
+    def record_state(
+        self,
+        conversation_id: str,
+        activity: dict[str, Any],
+    ) -> None:
+        row = self.connection.execute(
+            "SELECT status FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return
+        with self.connection:
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status=str(row["status"]),
+                observed_at=time.time(),
+                activity=activity,
+            )
 
     def mark_interrupted(self, conversation_id: str) -> None:
         now = time.time()
