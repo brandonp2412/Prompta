@@ -15,6 +15,7 @@ import {
   parseScheduleSlashCommand,
   pendingConversationSends,
   pendingSendActivity,
+  sidebarChatCountSummary,
   sidebarChatCreatedAt,
   sidebarChatIsSelected,
   sidebarSelectedConversationId,
@@ -1483,7 +1484,10 @@ async function hydrateRecentChatCache() {
   state.chats = sortSidebarChats(Array.from(unique.values()), state.pinnedIds);
   state.chatOrderScope = "";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-  setTextIfChanged(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
+  setTextIfChanged(
+    els.cacheSummary,
+    sidebarChatCountSummary(state.chats.length, activeCount, state.search),
+  );
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
 
@@ -1604,7 +1608,10 @@ async function loadChats(forceSelectedRefresh = false) {
     state.chatOrderScope = state.search;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
 
-    setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
+    setTextIfChanged(
+      els.cacheSummary,
+      sidebarChatCountSummary(state.chats.length, activeCount, state.search),
+    );
     const hashId = conversationIdFromHash(location.hash);
 
     if (!state.selectedId && hashId) {

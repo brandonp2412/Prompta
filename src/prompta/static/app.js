@@ -17,6 +17,10 @@ function chatListRequestUrl(search, pinnedIds) {
   const suffix = params.toString();
   return suffix ? `api/chats?${suffix}` : "api/chats";
 }
+function sidebarChatCountSummary(chatCount, activeCount, search) {
+  const scope = search.trim() ? `${chatCount} ${chatCount === 1 ? "result" : "results"}` : `${chatCount} cached`;
+  return `${scope} · ${activeCount} active`;
+}
 function sidebarChatCreatedAt(chat) {
   const createdAt = Number(chat?.created_at || 0);
   return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
@@ -4279,7 +4283,7 @@ async function hydrateRecentChatCache() {
   state.chats = sortSidebarChats(Array.from(unique.values()), state.pinnedIds);
   state.chatOrderScope = "";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-  setTextIfChanged5(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
+  setTextIfChanged5(els.cacheSummary, sidebarChatCountSummary(state.chats.length, activeCount, state.search));
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
   if (initialId) {
@@ -4374,7 +4378,7 @@ async function loadChats(forceSelectedRefresh = false) {
     state.chats = orderedChats;
     state.chatOrderScope = state.search;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-    setTextIfChanged5(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
+    setTextIfChanged5(els.cacheSummary, sidebarChatCountSummary(state.chats.length, activeCount, state.search));
     const hashId = conversationIdFromHash(location.hash);
     if (!state.selectedId && hashId) {
       state.selectedId = hashId;

@@ -30,6 +30,18 @@ export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>):
   return suffix ? `api/chats?${suffix}` : "api/chats";
 }
 
+export function sidebarChatCountSummary(
+  chatCount: number,
+  activeCount: number,
+  search: string,
+): string {
+  const scope = search.trim()
+    ? `${chatCount} ${chatCount === 1 ? "result" : "results"}`
+    : `${chatCount} cached`;
+
+  return `${scope} · ${activeCount} active`;
+}
+
 export type SidebarOrderChat = {
   id: string;
   created_at?: unknown;
