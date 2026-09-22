@@ -39,6 +39,57 @@ def _source_time(event: dict[str, Any]) -> float | None:
     return timestamp if timestamp > 0 else None
 
 
+def _causal_order_indexed(
+    indexed: list[tuple[int, dict[str, Any]]],
+) -> list[tuple[int, dict[str, Any]]]:
+    if len(indexed) < 2:
+        return indexed
+
+    position_by_id = {
+        str(event.get("id") or "").strip(): position
+        for position, (_, event) in enumerate(indexed)
+        if str(event.get("id") or "").strip()
+    }
+    indegree = [0] * len(indexed)
+    children: dict[int, list[int]] = {}
+    for position, (_, event) in enumerate(indexed):
+        parent_id = str(event.get("parent_id") or "").strip()
+        parent_position = position_by_id.get(parent_id)
+        if parent_position is None or parent_position == position:
+            continue
+        indegree[position] += 1
+        children.setdefault(parent_position, []).append(position)
+
+    def priority(position: int) -> tuple[float, int]:
+        source_index, event = indexed[position]
+        source_time = _source_time(event)
+        return (
+            source_time if source_time is not None else float("inf"),
+            source_index,
+        )
+
+    ready = [position for position, degree in enumerate(indegree) if degree == 0]
+    ordered_positions: list[int] = []
+    while ready:
+        ready.sort(key=priority)
+        position = ready.pop(0)
+        ordered_positions.append(position)
+        for child in children.get(position, []):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                ready.append(child)
+
+    if len(ordered_positions) != len(indexed):
+        seen = set(ordered_positions)
+        ordered_positions.extend(
+            sorted(
+                (position for position in range(len(indexed)) if position not in seen),
+                key=priority,
+            )
+        )
+    return [indexed[position] for position in ordered_positions]
+
+
 def _action_from_path(value: Any) -> str:
     if not isinstance(value, str):
         return ""
@@ -330,12 +381,7 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
             for index, event in indexed
             if not str(event.get("id") or "").endswith(":dom-prose")
         ]
-    indexed.sort(
-        key=lambda item: (
-            _source_time(item[1]) if _source_time(item[1]) is not None else float("inf"),
-            item[0],
-        )
-    )
+    indexed = _causal_order_indexed(indexed)
     calls = tool_calls_from_source_events([event for _, event in indexed])
     calls_by_source = {
         str(call.get("source_event_key") or ""): call

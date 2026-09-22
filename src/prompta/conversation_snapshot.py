@@ -123,9 +123,45 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       const value=Number(message?.create_time);
       return Number.isFinite(value)?value:Number.POSITIVE_INFINITY;
     };
-    return unique.map((message,index)=>({message,index,time:messageTime(message)}))
-      .sort((left,right)=>left.time-right.time||left.index-right.index)
-      .map(entry=>entry.message);
+    const positionById=new Map();
+    unique.forEach((message,index)=>{
+      const id=String(message?.id||'').trim();
+      if(id)positionById.set(id,index);
+    });
+    const indegree=unique.map(()=>0);
+    const children=new Map();
+    unique.forEach((message,index)=>{
+      const parentId=String(message?.parent_id||'').trim();
+      const parentIndex=positionById.get(parentId);
+      if(parentIndex===undefined||parentIndex===index)return;
+      indegree[index]+=1;
+      const descendants=children.get(parentIndex)||[];
+      descendants.push(index);
+      children.set(parentIndex,descendants);
+    });
+    const priority=(left,right)=>{
+      const leftTime=messageTime(unique[left]);
+      const rightTime=messageTime(unique[right]);
+      if(leftTime!==rightTime)return leftTime<rightTime?-1:1;
+      return left-right;
+    };
+    const ready=indegree.map((degree,index)=>degree===0?index:null)
+      .filter(index=>index!==null);
+    const ordered=[];
+    while(ready.length){
+      ready.sort(priority);
+      const index=ready.shift();
+      ordered.push(index);
+      for(const child of children.get(index)||[]){
+        indegree[child]-=1;
+        if(indegree[child]===0)ready.push(child);
+      }
+    }
+    if(ordered.length!==unique.length){
+      const seen=new Set(ordered);
+      ordered.push(...unique.map((_,index)=>index).filter(index=>!seen.has(index)).sort(priority));
+    }
+    return ordered.map(index=>unique[index]);
   };
   const reactHasVisibleAssistantText=agent=>{
     const visibleAgentText=normalise(agent?.innerText||agent?.textContent||'');

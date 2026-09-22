@@ -511,6 +511,92 @@ def test_active_conversation_uses_structured_order_for_completed_assistant_turn(
     assert content.index("Glass Serena · serena_repl") < content.index("Finished")
 
 
+def test_structured_parts_follow_parent_chain_when_text_times_are_turn_level() -> None:
+    events = [
+        {
+            "id": "reason-1",
+            "parent_id": "user-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["First update"],
+            "reasoning_title": "Starting",
+            "create_time": 100.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-1",
+            "parent_id": "reason-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "type": "mcpToolCall",
+                    "appContext": {"appName": "Glass", "actionName": "execute_python"},
+                    "arguments": {"code": "print(1)"},
+                    "status": "completed",
+                }
+            ),
+            "create_time": 101.0,
+            "end_turn": False,
+        },
+        {
+            "id": "update-2",
+            "parent_id": "call-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Second update"],
+            "reasoning_title": "Continuing",
+            "create_time": 100.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-2",
+            "parent_id": "update-2",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "type": "mcpToolCall",
+                    "appContext": {"appName": "Glass", "actionName": "execute_python"},
+                    "arguments": {"code": "print(2)"},
+                    "status": "completed",
+                }
+            ),
+            "create_time": 102.0,
+            "end_turn": False,
+        },
+        {
+            "id": "final-1",
+            "parent_id": "call-2",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Finished"],
+            "create_time": 100.0,
+            "end_turn": True,
+        },
+    ]
+
+    parts = message_parts_from_source_events(events)
+
+    assert [part["kind"] for part in parts] == [
+        "reasoning",
+        "tool_call",
+        "reasoning",
+        "tool_call",
+        "final_text",
+    ]
+    assert [part["content"] for part in parts if part["kind"] != "tool_call"] == [
+        "First update",
+        "Second update",
+        "Finished",
+    ]
+
+
 def test_structured_parts_ignore_dom_prose_when_timestamped_text_exists() -> None:
     events = _source_events()
     events.append(

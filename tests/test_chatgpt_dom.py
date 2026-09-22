@@ -58,6 +58,16 @@ def test_snapshot_has_page_level_react_fallback() -> None:
     assert "name.startsWith('__reactContainer$')" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
+def test_snapshot_orders_react_messages_by_parent_chain_before_timestamps() -> None:
+    assert "const positionById=new Map();" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const parentId=String(message?.parent_id||'').trim();" in (CONVERSATION_SNAPSHOT_SCRIPT)
+    assert "indegree[index]+=1;" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert (
+        ".sort((left,right)=>left.time-right.time||left.index-right.index)"
+        not in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+
+
 def test_snapshot_keeps_javascript_newline_escapes_literal() -> None:
     assert "parts.join('\\n')" in CONVERSATION_SNAPSHOT_SCRIPT
     assert ".join('\\n\\n').trim()" in CONVERSATION_SNAPSHOT_SCRIPT
