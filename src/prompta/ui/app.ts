@@ -23,14 +23,23 @@ import {
 import { RecentChatCache } from "./recentChatCache";
 import { createJobsDialog } from "./jobsDialog";
 import { createSidebar } from "./sidebar";
-import { createConversationRenderer, imageAttachments, pendingImageAttachments } from "./conversationRenderer";
+import {
+  createConversationRenderer,
+  imageAttachments,
+  pendingImageAttachments,
+} from "./conversationRenderer";
 import { createAttachmentPicker } from "./attachmentPicker";
 import { createLogsPanel } from "./logsPanel";
 import { createDeploymentMonitor } from "./deploymentMonitor";
 import { createLiveUpdates } from "./liveUpdates";
 import { createCompletionNotifications } from "./completionNotifications";
 import { createChangelogDialog } from "./changelogDialog";
-import { loadComposerDrafts, loadPinnedIds, saveComposerDrafts, savePinnedIds } from "./clientStorage";
+import {
+  loadComposerDrafts,
+  loadPinnedIds,
+  saveComposerDrafts,
+  savePinnedIds,
+} from "./clientStorage";
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 function promotePendingConversationPin(pending, nextConversationId) {
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
@@ -206,8 +215,8 @@ function setHiddenIfChanged(element: HTMLElement, hidden) {
 }
 function patchDomNode(current, next) {
   if (
-    current.nodeType !== next.nodeType
-    || (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
+    current.nodeType !== next.nodeType ||
+    (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
   ) {
     const replacement = next.cloneNode(true);
     current.replaceWith(replacement);
@@ -243,13 +252,28 @@ function patchDomChildren(currentParent, nextParent) {
   while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
     let current = currentParent.childNodes[index];
     const next = nextParent.childNodes[index];
-    if (!next) { current.remove(); continue; }
-    if (!current) { currentParent.append(next.cloneNode(true)); index += 1; continue; }
+    if (!next) {
+      current.remove();
+      continue;
+    }
+    if (!current) {
+      currentParent.append(next.cloneNode(true));
+      index += 1;
+      continue;
+    }
     const nextKey = domPatchKey(next);
     if (nextKey && domPatchKey(current) !== nextKey) {
-      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
-      if (match) { currentParent.insertBefore(match, current); current = match; }
-      else { currentParent.insertBefore(next.cloneNode(true), current); index += 1; continue; }
+      const match = Array.from(currentParent.childNodes)
+        .slice(index + 1)
+        .find((candidate) => domPatchKey(candidate) === nextKey);
+      if (match) {
+        currentParent.insertBefore(match, current);
+        current = match;
+      } else {
+        currentParent.insertBefore(next.cloneNode(true), current);
+        index += 1;
+        continue;
+      }
     }
     patchDomNode(current, next);
     index += 1;
@@ -277,18 +301,20 @@ function setConversationHeading(title, meta) {
   setTextIfChanged(titleNode, title);
   setTextIfChanged(metaNode, meta);
 }
-const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
-const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
+const SEND_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+const STOP_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
 function syncSendButton() {
-  const waitingNew = state.composingNew && state.pendingNewSend && !["failed", "dead_lettered", "succeeded"].includes(state.pendingNewSend.status);
+  const waitingNew =
+    state.composingNew &&
+    state.pendingNewSend &&
+    !["failed", "dead_lettered", "succeeded"].includes(state.pendingNewSend.status);
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
-  const stopMode = canCompose && shouldShowStopAction(
-    state.selectedChat?.status,
-    state.composingNew,
-    hasContent,
-  );
+  const stopMode =
+    canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew, hasContent);
   const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
@@ -297,7 +323,12 @@ function syncSendButton() {
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
-  els.sendButton.disabled = !canCompose || state.sending || state.stopping || probingActivity || (!stopMode && (Boolean(waitingNew) || !hasContent));
+  els.sendButton.disabled =
+    !canCompose ||
+    state.sending ||
+    state.stopping ||
+    probingActivity ||
+    (!stopMode && (Boolean(waitingNew) || !hasContent));
 }
 function updateComposerActionButton() {
   syncSendButton();
@@ -326,9 +357,12 @@ function setServerStatus(server, online) {
   const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (appleTitle) appleTitle.setAttribute("content", `Prompta ${display}`);
   els.globalLiveOrb.classList.toggle("live", knownOnline === true);
-  els.globalLiveOrb.title = knownOnline === false
-    ? `${display} is offline`
-    : (knownOnline === true ? `${display} is online` : `${display} status unknown`);
+  els.globalLiveOrb.title =
+    knownOnline === false
+      ? `${display} is offline`
+      : knownOnline === true
+        ? `${display} is online`
+        : `${display} status unknown`;
 }
 function escapeHtml(value) {
   return String(value ?? "")
@@ -346,8 +380,9 @@ function formatRelativeTime(epochSeconds) {
   if (abs < 3_600_000) return `${Math.max(1, Math.round(abs / 60_000))}m`;
   if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)}h`;
   if (abs < 604_800_000) return `${Math.round(abs / 86_400_000)}d`;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
-    .format(new Date(epochSeconds * 1000));
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+    new Date(epochSeconds * 1000),
+  );
 }
 function chatActivityAt(chat) {
   if (!chat) return 0;
@@ -361,9 +396,11 @@ function sameLocalDay(epochSeconds, offsetDays = 0) {
   const d = new Date(epochSeconds * 1000);
   const target = new Date();
   target.setDate(target.getDate() - offsetDays);
-  return d.getFullYear() === target.getFullYear()
-    && d.getMonth() === target.getMonth()
-    && d.getDate() === target.getDate();
+  return (
+    d.getFullYear() === target.getFullYear() &&
+    d.getMonth() === target.getMonth() &&
+    d.getDate() === target.getDate()
+  );
 }
 function chatTitle(chat) {
   const title = (chat.title || "").replace(/^ChatGPT\s*[-–—:]?\s*/i, "").trim();
@@ -374,7 +411,9 @@ function chatTitle(chat) {
   return "Untitled conversation";
 }
 function truncate(value, length = 88) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
 function sidebarGroupAt(chat) {
@@ -387,9 +426,12 @@ function groupChats(chats) {
     ["Pinned", pinned],
     ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
     ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
-    ["Previous", unpinned.filter((chat) =>
-      !sameLocalDay(sidebarGroupAt(chat))
-      && !sameLocalDay(sidebarGroupAt(chat), 1))],
+    [
+      "Previous",
+      unpinned.filter(
+        (chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1),
+      ),
+    ],
   ];
   return groups.filter(([, items]) => items.length);
 }
@@ -399,9 +441,22 @@ function sidebarStatusDot(status) {
   return `<span class="item-status-dot ${statusClass}"></span>`;
 }
 const iconStatusClasses = new Set([
-  "active", "running", "succeeded", "complete", "cached", "local",
-  "interrupted", "queued", "pending", "retrying", "failed", "dead_lettered", "live", "journal",
-  "new", "idle",
+  "active",
+  "running",
+  "succeeded",
+  "complete",
+  "cached",
+  "local",
+  "interrupted",
+  "queued",
+  "pending",
+  "retrying",
+  "failed",
+  "dead_lettered",
+  "live",
+  "journal",
+  "new",
+  "idle",
 ]);
 function setStatusIcon(element, status, label, kind = "") {
   const statusClassName = iconStatusClasses.has(status) ? status : "neutral";
@@ -457,11 +512,14 @@ function sidebarChats() {
     _optimisticNew: true,
   };
   const needle = state.search.trim().toLowerCase();
-  if (needle && ![
-    optimistic.title,
-    optimistic.preview,
-    optimistic.job_name,
-  ].some((value) => String(value || "").toLowerCase().includes(needle))) {
+  if (
+    needle &&
+    ![optimistic.title, optimistic.preview, optimistic.job_name].some((value) =>
+      String(value || "")
+        .toLowerCase()
+        .includes(needle),
+    )
+  ) {
     return chats;
   }
   return [optimistic, ...chats];
@@ -474,34 +532,48 @@ function renderSidebar(force = false) {
     return;
   }
   const chats = sidebarChats();
-  const fingerprint = JSON.stringify(chats.map((chat) => [
-    chat.id,
-    chat.status,
-    chat.title,
-    sidebarChatPreviewText(chat.preview, chat.prompt),
-    chat.message_count,
-    chat.job_name,
-    chatActivityAt(chat),
-    Boolean(chat._optimisticNew),
-    Boolean(chat._optimisticReply),
-    state.pinnedIds.has(chat.id),
-  ])) + state.selectedId + state.composingNew + new Date().toDateString();
+  const fingerprint =
+    JSON.stringify(
+      chats.map((chat) => [
+        chat.id,
+        chat.status,
+        chat.title,
+        sidebarChatPreviewText(chat.preview, chat.prompt),
+        chat.message_count,
+        chat.job_name,
+        chatActivityAt(chat),
+        Boolean(chat._optimisticNew),
+        Boolean(chat._optimisticReply),
+        state.pinnedIds.has(chat.id),
+      ]),
+    ) +
+    state.selectedId +
+    state.composingNew +
+    new Date().toDateString();
   if (!force && fingerprint === state.sidebarFingerprint) return;
   state.sidebarFingerprint = fingerprint;
   if (!chats.length) {
-    patchHtmlChildren(els.chatList, `
+    patchHtmlChildren(
+      els.chatList,
+      `
       <div class="list-empty">
         ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
-      </div>`);
+      </div>`,
+    );
     return;
   }
-  patchHtmlChildren(els.chatList, groupChats(chats).map(([label, groupedChats]) => `
+  patchHtmlChildren(
+    els.chatList,
+    groupChats(chats)
+      .map(
+        ([label, groupedChats]) => `
     <section class="chat-group" data-dom-key="group:${escapeHtml(label)}">
       <div class="chat-group-label">${escapeHtml(label)}</div>
-      ${groupedChats.map((chat) => {
-        const selected = chat.id === state.selectedId
-          || (chat._optimisticNew && state.composingNew);
-        return `
+      ${groupedChats
+        .map((chat) => {
+          const selected =
+            chat.id === state.selectedId || (chat._optimisticNew && state.composingNew);
+          return `
         <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml(chat.id)}">
           <button type="button"
                   class="chat-item-select"
@@ -526,9 +598,13 @@ function renderSidebar(force = false) {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg>
           </button>
         </div>`;
-      }).join("")}
+        })
+        .join("")}
     </section>
-  `).join(""));
+  `,
+      )
+      .join(""),
+  );
   for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
     if (boundSidebarItems.has(item)) continue;
     boundSidebarItems.add(item);
@@ -579,9 +655,9 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         .some((message) => message.role === "assistant" && !message.send_error);
       const cachedMessage = cachedMessages[matchedIndex];
       if (
-        cachedMessage
-        && !imageAttachments(cachedMessage).length
-        && imageAttachments(item).length
+        cachedMessage &&
+        !imageAttachments(cachedMessage).length &&
+        imageAttachments(item).length
       ) {
         cachedMessage.attachments = item.attachments;
       }
@@ -595,7 +671,9 @@ function pendingReplyMessages(conversationId, cachedMessages) {
   const remaining = pending.filter((item) => {
     if (!item.observedInCache) return true;
     if (item.responseObservedInCache) return false;
-    return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt));
+    return Boolean(
+      pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt),
+    );
   });
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
@@ -611,7 +689,12 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt,
       });
     }
-    const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt);
+    const activity = pendingSendActivity(
+      item.status,
+      Boolean(item.sendId),
+      item.retryAfterSeconds,
+      item.retryAt,
+    );
     if (activity) {
       messages.push({
         message_key: `pending-activity-${item.clientId || item.sendId}`,
@@ -660,11 +743,12 @@ function toggleSelectedPin() {
 }
 function renderConversationMeta(chat, visibleMessageCount) {
   const title = chatTitle(chat);
-  const activityLabel = chat.status === "active"
-    ? "updating live"
-    : chat.status === "interrupted"
-      ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}`
-      : formatRelativeTime(chatActivityAt(chat));
+  const activityLabel =
+    chat.status === "active"
+      ? "updating live"
+      : chat.status === "interrupted"
+        ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}`
+        : formatRelativeTime(chatActivityAt(chat));
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
@@ -674,16 +758,14 @@ function renderConversationMeta(chat, visibleMessageCount) {
   if (metaFingerprint === state.selectedMetaFingerprint) return;
   state.selectedMetaFingerprint = metaFingerprint;
   setConversationHeading(title, meta);
-  const syncStatus = chat.status === "active"
-    ? "active"
-    : chat.status === "interrupted"
-      ? "interrupted"
-      : "cached";
-  const syncLabel = chat.status === "active"
-    ? "Syncing from SQLite"
-    : chat.status === "interrupted"
-      ? "Last run was interrupted"
-      : "Cached in SQLite";
+  const syncStatus =
+    chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
+  const syncLabel =
+    chat.status === "active"
+      ? "Syncing from SQLite"
+      : chat.status === "interrupted"
+        ? "Last run was interrupted"
+        : "Cached in SQLite";
   setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
 }
 function rememberConversationViewport(conversationId) {
@@ -723,10 +805,7 @@ function finishChatSwitch(conversationId) {
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
-  const visibleMessages = [
-    ...messages,
-    ...pendingReplyMessages(chat.id, messages),
-  ];
+  const visibleMessages = [...messages, ...pendingReplyMessages(chat.id, messages)];
   state.selectedVisibleMessageCount = visibleMessages.length;
   const allowStreaming = chat.status === "active";
   const fingerprint = JSON.stringify([
@@ -739,11 +818,15 @@ function renderConversation(chat) {
   if (fingerprint !== state.selectedFingerprint) {
     const isInitial = state.renderedConversationId !== chat.id;
     const rememberedViewport = isInitial ? state.conversationViewports.get(chat.id) : null;
-    const viewportSnapshot = rememberedViewport || conversationRenderer.captureConversationViewport();
+    const viewportSnapshot =
+      rememberedViewport || conversationRenderer.captureConversationViewport();
     state.selectedFingerprint = fingerprint;
     conversationRenderer.renderMessageNodes(visibleMessages, allowStreaming);
     state.renderedConversationId = chat.id;
-    conversationRenderer.restoreConversationViewport(viewportSnapshot, isInitial && !rememberedViewport);
+    conversationRenderer.restoreConversationViewport(
+      viewportSnapshot,
+      isInitial && !rememberedViewport,
+    );
   }
   finishChatSwitch(chat.id);
   renderConversationMeta(chat, visibleMessages.length);
@@ -758,7 +841,9 @@ function renderConversation(chat) {
   syncSendButton();
   const pendingActivity = [...(state.pendingReplies.get(chat.id) || [])]
     .reverse()
-    .map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt))
+    .map((item) =>
+      pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt),
+    )
     .find(Boolean);
   if (pendingActivity) {
     setTextIfChanged(els.composerStatus, pendingActivity.statusText);
@@ -855,15 +940,22 @@ function renderNewChat() {
   if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
     state.newChatFingerprint = fingerprint;
     if (pending) {
-      const messages: any[] = [{
-        message_key: `pending-user-${pending.clientId || pending.sendId}`,
-        role: "user",
-        content: pending.message,
-        attachments: pending.attachments || [],
-        status: "complete",
-        updated_at: pending.updatedAt,
-      }];
-      const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
+      const messages: any[] = [
+        {
+          message_key: `pending-user-${pending.clientId || pending.sendId}`,
+          role: "user",
+          content: pending.message,
+          attachments: pending.attachments || [],
+          status: "complete",
+          updated_at: pending.updatedAt,
+        },
+      ];
+      const activity = pendingSendActivity(
+        pending.status,
+        Boolean(pending.sendId),
+        pending.retryAfterSeconds,
+        pending.retryAt,
+      );
       if (activity) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
@@ -912,18 +1004,21 @@ function renderNewChat() {
     updatePinButton();
     els.messageInput.placeholder = "Start a new chat…";
     const activity = pending
-      ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt)
+      ? pendingSendActivity(
+          pending.status,
+          Boolean(pending.sendId),
+          pending.retryAfterSeconds,
+          pending.retryAt,
+        )
       : null;
     setTextIfChanged(
       els.composerStatus,
       pending
-        ? (
-          ["failed", "dead_lettered"].includes(pending.status)
-            ? (pending.status === "dead_lettered"
-              ? "Send exhausted its retry budget. Retry to enqueue it again."
-              : "Send failed. The error is shown in the chat.")
-            : activity?.statusText || "Sent. Waiting for the cached response…"
-        )
+        ? ["failed", "dead_lettered"].includes(pending.status)
+          ? pending.status === "dead_lettered"
+            ? "Send exhausted its retry budget. Retry to enqueue it again."
+            : "Send failed. The error is shown in the chat."
+          : activity?.statusText || "Sent. Waiting for the cached response…"
         : "",
     );
   }
@@ -956,10 +1051,7 @@ async function fetchJson(url, timeoutMs = 10_000) {
 async function hydrateRecentChatCache() {
   let timeout: number | undefined;
   const cached = await Promise.race([
-    Promise.all([
-      recentChatCache.warm(),
-      recentChatCache.warmSummaries(),
-    ]),
+    Promise.all([recentChatCache.warm(), recentChatCache.warmSummaries()]),
     new Promise<null>((resolve) => {
       timeout = window.setTimeout(() => resolve(null), 500);
     }),
@@ -1002,7 +1094,9 @@ async function loadServerIdentity() {
   try {
     const payload = await fetchJson("api/health");
     setServerStatus(payload.server, payload.online);
-    const head = String(payload.head || "").trim().toLowerCase();
+    const head = String(payload.head || "")
+      .trim()
+      .toLowerCase();
     deploymentMonitor.observeHead(head);
     setTextIfChanged(els.headLabel, head ? head : "unknown");
     els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
@@ -1024,9 +1118,7 @@ async function loadChats(forceSelectedRefresh = false) {
     const orderScope = state.search;
     const preserveOrder = state.chatOrderScope === orderScope;
     const previousChats = preserveOrder ? state.chats : [];
-    const groupAnchors = new Map(
-      previousChats.map((chat) => [chat.id, sidebarGroupAt(chat)]),
-    );
+    const groupAnchors = new Map(previousChats.map((chat) => [chat.id, sidebarGroupAt(chat)]));
     state.chats = preserveSidebarChatOrder(previousChats, chats).map((chat) => ({
       ...chat,
       _sidebarGroupAt: groupAnchors.get(chat.id) || chatActivityAt(chat),
@@ -1044,12 +1136,12 @@ async function loadChats(forceSelectedRefresh = false) {
       state.selectedId = state.chats[0].id;
     }
     if (
-      state.selectedId
-      && !state.composingNew
-      && state.pendingNewId !== state.selectedId
-      && !state.chats.some((chat) => chat.id === state.selectedId)
-      && !state.search
-      && hashId !== state.selectedId
+      state.selectedId &&
+      !state.composingNew &&
+      state.pendingNewId !== state.selectedId &&
+      !state.chats.some((chat) => chat.id === state.selectedId) &&
+      !state.search &&
+      hashId !== state.selectedId
     ) {
       state.selectedId = state.chats[0]?.id || null;
       state.selectedFingerprint = "";
@@ -1085,7 +1177,11 @@ async function probeHistoricalActivity(conversationId) {
   if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status)) return;
   const now = Date.now();
   const lastProbeAt = Number(state.activityProbeAt.get(conversationId) || 0);
-  if (state.activityProbes.has(conversationId) || now - lastProbeAt < HISTORICAL_ACTIVITY_PROBE_TTL_MS) return;
+  if (
+    state.activityProbes.has(conversationId) ||
+    now - lastProbeAt < HISTORICAL_ACTIVITY_PROBE_TTL_MS
+  )
+    return;
 
   state.activityProbeAt.set(conversationId, now);
   state.activityProbes.add(conversationId);
@@ -1138,11 +1234,12 @@ function renderRecentChatSnapshot(conversationId) {
   }
   void recentChatCache.get(conversationId).then((chat) => {
     if (
-      !chat
-      || state.mode !== "chats"
-      || state.selectedId !== conversationId
-      || state.selectedChat?.id === conversationId
-    ) return;
+      !chat ||
+      state.mode !== "chats" ||
+      state.selectedId !== conversationId ||
+      state.selectedChat?.id === conversationId
+    )
+      return;
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
   });
@@ -1158,10 +1255,11 @@ async function loadSelectedChat() {
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
     if (
-      requestId !== state.selectedRequestId
-      || selectedId !== state.selectedId
-      || chat.id !== state.selectedId
-    ) return;
+      requestId !== state.selectedRequestId ||
+      selectedId !== state.selectedId ||
+      chat.id !== state.selectedId
+    )
+      return;
     if (state.pendingNewId === chat.id && !state.pendingNewSend) {
       state.pendingNewId = null;
     }
@@ -1202,9 +1300,7 @@ async function selectChat(id) {
   }
   rememberConversationViewport(state.selectedId);
   beginChatSwitch();
-  const pendingNew = state.pendingNewSend?.conversationId === id
-    ? state.pendingNewSend
-    : null;
+  const pendingNew = state.pendingNewSend?.conversationId === id ? state.pendingNewSend : null;
   state.composingNew = false;
   state.pendingNewId = pendingNew ? id : null;
   els.messageInput.placeholder = "Message Prompta…";
@@ -1227,8 +1323,8 @@ els.searchInput.addEventListener("input", () => {
   }, 140);
 });
 document.addEventListener("keydown", (event) => {
-  const typing = document.activeElement === els.searchInput
-    || document.activeElement === els.messageInput;
+  const typing =
+    document.activeElement === els.searchInput || document.activeElement === els.messageInput;
   if (event.key === "/" && !typing) {
     event.preventDefault();
     els.searchInput.focus();
@@ -1336,8 +1432,7 @@ async function runAtSlashCommand(command, originalMessage) {
   }
 }
 function pendingReply(conversationId, sendId) {
-  return (state.pendingReplies.get(conversationId) || [])
-    .find((item) => item.sendId === sendId);
+  return (state.pendingReplies.get(conversationId) || []).find((item) => item.sendId === sendId);
 }
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
@@ -1350,13 +1445,14 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.retryAttempt || 0,
   ]);
   Object.assign(item, updates);
-  const changed = JSON.stringify([
-    item.status || "",
-    item.error || "",
-    item.retryAfterSeconds || 0,
-    item.retryAt || 0,
-    item.retryAttempt || 0,
-  ]) !== previous;
+  const changed =
+    JSON.stringify([
+      item.status || "",
+      item.error || "",
+      item.retryAfterSeconds || 0,
+      item.retryAt || 0,
+      item.retryAttempt || 0,
+    ]) !== previous;
   if (changed) item.updatedAt = Date.now() / 1000;
   return changed;
 }
@@ -1398,10 +1494,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
           "Send status unavailable. Prompta may still be running it; reconnecting…",
         );
       }
-      await new Promise((resolve) => setTimeout(
-        resolve,
-        Math.min(5000, 250 * statusFailures),
-      ));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 250 * statusFailures)));
       continue;
     }
     const status = job.status || "running";
@@ -1416,12 +1509,13 @@ async function watchSend(sendId, creatingNew, conversationId) {
         completionNotifications.markActive(nextConversationId);
         promotePendingConversationPin(state.pendingNewSend, nextConversationId);
       }
-      const changed = state.pendingNewSend.status !== status
-        || state.pendingNewSend.error !== nextError
-        || state.pendingNewSend.conversationId !== nextConversationId
-        || state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds
-        || state.pendingNewSend.retryAt !== nextRetryAt
-        || state.pendingNewSend.retryAttempt !== nextRetryAttempt;
+      const changed =
+        state.pendingNewSend.status !== status ||
+        state.pendingNewSend.error !== nextError ||
+        state.pendingNewSend.conversationId !== nextConversationId ||
+        state.pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds ||
+        state.pendingNewSend.retryAt !== nextRetryAt ||
+        state.pendingNewSend.retryAttempt !== nextRetryAttempt;
       Object.assign(state.pendingNewSend, {
         status,
         error: nextError,
@@ -1491,9 +1585,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
       return;
     }
     if (["failed", "dead_lettered"].includes(status)) {
-      setTextIfChanged(els.composerStatus, status === "dead_lettered"
-        ? "Send exhausted its retry budget. Retry to enqueue it again."
-        : "Send failed. The error is shown in the chat.");
+      setTextIfChanged(
+        els.composerStatus,
+        status === "dead_lettered"
+          ? "Send exhausted its retry budget. Retry to enqueue it again."
+          : "Send failed. The error is shown in the chat.",
+      );
       return;
     }
   }
@@ -1502,7 +1599,10 @@ async function retryFailedSend(scope, retryKey) {
   if (!retryKey || state.sending) return;
   let pending = null;
   if (scope === "new") {
-    if (state.pendingNewSend && (state.pendingNewSend.clientId === retryKey || state.pendingNewSend.sendId === retryKey)) {
+    if (
+      state.pendingNewSend &&
+      (state.pendingNewSend.clientId === retryKey || state.pendingNewSend.sendId === retryKey)
+    ) {
       pending = state.pendingNewSend;
       state.pendingNewSend = null;
       state.newChatFingerprint = "";
@@ -1546,10 +1646,7 @@ async function stopSelectedChat() {
     await loadSelectedChat();
     await loadChats();
   } catch (error) {
-    setTextIfChanged(
-      els.composerStatus,
-      "Stop failed: " + String(error).replace(/^Error:\s*/, ""),
-    );
+    setTextIfChanged(els.composerStatus, "Stop failed: " + String(error).replace(/^Error:\s*/, ""));
     console.error(error);
   } finally {
     state.stopping = false;
@@ -1659,15 +1756,15 @@ async function sendSelectedMessage() {
   try {
     const result = creatingNew
       ? await postJson(
-        "api/chats",
-        { message, attachments: serializedAttachments, client_id: pending.clientId },
-        attachments.length ? 1 : 3,
-      )
+          "api/chats",
+          { message, attachments: serializedAttachments, client_id: pending.clientId },
+          attachments.length ? 1 : 3,
+        )
       : await postJson(
-        `api/chats/${encodeURIComponent(conversationId)}/messages`,
-        { message, attachments: serializedAttachments, client_id: pending.clientId },
-        attachments.length ? 1 : 3,
-      );
+          `api/chats/${encodeURIComponent(conversationId)}/messages`,
+          { message, attachments: serializedAttachments, client_id: pending.clientId },
+          attachments.length ? 1 : 3,
+        );
     if (!result.send_id) throw new Error("Prompta did not return a send id");
     if (!creatingNew) completionNotifications.markActive(conversationId);
     pending.sendId = result.send_id;
@@ -1742,7 +1839,9 @@ function updateSlashMenu() {
   const show = value.startsWith("/") && !value.includes("\n") && !value.includes(" ");
   let visible = 0;
   for (const button of candidates) {
-    const command = String(button.dataset.slashCommand || "").trim().toLowerCase();
+    const command = String(button.dataset.slashCommand || "")
+      .trim()
+      .toLowerCase();
     const matches = show && command.startsWith(firstToken);
     button.hidden = !matches;
     if (matches) visible += 1;
@@ -1777,14 +1876,17 @@ els.messageInput.addEventListener("input", () => {
 });
 els.messageInput.addEventListener("keydown", (event) => {
   if (!els.slashMenu.hidden && ["Tab", "ArrowDown"].includes(event.key)) {
-    const first = els.slashMenu.querySelector<HTMLButtonElement>("[data-slash-command]:not([hidden])");
+    const first = els.slashMenu.querySelector<HTMLButtonElement>(
+      "[data-slash-command]:not([hidden])",
+    );
     if (first) {
       event.preventDefault();
       insertSlashCommand(String(first.dataset.slashCommand || ""));
       return;
     }
   }
-  const mobileInput = matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
+  const mobileInput =
+    matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
     if (els.sendButton.dataset.action === "stop") stopSelectedChat();
@@ -1800,8 +1902,10 @@ function refreshDisplayedTimes() {
     state.newChatFingerprint = "";
     renderNewChat();
   } else if (
-    state.selectedId
-    && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status))
+    state.selectedId &&
+    (state.pendingReplies.get(state.selectedId) || []).some((item) =>
+      ["rate_limited", "retrying"].includes(item.status),
+    )
   ) {
     state.selectedFingerprint = "";
     void loadSelectedChat();
@@ -1810,17 +1914,19 @@ function refreshDisplayedTimes() {
   for (const time of els.chatList.querySelectorAll<HTMLElement>(".chat-time[data-activity-at]")) {
     setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
   }
-  for (const time of els.conversation.querySelectorAll<HTMLElement>(".message-timestamp[data-message-at]")) {
+  for (const time of els.conversation.querySelectorAll<HTMLElement>(
+    ".message-timestamp[data-message-at]",
+  )) {
     const age = time.querySelector<HTMLElement>(".message-age");
     if (!age) continue;
     const ageText = messageAgeText(Number(time.dataset.messageAt || 0));
     setTextIfChanged(age, ageText ? ` · ${ageText}` : "");
   }
   if (
-    state.mode === "chats"
-    && state.selectedChat
-    && state.selectedChat.id === state.selectedId
-    && !state.composingNew
+    state.mode === "chats" &&
+    state.selectedChat &&
+    state.selectedChat.id === state.selectedId &&
+    !state.composingNew
   ) {
     renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
   }

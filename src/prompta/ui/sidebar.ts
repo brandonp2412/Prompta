@@ -94,7 +94,7 @@ export function createSidebar({ onMotionEnd }) {
 
   function applyDragPosition(x) {
     const width = swipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
-    swipe.progress = Math.max(0, Math.min(1, 1 + (x / width)));
+    swipe.progress = Math.max(0, Math.min(1, 1 + x / width));
     els.sidebar.style.transform = `translate3d(${x}px, 0, 0)`;
     els.sidebarScrim.style.opacity = String(swipe.progress);
   }
@@ -155,67 +155,83 @@ export function createSidebar({ onMotionEnd }) {
     if (event.propertyName === "transform") endMotion();
   });
 
-  document.addEventListener("touchstart", (event) => {
-    if (!mobileEnabled() || event.touches.length !== 1) return;
-    resetDragStyles();
-    const touch = event.touches[0];
-    const sidebarOpen = isOpen();
-    if (!sidebarOpen && touch.clientX > 144) return;
-    swipe.startX = touch.clientX;
-    swipe.startY = touch.clientY;
-    swipe.lastX = touch.clientX;
-    swipe.lastTime = performance.now();
-    swipe.velocityX = 0;
-    swipe.sidebarWidth = els.sidebar.getBoundingClientRect().width;
-    swipe.progress = sidebarOpen ? 1 : 0;
-    swipe.wasOpen = sidebarOpen;
-    swipe.tracking = true;
-    swipe.directionLocked = false;
-    swipe.horizontal = false;
-    swipe.pendingX = sidebarOpen ? 0 : -swipe.sidebarWidth;
-  }, { passive: true });
+  document.addEventListener(
+    "touchstart",
+    (event) => {
+      if (!mobileEnabled() || event.touches.length !== 1) return;
+      resetDragStyles();
+      const touch = event.touches[0];
+      const sidebarOpen = isOpen();
+      if (!sidebarOpen && touch.clientX > 144) return;
+      swipe.startX = touch.clientX;
+      swipe.startY = touch.clientY;
+      swipe.lastX = touch.clientX;
+      swipe.lastTime = performance.now();
+      swipe.velocityX = 0;
+      swipe.sidebarWidth = els.sidebar.getBoundingClientRect().width;
+      swipe.progress = sidebarOpen ? 1 : 0;
+      swipe.wasOpen = sidebarOpen;
+      swipe.tracking = true;
+      swipe.directionLocked = false;
+      swipe.horizontal = false;
+      swipe.pendingX = sidebarOpen ? 0 : -swipe.sidebarWidth;
+    },
+    { passive: true },
+  );
 
-  document.addEventListener("touchmove", (event) => {
-    if (!swipe.tracking || event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    const deltaX = touch.clientX - swipe.startX;
-    const deltaY = touch.clientY - swipe.startY;
-    if (!swipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
-      swipe.directionLocked = true;
-      swipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
-      if (swipe.horizontal) {
-        beginMotion();
-        els.sidebar.style.transition = "none";
-        els.sidebarScrim.style.transition = "none";
+  document.addEventListener(
+    "touchmove",
+    (event) => {
+      if (!swipe.tracking || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - swipe.startX;
+      const deltaY = touch.clientY - swipe.startY;
+      if (!swipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
+        swipe.directionLocked = true;
+        swipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+        if (swipe.horizontal) {
+          beginMotion();
+          els.sidebar.style.transition = "none";
+          els.sidebarScrim.style.transition = "none";
+        }
       }
-    }
-    if (!swipe.horizontal) return;
-    const width = swipe.sidebarWidth;
-    const startX = swipe.wasOpen ? 0 : -width;
-    const x = Math.max(-width, Math.min(0, startX + deltaX));
-    const now = performance.now();
-    const elapsed = Math.max(1, now - swipe.lastTime);
-    swipe.velocityX = (touch.clientX - swipe.lastX) / elapsed;
-    swipe.lastX = touch.clientX;
-    swipe.lastTime = now;
-    queueDragPosition(x);
-  }, { passive: true });
+      if (!swipe.horizontal) return;
+      const width = swipe.sidebarWidth;
+      const startX = swipe.wasOpen ? 0 : -width;
+      const x = Math.max(-width, Math.min(0, startX + deltaX));
+      const now = performance.now();
+      const elapsed = Math.max(1, now - swipe.lastTime);
+      swipe.velocityX = (touch.clientX - swipe.lastX) / elapsed;
+      swipe.lastX = touch.clientX;
+      swipe.lastTime = now;
+      queueDragPosition(x);
+    },
+    { passive: true },
+  );
 
-  document.addEventListener("touchend", () => {
-    if (!swipe.tracking) return;
-    if (swipe.horizontal) {
-      const fastOpen = swipe.velocityX > 0.35;
-      const fastClose = swipe.velocityX < -0.35;
-      const shouldOpen = fastOpen || (!fastClose && swipe.progress >= 0.5);
-      settleDrag(shouldOpen);
-    }
-    swipe.tracking = false;
-  }, { passive: true });
+  document.addEventListener(
+    "touchend",
+    () => {
+      if (!swipe.tracking) return;
+      if (swipe.horizontal) {
+        const fastOpen = swipe.velocityX > 0.35;
+        const fastClose = swipe.velocityX < -0.35;
+        const shouldOpen = fastOpen || (!fastClose && swipe.progress >= 0.5);
+        settleDrag(shouldOpen);
+      }
+      swipe.tracking = false;
+    },
+    { passive: true },
+  );
 
-  document.addEventListener("touchcancel", () => {
-    if (swipe.tracking && swipe.horizontal) settleDrag(swipe.wasOpen);
-    swipe.tracking = false;
-  }, { passive: true });
+  document.addEventListener(
+    "touchcancel",
+    () => {
+      if (swipe.tracking && swipe.horizontal) settleDrag(swipe.wasOpen);
+      swipe.tracking = false;
+    },
+    { passive: true },
+  );
 
   return { open, close, isMoving };
 }

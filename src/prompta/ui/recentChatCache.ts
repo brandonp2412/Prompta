@@ -64,9 +64,7 @@ export class RecentChatCache {
   }
 
   rememberSummaries(chats: any[]) {
-    const summaries = chats
-      .filter((chat) => String(chat?.id || ""))
-      .slice(0, SUMMARY_LIMIT);
+    const summaries = chats.filter((chat) => String(chat?.id || "")).slice(0, SUMMARY_LIMIT);
     void this.persistSummaries(summaries);
   }
 
@@ -156,7 +154,9 @@ export class RecentChatCache {
       allRequest.onsuccess = () => {
         const records = (allRequest.result || [])
           .filter((record: CachedChatRecord) => record.scope === this.scope)
-          .sort((left: CachedChatRecord, right: CachedChatRecord) => right.accessedAt - left.accessedAt);
+          .sort(
+            (left: CachedChatRecord, right: CachedChatRecord) => right.accessedAt - left.accessedAt,
+          );
         for (const record of records.slice(this.limit)) store.delete(record.key);
       };
       transaction.oncomplete = () => resolve();
@@ -176,7 +176,10 @@ export class RecentChatCache {
       const allRequest = store.getAll();
       allRequest.onsuccess = () => {
         for (const record of allRequest.result || []) {
-          if (record.scope === this.scope && !retainedIds.has(String(record.conversationId || ""))) {
+          if (
+            record.scope === this.scope &&
+            !retainedIds.has(String(record.conversationId || ""))
+          ) {
             store.delete(record.key);
           }
         }

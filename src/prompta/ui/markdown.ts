@@ -19,24 +19,69 @@ function escapeHtml(value) {
 }
 
 const LANGUAGE_ALIASES = {
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "typescript", py: "python",
-  sh: "bash", shell: "bash", zsh: "bash", yml: "yaml",
-  c: "cpp", cxx: "cpp", h: "cpp", hpp: "cpp",
-  html: "markup", xml: "markup", svg: "markup", md: "markdown",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  ts: "typescript",
+  tsx: "typescript",
+  py: "python",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  yml: "yaml",
+  c: "cpp",
+  cxx: "cpp",
+  h: "cpp",
+  hpp: "cpp",
+  html: "markup",
+  xml: "markup",
+  svg: "markup",
+  md: "markdown",
 };
 const CODE_KEYWORDS = {
-  javascript: new Set("as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(" ")),
-  typescript: new Set("abstract any as async await boolean break case catch class const constructor continue declare default do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let namespace never new null number object of private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while yield".split(" ")),
-  python: new Set("and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield".split(" ")),
-  bash: new Set("case do done elif else esac export fi for function if in local readonly return select then time until while".split(" ")),
-  cpp: new Set("auto bool break case catch char class const constexpr continue default delete do double else enum explicit extern false float for friend if inline int long namespace new nullptr operator private protected public return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while".split(" ")),
-  dart: new Set("abstract as assert async await break case catch class const continue default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null of on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield".split(" ")),
-  sql: new Set("ADD ALL ALTER AND ANY AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY RIGHT SELECT SET TABLE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH".split(" ")),
+  javascript: new Set(
+    "as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(
+      " ",
+    ),
+  ),
+  typescript: new Set(
+    "abstract any as async await boolean break case catch class const constructor continue declare default do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let namespace never new null number object of private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while yield".split(
+      " ",
+    ),
+  ),
+  python: new Set(
+    "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield".split(
+      " ",
+    ),
+  ),
+  bash: new Set(
+    "case do done elif else esac export fi for function if in local readonly return select then time until while".split(
+      " ",
+    ),
+  ),
+  cpp: new Set(
+    "auto bool break case catch char class const constexpr continue default delete do double else enum explicit extern false float for friend if inline int long namespace new nullptr operator private protected public return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while".split(
+      " ",
+    ),
+  ),
+  dart: new Set(
+    "abstract as assert async await break case catch class const continue default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null of on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield".split(
+      " ",
+    ),
+  ),
+  sql: new Set(
+    "ADD ALL ALTER AND ANY AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY RIGHT SELECT SET TABLE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH".split(
+      " ",
+    ),
+  ),
   json: new Set(["true", "false", "null"]),
 };
 function normalizeLanguage(language) {
-  const raw = String(language || "").trim().toLowerCase().split(/\s+/)[0];
+  const raw = String(language || "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)[0];
   return LANGUAGE_ALIASES[raw] || raw || "code";
 }
 function syntaxToken(className, value) {
@@ -99,7 +144,9 @@ function highlightCode(raw, language) {
       index = cursor;
       continue;
     }
-    const number = source.slice(index).match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
+    const number = source
+      .slice(index)
+      .match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
     if (number) {
       html += syntaxToken("number", number[0]);
       index += number[0].length;
@@ -132,15 +179,16 @@ function inlineMarkdown(text) {
     placeholders.push([token, html]);
     return token;
   };
-  source = replaceChatGptRichMarkers(source, (label, url) => stash(
-    `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
-  ));
-  source = source.replace(/`([^`\n]+)`/g, (_, code) => (
-    stash(`<code class="inline-code">${escapeHtml(code)}</code>`)
-  ));
-  source = source.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g,
-    (_, label, url) => stash(
+  source = replaceChatGptRichMarkers(source, (label, url) =>
+    stash(
+      `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
+    ),
+  );
+  source = source.replace(/`([^`\n]+)`/g, (_, code) =>
+    stash(`<code class="inline-code">${escapeHtml(code)}</code>`),
+  );
+  source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) =>
+    stash(
       `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`,
     ),
   );
@@ -153,7 +201,11 @@ function inlineMarkdown(text) {
   return html;
 }
 function splitTableRow(line) {
-  return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+  return line
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
 }
 function renderListItem(content) {
   const task = content.match(/^\[([ xX])\]\s+(.+)$/);
@@ -186,10 +238,7 @@ function renderListBlock(lines, startIndex, baseIndent = null) {
       if (!items.length) break;
       const nested = renderListBlock(lines, index, current.indent);
       if (!nested.html || nested.index === index) break;
-      items[items.length - 1] = items[items.length - 1].replace(
-        /<\/li>$/,
-        `${nested.html}</li>`,
-      );
+      items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${nested.html}</li>`);
       index = nested.index;
       continue;
     }
@@ -199,17 +248,18 @@ function renderListBlock(lines, startIndex, baseIndent = null) {
   return { html: `<${tag}>${items.join("")}</${tag}>`, index };
 }
 function renderTextBlock(text) {
-  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  const lines = String(text || "")
+    .replace(/\r/g, "")
+    .split("\n");
   const out = [];
   let index = 0;
-  const startsBlock = (line, next = "") => (
-    !line.trim()
-    || /^(#{1,6})\s+/.test(line)
-    || /^\s*([-+*]|\d+[.)])\s+/.test(line)
-    || /^\s*>\s?/.test(line)
-    || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)
-    || (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next))
-  );
+  const startsBlock = (line, next = "") =>
+    !line.trim() ||
+    /^(#{1,6})\s+/.test(line) ||
+    /^\s*([-+*]|\d+[.)])\s+/.test(line) ||
+    /^\s*>\s?/.test(line) ||
+    /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) ||
+    (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next));
   while (index < lines.length) {
     const line = lines[index];
     const next = lines[index + 1] || "";
@@ -242,14 +292,26 @@ function renderTextBlock(text) {
         rows.push(splitTableRow(lines[index]));
         index += 1;
       }
-      const tableScrollClass = headers.length >= 3 ? "table-scroll table-scroll-wide" : "table-scroll";
-      out.push(`<div class="${tableScrollClass}"><table><thead><tr>${headers.map((cell, column) => (
-        `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`
-      )).join("")}</tr></thead><tbody>${rows.map((row) => (
-        `<tr>${headers.map((_, column) => (
-          `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`
-        )).join("")}</tr>`
-      )).join("")}</tbody></table></div>`);
+      const tableScrollClass =
+        headers.length >= 3 ? "table-scroll table-scroll-wide" : "table-scroll";
+      out.push(
+        `<div class="${tableScrollClass}"><table><thead><tr>${headers
+          .map(
+            (cell, column) =>
+              `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`,
+          )
+          .join("")}</tr></thead><tbody>${rows
+          .map(
+            (row) =>
+              `<tr>${headers
+                .map(
+                  (_, column) =>
+                    `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`,
+                )
+                .join("")}</tr>`,
+          )
+          .join("")}</tbody></table></div>`,
+      );
       continue;
     }
     if (/^\s*>\s?/.test(line)) {
@@ -301,30 +363,31 @@ function renderCodeBlock(code, language) {
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
   const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
   const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
-  const toolTimeText = toolTimestamp === null
-    ? ""
-    : formatClockTime12Hour(toolTimestamp, true);
-  const toolTime = toolTimestamp === null
-    ? ""
-    : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml(toolTimeText)}</time>`;
-  const renderedCode = pythonCode
-    || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
+  const toolTimeText = toolTimestamp === null ? "" : formatClockTime12Hour(toolTimestamp, true);
+  const toolTime =
+    toolTimestamp === null
+      ? ""
+      : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml(toolTimeText)}</time>`;
+  const renderedCode =
+    pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
   const highlightLanguage = pythonCode
     ? "python"
     : toolish
-      ? ((trimmedCode.startsWith("{") || trimmedCode.startsWith("[")) ? "json" : "code")
+      ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[")
+        ? "json"
+        : "code"
       : normalized;
-  const label = pythonCode ? "python" : (toolish ? "tool call" : (rawLanguage || "code"));
+  const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
   const copyButton = renderedCode.trim()
     ? '<button type="button" class="copy-code">copy</button>'
     : "";
   const collapsedLabel = toolish && toolName ? toolName : label;
   const header = toolish
-    ? (toolSummary
+    ? toolSummary
       ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>${toolTime}`
       : `
         <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml(collapsedLabel)}</span>
-        ${toolTime}`)
+        ${toolTime}`
     : `
       <span class="code-language">${escapeHtml(label)}</span>
       ${copyButton}`;
@@ -333,13 +396,15 @@ function renderCodeBlock(code, language) {
     : "";
   if (toolish) {
     const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
-    const expandedAction = toolIdentityParts.length > 1
-      ? toolIdentityParts[toolIdentityParts.length - 1]
-      : toolName;
-    const expandedConnector = toolIdentityParts.length > 1
-      ? toolIdentityParts.slice(0, -1).join(" · ")
-      : "";
-    const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction, expandedConnector)
+    const expandedAction =
+      toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
+    const expandedConnector =
+      toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
+    const expandedToolHeader = expandedToolMetaAddsInformation(
+      toolSummary,
+      expandedAction,
+      expandedConnector,
+    )
       ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";
     return `

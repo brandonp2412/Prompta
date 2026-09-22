@@ -94,31 +94,37 @@ describe("completion notifications", () => {
     const completion = notifications();
 
     completion.trackCompletions([{ id: "chat-1", status: "active", title: "Roadmap" }]);
-    completion.trackCompletions([{
-      id: "chat-1",
-      status: "complete",
-      title: "Roadmap",
-      completed_at: 100,
-    }]);
+    completion.trackCompletions([
+      {
+        id: "chat-1",
+        status: "complete",
+        title: "Roadmap",
+        completed_at: 100,
+      },
+    ]);
     await settle();
 
     expect(browser.shown).toHaveLength(1);
     expect(browser.shown[0].title).toBe("Prompta · GLASS");
     expect(browser.shown[0].options.body).toBe("Roadmap finished");
 
-    completion.trackCompletions([{
-      id: "chat-1",
-      status: "complete",
-      title: "Roadmap",
-      completed_at: 100,
-    }]);
+    completion.trackCompletions([
+      {
+        id: "chat-1",
+        status: "complete",
+        title: "Roadmap",
+        completed_at: 100,
+      },
+    ]);
     completion.markActive("chat-1");
-    completion.trackCompletions([{
-      id: "chat-1",
-      status: "complete",
-      title: "Roadmap",
-      completed_at: 100,
-    }]);
+    completion.trackCompletions([
+      {
+        id: "chat-1",
+        status: "complete",
+        title: "Roadmap",
+        completed_at: 100,
+      },
+    ]);
     await settle();
 
     expect(browser.shown).toHaveLength(1);
@@ -129,12 +135,14 @@ describe("completion notifications", () => {
     const completion = notifications();
 
     completion.markActive("chat-fast");
-    completion.trackCompletions([{
-      id: "chat-fast",
-      status: "complete",
-      title: "Fast run",
-      completed_at: 200,
-    }]);
+    completion.trackCompletions([
+      {
+        id: "chat-fast",
+        status: "complete",
+        title: "Fast run",
+        completed_at: 200,
+      },
+    ]);
     await settle();
 
     expect(browser.shown).toHaveLength(1);
@@ -147,12 +155,14 @@ describe("completion notifications", () => {
 
     const permission = completion.requestPermissionFromGesture();
     completion.markActive("chat-permission");
-    completion.trackCompletions([{
-      id: "chat-permission",
-      status: "complete",
-      title: "Permission run",
-      completed_at: 300,
-    }]);
+    completion.trackCompletions([
+      {
+        id: "chat-permission",
+        status: "complete",
+        title: "Permission run",
+        completed_at: 300,
+      },
+    ]);
     await settle();
 
     expect(browser.shown).toHaveLength(0);

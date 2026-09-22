@@ -68,11 +68,7 @@ describe("sidebar ordering", () => {
   });
 
   test("puts genuinely new chats ahead without shuffling retained chats", () => {
-    const previous = [
-      { id: "chat-a" },
-      { id: "chat-b" },
-      { id: "chat-c" },
-    ];
+    const previous = [{ id: "chat-a" }, { id: "chat-b" }, { id: "chat-c" }];
     const incoming = [
       { id: "new-2" },
       { id: "chat-c" },
@@ -155,9 +151,7 @@ describe("optimistic new-chat reconciliation", () => {
 
   test("prefers the conversation id once the send job has it", () => {
     const matched = matchingOptimisticConversation(
-      [
-        { id: "WEB:real-chat", prompt: "server prompt", created_at: 500 },
-      ],
+      [{ id: "WEB:real-chat", prompt: "server prompt", created_at: 500 }],
       {
         conversationId: "WEB:real-chat",
         message: "client prompt",
@@ -170,9 +164,7 @@ describe("optimistic new-chat reconciliation", () => {
 
   test("does not guess from duplicate prompt text when server timing is missing", () => {
     const matched = matchingOptimisticConversation(
-      [
-        { id: "WEB:unknown-age", prompt: "fix the sidebar" },
-      ],
+      [{ id: "WEB:unknown-age", prompt: "fix the sidebar" }],
       {
         message: "fix the sidebar",
         createdAt: 1_000,
@@ -222,16 +214,18 @@ describe("pending new-chat view rendering", () => {
   test("still skips redundant renders while already viewing the same pending chat", () => {
     const fingerprint = '["send-1","hello","running"]';
     expect(shouldRenderNewChatView(false, fingerprint, fingerprint)).toBe(false);
-    expect(shouldRenderNewChatView(false, fingerprint, 'older')).toBe(true);
+    expect(shouldRenderNewChatView(false, fingerprint, "older")).toBe(true);
   });
 });
 
 describe("pending chat pin promotion", () => {
   test("uses the optimistic pending id before ChatGPT assigns a conversation id", () => {
-    expect(pendingConversationDisplayId({
-      clientId: "client-1",
-      conversationId: "",
-    })).toBe("pending-new-client-1");
+    expect(
+      pendingConversationDisplayId({
+        clientId: "client-1",
+        conversationId: "",
+      }),
+    ).toBe("pending-new-client-1");
   });
 
   test("moves a pending pin to the real ChatGPT conversation id", () => {
@@ -370,15 +364,14 @@ describe("pending send activity", () => {
 
 describe("POST request recovery", () => {
   test("times out a stalled request instead of hanging forever", async () => {
-    const stalledFetch = ((_: RequestInfo | URL, init?: RequestInit) => (
+    const stalledFetch = ((_: RequestInfo | URL, init?: RequestInit) =>
       new Promise<Response>((_, reject) => {
         init?.signal?.addEventListener(
           "abort",
           () => reject(new DOMException("Aborted", "AbortError")),
           { once: true },
         );
-      })
-    )) as typeof fetch;
+      })) as typeof fetch;
 
     await expect(
       postJsonRequest("api/chats", { message: "hello" }, 1, 10, stalledFetch),
@@ -409,12 +402,11 @@ describe("POST request recovery", () => {
   });
 
   test("rejects malformed JSON from a successful response", async () => {
-    const malformedFetch = (async () => (
+    const malformedFetch = (async () =>
       new Response("not json", {
         status: 202,
         headers: { "Content-Type": "application/json" },
-      })
-    )) as typeof fetch;
+      })) as typeof fetch;
 
     await expect(
       postJsonRequest("api/chats", { message: "hello" }, 1, 1_000, malformedFetch),
@@ -555,8 +547,6 @@ describe("optimistic reply reconciliation", () => {
   });
 });
 
-
-
 describe("selected chat refresh", () => {
   const summary = { status: "complete", updated_at: 123 };
 
@@ -569,7 +559,9 @@ describe("selected chat refresh", () => {
   });
 
   test("refreshes when status or timestamp says the cached detail may be stale", () => {
-    expect(shouldRefreshSelectedChat({ status: "active", updated_at: 123 }, 123, "fingerprint")).toBe(true);
+    expect(
+      shouldRefreshSelectedChat({ status: "active", updated_at: 123 }, 123, "fingerprint"),
+    ).toBe(true);
     expect(shouldRefreshSelectedChat(summary, 122, "fingerprint")).toBe(true);
     expect(shouldRefreshSelectedChat(summary, 123, "")).toBe(true);
   });
@@ -676,7 +668,6 @@ describe("/add", () => {
   });
 });
 
-
 describe("/at", () => {
   const now = new Date(2026, 8, 20, 16, 0, 0);
 
@@ -731,35 +722,34 @@ describe("/at", () => {
   });
 });
 
-
 describe("sidebar previews", () => {
   test("removes fenced tool activity while keeping useful prose", () => {
-    expect(sidebarPreviewText(
-      "Fixed ```tool:Open tool call list Open tool call list ```",
-    )).toBe("Fixed");
+    expect(sidebarPreviewText("Fixed ```tool:Open tool call list Open tool call list ```")).toBe(
+      "Fixed",
+    );
   });
 
   test("removes multiline tool fences and normalizes whitespace", () => {
-    expect(sidebarPreviewText(
-      "Before  ```tool-call: shell\n{\"cmd\":\"true\"}\n```  after",
-    )).toBe("Before after");
+    expect(sidebarPreviewText('Before  ```tool-call: shell\n{"cmd":"true"}\n```  after')).toBe(
+      "Before after",
+    );
   });
 });
 
-
-  test("falls back to the original prompt when the latest message is tool-only", () => {
-    expect(sidebarChatPreviewText(
-      "```tool:Nox Python MCP · execute_python\n{\"arguments\":{}}\n```",
+test("falls back to the original prompt when the latest message is tool-only", () => {
+  expect(
+    sidebarChatPreviewText(
+      '```tool:Nox Python MCP · execute_python\n{"arguments":{}}\n```',
       "Fix the chat sidebar preview",
-    )).toBe("Fix the chat sidebar preview");
-  });
+    ),
+  ).toBe("Fix the chat sidebar preview");
+});
 
-  test("prefers real assistant prose over the original prompt", () => {
-    expect(sidebarChatPreviewText(
-      "Working on it ```tool:Shell\n{}\n```",
-      "Fix the chat sidebar preview",
-    )).toBe("Working on it");
-  });
+test("prefers real assistant prose over the original prompt", () => {
+  expect(
+    sidebarChatPreviewText("Working on it ```tool:Shell\n{}\n```", "Fix the chat sidebar preview"),
+  ).toBe("Working on it");
+});
 
 describe("tool call display cleanup", () => {
   test("drops ChatGPT tool-list chrome instead of presenting it as a tool", () => {
@@ -775,16 +765,24 @@ describe("tool call display cleanup", () => {
   });
 
   test("extracts ChatGPT reasoning titles for collapsed tool summaries", () => {
-    expect(toolCallSummary(JSON.stringify({
-      summary: "Inspecting Tool Call Ordering in ChatGPT DOM",
-      arguments: { pageId: 5 },
-    }))).toBe("Inspecting Tool Call Ordering in ChatGPT DOM");
+    expect(
+      toolCallSummary(
+        JSON.stringify({
+          summary: "Inspecting Tool Call Ordering in ChatGPT DOM",
+          arguments: { pageId: 5 },
+        }),
+      ),
+    ).toBe("Inspecting Tool Call Ordering in ChatGPT DOM");
     expect(toolCallSummary(JSON.stringify({ arguments: { pageId: 5 } }))).toBe("");
   });
 
   test("extracts tool call timestamps in seconds or milliseconds", () => {
-    expect(toolCallTimestampMillis(JSON.stringify({ created_at: 1_700_000_000 }))).toBe(1_700_000_000_000);
-    expect(toolCallTimestampMillis(JSON.stringify({ timestamp: 1_700_000_000_123 }))).toBe(1_700_000_000_123);
+    expect(toolCallTimestampMillis(JSON.stringify({ created_at: 1_700_000_000 }))).toBe(
+      1_700_000_000_000,
+    );
+    expect(toolCallTimestampMillis(JSON.stringify({ timestamp: 1_700_000_000_123 }))).toBe(
+      1_700_000_000_123,
+    );
     expect(toolCallTimestampMillis(JSON.stringify({ created_at: 1e30 }))).toBeNull();
     expect(toolCallTimestampMillis(JSON.stringify({ arguments: { pageId: 5 } }))).toBeNull();
   });
@@ -806,10 +804,12 @@ describe("tool call display cleanup", () => {
       status: "completed",
     });
 
-    expect(pythonToolCallCode("Nox Python MCP · execute_python", nox))
-      .toBe("from pathlib import Path\nprint(Path.cwd())");
-    expect(pythonToolCallCode("Glass · execute_python", glass))
-      .toBe("import socket\nprint(socket.gethostname())");
+    expect(pythonToolCallCode("Nox Python MCP · execute_python", nox)).toBe(
+      "from pathlib import Path\nprint(Path.cwd())",
+    );
+    expect(pythonToolCallCode("Glass · execute_python", glass)).toBe(
+      "import socket\nprint(socket.gethostname())",
+    );
   });
 
   test("strips leading blank lines from Python MCP code for display only", () => {
@@ -819,18 +819,20 @@ describe("tool call display cleanup", () => {
       },
     });
 
-    expect(pythonToolCallCode("Nox Python MCP · execute_python", payload))
-      .toBe("  print('keeps indentation')\n");
+    expect(pythonToolCallCode("Nox Python MCP · execute_python", payload)).toBe(
+      "  print('keeps indentation')\n",
+    );
   });
 
   test("does not reinterpret non-Python MCP JSON as Python", () => {
-    expect(pythonToolCallCode(
-      "GitHub · get_issue",
-      JSON.stringify({ arguments: { code: "not python" } }),
-    )).toBe("");
+    expect(
+      pythonToolCallCode(
+        "GitHub · get_issue",
+        JSON.stringify({ arguments: { code: "not python" } }),
+      ),
+    ).toBe("");
   });
 });
-
 
 describe("ChatGPT rich-text markers", () => {
   const start = "\uE200";
@@ -839,10 +841,7 @@ describe("ChatGPT rich-text markers", () => {
 
   test("turns native URL markers into renderer-controlled links", () => {
     const input = `Deployed ${start}url${sep}Commit e5612bc${sep}https://github.com/example/prompta/commit/e5612bc${end}.`;
-    expect(replaceChatGptRichMarkers(
-      input,
-      (label, url) => `<a href="${url}">${label}</a>`,
-    )).toBe(
+    expect(replaceChatGptRichMarkers(input, (label, url) => `<a href="${url}">${label}</a>`)).toBe(
       'Deployed <a href="https://github.com/example/prompta/commit/e5612bc">Commit e5612bc</a>.',
     );
   });

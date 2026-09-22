@@ -15,9 +15,7 @@ function escapeHtml(value) {
 
 function truncate(value, length = 88) {
   const text = String(value || "");
-  return text.length > length
-    ? text.slice(0, Math.max(1, length - 1)).trimEnd() + "…"
-    : text;
+  return text.length > length ? text.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : text;
 }
 
 function patchDomNode(current, next) {
@@ -29,7 +27,11 @@ function patchDomNode(current, next) {
     if (current.textContent !== next.textContent) current.textContent = next.textContent;
     return;
   }
-  if (!(current instanceof Element) || !(next instanceof Element) || current.tagName !== next.tagName) {
+  if (
+    !(current instanceof Element) ||
+    !(next instanceof Element) ||
+    current.tagName !== next.tagName
+  ) {
     current.replaceWith(next.cloneNode(true));
     return;
   }
@@ -45,7 +47,7 @@ function patchDomNode(current, next) {
 }
 
 function domPatchKey(node) {
-  return node instanceof Element ? (node.getAttribute("data-dom-key") || "") : "";
+  return node instanceof Element ? node.getAttribute("data-dom-key") || "" : "";
 }
 
 function patchDomChildren(currentParent, nextParent) {
@@ -93,12 +95,28 @@ export function createAttachmentPicker({ onChange, setStatus }) {
 
   function render() {
     els.chips.hidden = files.length === 0;
-    patchHtmlChildren(els.chips, files.map((file, index) => (
-      '<span class="attachment-chip" data-dom-key="attachment:' + index + ':' + escapeHtml(file.name) + '">'
-      + '<span title="' + escapeHtml(file.name) + '">' + escapeHtml(truncate(file.name, 28)) + '</span>'
-      + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>'
-      + '</span>'
-    )).join(""));
+    patchHtmlChildren(
+      els.chips,
+      files
+        .map(
+          (file, index) =>
+            '<span class="attachment-chip" data-dom-key="attachment:' +
+            index +
+            ":" +
+            escapeHtml(file.name) +
+            '">' +
+            '<span title="' +
+            escapeHtml(file.name) +
+            '">' +
+            escapeHtml(truncate(file.name, 28)) +
+            "</span>" +
+            '<button type="button" data-remove-attachment="' +
+            index +
+            '" aria-label="Remove attachment">×</button>' +
+            "</span>",
+        )
+        .join(""),
+    );
     onChange();
   }
 
@@ -122,11 +140,12 @@ export function createAttachmentPicker({ onChange, setStatus }) {
     const current = [...files];
     for (const file of nextFiles) {
       if (current.length >= 5) break;
-      const duplicate = current.some((existing) => (
-        existing.name === file.name
-        && existing.size === file.size
-        && existing.lastModified === file.lastModified
-      ));
+      const duplicate = current.some(
+        (existing) =>
+          existing.name === file.name &&
+          existing.size === file.size &&
+          existing.lastModified === file.lastModified,
+      );
       if (!duplicate) current.push(file);
     }
     files = current;
@@ -170,7 +189,9 @@ export function createAttachmentPicker({ onChange, setStatus }) {
     els.menu.hidden = !els.menu.hidden;
   });
   els.menu.addEventListener("click", (event) => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-attachment-kind]");
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      "[data-attachment-kind]",
+    );
     if (!button) return;
     els.menu.hidden = true;
     const kind = button.dataset.attachmentKind;
@@ -186,7 +207,9 @@ export function createAttachmentPicker({ onChange, setStatus }) {
     });
   }
   els.chips.addEventListener("click", (event) => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-attachment]");
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      "[data-remove-attachment]",
+    );
     if (!button) return;
     const index = Number(button.dataset.removeAttachment);
     if (!Number.isInteger(index)) return;

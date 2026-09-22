@@ -26,7 +26,9 @@ export function createDeploymentMonitor({
   }
 
   function observeHead(value) {
-    const nextHead = String(value || "").trim().toLowerCase();
+    const nextHead = String(value || "")
+      .trim()
+      .toLowerCase();
     if (!nextHead) return;
     if (!head) {
       head = nextHead;

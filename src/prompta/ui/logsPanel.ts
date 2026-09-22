@@ -23,9 +23,8 @@ export function createLogsPanel({ fetchJson, formatRelativeTime }) {
   function render(payload) {
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
     const nextFingerprint = JSON.stringify([payload.updated_at, lines]);
-    const wasNearBottom = els.viewport.scrollHeight
-      - els.viewport.scrollTop
-      - els.viewport.clientHeight < 120;
+    const wasNearBottom =
+      els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
     const isInitial = !fingerprint;
     if (nextFingerprint !== fingerprint) {
       fingerprint = nextFingerprint;

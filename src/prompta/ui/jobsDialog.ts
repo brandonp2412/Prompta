@@ -1,4 +1,8 @@
-import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest as postJson } from "./clientLogic";
+import {
+  formatClockTime12Hour,
+  formatDailyTime12Hour,
+  postJsonRequest as postJson,
+} from "./clientLogic";
 
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -116,10 +120,11 @@ export function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton 
       els.jobsList.innerHTML = '<div class="jobs-empty">No scheduled jobs.</div>';
       return;
     }
-    els.jobsList.innerHTML = scheduledJobs.map((job) => {
-      const paused = Boolean(job.paused);
-      const canEdit = !job.run_at_epoch;
-      return `
+    els.jobsList.innerHTML = scheduledJobs
+      .map((job) => {
+        const paused = Boolean(job.paused);
+        const canEdit = !job.run_at_epoch;
+        return `
         <article class="job-row" data-job-name="${escapeHtml(job.name)}">
           <div class="job-row-top">
             <div>
@@ -136,7 +141,8 @@ export function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton 
           </div>
         </article>
       `;
-    }).join("");
+      })
+      .join("");
   }
 
   async function loadJobs() {

@@ -40,9 +40,12 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
       const payload = await fetchJson("api/changelog");
       const changes = Array.isArray(payload.changes) ? payload.changes : [];
       els.list.innerHTML = changes.length
-        ? changes.map((change) => (
-          '<li class="changelog-entry">' + escapeHtml(change?.title || "") + "</li>"
-        )).join("")
+        ? changes
+            .map(
+              (change) =>
+                '<li class="changelog-entry">' + escapeHtml(change?.title || "") + "</li>",
+            )
+            .join("")
         : '<li class="changelog-empty">No Git commit history is available.</li>';
       setTextIfChanged(
         els.status,

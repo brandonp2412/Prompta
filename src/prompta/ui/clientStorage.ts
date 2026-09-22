@@ -13,8 +13,7 @@ export function loadPinnedIds(): Set<string> {
 export function savePinnedIds(pinnedIds: Set<string>) {
   try {
     localStorage.setItem(PINNED_CHATS_KEY, JSON.stringify(Array.from(pinnedIds)));
-  } catch {
-  }
+  } catch {}
 }
 
 export function loadComposerDrafts() {
@@ -34,6 +33,5 @@ export function loadComposerDrafts() {
 export function saveComposerDrafts(composerDrafts: Map<string, string>) {
   try {
     localStorage.setItem(COMPOSER_DRAFTS_KEY, JSON.stringify(Object.fromEntries(composerDrafts)));
-  } catch {
-  }
+  } catch {}
 }

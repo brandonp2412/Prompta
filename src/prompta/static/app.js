@@ -1551,7 +1551,20 @@ function createConversationRenderer({ onRetry }) {
     if (millis === null)
       return { text: "Time unavailable", iso: "", millis: null, age: "" };
     const date = new Date(millis);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sept",
+      "Oct",
+      "Nov",
+      "Dec"
+    ];
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     return {
       text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${formatClockTime12Hour(date)}`,
@@ -1832,7 +1845,10 @@ function createConversationRenderer({ onRetry }) {
     return true;
   }
   function renderMessageNodes(messages, allowStreaming) {
-    const existing = new Map(Array.from(conversation.children).map((node) => [node.dataset.messageKey, node]));
+    const existing = new Map(Array.from(conversation.children).map((node) => [
+      node.dataset.messageKey,
+      node
+    ]));
     const desiredKeys = new Set;
     const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
     const lastAssistantIndex = messages.findLastIndex((message) => message.role === "assistant" && !message.send_error);
@@ -2457,11 +2473,7 @@ function createLiveUpdates({
 }
 
 // src/prompta/ui/completionNotifications.ts
-function createCompletionNotifications({
-  displayServerName,
-  getServerName,
-  chatTitle
-}) {
+function createCompletionNotifications({ displayServerName, getServerName, chatTitle }) {
   const chatStatuses = new Map;
   const explicitlyActive = new Set;
   const pendingFinishedChats = new Map;
@@ -3044,7 +3056,10 @@ function groupChats(chats) {
     ["Pinned", pinned],
     ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
     ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
-    ["Previous", unpinned.filter((chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1))]
+    [
+      "Previous",
+      unpinned.filter((chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1))
+    ]
   ];
   return groups.filter(([, items]) => items.length);
 }
@@ -3130,11 +3145,7 @@ function sidebarChats() {
     _optimisticNew: true
   };
   const needle = state.search.trim().toLowerCase();
-  if (needle && ![
-    optimistic.title,
-    optimistic.preview,
-    optimistic.job_name
-  ].some((value) => String(value || "").toLowerCase().includes(needle))) {
+  if (needle && ![optimistic.title, optimistic.preview, optimistic.job_name].some((value) => String(value || "").toLowerCase().includes(needle))) {
     return chats;
   }
   return [optimistic, ...chats];
@@ -3382,10 +3393,7 @@ function finishChatSwitch(conversationId) {
 function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
-  const visibleMessages = [
-    ...messages,
-    ...pendingReplyMessages(chat.id, messages)
-  ];
+  const visibleMessages = [...messages, ...pendingReplyMessages(chat.id, messages)];
   state.selectedVisibleMessageCount = visibleMessages.length;
   const allowStreaming = chat.status === "active";
   const fingerprint = JSON.stringify([
@@ -3504,14 +3512,16 @@ function renderNewChat() {
   if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
     state.newChatFingerprint = fingerprint;
     if (pending) {
-      const messages = [{
-        message_key: `pending-user-${pending.clientId || pending.sendId}`,
-        role: "user",
-        content: pending.message,
-        attachments: pending.attachments || [],
-        status: "complete",
-        updated_at: pending.updatedAt
-      }];
+      const messages = [
+        {
+          message_key: `pending-user-${pending.clientId || pending.sendId}`,
+          role: "user",
+          content: pending.message,
+          attachments: pending.attachments || [],
+          status: "complete",
+          updated_at: pending.updatedAt
+        }
+      ];
       const activity2 = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt);
       if (activity2) {
         messages.push({
@@ -3585,10 +3595,7 @@ async function fetchJson2(url, timeoutMs = 1e4) {
 async function hydrateRecentChatCache() {
   let timeout;
   const cached = await Promise.race([
-    Promise.all([
-      recentChatCache.warm(),
-      recentChatCache.warmSummaries()
-    ]),
+    Promise.all([recentChatCache.warm(), recentChatCache.warmSummaries()]),
     new Promise((resolve) => {
       timeout = window.setTimeout(() => resolve(null), 500);
     })

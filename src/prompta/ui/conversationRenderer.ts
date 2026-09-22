@@ -39,11 +39,13 @@ function imageAttachmentSrc(attachment) {
 function renderMessageAttachments(message) {
   const images = imageAttachments(message);
   if (!images.length) return "";
-  return `<div class="message-attachments">${images.map((attachment) => {
-    const src = imageAttachmentSrc(attachment);
-    const name = String(attachment.name || "Attached image");
-    return `<img class="message-image-preview" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async">`;
-  }).join("")}</div>`;
+  return `<div class="message-attachments">${images
+    .map((attachment) => {
+      const src = imageAttachmentSrc(attachment);
+      const name = String(attachment.name || "Attached image");
+      return `<img class="message-image-preview" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async">`;
+    })
+    .join("")}</div>`;
 }
 export function pendingImageAttachments(serializedAttachments) {
   return serializedAttachments
@@ -63,7 +65,20 @@ export function createConversationRenderer({ onRetry }) {
     const millis = messageTimestampMillis(message.created_at, message.updated_at);
     if (millis === null) return { text: "Time unavailable", iso: "", millis: null, age: "" };
     const date = new Date(millis);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sept",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     return {
       text: `${date.getDate()} ${months[date.getMonth()]} ${weekdays[date.getDay()]} ${formatClockTime12Hour(date)}`,
@@ -74,8 +89,8 @@ export function createConversationRenderer({ onRetry }) {
   }
   function renderMessageSection(message, allowStreaming = true) {
     const role = message.role === "user" ? "user" : "assistant";
-    const streaming = Boolean(message.pending_activity)
-      || (allowStreaming && message.status === "streaming");
+    const streaming =
+      Boolean(message.pending_activity) || (allowStreaming && message.status === "streaming");
     const activityLabel = message.pending_activity_label || "writing";
     const label = message.send_error ? "Send error" : "Prompta run";
     const timestamp = messageTimestamp(message);
@@ -84,23 +99,35 @@ export function createConversationRenderer({ onRetry }) {
     return `
       <section class="message ${role}${message.send_error ? " send-error" : ""}">
         <div class="message-inner">
-          ${role === "assistant" ? `
+          ${
+            role === "assistant"
+              ? `
             <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
-          ` : ""}
+          `
+              : ""
+          }
           ${attachmentsHtml}
           <div class="message-content">${contentHtml}</div>
-          ${message.send_error && message.retry_scope && message.retry_key ? `
+          ${
+            message.send_error && message.retry_scope && message.retry_key
+              ? `
             <button type="button"
                     class="retry-send-button"
                     data-retry-scope="${escapeHtml(message.retry_scope)}"
                     data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
-          ` : ""}
-          ${streaming ? `
+          `
+              : ""
+          }
+          ${
+            streaming
+              ? `
             <div class="streaming-indicator">
               <span class="streaming-dots"><i></i><i></i><i></i></span>
               ${escapeHtml(activityLabel)}
             </div>
-          ` : ""}
+          `
+              : ""
+          }
           <time class="message-timestamp" datetime="${timestamp.iso}"${timestamp.millis === null ? "" : ` data-message-at="${timestamp.millis}"`}>
             <span class="message-clock">${escapeHtml(timestamp.text)}</span>${timestamp.age ? `<span class="message-age"> · ${escapeHtml(timestamp.age)}</span>` : ""}
           </time>
@@ -151,7 +178,9 @@ export function createConversationRenderer({ onRetry }) {
           await navigator.clipboard.writeText(code);
           const previous = button.textContent;
           setTextIfChanged(button, "copied");
-          setTimeout(() => { setTextIfChanged(button, previous); }, 1000);
+          setTimeout(() => {
+            setTextIfChanged(button, previous);
+          }, 1000);
         } catch {
           setTextIfChanged(button, "copy unavailable");
         }
@@ -170,8 +199,8 @@ export function createConversationRenderer({ onRetry }) {
   }
   function patchDomNode(current, next) {
     if (
-      current.nodeType !== next.nodeType
-      || (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
+      current.nodeType !== next.nodeType ||
+      (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
     ) {
       const replacement = next.cloneNode(true);
       current.replaceWith(replacement);
@@ -207,13 +236,28 @@ export function createConversationRenderer({ onRetry }) {
     while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
       let current = currentParent.childNodes[index];
       const next = nextParent.childNodes[index];
-      if (!next) { current.remove(); continue; }
-      if (!current) { currentParent.append(next.cloneNode(true)); index += 1; continue; }
+      if (!next) {
+        current.remove();
+        continue;
+      }
+      if (!current) {
+        currentParent.append(next.cloneNode(true));
+        index += 1;
+        continue;
+      }
       const nextKey = domPatchKey(next);
       if (nextKey && domPatchKey(current) !== nextKey) {
-        const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
-        if (match) { currentParent.insertBefore(match, current); current = match; }
-        else { currentParent.insertBefore(next.cloneNode(true), current); index += 1; continue; }
+        const match = Array.from(currentParent.childNodes)
+          .slice(index + 1)
+          .find((candidate) => domPatchKey(candidate) === nextKey);
+        if (match) {
+          currentParent.insertBefore(match, current);
+          current = match;
+        } else {
+          currentParent.insertBefore(next.cloneNode(true), current);
+          index += 1;
+          continue;
+        }
       }
       patchDomNode(current, next);
       index += 1;
@@ -228,8 +272,8 @@ export function createConversationRenderer({ onRetry }) {
     const role = message.role === "user" ? "user" : "assistant";
     const sendError = Boolean(message.send_error);
     const expectedRole = node.classList.contains("user") ? "user" : "assistant";
-    const structuralMismatch = expectedRole !== role
-      || node.classList.contains("send-error") !== sendError;
+    const structuralMismatch =
+      expectedRole !== role || node.classList.contains("send-error") !== sendError;
     if (structuralMismatch) return false;
     const content = node.querySelector(".message-content");
     if (!content) return false;
@@ -263,12 +307,15 @@ export function createConversationRenderer({ onRetry }) {
         retryButton.dataset.retryScope = String(message.retry_scope);
         retryButton.dataset.retryKey = String(message.retry_key);
       } else {
-        content.insertAdjacentHTML("afterend", `
+        content.insertAdjacentHTML(
+          "afterend",
+          `
           <button type="button"
                   class="retry-send-button"
                   data-retry-scope="${escapeHtml(message.retry_scope)}"
                   data-retry-key="${escapeHtml(message.retry_key)}">Retry</button>
-        `);
+        `,
+        );
         bindRetryButtons(node);
       }
     } else if (retryButton) {
@@ -298,20 +345,24 @@ export function createConversationRenderer({ onRetry }) {
       age?.remove();
     }
 
-    const shouldStream = Boolean(message.pending_activity)
-      || (allowStreaming && message.status === "streaming");
+    const shouldStream =
+      Boolean(message.pending_activity) || (allowStreaming && message.status === "streaming");
     const activityLabel = message.pending_activity_label || "writing";
     const indicator = node.querySelector(".streaming-indicator");
     if (shouldStream && !indicator) {
-      timestamp.insertAdjacentHTML("beforebegin", `
+      timestamp.insertAdjacentHTML(
+        "beforebegin",
+        `
         <div class="streaming-indicator">
           <span class="streaming-dots"><i></i><i></i><i></i></span>
           ${escapeHtml(activityLabel)}
         </div>
-      `);
+      `,
+      );
     } else if (shouldStream && indicator) {
       const labelNode = indicator.lastChild;
-      if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent !== ` ${activityLabel}`) labelNode.textContent = ` ${activityLabel}`;
+      if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent !== ` ${activityLabel}`)
+        labelNode.textContent = ` ${activityLabel}`;
     } else if (!shouldStream && indicator) {
       indicator.remove();
     }
@@ -320,19 +371,22 @@ export function createConversationRenderer({ onRetry }) {
   }
   function renderMessageNodes(messages, allowStreaming) {
     const existing = new Map(
-      (Array.from(conversation.children) as HTMLElement[])
-        .map((node) => [node.dataset.messageKey, node]),
+      (Array.from(conversation.children) as HTMLElement[]).map((node) => [
+        node.dataset.messageKey,
+        node,
+      ]),
     );
     const desiredKeys = new Set();
     const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
-    const lastAssistantIndex = messages.findLastIndex((message) => (
-      message.role === "assistant" && !message.send_error
-    ));
-    const streamingIndex = allowStreaming
-      && lastAssistantIndex > lastUserIndex
-      && messages[lastAssistantIndex]?.status === "streaming"
-      ? lastAssistantIndex
-      : -1;
+    const lastAssistantIndex = messages.findLastIndex(
+      (message) => message.role === "assistant" && !message.send_error,
+    );
+    const streamingIndex =
+      allowStreaming &&
+      lastAssistantIndex > lastUserIndex &&
+      messages[lastAssistantIndex]?.status === "streaming"
+        ? lastAssistantIndex
+        : -1;
     messages.forEach((message, index) => {
       const messageKey = String(message.message_key || `${message.role || "message"}:${index}`);
       const streamThisMessage = index === streamingIndex;
@@ -379,12 +433,17 @@ export function createConversationRenderer({ onRetry }) {
   let trackedViewport: ConversationViewportSnapshot | null = null;
 
   function scrollAnchorCandidates(root: Element) {
-    return Array.from(root.querySelectorAll<HTMLElement>(
-      ".message-attachments, .message-content > *, .streaming-indicator, .message-timestamp",
-    ));
+    return Array.from(
+      root.querySelectorAll<HTMLElement>(
+        ".message-attachments, .message-content > *, .streaming-indicator, .message-timestamp",
+      ),
+    );
   }
   function scrollAnchorFingerprint(element: HTMLElement) {
-    const text = String(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160);
+    const text = String(element.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
     return [element.tagName, element.className, text].join("|");
   }
   function captureConversationViewport() {
@@ -403,14 +462,15 @@ export function createConversationRenderer({ onRetry }) {
     if (pinnedToBottom) return snapshot;
 
     const viewportTop = viewport.getBoundingClientRect().top;
-    const message = (Array.from(conversation.children) as HTMLElement[]).find((node) => (
-      node.getBoundingClientRect().bottom > viewportTop + 1
-    ));
+    const message = (Array.from(conversation.children) as HTMLElement[]).find(
+      (node) => node.getBoundingClientRect().bottom > viewportTop + 1,
+    );
     if (!message) return snapshot;
 
     snapshot.anchorKey = String(message.dataset.messageKey || "");
     const candidates = scrollAnchorCandidates(message);
-    const anchor = candidates.find((node) => node.getBoundingClientRect().bottom > viewportTop + 1) || message;
+    const anchor =
+      candidates.find((node) => node.getBoundingClientRect().bottom > viewportTop + 1) || message;
     snapshot.anchorElement = anchor;
     snapshot.anchorIndex = candidates.indexOf(anchor);
     snapshot.anchorFingerprint = scrollAnchorFingerprint(anchor);
@@ -420,14 +480,16 @@ export function createConversationRenderer({ onRetry }) {
   function resolveConversationAnchor(snapshot) {
     const direct = snapshot.anchorElement as HTMLElement | null;
     if (
-      direct
-      && direct.isConnected
-      && conversation.contains(direct)
-      && scrollAnchorFingerprint(direct) === snapshot.anchorFingerprint
-    ) return direct;
+      direct &&
+      direct.isConnected &&
+      conversation.contains(direct) &&
+      scrollAnchorFingerprint(direct) === snapshot.anchorFingerprint
+    )
+      return direct;
 
-    const message = (Array.from(conversation.children) as HTMLElement[])
-      .find((node) => node.dataset.messageKey === snapshot.anchorKey);
+    const message = (Array.from(conversation.children) as HTMLElement[]).find(
+      (node) => node.dataset.messageKey === snapshot.anchorKey,
+    );
     if (!message) return null;
 
     const candidates = scrollAnchorCandidates(message);
@@ -435,9 +497,11 @@ export function createConversationRenderer({ onRetry }) {
       const matching = candidates
         .map((node, index) => ({ node, index }))
         .filter(({ node }) => scrollAnchorFingerprint(node) === snapshot.anchorFingerprint)
-        .sort((left, right) => (
-          Math.abs(left.index - snapshot.anchorIndex) - Math.abs(right.index - snapshot.anchorIndex)
-        ));
+        .sort(
+          (left, right) =>
+            Math.abs(left.index - snapshot.anchorIndex) -
+            Math.abs(right.index - snapshot.anchorIndex),
+        );
       if (matching.length) return matching[0].node;
     }
     return candidates[snapshot.anchorIndex] || message;
@@ -462,14 +526,22 @@ export function createConversationRenderer({ onRetry }) {
     trackedViewport = captureConversationViewport();
   }
 
-  viewport.addEventListener("scroll", () => {
-    trackedViewport = captureConversationViewport();
-  }, { passive: true });
+  viewport.addEventListener(
+    "scroll",
+    () => {
+      trackedViewport = captureConversationViewport();
+    },
+    { passive: true },
+  );
 
-  conversation.addEventListener("load", (event) => {
-    if (!(event.target instanceof HTMLImageElement) || !trackedViewport) return;
-    restoreConversationViewport(trackedViewport);
-  }, true);
+  conversation.addEventListener(
+    "load",
+    (event) => {
+      if (!(event.target instanceof HTMLImageElement) || !trackedViewport) return;
+      restoreConversationViewport(trackedViewport);
+    },
+    true,
+  );
 
   if ("ResizeObserver" in window) {
     const resizeObserver = new ResizeObserver(() => {

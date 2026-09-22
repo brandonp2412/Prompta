@@ -1,8 +1,4 @@
-export function createCompletionNotifications({
-  displayServerName,
-  getServerName,
-  chatTitle,
-}) {
+export function createCompletionNotifications({ displayServerName, getServerName, chatTitle }) {
   const chatStatuses = new Map();
   const explicitlyActive = new Set();
   const pendingFinishedChats = new Map();
@@ -28,13 +24,16 @@ export function createCompletionNotifications({
     };
     if ("serviceWorker" in navigator) {
       try {
-        let registration: ServiceWorkerRegistration | null = typeof navigator.serviceWorker.getRegistration === "function"
-          ? await navigator.serviceWorker.getRegistration()
-          : null;
+        let registration: ServiceWorkerRegistration | null =
+          typeof navigator.serviceWorker.getRegistration === "function"
+            ? await navigator.serviceWorker.getRegistration()
+            : null;
         if (!registration) {
           registration = await Promise.race([
             navigator.serviceWorker.ready,
-            new Promise<ServiceWorkerRegistration | null>((resolve) => setTimeout(() => resolve(null), 1500)),
+            new Promise<ServiceWorkerRegistration | null>((resolve) =>
+              setTimeout(() => resolve(null), 1500),
+            ),
           ]);
         }
         if (registration) {
@@ -56,10 +55,11 @@ export function createCompletionNotifications({
 
   async function flushPendingNotifications() {
     if (
-      flushingNotifications
-      || !("Notification" in window)
-      || Notification.permission !== "granted"
-    ) return;
+      flushingNotifications ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    )
+      return;
     flushingNotifications = true;
     try {
       while (pendingFinishedChats.size) {
@@ -113,7 +113,11 @@ export function createCompletionNotifications({
   function trackCompletions(chats) {
     for (const chat of chats) {
       const wasActive = chatStatuses.get(chat.id) === "active" || explicitlyActive.has(chat.id);
-      if ((baselineReady || explicitlyActive.has(chat.id)) && wasActive && chat.status === "complete") {
+      if (
+        (baselineReady || explicitlyActive.has(chat.id)) &&
+        wasActive &&
+        chat.status === "complete"
+      ) {
         queueFinishedChat(chat);
         explicitlyActive.delete(chat.id);
       } else if (!["active", "complete"].includes(chat.status)) {

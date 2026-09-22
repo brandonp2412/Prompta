@@ -4,7 +4,6 @@ export type ChatSummary = {
   created_at?: number;
 };
 
-
 export function preserveSidebarChatOrder<T extends { id: string }>(
   previous: readonly T[],
   incoming: readonly T[],
@@ -72,20 +71,25 @@ export type PendingSendActivity = {
   statusText: string;
 };
 
-
 const CHATGPT_RICH_START = "\uE200";
 const CHATGPT_RICH_END = "\uE201";
 const CHATGPT_RICH_SEPARATOR = "\uE202";
 
 function readableRichMarkerFallback(parts: string[]): string {
-  return parts.find((part) => {
-    const value = part.trim();
-    return Boolean(value)
-      && value.length <= 200
-      && !/^turn\d+[a-z]+\d+$/i.test(value)
-      && !/^https?:\/\//i.test(value)
-      && !/^[{[]/.test(value);
-  })?.trim() || "";
+  return (
+    parts
+      .find((part) => {
+        const value = part.trim();
+        return (
+          Boolean(value) &&
+          value.length <= 200 &&
+          !/^turn\d+[a-z]+\d+$/i.test(value) &&
+          !/^https?:\/\//i.test(value) &&
+          !/^[{[]/.test(value)
+        );
+      })
+      ?.trim() || ""
+  );
 }
 
 export function replaceChatGptRichMarkers(
@@ -150,16 +154,19 @@ export function pendingSendActivity(
   retryAtEpoch: unknown = 0,
   nowEpoch: unknown = Date.now() / 1000,
 ): PendingSendActivity | null {
-  const normalized = String(status || "queued").trim().toLowerCase();
+  const normalized = String(status || "queued")
+    .trim()
+    .toLowerCase();
   if (["failed", "dead_lettered"].includes(normalized)) return null;
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
   if (normalized === "retrying") {
     const deadline = Number(retryAtEpoch);
     const now = Number(nowEpoch);
-    const remaining = Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now)
-      ? Math.max(0, deadline - now)
-      : Number(retryAfterSeconds);
+    const remaining =
+      Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now)
+        ? Math.max(0, deadline - now)
+        : Number(retryAfterSeconds);
     if (remaining <= 0) {
       return { label: "retrying now", statusText: "Retry backoff elapsed; retrying now…" };
     }
@@ -190,7 +197,9 @@ export function pendingSendActivity(
 }
 
 export function conversationIdFromHash(hash: unknown): string {
-  const encoded = String(hash || "").replace(/^#\/?/, "").trim();
+  const encoded = String(hash || "")
+    .replace(/^#\/?/, "")
+    .trim();
   if (!encoded) return "";
   try {
     return decodeURIComponent(encoded);
@@ -199,10 +208,13 @@ export function conversationIdFromHash(hash: unknown): string {
   }
 }
 
-const TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
+const TOOL_UI_NOISE =
+  /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
 
 export function toolCallDisplayName(value: unknown): string {
-  const name = String(value || "").replace(/\s+/g, " " ).trim();
+  const name = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   return name && !TOOL_UI_NOISE.test(name) ? name : "";
 }
 
@@ -257,26 +269,28 @@ export function toolCallTimestampMillis(value: unknown): number | null {
 }
 
 export function pythonToolCallCode(toolName: unknown, value: unknown): string {
-  const name = String(toolName || "").trim().toLowerCase();
-  const pythonTool = name.includes("execute_python")
-    || (name.includes("python") && (name.includes("nox") || name.includes("glass") || name.includes("mcp")));
+  const name = String(toolName || "")
+    .trim()
+    .toLowerCase();
+  const pythonTool =
+    name.includes("execute_python") ||
+    (name.includes("python") &&
+      (name.includes("nox") || name.includes("glass") || name.includes("mcp")));
   if (!pythonTool) return "";
 
   const payload = parsedToolPayload(value);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
   const record = payload as Record<string, unknown>;
   const argumentPayload = parsedToolPayload(record.arguments ?? record.args ?? record);
-  if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload)) return "";
+  if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload))
+    return "";
   const code = (argumentPayload as Record<string, unknown>).code;
   return typeof code === "string" ? code.replace(/^(?:[ \t]*\r?\n)+/, "") : "";
 }
 
 export function sidebarPreviewText(value: unknown): string {
   return replaceChatGptRichMarkers(value)
-    .replace(
-      /```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi,
-      " ",
-    )
+    .replace(/```(?:tool|tool-call|function|function-call)(?::[^\n\x60]*)?\n?[\s\S]*?```/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -285,9 +299,7 @@ export function sidebarChatPreviewText(preview: unknown, prompt: unknown): strin
   return sidebarPreviewText(preview) || sidebarPreviewText(prompt);
 }
 
-export function pendingConversationDisplayId(
-  pending: PendingNewSend | null | undefined,
-): string {
+export function pendingConversationDisplayId(pending: PendingNewSend | null | undefined): string {
   if (!pending) return "";
   if (pending.conversationId) return String(pending.conversationId);
   const clientId = String(pending.clientId || "").trim();
@@ -315,7 +327,9 @@ function comparableTimestampSeconds(value: unknown): number {
 }
 
 function comparablePrompt(value: unknown): string {
-  return String(value || "").trim().replace(/\s+/g, " ");
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 export function matchingOptimisticConversation(
@@ -350,17 +364,13 @@ export function matchingOptimisticConversation(
   if (best) return best;
   if (!knownConversationIds.size) return null;
 
-  const unseenMatches = chats.filter((chat) => (
-    !knownConversationIds.has(chat.id)
-    && comparablePrompt(chat.prompt) === prompt
-  ));
+  const unseenMatches = chats.filter(
+    (chat) => !knownConversationIds.has(chat.id) && comparablePrompt(chat.prompt) === prompt,
+  );
   return unseenMatches.length === 1 ? unseenMatches[0] : null;
 }
 
-export function messageTimestampMillis(
-  createdAt: unknown,
-  updatedAt: unknown,
-): number | null {
+export function messageTimestampMillis(createdAt: unknown, updatedAt: unknown): number | null {
   for (const candidate of [createdAt, updatedAt]) {
     const raw = Number(candidate);
     if (!Number.isFinite(raw) || raw <= 0) continue;
@@ -420,11 +430,12 @@ export function pendingConversationSends(
 ): PendingReply[] {
   if (!pendingNew || pendingNew.conversationId !== conversationId) return replies;
 
-  const duplicate = replies.some((item) => (
-    item === pendingNew
-    || (pendingNew.clientId && item.clientId === pendingNew.clientId)
-    || (pendingNew.sendId && item.sendId === pendingNew.sendId)
-  ));
+  const duplicate = replies.some(
+    (item) =>
+      item === pendingNew ||
+      (pendingNew.clientId && item.clientId === pendingNew.clientId) ||
+      (pendingNew.sendId && item.sendId === pendingNew.sendId),
+  );
   return duplicate ? replies : [...replies, pendingNew];
 }
 
@@ -468,8 +479,13 @@ export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand
 
   const amount = Number(match[1]);
   const unit = String(match[2] || "m").toLowerCase();
-  const multiplier =
-    unit.startsWith("s") ? 1 / 60 : unit.startsWith("h") ? 60 : unit.startsWith("d") ? 1440 : 1;
+  const multiplier = unit.startsWith("s")
+    ? 1 / 60
+    : unit.startsWith("h")
+      ? 60
+      : unit.startsWith("d")
+        ? 1440
+        : 1;
   const intervalMinutes = amount * multiplier;
   const prompt = match[3].trim();
 
@@ -546,12 +562,10 @@ export async function postJsonRequest(
     }
 
     if (response.ok) return data;
-    const errorMessage = (
-      typeof data === "object"
-      && data !== null
-      && "error" in data
-      && typeof data.error === "string"
-    ) ? data.error : "";
+    const errorMessage =
+      typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+        ? data.error
+        : "";
     lastError = new Error(errorMessage || `${response.status} ${response.statusText}`);
     if (response.status < 500 || attempt + 1 >= attempts) throw lastError;
     await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
@@ -568,13 +582,21 @@ export function shouldShowStopAction(
   composingNew: boolean,
   hasComposerContent = false,
 ): boolean {
-  return !hasComposerContent
-    && !composingNew
-    && String(chatStatus || "").trim().toLowerCase() === "active";
+  return (
+    !hasComposerContent &&
+    !composingNew &&
+    String(chatStatus || "")
+      .trim()
+      .toLowerCase() === "active"
+  );
 }
 
 export function shouldProbeHistoricalActivity(chatStatus: unknown): boolean {
-  return String(chatStatus || "").trim().toLowerCase() === "interrupted";
+  return (
+    String(chatStatus || "")
+      .trim()
+      .toLowerCase() === "interrupted"
+  );
 }
 
 export function shouldRefreshSelectedChat(
@@ -583,11 +605,13 @@ export function shouldRefreshSelectedChat(
   selectedFingerprint: unknown,
   force = false,
 ): boolean {
-  return force
-    || !summary
-    || summary.status === "active"
-    || selectedUpdatedAt !== summary.updated_at
-    || !selectedFingerprint;
+  return (
+    force ||
+    !summary ||
+    summary.status === "active" ||
+    selectedUpdatedAt !== summary.updated_at ||
+    !selectedFingerprint
+  );
 }
 
 export function parseAtSlashCommand(message: string, now = new Date()): AtSlashCommand {
@@ -624,11 +648,21 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
     expectedMonth = parts[1] - 1;
     expectedDay = parts[2];
     target = new Date(expectedYear, expectedMonth, expectedDay, hour, minute, 0, 0);
-    if (target.getFullYear() !== expectedYear || target.getMonth() !== expectedMonth || target.getDate() !== expectedDay) {
+    if (
+      target.getFullYear() !== expectedYear ||
+      target.getMonth() !== expectedMonth ||
+      target.getDate() !== expectedDay
+    ) {
       return { error: "Schedule date is invalid." };
     }
   }
-  if (target.getFullYear() !== expectedYear || target.getMonth() !== expectedMonth || target.getDate() !== expectedDay || target.getHours() !== hour || target.getMinutes() !== minute) {
+  if (
+    target.getFullYear() !== expectedYear ||
+    target.getMonth() !== expectedMonth ||
+    target.getDate() !== expectedDay ||
+    target.getHours() !== hour ||
+    target.getMinutes() !== minute
+  ) {
     return { error: "Schedule time does not exist in the local timezone." };
   }
 
