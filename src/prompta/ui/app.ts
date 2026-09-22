@@ -99,11 +99,36 @@ type UiState = {
   activityProbeAt: Map<string, number>;
 };
 
+function persistPinChange(chatId: string, pinned: boolean) {
+  void postJson("api/pins", { id: chatId, pinned }, 2, 5_000).catch((error) => {
+    console.warn("Could not persist Prompta pin change", error);
+  });
+}
+
+function persistPinPromotion(previousId: string, nextId: string) {
+  if (!previousId || !nextId || previousId === nextId) return;
+
+  void postJson("api/pins/promote", { from: previousId, to: nextId }, 2, 5_000).catch((error) => {
+    console.warn("Could not persist Prompta pin promotion", error);
+  });
+}
+
+function setChatPinned(chatId: string, pinned: boolean) {
+  if (pinned) state.pinnedIds.add(chatId);
+  else state.pinnedIds.delete(chatId);
+
+  savePinnedIds(state.pinnedIds);
+  persistPinChange(chatId, pinned);
+  state.sidebarFingerprint = "";
+}
+
 function promotePendingConversationPin(pending, nextConversationId) {
+  const previousId = pendingConversationDisplayId(pending);
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
 
   if (changed) {
     savePinnedIds(state.pinnedIds);
+    persistPinPromotion(previousId, String(nextConversationId || ""));
     state.sidebarFingerprint = "";
   }
 
@@ -118,8 +143,14 @@ function promoteServerPendingPins(chats: UiChat[]) {
 
     if (!chat._pending_send || !clientId) continue;
 
-    changed =
-      promotePinnedConversationId(state.pinnedIds, { clientId }, String(chat.id || "")) || changed;
+    const pending = { clientId };
+    const previousId = pendingConversationDisplayId(pending);
+    const nextId = String(chat.id || "");
+    const promoted = promotePinnedConversationId(state.pinnedIds, pending, nextId);
+
+    if (promoted) persistPinPromotion(previousId, nextId);
+
+    changed = promoted || changed;
   }
 
   if (changed) {
@@ -872,11 +903,8 @@ function renderSidebar(force = false) {
 
       if (!chatId) return;
 
-      if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
-      else state.pinnedIds.add(chatId);
+      setChatPinned(chatId, !state.pinnedIds.has(chatId));
 
-      savePinnedIds(state.pinnedIds);
-      state.sidebarFingerprint = "";
       renderSidebar(true);
       updatePinButton();
     });
@@ -1008,11 +1036,7 @@ function toggleSelectedPin() {
 
   if (!chatId || state.composingNew) return;
 
-  if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
-  else state.pinnedIds.add(chatId);
-
-  savePinnedIds(state.pinnedIds);
-  state.sidebarFingerprint = "";
+  setChatPinned(chatId, !state.pinnedIds.has(chatId));
   renderSidebar(true);
   updatePinButton();
 }
@@ -1369,6 +1393,26 @@ async function fetchJson(url, timeoutMs = 10_000) {
     return await response.json();
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+async function hydratePinnedIds() {
+  const cachedIds = new Set(state.pinnedIds);
+
+  try {
+    let payload = await fetchJson("api/pins", 2_000);
+
+    if (!payload?.initialized && cachedIds.size) {
+      payload = await postJson("api/pins/seed", { ids: Array.from(cachedIds) }, 1, 2_000);
+    }
+
+    if (!payload?.initialized || !Array.isArray(payload.ids)) return;
+
+    state.pinnedIds = new Set(payload.ids.map((id) => String(id || "").trim()).filter(Boolean));
+    savePinnedIds(state.pinnedIds);
+    state.sidebarFingerprint = "";
+  } catch (error) {
+    console.warn("Could not hydrate Prompta pins; using browser cache", error);
   }
 }
 
@@ -2746,6 +2790,7 @@ function refreshDisplayedTimes() {
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
   void loadServerIdentity();
+  await hydratePinnedIds();
   await hydratePendingSends();
   resizeComposer();
   const hydrated = await hydrateRecentChatCache();

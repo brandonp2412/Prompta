@@ -3094,10 +3094,33 @@ function saveComposerDrafts(composerDrafts) {
 
 // src/prompta/ui/app.ts
 var recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+function persistPinChange(chatId, pinned) {
+  postJsonRequest("api/pins", { id: chatId, pinned }, 2, 5000).catch((error) => {
+    console.warn("Could not persist Prompta pin change", error);
+  });
+}
+function persistPinPromotion(previousId, nextId) {
+  if (!previousId || !nextId || previousId === nextId)
+    return;
+  postJsonRequest("api/pins/promote", { from: previousId, to: nextId }, 2, 5000).catch((error) => {
+    console.warn("Could not persist Prompta pin promotion", error);
+  });
+}
+function setChatPinned(chatId, pinned) {
+  if (pinned)
+    state.pinnedIds.add(chatId);
+  else
+    state.pinnedIds.delete(chatId);
+  savePinnedIds(state.pinnedIds);
+  persistPinChange(chatId, pinned);
+  state.sidebarFingerprint = "";
+}
 function promotePendingConversationPin(pending, nextConversationId) {
+  const previousId = pendingConversationDisplayId(pending);
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
   if (changed) {
     savePinnedIds(state.pinnedIds);
+    persistPinPromotion(previousId, String(nextConversationId || ""));
     state.sidebarFingerprint = "";
   }
   return changed;
@@ -3108,7 +3131,13 @@ function promoteServerPendingPins(chats) {
     const clientId = String(chat._client_id || "").trim();
     if (!chat._pending_send || !clientId)
       continue;
-    changed = promotePinnedConversationId(state.pinnedIds, { clientId }, String(chat.id || "")) || changed;
+    const pending = { clientId };
+    const previousId = pendingConversationDisplayId(pending);
+    const nextId = String(chat.id || "");
+    const promoted = promotePinnedConversationId(state.pinnedIds, pending, nextId);
+    if (promoted)
+      persistPinPromotion(previousId, nextId);
+    changed = promoted || changed;
   }
   if (changed) {
     savePinnedIds(state.pinnedIds);
@@ -3671,12 +3700,7 @@ function renderSidebar(force = false) {
       const chatId = pin.dataset.pinChatId;
       if (!chatId)
         return;
-      if (state.pinnedIds.has(chatId))
-        state.pinnedIds.delete(chatId);
-      else
-        state.pinnedIds.add(chatId);
-      savePinnedIds(state.pinnedIds);
-      state.sidebarFingerprint = "";
+      setChatPinned(chatId, !state.pinnedIds.has(chatId));
       renderSidebar(true);
       updatePinButton();
     });
@@ -3762,12 +3786,7 @@ function toggleSelectedPin() {
   const chatId = state.selectedId;
   if (!chatId || state.composingNew)
     return;
-  if (state.pinnedIds.has(chatId))
-    state.pinnedIds.delete(chatId);
-  else
-    state.pinnedIds.add(chatId);
-  savePinnedIds(state.pinnedIds);
-  state.sidebarFingerprint = "";
+  setChatPinned(chatId, !state.pinnedIds.has(chatId));
   renderSidebar(true);
   updatePinButton();
 }
@@ -4028,6 +4047,22 @@ async function fetchJson2(url, timeoutMs = 1e4) {
     return await response.json();
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+async function hydratePinnedIds() {
+  const cachedIds = new Set(state.pinnedIds);
+  try {
+    let payload = await fetchJson2("api/pins", 2000);
+    if (!payload?.initialized && cachedIds.size) {
+      payload = await postJsonRequest("api/pins/seed", { ids: Array.from(cachedIds) }, 1, 2000);
+    }
+    if (!payload?.initialized || !Array.isArray(payload.ids))
+      return;
+    state.pinnedIds = new Set(payload.ids.map((id) => String(id || "").trim()).filter(Boolean));
+    savePinnedIds(state.pinnedIds);
+    state.sidebarFingerprint = "";
+  } catch (error) {
+    console.warn("Could not hydrate Prompta pins; using browser cache", error);
   }
 }
 async function hydrateRecentChatCache() {
@@ -5054,6 +5089,7 @@ function refreshDisplayedTimes() {
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
   loadServerIdentity();
+  await hydratePinnedIds();
   await hydratePendingSends();
   resizeComposer();
   const hydrated = await hydrateRecentChatCache();

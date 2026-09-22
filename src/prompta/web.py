@@ -32,6 +32,7 @@ from .core import (
     _sync_via_control,
 )
 from .image_previews import ImagePreviewStore
+from .pinned_chats import PinnedChatStore
 from .send_jobs import SendJobRegistry as SendJobRegistry
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
@@ -128,6 +129,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self._local_send_lock = threading.Lock()
         self.image_previews = ImagePreviewStore(self.state_path.parent)
         self.attachments = AttachmentStore(self.state_path.parent, self.image_previews)
+        self.pinned_chats = PinnedChatStore(self.state_path.parent)
         self.job_service = WebJobService(
             self.jobs_path,
             self.state_path,
@@ -693,6 +695,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if path == "/api/changelog":
             self._json({"changes": _git_changelog()})
             return
+        if path == "/api/pins":
+            self._json(cast(PromptaUIServer, self.server).pinned_chats.snapshot())
+            return
         if path == "/api/chats":
             query = parse_qs(parsed.query)
             search = query.get("q", [""])[0]
@@ -775,6 +780,50 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/pins/seed":
+            payload = self._json_body()
+            if payload is None:
+                return
+            ids = payload.get("ids")
+            if not isinstance(ids, list):
+                self._json({"error": "Expected ids to be a list"}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(cast(PromptaUIServer, self.server).pinned_chats.seed(ids))
+            return
+
+        if path == "/api/pins/promote":
+            payload = self._json_body()
+            if payload is None:
+                return
+            previous_id = str(payload.get("from") or "").strip()
+            next_id = str(payload.get("to") or "").strip()
+            try:
+                result = cast(PromptaUIServer, self.server).pinned_chats.promote(
+                    previous_id, next_id
+                )
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(result)
+            return
+
+        if path == "/api/pins":
+            payload = self._json_body()
+            if payload is None:
+                return
+            chat_id = str(payload.get("id") or "").strip()
+            pinned = payload.get("pinned")
+            if not isinstance(pinned, bool):
+                self._json({"error": "Expected pinned to be a boolean"}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                result = cast(PromptaUIServer, self.server).pinned_chats.set_pinned(chat_id, pinned)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(result)
+            return
 
         if path == "/api/jobs":
             payload = self._json_body()
