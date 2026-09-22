@@ -1,11 +1,14 @@
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
+
   if (!element) throw new Error("Missing required logs UI element: " + selector);
+
   return element;
 }
 
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
+
   if (element.textContent !== text) element.textContent = text;
 }
 
@@ -26,18 +29,21 @@ export function createLogsPanel({ fetchJson, formatRelativeTime }) {
     const wasNearBottom =
       els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
     const isInitial = !fingerprint;
+
     if (nextFingerprint !== fingerprint) {
       fingerprint = nextFingerprint;
       setTextIfChanged(
         els.output,
         lines.length ? lines.join("\n") : "No Prompta service logs are available yet.",
       );
+
       if (isInitial || wasNearBottom) {
         requestAnimationFrame(() => {
           els.viewport.scrollTop = els.viewport.scrollHeight;
         });
       }
     }
+
     setTextIfChanged(
       els.meta,
       payload.exists
@@ -59,6 +65,7 @@ export function createLogsPanel({ fetchJson, formatRelativeTime }) {
 
   function stopRefresh() {
     if (refreshTimer === null) return;
+
     clearInterval(refreshTimer);
     refreshTimer = null;
   }
@@ -67,7 +74,9 @@ export function createLogsPanel({ fetchJson, formatRelativeTime }) {
     visible = Boolean(nextVisible);
     els.viewport.hidden = !visible;
     stopRefresh();
+
     if (!visible) return;
+
     void load();
     refreshTimer = setInterval(() => {
       if (visible && document.visibilityState === "visible") void load();

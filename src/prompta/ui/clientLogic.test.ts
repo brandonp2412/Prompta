@@ -382,7 +382,9 @@ describe("POST request recovery", () => {
     let calls = 0;
     const retryingFetch = (async () => {
       calls += 1;
+
       if (calls === 1) throw new TypeError("network unavailable");
+
       return new Response(JSON.stringify({ ok: true, send_id: "send-1" }), {
         status: 202,
         headers: { "Content-Type": "application/json" },
@@ -706,6 +708,7 @@ describe("/at", () => {
   test("rejects a nonexistent local time during the DST jump", () => {
     const previousTimezone = process.env.TZ;
     process.env.TZ = "Pacific/Auckland";
+
     try {
       const beforeJump = new Date(2026, 8, 26, 12, 0, 0);
       expect(parseAtSlashCommand("/at 2026-09-27 02:30 impossible", beforeJump)).toEqual({

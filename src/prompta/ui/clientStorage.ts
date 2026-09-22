@@ -5,6 +5,7 @@ const COMPOSER_DRAFTS_KEY = "prompta:composer-drafts";
 export function loadPinnedIds(): Set<string> {
   try {
     const stored = JSON.parse(localStorage.getItem(PINNED_CHATS_KEY) || "[]");
+
     return new Set(Array.isArray(stored) ? stored.map((id) => String(id)) : []);
   } catch {
     return new Set();
@@ -20,7 +21,9 @@ export function savePinnedIds(pinnedIds: Set<string>) {
 export function loadComposerDrafts() {
   try {
     const stored = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_KEY) || "{}");
+
     if (!stored || Array.isArray(stored) || typeof stored !== "object") return new Map();
+
     return new Map(
       Object.entries(stored)
         .filter(([, value]) => typeof value === "string" && value)

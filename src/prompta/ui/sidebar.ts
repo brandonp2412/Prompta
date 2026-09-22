@@ -1,6 +1,8 @@
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
+
   if (!element) throw new Error(`Missing required sidebar UI element: ${selector}`);
+
   return element;
 }
 
@@ -44,6 +46,7 @@ export function createSidebar({ onMotionEnd }) {
 
   function endMotion() {
     if (!moving) return;
+
     moving = false;
     onMotionEnd();
   }
@@ -55,8 +58,10 @@ export function createSidebar({ onMotionEnd }) {
   function syncAccessibility() {
     const hidden = mobileSidebarMedia.matches && !isOpen();
     els.sidebar.toggleAttribute("inert", hidden);
+
     if (hidden) els.sidebar.setAttribute("aria-hidden", "true");
     else els.sidebar.removeAttribute("aria-hidden");
+
     els.openSidebar.setAttribute("aria-expanded", String(!hidden));
   }
 
@@ -65,10 +70,12 @@ export function createSidebar({ onMotionEnd }) {
       cancelAnimationFrame(swipe.frameId);
       swipe.frameId = 0;
     }
+
     if (swipe.cleanupTimer) {
       clearTimeout(swipe.cleanupTimer);
       swipe.cleanupTimer = 0;
     }
+
     els.sidebar.style.removeProperty("transition");
     els.sidebar.style.removeProperty("transform");
     els.sidebarScrim.style.removeProperty("transition");
@@ -78,7 +85,9 @@ export function createSidebar({ onMotionEnd }) {
 
   function open() {
     resetDragStyles();
+
     if (mobileEnabled() && !isOpen()) beginMotion();
+
     els.sidebar.classList.add("is-open");
     els.sidebarScrim.classList.add("is-open");
     syncAccessibility();
@@ -86,7 +95,9 @@ export function createSidebar({ onMotionEnd }) {
 
   function close() {
     resetDragStyles();
+
     if (mobileEnabled() && isOpen()) beginMotion();
+
     els.sidebar.classList.remove("is-open");
     els.sidebarScrim.classList.remove("is-open");
     syncAccessibility();
@@ -101,7 +112,9 @@ export function createSidebar({ onMotionEnd }) {
 
   function queueDragPosition(x) {
     swipe.pendingX = x;
+
     if (swipe.frameId) return;
+
     swipe.frameId = requestAnimationFrame(() => {
       swipe.frameId = 0;
       applyDragPosition(swipe.pendingX);
@@ -110,11 +123,13 @@ export function createSidebar({ onMotionEnd }) {
 
   function settleDrag(opened) {
     const width = swipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
+
     if (swipe.frameId) {
       cancelAnimationFrame(swipe.frameId);
       swipe.frameId = 0;
       applyDragPosition(swipe.pendingX);
     }
+
     const currentX = -width * (1 - swipe.progress);
     const targetX = opened ? 0 : -width;
     const remaining = Math.abs(targetX - currentX);
@@ -127,7 +142,9 @@ export function createSidebar({ onMotionEnd }) {
     els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
     els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
     els.sidebarScrim.style.opacity = opened ? "1" : "0";
+
     if (swipe.cleanupTimer) clearTimeout(swipe.cleanupTimer);
+
     swipe.cleanupTimer = window.setTimeout(() => {
       swipe.cleanupTimer = 0;
       els.sidebar.style.removeProperty("transition");
@@ -159,10 +176,13 @@ export function createSidebar({ onMotionEnd }) {
     "touchstart",
     (event) => {
       if (!mobileEnabled() || event.touches.length !== 1) return;
+
       resetDragStyles();
       const touch = event.touches[0];
       const sidebarOpen = isOpen();
+
       if (!sidebarOpen && touch.clientX > 144) return;
+
       swipe.startX = touch.clientX;
       swipe.startY = touch.clientY;
       swipe.lastX = touch.clientX;
@@ -183,19 +203,24 @@ export function createSidebar({ onMotionEnd }) {
     "touchmove",
     (event) => {
       if (!swipe.tracking || event.touches.length !== 1) return;
+
       const touch = event.touches[0];
       const deltaX = touch.clientX - swipe.startX;
       const deltaY = touch.clientY - swipe.startY;
+
       if (!swipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
         swipe.directionLocked = true;
         swipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+
         if (swipe.horizontal) {
           beginMotion();
           els.sidebar.style.transition = "none";
           els.sidebarScrim.style.transition = "none";
         }
       }
+
       if (!swipe.horizontal) return;
+
       const width = swipe.sidebarWidth;
       const startX = swipe.wasOpen ? 0 : -width;
       const x = Math.max(-width, Math.min(0, startX + deltaX));
@@ -213,12 +238,14 @@ export function createSidebar({ onMotionEnd }) {
     "touchend",
     () => {
       if (!swipe.tracking) return;
+
       if (swipe.horizontal) {
         const fastOpen = swipe.velocityX > 0.35;
         const fastClose = swipe.velocityX < -0.35;
         const shouldOpen = fastOpen || (!fastClose && swipe.progress >= 0.5);
         settleDrag(shouldOpen);
       }
+
       swipe.tracking = false;
     },
     { passive: true },
@@ -228,6 +255,7 @@ export function createSidebar({ onMotionEnd }) {
     "touchcancel",
     () => {
       if (swipe.tracking && swipe.horizontal) settleDrag(swipe.wasOpen);
+
       swipe.tracking = false;
     },
     { passive: true },

@@ -94,10 +94,12 @@ type UiState = {
 
 function promotePendingConversationPin(pending, nextConversationId) {
   const changed = promotePinnedConversationId(state.pinnedIds, pending, nextConversationId);
+
   if (changed) {
     savePinnedIds(state.pinnedIds);
     state.sidebarFingerprint = "";
   }
+
   return changed;
 }
 
@@ -150,7 +152,9 @@ window.visualViewport?.addEventListener("resize", syncViewportHeight);
 
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
+
   if (!element) throw new Error(`Missing required UI element: ${selector}`);
+
   return element;
 }
 
@@ -183,6 +187,7 @@ let sidebarRenderDeferred = false;
 const sidebar = createSidebar({
   onMotionEnd: () => {
     if (!sidebarRenderDeferred) return;
+
     sidebarRenderDeferred = false;
     renderSidebar();
   },
@@ -243,38 +248,50 @@ const liveUpdates = createLiveUpdates({
 
 function composerDraftTarget() {
   if (state.composingNew) return "new";
+
   return state.selectedId ? "chat:" + state.selectedId : "";
 }
 
 function setStoredComposerDraft(target, value) {
   if (!target) return;
+
   const draft = String(value || "");
+
   if (draft) state.composerDrafts.set(target, draft);
   else state.composerDrafts.delete(target);
+
   saveComposerDrafts(state.composerDrafts);
 }
 
 function persistComposerDraft() {
   const target = composerDraftTarget();
+
   if (!target) return;
+
   state.composerDraftTarget = target;
   setStoredComposerDraft(target, els.messageInput.value);
 }
 
 function clearComposerDraft(target = composerDraftTarget()) {
   if (!target) return;
+
   if (state.composerDrafts.delete(target)) saveComposerDrafts(state.composerDrafts);
 }
 
 function syncComposerDraftTarget() {
   const nextTarget = composerDraftTarget();
+
   if (nextTarget === state.composerDraftTarget) return;
+
   if (state.composerDraftTarget && !state.sending) {
     setStoredComposerDraft(state.composerDraftTarget, els.messageInput.value);
   }
+
   state.composerDraftTarget = nextTarget;
   const draft = nextTarget ? state.composerDrafts.get(nextTarget) || "" : "";
+
   if (els.messageInput.value !== draft) els.messageInput.value = draft;
+
   resizeComposer();
   updateSlashMenu();
   syncSendButton();
@@ -282,6 +299,7 @@ function syncComposerDraftTarget() {
 
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
+
   if (element.textContent !== text) element.textContent = text;
 }
 
@@ -296,54 +314,73 @@ function patchDomNode(current, next) {
   ) {
     const replacement = next.cloneNode(true);
     current.replaceWith(replacement);
+
     return replacement;
   }
+
   if (current.nodeType === Node.TEXT_NODE) {
     if (current.data !== next.data) current.data = next.data;
+
     return current;
   }
+
   if (current.nodeType !== Node.ELEMENT_NODE) return current;
+
   const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
   const detailsOpen = preserveDetailsOpen ? (current as HTMLDetailsElement).open : false;
+
   for (const attribute of Array.from(current.attributes as NamedNodeMap) as Attr[]) {
     if (preserveDetailsOpen && attribute.name === "open") continue;
+
     if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
   }
+
   for (const attribute of Array.from(next.attributes as NamedNodeMap) as Attr[]) {
     if (preserveDetailsOpen && attribute.name === "open") continue;
+
     if (current.getAttribute(attribute.name) !== attribute.value) {
       current.setAttribute(attribute.name, attribute.value);
     }
   }
+
   patchDomChildren(current, next);
+
   if (preserveDetailsOpen) (current as HTMLDetailsElement).open = detailsOpen;
+
   return current;
 }
 
 function domPatchKey(node) {
   if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
+
   return (node as HTMLElement).dataset.domKey || "";
 }
 
 function patchDomChildren(currentParent, nextParent) {
   let index = 0;
+
   while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
     let current = currentParent.childNodes[index];
     const next = nextParent.childNodes[index];
+
     if (!next) {
       current.remove();
       continue;
     }
+
     if (!current) {
       currentParent.append(next.cloneNode(true));
       index += 1;
       continue;
     }
+
     const nextKey = domPatchKey(next);
+
     if (nextKey && domPatchKey(current) !== nextKey) {
       const match = Array.from(currentParent.childNodes)
         .slice(index + 1)
         .find((candidate) => domPatchKey(candidate) === nextKey);
+
       if (match) {
         currentParent.insertBefore(match, current);
         current = match;
@@ -353,6 +390,7 @@ function patchDomChildren(currentParent, nextParent) {
         continue;
       }
     }
+
     patchDomNode(current, next);
     index += 1;
   }
@@ -367,16 +405,19 @@ function patchHtmlChildren(element: Element, html: string) {
 function setConversationHeading(title, meta) {
   let titleNode = els.chatHeading.querySelector(".heading-title");
   let metaNode = els.chatHeading.querySelector(".heading-meta");
+
   if (!titleNode) {
     titleNode = document.createElement("div");
     titleNode.className = "heading-title";
     els.chatHeading.prepend(titleNode);
   }
+
   if (!metaNode) {
     metaNode = document.createElement("div");
     metaNode.className = "heading-meta";
     els.chatHeading.append(metaNode);
   }
+
   setTextIfChanged(titleNode, title);
   setTextIfChanged(metaNode, meta);
 }
@@ -399,12 +440,14 @@ function syncSendButton() {
     canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew, hasContent);
   const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
   const action = stopMode ? "stop" : "send";
+
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
     patchHtmlChildren(els.sendButton, stopMode ? STOP_ICON : SEND_ICON);
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
+
   els.sendButton.disabled =
     !canCompose ||
     state.sending ||
@@ -419,7 +462,9 @@ function updateComposerActionButton() {
 
 function displayServerName(value) {
   const raw = String(value || "").trim();
+
   if (!raw) return "";
+
   return raw
     .split(/[-_\s]+/)
     .filter(Boolean)
@@ -429,8 +474,11 @@ function displayServerName(value) {
 
 function setServerStatus(server, online) {
   const raw = String(server || "").trim();
+
   if (raw) state.serverName = raw;
+
   if (typeof online === "boolean") state.serverOnline = online;
+
   const display = displayServerName(state.serverName || location.hostname);
   const knownOnline = state.serverOnline;
   setTextIfChanged(
@@ -440,7 +488,9 @@ function setServerStatus(server, online) {
   document.title = `Prompta · ${display}`;
   logsPanel.setServerTitle(display);
   const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+
   if (appleTitle) appleTitle.setAttribute("content", `Prompta ${display}`);
+
   els.globalLiveOrb.classList.toggle("live", knownOnline === true);
   els.globalLiveOrb.title =
     knownOnline === false
@@ -461,12 +511,18 @@ function escapeHtml(value) {
 
 function formatRelativeTime(epochSeconds) {
   if (!epochSeconds) return "";
+
   const delta = Date.now() - epochSeconds * 1000;
   const abs = Math.abs(delta);
+
   if (abs < 45_000) return "now";
+
   if (abs < 3_600_000) return `${Math.max(1, Math.round(abs / 60_000))}m`;
+
   if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)}h`;
+
   if (abs < 604_800_000) return `${Math.round(abs / 86_400_000)}d`;
+
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
     new Date(epochSeconds * 1000),
   );
@@ -474,17 +530,21 @@ function formatRelativeTime(epochSeconds) {
 
 function chatActivityAt(chat) {
   if (!chat) return 0;
+
   if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") {
     return Number(chat.updated_at || chat.last_message_at || 0);
   }
+
   return Number(chat.last_message_at || chat.updated_at || 0);
 }
 
 function sameLocalDay(epochSeconds, offsetDays = 0) {
   if (!epochSeconds) return false;
+
   const d = new Date(epochSeconds * 1000);
   const target = new Date();
   target.setDate(target.getDate() - offsetDays);
+
   return (
     d.getFullYear() === target.getFullYear() &&
     d.getMonth() === target.getMonth() &&
@@ -494,10 +554,15 @@ function sameLocalDay(epochSeconds, offsetDays = 0) {
 
 function chatTitle(chat) {
   const title = (chat.title || "").replace(/^ChatGPT\s*[-–—:]?\s*/i, "").trim();
+
   if (title && title.toLowerCase() !== "chatgpt") return title;
+
   if (chat.job_name) return chat.job_name.replaceAll("-", " ");
+
   const preview = sidebarPreviewText(chat.preview);
+
   if (preview) return preview.slice(0, 72);
+
   return "Untitled conversation";
 }
 
@@ -505,6 +570,7 @@ function truncate(value, length = 88) {
   const text = String(value || "")
     .replace(/\s+/g, " ")
     .trim();
+
   return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
 
@@ -526,12 +592,15 @@ function groupChats(chats) {
       ),
     ],
   ];
+
   return groups.filter(([, items]) => items.length);
 }
 
 function sidebarStatusDot(status) {
   if (status === "interrupted") return "";
+
   const statusClass = ["active", "complete"].includes(status) ? status : "neutral";
+
   return `<span class="item-status-dot ${statusClass}"></span>`;
 }
 
@@ -563,13 +632,18 @@ function setStatusIcon(element, status, label, kind = "") {
 
 function reconcileOptimisticNew(chats) {
   const pending = state.pendingNewSend;
+
   if (!pending) return;
+
   const knownConversationIds = new Set(state.chats.map((chat) => String(chat.id)));
   const matched = matchingOptimisticConversation(chats, pending, knownConversationIds);
+
   if (!matched) return;
+
   promotePendingConversationPin(pending, matched.id);
   pending.conversationId = matched.id;
   state.pendingNewId = matched.id;
+
   if (!state.composingNew && state.selectedId !== matched.id) {
     state.pendingNewSend = null;
     state.pendingNewId = null;
@@ -579,8 +653,11 @@ function reconcileOptimisticNew(chats) {
 function sidebarChats(): UiChat[] {
   const chats: UiChat[] = state.chats.map((chat) => {
     const pending = state.pendingReplies.get(chat.id) || [];
+
     if (!pending.length) return chat;
+
     const latest = pending[pending.length - 1];
+
     return {
       ...chat,
       status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
@@ -590,14 +667,19 @@ function sidebarChats(): UiChat[] {
     };
   });
   const pending = state.pendingNewSend;
+
   if (!pending) return chats;
+
   const matched = matchingOptimisticConversation(chats, pending);
+
   if (matched) {
     promotePendingConversationPin(pending, matched.id);
     pending.conversationId = matched.id;
     state.pendingNewId = matched.id;
+
     return chats;
   }
+
   const pendingId = pendingConversationDisplayId(pending);
   const optimistic = {
     id: pendingId,
@@ -610,6 +692,7 @@ function sidebarChats(): UiChat[] {
     _optimisticNew: true,
   };
   const needle = state.search.trim().toLowerCase();
+
   if (
     needle &&
     ![optimistic.title, optimistic.preview, optimistic.job_name].some((value) =>
@@ -620,6 +703,7 @@ function sidebarChats(): UiChat[] {
   ) {
     return chats;
   }
+
   return [optimistic, ...chats];
 }
 
@@ -630,8 +714,10 @@ const boundSidebarPins = new WeakSet();
 function renderSidebar(force = false) {
   if (sidebar.isMoving()) {
     sidebarRenderDeferred = true;
+
     return;
   }
+
   const chats = sidebarChats();
   const fingerprint =
     JSON.stringify(
@@ -651,8 +737,11 @@ function renderSidebar(force = false) {
     state.selectedId +
     state.composingNew +
     new Date().toDateString();
+
   if (!force && fingerprint === state.sidebarFingerprint) return;
+
   state.sidebarFingerprint = fingerprint;
+
   if (!chats.length) {
     patchHtmlChildren(
       els.chatList,
@@ -661,8 +750,10 @@ function renderSidebar(force = false) {
         ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
       </div>`,
     );
+
     return;
   }
+
   patchHtmlChildren(
     els.chatList,
     groupChats(chats)
@@ -674,6 +765,7 @@ function renderSidebar(force = false) {
         .map((chat) => {
           const selected =
             chat.id === state.selectedId || (chat._optimisticNew && state.composingNew);
+
           return `
         <div class="chat-item ${selected ? "selected" : ""}" data-dom-key="chat:${escapeHtml(chat.id)}">
           <button type="button"
@@ -706,28 +798,37 @@ function renderSidebar(force = false) {
       )
       .join(""),
   );
+
   for (const item of els.chatList.querySelectorAll<HTMLElement>("[data-chat-id]")) {
     if (boundSidebarItems.has(item)) continue;
+
     boundSidebarItems.add(item);
     item.addEventListener("click", () => {
       if (item.dataset.optimisticNew === "true" && state.pendingNewSend) {
         renderNewChat();
         sidebar.close();
+
         return;
       }
+
       void selectChat(item.dataset.chatId);
     });
   }
+
   for (const pin of els.chatList.querySelectorAll<HTMLElement>("[data-pin-chat-id]")) {
     if (boundSidebarPins.has(pin)) continue;
+
     boundSidebarPins.add(pin);
     pin.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       const chatId = pin.dataset.pinChatId;
+
       if (!chatId) return;
+
       if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
       else state.pinnedIds.add(chatId);
+
       savePinnedIds(state.pinnedIds);
       state.sidebarFingerprint = "";
       renderSidebar(true);
@@ -743,12 +844,14 @@ function pendingReplyMessages(conversationId, cachedMessages) {
     state.pendingNewSend,
   );
   const claimedCachedIndexes = new Set<number>();
+
   for (const item of pending) {
     const matchedIndex = matchingPendingReplyMessageIndex(
       cachedMessages,
       item,
       claimedCachedIndexes,
     );
+
     if (matchedIndex >= 0) {
       claimedCachedIndexes.add(matchedIndex);
       item.observedInCache = true;
@@ -756,6 +859,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         .slice(matchedIndex + 1)
         .some((message) => message.role === "assistant" && !message.send_error);
       const cachedMessage = cachedMessages[matchedIndex];
+
       if (
         cachedMessage &&
         !imageAttachments(cachedMessage).length &&
@@ -772,15 +876,20 @@ function pendingReplyMessages(conversationId, cachedMessages) {
   // duplicate Retry after durable acceptance.
   const remaining = pending.filter((item) => {
     if (!item.observedInCache) return true;
+
     if (item.responseObservedInCache) return false;
+
     return Boolean(
       pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt),
     );
   });
+
   if (remaining.length) state.pendingReplies.set(conversationId, remaining);
   else state.pendingReplies.delete(conversationId);
+
   return remaining.flatMap((item) => {
     const messages: Record<string, unknown>[] = [];
+
     if (!item.observedInCache) {
       messages.push({
         message_key: `pending-user-${item.clientId || item.sendId}`,
@@ -791,12 +900,14 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         updated_at: item.updatedAt,
       });
     }
+
     const activity = pendingSendActivity(
       item.status,
       Boolean(item.sendId),
       item.retryAfterSeconds,
       item.retryAt,
     );
+
     if (activity) {
       messages.push({
         message_key: `pending-activity-${item.clientId || item.sendId}`,
@@ -819,6 +930,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         retry_key: item.clientId || item.sendId || "",
       });
     }
+
     return messages;
   });
 }
@@ -837,9 +949,12 @@ function updatePinButton() {
 
 function toggleSelectedPin() {
   const chatId = state.selectedId;
+
   if (!chatId || state.composingNew) return;
+
   if (state.pinnedIds.has(chatId)) state.pinnedIds.delete(chatId);
   else state.pinnedIds.add(chatId);
+
   savePinnedIds(state.pinnedIds);
   state.sidebarFingerprint = "";
   renderSidebar(true);
@@ -860,7 +975,9 @@ function renderConversationMeta(chat, visibleMessageCount) {
     activityLabel,
   ].join(" · ");
   const metaFingerprint = JSON.stringify([title, meta, chat.status]);
+
   if (metaFingerprint === state.selectedMetaFingerprint) return;
+
   state.selectedMetaFingerprint = metaFingerprint;
   setConversationHeading(title, meta);
   const syncStatus =
@@ -876,15 +993,19 @@ function renderConversationMeta(chat, visibleMessageCount) {
 
 function rememberConversationViewport(conversationId) {
   if (!conversationId || state.renderedConversationId !== conversationId) return;
+
   const snapshot = {
     ...conversationRenderer.captureConversationViewport(),
     anchorElement: null,
   };
   state.conversationViewports.delete(conversationId);
   state.conversationViewports.set(conversationId, snapshot);
+
   while (state.conversationViewports.size > 20) {
     const oldest = state.conversationViewports.keys().next().value;
+
     if (!oldest) break;
+
     state.conversationViewports.delete(oldest);
   }
 }
@@ -903,9 +1024,11 @@ function cancelChatSwitch() {
 
 function finishChatSwitch(conversationId) {
   if (!els.viewport.classList.contains("chat-switching")) return;
+
   const token = state.chatSwitchToken;
   requestAnimationFrame(() => {
     if (token !== state.chatSwitchToken || state.selectedId !== conversationId) return;
+
     void getComputedStyle(els.conversation).opacity;
     els.viewport.classList.remove("chat-switching");
     els.viewport.removeAttribute("aria-busy");
@@ -925,6 +1048,7 @@ function renderConversation(chat) {
       conversationRenderer.messageNodeFingerprint(message, allowStreaming),
     ]),
   ]);
+
   if (fingerprint !== state.selectedFingerprint) {
     const isInitial = state.renderedConversationId !== chat.id;
     const rememberedViewport = isInitial ? state.conversationViewports.get(chat.id) : null;
@@ -938,6 +1062,7 @@ function renderConversation(chat) {
       isInitial && !rememberedViewport,
     );
   }
+
   finishChatSwitch(chat.id);
   renderConversationMeta(chat, visibleMessages.length);
   setHiddenIfChanged(els.emptyState, true);
@@ -955,6 +1080,7 @@ function renderConversation(chat) {
       pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt),
     )
     .find(Boolean);
+
   if (pendingActivity) {
     setTextIfChanged(els.composerStatus, pendingActivity.statusText);
   } else if (!state.sending) {
@@ -975,6 +1101,7 @@ function showMode(mode) {
   els.viewport.hidden = logsMode;
   logsPanel.setVisible(logsMode);
   els.composerFooter.hidden = logsMode;
+
   if (logsMode) {
     cancelChatSwitch();
     state.selectedMetaFingerprint = "";
@@ -986,8 +1113,10 @@ function showMode(mode) {
     els.shareChatButton.disabled = true;
     setTextIfChanged(els.composerStatus, "Switch back to chats to send a message.");
     updateComposerActionButton();
+
     return;
   }
+
   if (state.selectedId) {
     void loadSelectedChat();
   } else if (state.composingNew) {
@@ -1050,8 +1179,10 @@ function renderNewChat() {
       String(attachment.src || "").length,
     ]),
   ]);
+
   if (shouldRenderNewChatView(enteringNewChat, fingerprint, state.newChatFingerprint)) {
     state.newChatFingerprint = fingerprint;
+
     if (pending) {
       const messages: any[] = [
         {
@@ -1069,6 +1200,7 @@ function renderNewChat() {
         pending.retryAfterSeconds,
         pending.retryAt,
       );
+
       if (activity) {
         messages.push({
           message_key: `pending-activity-${pending.clientId || pending.sendId}`,
@@ -1091,6 +1223,7 @@ function renderNewChat() {
           retry_key: pending.clientId || pending.sendId,
         });
       }
+
       const viewportSnapshot = conversationRenderer.captureConversationViewport();
       setHiddenIfChanged(els.emptyState, true);
       setHiddenIfChanged(els.conversation, false);
@@ -1101,6 +1234,7 @@ function renderNewChat() {
       setHiddenIfChanged(els.conversation, true);
       conversationRenderer.renderMessageNodes([], false);
     }
+
     setConversationHeading(
       "New chat",
       pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation",
@@ -1135,13 +1269,16 @@ function renderNewChat() {
         : "",
     );
   }
+
   updateComposerActionButton();
+
   if (enteringNewChat) {
     els.viewport.hidden = false;
     logsPanel.setVisible(false);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
     sidebar.close();
+
     if (!waiting && matchMedia("(pointer: fine)").matches) {
       requestAnimationFrame(() => els.messageInput.focus());
     }
@@ -1157,7 +1294,9 @@ async function fetchJson(url, timeoutMs = 10_000) {
       cache: "no-store",
       signal: controller.signal,
     });
+
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+
     return await response.json();
   } finally {
     window.clearTimeout(timeout);
@@ -1172,20 +1311,28 @@ async function hydrateRecentChatCache() {
       timeout = window.setTimeout(() => resolve(null), 500);
     }),
   ]);
+
   if (timeout !== undefined) window.clearTimeout(timeout);
+
   if (!cached) return false;
 
   const [cachedChats, cachedSummaries] = cached;
   const sidebarSnapshot = cachedSummaries.length ? cachedSummaries : cachedChats;
+
   if (!sidebarSnapshot.length || state.search) return false;
+
   const unique = new Map();
+
   for (const chat of sidebarSnapshot) {
     if (chat?.id && !unique.has(chat.id)) unique.set(chat.id, chat);
   }
+
   state.chats = Array.from(unique.values());
+
   if (!cachedSummaries.length) {
     state.chats.sort((left, right) => chatActivityAt(right) - chatActivityAt(left));
   }
+
   state.chatOrderScope = cachedSummaries.length ? "" : "__cached__";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
   setTextIfChanged(els.cacheSummary, state.chats.length + " cached · " + activeCount + " active");
@@ -1195,6 +1342,7 @@ async function hydrateRecentChatCache() {
   if (initialId) {
     state.selectedId = initialId;
     const chat = recentChatCache.getMemory(initialId);
+
     if (chat) {
       state.selectedUpdatedAt = chat.updated_at;
       renderConversation(chat);
@@ -1204,7 +1352,9 @@ async function hydrateRecentChatCache() {
       setHiddenIfChanged(els.conversation, false);
     }
   }
+
   renderSidebar();
+
   return true;
 }
 
@@ -1233,7 +1383,9 @@ async function hydratePendingSends() {
     for (const job of jobs) {
       const status = String(job.status || "queued");
       const sendId = String(job.send_id || "");
+
       if (!sendId || ["succeeded", "failed", "dead_lettered"].includes(status)) continue;
+
       const conversationId = String(job.conversation_id || "");
       const pending: UiPendingSend = {
         sendId,
@@ -1251,13 +1403,16 @@ async function hydratePendingSends() {
           ? job.attachment_names.map((value) => String(value))
           : [],
       };
+
       if (job.operation === "reply" && conversationId) {
         const items = state.pendingReplies.get(conversationId) || [];
+
         if (!items.some((item) => item.sendId === sendId)) {
           items.push(pending);
           items.sort((left, right) => Number(left.createdAt || 0) - Number(right.createdAt || 0));
           state.pendingReplies.set(conversationId, items);
         }
+
         void watchSend(sendId, false, conversationId);
       } else if (job.operation === "once" && !conversationId && !state.pendingNewSend) {
         state.pendingNewSend = pending;
@@ -1276,11 +1431,14 @@ async function loadChats(forceSelectedRefresh = false) {
   try {
     const query = state.search ? `?q=${encodeURIComponent(state.search)}` : "";
     const payload = await fetchJson(`api/chats${query}`);
+
     if (requestId !== state.chatsRequestId) return;
 
     const chats = payload.chats || [];
     reconcileOptimisticNew(chats);
+
     if (!state.search) recentChatCache.rememberSummaries(chats);
+
     completionNotifications.trackCompletions(chats);
     const orderScope = state.search;
     const preserveOrder = state.chatOrderScope === orderScope;
@@ -1295,14 +1453,17 @@ async function loadChats(forceSelectedRefresh = false) {
 
     setTextIfChanged(els.cacheSummary, `${state.chats.length} cached · ${activeCount} active`);
     const hashId = conversationIdFromHash(location.hash);
+
     if (!state.selectedId && hashId) {
       // Deep links must work even when the conversation is older than the
       // sidebar's bounded /api/chats result set.
       state.selectedId = hashId;
     }
+
     if (!state.selectedId && state.chats.length && !state.composingNew) {
       state.selectedId = state.chats[0].id;
     }
+
     if (
       state.selectedId &&
       !state.composingNew &&
@@ -1314,6 +1475,7 @@ async function loadChats(forceSelectedRefresh = false) {
       state.selectedId = state.chats[0]?.id || null;
       state.selectedFingerprint = "";
     }
+
     renderSidebar();
 
     if (state.mode === "chats") {
@@ -1325,6 +1487,7 @@ async function loadChats(forceSelectedRefresh = false) {
           state.selectedFingerprint,
           forceSelectedRefresh,
         );
+
         if (shouldRefresh) await loadSelectedChat();
       } else if (!state.composingNew) {
         clearConversation();
@@ -1334,9 +1497,11 @@ async function loadChats(forceSelectedRefresh = false) {
     }
   } catch (error) {
     if (requestId !== state.chatsRequestId) return;
+
     if (els.globalLiveOrb.classList.contains("live")) {
       els.globalLiveOrb.classList.remove("live");
     }
+
     setTextIfChanged(els.cacheSummary, "Cache unavailable");
     console.error(error);
   }
@@ -1349,6 +1514,7 @@ async function probeHistoricalActivity(conversationId) {
 
   const now = Date.now();
   const lastProbeAt = Number(state.activityProbeAt.get(conversationId) || 0);
+
   if (
     state.activityProbes.has(conversationId) ||
     now - lastProbeAt < HISTORICAL_ACTIVITY_PROBE_TTL_MS
@@ -1370,10 +1536,13 @@ async function probeHistoricalActivity(conversationId) {
       1,
       30_000,
     );
+
     if (state.selectedId !== conversationId || state.mode !== "chats") return;
 
     const chat = payload?.chat;
+
     if (!chat || chat.id !== conversationId) return;
+
     state.selectedUpdatedAt = chat.updated_at;
     recentChatCache.remember(chat);
     renderConversation(chat);
@@ -1385,9 +1554,11 @@ async function probeHistoricalActivity(conversationId) {
         "Could not verify whether this interrupted chat is still running.",
       );
     }
+
     console.warn("Could not probe historical chat activity", error);
   } finally {
     state.activityProbes.delete(conversationId);
+
     if (state.selectedId === conversationId) syncSendButton();
   }
 }
@@ -1396,9 +1567,11 @@ function renderRecentChatSnapshot(conversationId) {
   if (!conversationId || state.mode !== "chats") return;
 
   const memoryChat = recentChatCache.getMemory(conversationId);
+
   if (memoryChat) {
     state.selectedUpdatedAt = memoryChat.updated_at;
     renderConversation(memoryChat);
+
     return;
   }
 
@@ -1407,6 +1580,7 @@ function renderRecentChatSnapshot(conversationId) {
     setHiddenIfChanged(els.emptyState, true);
     setHiddenIfChanged(els.conversation, false);
   }
+
   void recentChatCache.get(conversationId).then((chat) => {
     if (
       !chat ||
@@ -1415,6 +1589,7 @@ function renderRecentChatSnapshot(conversationId) {
       state.selectedChat?.id === conversationId
     )
       return;
+
     state.selectedUpdatedAt = chat.updated_at;
     renderConversation(chat);
   });
@@ -1422,15 +1597,18 @@ function renderRecentChatSnapshot(conversationId) {
 
 async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
+
   const selectedId = state.selectedId;
 
   if (!state.selectedChat || state.selectedChat.id !== selectedId) {
     renderRecentChatSnapshot(selectedId);
   }
+
   const requestId = ++state.selectedRequestId;
 
   try {
     const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`);
+
     if (
       requestId !== state.selectedRequestId ||
       selectedId !== state.selectedId ||
@@ -1441,29 +1619,38 @@ async function loadSelectedChat() {
     if (state.pendingNewId === chat.id && !state.pendingNewSend) {
       state.pendingNewId = null;
     }
+
     state.selectedUpdatedAt = chat.updated_at;
     recentChatCache.remember(chat);
     renderConversation(chat);
+
     if (shouldProbeHistoricalActivity(chat.status)) {
       void probeHistoricalActivity(chat.id);
     }
   } catch (error) {
     if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
+
     const missing = String(error).startsWith("Error: 404");
+
     if (missing && state.pendingNewId !== state.selectedId) {
       void recentChatCache.remove(selectedId);
+
       if (conversationIdFromHash(location.hash) === selectedId) {
         history.replaceState(null, "", `${location.pathname}${location.search}`);
       }
+
       clearConversation();
     }
+
     if (!missing || state.pendingNewId !== state.selectedId) console.error(error);
+
     finishChatSwitch(selectedId);
   }
 }
 
 async function selectChat(id) {
   if (!id) return;
+
   if (state.mode !== "chats") showMode("chats");
 
   // Start dismissing the mobile sidebar before any chat fetch or sidebar render.
@@ -1475,8 +1662,10 @@ async function selectChat(id) {
     if (!state.selectedChat || state.selectedChat.id !== id) {
       await loadSelectedChat();
     }
+
     return;
   }
+
   rememberConversationViewport(state.selectedId);
   beginChatSwitch();
   const pendingNew = state.pendingNewSend?.conversationId === id ? state.pendingNewSend : null;
@@ -1507,10 +1696,12 @@ els.searchInput.addEventListener("input", () => {
 document.addEventListener("keydown", (event) => {
   const typing =
     document.activeElement === els.searchInput || document.activeElement === els.messageInput;
+
   if (event.key === "/" && !typing) {
     event.preventDefault();
     els.searchInput.focus();
   }
+
   if (event.key === "Escape") {
     attachmentPicker.closeMenu();
     els.slashMenu.hidden = true;
@@ -1531,8 +1722,10 @@ function resizeComposer() {
 
   if (!els.messageInput.value) {
     els.messageInput.style.height = "34px";
+
     return;
   }
+
   els.messageInput.style.height = "auto";
   const contentHeight = els.messageInput.scrollHeight;
   els.messageInput.style.height = `${Math.min(180, contentHeight)}px`;
@@ -1577,6 +1770,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
     els.messageInput.disabled = false;
     attachmentPicker.setDisabled(false);
     syncSendButton();
+
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
@@ -1617,6 +1811,7 @@ async function runAtSlashCommand(command, originalMessage) {
     els.messageInput.disabled = false;
     attachmentPicker.setDisabled(false);
     syncSendButton();
+
     if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
   }
 }
@@ -1627,6 +1822,7 @@ function pendingReply(conversationId, sendId) {
 
 function updatePendingReply(conversationId, sendId, updates) {
   const item = pendingReply(conversationId, sendId);
+
   if (!item) return false;
 
   const previous = JSON.stringify([
@@ -1646,7 +1842,9 @@ function updatePendingReply(conversationId, sendId, updates) {
       item.retryAt || 0,
       item.retryAttempt || 0,
     ]) !== previous;
+
   if (changed) item.updatedAt = Date.now() / 1000;
+
   return changed;
 }
 
@@ -1669,34 +1867,44 @@ async function watchSend(sendId, creatingNew, conversationId) {
       // processing. Reconcile against the cache and keep observing instead.
       if (statusFailures >= 3) {
         await loadChats();
+
         if (creatingNew) {
           const pending = state.pendingNewSend;
+
           if (!pending || pending.sendId !== sendId) return;
+
           if (pending.conversationId) {
             state.composingNew = false;
             state.selectedId = pending.conversationId;
             state.pendingNewId = pending.conversationId;
             history.replaceState(null, "", `#/${encodeURIComponent(pending.conversationId)}`);
             await loadSelectedChat();
+
             return;
           }
         } else {
           if (!pendingReply(conversationId, sendId)) return;
+
           if (state.selectedId === conversationId) await loadSelectedChat();
+
           if (!pendingReply(conversationId, sendId)) return;
         }
+
         setTextIfChanged(
           els.composerStatus,
           "Send status unavailable. Prompta may still be running it; reconnecting…",
         );
       }
+
       await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 250 * statusFailures)));
       continue;
     }
 
     const status = job.status || "running";
+
     if (creatingNew) {
       const pendingNewSend = state.pendingNewSend;
+
       if (!pendingNewSend || pendingNewSend.sendId !== sendId) return;
 
       const nextError = job.error || "";
@@ -1704,10 +1912,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAfterSeconds = Number(job.retry_after_seconds || 0);
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
+
       if (nextConversationId) {
         completionNotifications.markActive(nextConversationId);
         promotePendingConversationPin(pendingNewSend, nextConversationId);
       }
+
       const changed =
         pendingNewSend.status !== status ||
         pendingNewSend.error !== nextError ||
@@ -1725,30 +1935,40 @@ async function watchSend(sendId, creatingNew, conversationId) {
       });
 
       if (changed) pendingNewSend.updatedAt = Date.now() / 1000;
+
       if (status === "succeeded") {
         const newId = job.conversation_id;
+
         if (!newId) {
           pendingNewSend.status = "failed";
           pendingNewSend.error = "Prompta reported success without a conversation id";
+
           if (state.composingNew) renderNewChat();
+
           return;
         }
+
         const completedPending = pendingNewSend;
         promotePendingConversationPin(completedPending, newId);
         completedPending.conversationId = newId;
         state.pendingNewId = newId;
         const pendingReplies = state.pendingReplies.get(newId) || [];
+
         if (!pendingReplies.some((item) => item.clientId === completedPending.clientId)) {
           pendingReplies.push(completedPending);
           state.pendingReplies.set(newId, pendingReplies);
         }
+
         state.pendingNewSend = null;
         const stillViewingPending = state.composingNew && state.mode === "chats";
+
         if (!stillViewingPending) {
           renderSidebar();
           await loadChats();
+
           return;
         }
+
         state.composingNew = false;
         state.selectedId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
@@ -1757,19 +1977,27 @@ async function watchSend(sendId, creatingNew, conversationId) {
         state.selectedUpdatedAt = null;
         await loadChats();
         await loadSelectedChat();
+
         return;
       }
+
       if (["failed", "dead_lettered"].includes(status)) {
         if (state.composingNew) renderNewChat();
+
         renderSidebar();
+
         return;
       }
+
       if (changed) {
         if (state.composingNew) renderNewChat();
+
         renderSidebar();
       }
+
       continue;
     }
+
     const changed = updatePendingReply(conversationId, sendId, {
       status,
       error: job.error || "",
@@ -1777,13 +2005,18 @@ async function watchSend(sendId, creatingNew, conversationId) {
       retryAt: Number(job.retry_at || 0),
       retryAttempt: Number(job.retry_attempt || 0),
     });
+
     if (changed) renderSidebar();
+
     if (state.selectedId === conversationId) await loadSelectedChat();
+
     if (status === "succeeded") {
       setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
       await loadChats();
+
       return;
     }
+
     if (["failed", "dead_lettered"].includes(status)) {
       setTextIfChanged(
         els.composerStatus,
@@ -1791,6 +2024,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
           ? "Send exhausted its retry budget. Retry to enqueue it again."
           : "Send failed. The error is shown in the chat.",
       );
+
       return;
     }
   }
@@ -1800,6 +2034,7 @@ async function retryFailedSend(scope, retryKey) {
   if (!retryKey || state.sending) return;
 
   let pending: PendingReply | null = null;
+
   if (scope === "new") {
     if (
       state.pendingNewSend &&
@@ -1815,34 +2050,44 @@ async function retryFailedSend(scope, retryKey) {
     const selectedId = state.selectedId;
     const items = state.pendingReplies.get(selectedId) || [];
     pending = items.find((item) => item.clientId === retryKey || item.sendId === retryKey) || null;
+
     if (pending) {
       const remaining = items.filter((item) => item !== pending);
+
       if (remaining.length) state.pendingReplies.set(selectedId, remaining);
       else state.pendingReplies.delete(selectedId);
+
       state.selectedFingerprint = "";
+
       if (state.selectedChat?.id === state.selectedId) renderConversation(state.selectedChat);
     }
   }
+
   if (!pending) return;
 
   els.messageInput.value = pending.message || "";
   resizeComposer();
   syncSendButton();
+
   if (((pending as UiPendingSend).attachmentNames || []).length) {
     setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
     els.messageInput.focus();
+
     return;
   }
+
   await sendSelectedMessage();
 }
 
 async function stopSelectedChat() {
   const conversationId = state.selectedId;
+
   if (!conversationId || state.mode !== "chats" || state.stopping) return;
 
   state.stopping = true;
   syncSendButton();
   setTextIfChanged(els.composerStatus, "Stopping response…");
+
   try {
     await postJson("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
     setTextIfChanged(els.composerStatus, "Stopped.");
@@ -1864,54 +2109,77 @@ async function sendSelectedMessage() {
   const creatingNew = state.composingNew;
   const conversationId = state.selectedId;
   const attachments = attachmentPicker.snapshot();
+
   if (!message || state.mode !== "chats" || state.sending) return;
+
   if (message.toLowerCase() === "/logs") {
     clearComposerDraft();
     els.messageInput.value = "";
     els.slashMenu.hidden = true;
     resizeComposer();
     showMode("logs");
+
     return;
   }
+
   if (["/list", "/jobs"].includes(message.toLowerCase())) {
     await jobsDialog.open(true);
+
     return;
   }
+
   void completionNotifications.requestPermissionFromGesture();
   const scheduleCommand = parseScheduleSlashCommand(message);
+
   if (scheduleCommand) {
     if (attachments.length) {
       setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+
       return;
     }
+
     if ("error" in scheduleCommand) {
       setTextIfChanged(els.composerStatus, scheduleCommand.error);
+
       return;
     }
+
     await runScheduleSlashCommand(scheduleCommand, message);
+
     return;
   }
+
   const atCommand = parseAtSlashCommand(message);
+
   if (atCommand) {
     if (attachments.length) {
       setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+
       return;
     }
+
     if ("error" in atCommand) {
       setTextIfChanged(els.composerStatus, atCommand.error);
+
       return;
     }
+
     await runAtSlashCommand(atCommand, message);
+
     return;
   }
+
   if (!creatingNew && !conversationId) return;
+
   let serializedAttachments: Array<{ name: string; type: string; data: string }> = [];
+
   if (attachments.length) {
     state.sending = true;
     els.messageInput.disabled = true;
     els.sendButton.disabled = true;
     attachmentPicker.setDisabled(true);
     setTextIfChanged(els.composerStatus, "Preparing attachments…");
+
     try {
       serializedAttachments = await attachmentPicker.serialize();
     } catch (error) {
@@ -1923,10 +2191,13 @@ async function sendSelectedMessage() {
         els.composerStatus,
         "Attachment failed: " + String(error).replace(/^Error:\s*/, ""),
       );
+
       return;
     }
+
     state.sending = false;
   }
+
   const now = Date.now() / 1000;
   const pending = {
     sendId: "",
@@ -1945,6 +2216,7 @@ async function sendSelectedMessage() {
   clearComposerDraft();
   els.messageInput.value = "";
   resizeComposer();
+
   if (creatingNew) {
     state.pendingNewSend = pending;
     state.newChatFingerprint = "";
@@ -1956,9 +2228,12 @@ async function sendSelectedMessage() {
     items.push(pending);
     state.pendingReplies.set(targetConversationId, items);
     state.selectedFingerprint = "";
+
     if (state.selectedChat?.id === targetConversationId) renderConversation(state.selectedChat);
+
     renderSidebar();
   }
+
   try {
     const result = creatingNew
       ? await postJson(
@@ -1971,54 +2246,71 @@ async function sendSelectedMessage() {
           { message, attachments: serializedAttachments, client_id: pending.clientId },
           attachments.length ? 1 : 3,
         );
+
     if (!result.send_id) throw new Error("Prompta did not return a send id");
+
     if (!creatingNew) completionNotifications.markActive(conversationId);
+
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
     pending.updatedAt = Date.now() / 1000;
+
     if (attachments.length) attachmentPicker.clear();
+
     if (creatingNew) {
       state.newChatFingerprint = "";
       renderNewChat();
     } else {
       state.selectedFingerprint = "";
+
       if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
     }
+
     renderSidebar();
     void watchSend(result.send_id, creatingNew, conversationId);
   } catch (error) {
     pending.status = "failed";
     pending.error = String(error).replace(/^Error:\s*/, "");
     pending.updatedAt = Date.now() / 1000;
+
     if (creatingNew) {
       state.newChatFingerprint = "";
       renderNewChat();
     } else {
       state.selectedFingerprint = "";
+
       if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
     }
+
     renderSidebar();
     console.error(error);
   } finally {
     state.sending = false;
+
     if (attachments.length) attachmentPicker.setDisabled(false);
+
     if (!creatingNew && state.selectedId && state.mode === "chats") {
       els.messageInput.disabled = false;
       syncSendButton();
+
       if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
     } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
       els.messageInput.disabled = false;
       syncSendButton();
+
       if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
     }
+
     updateComposerActionButton();
   }
 }
 
 async function copySelectedChatUrl() {
   if (!state.selectedId) return;
+
   const url = new URL(location.href);
   url.hash = `/${encodeURIComponent(state.selectedId)}`;
+
   try {
     await navigator.clipboard.writeText(url.toString());
     setTextIfChanged(els.composerStatus, "Chat link copied.");
@@ -2046,14 +2338,17 @@ function updateSlashMenu() {
   );
   const show = value.startsWith("/") && !value.includes("\n") && !value.includes(" ");
   let visible = 0;
+
   for (const button of candidates) {
     const command = String(button.dataset.slashCommand || "")
       .trim()
       .toLowerCase();
     const matches = show && command.startsWith(firstToken);
     button.hidden = !matches;
+
     if (matches) visible += 1;
   }
+
   els.slashMenu.hidden = visible === 0;
 }
 
@@ -2072,12 +2367,15 @@ els.shareChatButton.addEventListener("click", copySelectedChatUrl);
 
 els.slashMenu.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slash-command]");
+
   if (!button) return;
+
   insertSlashCommand(String(button.dataset.slashCommand || ""));
 });
 
 els.messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
+
   if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
   else void sendSelectedMessage();
 });
@@ -2094,16 +2392,21 @@ els.messageInput.addEventListener("keydown", (event) => {
     const first = els.slashMenu.querySelector<HTMLButtonElement>(
       "[data-slash-command]:not([hidden])",
     );
+
     if (first) {
       event.preventDefault();
       insertSlashCommand(String(first.dataset.slashCommand || ""));
+
       return;
     }
   }
+
   const mobileInput =
     matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
+
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
     event.preventDefault();
+
     if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
     else void sendSelectedMessage();
   }
@@ -2111,6 +2414,7 @@ els.messageInput.addEventListener("keydown", (event) => {
 
 window.addEventListener("hashchange", () => {
   const id = conversationIdFromHash(location.hash);
+
   if (id && id !== state.selectedId) void selectChat(id);
 });
 
@@ -2130,18 +2434,24 @@ function refreshDisplayedTimes() {
     state.selectedFingerprint = "";
     void loadSelectedChat();
   }
+
   renderSidebar();
+
   for (const time of els.chatList.querySelectorAll<HTMLElement>(".chat-time[data-activity-at]")) {
     setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
   }
+
   for (const time of els.conversation.querySelectorAll<HTMLElement>(
     ".message-timestamp[data-message-at]",
   )) {
     const age = time.querySelector<HTMLElement>(".message-age");
+
     if (!age) continue;
+
     const ageText = messageAgeText(Number(time.dataset.messageAt || 0));
     setTextIfChanged(age, ageText ? ` · ${ageText}` : "");
   }
+
   if (
     state.mode === "chats" &&
     state.selectedChat &&
@@ -2158,11 +2468,13 @@ async function startApp() {
   await hydratePendingSends();
   resizeComposer();
   const hydrated = await hydrateRecentChatCache();
+
   if (!hydrated) {
     conversationRenderer.renderLoadingState();
     setHiddenIfChanged(els.emptyState, true);
     setHiddenIfChanged(els.conversation, false);
   }
+
   document.documentElement.classList.remove("booting");
   // Cached detail gives us an instant first paint, but it is never authoritative
   // for a new app session. Server rendering/persistence semantics can change

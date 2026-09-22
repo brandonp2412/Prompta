@@ -35,34 +35,44 @@ export class RecentChatCache {
 
   getMemory(conversationId: string) {
     const chat = this.memory.get(conversationId);
+
     if (!chat) return null;
+
     this.memory.delete(conversationId);
     this.memory.set(conversationId, chat);
+
     return chat;
   }
 
   async get(conversationId: string) {
     const memoryChat = this.getMemory(conversationId);
+
     if (memoryChat) return memoryChat;
 
     const database = await this.database();
+
     if (!database) return null;
+
     const record = await new Promise<CachedChatRecord | null>((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readonly");
       const request = transaction.objectStore(STORE_NAME).get(this.key(conversationId));
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => resolve(null);
     });
+
     if (!record?.chat || record.scope !== this.scope) return null;
 
     this.rememberMemory(conversationId, record.chat);
     void this.persist(record.chat);
+
     return record.chat;
   }
 
   remember(chat: any) {
     const conversationId = String(chat?.id || "");
+
     if (!conversationId) return;
+
     this.rememberMemory(conversationId, chat);
     void this.persist(chat);
   }
@@ -74,13 +84,16 @@ export class RecentChatCache {
 
   async warmSummaries() {
     const database = await this.database();
+
     if (!database) return [];
+
     const records = await new Promise<CachedChatSummaryRecord[]>((resolve) => {
       const transaction = database.transaction(SUMMARY_STORE_NAME, "readonly");
       const request = transaction.objectStore(SUMMARY_STORE_NAME).getAll();
       request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => resolve([]);
     });
+
     return records
       .filter((record) => record.scope === this.scope && record.chat)
       .sort((left, right) => left.position - right.position)
@@ -90,7 +103,9 @@ export class RecentChatCache {
 
   async warm() {
     const database = await this.database();
+
     if (!database) return [];
+
     const records = await new Promise<CachedChatRecord[]>((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readonly");
       const request = transaction.objectStore(STORE_NAME).getAll();
@@ -102,17 +117,22 @@ export class RecentChatCache {
       .sort((left, right) => right.accessedAt - left.accessedAt)
       .slice(0, this.limit)
       .map((record) => record.chat);
+
     for (const chat of chats) {
       const conversationId = String(chat?.id || "");
+
       if (conversationId) this.rememberMemory(conversationId, chat);
     }
+
     return chats;
   }
 
   async remove(conversationId: string) {
     this.memory.delete(conversationId);
     const database = await this.database();
+
     if (!database) return;
+
     await new Promise<void>((resolve) => {
       const transaction = database.transaction([STORE_NAME, SUMMARY_STORE_NAME], "readwrite");
       transaction.objectStore(STORE_NAME).delete(this.key(conversationId));
@@ -126,9 +146,12 @@ export class RecentChatCache {
   private rememberMemory(conversationId: string, chat: any) {
     this.memory.delete(conversationId);
     this.memory.set(conversationId, chat);
+
     while (this.memory.size > this.limit) {
       const oldest = this.memory.keys().next().value;
+
       if (!oldest) break;
+
       this.memory.delete(oldest);
     }
   }
@@ -139,8 +162,11 @@ export class RecentChatCache {
 
   private async persist(chat: any) {
     const conversationId = String(chat?.id || "");
+
     if (!conversationId) return;
+
     const database = await this.database();
+
     if (!database) return;
 
     await new Promise<void>((resolve) => {
@@ -161,6 +187,7 @@ export class RecentChatCache {
           .sort(
             (left: CachedChatRecord, right: CachedChatRecord) => right.accessedAt - left.accessedAt,
           );
+
         for (const record of records.slice(this.limit)) store.delete(record.key);
       };
       transaction.oncomplete = () => resolve();
@@ -171,7 +198,9 @@ export class RecentChatCache {
 
   private async persistSummaries(chats: any[]) {
     const database = await this.database();
+
     if (!database) return;
+
     const retainedIds = new Set(chats.map((chat) => String(chat.id)));
 
     await new Promise<void>((resolve) => {
@@ -187,6 +216,7 @@ export class RecentChatCache {
             store.delete(record.key);
           }
         }
+
         chats.forEach((chat, position) => {
           const conversationId = String(chat.id);
           store.put({
@@ -206,23 +236,31 @@ export class RecentChatCache {
 
   private database() {
     if (this.databasePromise) return this.databasePromise;
+
     this.databasePromise = new Promise((resolve) => {
       if (!("indexedDB" in globalThis)) {
         resolve(null);
+
         return;
       }
+
       let request: IDBOpenDBRequest;
+
       try {
         request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
       } catch {
         resolve(null);
+
         return;
       }
+
       request.onupgradeneeded = () => {
         const database = request.result;
+
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           database.createObjectStore(STORE_NAME, { keyPath: "key" });
         }
+
         if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) {
           database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
         }
@@ -231,6 +269,7 @@ export class RecentChatCache {
       request.onerror = () => resolve(null);
       request.onblocked = () => resolve(null);
     });
+
     return this.databasePromise;
   }
 }

@@ -83,6 +83,7 @@ describe("live chat synchronization", () => {
     const liveUpdates = createLiveUpdates({
       loadChats: () => {
         loads += 1;
+
         return loads === 1 ? firstLoad : Promise.resolve();
       },
       loadServerIdentity: () => Promise.resolve(),

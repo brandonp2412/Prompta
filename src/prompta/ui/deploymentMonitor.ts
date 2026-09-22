@@ -20,6 +20,7 @@ export function createDeploymentMonitor({
 
   async function applyUpdate() {
     if (reloading) return;
+
     reloading = true;
     await updateServiceWorker();
     window.location.reload();
@@ -29,12 +30,17 @@ export function createDeploymentMonitor({
     const nextHead = String(value || "")
       .trim()
       .toLowerCase();
+
     if (!nextHead) return;
+
     if (!head) {
       head = nextHead;
+
       return;
     }
+
     if (nextHead === head) return;
+
     head = nextHead;
     updateAvailable = true;
     onUpdateAvailable(head);
@@ -46,6 +52,7 @@ export function createDeploymentMonitor({
 
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
+
     navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch((error) => {
       console.warn("Could not register Prompta service worker", error);
     });

@@ -8,6 +8,7 @@ function replaceGlobal(name, value) {
   if (!savedGlobals.has(name)) {
     savedGlobals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
   }
+
   Object.defineProperty(globalThis, name, {
     configurable: true,
     writable: true,
@@ -20,6 +21,7 @@ function restoreGlobals() {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     else delete globalThis[name];
   }
+
   savedGlobals.clear();
 }
 
@@ -35,6 +37,7 @@ function browserNotifications(initialPermission = "granted") {
 
     static requestPermission() {
       if (permission !== "default") return Promise.resolve(permission);
+
       return new Promise((resolve) => {
         permissionResolver = (next) => {
           permission = next;

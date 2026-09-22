@@ -79,9 +79,11 @@ const CHATGPT_RICH_SEPARATOR = "\uE202";
 
 function textValue(value: unknown, fallback = ""): string {
   if (typeof value === "string") return value;
+
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
     return String(value);
   }
+
   return fallback;
 }
 
@@ -90,6 +92,7 @@ function readableRichMarkerFallback(parts: string[]): string {
     parts
       .find((part) => {
         const value = part.trim();
+
         return (
           Boolean(value) &&
           value.length <= 200 &&
@@ -112,13 +115,16 @@ export function replaceChatGptRichMarkers(
 
   while (cursor < source.length) {
     const start = source.indexOf(CHATGPT_RICH_START, cursor);
+
     if (start < 0) {
       output += source.slice(cursor);
       break;
     }
+
     output += source.slice(cursor, start);
 
     const end = source.indexOf(CHATGPT_RICH_END, start + CHATGPT_RICH_START.length);
+
     if (end < 0) {
       // Streaming responses can expose a marker before its closing delimiter.
       // Hide the private marker until the next snapshot completes it.
@@ -149,11 +155,17 @@ export function replaceChatGptRichMarkers(
 
 function retryDelayText(seconds: unknown): string {
   const value = Number(seconds);
+
   if (!Number.isFinite(value) || value <= 0) return "soon";
+
   if (value < 60) return "<1m";
+
   const minutes = Math.ceil(value / 60);
+
   if (minutes < 60) return `${minutes}m`;
+
   const hours = Math.ceil(minutes / 60);
+
   return `${hours}h`;
 }
 
@@ -165,9 +177,13 @@ export function pendingSendActivity(
   nowEpoch: unknown = Date.now() / 1000,
 ): PendingSendActivity | null {
   const normalized = textValue(status, "queued").trim().toLowerCase();
+
   if (["failed", "dead_lettered"].includes(normalized)) return null;
+
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
+
   if (normalized === "queued") return { label: "queued", statusText: "Queued in Prompta…" };
+
   if (normalized === "retrying") {
     const deadline = Number(retryAtEpoch);
     const now = Number(nowEpoch);
@@ -175,38 +191,48 @@ export function pendingSendActivity(
       Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now)
         ? Math.max(0, deadline - now)
         : Number(retryAfterSeconds);
+
     if (remaining <= 0) {
       return { label: "retrying now", statusText: "Retry backoff elapsed; retrying now…" };
     }
+
     const delay = retryDelayText(remaining);
+
     return {
       label: `retrying · ${delay}`,
       statusText: `Send failed transiently — retrying automatically in ${delay}.`,
     };
   }
+
   if (normalized === "rate_limited") {
     const deadline = Number(retryAtEpoch);
     const now = Number(nowEpoch);
     const hasDeadline = Number.isFinite(deadline) && deadline > 0 && Number.isFinite(now);
     const remaining = hasDeadline ? Math.max(0, deadline - now) : Number(retryAfterSeconds);
+
     if (hasDeadline && remaining <= 0) {
       return {
         label: "rate limited · retrying now",
         statusText: "Rate limited — backoff elapsed; retrying now…",
       };
     }
+
     const delay = retryDelayText(remaining);
+
     return {
       label: `rate limited · retry in ${delay}`,
       statusText: `Rate limited — backing off; retrying automatically in ${delay}.`,
     };
   }
+
   return { label: "waiting", statusText: "Waiting for ChatGPT…" };
 }
 
 export function conversationIdFromHash(hash: unknown): string {
   const encoded = textValue(hash).replace(/^#\/?/, "").trim();
+
   if (!encoded) return "";
+
   try {
     return decodeURIComponent(encoded);
   } catch {
@@ -219,6 +245,7 @@ const TOOL_UI_NOISE =
 
 export function toolCallDisplayName(value: unknown): string {
   const name = textValue(value).replace(/\s+/g, " ").trim();
+
   return name && !TOOL_UI_NOISE.test(name) ? name : "";
 }
 
@@ -235,40 +262,57 @@ export function toolCallHasUsefulDetail(value: unknown): boolean {
 
 function parsedToolPayload(value: unknown): unknown {
   let current: unknown = value;
+
   for (let depth = 0; depth < 3; depth += 1) {
     if (typeof current !== "string") return current;
+
     const trimmed = current.trim();
+
     if (!trimmed || !/^[{[]/.test(trimmed)) return current;
+
     try {
       current = JSON.parse(trimmed);
     } catch {
       return current;
     }
   }
+
   return current;
 }
 
 export function toolCallSummary(value: unknown): string {
   const payload = parsedToolPayload(value);
+
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+
   const record = payload as Record<string, unknown>;
+
   for (const candidate of [record.summary, record.reasoning_title, record.title]) {
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
+
   return "";
 }
 
 export function toolCallTimestampMillis(value: unknown): number | null {
   const payload = parsedToolPayload(value);
+
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+
   const record = payload as Record<string, unknown>;
+
   for (const candidate of [record.created_at, record.createdAt, record.timestamp, record.time]) {
     const numeric = Number(candidate);
+
     if (!Number.isFinite(numeric) || numeric <= 0) continue;
+
     const millis = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+
     if (Number.isNaN(new Date(millis).getTime())) continue;
+
     return millis;
   }
+
   return null;
 }
 
@@ -278,15 +322,21 @@ export function pythonToolCallCode(toolName: unknown, value: unknown): string {
     name.includes("execute_python") ||
     (name.includes("python") &&
       (name.includes("nox") || name.includes("glass") || name.includes("mcp")));
+
   if (!pythonTool) return "";
 
   const payload = parsedToolPayload(value);
+
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+
   const record = payload as Record<string, unknown>;
   const argumentPayload = parsedToolPayload(record.arguments ?? record.args ?? record);
+
   if (!argumentPayload || typeof argumentPayload !== "object" || Array.isArray(argumentPayload))
     return "";
+
   const code = (argumentPayload as Record<string, unknown>).code;
+
   return typeof code === "string" ? code.replace(/^(?:[ \t]*\r?\n)+/, "") : "";
 }
 
@@ -303,8 +353,11 @@ export function sidebarChatPreviewText(preview: unknown, prompt: unknown): strin
 
 export function pendingConversationDisplayId(pending: PendingNewSend | null | undefined): string {
   if (!pending) return "";
+
   if (pending.conversationId) return String(pending.conversationId);
+
   const clientId = String(pending.clientId || "").trim();
+
   return clientId ? `pending-new-${clientId}` : "";
 }
 
@@ -314,17 +367,24 @@ export function promotePinnedConversationId(
   nextConversationId: string,
 ): boolean {
   const nextId = String(nextConversationId || "").trim();
+
   if (!nextId) return false;
+
   const previousId = pendingConversationDisplayId(pending);
+
   if (!previousId || previousId === nextId || !pinnedIds.has(previousId)) return false;
+
   pinnedIds.delete(previousId);
   pinnedIds.add(nextId);
+
   return true;
 }
 
 function comparableTimestampSeconds(value: unknown): number {
   const timestamp = Number(value);
+
   if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
+
   return timestamp >= 1e12 ? timestamp / 1000 : timestamp;
 }
 
@@ -341,77 +401,109 @@ export function matchingOptimisticConversation(
 
   if (pending.conversationId) {
     const exact = chats.find((chat) => chat.id === pending.conversationId);
+
     if (exact) return exact;
   }
 
   const prompt = comparablePrompt(pending.message);
+
   if (!prompt) return null;
 
   const createdAt = comparableTimestampSeconds(pending.createdAt);
   let best: ChatSummary | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
+
   if (createdAt > 0) {
     for (const chat of chats) {
       if (comparablePrompt(chat.prompt) !== prompt) continue;
+
       const chatCreatedAt = comparableTimestampSeconds(chat.created_at);
+
       if (chatCreatedAt <= 0) continue;
+
       const distance = Math.abs(chatCreatedAt - createdAt);
+
       if (distance > 30 || distance >= bestDistance) continue;
+
       best = chat;
       bestDistance = distance;
     }
   }
+
   if (best) return best;
+
   if (!knownConversationIds.size) return null;
 
   const unseenMatches = chats.filter(
     (chat) => !knownConversationIds.has(chat.id) && comparablePrompt(chat.prompt) === prompt,
   );
+
   return unseenMatches.length === 1 ? unseenMatches[0] : null;
 }
 
 export function messageTimestampMillis(createdAt: unknown, updatedAt: unknown): number | null {
   for (const candidate of [createdAt, updatedAt]) {
     const raw = Number(candidate);
+
     if (!Number.isFinite(raw) || raw <= 0) continue;
+
     const millis = raw < 1e12 ? raw * 1000 : raw;
+
     if (!Number.isFinite(millis)) continue;
+
     const date = new Date(millis);
+
     if (!Number.isNaN(date.getTime())) return millis;
   }
+
   return null;
 }
 
 export function formatClockTime12Hour(value: Date | number, includeSeconds = false): string {
   const date = value instanceof Date ? value : new Date(value);
+
   if (Number.isNaN(date.getTime())) return "";
+
   const hour24 = date.getHours();
   const hour12 = hour24 % 12 || 12;
   const minutes = String(date.getMinutes()).padStart(2, "0");
   const seconds = includeSeconds ? `:${String(date.getSeconds()).padStart(2, "0")}` : "";
+
   return `${hour12}:${minutes}${seconds}${hour24 < 12 ? "am" : "pm"}`;
 }
 
 export function formatDailyTime12Hour(value: unknown): string {
   const raw = textValue(value);
   const match = raw.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+
   if (!match) return raw;
+
   const hour24 = Number(match[1]);
   const hour12 = hour24 % 12 || 12;
+
   return `${hour12}:${match[2]}${hour24 < 12 ? "am" : "pm"}`;
 }
 
 export function messageAgeText(timestampMillis: unknown, nowMillis = Date.now()): string {
   const timestamp = Number(timestampMillis);
   const now = Number(nowMillis);
+
   if (!Number.isFinite(timestamp) || timestamp <= 0 || !Number.isFinite(now)) return "";
+
   const elapsed = Math.max(0, now - timestamp);
+
   if (elapsed < 45_000) return "now";
+
   if (elapsed < 3_600_000) return `${Math.max(1, Math.floor(elapsed / 60_000))}m ago`;
+
   if (elapsed < 86_400_000) return `${Math.max(1, Math.floor(elapsed / 3_600_000))}h ago`;
+
   if (elapsed < 604_800_000) return `${Math.max(1, Math.floor(elapsed / 86_400_000))}d ago`;
+
   if (elapsed < 2_592_000_000) return `${Math.max(1, Math.floor(elapsed / 604_800_000))}w ago`;
+
   if (elapsed < 31_536_000_000) return `${Math.max(1, Math.floor(elapsed / 2_592_000_000))}mo ago`;
+
   return `${Math.max(1, Math.floor(elapsed / 31_536_000_000))}y ago`;
 }
 
@@ -436,6 +528,7 @@ export function pendingConversationSends(
       (pendingNew.clientId && item.clientId === pendingNew.clientId) ||
       (pendingNew.sendId && item.sendId === pendingNew.sendId),
   );
+
   return duplicate ? replies : [...replies, pendingNew];
 }
 
@@ -446,21 +539,31 @@ export function matchingPendingReplyMessageIndex(
 ): number {
   const content = comparablePrompt(pending.message);
   const pendingAt = comparableTimestampSeconds(pending.createdAt || pending.updatedAt);
+
   if (!content || pendingAt <= 0) return -1;
 
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
+
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (claimedIndexes.has(index)) continue;
+
     const message = messages[index];
+
     if (message.role !== "user" || comparablePrompt(message.content) !== content) continue;
+
     const messageTime = comparableTimestampSeconds(message.created_at || message.updated_at);
+
     if (messageTime <= 0) continue;
+
     const distance = Math.abs(messageTime - pendingAt);
+
     if (distance > 30 || distance >= bestDistance) continue;
+
     bestIndex = index;
     bestDistance = distance;
   }
+
   return bestIndex;
 }
 
@@ -470,6 +573,7 @@ export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand
   const match = message.match(
     /^\/(?:add|every)\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i,
   );
+
   if (!match) {
     return {
       error:
@@ -492,12 +596,15 @@ export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
     return { error: "Schedule interval must be a finite value greater than zero." };
   }
+
   if (intervalMinutes < 0.1) {
     return { error: "Schedule interval must be at least 6 seconds." };
   }
+
   if (intervalMinutes > 60 * 24 * 30) {
     return { error: "Schedule interval cannot exceed 30 days." };
   }
+
   if (!prompt) {
     return { error: "Schedule prompt is required." };
   }
@@ -508,16 +615,22 @@ export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand
 export function formatScheduleInterval(minutes: number): string {
   if (minutes < 1) {
     const seconds = minutes * 60;
+
     return `${seconds} second${seconds === 1 ? "" : "s"}`;
   }
+
   if (minutes >= 1440 && minutes % 1440 === 0) {
     const days = minutes / 1440;
+
     return `${days} day${days === 1 ? "" : "s"}`;
   }
+
   if (minutes >= 60 && minutes % 60 === 0) {
     const hours = minutes / 60;
+
     return `${hours} hour${hours === 1 ? "" : "s"}`;
   }
+
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
@@ -529,11 +642,13 @@ export async function postJsonRequest(
   fetchImpl: typeof fetch = fetch,
 ): Promise<any> {
   let lastError = new Error("Request failed");
+
   for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     let data: any = {};
+
     try {
       response = await fetchImpl(url, {
         method: "POST",
@@ -542,10 +657,12 @@ export async function postJsonRequest(
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
+
       try {
         data = await response.json();
       } catch {
         if (controller.signal.aborted) throw new Error("Request timed out");
+
         if (response.ok) throw new Error("Prompta returned an invalid response");
       }
     } catch (error) {
@@ -554,7 +671,9 @@ export async function postJsonRequest(
         : error instanceof Error
           ? error
           : new Error(String(error));
+
       if (attempt + 1 >= attempts) throw lastError;
+
       await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
       continue;
     } finally {
@@ -562,14 +681,18 @@ export async function postJsonRequest(
     }
 
     if (response.ok) return data;
+
     const errorMessage =
       typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
         ? data.error
         : "";
     lastError = new Error(errorMessage || `${response.status} ${response.statusText}`);
+
     if (response.status < 500 || attempt + 1 >= attempts) throw lastError;
+
     await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
   }
+
   throw lastError;
 }
 
@@ -612,6 +735,7 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
   const match = message.match(
     /^\/at\s+(today|tomorrow|\d{4}-\d{2}-\d{2})(?:[T\s]+)([01]\d|2[0-3]):([0-5]\d)\s+([\s\S]+)$/i,
   );
+
   if (!match) {
     return {
       error: "Use /at <date> <time> <prompt>, for example: /at 2026-09-21 09:30 review failures",
@@ -627,9 +751,12 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
   let expectedYear: number;
   let expectedMonth: number;
   let expectedDay: number;
+
   if (dateToken === "today" || dateToken === "tomorrow") {
     target = new Date(now);
+
     if (dateToken === "tomorrow") target.setDate(target.getDate() + 1);
+
     expectedYear = target.getFullYear();
     expectedMonth = target.getMonth();
     expectedDay = target.getDate();
@@ -640,6 +767,7 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
     expectedMonth = parts[1] - 1;
     expectedDay = parts[2];
     target = new Date(expectedYear, expectedMonth, expectedDay, hour, minute, 0, 0);
+
     if (
       target.getFullYear() !== expectedYear ||
       target.getMonth() !== expectedMonth ||
@@ -648,6 +776,7 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
       return { error: "Schedule date is invalid." };
     }
   }
+
   if (
     target.getFullYear() !== expectedYear ||
     target.getMonth() !== expectedMonth ||
@@ -659,7 +788,9 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
   }
 
   if (!prompt) return { error: "Schedule prompt is required." };
+
   const runAtEpoch = target.getTime() / 1000;
+
   if (!Number.isFinite(runAtEpoch) || runAtEpoch <= now.getTime() / 1000) {
     return { error: "Schedule time must be in the future." };
   }
@@ -669,5 +800,6 @@ export function parseAtSlashCommand(message: string, now = new Date()): AtSlashC
     month: "short",
     day: "numeric",
   })} ${formatClockTime12Hour(target)}`;
+
   return { runAtEpoch, runAtLabel, prompt };
 }

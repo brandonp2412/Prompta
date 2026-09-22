@@ -84,6 +84,7 @@ function normalizeLanguage(language) {
     .trim()
     .toLowerCase()
     .split(/\s+/)[0];
+
   return LANGUAGE_ALIASES[raw] || raw || "code";
 }
 
@@ -99,6 +100,7 @@ function highlightCode(raw, language) {
   const hashComments = ["python", "bash", "yaml"].includes(normalized);
   let html = "";
   let index = 0;
+
   while (index < source.length) {
     if (normalized === "markup" && source.startsWith("<!--", index)) {
       const end = source.indexOf("-->", index + 4);
@@ -107,6 +109,7 @@ function highlightCode(raw, language) {
       index = next;
       continue;
     }
+
     if (source.startsWith("/*", index)) {
       const end = source.indexOf("*/", index + 2);
       const next = end < 0 ? source.length : end + 2;
@@ -114,6 +117,7 @@ function highlightCode(raw, language) {
       index = next;
       continue;
     }
+
     if (source.startsWith("//", index) && normalized !== "json") {
       const end = source.indexOf("\n", index + 2);
       const next = end < 0 ? source.length : end;
@@ -121,6 +125,7 @@ function highlightCode(raw, language) {
       index = next;
       continue;
     }
+
     if (hashComments && source[index] === "#") {
       const end = source.indexOf("\n", index + 1);
       const next = end < 0 ? source.length : end;
@@ -128,50 +133,65 @@ function highlightCode(raw, language) {
       index = next;
       continue;
     }
+
     const quote = source[index];
+
     if (quote === '"' || quote === "'" || quote === "`") {
       let cursor = index + 1;
+
       while (cursor < source.length) {
         if (source[cursor] === "\\") {
           cursor += 2;
           continue;
         }
+
         if (source[cursor] === quote) {
           cursor += 1;
           break;
         }
+
         cursor += 1;
       }
+
       const value = source.slice(index, cursor);
       const property = normalized === "json" && /^\s*:/.test(source.slice(cursor));
       html += syntaxToken(property ? "property" : "string", value);
       index = cursor;
       continue;
     }
+
     const number = source
       .slice(index)
       .match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
+
     if (number) {
       html += syntaxToken("number", number[0]);
       index += number[0].length;
       continue;
     }
+
     if (/[A-Za-z_$]/.test(source[index])) {
       let cursor = index + 1;
+
       while (/[A-Za-z0-9_$]/.test(source[cursor] || "")) cursor += 1;
+
       const value = source.slice(index, cursor);
       const lookup = sql ? value.toUpperCase() : value;
+
       if (keywords.has(lookup)) html += syntaxToken("keyword", value);
       else if (/^\s*\(/.test(source.slice(cursor))) html += syntaxToken("function", value);
       else html += escapeHtml(value);
+
       index = cursor;
       continue;
     }
+
     html += /[[\]{}(),.:;]/.test(source[index])
       ? syntaxToken("punctuation", source[index])
       : escapeHtml(source[index]);
     index += 1;
   }
+
   return html;
 }
 
@@ -180,8 +200,11 @@ function inlineMarkdown(text) {
   let source = String(text || "");
   const stash = (html) => {
     let token = `\uE000PROMPTA_INLINE_${placeholders.length}\uE001`;
+
     while (source.includes(token)) token += "\uE002";
+
     placeholders.push([token, html]);
+
     return token;
   };
   source = replaceChatGptRichMarkers(source, (label, url) =>
@@ -202,7 +225,9 @@ function inlineMarkdown(text) {
   html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
   html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
   html = html.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
+
   for (const [token, value] of placeholders) html = html.replaceAll(token, value);
+
   return html;
 }
 
@@ -216,14 +241,19 @@ function splitTableRow(line) {
 
 function renderListItem(content) {
   const task = content.match(/^\[([ xX])\]\s+(.+)$/);
+
   if (!task) return `<li>${inlineMarkdown(content)}</li>`;
+
   const checked = task[1].toLowerCase() === "x";
+
   return `<li class="task-item"><input type="checkbox" disabled${checked ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
 }
 
 function listLine(line) {
   const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+
   if (!match) return null;
+
   return {
     indent: match[1].replace(/\t/g, "    ").length,
     ordered: /^\d/.test(match[2]),
@@ -233,27 +263,38 @@ function listLine(line) {
 
 function renderListBlock(lines, startIndex, baseIndent = null) {
   const first = listLine(lines[startIndex]);
+
   if (!first) return { html: "", index: startIndex };
+
   const indent = baseIndent ?? first.indent;
   const ordered = first.ordered;
   const tag = ordered ? "ol" : "ul";
   const items: string[] = [];
   let index = startIndex;
+
   while (index < lines.length) {
     const current = listLine(lines[index]);
+
     if (!current || current.indent < indent) break;
+
     if (current.indent === indent && current.ordered !== ordered) break;
+
     if (current.indent > indent) {
       if (!items.length) break;
+
       const nested = renderListBlock(lines, index, current.indent);
+
       if (!nested.html || nested.index === index) break;
+
       items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${nested.html}</li>`);
       index = nested.index;
       continue;
     }
+
     items.push(renderListItem(current.content));
     index += 1;
   }
+
   return { html: `<${tag}>${items.join("")}</${tag}>`, index };
 }
 
@@ -270,38 +311,47 @@ function renderTextBlock(text) {
     /^\s*>\s?/.test(line) ||
     /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) ||
     (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next));
+
   while (index < lines.length) {
     const line = lines[index];
     const next = lines[index + 1] || "";
+
     if (!line.trim()) {
       index += 1;
       continue;
     }
+
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
+
     if (heading) {
       const level = heading[1].length;
       out.push(`<h${level}>${inlineMarkdown(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
       index += 1;
       continue;
     }
+
     if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
       out.push("<hr>");
       index += 1;
       continue;
     }
+
     if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next)) {
       const headers = splitTableRow(line);
       const aligns = splitTableRow(next).map((cell) => {
         const left = cell.startsWith(":");
         const right = cell.endsWith(":");
+
         return left && right ? "center" : right ? "right" : left ? "left" : "";
       });
       index += 2;
       const rows: string[][] = [];
+
       while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
         rows.push(splitTableRow(lines[index]));
         index += 1;
       }
+
       const tableScrollClass =
         headers.length >= 3 ? "table-scroll table-scroll-wide" : "table-scroll";
       out.push(
@@ -324,30 +374,39 @@ function renderTextBlock(text) {
       );
       continue;
     }
+
     if (/^\s*>\s?/.test(line)) {
       const quoted: string[] = [];
+
       while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
         quoted.push(lines[index].replace(/^\s*>\s?/, ""));
         index += 1;
       }
+
       out.push(`<blockquote>${renderTextBlock(quoted.join("\n"))}</blockquote>`);
       continue;
     }
+
     const list = listLine(line);
+
     if (list) {
       const rendered = renderListBlock(lines, index);
       out.push(rendered.html);
       index = rendered.index;
       continue;
     }
+
     const paragraph = [line.trim()];
     index += 1;
+
     while (index < lines.length && !startsBlock(lines[index], lines[index + 1] || "")) {
       paragraph.push(lines[index].trim());
       index += 1;
     }
+
     out.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
   }
+
   return out.join("");
 }
 
@@ -355,7 +414,9 @@ const CONTEXTUAL_TOOL_ACTION = /(?:^|_)(?:repl|execute|shell|python|command)(?:_
 
 function expandedToolMetaAddsInformation(summary, action, connector) {
   if (!action) return false;
+
   if (summary) return true;
+
   return Boolean(connector && CONTEXTUAL_TOOL_ACTION.test(action));
 }
 
@@ -370,7 +431,9 @@ function renderCodeBlock(code, language) {
   const trimmedCode = code.trim();
   const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
   const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
+
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
+
   const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
   const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
   const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
@@ -405,6 +468,7 @@ function renderCodeBlock(code, language) {
   const body = renderedCode.trim()
     ? `<pre><code class="language-${escapeHtml(highlightLanguage)}">${highlightCode(renderedCode, highlightLanguage)}</code></pre>`
     : "";
+
   if (toolish) {
     const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
     const expandedAction =
@@ -418,6 +482,7 @@ function renderCodeBlock(code, language) {
     )
       ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>`
       : "";
+
     return `
       <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}">
         <summary class="code-header">${header}</summary>
@@ -425,6 +490,7 @@ function renderCodeBlock(code, language) {
         ${body}
       </details>`;
   }
+
   return `
     <div class="code-block">
       <div class="code-header">${header}</div>
@@ -438,6 +504,7 @@ export function renderMarkdown(raw) {
   let lastIndex = 0;
   let html = "";
   let match;
+
   while ((match = pattern.exec(source)) !== null) {
     html += renderTextBlock(source.slice(lastIndex, match.index));
     const language = match[1].trim() || "code";
@@ -445,6 +512,8 @@ export function renderMarkdown(raw) {
     html += renderCodeBlock(code, language);
     lastIndex = pattern.lastIndex;
   }
+
   html += renderTextBlock(source.slice(lastIndex));
+
   return html || "<p></p>";
 }

@@ -1,6 +1,8 @@
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
+
   if (!element) throw new Error("Missing required changelog UI element: " + selector);
+
   return element;
 }
 
@@ -15,6 +17,7 @@ function escapeHtml(value) {
 
 function setTextIfChanged(element: Element, value) {
   const text = String(value ?? "");
+
   if (element.textContent !== text) element.textContent = text;
 }
 
@@ -33,9 +36,12 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
 
   async function open() {
     closeSidebar();
+
     if (!els.dialog.open) els.dialog.showModal();
+
     setTextIfChanged(els.status, "Loading changelog…");
     els.list.innerHTML = '<li class="changelog-empty">Loading changes…</li>';
+
     try {
       const payload = await fetchJson("api/changelog");
       const changes = Array.isArray(payload.changes) ? payload.changes : [];
