@@ -565,13 +565,13 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     &&(event.content_type==='text'||event.content_type==='multimodal_text')
   ));
   if(latestAgent&&!sourceHasAssistantText){
-    const toolRows=[...latestAgent.querySelectorAll('span[class~="group/tool-message"],'+toolSelector+')'];
+    const toolRows=[...latestAgent.querySelectorAll('span[class~="group/tool-message"],'+toolSelector)];
     const visibleProse=[...latestAgent.querySelectorAll('.markdown,.markdown-new-styling')]
       .filter(visible)
       .filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)))
       .map(markdownText)
       .filter(Boolean)
-      .join('\n\n')
+      .join('\\n\\n')
       .trim();
     if(visibleProse){
       const latestAssistantMessage=[...messages].reverse().find(message=>message.role==='assistant');
