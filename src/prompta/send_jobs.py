@@ -27,6 +27,15 @@ _SEND_RETRY_CAP_SECONDS = 60.0
 _SEND_RETRY_MAX_ATTEMPTS = 5
 _DEAD_LETTER_LIMIT = 100
 _SUCCEEDED_RECEIPT_LIMIT = 1000
+_LEGACY_PRE_SEND_OUTAGE_ERRORS = (
+    "Prompta scheduler is running but its control socket is unavailable:",
+    "Prompta backend is unavailable after starting prompta.service",
+)
+
+
+def _is_legacy_pre_send_outage(error: str) -> bool:
+    message = error.strip()
+    return any(message.startswith(prefix) for prefix in _LEGACY_PRE_SEND_OUTAGE_ERRORS)
 
 
 class SendJobRegistry:
@@ -425,6 +434,16 @@ class SendJobRegistry:
                     last_error
                     or "Delivery state unknown after Prompta restarted during an in-flight send"
                 )
+            if status == "dead_lettered" and _is_legacy_pre_send_outage(last_error):
+                logger.info(
+                    "Requeueing legacy Prompta UI send blocked before delivery send_id=%s",
+                    send_id,
+                )
+                status = "queued"
+                retry_at = 0.0
+                retry_attempt = 0
+                last_error = ""
+                finished_at = 0.0
             if status in {"dead_lettered", "succeeded"}:
                 record = {
                     "send_id": send_id,

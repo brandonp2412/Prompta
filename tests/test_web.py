@@ -1107,6 +1107,91 @@ def test_send_job_registry_deduplicates_succeeded_send_after_restart(tmp_path: P
     restarted_sender.assert_not_called()
 
 
+def test_send_job_registry_replays_legacy_pre_send_control_outage_dead_letter(
+    tmp_path: Path,
+) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    send_id = "legacy-control-outage"
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": send_id,
+                        "operation": "once",
+                        "message": "Previously stranded",
+                        "conversation_id": "",
+                        "attachments": [],
+                        "client_id": "browser-legacy-outage",
+                        "status": "dead_lettered",
+                        "retry_at": 0.0,
+                        "retry_attempt": 5,
+                        "created_at": time.time() - 10,
+                        "last_error": (
+                            "Prompta scheduler is running but its control socket is unavailable: "
+                            "/home/test/.local/state/prompta/control.sock"
+                        ),
+                    }
+                ]
+            }
+        )
+    )
+    sender = MagicMock(return_value="chat-recovered")
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+    deadline = time.monotonic() + 1.0
+    result = registry.get(send_id)
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(send_id)
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert result["conversation_id"] == "chat-recovered"
+    assert result["retry_attempt"] == 0
+    sender.assert_called_once_with("once", "Previously stranded", "", [])
+    persisted = json.loads(recovery_path.read_text())["jobs"][0]
+    assert persisted["status"] == "succeeded"
+    assert persisted["conversation_id"] == "chat-recovered"
+
+
+def test_send_job_registry_keeps_uncertain_restart_dead_letter_terminal(tmp_path: Path) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": "unknown-delivery-state",
+                        "operation": "reply",
+                        "message": "May already have been sent",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-unknown-delivery",
+                        "status": "dead_lettered",
+                        "retry_at": 0.0,
+                        "retry_attempt": 0,
+                        "created_at": time.time() - 10,
+                        "last_error": (
+                            "Delivery state unknown after Prompta restarted during an in-flight send"
+                        ),
+                    }
+                ]
+            }
+        )
+    )
+    sender = MagicMock(return_value="chat-1")
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+    time.sleep(0.03)
+
+    sender.assert_not_called()
+    result = registry.get("unknown-delivery-state")
+    assert result is not None
+    assert result["status"] == "dead_lettered"
+    assert "Delivery state unknown" in result["error"]
+
+
 def test_send_job_registry_does_not_replay_dead_letters(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
     recovery_path.write_text(
