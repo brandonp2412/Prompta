@@ -1547,6 +1547,13 @@ function setTextIfChanged2(element, value) {
   if (element.textContent !== text)
     element.textContent = text;
 }
+function canMorphPendingMessageNode(messageKey, role, sendError = false) {
+  if (sendError)
+    return false;
+  if (role === "user")
+    return String(messageKey).startsWith("pending-user-");
+  return String(messageKey).startsWith("pending-activity-");
+}
 function imageAttachments(message) {
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
   return attachments.filter((attachment) => {
@@ -1827,6 +1834,18 @@ function createConversationRenderer({ onRetry, onDelete }) {
       patchDomChildren(content, template.content);
       bindCopyButtons(content);
     }
+    const deleteButton = node.querySelector(".delete-pending-button");
+    const deleteKey = String(message.pending_delete_key || "");
+    if (deleteKey) {
+      if (deleteButton) {
+        deleteButton.dataset.deletePendingKey = deleteKey;
+      } else {
+        content.insertAdjacentHTML("afterend", `<button type="button" class="delete-pending-button" data-delete-pending-key="${escapeHtml3(deleteKey)}">Delete</button>`);
+        bindDeleteButtons(node);
+      }
+    } else if (deleteButton) {
+      deleteButton.remove();
+    }
     const retryButton = node.querySelector(".retry-send-button");
     const shouldRetry = sendError && Boolean(message.retry_scope) && Boolean(message.retry_key);
     if (shouldRetry) {
@@ -1892,6 +1911,15 @@ function createConversationRenderer({ onRetry, onDelete }) {
     node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
     return true;
   }
+  function reusablePendingNode(node, message) {
+    if (!(node instanceof HTMLElement) || message.send_error)
+      return null;
+    const key = node.dataset.messageKey || "";
+    const role = message.role === "user" ? "user" : "assistant";
+    if (!canMorphPendingMessageNode(key, role, Boolean(message.send_error)))
+      return null;
+    return node.classList.contains(role) ? node : null;
+  }
   function renderMessageNodes(messages, allowStreaming) {
     const existing = new Map(Array.from(conversation.children).map((node) => [
       node.dataset.messageKey,
@@ -1908,7 +1936,13 @@ function createConversationRenderer({ onRetry, onDelete }) {
       const fingerprint = messageNodeFingerprint(message, streamThisMessage);
       let node = existing.get(messageKey);
       if (!node) {
-        node = createMessageNode(message, streamThisMessage, messageKey);
+        const candidate = reusablePendingNode(conversation.children[index], message);
+        if (candidate && updateMessageNode(candidate, message, streamThisMessage)) {
+          candidate.dataset.messageKey = messageKey;
+          node = candidate;
+        } else {
+          node = createMessageNode(message, streamThisMessage, messageKey);
+        }
       } else if (node.dataset.renderFingerprint !== fingerprint) {
         if (!updateMessageNode(node, message, streamThisMessage)) {
           const replacement = createMessageNode(message, streamThisMessage, messageKey);
@@ -1927,12 +1961,23 @@ function createConversationRenderer({ onRetry, onDelete }) {
     }
   }
   function renderLoadingState() {
-    conversation.innerHTML = `
-      <div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation">
-        <div class="conversation-loading-row conversation-loading-user"></div>
-        <div class="conversation-loading-row conversation-loading-assistant"></div>
-        <div class="conversation-loading-row conversation-loading-assistant short"></div>
-      </div>`;
+    if (conversation.children.length)
+      return;
+    const loading = document.createElement("div");
+    loading.className = "conversation-loading";
+    loading.dataset.messageKey = "__loading__";
+    loading.setAttribute("aria-live", "polite");
+    loading.setAttribute("aria-label", "Loading conversation");
+    for (const className of [
+      "conversation-loading-row conversation-loading-user",
+      "conversation-loading-row conversation-loading-assistant",
+      "conversation-loading-row conversation-loading-assistant short"
+    ]) {
+      const row = document.createElement("div");
+      row.className = className;
+      loading.append(row);
+    }
+    conversation.append(loading);
   }
   const CONVERSATION_BOTTOM_SLOP = 24;
   let trackedViewport = null;
