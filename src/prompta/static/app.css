@@ -2115,6 +2115,59 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.job-prompt-details {
+  min-width: 0;
+}
+
+.job-prompt-summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.job-prompt-summary::-webkit-details-marker {
+  display: none;
+}
+
+.job-prompt-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted-strong);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.job-prompt-toggle-label {
+  display: inline-block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.job-prompt-hide,
+.job-prompt-details[open] .job-prompt-preview,
+.job-prompt-details[open] .job-prompt-show {
+  display: none;
+}
+
+.job-prompt-details[open] .job-prompt-hide {
+  display: inline;
+}
+
+.job-prompt-summary:focus-visible {
+  outline: 2px solid var(--muted);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.job-prompt-full {
+  margin-top: 7px;
+}
+
 .job-status {
   display: inline-flex;
   align-items: center;
@@ -2142,7 +2195,7 @@ textarea:focus-visible {
   border-top: 1px solid var(--border);
 }
 
-.jobs-form label {
+.jobs-form label:not([hidden]) {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -2180,7 +2233,7 @@ textarea:focus-visible {
   gap: 10px;
 }
 
-.jobs-check {
+.jobs-check:not([hidden]) {
   display: flex !important;
   align-items: center;
   gap: 8px !important;

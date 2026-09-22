@@ -911,6 +911,27 @@ function setTextIfChanged(element, value) {
   if (element.textContent !== text)
     element.textContent = text;
 }
+var JOB_PROMPT_PREVIEW_LIMIT = 220;
+function renderJobPrompt(promptValue) {
+  const prompt = String(promptValue ?? "").trim();
+  const escapedPrompt = escapeHtml(prompt);
+  if (prompt.length <= JOB_PROMPT_PREVIEW_LIMIT && !prompt.includes(`
+`)) {
+    return `<div class="job-row-prompt">${escapedPrompt}</div>`;
+  }
+  return `
+    <details class="job-prompt-details">
+      <summary class="job-prompt-summary">
+        <span class="job-prompt-preview" aria-hidden="true">${escapedPrompt}</span>
+        <span class="job-prompt-toggle-label">
+          <span class="job-prompt-show">Show full prompt</span>
+          <span class="job-prompt-hide">Hide prompt</span>
+        </span>
+      </summary>
+      <div class="job-row-prompt job-row-prompt-full">${escapedPrompt}</div>
+    </details>
+  `;
+}
 async function fetchJson(url, timeoutMs = 1e4) {
   const controller = new AbortController;
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1016,7 +1037,7 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
             </div>
             <span class="job-status">${escapeHtml(job.status || (paused ? "paused" : "pending"))}</span>
           </div>
-          <div class="job-row-prompt">${escapeHtml(job.prompt || "")}</div>
+          ${renderJobPrompt(job.prompt)}
           <div class="job-row-actions">
             ${canEdit ? '<button type="button" class="job-action" data-job-action="edit">Edit</button>' : ""}
             <button type="button" class="job-action" data-job-action="${paused ? "resume" : "pause"}">${paused ? "Resume" : "Pause"}</button>
