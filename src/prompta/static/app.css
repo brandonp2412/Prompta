@@ -2023,8 +2023,8 @@ textarea:focus-visible {
   margin: 0;
 }
 
-.jobs-dialog-header p {
-  margin: 4px 0 0;
+.jobs-dialog-header .heading-meta {
+  margin-top: 4px;
   color: var(--muted);
   font-size: 13px;
 }
