@@ -3,19 +3,23 @@ from __future__ import annotations
 from prompta.ui_noise import is_assistant_ui_noise, strip_assistant_ui_noise
 
 NETWORK_ERROR = "A network error occurred. Please check your connection and try again. If this issue persists please contact us through our help center at help.openai.com."
+LINKED_NETWORK_ERROR = NETWORK_ERROR.replace(
+    "help.openai.com", "[help.openai.com](https://help.openai.com/)"
+)
 
 
 def test_network_error_banner_is_assistant_ui_noise() -> None:
     assert is_assistant_ui_noise(NETWORK_ERROR)
+    assert is_assistant_ui_noise(LINKED_NETWORK_ERROR)
     assert is_assistant_ui_noise(NETWORK_ERROR.replace(". Please", ".\nPlease"))
 
 
 def test_strip_assistant_ui_noise_removes_network_error_between_transcript_text() -> None:
-    content = f"Before tool\n\n{NETWORK_ERROR}\n\nAfter tool"
+    content = f"Before tool\n\n{LINKED_NETWORK_ERROR}\n\nAfter tool"
 
     cleaned = strip_assistant_ui_noise(content)
 
-    assert NETWORK_ERROR not in cleaned
+    assert "A network error occurred" not in cleaned
     assert "Before tool" in cleaned
     assert "After tool" in cleaned
 

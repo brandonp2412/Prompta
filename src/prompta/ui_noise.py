@@ -3,10 +3,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
+_HELP_CENTER_TARGET_RE = (
+    r"(?:help\.openai\.com|\[help\.openai\.com\]\(https?://help\.openai\.com/?\))"
+)
+
 _NETWORK_ERROR_RE = re.compile(
     r"a network error occurred\.?\s*"
     r"please check your connection and try again\.?\s*"
-    r"if this issue persists please contact us through our help center at help\.openai\.com\.?",
+    r"if this issue persists please contact us through our help center at "
+    + _HELP_CENTER_TARGET_RE
+    + r"\.?",
     re.IGNORECASE,
 )
 _ASSISTANT_UI_NOISE_RE = re.compile(
@@ -16,7 +22,9 @@ _ASSISTANT_UI_NOISE_RE = re.compile(
     r"message delivery timed out\.?\s*please try again\.?|"
     r"a network error occurred\.?"
     r"(?:\s*please check your connection and try again\.?"
-    r"(?:\s*if this issue persists please contact us through our help center at help\.openai\.com\.?)?"
+    r"(?:\s*if this issue persists please contact us through our help center at "
+    + _HELP_CENTER_TARGET_RE
+    + r"\.?)?"
     r")?"
     r")",
     re.IGNORECASE,
