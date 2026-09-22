@@ -32,6 +32,9 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
     status: requiredElement<HTMLElement>("#changelogDialogStatus"),
   };
 
+  const mobileChangelogScreen = window.matchMedia("(max-width: 600px)");
+  const appShell = document.querySelector<HTMLElement>(".app-shell");
+
   function close() {
     if (els.dialog.open) els.dialog.close();
   }
@@ -39,7 +42,18 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
   async function open() {
     closeSidebar();
 
-    if (!els.dialog.open) els.dialog.showModal();
+    if (!els.dialog.open) {
+      const stacked = mobileChangelogScreen.matches;
+      els.dialog.dataset.presentation = stacked ? "stack" : "modal";
+
+      if (stacked) {
+        els.dialog.show();
+
+        if (appShell) appShell.inert = true;
+      } else {
+        els.dialog.showModal();
+      }
+    }
 
     setTextIfChanged(els.status, "Loading changelog…");
     patchHtmlChildren(els.list, '<li class="changelog-empty">Loading changes…</li>');
@@ -74,7 +88,12 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
   els.headLabel.addEventListener("click", () => void open());
   els.closeButton.addEventListener("click", close);
   els.dialog.addEventListener("click", (event) => {
-    if (event.target === els.dialog) close();
+    if (event.target === els.dialog && els.dialog.dataset.presentation !== "stack") close();
+  });
+  els.dialog.addEventListener("close", () => {
+    if (appShell) appShell.inert = false;
+
+    delete els.dialog.dataset.presentation;
   });
 
   return { open, close };

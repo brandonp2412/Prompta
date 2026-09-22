@@ -2196,6 +2196,79 @@ textarea:focus-visible {
 }
 
 @media (max-width: 600px) {
+  .changelog-dialog[data-presentation="stack"] {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: var(--app-height, 100dvh);
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: none;
+  }
+
+  .changelog-dialog[data-presentation="stack"]::backdrop {
+    display: none;
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-dialog-shell {
+    display: block;
+    height: 100%;
+    max-height: none;
+    padding: 0 16px calc(22px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: none;
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-dialog-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    justify-content: flex-start;
+    gap: 11px;
+    min-height: 64px;
+    margin: 0 -16px;
+    padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(18px);
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-dialog-header > div {
+    min-width: 0;
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-close-button {
+    order: -1;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    margin-left: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    font-size: 0;
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-close-button::before {
+    content: "";
+    display: block;
+    width: 19px;
+    height: 19px;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M22 12H3m7.5-7.5L3 12l7.5 7.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M22 12H3m7.5-7.5L3 12l7.5 7.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  .changelog-dialog[data-presentation="stack"] .changelog-list {
+    max-height: none;
+    overflow: visible;
+  }
+
   .jobs-dialog[data-presentation="stack"] {
     position: fixed;
     inset: 0;
