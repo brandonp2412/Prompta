@@ -8,6 +8,70 @@ from pathlib import Path
 from prompta.cache import ChatCache
 
 
+def test_completed_snapshot_trusts_end_turn_final_text_over_corrupt_dom_merge(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation_id = "conversation-completed-final"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Check timestamps",
+    )
+    final_text = (
+        "Fixed and deployed.\n\n"
+        "Root cause was timestamp state becoming stale during DOM reconciliation."
+    )
+    snapshot = {
+        "title": "Completed final",
+        "path": f"/c/{conversation_id}",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Check timestamps"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": (
+                    "Fixed and deployed.\n\n"
+                    "Root cause was timestamptimestamp derivation commitDOM refresh fix"
+                ),
+            },
+        ],
+        "source_events": [
+            {
+                "id": "a1:dom-prose",
+                "role": "assistant",
+                "recipient": "all",
+                "content_type": "text",
+                "parts": ["Fixed and deployed.\n\nRoot cause was timestamp"],
+                "create_time": 1.0,
+                "end_turn": None,
+            },
+            {
+                "id": "a1",
+                "role": "assistant",
+                "recipient": "all",
+                "content_type": "text",
+                "parts": [final_text],
+                "create_time": 2.0,
+                "end_turn": True,
+            },
+        ],
+    }
+
+    cache.write_snapshot(conversation_id, snapshot, complete=True)
+
+    row = cache.connection.execute(
+        "SELECT content FROM messages WHERE conversation_id = ? AND message_key = ?",
+        (conversation_id, "a1"),
+    ).fetchone()
+    cache.close()
+
+    assert row is not None
+    assert row["content"] == final_text
+
+
 def test_live_snapshot_uses_source_event_timeline_for_assistant_content(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(

@@ -11,6 +11,7 @@ from .cache import DEFAULT_CACHE_PATH, _dom_prose_text, strip_delivery_timeout_n
 from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
 from .stream_order import has_stream_order_inversion, recover_stream_order_from_observations
+from .structured_capture import has_completed_final_text, rendered_content_from_parts
 
 
 class ReadOnlyChatStore:
@@ -436,14 +437,14 @@ class ReadOnlyChatStore:
             message["version_count"] = version_count_by_message.get(message_key, 0)
             use_structured_content = historical or str(message.get("status") or "") == "complete"
             if use_structured_content and structured_parts:
-                structured_content = "\n\n".join(
-                    str(part.get("content") or "").strip()
-                    for part in structured_parts
-                    if str(part.get("content") or "").strip()
-                ).strip()
+                structured_content = rendered_content_from_parts(structured_parts)
                 canonical_content = str(message.get("content") or "")
-                if structured_content and preserves_non_tool_text(
-                    canonical_content, structured_content
+                if structured_content and (
+                    (
+                        bool(dom_prose_by_message.get(message_key))
+                        and has_completed_final_text(structured_parts)
+                    )
+                    or preserves_non_tool_text(canonical_content, structured_content)
                 ):
                     message["content"] = structured_content
             if use_structured_content:

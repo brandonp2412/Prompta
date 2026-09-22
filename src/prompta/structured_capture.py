@@ -464,6 +464,17 @@ def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[
     return parts
 
 
+def has_completed_final_text(parts: list[dict[str, Any]]) -> bool:
+    return any(
+        isinstance(part, dict)
+        and str(part.get("kind") or "") == "final_text"
+        and part.get("end_turn") in (True, 1)
+        and bool(str(part.get("content") or "").strip())
+        and not str(part.get("source_event_key") or "").endswith(":dom-prose")
+        for part in parts
+    )
+
+
 def rendered_content_from_parts(parts: list[dict[str, Any]]) -> str:
     ordered = sorted(
         (part for part in parts if isinstance(part, dict)),

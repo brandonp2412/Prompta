@@ -340,6 +340,70 @@ def test_activity_history_is_persisted_without_changing_message_digest(tmp_path:
     ]
 
 
+def test_read_only_store_trusts_completed_structured_final_over_corrupt_cached_content(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-corrupt-cached-content"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Inspect this",
+    )
+    snapshot = {
+        "title": "Structured",
+        "path": f"/c/{conversation_id}",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Inspect this"},
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": "Checking the stored conversation state\n\nFinished",
+            },
+        ],
+        "source_events": [
+            *_source_events(),
+            {
+                "id": "a1:dom-prose",
+                "role": "assistant",
+                "recipient": "all",
+                "content_type": "text",
+                "parts": ["Checking the stored conversation state"],
+                "text": "",
+                "create_time": None,
+                "end_turn": None,
+            },
+        ],
+    }
+    cache.write_snapshot(conversation_id, snapshot, complete=True)
+    cache.connection.execute(
+        """
+        UPDATE messages
+        SET content = ?
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (
+            "Checking the stored conversation state\n\n"
+            "FinishedFinished timestamp derivation commitDOM refresh fix",
+            conversation_id,
+            "a1",
+        ),
+    )
+    cache.connection.commit()
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert assistant["content"].endswith("Finished")
+    assert "FinishedFinished" not in assistant["content"]
+    assert "Glass Serena" in assistant["content"]
+
+
 def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale(
     tmp_path: Path,
 ) -> None:

@@ -21,7 +21,11 @@ from .stream_order import (
     recover_stream_order_from_observations,
     stabilize_streaming_content,
 )
-from .structured_capture import message_parts_from_source_events, rendered_content_from_parts
+from .structured_capture import (
+    has_completed_final_text,
+    message_parts_from_source_events,
+    rendered_content_from_parts,
+)
 from .structured_store import (
     migrate_structured_capture,
     persist_structured_capture,
@@ -704,10 +708,13 @@ class ChatCache:
         has_dom_prose_fallback = any(
             str(event.get("id") or "").endswith(":dom-prose") for event in structured_events
         )
-        if structured_events and not has_dom_prose_fallback:
+        if structured_events:
             ordered_parts = message_parts_from_source_events(structured_events)
             ordered_content = rendered_content_from_parts(ordered_parts)
-            if ordered_content:
+            trusted_completed_content = (
+                complete and has_dom_prose_fallback and has_completed_final_text(ordered_parts)
+            )
+            if ordered_content and (not has_dom_prose_fallback or trusted_completed_content):
                 for message_index in range(len(messages) - 1, -1, -1):
                     message = messages[message_index]
                     if (
@@ -716,7 +723,9 @@ class ChatCache:
                     ):
                         continue
                     visible_content = str(message.get("content") or "")
-                    if preserves_non_tool_text(visible_content, ordered_content):
+                    if trusted_completed_content or preserves_non_tool_text(
+                        visible_content, ordered_content
+                    ):
                         messages = [
                             dict(item) if isinstance(item, dict) else item for item in messages
                         ]
