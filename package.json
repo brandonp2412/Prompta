@@ -1,6 +1,5 @@
 {
   "name": "prompta-ui",
-  "packageManager": "bun@1.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,11 +7,12 @@
     "fmt": "bun x oxfmt src/prompta/ui && bun scripts/check-spacing.mjs --fix src/prompta/ui",
     "fmt:check": "bun x oxfmt --check src/prompta/ui && bun scripts/check-spacing.mjs src/prompta/ui",
     "lint": "bun x oxlint --deny-warnings --type-aware --type-check --ignore-pattern '**/*.test.ts' src/prompta/ui",
+    "lint:dom": "bun scripts/check-dom-rebuilds.mjs src/prompta/ui",
     "lint:tests": "bun x oxlint --deny-warnings src/prompta/ui/*.test.ts",
     "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test:ui": "bun test src/prompta/ui",
-    "check": "bun run fmt:check && bun run lint && bun run lint:tests && bun run typecheck && bun run test:ui && bun run build"
+    "test:ui": "bun test src/prompta/ui scripts/check-dom-rebuilds.test.mjs",
+    "check": "bun run fmt:check && bun run lint && bun run lint:tests && bun run lint:dom && bun run typecheck && bun run test:ui && bun run build"
   },
   "devDependencies": {
     "@typescript/native-preview": "^7.0.0-dev.20260421.2",
@@ -20,5 +20,6 @@
     "oxlint": "^1.85.0",
     "oxlint-tsgolint": "7",
     "typescript": "^5.9.2"
-  }
+  },
+  "packageManager": "bun@1.4.0"
 }

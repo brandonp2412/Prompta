@@ -723,6 +723,76 @@ class RecentChatCache {
   }
 }
 
+// src/prompta/ui/domPatch.ts
+function domPatchKey(node) {
+  if (!(node instanceof HTMLElement))
+    return "";
+  return node.dataset.domKey || "";
+}
+function patchDomNode(current, next) {
+  if (current.nodeType !== next.nodeType || current instanceof Element && next instanceof Element && current.tagName !== next.tagName) {
+    const replacement = next.cloneNode(true);
+    const parent = current.parentNode;
+    if (!parent)
+      return current;
+    parent.replaceChild(replacement, current);
+    return replacement;
+  }
+  if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
+    if (current.textContent !== next.textContent)
+      current.textContent = next.textContent;
+    return current;
+  }
+  if (!(current instanceof Element) || !(next instanceof Element))
+    return current;
+  for (const attribute of Array.from(current.attributes)) {
+    if (!next.hasAttribute(attribute.name))
+      current.removeAttribute(attribute.name);
+  }
+  for (const attribute of Array.from(next.attributes)) {
+    if (current.getAttribute(attribute.name) !== attribute.value) {
+      current.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  patchDomChildren(current, next);
+  return current;
+}
+function patchDomChildren(currentParent, nextParent) {
+  let index = 0;
+  while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
+    let current = currentParent.childNodes[index];
+    const next = nextParent.childNodes[index];
+    if (!next) {
+      current.remove();
+      continue;
+    }
+    if (!current) {
+      currentParent.append(next.cloneNode(true));
+      index += 1;
+      continue;
+    }
+    const nextKey = domPatchKey(next);
+    if (nextKey && domPatchKey(current) !== nextKey) {
+      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
+      if (match) {
+        currentParent.insertBefore(match, current);
+        current = match;
+      } else {
+        currentParent.insertBefore(next.cloneNode(true), current);
+        index += 1;
+        continue;
+      }
+    }
+    patchDomNode(current, next);
+    index += 1;
+  }
+}
+function patchHtmlChildren(element, html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  patchDomChildren(element, template.content);
+}
+
 // src/prompta/ui/jobsDialog.ts
 function requiredElement(selector) {
   const element = document.querySelector(selector);
@@ -828,10 +898,10 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
     scheduledJobs = Array.isArray(jobs) ? jobs : [];
     els.clearJobsButton.disabled = scheduledJobs.length === 0;
     if (!scheduledJobs.length) {
-      els.jobsList.innerHTML = '<div class="jobs-empty">No scheduled jobs.</div>';
+      patchHtmlChildren(els.jobsList, '<div class="jobs-empty">No scheduled jobs.</div>');
       return;
     }
-    els.jobsList.innerHTML = scheduledJobs.map((job) => {
+    patchHtmlChildren(els.jobsList, scheduledJobs.map((job) => {
       const paused = Boolean(job.paused);
       const canEdit = !job.run_at_epoch;
       return `
@@ -851,7 +921,7 @@ function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
           </div>
         </article>
       `;
-    }).join("");
+    }).join(""));
   }
   async function loadJobs() {
     setTextIfChanged(els.jobsDialogStatus, "Loading jobs…");
@@ -1731,7 +1801,7 @@ function createConversationRenderer({ onRetry, onDelete }) {
     bindDeleteButtons(node);
     return node;
   }
-  function patchDomNode(current, next) {
+  function patchDomNode2(current, next) {
     if (current.nodeType !== next.nodeType || current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName) {
       const replacement = next.cloneNode(true);
       current.replaceWith(replacement);
@@ -1759,17 +1829,17 @@ function createConversationRenderer({ onRetry, onDelete }) {
         current.setAttribute(attribute.name, attribute.value);
       }
     }
-    patchDomChildren(current, next);
+    patchDomChildren2(current, next);
     if (preserveDetailsOpen)
       current.open = detailsOpen;
     return current;
   }
-  function domPatchKey(node) {
+  function domPatchKey2(node) {
     if (!node || node.nodeType !== Node.ELEMENT_NODE)
       return "";
     return node.dataset.domKey || "";
   }
-  function patchDomChildren(currentParent, nextParent) {
+  function patchDomChildren2(currentParent, nextParent) {
     let index = 0;
     while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
       let current = currentParent.childNodes[index];
@@ -1783,9 +1853,9 @@ function createConversationRenderer({ onRetry, onDelete }) {
         index += 1;
         continue;
       }
-      const nextKey = domPatchKey(next);
-      if (nextKey && domPatchKey(current) !== nextKey) {
-        const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
+      const nextKey = domPatchKey2(next);
+      if (nextKey && domPatchKey2(current) !== nextKey) {
+        const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey2(candidate) === nextKey);
         if (match) {
           currentParent.insertBefore(match, current);
           current = match;
@@ -1795,7 +1865,7 @@ function createConversationRenderer({ onRetry, onDelete }) {
           continue;
         }
       }
-      patchDomNode(current, next);
+      patchDomNode2(current, next);
       index += 1;
     }
   }
@@ -1825,13 +1895,13 @@ function createConversationRenderer({ onRetry, onDelete }) {
       template.innerHTML = nextAttachments;
       const nextNode = template.content.firstElementChild;
       if (nextNode)
-        patchDomNode(currentAttachments, nextNode);
+        patchDomNode2(currentAttachments, nextNode);
     }
     const nextContent = message.pending_activity ? "" : renderMarkdown(message.content);
     if (content.innerHTML !== nextContent) {
       const template = document.createElement("template");
       template.innerHTML = nextContent;
-      patchDomChildren(content, template.content);
+      patchDomChildren2(content, template.content);
       bindCopyButtons(content);
     }
     const deleteButton = node.querySelector(".delete-pending-button");
@@ -2091,7 +2161,7 @@ function truncate(value, length = 88) {
   const text = String(value || "");
   return text.length > length ? text.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : text;
 }
-function patchDomNode(current, next) {
+function patchDomNode2(current, next) {
   if (current.nodeType !== next.nodeType) {
     current.replaceWith(next.cloneNode(true));
     return;
@@ -2114,19 +2184,19 @@ function patchDomNode(current, next) {
       current.setAttribute(attribute.name, attribute.value);
     }
   }
-  patchDomChildren(current, next);
+  patchDomChildren2(current, next);
 }
-function domPatchKey(node) {
+function domPatchKey2(node) {
   return node instanceof Element ? node.getAttribute("data-dom-key") || "" : "";
 }
-function patchDomChildren(currentParent, nextParent) {
+function patchDomChildren2(currentParent, nextParent) {
   const nextChildren = Array.from(nextParent.childNodes);
   for (let index = 0;index < nextChildren.length; index += 1) {
     const next = nextChildren[index];
     let current = currentParent.childNodes[index];
-    const nextKey = domPatchKey(next);
-    if (nextKey && domPatchKey(current) !== nextKey) {
-      const keyed = Array.from(currentParent.childNodes).slice(index + 1).find((node) => domPatchKey(node) === nextKey);
+    const nextKey = domPatchKey2(next);
+    if (nextKey && domPatchKey2(current) !== nextKey) {
+      const keyed = Array.from(currentParent.childNodes).slice(index + 1).find((node) => domPatchKey2(node) === nextKey);
       if (keyed) {
         currentParent.insertBefore(keyed, current || null);
         current = keyed;
@@ -2136,16 +2206,16 @@ function patchDomChildren(currentParent, nextParent) {
       currentParent.appendChild(next.cloneNode(true));
       continue;
     }
-    patchDomNode(current, next);
+    patchDomNode2(current, next);
   }
   while (currentParent.childNodes.length > nextChildren.length) {
     currentParent.lastChild?.remove();
   }
 }
-function patchHtmlChildren(element, html) {
+function patchHtmlChildren2(element, html) {
   const template = document.createElement("template");
   template.innerHTML = html;
-  patchDomChildren(element, template.content);
+  patchDomChildren2(element, template.content);
 }
 function createAttachmentPicker({ onChange, setStatus }) {
   const els = {
@@ -2159,7 +2229,7 @@ function createAttachmentPicker({ onChange, setStatus }) {
   let files = [];
   function render() {
     els.chips.hidden = files.length === 0;
-    patchHtmlChildren(els.chips, files.map((file, index) => '<span class="attachment-chip" data-dom-key="attachment:' + index + ":" + escapeHtml4(file.name) + '">' + '<span title="' + escapeHtml4(file.name) + '">' + escapeHtml4(truncate(file.name, 28)) + "</span>" + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>' + "</span>").join(""));
+    patchHtmlChildren2(els.chips, files.map((file, index) => '<span class="attachment-chip" data-dom-key="attachment:' + index + ":" + escapeHtml4(file.name) + '">' + '<span title="' + escapeHtml4(file.name) + '">' + escapeHtml4(truncate(file.name, 28)) + "</span>" + '<button type="button" data-remove-attachment="' + index + '" aria-label="Remove attachment">×</button>' + "</span>").join(""));
     onChange();
   }
   function clear() {
@@ -2720,14 +2790,14 @@ function createChangelogDialog({ fetchJson: fetchJson2, closeSidebar }) {
     if (!els.dialog.open)
       els.dialog.showModal();
     setTextIfChanged4(els.status, "Loading changelog…");
-    els.list.innerHTML = '<li class="changelog-empty">Loading changes…</li>';
+    patchHtmlChildren(els.list, '<li class="changelog-empty">Loading changes…</li>');
     try {
       const payload = await fetchJson2("api/changelog");
       const changes = Array.isArray(payload.changes) ? payload.changes : [];
-      els.list.innerHTML = changes.length ? changes.map((change) => '<li class="changelog-entry">' + escapeHtml5(change?.title || "") + "</li>").join("") : '<li class="changelog-empty">No Git commit history is available.</li>';
+      patchHtmlChildren(els.list, changes.length ? changes.map((change) => '<li class="changelog-entry">' + escapeHtml5(change?.title || "") + "</li>").join("") : '<li class="changelog-empty">No Git commit history is available.</li>');
       setTextIfChanged4(els.status, changes.length + " commit" + (changes.length === 1 ? "" : "s") + " · newest first");
     } catch (error) {
-      els.list.innerHTML = '<li class="changelog-empty">Could not load changelog.</li>';
+      patchHtmlChildren(els.list, '<li class="changelog-empty">Could not load changelog.</li>');
       setTextIfChanged4(els.status, "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""));
     }
   }
@@ -2971,7 +3041,7 @@ function setHiddenIfChanged(element, hidden) {
   if (element.hidden !== hidden)
     element.hidden = hidden;
 }
-function patchDomNode2(current, next) {
+function patchDomNode3(current, next) {
   if (current.nodeType !== next.nodeType || current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName) {
     const replacement = next.cloneNode(true);
     current.replaceWith(replacement);
@@ -2999,17 +3069,17 @@ function patchDomNode2(current, next) {
       current.setAttribute(attribute.name, attribute.value);
     }
   }
-  patchDomChildren2(current, next);
+  patchDomChildren3(current, next);
   if (preserveDetailsOpen)
     current.open = detailsOpen;
   return current;
 }
-function domPatchKey2(node) {
+function domPatchKey3(node) {
   if (!node || node.nodeType !== Node.ELEMENT_NODE)
     return "";
   return node.dataset.domKey || "";
 }
-function patchDomChildren2(currentParent, nextParent) {
+function patchDomChildren3(currentParent, nextParent) {
   let index = 0;
   while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
     let current = currentParent.childNodes[index];
@@ -3023,9 +3093,9 @@ function patchDomChildren2(currentParent, nextParent) {
       index += 1;
       continue;
     }
-    const nextKey = domPatchKey2(next);
-    if (nextKey && domPatchKey2(current) !== nextKey) {
-      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey2(candidate) === nextKey);
+    const nextKey = domPatchKey3(next);
+    if (nextKey && domPatchKey3(current) !== nextKey) {
+      const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey3(candidate) === nextKey);
       if (match) {
         currentParent.insertBefore(match, current);
         current = match;
@@ -3035,14 +3105,14 @@ function patchDomChildren2(currentParent, nextParent) {
         continue;
       }
     }
-    patchDomNode2(current, next);
+    patchDomNode3(current, next);
     index += 1;
   }
 }
-function patchHtmlChildren2(element, html) {
+function patchHtmlChildren3(element, html) {
   const template = document.createElement("template");
   template.innerHTML = html;
-  patchDomChildren2(element, template.content);
+  patchDomChildren3(element, template.content);
 }
 function setConversationHeading(title, meta) {
   let titleNode = els.chatHeading.querySelector(".heading-title");
@@ -3072,7 +3142,7 @@ function syncSendButton() {
   const action = stopMode ? "stop" : "send";
   if (els.sendButton.dataset.action !== action) {
     els.sendButton.dataset.action = action;
-    patchHtmlChildren2(els.sendButton, stopMode ? STOP_ICON : SEND_ICON);
+    patchHtmlChildren3(els.sendButton, stopMode ? STOP_ICON : SEND_ICON);
     els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
     els.sendButton.title = stopMode ? "Stop response" : "Send message";
   }
@@ -3282,13 +3352,13 @@ function renderSidebar(force = false) {
     return;
   state.sidebarFingerprint = fingerprint;
   if (!chats.length) {
-    patchHtmlChildren2(els.chatList, `
+    patchHtmlChildren3(els.chatList, `
       <div class="list-empty">
         ${state.search ? "No cached chats match your search." : "No cached conversations yet.<br>Prompta runs will appear here live."}
       </div>`);
     return;
   }
-  patchHtmlChildren2(els.chatList, groupChats(chats).map(([label, groupedChats]) => `
+  patchHtmlChildren3(els.chatList, groupChats(chats).map(([label, groupedChats]) => `
     <section class="chat-group" data-dom-key="group:${escapeHtml6(label)}">
       <div class="chat-group-label">${escapeHtml6(label)}</div>
       ${groupedChats.map((chat) => {

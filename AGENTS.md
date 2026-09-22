@@ -1,0 +1,3 @@
+- Do not disable lint/type-check rules, add blanket suppression comments, or weaken compiler settings to make `bun check` pass. Fix the underlying types and behavior instead.
+- When you finish working, deploy to nox
+- Never rebuild the full UI DOM; patch existing nodes in place.

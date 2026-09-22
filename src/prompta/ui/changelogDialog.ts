@@ -1,3 +1,5 @@
+import { patchHtmlChildren } from "./domPatch";
+
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
 
@@ -40,25 +42,28 @@ export function createChangelogDialog({ fetchJson, closeSidebar }) {
     if (!els.dialog.open) els.dialog.showModal();
 
     setTextIfChanged(els.status, "Loading changelog…");
-    els.list.innerHTML = '<li class="changelog-empty">Loading changes…</li>';
+    patchHtmlChildren(els.list, '<li class="changelog-empty">Loading changes…</li>');
 
     try {
       const payload = await fetchJson("api/changelog");
       const changes = Array.isArray(payload.changes) ? payload.changes : [];
-      els.list.innerHTML = changes.length
-        ? changes
-            .map(
-              (change) =>
-                '<li class="changelog-entry">' + escapeHtml(change?.title || "") + "</li>",
-            )
-            .join("")
-        : '<li class="changelog-empty">No Git commit history is available.</li>';
+      patchHtmlChildren(
+        els.list,
+        changes.length
+          ? changes
+              .map(
+                (change) =>
+                  '<li class="changelog-entry">' + escapeHtml(change?.title || "") + "</li>",
+              )
+              .join("")
+          : '<li class="changelog-empty">No Git commit history is available.</li>',
+      );
       setTextIfChanged(
         els.status,
         changes.length + " commit" + (changes.length === 1 ? "" : "s") + " · newest first",
       );
     } catch (error) {
-      els.list.innerHTML = '<li class="changelog-empty">Could not load changelog.</li>';
+      patchHtmlChildren(els.list, '<li class="changelog-empty">Could not load changelog.</li>');
       setTextIfChanged(
         els.status,
         "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""),
