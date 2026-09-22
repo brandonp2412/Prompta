@@ -230,9 +230,35 @@ class ReadOnlyChatStore:
                     if "message_versions" in tables
                     else []
                 )
+                state_events = (
+                    connection.execute(
+                        """
+                        SELECT observed_at, status, streaming, complete, transient,
+                               failed, turn_ended, detail_json
+                        FROM conversation_state_events
+                        WHERE conversation_id = ?
+                        ORDER BY observed_at, id
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "conversation_state_events" in tables
+                    else []
+                )
         except (FileNotFoundError, sqlite3.DatabaseError):
             return None
         payload = dict(conversation)
+        payload["state_events"] = []
+        for row in state_events:
+            state_event = dict(row)
+            detail_json = str(state_event.pop("detail_json", "") or "")
+            try:
+                state_event["detail"] = json.loads(detail_json) if detail_json else {}
+            except json.JSONDecodeError:
+                state_event["detail"] = {}
+            for key in ("streaming", "complete", "transient", "failed", "turn_ended"):
+                if state_event.get(key) is not None:
+                    state_event[key] = bool(state_event[key])
+            payload["state_events"].append(state_event)
         message_payloads = [dict(message) for message in messages]
         parts_by_message: dict[str, list[dict[str, Any]]] = {}
         for row in parts:
