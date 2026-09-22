@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from .preview import compact_sidebar_preview
+from .structured_store import (
+    migrate_structured_capture,
+    persist_structured_capture,
+    record_conversation_state,
+    record_message_version,
+)
 
 DEFAULT_CACHE_PATH = Path.home() / ".local" / "state" / "prompta" / "chats.sqlite3"
 _SEEDED_PROMPT_KEY = "__prompta_prompt__"
@@ -205,6 +211,7 @@ class ChatCache:
             END;
             """
         )
+        migrate_structured_capture(self.connection)
         conversation_columns = {
             str(row["name"])
             for row in self.connection.execute("PRAGMA table_info(conversations)").fetchall()
@@ -348,6 +355,12 @@ class ChatCache:
         """Mark tabs from a previous Prompta process as interrupted after restart."""
 
         now = time.time()
+        conversation_ids = [
+            str(row["id"])
+            for row in self.connection.execute(
+                "SELECT id FROM conversations WHERE status = 'active'"
+            ).fetchall()
+        ]
         cursor = self.connection.execute(
             """
             UPDATE conversations
@@ -356,6 +369,21 @@ class ChatCache:
             """,
             (now, now),
         )
+        for conversation_id in conversation_ids:
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status="interrupted",
+                observed_at=now,
+                activity={
+                    "streaming": False,
+                    "complete": False,
+                    "transient": False,
+                    "failed": False,
+                    "turn_ended": None,
+                    "reason": "process_restart",
+                },
+            )
         self.connection.commit()
         return cursor.rowcount
 
@@ -421,6 +449,19 @@ class ChatCache:
                         conversation_id,
                     ),
                 )
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status="active",
+                observed_at=now,
+                activity={
+                    "streaming": False,
+                    "complete": False,
+                    "transient": False,
+                    "failed": False,
+                    "turn_ended": None,
+                },
+            )
 
     def metadata(self, conversation_id: str) -> dict[str, Any]:
         row = self.connection.execute(
@@ -465,6 +506,19 @@ class ChatCache:
                 """,
                 (context_id, now, conversation_id),
             )
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status="active",
+                observed_at=now,
+                activity={
+                    "streaming": False,
+                    "complete": False,
+                    "transient": False,
+                    "failed": False,
+                    "turn_ended": None,
+                },
+            )
         return dict(row)
 
     @staticmethod
@@ -474,10 +528,31 @@ class ChatCache:
             "path": str(snapshot.get("path") or ""),
             "streaming": bool(snapshot.get("streaming")),
             "messages": snapshot.get("messages") or [],
+            "source_events": snapshot.get("source_events") or [],
         }
         return hashlib.sha256(
             json.dumps(stable, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
+
+    def record_state(
+        self,
+        conversation_id: str,
+        activity: dict[str, Any],
+    ) -> None:
+        row = self.connection.execute(
+            "SELECT status FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return
+        with self.connection:
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status=str(row["status"]),
+                observed_at=time.time(),
+                activity=activity,
+            )
 
     def mark_interrupted(self, conversation_id: str) -> None:
         now = time.time()
@@ -488,6 +563,19 @@ class ChatCache:
             WHERE id = ?
             """,
             (now, now, conversation_id),
+        )
+        record_conversation_state(
+            self.connection,
+            conversation_id=conversation_id,
+            status="interrupted",
+            observed_at=now,
+            activity={
+                "streaming": False,
+                "complete": False,
+                "transient": False,
+                "failed": True,
+                "turn_ended": None,
+            },
         )
         self.connection.commit()
 
@@ -509,7 +597,8 @@ class ChatCache:
         )
         existing_rows = self.connection.execute(
             """
-            SELECT message_key, ordinal, role, content, status, created_at, updated_at
+            SELECT message_key, ordinal, role, content, status, created_at, updated_at,
+                   source_created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY ordinal, created_at
@@ -634,6 +723,7 @@ class ChatCache:
         )
         next_partial_ordinal = max_existing_ordinal + 1
         snapshot_keys: list[str] = []
+        persisted_message_keys: dict[int, str] = {}
         current_by_key = dict(existing_by_key)
 
         with self.connection:
@@ -665,6 +755,26 @@ class ChatCache:
                     snapshot_url,
                     conversation_id,
                 ),
+            )
+            state_row = self.connection.execute(
+                "SELECT status FROM conversations WHERE id = ?",
+                (conversation_id,),
+            ).fetchone()
+            state_status = (
+                str(state_row["status"])
+                if state_row is not None
+                else ("complete" if complete else "active")
+            )
+            raw_activity = snapshot.get("activity")
+            activity = dict(raw_activity) if isinstance(raw_activity, dict) else {}
+            activity.setdefault("streaming", bool(snapshot.get("streaming")))
+            activity.setdefault("complete", state_status == "complete")
+            record_conversation_state(
+                self.connection,
+                conversation_id=conversation_id,
+                status=state_status,
+                observed_at=now,
+                activity=activity,
             )
 
             preceding_user_key = ""
@@ -700,6 +810,7 @@ class ChatCache:
                             break
 
                 existing = current_by_key.get(message_key)
+                persisted_message_keys[snapshot_index] = message_key
                 if snapshot_is_full:
                     ordinal = snapshot_index
                 elif existing is not None:
@@ -742,6 +853,16 @@ class ChatCache:
                         now,
                     ),
                 )
+                record_message_version(
+                    self.connection,
+                    conversation_id=conversation_id,
+                    message_key=message_key,
+                    role=role,
+                    content=content,
+                    status=message_status,
+                    observed_at=now,
+                    previous=existing,
+                )
                 created_at = float(existing["created_at"]) if existing is not None else now
                 current_by_key[message_key] = {
                     "message_key": message_key,
@@ -754,6 +875,25 @@ class ChatCache:
                 }
                 if role == "user":
                     preceding_user_key = message_key
+
+            source_events = snapshot.get("source_events")
+            if isinstance(source_events, list) and source_events:
+                structured_message_key = ""
+                for snapshot_index, role, _, _ in reversed(incoming):
+                    if role == "assistant":
+                        structured_message_key = persisted_message_keys.get(snapshot_index, "")
+                        if structured_message_key:
+                            break
+                if structured_message_key:
+                    persist_structured_capture(
+                        self.connection,
+                        conversation_id=conversation_id,
+                        message_key=structured_message_key,
+                        source_events=[
+                            event for event in source_events if isinstance(event, dict)
+                        ],
+                        observed_at=now,
+                    )
 
             if snapshot_is_full and superseded_stable_keys:
                 self.connection.executemany(

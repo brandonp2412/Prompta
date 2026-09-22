@@ -105,6 +105,42 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       .sort((left,right)=>left.time-right.time||left.index-right.index)
       .map(entry=>entry.message);
   };
+  const safeJsonValue=value=>{try{return JSON.parse(JSON.stringify(value));}catch{return null;}};
+  const sanitiseSourceEvent=message=>{
+    const content=message?.content||{};
+    const metadata=message?.metadata||{};
+    const invoked=metadata?.invoked_resource||null;
+    const connectorName=metadata?.jit_plugin_data?.from_server?.body?.connector_name||null;
+    const reasoningTitles=Array.isArray(metadata?.reasoning_titles)
+      ?metadata.reasoning_titles.filter(value=>typeof value==='string')
+      :[];
+    return {
+      id:String(message?.id||''),
+      parent_id:String(message?.parent_id||''),
+      create_time:Number.isFinite(Number(message?.create_time))?Number(message.create_time):null,
+      update_time:Number.isFinite(Number(message?.update_time))?Number(message.update_time):null,
+      end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null,
+      status:String(message?.status||''),
+      role:String(message?.author?.role||message?.role||''),
+      recipient:String(message?.recipient||''),
+      content_type:String(content?.content_type||content?.type||''),
+      text:typeof content?.text==='string'?content.text:'',
+      parts:safeJsonValue(content?.parts||[]),
+      connector_tool_payload:typeof metadata?.connector_tool_payload==='string'?metadata.connector_tool_payload:'',
+      reasoning_title:String(metadata?.reasoning_title||reasoningTitles.at(-1)||''),
+      reasoning_titles:reasoningTitles,
+      invoked_resource:invoked?safeJsonValue({
+        app_name:invoked?.app_name||'',
+        resource_uri:invoked?.resource_uri||''
+      }):null,
+      connector_name:String(connectorName||''),
+      model_slug:String(metadata?.model_slug||metadata?.default_model_slug||''),
+      request_id:String(metadata?.request_id||metadata?.requestId||''),
+      attachments:safeJsonValue(metadata?.attachments??content?.attachments??[]),
+      citations:safeJsonValue(metadata?.citations??content?.citations??[]),
+      content_references:safeJsonValue(metadata?.content_references??content?.content_references??[])
+    };
+  };
   const reactToolBlocks=agent=>{
     const messages=reactMessages(agent);
     if(!messages.length)return [];
@@ -455,6 +491,21 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     content:message.content,
     ordinal:index
   }));
+  const latestAgent=candidates.at(-1)||null;
+  const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
+  const sourceEvents=latestAgent?reactMessages(latestAgent).filter(message=>{
+    const role=String(message?.author?.role||message?.role||'');
+    const recipient=String(message?.recipient||'');
+    if(role==='tool'||recipient==='api_tool.call_tool')return true;
+    if(role!=='assistant'||(recipient&&recipient!=='all'))return false;
+    if(message?.end_turn===true)return true;
+    const content=message?.content||{};
+    const parts=Array.isArray(content?.parts)
+      ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+      :[];
+    const text=normalise(parts.length?parts.join(' '):String(content?.text||''));
+    return Boolean(text&&visibleAgentText&&visibleAgentText.includes(text));
+  }).map(sanitiseSourceEvent):[];
   const stop=[...document.querySelectorAll('button[data-testid="stop-button"],button[aria-label="Stop answering"],button[aria-label="Stop generating"]')].some(visible);
   const streamActive=[...document.querySelectorAll('[data-streaming="active"],[data-is-streaming="true"]')].some(visible);
   const latestAssistant=assistantNodes.at(-1);
@@ -471,6 +522,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     path:location.pathname,
     title:document.title||'',
     messages,
+    source_events:sourceEvents,
     streaming:stop||streamActive||turnEnded===false
   };
 })())"""
