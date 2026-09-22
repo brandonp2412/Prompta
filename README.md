@@ -8,13 +8,9 @@ Send ChatGPT prompts once or on a schedule.
 uv sync --locked
 ```
 
-Prompta supports Firefox/WebDriver BiDi and Chromium/ChromeDriver browser backends.
-Firefox remains the default until Chromium is explicitly selected.
-
-The Firefox profile used by the service lives at
-`~/.local/state/prompta/firefox-profile`. The Chromium profile defaults to
-`~/.local/state/prompta/chrome-profile`. Whichever backend is selected must have
-an authenticated ChatGPT session.
+Prompta automates Chromium through ChromeDriver. The browser profile defaults to
+`~/.local/state/prompta/chrome-profile` and must have an authenticated ChatGPT
+session.
 
 ### Chromium / ChromeDriver setup
 
@@ -122,7 +118,6 @@ Runtime data defaults to:
 
 - `~/.config/prompta/jobs.json`
 - `~/.local/state/prompta/state.json`
-- `~/.local/state/prompta/firefox-profile`
 - `~/.local/state/prompta/chrome-profile`
 - `~/.local/state/prompta/chats.sqlite3`
 
@@ -130,7 +125,7 @@ Runtime data defaults to:
 
 Scheduled conversations stay open in browser tabs while ChatGPT is producing the
 response. Prompta reads the already-rendered message DOM and React message state through
-the selected WebDriver backend (Firefox BiDi or Chromium/ChromeDriver), then writes
+the Chromium/ChromeDriver browser session, then writes
 changed snapshots to the SQLite cache roughly once per scheduler tick. Cache capture does
 not poll ChatGPT HTTP APIs or submit additional model requests.
 

@@ -1,4 +1,4 @@
-"""Small Firefox WebDriver BiDi client containing only what Prompta needs."""
+"""Shared browser automation helpers used by the Chromium WebDriver."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _BIDI_CONNECT_RETRY_INTERVAL_SECONDS = 0.1
 _BIDI_AUTH_TIMEOUT_SECONDS = 30.0
 
 
-class FirefoxBiDiDriver:
+class WebDriverBase:
     def __init__(self, url: str) -> None:
         self.url = url
         self.ws: Any = None
@@ -52,7 +52,7 @@ class FirefoxBiDiDriver:
         if self.is_connected:
             return
         if self.needs_browser_restart:
-            raise RuntimeError("Firefox BiDi session is poisoned; browser restart required")
+            raise RuntimeError("Browser session is poisoned; browser restart required")
         try:
             loop = asyncio.get_running_loop()
             deadline = loop.time() + _BIDI_CONNECT_RETRY_SECONDS
@@ -69,7 +69,7 @@ class FirefoxBiDiDriver:
                     if loop.time() >= deadline:
                         self.needs_browser_restart = True
                         raise RuntimeError(
-                            "Firefox BiDi endpoint did not become ready "
+                            "WebDriver BiDi endpoint did not become ready "
                             f"within {_BIDI_CONNECT_RETRY_SECONDS:.0f}s"
                         ) from exc
                     await asyncio.sleep(_BIDI_CONNECT_RETRY_INTERVAL_SECONDS)
@@ -83,11 +83,11 @@ class FirefoxBiDiDriver:
                 self.needs_browser_restart = True
             raise
         if response.get("type") != "success":
-            raise RuntimeError(f"Firefox BiDi session failed: {response}")
+            raise RuntimeError(f"WebDriver BiDi session failed: {response}")
         tree = await self._call("browsingContext.getTree", {})
         contexts = tree.get("result", {}).get("contexts") or []
         if not contexts:
-            raise RuntimeError("Firefox BiDi has no browsing context")
+            raise RuntimeError("WebDriver BiDi has no browsing context")
         chatgpt_context = next(
             (
                 context
@@ -128,7 +128,7 @@ class FirefoxBiDiDriver:
         # the BiDi websocket itself is still open.
         await self.close()
         raise RuntimeError(
-            "Prompta Firefox profile did not produce an authenticated ChatGPT "
+            "Prompta browser profile did not produce an authenticated ChatGPT "
             f"session within {_BIDI_AUTH_TIMEOUT_SECONDS:.0f}s"
         ) from last_error
 
@@ -142,7 +142,7 @@ class FirefoxBiDiDriver:
 
     async def _call_locked(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self.ws is None:
-            raise RuntimeError("Firefox BiDi is not connected")
+            raise RuntimeError("WebDriver BiDi is not connected")
         self.request_id += 1
         request_id = self.request_id
         loop = asyncio.get_running_loop()
@@ -183,7 +183,7 @@ class FirefoxBiDiDriver:
                 except Exception:
                     pass
             raise RuntimeError(
-                f"{method}: Firefox BiDi call timed out after {_BIDI_CALL_TIMEOUT_SECONDS:.0f}s"
+                f"{method}: WebDriver BiDi call timed out after {_BIDI_CALL_TIMEOUT_SECONDS:.0f}s"
             ) from exc
         except ConnectionClosed:
             self.needs_browser_restart = True
@@ -303,7 +303,7 @@ class FirefoxBiDiDriver:
 
     def arm_send_capture(self) -> dict[str, Any]:
         if not self._network_subscribed:
-            raise RuntimeError("Firefox BiDi network capture is not subscribed")
+            raise RuntimeError("WebDriver BiDi network capture is not subscribed")
         capture: dict[str, Any] = {
             "request_id": "",
             "status": 0,
@@ -386,7 +386,7 @@ class FirefoxBiDiDriver:
         response = await self._call("browsingContext.create", {"type": "tab"})
         context = str(response.get("result", {}).get("context") or "")
         if not context:
-            raise RuntimeError(f"Firefox BiDi did not create a browsing context: {response}")
+            raise RuntimeError(f"WebDriver BiDi did not create a browsing context: {response}")
         self.context = context
         await self.navigate(url)
         return context
@@ -464,7 +464,7 @@ class FirefoxBiDiDriver:
                 },
             )
         except BaseException:
-            # Firefox may create or partially apply an input source before an
+            # The browser may create or partially apply an input source before an
             # action sequence fails. Best-effort release keeps that state from
             # leaking into the next trusted interaction.
             try:
@@ -651,7 +651,7 @@ class FirefoxBiDiDriver:
 
     async def click_send(self) -> None:
         # A WebDriver key action is trusted input just like a pointer action, but it does not
-        # depend on DOM coordinates matching Firefox's action viewport. ChatGPT's composer
+        # depend on DOM coordinates matching the browser's action viewport. ChatGPT's composer
         # sends on Enter, so keep the trusted interaction anchored to the focused composer.
         await self._focus_composer()
         await self._key_text("", enter=True)
@@ -751,7 +751,7 @@ class FirefoxBiDiDriver:
                 try:
                     await self._click_viewport_point(context, x, y)
                 except RuntimeError as exc:
-                    # Firefox rejects stale viewport coordinates if the page scrolls or
+                    # The browser may reject stale viewport coordinates if the page scrolls or
                     # resizes between the DOM lookup and the trusted pointer action.
                     if "out of bounds" not in str(exc).lower():
                         raise
@@ -926,17 +926,3 @@ class FirefoxBiDiDriver:
         self.context = ""
         self._network_subscribed = False
         self._send_capture = None
-
-
-async def wait_for_port(port: int, timeout: float = 20.0) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        try:
-            reader, writer = await asyncio.open_connection("127.0.0.1", port)
-            writer.close()
-            await writer.wait_closed()
-            del reader
-            return
-        except OSError:
-            await asyncio.sleep(0.25)
-    raise RuntimeError(f"Firefox BiDi port {port} did not open")

@@ -1,10 +1,4 @@
-"""Chromium/ChromeDriver transport for Prompta.
-
-The high-level ChatGPT DOM/snapshot logic lives in :mod:`prompta.bidi`.  This
-driver deliberately subclasses that implementation and replaces only the
-browser-transport primitives that differ between Firefox WebDriver BiDi and
-Chromium WebDriver.
-"""
+"""Chromium/ChromeDriver transport for Prompta."""
 
 from __future__ import annotations
 
@@ -36,7 +30,7 @@ from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 from urllib3.util.retry import Retry
 
-from .bidi import _BIDI_AUTH_TIMEOUT_SECONDS, FirefoxBiDiDriver
+from .webdriver import _BIDI_AUTH_TIMEOUT_SECONDS, WebDriverBase
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +80,7 @@ class _PromptaChrome(webdriver.Chrome):
             raise
 
 
-class ChromeDriverDriver(FirefoxBiDiDriver):
+class ChromeDriverDriver(WebDriverBase):
     """Prompta browser driver backed by Chromium through ChromeDriver."""
 
     def __init__(
@@ -100,9 +94,7 @@ class ChromeDriverDriver(FirefoxBiDiDriver):
         debugger_address: str | None = None,
         flaresolverr_url: str | None = None,
     ) -> None:
-        # The inherited class owns all browser-independent helpers.  It expects
-        # these bookkeeping fields to exist even though Chromium does not use
-        # the Firefox BiDi websocket.
+        # The inherited class owns browser-independent helpers and bookkeeping.
         super().__init__("")
         self.profile = profile.expanduser().resolve()
         self.chrome_path = chrome_path

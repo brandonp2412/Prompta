@@ -24,12 +24,9 @@ from prompta.core import (
     _daemon_is_running,
     _open_control_connection,
     _parser,
-    _recover_disappeared_reused_firefox,
     _run,
-    _send_direct,
     _send_once_via_control,
     _send_reply_via_control,
-    _spawn_firefox,
     _start_control_server,
     _stop_via_control,
     _sync_via_control,
@@ -821,257 +818,6 @@ def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
     assert not (tmp_path / "daemon.lock").exists()
 
 
-@pytest.mark.asyncio
-async def test_spawn_firefox_reuses_only_a_stable_existing_listener(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-
-    with (
-        patch(
-            "prompta.core._firefox_port_is_open",
-            AsyncMock(return_value=True),
-        ) as port_is_open,
-        patch("prompta.core.asyncio.sleep", AsyncMock()) as sleep,
-        patch(
-            "prompta.core.asyncio.create_subprocess_exec",
-            AsyncMock(),
-        ) as create_process,
-    ):
-        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
-
-    assert result is None
-    assert port_is_open.await_count == 13
-    assert sleep.await_count == 12
-    create_process.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_spawn_firefox_preserves_lock_for_live_profile_owner(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    (profile / "lock").symlink_to("host:+1234")
-    (profile / ".parentlock").touch()
-
-    with (
-        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
-        patch("prompta.core._firefox_process_uses_profile", return_value=True),
-        patch("prompta.core._FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS", 0.0),
-        patch(
-            "prompta.core.asyncio.create_subprocess_exec",
-            AsyncMock(),
-        ) as create_process,
-        pytest.raises(RuntimeError, match="Firefox profile is still in use"),
-    ):
-        await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
-
-    assert (profile / "lock").is_symlink()
-    assert (profile / ".parentlock").exists()
-    create_process.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_spawn_firefox_waits_for_profile_owner_to_exit(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    (profile / "lock").symlink_to("host:+1234")
-    (profile / ".parentlock").touch()
-    process = MagicMock()
-
-    with (
-        patch(
-            "prompta.core._firefox_port_is_open",
-            AsyncMock(side_effect=[False, False]),
-        ) as port_is_open,
-        patch(
-            "prompta.core._firefox_process_uses_profile",
-            side_effect=[True, True, False],
-        ) as process_uses_profile,
-        patch("prompta.core.asyncio.sleep", AsyncMock()) as sleep,
-        patch(
-            "prompta.core.asyncio.create_subprocess_exec",
-            AsyncMock(return_value=process),
-        ) as create_process,
-        patch("prompta.core.wait_for_port", AsyncMock()) as wait_for_port,
-    ):
-        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
-
-    assert result is process
-    assert port_is_open.await_count == 2
-    assert process_uses_profile.call_count == 3
-    process_uses_profile.assert_any_call(1234, profile.resolve())
-    sleep.assert_awaited_once()
-    create_process.assert_awaited_once()
-    wait_for_port.assert_awaited_once_with(9229)
-    assert not (profile / "lock").exists()
-    assert not (profile / ".parentlock").exists()
-
-
-@pytest.mark.asyncio
-async def test_spawn_firefox_replaces_listener_that_dies_during_reuse_check(
-    tmp_path: Path,
-) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    process = MagicMock()
-
-    with (
-        patch(
-            "prompta.core._firefox_port_is_open",
-            AsyncMock(side_effect=[True, True, True, False]),
-        ) as port_is_open,
-        patch("prompta.core.asyncio.sleep", AsyncMock()),
-        patch(
-            "prompta.core.asyncio.create_subprocess_exec",
-            AsyncMock(return_value=process),
-        ) as create_process,
-        patch("prompta.core.wait_for_port", AsyncMock()) as wait_for_port,
-    ):
-        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
-
-    assert result is process
-    assert port_is_open.await_count == 4
-    create_process.assert_awaited_once()
-    wait_for_port.assert_awaited_once_with(9229)
-
-
-@pytest.mark.asyncio
-async def test_reused_firefox_is_replaced_when_endpoint_disappears(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    replacement = MagicMock()
-    failed_driver = MagicMock()
-    failed_driver.close = AsyncMock()
-    prompta = MagicMock()
-    prompta.driver = failed_driver
-    prompta._ensure_driver = AsyncMock(
-        side_effect=[RuntimeError("Firefox BiDi endpoint did not become ready within 5s"), None]
-    )
-
-    with (
-        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
-        patch(
-            "prompta.core._spawn_firefox",
-            AsyncMock(return_value=replacement),
-        ) as spawn_firefox,
-    ):
-        result = await _recover_disappeared_reused_firefox(
-            prompta,
-            profile,
-            "/usr/bin/firefox",
-            9229,
-        )
-
-    assert result is replacement
-    assert prompta._ensure_driver.await_count == 2
-    failed_driver.close.assert_awaited_once()
-    spawn_firefox.assert_awaited_once_with(profile, "/usr/bin/firefox", 9229)
-
-
-@pytest.mark.asyncio
-async def test_reused_firefox_preserves_error_while_listener_is_alive(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    prompta = MagicMock()
-    prompta._ensure_driver = AsyncMock(
-        side_effect=RuntimeError("Prompta Firefox profile is not logged into ChatGPT")
-    )
-
-    with (
-        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=True)),
-        patch("prompta.core._spawn_firefox", AsyncMock()) as spawn_firefox,
-        pytest.raises(RuntimeError, match="not logged into ChatGPT"),
-    ):
-        await _recover_disappeared_reused_firefox(
-            prompta,
-            profile,
-            "/usr/bin/firefox",
-            9229,
-        )
-
-    spawn_firefox.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_spawn_firefox_uses_profile_local_tmpdir(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    process = MagicMock()
-
-    with (
-        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
-        patch(
-            "prompta.core.asyncio.create_subprocess_exec",
-            AsyncMock(return_value=process),
-        ) as create_process,
-        patch("prompta.core.wait_for_port", AsyncMock()) as wait_for_port,
-    ):
-        result = await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
-
-    assert result is process
-    create_process.assert_awaited_once()
-    create_call = create_process.await_args
-    assert create_call is not None
-    kwargs = create_call.kwargs
-    firefox_tmp = tmp_path / "firefox-tmp"
-    assert kwargs["env"]["TMPDIR"] == str(firefox_tmp)
-    assert firefox_tmp.is_dir()
-    assert firefox_tmp.stat().st_mode & 0o777 == 0o700
-    wait_for_port.assert_awaited_once_with(9229)
-
-
-@pytest.mark.asyncio
-async def test_spawn_firefox_stops_child_if_bidi_port_never_opens(tmp_path: Path) -> None:
-    profile = tmp_path / "firefox-profile"
-    profile.mkdir()
-    process = MagicMock()
-    process.returncode = None
-    process.wait = AsyncMock(return_value=0)
-
-    with (
-        patch("prompta.core._firefox_port_is_open", AsyncMock(return_value=False)),
-        patch(
-            "prompta.core.asyncio.create_subprocess_exec",
-            AsyncMock(return_value=process),
-        ),
-        patch(
-            "prompta.core.wait_for_port",
-            AsyncMock(side_effect=TimeoutError("BiDi port did not open")),
-        ),
-        pytest.raises(TimeoutError, match="BiDi port did not open"),
-    ):
-        await _spawn_firefox(profile, "/usr/bin/firefox", 9229)
-
-    process.terminate.assert_called_once()
-    process.wait.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_send_direct_waits_for_cached_response_and_stops_firefox(tmp_path: Path) -> None:
-    process = MagicMock()
-    process.returncode = None
-    process.wait = AsyncMock(return_value=0)
-    prompta = MagicMock()
-    prompta.send_once = AsyncMock(return_value="chat-direct")
-    prompta.wait_for_cached_response = AsyncMock(return_value=True)
-    prompta.close = AsyncMock()
-
-    with (
-        patch("prompta.core._spawn_firefox", AsyncMock(return_value=process)),
-        patch("prompta.core.Prompta", return_value=prompta),
-    ):
-        result = await _send_direct(
-            tmp_path / "state.json",
-            tmp_path / "chats.sqlite3",
-            "Hello",
-        )
-
-    assert result == "chat-direct"
-    prompta.send_once.assert_awaited_once_with("Hello", attachments=None)
-    prompta.wait_for_cached_response.assert_awaited_once_with("chat-direct")
-    prompta.close.assert_awaited_once()
-    process.terminate.assert_called_once()
-
-
 def test_named_jobs_round_trip(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     add_job(jobs_path, "flux", "Continue Flux", 1800)
@@ -1501,11 +1247,11 @@ def test_ls_alias_parses_as_list_command() -> None:
 
 
 def test_once_command_parses_as_non_scheduled_prompt() -> None:
-    args = _parser().parse_args(["once", "Do exactly one thing", "--bidi-url", "ws://test"])
+    args = _parser().parse_args(["once", "Do exactly one thing"])
 
     assert args.command == "once"
     assert args.prompt == "Do exactly one thing"
-    assert args.bidi_url == "ws://test"
+    assert args.browser == "chrome"
     assert not hasattr(args, "jobs_file")
 
 
@@ -1513,7 +1259,7 @@ def test_once_command_parses_as_non_scheduled_prompt() -> None:
 async def test_once_command_sends_exactly_once_without_scheduler(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    args = _parser().parse_args(["once", "Do exactly one thing", "--bidi-url", "ws://test"])
+    args = _parser().parse_args(["once", "Do exactly one thing", "--direct-browser"])
 
     with (
         patch.object(Prompta, "send_once", AsyncMock(return_value="conversation-123")) as send_once,
@@ -1606,7 +1352,7 @@ async def test_control_send_retries_after_poisoned_scheduler_restart(tmp_path: P
     state_path = tmp_path / "state.json"
     request = AsyncMock(
         side_effect=[
-            RuntimeError("Firefox BiDi session is poisoned; browser restart required"),
+            RuntimeError("WebDriver session is poisoned; browser restart required"),
             {"ok": True, "conversation_id": "conversation-after-restart"},
         ]
     )
@@ -1988,26 +1734,24 @@ async def test_control_socket_routes_sync_through_scheduler(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_sync_uses_running_scheduler_without_spawning_firefox(
+async def test_sync_uses_running_scheduler_without_spawning_browser(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     args = _parser().parse_args(["sync", "existing-chat"])
     with (
         patch("prompta.core._daemon_is_running", return_value=True),
         patch("prompta.core._sync_via_control", AsyncMock(return_value=4)) as sync_control,
-        patch("prompta.core._spawn_firefox", AsyncMock()) as spawn_firefox,
     ):
         await _run(args)
 
     sync_control.assert_awaited_once_with(args.state, "existing-chat")
-    spawn_firefox.assert_not_awaited()
     output = capsys.readouterr().out
     assert "Synced" in output
     assert "4 messages" in output
 
 
 @pytest.mark.asyncio
-async def test_once_uses_running_scheduler_without_spawning_firefox(
+async def test_once_uses_running_scheduler_without_spawning_browser(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     args = _parser().parse_args(["once", "Do exactly one thing"])
@@ -2021,13 +1765,11 @@ async def test_once_uses_running_scheduler_without_spawning_firefox(
             "prompta.core._wait_for_cache_completion",
             AsyncMock(return_value=True),
         ) as wait_for_cache,
-        patch("prompta.core._spawn_firefox", AsyncMock()) as spawn_firefox,
     ):
         await _run(args)
 
     send_via_control.assert_awaited_once_with(args.state, "Do exactly one thing")
     wait_for_cache.assert_awaited_once_with(args.cache, "conversation-queued")
-    spawn_firefox.assert_not_awaited()
     output = capsys.readouterr().out
     assert "conversation conversation-queued" in output
     assert "assistant response complete" in output
@@ -2427,7 +2169,7 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
     assert prompta.cache.recent_conversations()[0]["status"] == "complete"
 
     # Completed tabs are only retained briefly for immediate replies; they must
-    # not accumulate for tens of minutes and push headless Firefox into cgroup
+    # not accumulate for tens of minutes and push headless Chromium into cgroup
     # memory reclaim while another send is starting.
     active.settled_at -= 16.0
     driver.close_context = AsyncMock()
@@ -3579,7 +3321,7 @@ async def test_completed_tool_enrichment_does_not_drop_fresh_final_text_from_sta
 
 
 @pytest.mark.asyncio
-async def test_retained_completed_tool_enrichment_is_not_overwritten_by_firefox_snapshot(
+async def test_retained_completed_tool_enrichment_is_not_overwritten_by_browser_snapshot(
     tmp_path: Path,
 ) -> None:
     prompta = Prompta(

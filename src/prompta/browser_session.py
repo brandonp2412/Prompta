@@ -6,30 +6,27 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .bidi import FirefoxBiDiDriver
 from .chrome import ChromeDriverDriver
 
 logger = logging.getLogger(__name__)
 
-BrowserDriver = FirefoxBiDiDriver | ChromeDriverDriver
+BrowserDriver = ChromeDriverDriver
 DriverFactory = Callable[[], BrowserDriver]
 
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 
 
 class BrowserSession:
-    def __init__(self, bidi_url: str, driver_factory: DriverFactory | None = None) -> None:
-        self.bidi_url = bidi_url
+    def __init__(self, browser_url: str, driver_factory: DriverFactory | None = None) -> None:
+        self.browser_url = browser_url
         self.driver_factory = driver_factory
         self.driver: BrowserDriver | None = None
 
     async def ensure_driver(self) -> BrowserDriver:
         if self.driver is None:
-            self.driver = (
-                self.driver_factory()
-                if self.driver_factory is not None
-                else FirefoxBiDiDriver(self.bidi_url)
-            )
+            if self.driver_factory is None:
+                raise RuntimeError("Chromium driver factory is not configured")
+            self.driver = self.driver_factory()
         if not self.driver.is_connected:
             await self.driver.connect()
         return self.driver

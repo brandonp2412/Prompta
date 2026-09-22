@@ -19,9 +19,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from websockets.exceptions import ConnectionClosed
-
-from .bidi import FirefoxBiDiDriver, wait_for_port
 from .browser_session import BrowserSession
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
 from .chrome import ChromeDriverDriver
@@ -43,18 +40,6 @@ from .control_server import (
 from .conversation_actions import ConversationActions
 from .conversation_actions import SendVerificationError as SendVerificationError
 from .conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS, ConversationTracker
-from .firefox_runtime import (
-    firefox_port_is_open as _firefox_port_is_open,
-)
-from .firefox_runtime import (
-    firefox_process_uses_profile as _firefox_process_uses_profile,
-)
-from .firefox_runtime import (
-    spawn_firefox as _spawn_firefox_impl,
-)
-from .firefox_runtime import (
-    terminate_process as _terminate_process,
-)
 from .jobs import (
     DEFAULT_INTERVAL_SECONDS as DEFAULT_INTERVAL_SECONDS,
 )
@@ -81,13 +66,11 @@ logger = logging.getLogger(__name__)
 
 _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 15.0
 
-BrowserDriver = FirefoxBiDiDriver | ChromeDriverDriver
+BrowserDriver = ChromeDriverDriver
 DriverFactory = Callable[[], BrowserDriver]
 
 DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
 DEFAULT_STATE_PATH = Path.home() / ".local" / "state" / "prompta" / "state.json"
-DEFAULT_FIREFOX_PROFILE = Path.home() / ".local" / "state" / "prompta" / "firefox-profile"
-DEFAULT_FIREFOX_PORT = 9229
 DEFAULT_CHROME_PROFILE = Path.home() / ".local" / "state" / "prompta" / "chrome-profile"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0
@@ -98,9 +81,6 @@ _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
-_FIREFOX_REUSE_POLL_SECONDS = 0.25
-_FIREFOX_REUSE_STABILITY_CHECKS = 12
-_FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS = 30.0
 _FAILURE_RETRY_SECONDS = 300.0
 _MIN_SEND_GAP_SECONDS = 5 * 60.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
@@ -120,12 +100,12 @@ class Prompta:
     def __init__(
         self,
         config: PromptaConfig,
-        bidi_url: str,
+        browser_url: str,
         *,
         driver_factory: DriverFactory | None = None,
     ) -> None:
         self.config = config
-        self.browser = BrowserSession(bidi_url, driver_factory)
+        self.browser = BrowserSession(browser_url, driver_factory)
         cache_path = config.cache_path
         if cache_path is None:
             cache_path = (
@@ -843,112 +823,10 @@ async def _wait_for_cache_completion(
     return False
 
 
-async def _spawn_firefox(
-    profile: Path, firefox_path: str, port: int
-) -> asyncio.subprocess.Process | None:
-    return await _spawn_firefox_impl(
-        profile,
-        firefox_path,
-        port,
-        port_is_open=_firefox_port_is_open,
-        process_uses_profile=_firefox_process_uses_profile,
-        wait_for_port_fn=wait_for_port,
-        terminate_process_fn=_terminate_process,
-        profile_release_timeout_seconds=_FIREFOX_PROFILE_RELEASE_TIMEOUT_SECONDS,
-        reuse_poll_seconds=_FIREFOX_REUSE_POLL_SECONDS,
-        reuse_stability_checks=_FIREFOX_REUSE_STABILITY_CHECKS,
-    )
-
-
-async def _recover_disappeared_reused_firefox(
-    prompta: Prompta,
-    profile: Path,
-    firefox_path: str,
-    port: int,
-) -> asyncio.subprocess.Process | None:
-    """Replace a Firefox listener that vanished after the reuse stability check."""
-
-    try:
-        await prompta._ensure_driver()
-        return None
-    except (ConnectionClosed, OSError, RuntimeError):
-        # Authentication/session errors can occur while a healthy Firefox listener
-        # remains available. Only replace a reused browser when the endpoint itself
-        # has actually disappeared; otherwise preserve the original error.
-        if await _firefox_port_is_open(port):
-            raise
-
-    logger.warning(
-        "Prompta reused Firefox on port %d but its BiDi endpoint disappeared; "
-        "starting a fresh browser",
-        port,
-    )
-    if prompta.driver is not None:
-        await prompta.driver.close()
-        prompta.driver = None
-
-    replacement = await _spawn_firefox(profile, firefox_path, port)
-    try:
-        await prompta._ensure_driver()
-    except BaseException:
-        if replacement is not None:
-            await _terminate_process(replacement)
-        raise
-    return replacement
-
-
-async def _send_direct(
-    state_path: Path,
-    cache_path: Path,
-    prompt: str,
-    *,
-    conversation_id: str = "",
-    attachments: list[str] | None = None,
-    firefox_profile: Path = DEFAULT_FIREFOX_PROFILE,
-    firefox_path: str = "/usr/bin/firefox",
-    firefox_port: int = DEFAULT_FIREFOX_PORT,
-) -> str:
-    """Send without a resident scheduler, keeping Firefox alive until the reply is cached."""
-    firefox: asyncio.subprocess.Process | None = None
-    prompta: Prompta | None = None
-    try:
-        firefox = await _spawn_firefox(firefox_profile, firefox_path, firefox_port)
-        prompta = Prompta(
-            PromptaConfig(
-                state_path=state_path,
-                cache_path=cache_path,
-            ),
-            f"ws://127.0.0.1:{firefox_port}/session",
-        )
-        if firefox is None:
-            firefox = await _recover_disappeared_reused_firefox(
-                prompta,
-                firefox_profile,
-                firefox_path,
-                firefox_port,
-            )
-        if conversation_id:
-            result = await prompta.send_reply(
-                conversation_id,
-                prompt,
-                attachments=attachments,
-            )
-        else:
-            result = await prompta.send_once(prompt, attachments=attachments)
-        await prompta.wait_for_cached_response(result)
-        return result
-    finally:
-        if prompta is not None:
-            await prompta.close()
-        if firefox is not None:
-            await _terminate_process(firefox)
-
-
 def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--send-timeout-seconds", type=float, default=_SEND_CONFIRM_TIMEOUT_SECONDS)
-    parser.add_argument("--bidi-url")
     parser.add_argument(
         "--direct-browser",
         action="store_true",
@@ -956,12 +834,9 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--browser",
-        choices=("firefox", "chrome"),
-        default=os.environ.get("PROMPTA_BROWSER", "chrome"),
+        choices=("chrome",),
+        default="chrome",
     )
-    parser.add_argument("--firefox-profile", type=Path, default=DEFAULT_FIREFOX_PROFILE)
-    parser.add_argument("--firefox-path", default="/usr/bin/firefox")
-    parser.add_argument("--firefox-port", type=int, default=DEFAULT_FIREFOX_PORT)
     parser.add_argument(
         "--chrome-profile",
         type=Path,
@@ -1082,7 +957,7 @@ def _parser() -> argparse.ArgumentParser:
 async def _run(args: argparse.Namespace) -> None:
     if args.command == "once":
         _print_notice("◆", "One-shot", _prompt_preview(args.prompt, 72))
-        if not args.direct_browser and not args.bidi_url and _daemon_is_running(args.state):
+        if not args.direct_browser and _daemon_is_running(args.state):
             conversation_id = await _send_once_via_control(args.state, args.prompt)
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
             _print_notice("…", "Waiting", "assistant response", tone="36")
@@ -1091,7 +966,7 @@ async def _run(args: argparse.Namespace) -> None:
             return
     elif args.command == "reply":
         _print_notice("◆", "Reply", _prompt_preview(args.prompt, 72))
-        if not args.direct_browser and not args.bidi_url and _daemon_is_running(args.state):
+        if not args.direct_browser and _daemon_is_running(args.state):
             conversation_id = await _send_reply_via_control(
                 args.state,
                 args.conversation_id,
@@ -1100,7 +975,7 @@ async def _run(args: argparse.Namespace) -> None:
             _print_notice("✓", "Sent", f"conversation {conversation_id}", tone="32")
             return
     elif args.command == "sync":
-        if not args.direct_browser and not args.bidi_url and _daemon_is_running(args.state):
+        if not args.direct_browser and _daemon_is_running(args.state):
             message_count = await _sync_via_control(args.state, args.conversation_id)
             _print_notice(
                 "✓",
@@ -1113,25 +988,13 @@ async def _run(args: argparse.Namespace) -> None:
     daemon_lock: Any = None
     control_server: asyncio.AbstractServer | None = None
     control_path: Path | None = None
-    firefox: asyncio.subprocess.Process | None = None
     prompta: Prompta | None = None
 
     if args.command == "run":
         daemon_lock = _acquire_daemon_lock(args.state)
 
     try:
-        driver_factory: DriverFactory | None = None
-        using_firefox = bool(args.bidi_url) or args.browser == "firefox"
-        if args.bidi_url:
-            bidi_url = args.bidi_url
-        elif using_firefox:
-            firefox = await _spawn_firefox(
-                args.firefox_profile, args.firefox_path, args.firefox_port
-            )
-            bidi_url = f"ws://127.0.0.1:{args.firefox_port}/session"
-        else:
-            bidi_url = ""
-            driver_factory = _chrome_driver_factory(args)
+        driver_factory = _chrome_driver_factory(args)
 
         prompta = Prompta(
             PromptaConfig(
@@ -1140,7 +1003,7 @@ async def _run(args: argparse.Namespace) -> None:
                 cache_path=args.cache,
                 send_timeout_seconds=max(1.0, args.send_timeout_seconds),
             ),
-            bidi_url,
+            "",
             driver_factory=driver_factory,
         )
         if args.command == "run":
@@ -1148,24 +1011,9 @@ async def _run(args: argparse.Namespace) -> None:
             # already held at this point, so UI sends otherwise see a running scheduler
             # but can race a potentially slow recovery and fail before the socket exists.
             control_server, control_path = await _start_control_server(prompta, args.state)
-            if using_firefox and not args.bidi_url and firefox is None:
-                firefox = await _recover_disappeared_reused_firefox(
-                    prompta,
-                    args.firefox_profile,
-                    args.firefox_path,
-                    args.firefox_port,
-                )
             recovered = await prompta.recover_cached_conversations()
             if recovered:
                 logger.info("Prompta recovered %d live conversation(s) after restart", recovered)
-
-        if args.command != "run" and using_firefox and not args.bidi_url and firefox is None:
-            firefox = await _recover_disappeared_reused_firefox(
-                prompta,
-                args.firefox_profile,
-                args.firefox_path,
-                args.firefox_port,
-            )
 
         if args.command == "once":
             conversation_id = await prompta.send_once(args.prompt)
@@ -1200,8 +1048,6 @@ async def _run(args: argparse.Namespace) -> None:
                 pass
         if prompta is not None:
             await prompta.close()
-        if firefox is not None:
-            await _terminate_process(firefox)
         if daemon_lock is not None:
             fcntl.flock(daemon_lock.fileno(), fcntl.LOCK_UN)
             daemon_lock.close()

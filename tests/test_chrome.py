@@ -664,7 +664,7 @@ async def test_find_context_for_path_recovers_moved_conversation_tab() -> None:
 
 
 @pytest.mark.asyncio
-async def test_click_stop_uses_chromedriver_instead_of_bidi() -> None:
+async def test_click_stop_uses_chromedriver() -> None:
     selenium = MagicMock()
     selenium.current_window_handle = "window"
 
@@ -990,7 +990,7 @@ async def test_wait_for_composer_recovers_cloudflare_after_timeout(tmp_path: Pat
 
     with (
         patch(
-            "prompta.chrome.FirefoxBiDiDriver.wait_for_composer",
+            "prompta.chrome.WebDriverBase.wait_for_composer",
             new_callable=AsyncMock,
             side_effect=[RuntimeError("ChatGPT composer did not become ready"), None],
         ) as base_wait,
@@ -1018,7 +1018,7 @@ async def test_wait_for_composer_does_not_solve_non_cloudflare_timeout(tmp_path:
 
     with (
         patch(
-            "prompta.chrome.FirefoxBiDiDriver.wait_for_composer",
+            "prompta.chrome.WebDriverBase.wait_for_composer",
             new_callable=AsyncMock,
             side_effect=RuntimeError("ChatGPT composer did not become ready"),
         ),
