@@ -9,6 +9,7 @@ import {
   deleteRequest,
   formatClockTime12Hour,
   formatDailyTime12Hour,
+  formatRelativeTime,
   isUnresolvedPendingNewConversation,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
@@ -36,6 +37,7 @@ import {
   sidebarChatIsSelected,
   sidebarChatMatchesFilters,
   sidebarChatPreviewText,
+  sidebarHealthNeedsRefresh,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
   sidebarPreviewText,
@@ -94,6 +96,17 @@ describe("chat refresh focus", () => {
   });
 });
 
+describe("relative time formatting", () => {
+  const nowSeconds = 10_000;
+  const nowMillis = nowSeconds * 1000;
+
+  test("formats sidebar age labels from an explicit clock tick", () => {
+    expect(formatRelativeTime(nowSeconds - 30, nowMillis)).toBe("now");
+    expect(formatRelativeTime(nowSeconds - 2 * 60, nowMillis)).toBe("2m");
+    expect(formatRelativeTime(nowSeconds - 2 * 60 * 60, nowMillis)).toBe("2h");
+  });
+});
+
 describe("client send ownership", () => {
   test("matches only client ids created by the current UI session", () => {
     expect(clientIdBelongsToSession("session-a:123-1", "session-a")).toBe(true);
@@ -105,6 +118,33 @@ describe("client send ownership", () => {
 
 describe("broken chat detection", () => {
   const now = 10_000;
+
+  test("refreshes sidebar health only when a visible row crosses the broken boundary", () => {
+    const rows = [{ id: "live", broken: false }];
+    const healthy = [
+      {
+        id: "live",
+        status: "active",
+        created_at: 1,
+        last_assistant_at: now - 39 * 60,
+      },
+    ];
+    const broken = [
+      {
+        id: "live",
+        status: "active",
+        created_at: 1,
+        last_assistant_at: now - 40 * 60,
+      },
+    ];
+
+    expect(sidebarHealthNeedsRefresh(rows, healthy, false, now)).toBe(false);
+    expect(sidebarHealthNeedsRefresh(rows, broken, false, now)).toBe(true);
+  });
+
+  test("refreshes the sidebar while the broken filter is active so hidden chats can enter", () => {
+    expect(sidebarHealthNeedsRefresh([], [], true, now)).toBe(true);
+  });
 
   test("marks an active chat broken at the 40 minute boundary", () => {
     expect(

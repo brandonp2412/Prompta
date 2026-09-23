@@ -7,6 +7,7 @@ import {
   composerHasContent,
   conversationIdFromHash,
   deleteRequest,
+  formatRelativeTime,
   formatScheduleInterval,
   isUnresolvedPendingNewConversation,
   matchingOptimisticConversation,
@@ -22,6 +23,7 @@ import {
   sidebarChatCountSummary,
   sidebarChatLastUserAt,
   sidebarChatMatchesFilters,
+  sidebarHealthNeedsRefresh,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
   sortSidebarChats,
@@ -88,6 +90,7 @@ type UiState = {
   selectedFingerprint: string;
   search: string;
   sidebarFingerprint: string;
+  sidebarRenderedDate: string;
   mode: string;
   sending: boolean;
   stopping: boolean;
@@ -185,6 +188,7 @@ const state: UiState = {
   selectedFingerprint: "",
   search: "",
   sidebarFingerprint: "",
+  sidebarRenderedDate: "",
   mode: "chats",
   sending: false,
   stopping: false,
@@ -465,25 +469,6 @@ function setServerStatus(server, online) {
   logsPanel.setServerTitle(display);
 }
 
-function formatRelativeTime(epochSeconds) {
-  if (!epochSeconds) return "";
-
-  const delta = Date.now() - epochSeconds * 1000;
-  const abs = Math.abs(delta);
-
-  if (abs < 45_000) return "now";
-
-  if (abs < 3_600_000) return `${Math.max(1, Math.round(abs / 60_000))}m`;
-
-  if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)}h`;
-
-  if (abs < 604_800_000) return `${Math.round(abs / 86_400_000)}d`;
-
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
-    new Date(epochSeconds * 1000),
-  );
-}
-
 function chatActivityAt(chat) {
   if (!chat) return 0;
 
@@ -738,6 +723,7 @@ function renderSidebar(force = false) {
   if (!force && fingerprint === state.sidebarFingerprint) return;
 
   state.sidebarFingerprint = fingerprint;
+  state.sidebarRenderedDate = new Date().toDateString();
 
   if (!chats.length) {
     sidebarListState.model = {
@@ -783,7 +769,6 @@ function renderSidebar(force = false) {
           ),
           jobLabel: String(chat.job_name || String(chat.message_count || 0) + " messages"),
           activityAt,
-          relativeTime: formatRelativeTime(activityAt),
           pinned: state.pinnedIds.has(chat.id),
           unread: Boolean(chat.unread),
         };
@@ -2567,7 +2552,20 @@ function refreshDisplayedTimes() {
     void loadSelectedChat();
   }
 
-  renderSidebar(true);
+  const sidebarRows = sidebarListState.model.groups.flatMap((group) => group.chats);
+  const currentDate = new Date().toDateString();
+
+  if (
+    currentDate !== state.sidebarRenderedDate ||
+    sidebarHealthNeedsRefresh(
+      sidebarRows,
+      sidebarChats(),
+      appViewState.sidebarFilters.broken,
+      appViewState.clockTick / 1000,
+    )
+  ) {
+    renderSidebar(true);
+  }
 
   if (
     state.mode === "chats" &&

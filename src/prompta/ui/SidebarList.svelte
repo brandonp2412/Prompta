@@ -1,7 +1,9 @@
 <script lang="ts">
   import { MediaQuery } from "svelte/reactivity";
 
+  import { appViewState } from "./appViewState.svelte";
   import { dialogVisibility } from "./browserAttachments.svelte";
+  import { formatRelativeTime } from "./clientLogic";
   import { pendingLongPressMoved } from "./conversationLogic";
   import { sidebarListActions, sidebarListState } from "./sidebarState.svelte";
 
@@ -148,7 +150,9 @@
             <div class="chat-preview">{chat.preview}</div>
             <div class="chat-meta">
               <span class="chat-job">{chat.jobLabel}</span>
-              <span class="chat-time" data-activity-at={chat.activityAt}>{chat.relativeTime}</span>
+              <span class="chat-time" data-activity-at={chat.activityAt}>
+                {formatRelativeTime(chat.activityAt, appViewState.clockTick)}
+              </span>
             </div>
           </button>
           <button

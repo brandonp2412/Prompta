@@ -6710,6 +6710,20 @@ function positiveEpoch(value) {
 	const epoch = Number(value || 0);
 	return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
 }
+function formatRelativeTime(epochSeconds, nowMillis = Date.now()) {
+	const epoch = positiveEpoch(epochSeconds);
+	if (!epoch) return "";
+	const delta = nowMillis - epoch * 1e3;
+	const abs = Math.abs(delta);
+	if (abs < 45e3) return "now";
+	if (abs < 36e5) return `${Math.max(1, Math.round(abs / 6e4))}m`;
+	if (abs < 864e5) return `${Math.round(abs / 36e5)}h`;
+	if (abs < 6048e5) return `${Math.round(abs / 864e5)}d`;
+	return new Intl.DateTimeFormat(void 0, {
+		month: "short",
+		day: "numeric"
+	}).format(/* @__PURE__ */ new Date(epoch * 1e3));
+}
 function roleActivityAt(chat, role) {
 	if (!chat) return 0;
 	let latest = positiveEpoch(role === "assistant" ? chat.last_assistant_at : chat.last_user_at);
@@ -6733,6 +6747,14 @@ function chatIsBroken(chat, nowSeconds = Date.now() / 1e3) {
 	const referenceAt = chatBrokenReferenceAt(chat);
 	if (!referenceAt) return false;
 	return nowSeconds - referenceAt >= BROKEN_CHAT_AFTER_SECONDS;
+}
+function sidebarHealthNeedsRefresh(rows, chats, brokenFilterActive = false, nowSeconds = Date.now() / 1e3) {
+	if (brokenFilterActive) return true;
+	const chatsById = new Map(chats.map((chat) => [String(chat.id || ""), chat]));
+	return rows.some((row) => {
+		const chat = chatsById.get(String(row.id || ""));
+		return Boolean(chat) && row.broken !== chatIsBroken(chat, nowSeconds);
+	});
 }
 function sidebarChatMatchesFilters(chat, filters, nowSeconds = Date.now() / 1e3) {
 	if (!filters.unread && !filters.active && !filters.broken) return true;
@@ -16971,7 +16993,9 @@ var init_sidebarState_svelte = __esmMin((() => {
 //#region src/prompta/ui/SidebarList.svelte
 init_client();
 init_index_client();
+init_appViewState_svelte();
 init_browserAttachments_svelte();
+init_clientLogic();
 init_conversationLogic();
 init_sidebarState_svelte();
 var root$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
@@ -17114,7 +17138,7 @@ function SidebarList($$anchor, $$props) {
 				reset(button);
 				var button_1 = sibling(button, 2);
 				reset(div_2);
-				template_effect(() => {
+				template_effect(($0) => {
 					set_class(div_2, 1, clsx(["chat-item", {
 						selected: get(chat).id === sidebarListState.selectedConversationId,
 						unread: get(chat).unread
@@ -17127,13 +17151,13 @@ function SidebarList($$anchor, $$props) {
 					set_text(text_4, get(chat).preview);
 					set_text(text_5, get(chat).jobLabel);
 					set_attribute(span_4, "data-activity-at", get(chat).activityAt);
-					set_text(text_6, get(chat).relativeTime);
+					set_text(text_6, $0);
 					set_class(button_1, 1, clsx(["chat-row-pin", { active: get(chat).pinned }]));
 					set_attribute(button_1, "data-pin-chat-id", get(chat).id);
 					set_attribute(button_1, "aria-label", get(chat).pinned ? "Unpin chat" : "Pin chat");
 					set_attribute(button_1, "title", get(chat).pinned ? "Unpin chat" : "Pin chat");
 					set_attribute(button_1, "aria-pressed", get(chat).pinned);
-				});
+				}, [() => formatRelativeTime(get(chat).activityAt, appViewState.clockTick)]);
 				delegated("pointerdown", button, (event) => startLongPress(event, get(chat).id, get(chat).pinned));
 				delegated("pointermove", button, moveLongPress);
 				delegated("pointerup", button, endLongPress);
@@ -18352,19 +18376,6 @@ function setServerStatus(server, online) {
 	appViewState.liveTitle = knownOnline === false ? display + " is offline" : knownOnline === true ? display + " is online" : display + " status unknown";
 	logsPanel.setServerTitle(display);
 }
-function formatRelativeTime(epochSeconds) {
-	if (!epochSeconds) return "";
-	const delta = Date.now() - epochSeconds * 1e3;
-	const abs = Math.abs(delta);
-	if (abs < 45e3) return "now";
-	if (abs < 36e5) return `${Math.max(1, Math.round(abs / 6e4))}m`;
-	if (abs < 864e5) return `${Math.round(abs / 36e5)}h`;
-	if (abs < 6048e5) return `${Math.round(abs / 864e5)}d`;
-	return new Intl.DateTimeFormat(void 0, {
-		month: "short",
-		day: "numeric"
-	}).format(/* @__PURE__ */ new Date(epochSeconds * 1e3));
-}
 function chatActivityAt(chat) {
 	if (!chat) return 0;
 	if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") return Number(chat.updated_at || chat.last_message_at || 0);
@@ -18504,6 +18515,7 @@ function renderSidebar(force = false) {
 	])) + JSON.stringify(appViewState.sidebarFilters) + String(state.chatListHasMore) + String(state.chatListLoadingMore) + (/* @__PURE__ */ new Date()).toDateString();
 	if (!force && fingerprint === state.sidebarFingerprint) return;
 	state.sidebarFingerprint = fingerprint;
+	state.sidebarRenderedDate = (/* @__PURE__ */ new Date()).toDateString();
 	if (!chats.length) {
 		sidebarListState.model = {
 			emptyState: filtersActive ? "filter" : state.search ? "search" : "empty",
@@ -18535,7 +18547,6 @@ function renderSidebar(force = false) {
 					preview: truncate(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"),
 					jobLabel: String(chat.job_name || String(chat.message_count || 0) + " messages"),
 					activityAt,
-					relativeTime: formatRelativeTime(activityAt),
 					pinned: state.pinnedIds.has(chat.id),
 					unread: Boolean(chat.unread)
 				};
@@ -19667,7 +19678,8 @@ function refreshDisplayedTimes() {
 		state.selectedFingerprint = "";
 		loadSelectedChat();
 	}
-	renderSidebar(true);
+	const sidebarRows = sidebarListState.model.groups.flatMap((group) => group.chats);
+	if ((/* @__PURE__ */ new Date()).toDateString() !== state.sidebarRenderedDate || sidebarHealthNeedsRefresh(sidebarRows, sidebarChats(), appViewState.sidebarFilters.broken, appViewState.clockTick / 1e3)) renderSidebar(true);
 	if (state.mode === "chats" && state.selectedChat && state.selectedChat.id === state.selectedId && !state.composingNew) {
 		state.selectedMetaFingerprint = "";
 		renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
@@ -19714,6 +19726,7 @@ var init_app = __esmMin((() => {
 		selectedFingerprint: "",
 		search: "",
 		sidebarFingerprint: "",
+		sidebarRenderedDate: "",
 		mode: "chats",
 		sending: false,
 		stopping: false,

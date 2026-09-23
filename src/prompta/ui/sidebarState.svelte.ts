@@ -18,7 +18,6 @@ export type SidebarListModel = {
       preview: string;
       jobLabel: string;
       activityAt: string | number;
-      relativeTime: string;
       pinned: boolean;
       unread: boolean;
     }>;

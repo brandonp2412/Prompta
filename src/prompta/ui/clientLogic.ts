@@ -113,6 +113,24 @@ function positiveEpoch(value: unknown): number {
   return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
 }
 
+export function formatRelativeTime(epochSeconds: unknown, nowMillis = Date.now()): string {
+  const epoch = positiveEpoch(epochSeconds);
+
+  if (!epoch) return "";
+
+  const delta = nowMillis - epoch * 1000;
+  const abs = Math.abs(delta);
+
+  if (abs < 45_000) return "now";
+  if (abs < 3_600_000) return `${Math.max(1, Math.round(abs / 60_000))}m`;
+  if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)}h`;
+  if (abs < 604_800_000) return `${Math.round(abs / 86_400_000)}d`;
+
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+    new Date(epoch * 1000),
+  );
+}
+
 function roleActivityAt(chat: ChatHealth | null | undefined, role: "assistant" | "user"): number {
   if (!chat) return 0;
 
@@ -163,6 +181,23 @@ export function chatIsBroken(
   if (!referenceAt) return false;
 
   return nowSeconds - referenceAt >= BROKEN_CHAT_AFTER_SECONDS;
+}
+
+export function sidebarHealthNeedsRefresh(
+  rows: readonly { id: string; broken: boolean }[],
+  chats: readonly ChatHealth[],
+  brokenFilterActive = false,
+  nowSeconds = Date.now() / 1000,
+): boolean {
+  if (brokenFilterActive) return true;
+
+  const chatsById = new Map(chats.map((chat) => [String(chat.id || ""), chat]));
+
+  return rows.some((row) => {
+    const chat = chatsById.get(String(row.id || ""));
+
+    return Boolean(chat) && row.broken !== chatIsBroken(chat, nowSeconds);
+  });
 }
 
 export type SidebarFilters = {
