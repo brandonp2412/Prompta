@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _FAILURE_RETRY_SECONDS = 300.0
 _MAX_ACTIVE_SCHEDULED_JOBS = 4
+_MAX_ACTIVE_BROWSER_CONVERSATIONS = 6
 
 
 def prompt_hash(prompt: str) -> str:
@@ -76,6 +77,8 @@ class SchedulerExecution:
         if self.scheduler.due_in(job, now) > 0:
             return False
         if any(active.job_name == job.name for active in self.active.values()):
+            return False
+        if len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS:
             return False
         active_scheduled_jobs = sum(
             1 for active in self.active.values() if active.job_name and active.job_name != "once"
@@ -295,6 +298,8 @@ class SchedulerExecution:
     async def drain_once_requests(self) -> bool:
         did_work = False
         while True:
+            if len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS:
+                return did_work
             remaining = self.scheduler.global_backoff.remaining()
             attempted_at = time.time()
             if remaining <= 0 and self.scheduler.send_gap_remaining(attempted_at) > 0:
