@@ -4,6 +4,8 @@ export const sidebarState = $state({ open: false, moving: false });
 
 export type SidebarListModel = {
   emptyState: "none" | "search" | "filter" | "empty";
+  hasMore: boolean;
+  loadingMore: boolean;
   groups: Array<{
     label: string;
     chats: Array<{
@@ -25,15 +27,17 @@ export type SidebarListModel = {
 };
 
 export const sidebarListState = $state<{ model: SidebarListModel }>({
-  model: { emptyState: "none", groups: [] },
+  model: { emptyState: "none", hasMore: false, loadingMore: false, groups: [] },
 });
 
 export const sidebarListActions = $state<{
   onSelect: (chatId: string, optimisticNew: boolean) => void;
   onPin: (chatId: string) => void;
+  onLoadMore: () => void;
 }>({
   onSelect: () => {},
   onPin: () => {},
+  onLoadMore: () => {},
 });
 
 export function configureSidebar(onMotionEnd: () => void) {

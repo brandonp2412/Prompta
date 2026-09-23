@@ -59,6 +59,13 @@ describe("chat list request URL", () => {
       "api/chats?q=Kite+work",
     );
   });
+
+  test("adds a bounded page size when the sidebar requests incremental history", () => {
+    expect(chatListRequestUrl("", new Set(["pinned-chat"]), 50)).toBe(
+      "api/chats?include=pinned-chat&limit=50",
+    );
+    expect(chatListRequestUrl("Kite work", [], 900)).toBe("api/chats?q=Kite+work&limit=500");
+  });
 });
 
 describe("chat refresh focus", () => {

@@ -323,6 +323,32 @@ textarea:focus-visible {
   min-height: 0;
 }
 
+.sidebar-load-more {
+  width: calc(100% - 12px);
+  min-height: 32px;
+  margin: 12px 6px 2px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-load-more:hover,
+.sidebar-load-more:focus-visible {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.sidebar-load-more:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
 .chat-group {
   margin-top: 13px;
 }

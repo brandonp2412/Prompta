@@ -6600,7 +6600,7 @@ var init_appViewState_svelte = __esmMin((() => {
 }));
 //#endregion
 //#region src/prompta/ui/clientLogic.ts
-function chatListRequestUrl(search, pinnedIds) {
+function chatListRequestUrl(search, pinnedIds, limit) {
 	const params = new URLSearchParams();
 	if (search.trim()) params.set("q", search);
 	else {
@@ -6612,6 +6612,7 @@ function chatListRequestUrl(search, pinnedIds) {
 			params.append("include", id);
 		}
 	}
+	if (Number.isFinite(limit)) params.set("limit", String(Math.max(1, Math.min(500, Math.floor(Number(limit))))));
 	const suffix = params.toString();
 	return suffix ? `api/chats?${suffix}` : "api/chats";
 }
@@ -15481,7 +15482,7 @@ var root_3$4 = /* @__PURE__ */ from_html(`<del><!></del>`);
 var root_4$4 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<br/>`);
 var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
-var root_7$2 = /* @__PURE__ */ from_html(`<p><!></p>`);
+var root_7$3 = /* @__PURE__ */ from_html(`<p><!></p>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
 var root_9$1 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
 var root_10$1 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
@@ -15666,7 +15667,7 @@ function MarkdownContent($$anchor, $$props) {
 			var fragment_14 = comment();
 			var node_13 = first_child(fragment_14);
 			var consequent_14 = ($$anchor) => {
-				var p = root_7$2();
+				var p = root_7$3();
 				var node_14 = child(p);
 				{
 					let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16027,7 +16028,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, p_1);
 			};
 			var consequent_41 = ($$anchor) => {
-				var p_2 = root_7$2();
+				var p_2 = root_7$3();
 				var node_43 = child(p_2);
 				inline(node_43, () => [get(token)]);
 				reset(p_2);
@@ -16157,7 +16158,7 @@ var root_3$3 = /* @__PURE__ */ from_html(`<button type="button" class="retry-sen
 var root_4$3 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-button bump-pending-button" aria-label="Send queued message next" title="Send queued message next"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></button>`);
 var root_5$2 = /* @__PURE__ */ from_html(`<div class="pending-message-controls" aria-label="Queued message actions"><button type="button" class="pending-message-button edit-pending-button" aria-label="Edit queued message" title="Edit queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Zm10.6-13.4 3 3"></path></svg></button> <!> <button type="button" class="pending-message-button delete-pending-button" aria-label="Delete queued message" title="Delete queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path></svg></button></div>`);
 var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
-var root_7$1 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
+var root_7$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
 var root_8$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
 var root_9 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action">Send next</button>`);
 var root_10 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <!> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
@@ -16392,7 +16393,7 @@ function ConversationMessages($$anchor, $$props) {
 		var text_3 = only_child(span_1, true);
 		var node_10 = sibling(span_1, 2);
 		var consequent_8 = ($$anchor) => {
-			var span_2 = root_7$1();
+			var span_2 = root_7$2();
 			var text_4 = only_child(span_2);
 			template_effect(() => set_text(text_4, `· ${value.age ?? ""}`));
 			append($$anchor, span_2);
@@ -16484,7 +16485,7 @@ var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-actio
 var root_4$2 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> </div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
 var root_6$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
-var root_7 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
+var root_7$1 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
 var root_8 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
 function JobsDialog($$anchor, $$props) {
 	push($$props, true);
@@ -16716,7 +16717,7 @@ function JobsDialog($$anchor, $$props) {
 	reset(div_11);
 	var node_5 = sibling(div_11, 2);
 	var consequent_4 = ($$anchor) => {
-		var label_5 = root_7();
+		var label_5 = root_7$1();
 		var input_3 = child(label_5);
 		remove_input_defaults(input_3);
 		next(2);
@@ -16877,11 +16878,14 @@ var init_sidebarState_svelte = __esmMin((() => {
 	});
 	sidebarListState = proxy({ model: {
 		emptyState: "none",
+		hasMore: false,
+		loadingMore: false,
 		groups: []
 	} });
 	sidebarListActions = proxy({
 		onSelect: () => {},
-		onPin: () => {}
+		onPin: () => {},
+		onLoadMore: () => {}
 	});
 }));
 //#endregion
@@ -16897,7 +16901,8 @@ var root_2$1 = /* @__PURE__ */ from_html(`<span></span>`);
 var root_3$1 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
 var root_4$1 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
 var root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
-var root_6 = /* @__PURE__ */ from_html(`<!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"> </button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
+var root_6 = /* @__PURE__ */ from_html(`<button type="button" class="sidebar-load-more"> </button>`);
+var root_7 = /* @__PURE__ */ from_html(`<!> <!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"> </button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function SidebarList($$anchor, $$props) {
 	push($$props, true);
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
@@ -16959,7 +16964,7 @@ function SidebarList($$anchor, $$props) {
 		closeActions();
 		if (chatId) sidebarListActions.onPin(chatId);
 	}
-	var fragment = root_6();
+	var fragment = root_7();
 	event("keydown", $window, (event) => {
 		if (event.key === "Escape" && get(actionsOpen)) closeActions();
 	});
@@ -17077,20 +17082,35 @@ function SidebarList($$anchor, $$props) {
 		if (sidebarListState.model.groups.length === 0) $$render(consequent_2);
 		else $$render(alternate_1, -1);
 	});
-	var dialog = sibling(node, 2);
+	var node_6 = sibling(node, 2);
+	var consequent_5 = ($$anchor) => {
+		var button_2 = root_6();
+		var text_7 = only_child(button_2, true);
+		template_effect(() => {
+			button_2.disabled = sidebarListState.model.loadingMore;
+			set_attribute(button_2, "aria-busy", sidebarListState.model.loadingMore);
+			set_text(text_7, sidebarListState.model.loadingMore ? "Loading older chats…" : "Load older chats");
+		});
+		delegated("click", button_2, () => sidebarListActions.onLoadMore());
+		append($$anchor, button_2);
+	};
+	if_block(node_6, ($$render) => {
+		if (sidebarListState.model.hasMore) $$render(consequent_5);
+	});
+	var dialog = sibling(node_6, 2);
 	var div_6 = child(dialog);
-	var button_2 = sibling(child(div_6), 2);
-	var text_7 = only_child(button_2, true);
-	var button_3 = sibling(button_2, 2);
+	var button_3 = sibling(child(div_6), 2);
+	var text_8 = only_child(button_3, true);
+	var button_4 = sibling(button_3, 2);
 	reset(div_6);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(actionsOpen), () => true, closeActions));
-	template_effect(() => set_text(text_7, get(actionsChatPinned) ? "Unpin chat" : "Pin chat"));
+	template_effect(() => set_text(text_8, get(actionsChatPinned) ? "Unpin chat" : "Pin chat"));
 	delegated("click", dialog, (event) => {
 		if (event.target === event.currentTarget) closeActions();
 	});
-	delegated("click", button_2, togglePinFromActions);
-	delegated("click", button_3, closeActions);
+	delegated("click", button_3, togglePinFromActions);
+	delegated("click", button_4, closeActions);
 	append($$anchor, fragment);
 	pop();
 }
@@ -18390,18 +18410,22 @@ function renderSidebar(force = false) {
 		Boolean(chat._optimisticReply),
 		state.pinnedIds.has(chat.id),
 		Boolean(chat.unread)
-	])) + JSON.stringify(appViewState.sidebarFilters) + (/* @__PURE__ */ new Date()).toDateString() + selectionId;
+	])) + JSON.stringify(appViewState.sidebarFilters) + String(state.chatListHasMore) + String(state.chatListLoadingMore) + (/* @__PURE__ */ new Date()).toDateString() + selectionId;
 	if (!force && fingerprint === state.sidebarFingerprint) return;
 	state.sidebarFingerprint = fingerprint;
 	if (!chats.length) {
 		sidebarListState.model = {
 			emptyState: filtersActive ? "filter" : state.search ? "search" : "empty",
+			hasMore: state.chatListHasMore,
+			loadingMore: state.chatListLoadingMore,
 			groups: []
 		};
 		return;
 	}
 	sidebarListState.model = {
 		emptyState: "none",
+		hasMore: state.chatListHasMore,
+		loadingMore: state.chatListLoadingMore,
 		groups: groupChats(chats).map(([label, groupedChats]) => ({
 			label,
 			chats: groupedChats.map((chat) => {
@@ -18837,15 +18861,30 @@ async function hydratePendingSends() {
 		console.warn("Could not hydrate pending Prompta sends", error);
 	}
 }
+async function loadOlderChats() {
+	if (state.chatListLoadingMore || !state.chatListHasMore || state.chatListLimit >= 500) return;
+	state.chatListLoadingMore = true;
+	state.chatListLimit = Math.min(500, state.chatListLimit + CHAT_LIST_PAGE_SIZE);
+	state.sidebarFingerprint = "";
+	renderSidebar(true);
+	try {
+		await loadChats();
+	} finally {
+		state.chatListLoadingMore = false;
+		state.sidebarFingerprint = "";
+		renderSidebar(true);
+	}
+}
 async function loadChats(forceSelectedRefresh = false) {
 	const requestId = ++state.chatsRequestId;
 	chatsRequestController?.abort();
 	const requestController = new AbortController();
 	chatsRequestController = requestController;
 	try {
-		const payload = await fetchJson(chatListRequestUrl(state.search, state.pinnedIds), 1e4, requestController);
+		const payload = await fetchJson(chatListRequestUrl(state.search, state.pinnedIds, state.chatListLimit), 1e4, requestController);
 		if (requestId !== state.chatsRequestId) return;
 		const chats = payload.chats || [];
+		state.chatListHasMore = Boolean(payload.has_more);
 		promoteServerPendingPins(chats);
 		reconcileOptimisticNew(chats);
 		const orderedChats = sortSidebarChats(chats, state.pinnedIds);
@@ -19555,7 +19594,7 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, clientSessionId, actionToastTimer, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_clientLogic();
 	init_recentChatCache();
@@ -19572,6 +19611,8 @@ var init_app = __esmMin((() => {
 	init_completionNotifications();
 	init_clientStorage();
 	recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+	INITIAL_CHAT_LIST_LIMIT = 50;
+	CHAT_LIST_PAGE_SIZE = 50;
 	clientSessionId = loadClientSessionId();
 	actionToastTimer = null;
 	state = {
@@ -19592,6 +19633,9 @@ var init_app = __esmMin((() => {
 		selectedMetaFingerprint: "",
 		chatsRequestId: 0,
 		chatOrderScope: null,
+		chatListLimit: INITIAL_CHAT_LIST_LIMIT,
+		chatListHasMore: false,
+		chatListLoadingMore: false,
 		selectedRequestId: 0,
 		selectedChat: null,
 		selectedVisibleMessageCount: 0,
@@ -19630,6 +19674,9 @@ var init_app = __esmMin((() => {
 		setChatPinned(chatId, !state.pinnedIds.has(chatId));
 		renderSidebar(true);
 		updatePinButton();
+	};
+	sidebarListActions.onLoadMore = () => {
+		loadOlderChats();
 	};
 	jobsDialog = getJobsDialog();
 	conversationRenderer = createConversationRenderer({
@@ -19695,6 +19742,8 @@ var init_app = __esmMin((() => {
 		clearTimeout(searchTimer);
 		searchTimer = setTimeout(() => {
 			state.search = value.trim();
+			state.chatListLimit = INITIAL_CHAT_LIST_LIMIT;
+			state.chatListHasMore = false;
 			state.sidebarFingerprint = "";
 			loadChats();
 		}, 140);

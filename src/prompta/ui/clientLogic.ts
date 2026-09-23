@@ -6,7 +6,11 @@ export type ChatSummary = {
   _client_id?: string;
 };
 
-export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>): string {
+export function chatListRequestUrl(
+  search: string,
+  pinnedIds: Iterable<string>,
+  limit?: number,
+): string {
   const params = new URLSearchParams();
   const query = search.trim();
 
@@ -23,6 +27,10 @@ export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>):
       seen.add(id);
       params.append("include", id);
     }
+  }
+
+  if (Number.isFinite(limit)) {
+    params.set("limit", String(Math.max(1, Math.min(500, Math.floor(Number(limit))))));
   }
 
   const suffix = params.toString();

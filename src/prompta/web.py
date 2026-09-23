@@ -358,6 +358,42 @@ class PromptaUIServer(ThreadingHTTPServer):
         selected_ids = set(included_ids) | set(unpinned_ids[:bounded_limit])
         return [chat for chat in rows if str(chat.get("id") or "") in selected_ids]
 
+    def conversation_page(
+        self,
+        *,
+        limit: int = 200,
+        query: str = "",
+        include_ids: list[str] | tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        bounded_limit = max(1, min(limit, 500))
+        probe_limit = min(bounded_limit + 1, 500)
+        rows = self.conversations(
+            limit=probe_limit,
+            query=query,
+            include_ids=include_ids,
+        )
+        pinned_ids = (
+            {str(value).strip() for value in include_ids if str(value).strip()}
+            if not query.strip()
+            else set()
+        )
+        visible: list[dict[str, Any]] = []
+        ordinary_count = 0
+        has_more = False
+
+        for chat in rows:
+            chat_id = str(chat.get("id") or "")
+            if chat_id in pinned_ids:
+                visible.append(chat)
+                continue
+            if ordinary_count >= bounded_limit:
+                has_more = True
+                continue
+            visible.append(chat)
+            ordinary_count += 1
+
+        return {"chats": visible, "has_more": has_more}
+
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
         chat = self.store.conversation(conversation_id)
         if chat is None:
@@ -743,13 +779,11 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 200
             self._json(
-                {
-                    "chats": cast(PromptaUIServer, self.server).conversations(
-                        limit=limit,
-                        query=search,
-                        include_ids=include_ids,
-                    )
-                }
+                cast(PromptaUIServer, self.server).conversation_page(
+                    limit=limit,
+                    query=search,
+                    include_ids=include_ids,
+                )
             )
             return
         if path == "/api/logs":

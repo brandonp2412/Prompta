@@ -1956,6 +1956,7 @@ def test_ui_server_orders_pinned_then_pending_then_created(tmp_path: Path) -> No
     )
     try:
         chats = server.conversations(limit=3, include_ids=["pinned-old"])
+        page = server.conversation_page(limit=2, include_ids=["pinned-old"])
     finally:
         server.server_close()
 
@@ -1964,6 +1965,12 @@ def test_ui_server_orders_pinned_then_pending_then_created(tmp_path: Path) -> No
         "pending-new-pending-client",
         "newer",
         "older",
+    ]
+    assert page["has_more"] is True
+    assert [chat["id"] for chat in page["chats"]] == [
+        "pinned-old",
+        "pending-new-pending-client",
+        "newer",
     ]
 
 

@@ -164,6 +164,18 @@
   {/each}
 {/if}
 
+{#if sidebarListState.model.hasMore}
+  <button
+    type="button"
+    class="sidebar-load-more"
+    disabled={sidebarListState.model.loadingMore}
+    aria-busy={sidebarListState.model.loadingMore}
+    onclick={() => sidebarListActions.onLoadMore()}
+  >
+    {sidebarListState.model.loadingMore ? "Loading older chats…" : "Load older chats"}
+  </button>
+{/if}
+
 <dialog
   {@attach dialogVisibility(() => actionsOpen, () => true, closeActions)}
   class="pending-message-actions"

@@ -63,6 +63,8 @@ import {
 } from "./clientStorage";
 
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+const INITIAL_CHAT_LIST_LIMIT = 50;
+const CHAT_LIST_PAGE_SIZE = 50;
 const clientSessionId = loadClientSessionId();
 let actionToastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -98,6 +100,9 @@ type UiState = {
   selectedMetaFingerprint: string;
   chatsRequestId: number;
   chatOrderScope: string | null;
+  chatListLimit: number;
+  chatListHasMore: boolean;
+  chatListLoadingMore: boolean;
   selectedRequestId: number;
   selectedChat: UiChat | null;
   selectedVisibleMessageCount: number;
@@ -192,6 +197,9 @@ const state: UiState = {
   selectedMetaFingerprint: "",
   chatsRequestId: 0,
   chatOrderScope: null,
+  chatListLimit: INITIAL_CHAT_LIST_LIMIT,
+  chatListHasMore: false,
+  chatListLoadingMore: false,
   selectedRequestId: 0,
   selectedChat: null,
   selectedVisibleMessageCount: 0,
@@ -250,6 +258,9 @@ sidebarListActions.onPin = (chatId) => {
   setChatPinned(chatId, !state.pinnedIds.has(chatId));
   renderSidebar(true);
   updatePinButton();
+};
+sidebarListActions.onLoadMore = () => {
+  void loadOlderChats();
 };
 
 const jobsDialog = getJobsDialog();
@@ -707,6 +718,8 @@ function renderSidebar(force = false) {
       ]),
     ) +
     JSON.stringify(appViewState.sidebarFilters) +
+    String(state.chatListHasMore) +
+    String(state.chatListLoadingMore) +
     new Date().toDateString() +
     selectionId;
 
@@ -717,6 +730,8 @@ function renderSidebar(force = false) {
   if (!chats.length) {
     sidebarListState.model = {
       emptyState: filtersActive ? "filter" : state.search ? "search" : "empty",
+      hasMore: state.chatListHasMore,
+      loadingMore: state.chatListLoadingMore,
       groups: [],
     };
 
@@ -725,6 +740,8 @@ function renderSidebar(force = false) {
 
   sidebarListState.model = {
     emptyState: "none",
+    hasMore: state.chatListHasMore,
+    loadingMore: state.chatListLoadingMore,
     groups: groupChats(chats).map(([label, groupedChats]) => ({
       label,
       chats: groupedChats.map((chat) => {
@@ -1398,6 +1415,23 @@ async function hydratePendingSends() {
 
 let chatsRequestController: AbortController | null = null;
 
+async function loadOlderChats() {
+  if (state.chatListLoadingMore || !state.chatListHasMore || state.chatListLimit >= 500) return;
+
+  state.chatListLoadingMore = true;
+  state.chatListLimit = Math.min(500, state.chatListLimit + CHAT_LIST_PAGE_SIZE);
+  state.sidebarFingerprint = "";
+  renderSidebar(true);
+
+  try {
+    await loadChats();
+  } finally {
+    state.chatListLoadingMore = false;
+    state.sidebarFingerprint = "";
+    renderSidebar(true);
+  }
+}
+
 async function loadChats(forceSelectedRefresh = false) {
   const requestId = ++state.chatsRequestId;
   chatsRequestController?.abort();
@@ -1406,7 +1440,7 @@ async function loadChats(forceSelectedRefresh = false) {
 
   try {
     const payload = await fetchJson(
-      chatListRequestUrl(state.search, state.pinnedIds),
+      chatListRequestUrl(state.search, state.pinnedIds, state.chatListLimit),
       10_000,
       requestController,
     );
@@ -1414,6 +1448,7 @@ async function loadChats(forceSelectedRefresh = false) {
     if (requestId !== state.chatsRequestId) return;
 
     const chats = payload.chats || [];
+    state.chatListHasMore = Boolean(payload.has_more);
     promoteServerPendingPins(chats);
     reconcileOptimisticNew(chats);
     const orderedChats = sortSidebarChats(chats, state.pinnedIds);
@@ -1659,6 +1694,8 @@ appActions.onSearch = (value) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     state.search = value.trim();
+    state.chatListLimit = INITIAL_CHAT_LIST_LIMIT;
+    state.chatListHasMore = false;
     state.sidebarFingerprint = "";
     void loadChats();
   }, 140);
