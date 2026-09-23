@@ -2,36 +2,62 @@
   import { MediaQuery } from "svelte/reactivity";
 
   import { dialogVisibility } from "./browserAttachments.svelte";
-  import { changelogEntries, type ChangelogEntry } from "./changelog";
+  import { changelogPage, type ChangelogEntry } from "./changelog";
   import { registerChangelogDialog } from "./uiControllers";
 
+  const CHANGELOG_PAGE_SIZE = 100;
   const mobile = new MediaQuery("(max-width: 600px)");
   let status = $state("Commit titles from this Prompta checkout.");
   let changes = $state.raw<ChangelogEntry[]>([]);
   let failed = $state(false);
+  let hasMore = $state(false);
+  let loadingMore = $state(false);
+  let currentLimit = $state(CHANGELOG_PAGE_SIZE);
   let open = $state(false);
   let presentation = $state<"modal" | "stack">("modal");
 
-  async function load() {
-    status = "Loading changelog…";
-    failed = false;
-    changes = [];
+  async function load(limit: number, reset = false) {
+    if (reset) {
+      status = "Loading changelog…";
+      failed = false;
+      changes = [];
+    }
 
     try {
-      const response = await fetch("api/changelog", { cache: "no-store" });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      changes = changelogEntries(await response.json());
-      status = `${changes.length} commit${changes.length === 1 ? "" : "s"} · newest first`;
+      const response = await fetch("api/changelog?limit=" + limit, { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
+      const page = changelogPage(await response.json());
+      changes = page.changes;
+      hasMore = page.hasMore;
+      failed = false;
+      status =
+        "Showing " + changes.length + " of " + page.total + " commits · newest first";
     } catch (error) {
-      failed = true;
-      status = "Changelog unavailable: " + String(error).replace(/^Error:\s*/, "");
+      failed = reset;
+      if (reset) hasMore = false;
+      status =
+        (reset ? "Changelog unavailable: " : "Could not load older changes: ") +
+        String(error).replace(/^Error:\s*/, "");
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+
+    loadingMore = true;
+    currentLimit += CHANGELOG_PAGE_SIZE;
+    try {
+      await load(currentLimit);
+    } finally {
+      loadingMore = false;
     }
   }
 
   export async function show() {
     presentation = mobile.current ? "stack" : "modal";
+    currentLimit = CHANGELOG_PAGE_SIZE;
     open = true;
-    await load();
+    await load(currentLimit, true);
   }
 
   export function close() {
@@ -77,6 +103,19 @@
             {#if change.hash}<span class="changelog-entry-hash">#{change.hash}</span>{/if}
           </li>
         {/each}
+        {#if hasMore}
+          <li class="changelog-load-more-row">
+            <button
+              type="button"
+              class="changelog-load-more"
+              disabled={loadingMore}
+              aria-busy={loadingMore}
+              onclick={loadMore}
+            >
+              {loadingMore ? "Loading older changes…" : "Load older changes"}
+            </button>
+          </li>
+        {/if}
       {:else}
         <li class="changelog-empty">
           {status.startsWith("Loading")

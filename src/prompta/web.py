@@ -86,6 +86,7 @@ def _git_changelog() -> list[dict[str, str]]:
 
 
 _UI_HEAD = _git_short_head()
+_UI_CHANGELOG = _git_changelog()
 
 
 class PromptaUIServer(ThreadingHTTPServer):
@@ -765,7 +766,19 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/changelog":
-            self._json({"changes": _git_changelog()})
+            query = parse_qs(parsed.query)
+            try:
+                limit = int(query.get("limit", ["100"])[0])
+            except ValueError:
+                limit = 100
+            bounded_limit = max(1, min(limit, 5_000))
+            self._json(
+                {
+                    "changes": _UI_CHANGELOG[:bounded_limit],
+                    "has_more": len(_UI_CHANGELOG) > bounded_limit,
+                    "total": len(_UI_CHANGELOG),
+                }
+            )
             return
         if path == "/api/pins":
             self._json(cast(PromptaUIServer, self.server).pinned_chats.snapshot())

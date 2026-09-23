@@ -2261,8 +2261,16 @@ def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
             assert response.status == 200
             changelog = json.loads(response.read().decode())
             assert changelog["changes"]
+            assert len(changelog["changes"]) <= 100
             assert changelog["changes"][0]["title"]
             assert changelog["changes"][0]["hash"]
+            assert changelog["total"] >= len(changelog["changes"])
+            assert changelog["has_more"] is (changelog["total"] > len(changelog["changes"]))
+
+        with urlopen(f"{base_url}/api/changelog?limit=2", timeout=2) as response:
+            changelog_page = json.loads(response.read().decode())
+            assert len(changelog_page["changes"]) == min(2, changelog_page["total"])
+            assert changelog_page["has_more"] is (changelog_page["total"] > 2)
 
         with urlopen(Request(f"{base_url}/api/events", method="HEAD"), timeout=2) as response:
             assert response.status == 200

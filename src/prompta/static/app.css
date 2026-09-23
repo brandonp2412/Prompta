@@ -2334,8 +2334,40 @@ textarea:focus-visible {
   line-height: 1.45;
 }
 
+.changelog-entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+
 .changelog-empty {
   color: var(--muted);
+}
+
+.changelog-load-more-row {
+  padding: 10px 0 2px;
+}
+
+.changelog-load-more {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.changelog-load-more:hover,
+.changelog-load-more:focus-visible {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.changelog-load-more:disabled {
+  cursor: progress;
+  opacity: 0.65;
 }
 
 

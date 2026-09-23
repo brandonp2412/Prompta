@@ -6190,9 +6190,19 @@ var init_browserAttachments_svelte = __esmMin((() => {
 //#region src/prompta/ui/changelog.ts
 init_index_client();
 init_browserAttachments_svelte();
-function changelogEntries(payload) {
-	if (!payload || typeof payload !== "object" || !Array.isArray(payload.changes)) return [];
-	return payload.changes;
+function changelogPage(payload) {
+	if (!payload || typeof payload !== "object" || !Array.isArray(payload.changes)) return {
+		changes: [],
+		hasMore: false,
+		total: 0
+	};
+	const source = payload;
+	const total = Number(source.total);
+	return {
+		changes: source.changes,
+		hasMore: Boolean(source.has_more),
+		total: Number.isFinite(total) ? Math.max(source.changes.length, Math.floor(total)) : source.changes.length
+	};
 }
 //#endregion
 //#region src/prompta/ui/uiControllers.ts
@@ -6238,34 +6248,57 @@ init_uiControllers();
 var root$8 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
 var root_1$7 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
-var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_4$6 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
+var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_5$5 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
+var root_6$4 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
+	const CHANGELOG_PAGE_SIZE = 100;
 	const mobile = new MediaQuery("(max-width: 600px)");
 	let status = /* @__PURE__ */ state$1("Commit titles from this Prompta checkout.");
 	let changes = /* @__PURE__ */ state$1([]);
 	let failed = /* @__PURE__ */ state$1(false);
+	let hasMore = /* @__PURE__ */ state$1(false);
+	let loadingMore = /* @__PURE__ */ state$1(false);
+	let currentLimit = /* @__PURE__ */ state$1(CHANGELOG_PAGE_SIZE);
 	let open = /* @__PURE__ */ state$1(false);
 	let presentation = /* @__PURE__ */ state$1("modal");
-	async function load() {
-		set(status, "Loading changelog…");
-		set(failed, false);
-		set(changes, []);
+	async function load(limit, reset = false) {
+		if (reset) {
+			set(status, "Loading changelog…");
+			set(failed, false);
+			set(changes, []);
+		}
 		try {
-			const response = await fetch("api/changelog", { cache: "no-store" });
-			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-			set(changes, changelogEntries(await response.json()));
-			set(status, `${get(changes).length} commit${get(changes).length === 1 ? "" : "s"} · newest first`);
+			const response = await fetch("api/changelog?limit=" + limit, { cache: "no-store" });
+			if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
+			const page = changelogPage(await response.json());
+			set(changes, page.changes);
+			set(hasMore, page.hasMore, true);
+			set(failed, false);
+			set(status, "Showing " + get(changes).length + " of " + page.total + " commits · newest first");
 		} catch (error) {
-			set(failed, true);
-			set(status, "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""));
+			set(failed, reset, true);
+			if (reset) set(hasMore, false);
+			set(status, (reset ? "Changelog unavailable: " : "Could not load older changes: ") + String(error).replace(/^Error:\s*/, ""));
+		}
+	}
+	async function loadMore() {
+		if (get(loadingMore) || !get(hasMore)) return;
+		set(loadingMore, true);
+		set(currentLimit, get(currentLimit) + CHANGELOG_PAGE_SIZE);
+		try {
+			await load(get(currentLimit));
+		} finally {
+			set(loadingMore, false);
 		}
 	}
 	async function show() {
 		set(presentation, mobile.current ? "stack" : "modal", true);
+		set(currentLimit, CHANGELOG_PAGE_SIZE);
 		set(open, true);
-		await load();
+		await load(get(currentLimit), true);
 	}
 	function close() {
 		set(open, false);
@@ -6278,7 +6311,7 @@ function ChangelogDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_4$6();
+	var dialog = root_6$4();
 	var div = child(dialog);
 	var header = child(div);
 	var div_1 = child(header);
@@ -6291,9 +6324,10 @@ function ChangelogDialog($$anchor, $$props) {
 	var consequent = ($$anchor) => {
 		append($$anchor, root$8());
 	};
-	var consequent_2 = ($$anchor) => {
-		var fragment = comment();
-		each(first_child(fragment), 17, () => get(changes), (change) => (change.hash || "") + (change.title || ""), ($$anchor, change) => {
+	var consequent_3 = ($$anchor) => {
+		var fragment = root_4$6();
+		var node_1 = first_child(fragment);
+		each(node_1, 17, () => get(changes), (change) => (change.hash || "") + (change.title || ""), ($$anchor, change) => {
 			var li_1 = root_2$7();
 			var span = child(li_1);
 			var text_1 = only_child(span, true);
@@ -6311,17 +6345,34 @@ function ChangelogDialog($$anchor, $$props) {
 			template_effect(() => set_text(text_1, get(change).title || ""));
 			append($$anchor, li_1);
 		});
+		var node_3 = sibling(node_1, 2);
+		var consequent_2 = ($$anchor) => {
+			var li_2 = root_3$6();
+			var button_1 = child(li_2);
+			var text_3 = only_child(button_1, true);
+			reset(li_2);
+			template_effect(() => {
+				button_1.disabled = get(loadingMore);
+				set_attribute(button_1, "aria-busy", get(loadingMore));
+				set_text(text_3, get(loadingMore) ? "Loading older changes…" : "Load older changes");
+			});
+			delegated("click", button_1, loadMore);
+			append($$anchor, li_2);
+		};
+		if_block(node_3, ($$render) => {
+			if (get(hasMore)) $$render(consequent_2);
+		});
 		append($$anchor, fragment);
 	};
 	var alternate = ($$anchor) => {
-		var li_2 = root_3$6();
-		var text_3 = only_child(li_2, true);
-		template_effect(($0) => set_text(text_3, $0), [() => get(status).startsWith("Loading") ? "Loading changes…" : "No Git commit history is available."]);
-		append($$anchor, li_2);
+		var li_3 = root_5$5();
+		var text_4 = only_child(li_3, true);
+		template_effect(($0) => set_text(text_4, $0), [() => get(status).startsWith("Loading") ? "Loading changes…" : "No Git commit history is available."]);
+		append($$anchor, li_3);
 	};
 	if_block(node, ($$render) => {
 		if (get(failed)) $$render(consequent);
-		else if (get(changes).length) $$render(consequent_2, 1);
+		else if (get(changes).length) $$render(consequent_3, 1);
 		else $$render(alternate, -1);
 	});
 	reset(ol);
