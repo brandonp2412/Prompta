@@ -38,15 +38,15 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/esm-env/false.js
+//#region ../../prompta/node_modules/esm-env/false.js
 var init_false = __esmMin((() => {}));
 //#endregion
-//#region node_modules/esm-env/index.js
+//#region ../../prompta/node_modules/esm-env/index.js
 var init_esm_env = __esmMin((() => {
 	init_false();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/shared/utils.js
+//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
 /** @param {Array<() => void>} arr */
 function run_all(arr) {
 	for (var i = 0; i < arr.length; i++) arr[i]();
@@ -149,7 +149,7 @@ var init_warnings = __esmMin((() => {
 	init_esm_env();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/hydration.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
 /** @param {boolean} value */
 function set_hydrating(value) {
 	hydrating = value;
@@ -222,7 +222,7 @@ var init_hydration = __esmMin((() => {
 	hydrating = false;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -245,7 +245,7 @@ var init_errors$1 = __esmMin((() => {
 	init_esm_env();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/errors.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -338,7 +338,7 @@ var init_flags = __esmMin((() => {
 	legacy_mode_flag = false;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/shared/clone.js
+//#region ../../prompta/node_modules/svelte/src/internal/shared/clone.js
 var init_clone = __esmMin((() => {
 	init_utils$3();
 }));
@@ -354,7 +354,7 @@ var init_dev = __esmMin((() => {
 	init_errors$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/context.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
 /** @param {ComponentContext | null} context */
 function set_component_context(context) {
 	component_context = context;
@@ -422,7 +422,7 @@ var init_context = __esmMin((() => {
 	component_context = null;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/task.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
 function run_micro_tasks() {
 	var tasks = micro_tasks;
 	micro_tasks = [];
@@ -453,7 +453,7 @@ var init_task = __esmMin((() => {
 	micro_tasks = [];
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/status.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
 /**
 * @param {Signal} signal
 * @param {number} status
@@ -475,7 +475,7 @@ var init_status = __esmMin((() => {
 	STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
 /**
 * @param {Effect} effect
 * @param {Set<Effect>} dirty_effects
@@ -491,14 +491,14 @@ var init_utils$2 = __esmMin((() => {
 	init_status();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/debug.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/debug.js
 var init_debug = __esmMin((() => {
 	init_constants$1();
 	init_clone();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -528,7 +528,7 @@ var init_misc$1 = __esmMin((() => {
 	listening_to_form_reset = false;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -572,7 +572,7 @@ var init_shared$1 = __esmMin((() => {
 	init_misc$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/async.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
 /**
 * @param {Blocker[]} blockers
 * @param {Array<() => any>} sync
@@ -891,7 +891,7 @@ var init_deriveds = __esmMin((() => {
 	OBSOLETE = Symbol("obsolete");
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
 /**
 * Synchronously flush any pending updates.
 * Returns void if no callback is provided, otherwise returns the result of calling the callback.
@@ -1805,7 +1805,7 @@ var init_sources = __esmMin((() => {
 	count_deps = 0;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/proxy.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/proxy.js
 /**
 * @template T
 * @param {T} value
@@ -1997,7 +1997,7 @@ var init_equality = __esmMin((() => {
 	init_proxy();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/operations.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
 /**
 * Initialize these lazily to avoid issues when using the runtime in a server context
 * where these globals are not available while avoiding a separate server entry point
@@ -2194,7 +2194,7 @@ var init_operations$1 = __esmMin((() => {
 	init_constants();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/error-handling.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/error-handling.js
 /**
 * @param {unknown} error
 */
@@ -2236,7 +2236,7 @@ var init_error_handling = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
 */
@@ -2648,7 +2648,7 @@ var init_effects = __esmMin((() => {
 	init_status();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/legacy.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
 var captured_signals;
 var init_legacy$1 = __esmMin((() => {
 	init_sources();
@@ -2656,7 +2656,7 @@ var init_legacy$1 = __esmMin((() => {
 	captured_signals = null;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/runtime.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
 /** @param {boolean} value */
 function set_is_destroying_effect(value) {
 	is_destroying_effect = value;
@@ -3015,14 +3015,14 @@ var init_runtime = __esmMin((() => {
 	update_version = read_version;
 }));
 //#endregion
-//#region node_modules/svelte/src/attachments/index.js
+//#region ../../prompta/node_modules/svelte/src/attachments/index.js
 var init_attachments$1 = __esmMin((() => {
 	init_client();
 	init_index_client$1();
 	init_effects();
 }));
 //#endregion
-//#region node_modules/svelte/src/utils.js
+//#region ../../prompta/node_modules/svelte/src/utils.js
 /**
 * Returns `true` if `name` is a passive event
 * @param {string} name
@@ -3073,21 +3073,21 @@ var init_utils$1 = __esmMin((() => {
 	[...STATE_CREATION_RUNES];
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/assign.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/assign.js
 var init_assign = __esmMin((() => {
 	init_constants$1();
 	init_utils$1();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/elements.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/elements.js
 var init_elements = __esmMin((() => {
 	init_constants$1();
 	init_hydration();
 	init_context();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * @param {string} event_name
 * @param {EventTarget} dom
@@ -3258,7 +3258,7 @@ var init_events$1 = __esmMin((() => {
 	last_propagated_event_clear_scheduled = false;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
 /** @param {string} html */
 function create_trusted_html(html) {
 	return policy?.createHTML(html) ?? html;
@@ -3281,7 +3281,7 @@ createHTML: (html) => {
 	} });
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/template.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
 /**
 * @param {TemplateNode} start
 * @param {TemplateNode | null} end
@@ -3433,7 +3433,7 @@ var init_template = __esmMin((() => {
 	init_constants$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/create-subscriber.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3514,7 +3514,7 @@ var init_create_subscriber = __esmMin((() => {
 	init_task();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /**
 * @param {TemplateNode} node
 * @param {BoundaryProps} props
@@ -3898,7 +3898,7 @@ var init_boundary = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/render.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/render.js
 /**
 * @param {Element} text
 * @param {string} value
@@ -4018,7 +4018,7 @@ var init_render = __esmMin((() => {
 	mounted_components = /* @__PURE__ */ new WeakMap();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/hmr.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/hmr.js
 var init_hmr = __esmMin((() => {
 	init_constants$1();
 	init_hydration();
@@ -4028,7 +4028,7 @@ var init_hmr = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/ownership.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/ownership.js
 var init_ownership = __esmMin((() => {
 	init_utils$3();
 	init_constants$1();
@@ -4036,13 +4036,13 @@ var init_ownership = __esmMin((() => {
 	init_utils$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/legacy.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/legacy.js
 var init_legacy = __esmMin((() => {
 	init_errors();
 	init_context();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/inspect.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/inspect.js
 var init_inspect = __esmMin((() => {
 	init_clone();
 	init_effects();
@@ -4050,7 +4050,7 @@ var init_inspect = __esmMin((() => {
 	init_dev();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/async.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/async.js
 var init_async = __esmMin((() => {
 	init_async$1();
 	init_runtime();
@@ -4058,12 +4058,12 @@ var init_async = __esmMin((() => {
 	init_template();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/validation.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/validation.js
 var init_validation = __esmMin((() => {
 	init_errors();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
 var BranchManager;
 var init_branches = __esmMin((() => {
 	init_batch();
@@ -4213,7 +4213,7 @@ var init_branches = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/await.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/await.js
 var init_await = __esmMin((() => {
 	init_utils$3();
 	init_effects();
@@ -4226,7 +4226,7 @@ var init_await = __esmMin((() => {
 	init_async$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
 /**
 * @param {TemplateNode} node
 * @param {(branch: (fn: (anchor: Node) => void, key?: number | false) => void) => void} fn
@@ -4277,7 +4277,7 @@ var init_if = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/key.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/key.js
 var init_key = __esmMin((() => {
 	init_context();
 	init_effects();
@@ -4285,14 +4285,14 @@ var init_key = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/css-props.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/css-props.js
 var init_css_props = __esmMin((() => {
 	init_effects();
 	init_hydration();
 	init_operations$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
 /**
 * @param {any} _
 * @param {number} i
@@ -4722,7 +4722,7 @@ var init_each = __esmMin((() => {
 	init_tracing();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/html.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/html.js
 var init_html = __esmMin((() => {
 	init_effects();
 	init_hydration();
@@ -4734,20 +4734,20 @@ var init_html = __esmMin((() => {
 	init_constants$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/slot.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/slot.js
 var init_slot = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
 	init_template();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/shared/validate.js
+//#region ../../prompta/node_modules/svelte/src/internal/shared/validate.js
 var init_validate$1 = __esmMin((() => {
 	init_utils$1();
 	init_errors$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/snippet.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/snippet.js
 /**
 * @template {(node: TemplateNode, ...args: any[]) => void} SnippetFn
 * @param {TemplateNode} node
@@ -4776,7 +4776,7 @@ var init_snippet = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-component.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-component.js
 var init_svelte_component = __esmMin((() => {
 	init_constants$1();
 	init_effects();
@@ -4784,17 +4784,17 @@ var init_svelte_component = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/timing.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/timing.js
 var init_timing = __esmMin((() => {
 	init_utils$3();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/loop.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/loop.js
 var init_loop = __esmMin((() => {
 	init_timing();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/transitions.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/transitions.js
 var init_transitions = __esmMin((() => {
 	init_utils$3();
 	init_effects();
@@ -4806,7 +4806,7 @@ var init_transitions = __esmMin((() => {
 	init_shared$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-element.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-element.js
 var init_svelte_element = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
@@ -4821,7 +4821,7 @@ var init_svelte_element = __esmMin((() => {
 	init_transitions();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /**
 * @param {string} hash
 * @param {(anchor: Node) => void} render_fn
@@ -4872,20 +4872,20 @@ var init_svelte_head = __esmMin((() => {
 	init_constants$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/css.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/css.js
 var init_css = __esmMin((() => {
 	init_effects();
 	init_operations$1();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/actions.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/actions.js
 var init_actions = __esmMin((() => {
 	init_effects();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/attachments.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attachments.js
 /**
 * @param {Element} node
 * @param {() => (node: Element) => void} get_fn
@@ -4911,7 +4911,7 @@ var init_attachments = __esmMin((() => {
 	init_effects();
 }));
 //#endregion
-//#region node_modules/clsx/dist/clsx.mjs
+//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4927,7 +4927,7 @@ function clsx$1() {
 }
 var init_clsx = __esmMin((() => {}));
 //#endregion
-//#region node_modules/svelte/src/internal/shared/attributes.js
+//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -5051,7 +5051,7 @@ var init_attributes$1 = __esmMin((() => {
 	whitespace = [..." 	\n\r\f\xA0\v﻿"];
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -5083,7 +5083,7 @@ var init_class = __esmMin((() => {
 	init_hydration();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/style.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/style.js
 /**
 * @param {Element & ElementCSSInlineStyle} dom
 * @param {Record<string, any>} prev
@@ -5128,7 +5128,7 @@ var init_style = __esmMin((() => {
 	init_hydration();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -5277,7 +5277,7 @@ var init_select$1 = __esmMin((() => {
 	init_flags();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /**
 * The value/checked attribute in the template actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -5387,7 +5387,7 @@ var init_attributes = __esmMin((() => {
 	setters_cache = /* @__PURE__ */ new Map();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/customizable-select.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/customizable-select.js
 var init_customizable_select = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
@@ -5395,12 +5395,12 @@ var init_customizable_select = __esmMin((() => {
 	init_attachments();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/document.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/document.js
 var init_document = __esmMin((() => {
 	init_shared$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /**
 * @param {HTMLInputElement} input
 * @param {() => unknown} get
@@ -5490,30 +5490,30 @@ var init_input = __esmMin((() => {
 	init_flags();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/media.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/media.js
 var init_media = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/navigator.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/navigator.js
 var init_navigator = __esmMin((() => {
 	init_shared$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/props.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/props.js
 var init_props$1 = __esmMin((() => {
 	init_effects();
 	init_utils$3();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/size.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/size.js
 var init_size = __esmMin((() => {
 	init_effects();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 var init_this = __esmMin((() => {
 	init_constants$1();
 	init_context();
@@ -5521,26 +5521,26 @@ var init_this = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/universal.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/universal.js
 var init_universal = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/window.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/window.js
 var init_window = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/legacy/event-modifiers.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/legacy/event-modifiers.js
 var init_event_modifiers = __esmMin((() => {
 	init_utils$3();
 	init_effects();
 	init_events$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
 var init_lifecycle = __esmMin((() => {
 	init_utils$3();
 	init_context();
@@ -5549,26 +5549,26 @@ var init_lifecycle = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/legacy/misc.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/legacy/misc.js
 var init_misc = __esmMin((() => {
 	init_sources();
 	init_runtime();
 	init_utils$3();
 }));
 //#endregion
-//#region node_modules/svelte/src/store/utils.js
+//#region ../../prompta/node_modules/svelte/src/store/utils.js
 var init_utils = __esmMin((() => {
 	init_runtime();
 	init_utils$3();
 }));
 //#endregion
-//#region node_modules/svelte/src/store/shared/index.js
+//#region ../../prompta/node_modules/svelte/src/store/shared/index.js
 var init_shared = __esmMin((() => {
 	init_utils$3();
 	init_utils();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/store.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Returns a tuple that indicates whether `fn()` reads a prop that is a store binding.
 * Used to prevent `binding_property_non_reactive` validation false positives and
@@ -5597,7 +5597,7 @@ var init_store = __esmMin((() => {
 	is_store_binding = false;
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/props.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
 * It is used whenever the compiler sees that the component writes to the prop, or when it has a default prop_value.
@@ -5703,7 +5703,7 @@ var init_props = __esmMin((() => {
 	init_effects();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/validate.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/validate.js
 var init_validate = __esmMin((() => {
 	init_context();
 	init_effects();
@@ -5733,14 +5733,14 @@ var init_custom_element = __esmMin((() => {
 	if (typeof HTMLElement === "function");
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/dev/console-log.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dev/console-log.js
 var init_console_log = __esmMin((() => {
 	init_constants$1();
 	init_clone();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/index.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/index.js
 var init_client = __esmMin((() => {
 	init_attachments$1();
 	init_constants();
@@ -5814,13 +5814,13 @@ var init_client = __esmMin((() => {
 	init_console_log();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/client/hydratable.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/hydratable.js
 var init_hydratable = __esmMin((() => {
 	init_hydration();
 	init_errors();
 }));
 //#endregion
-//#region node_modules/svelte/src/index-client.js
+//#region ../../prompta/node_modules/svelte/src/index-client.js
 var init_index_client$1 = __esmMin((() => {
 	init_runtime();
 	init_utils$3();
@@ -5834,10 +5834,10 @@ var init_index_client$1 = __esmMin((() => {
 	init_snippet();
 }));
 //#endregion
-//#region node_modules/svelte/src/internal/disclose-version.js
+//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
-//#region node_modules/svelte/src/reactivity/date.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/date.js
 var init_date = __esmMin((() => {
 	init_client();
 	init_sources();
@@ -5845,21 +5845,21 @@ var init_date = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/set.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/set.js
 var init_set = __esmMin((() => {
 	init_sources();
 	init_tracing();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/map.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/map.js
 var init_map = __esmMin((() => {
 	init_sources();
 	init_tracing();
 	init_runtime();
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/url-search-params.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/url-search-params.js
 var init_url_search_params = __esmMin((() => {
 	init_sources();
 	init_tracing();
@@ -5867,7 +5867,7 @@ var init_url_search_params = __esmMin((() => {
 	init_url();
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/url.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/url.js
 var init_url = __esmMin((() => {
 	init_sources();
 	init_tracing();
@@ -5875,12 +5875,12 @@ var init_url = __esmMin((() => {
 	init_url_search_params();
 }));
 //#endregion
-//#region node_modules/svelte/src/events/index.js
+//#region ../../prompta/node_modules/svelte/src/events/index.js
 var init_events = __esmMin((() => {
 	init_events$1();
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/reactive-value.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/reactive-value.js
 var ReactiveValue;
 var init_reactive_value = __esmMin((() => {
 	init_create_subscriber();
@@ -5903,7 +5903,7 @@ var init_reactive_value = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/media-query.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/media-query.js
 var parenthesis_regex, non_parenthesized_keywords, MediaQuery;
 var init_media_query = __esmMin((() => {
 	init_events();
@@ -5931,7 +5931,7 @@ var init_media_query = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/svelte/src/reactivity/index-client.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/index-client.js
 var init_index_client = __esmMin((() => {
 	init_date();
 	init_set();
@@ -7183,6 +7183,9 @@ function formatScheduleInterval(minutes) {
 	}
 	return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
+function isPostJsonTransportError(error) {
+	return error instanceof PostJsonTransportError;
+}
 async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45e3, fetchImpl = fetch) {
 	let lastError = /* @__PURE__ */ new Error("Request failed");
 	for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
@@ -7191,21 +7194,25 @@ async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45e3, fet
 		let response;
 		let data = {};
 		try {
-			response = await fetchImpl(url, {
-				method: "POST",
-				cache: "no-store",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(payload),
-				signal: controller.signal
-			});
+			try {
+				response = await fetchImpl(url, {
+					method: "POST",
+					cache: "no-store",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+					signal: controller.signal
+				});
+			} catch (error) {
+				throw new PostJsonTransportError(controller.signal.aborted ? "Request timed out" : error instanceof Error ? error.message : String(error));
+			}
 			try {
 				data = await response.json();
 			} catch {
-				if (controller.signal.aborted) throw new Error("Request timed out");
+				if (controller.signal.aborted) throw new PostJsonTransportError("Request timed out");
 				if (response.ok) throw new Error("Prompta returned an invalid response");
 			}
 		} catch (error) {
-			lastError = controller.signal.aborted ? /* @__PURE__ */ new Error("Request timed out") : error instanceof Error ? error : new Error(String(error));
+			lastError = error instanceof Error ? error : new Error(String(error));
 			if (attempt + 1 >= attempts) throw lastError;
 			await new Promise((resolve) => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
 			continue;
@@ -7297,13 +7304,19 @@ function parseAtSlashCommand(message, now = /* @__PURE__ */ new Date()) {
 		prompt
 	};
 }
-var BROKEN_CHAT_AFTER_SECONDS, CHATGPT_RICH_START, CHATGPT_RICH_END, CHATGPT_RICH_SEPARATOR, TOOL_UI_NOISE;
+var BROKEN_CHAT_AFTER_SECONDS, CHATGPT_RICH_START, CHATGPT_RICH_END, CHATGPT_RICH_SEPARATOR, TOOL_UI_NOISE, PostJsonTransportError;
 var init_clientLogic = __esmMin((() => {
 	BROKEN_CHAT_AFTER_SECONDS = 2400;
 	CHATGPT_RICH_START = "";
 	CHATGPT_RICH_END = "";
 	CHATGPT_RICH_SEPARATOR = "";
 	TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
+	PostJsonTransportError = class extends Error {
+		constructor(message) {
+			super(message);
+			this.name = "PostJsonTransportError";
+		}
+	};
 }));
 //#endregion
 //#region src/prompta/ui/Composer.svelte
@@ -7514,7 +7527,7 @@ async function copyText(value) {
 }
 var init_clipboard = __esmMin((() => {}));
 //#endregion
-//#region node_modules/highlight.js/es/languages/bash.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/bash.js
 init_clipboard();
 /** @type LanguageFn */
 function bash(hljs) {
@@ -7872,7 +7885,7 @@ function bash(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/cpp.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/cpp.js
 /** @type LanguageFn */
 function cpp(hljs) {
 	const regex = hljs.regex;
@@ -8374,7 +8387,7 @@ function cpp(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/dart.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/dart.js
 /** @type LanguageFn */
 function dart(hljs) {
 	const regex = hljs.regex;
@@ -8609,7 +8622,7 @@ function dart(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/javascript.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE$2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS$2 = [
 	"as",
@@ -9179,7 +9192,7 @@ function javascript$1(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/json.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/json.js
 var EXTENDED_NUMBER_MODE = {
 	scope: "number",
 	match: "([-+]?)(\\b0[xX][a-fA-F0-9]+|(\\b\\d+(\\.\\d*)?|\\.\\d+)([eE][-+]?\\d+)?)|NaN|[-+]?Infinity",
@@ -9223,7 +9236,7 @@ function json(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/markdown.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
 	const regex = hljs.regex;
 	const INLINE_HTML = {
@@ -9413,7 +9426,7 @@ function markdown(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/python.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
 	const regex = hljs.regex;
 	const IDENT_RE = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -9774,7 +9787,7 @@ function python(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/sql.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
 	const regex = hljs.regex;
 	const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -10397,7 +10410,7 @@ function sql(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/typescript.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
 	"as",
@@ -11069,7 +11082,7 @@ function typescript(hljs) {
 	return tsLanguage;
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/xml.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/xml.js
 /** @type LanguageFn */
 function xml(hljs) {
 	const regex = hljs.regex;
@@ -11239,7 +11252,7 @@ function xml(hljs) {
 	};
 }
 //#endregion
-//#region node_modules/highlight.js/es/languages/yaml.js
+//#region ../../prompta/node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
 	const LITERALS = "true false yes no null";
 	const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -13230,7 +13243,7 @@ var core_default = (/* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exp
 	highlight.default = highlight;
 })))())).default;
 //#endregion
-//#region node_modules/lowlight/lib/index.js
+//#region ../../prompta/node_modules/lowlight/lib/index.js
 /**
 * @import {ElementContent, Element, RootData, Root} from 'hast'
 * @import {Emitter, HLJSOptions as HljsOptions, HighlightResult, LanguageFn} from 'highlight.js'
@@ -13632,7 +13645,7 @@ var HastEmitter = class {
 	}
 };
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v18.0.14 - a markdown parser
 * Copyright (c) 2018-2026, MarkedJS. (MIT License)
@@ -17638,11 +17651,11 @@ delegate([
 ]);
 //#endregion
 //#region src/prompta/ui/recentChatCache.ts
-var DATABASE_NAME, DATABASE_VERSION, STORE_NAME, ACCESSED_AT_INDEX_NAME, SUMMARY_STORE_NAME, SUMMARY_LIMIT, RecentChatCache;
+var DATABASE_NAME$1, DATABASE_VERSION$1, STORE_NAME$1, ACCESSED_AT_INDEX_NAME, SUMMARY_STORE_NAME, SUMMARY_LIMIT, RecentChatCache;
 var init_recentChatCache = __esmMin((() => {
-	DATABASE_NAME = "prompta-recent-chats";
-	DATABASE_VERSION = 3;
-	STORE_NAME = "chats";
+	DATABASE_NAME$1 = "prompta-recent-chats";
+	DATABASE_VERSION$1 = 3;
+	STORE_NAME$1 = "chats";
 	ACCESSED_AT_INDEX_NAME = "scope-accessed-at";
 	SUMMARY_STORE_NAME = "summaries";
 	SUMMARY_LIMIT = 200;
@@ -17672,7 +17685,7 @@ var init_recentChatCache = __esmMin((() => {
 			const database = await this.database();
 			if (!database) return null;
 			const record = await new Promise((resolve) => {
-				const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(this.key(conversationId));
+				const request = database.transaction(STORE_NAME$1, "readonly").objectStore(STORE_NAME$1).get(this.key(conversationId));
 				request.onsuccess = () => resolve(request.result || null);
 				request.onerror = () => resolve(null);
 			});
@@ -17723,7 +17736,7 @@ var init_recentChatCache = __esmMin((() => {
 			const database = await this.database();
 			if (!database) return [];
 			const chats = await new Promise((resolve) => {
-				const store = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
+				const store = database.transaction(STORE_NAME$1, "readonly").objectStore(STORE_NAME$1);
 				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
 				const request = store.index(ACCESSED_AT_INDEX_NAME).openCursor(range, "prev");
 				const scopedChats = [];
@@ -17754,8 +17767,8 @@ var init_recentChatCache = __esmMin((() => {
 			const database = await this.database();
 			if (!database) return;
 			await new Promise((resolve) => {
-				const transaction = database.transaction([STORE_NAME, SUMMARY_STORE_NAME], "readwrite");
-				transaction.objectStore(STORE_NAME).delete(this.key(conversationId));
+				const transaction = database.transaction([STORE_NAME$1, SUMMARY_STORE_NAME], "readwrite");
+				transaction.objectStore(STORE_NAME$1).delete(this.key(conversationId));
 				transaction.objectStore(SUMMARY_STORE_NAME).delete(this.key(conversationId));
 				transaction.oncomplete = () => resolve();
 				transaction.onerror = () => resolve();
@@ -17784,8 +17797,8 @@ var init_recentChatCache = __esmMin((() => {
 			const database = await this.database();
 			if (!database) return;
 			await new Promise((resolve) => {
-				const transaction = database.transaction(STORE_NAME, "readwrite");
-				const store = transaction.objectStore(STORE_NAME);
+				const transaction = database.transaction(STORE_NAME$1, "readwrite");
+				const store = transaction.objectStore(STORE_NAME$1);
 				store.put({
 					key: this.key(conversationId),
 					scope: this.scope,
@@ -17868,7 +17881,7 @@ var init_recentChatCache = __esmMin((() => {
 				}
 				let request;
 				try {
-					request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+					request = indexedDB.open(DATABASE_NAME$1, DATABASE_VERSION$1);
 				} catch {
 					resolve(null);
 					return;
@@ -17876,9 +17889,9 @@ var init_recentChatCache = __esmMin((() => {
 				request.onupgradeneeded = (event) => {
 					const database = request.result;
 					const transaction = request.transaction;
-					const chatStore = database.objectStoreNames.contains(STORE_NAME) ? transaction?.objectStore(STORE_NAME) : database.createObjectStore(STORE_NAME, { keyPath: "key" });
+					const chatStore = database.objectStoreNames.contains(STORE_NAME$1) ? transaction?.objectStore(STORE_NAME$1) : database.createObjectStore(STORE_NAME$1, { keyPath: "key" });
 					if (chatStore && !chatStore.indexNames.contains(ACCESSED_AT_INDEX_NAME)) chatStore.createIndex(ACCESSED_AT_INDEX_NAME, ["scope", "accessedAt"]);
-					if (chatStore && event.oldVersion > 0 && event.oldVersion < DATABASE_VERSION) chatStore.clear();
+					if (chatStore && event.oldVersion > 0 && event.oldVersion < DATABASE_VERSION$1) chatStore.clear();
 					if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
 				};
 				request.onsuccess = () => {
@@ -17889,6 +17902,88 @@ var init_recentChatCache = __esmMin((() => {
 				request.onerror = () => resolve(null);
 			});
 			return this.databasePromise;
+		}
+	};
+}));
+//#endregion
+//#region src/prompta/ui/offlineOutbox.ts
+function createOfflinePostRecord(scope, input, createdAt = Date.now()) {
+	const clientId = input.clientId.trim();
+	if (!clientId) throw new Error("Offline outbox requires a client id");
+	return {
+		id: `${scope}:${clientId}`,
+		scope,
+		operation: input.operation,
+		targetChatId: input.targetChatId?.trim() || null,
+		message: input.message,
+		attachments: (input.attachments || []).map((attachment) => ({ ...attachment })),
+		clientId,
+		createdAt: input.createdAt ?? createdAt,
+		retryState: "pending",
+		retryCount: 0,
+		lastAttemptAt: null,
+		lastError: input.lastError || ""
+	};
+}
+var DATABASE_NAME, DATABASE_VERSION, STORE_NAME, CREATED_AT_INDEX_NAME, IndexedDbOfflineOutboxWriter, OfflineOutbox;
+var init_offlineOutbox = __esmMin((() => {
+	DATABASE_NAME = "prompta-offline-outbox";
+	DATABASE_VERSION = 1;
+	STORE_NAME = "posts";
+	CREATED_AT_INDEX_NAME = "scope-created-at";
+	IndexedDbOfflineOutboxWriter = class {
+		databasePromise = null;
+		async put(record) {
+			const database = await this.database();
+			if (!database) throw new Error("IndexedDB is unavailable");
+			await new Promise((resolve, reject) => {
+				const transaction = database.transaction(STORE_NAME, "readwrite");
+				transaction.objectStore(STORE_NAME).put(record);
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error || /* @__PURE__ */ new Error("Offline outbox write failed"));
+				transaction.onabort = () => reject(transaction.error || /* @__PURE__ */ new Error("Offline outbox write aborted"));
+			});
+		}
+		database() {
+			if (this.databasePromise) return this.databasePromise;
+			this.databasePromise = new Promise((resolve) => {
+				if (!("indexedDB" in globalThis)) {
+					resolve(null);
+					return;
+				}
+				let request;
+				try {
+					request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+				} catch {
+					resolve(null);
+					return;
+				}
+				request.onupgradeneeded = () => {
+					const database = request.result;
+					const store = database.objectStoreNames.contains(STORE_NAME) ? request.transaction?.objectStore(STORE_NAME) : database.createObjectStore(STORE_NAME, { keyPath: "id" });
+					if (store && !store.indexNames.contains(CREATED_AT_INDEX_NAME)) store.createIndex(CREATED_AT_INDEX_NAME, ["scope", "createdAt"]);
+				};
+				request.onsuccess = () => {
+					const database = request.result;
+					database.onversionchange = () => database.close();
+					resolve(database);
+				};
+				request.onerror = () => resolve(null);
+			});
+			return this.databasePromise;
+		}
+	};
+	OfflineOutbox = class {
+		scope;
+		writer;
+		constructor(scope, writer = new IndexedDbOfflineOutboxWriter()) {
+			this.scope = scope;
+			this.writer = writer;
+		}
+		async enqueue(input) {
+			const record = createOfflinePostRecord(this.scope, input);
+			await this.writer.put(record);
+			return record;
 		}
 	};
 }));
@@ -19786,8 +19881,25 @@ async function sendSelectedMessage() {
 		renderSidebar();
 		watchSend(result.send_id, creatingNew, conversationId);
 	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		let savedOffline = false;
+		if (isPostJsonTransportError(error)) try {
+			await offlineOutbox.enqueue({
+				operation: creatingNew ? "new_chat" : "reply",
+				targetChatId: creatingNew ? null : conversationId || null,
+				message,
+				attachments: serializedAttachments,
+				clientId: String(pending.clientId || ""),
+				createdAt: now * 1e3,
+				lastError: errorMessage
+			});
+			savedOffline = true;
+			if (attachments.length) attachmentPicker.clear();
+		} catch (outboxError) {
+			console.error("Could not persist failed post to the offline outbox", outboxError);
+		}
 		pending.status = "failed";
-		pending.error = String(error).replace(/^Error:\s*/, "");
+		pending.error = savedOffline ? "Saved offline for retry." : errorMessage;
 		pending.updatedAt = Date.now() / 1e3;
 		if (creatingNew) {
 			state.newChatFingerprint = "";
@@ -19850,10 +19962,11 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetches, queuedPrefetchSet, prefetchedChatRevisions, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var clientScope, recentChatCache, offlineOutbox, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetches, queuedPrefetchSet, prefetchedChatRevisions, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_clientLogic();
 	init_recentChatCache();
+	init_offlineOutbox();
 	init_appViewState_svelte();
 	init_clipboard();
 	init_browserState_svelte();
@@ -19866,7 +19979,9 @@ var init_app = __esmMin((() => {
 	init_liveUpdates();
 	init_completionNotifications();
 	init_clientStorage();
-	recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+	clientScope = location.pathname.replace(/\/$/, "") || "/";
+	recentChatCache = new RecentChatCache(clientScope, 20);
+	offlineOutbox = new OfflineOutbox(clientScope);
 	INITIAL_CHAT_LIST_LIMIT = 50;
 	CHAT_LIST_PAGE_SIZE = 50;
 	clientSessionId = loadClientSessionId();

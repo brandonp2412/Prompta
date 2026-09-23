@@ -32,11 +32,13 @@ import {
   shouldProbeHistoricalActivity,
   shouldRefreshSelectedChat,
   postJsonRequest as postJson,
+  isPostJsonTransportError,
   sidebarChatPreviewText,
   sidebarPreviewText,
   type PendingReply,
 } from "./clientLogic";
 import { RecentChatCache } from "./recentChatCache";
+import { OfflineOutbox } from "./offlineOutbox";
 import { appViewState, requestComposerFocus, requestSidebarTop } from "./appViewState.svelte";
 import { copyText } from "./clipboard";
 import { finePointer } from "./browserState.svelte";
@@ -63,7 +65,9 @@ import {
   savePinnedIds,
 } from "./clientStorage";
 
-const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
+const clientScope = location.pathname.replace(/\/$/, "") || "/";
+const recentChatCache = new RecentChatCache(clientScope, 20);
+const offlineOutbox = new OfflineOutbox(clientScope);
 const INITIAL_CHAT_LIST_LIMIT = 50;
 const CHAT_LIST_PAGE_SIZE = 50;
 const clientSessionId = loadClientSessionId();
@@ -2590,8 +2594,30 @@ async function sendSelectedMessage() {
     renderSidebar();
     void watchSend(result.send_id, creatingNew, conversationId);
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    let savedOffline = false;
+
+    if (isPostJsonTransportError(error)) {
+      try {
+        await offlineOutbox.enqueue({
+          operation: creatingNew ? "new_chat" : "reply",
+          targetChatId: creatingNew ? null : conversationId || null,
+          message,
+          attachments: serializedAttachments,
+          clientId: String(pending.clientId || ""),
+          createdAt: now * 1000,
+          lastError: errorMessage,
+        });
+        savedOffline = true;
+
+        if (attachments.length) attachmentPicker.clear();
+      } catch (outboxError) {
+        console.error("Could not persist failed post to the offline outbox", outboxError);
+      }
+    }
+
     pending.status = "failed";
-    pending.error = String(error).replace(/^Error:\s*/, "");
+    pending.error = savedOffline ? "Saved offline for retry." : errorMessage;
     pending.updatedAt = Date.now() / 1000;
 
     if (creatingNew) {

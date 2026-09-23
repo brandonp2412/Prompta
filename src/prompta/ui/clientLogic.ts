@@ -1064,6 +1064,17 @@ export function formatScheduleInterval(minutes: number): string {
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
+export class PostJsonTransportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PostJsonTransportError";
+  }
+}
+
+export function isPostJsonTransportError(error: unknown): error is PostJsonTransportError {
+  return error instanceof PostJsonTransportError;
+}
+
 export async function postJsonRequest(
   url: string,
   payload: unknown,
@@ -1080,27 +1091,33 @@ export async function postJsonRequest(
     let data: any = {};
 
     try {
-      response = await fetchImpl(url, {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
+      try {
+        response = await fetchImpl(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        throw new PostJsonTransportError(
+          controller.signal.aborted
+            ? "Request timed out"
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        );
+      }
 
       try {
         data = await response.json();
       } catch {
-        if (controller.signal.aborted) throw new Error("Request timed out");
+        if (controller.signal.aborted) throw new PostJsonTransportError("Request timed out");
 
         if (response.ok) throw new Error("Prompta returned an invalid response");
       }
     } catch (error) {
-      lastError = controller.signal.aborted
-        ? new Error("Request timed out")
-        : error instanceof Error
-          ? error
-          : new Error(String(error));
+      lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt + 1 >= attempts) throw lastError;
 

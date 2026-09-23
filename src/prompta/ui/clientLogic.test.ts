@@ -11,6 +11,7 @@ import {
   formatDailyTime12Hour,
   formatRelativeTime,
   isUnresolvedPendingNewConversation,
+  isPostJsonTransportError,
   matchingOptimisticConversation,
   matchingPendingReplyMessageIndex,
   missingPendingConversationSummaries,
@@ -895,6 +896,41 @@ describe("POST request recovery", () => {
 
     expect(calls).toBe(2);
     expect(result.send_id).toBe("send-1");
+  });
+
+  test("marks exhausted network fetch failures as transport failures", async () => {
+    const offlineFetch = (async () => {
+      throw new TypeError("network unavailable");
+    }) as typeof fetch;
+    let caught: unknown;
+
+    try {
+      await postJsonRequest("api/chats", { message: "hello" }, 1, 1_000, offlineFetch);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isPostJsonTransportError(caught)).toBe(true);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("network unavailable");
+  });
+
+  test("does not classify server HTTP failures as offline transport failures", async () => {
+    const serverFailureFetch = (async () =>
+      new Response(JSON.stringify({ error: "server failed" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    let caught: unknown;
+
+    try {
+      await postJsonRequest("api/chats", { message: "hello" }, 1, 1_000, serverFailureFetch);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isPostJsonTransportError(caught)).toBe(false);
+    expect((caught as Error).message).toBe("server failed");
   });
 
   test("rejects malformed JSON from a successful response", async () => {
