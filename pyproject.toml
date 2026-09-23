@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
     "playwright>=1.55.0",
+    "pywebpush>=2.5.0",
     "websockets>=12.0",
 ]
 

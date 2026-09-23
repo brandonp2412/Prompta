@@ -33,6 +33,7 @@ from .core import (
 )
 from .image_previews import ImagePreviewStore
 from .pinned_chats import PinnedChatStore
+from .push_notifications import CompletionPushMonitor, PushNotificationService
 from .send_jobs import SendJobRegistry as SendJobRegistry
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
@@ -142,6 +143,14 @@ class PromptaUIServer(ThreadingHTTPServer):
             queue_path=self.state_path.parent / "ui-send-jobs.sqlite3",
             on_success=self._bind_image_previews,
         )
+        self.push_notifications = PushNotificationService(self.state_path.parent)
+        self.push_monitor = CompletionPushMonitor(
+            self.store,
+            self.push_notifications,
+            self.display_name,
+        )
+        if self.push_notifications.has_subscriptions():
+            self.push_monitor.start()
 
     @property
     def _image_previews(self) -> dict[str, dict[str, Any]]:
@@ -178,6 +187,15 @@ class PromptaUIServer(ThreadingHTTPServer):
 
     def host_online(self, *, force: bool = False) -> bool:
         return True
+
+    def register_push_subscription(self, subscription: dict[str, Any]) -> dict[str, Any]:
+        result = self.push_notifications.register(subscription)
+        self.push_monitor.start()
+        return result
+
+    def server_close(self) -> None:
+        self.push_monitor.close()
+        super().server_close()
 
     def event_token(self) -> str:
         return (
@@ -725,6 +743,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if path == "/api/push/public-key":
+            server = cast(PromptaUIServer, self.server)
+            self._json({"public_key": server.push_notifications.public_key()})
+            return
         if path == "/api/changelog":
             self._json({"changes": _git_changelog()})
             return
@@ -813,6 +835,18 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/push/subscriptions":
+            payload = self._json_body()
+            if payload is None:
+                return
+            try:
+                result = cast(PromptaUIServer, self.server).register_push_subscription(payload)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(result, HTTPStatus.CREATED)
+            return
 
         if path == "/api/pins/seed":
             payload = self._json_body()

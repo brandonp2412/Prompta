@@ -2421,6 +2421,7 @@ function refreshDisplayedTimes() {
 
 async function startApp() {
   deploymentMonitor.registerServiceWorker();
+  void completionNotifications.initialize();
   void loadServerIdentity();
   await hydratePinnedIds();
   await hydratePendingSends();

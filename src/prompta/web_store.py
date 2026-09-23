@@ -250,6 +250,34 @@ class ReadOnlyChatStore:
 
         return result
 
+    def notification_states(
+        self,
+        include_ids: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        included_ids = tuple(dict.fromkeys(value for value in include_ids if value))
+        where = "status = 'active'"
+        parameters: list[Any] = []
+
+        if included_ids:
+            placeholders = ", ".join("?" for _ in included_ids)
+            where = f"({where} OR id IN ({placeholders}))"
+            parameters.extend(included_ids)
+
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    f"""
+                    SELECT id, job_name, prompt, title, status, updated_at, completed_at
+                    FROM conversations
+                    WHERE {where}
+                    """,
+                    parameters,
+                ).fetchall()
+        except (FileNotFoundError, sqlite3.DatabaseError):
+            return []
+
+        return [dict(row) for row in rows]
+
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
         try:
             with self._connect() as connection:

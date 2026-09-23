@@ -2110,6 +2110,43 @@ def test_read_only_store_change_token_ignores_log_writes(tmp_path: Path) -> None
     assert store.change_token() == before
 
 
+def test_ui_registers_web_push_subscription(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+
+    try:
+        with urlopen(f"{base_url}/api/push/public-key", timeout=2) as response:
+            assert response.status == 200
+            public_key = json.loads(response.read().decode())["public_key"]
+            assert public_key
+
+        subscription = {
+            "endpoint": "https://push.example.test/subscription",
+            "keys": {"p256dh": "browser-public-key", "auth": "browser-auth-secret"},
+        }
+        request = Request(
+            f"{base_url}/api/push/subscriptions",
+            data=json.dumps(subscription).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            assert response.status == 201
+            assert json.loads(response.read().decode()) == {"ok": True}
+
+        assert server.push_notifications.subscriptions() == [subscription]
+        assert store.notification_states()[0]["id"] == "chat-1"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
