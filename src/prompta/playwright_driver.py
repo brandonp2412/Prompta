@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
@@ -39,6 +39,7 @@ from .chatgpt_dom import (
     SEND_BUTTON_SELECTORS,
     STOP_BUTTON_SELECTORS,
 )
+from .metadata_store import BrowserOwnershipStore
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,8 @@ class PlaywrightDriver(BrowserDriverBase):
         self._pages: dict[str, Page] = {}
         self._page_contexts: dict[Page, str] = {}
         self._owned_contexts: set[str] = set()
+        self._page_ownership_markers: dict[Page, str] = {}
+        self._ownership_store = BrowserOwnershipStore(self.profile)
         self._attached = bool(self.debugger_address)
         self._connected = False
 
@@ -141,6 +144,38 @@ class PlaywrightDriver(BrowserDriverBase):
                 f"Chromium debugger at {self.debugger_address} is unavailable"
             )
 
+    def _close_debugger_targets(self, contexts: set[str]) -> set[str]:
+        if not self.debugger_address or not contexts:
+            return set(contexts)
+        base_url = f"http://{self.debugger_address}"
+        try:
+            with urlopen(f"{base_url}/json/list", timeout=1.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            return set(contexts)
+
+        target_ids = (
+            {
+                str(item.get("id") or "")
+                for item in payload
+                if isinstance(item, dict) and item.get("id")
+            }
+            if isinstance(payload, list)
+            else set()
+        )
+        unresolved: set[str] = set()
+        for context in contexts & target_ids:
+            try:
+                request = UrlRequest(
+                    f"{base_url}/json/close/{quote(context, safe='')}",
+                    method="PUT",
+                )
+                with urlopen(request, timeout=1.0):
+                    pass
+            except Exception:
+                unresolved.add(context)
+        return unresolved
+
     def _register_page(self, page: Page, *, owned: bool) -> str:
         existing = self._page_contexts.get(page)
         if existing:
@@ -161,6 +196,9 @@ class PlaywrightDriver(BrowserDriverBase):
         return context_id
 
     def _forget_page(self, page: Page) -> None:
+        marker = self._page_ownership_markers.pop(page, "")
+        if marker:
+            self._ownership_store.forget_marker(marker)
         context_id = self._page_contexts.pop(page, "")
         if not context_id:
             return
@@ -180,23 +218,34 @@ class PlaywrightDriver(BrowserDriverBase):
         stamp = int(time.time())
         marker = f"{_OWNED_WINDOW_PREFIX}{stamp}:{uuid.uuid4().hex}"
         await page.evaluate(load_browser_script("set_window_name.js"), marker)
+        self._page_ownership_markers[page] = marker
+        self._ownership_store.remember_marker(marker)
 
-    async def _is_owned_page(self, page: Page) -> bool:
+    async def _owned_page_marker(self, page: Page) -> str:
         if page.is_closed():
-            return False
+            return ""
         try:
             name = await page.evaluate(load_browser_script("get_window_name.js"))
         except PlaywrightError:
-            return False
-        return isinstance(name, str) and name.startswith(_OWNED_WINDOW_PREFIX)
+            return ""
+        if not isinstance(name, str) or not name.startswith(_OWNED_WINDOW_PREFIX):
+            return ""
+        return name
+
+    async def _is_owned_page(self, page: Page) -> bool:
+        return bool(await self._owned_page_marker(page))
 
     async def _cleanup_stale_owned_pages(self, browser_context: BrowserContext) -> None:
+        unresolved: set[str] = set()
         for page in list(browser_context.pages):
-            if await self._is_owned_page(page):
-                try:
-                    await page.close()
-                except PlaywrightError:
-                    pass
+            marker = await self._owned_page_marker(page)
+            if not marker:
+                continue
+            try:
+                await page.close()
+            except PlaywrightError:
+                unresolved.add(marker)
+        self._ownership_store.replace_markers(unresolved)
 
     def _on_request(self, request: Request) -> None:
         capture = self._send_capture
@@ -325,6 +374,13 @@ class PlaywrightDriver(BrowserDriverBase):
         try:
             if self.debugger_address:
                 await asyncio.to_thread(self._assert_debugger_available)
+                legacy_targets = self._ownership_store.legacy_targets()
+                if legacy_targets:
+                    unresolved = await asyncio.to_thread(
+                        self._close_debugger_targets,
+                        legacy_targets,
+                    )
+                    self._ownership_store.replace_legacy_targets(unresolved)
                 self._browser = await self._playwright.chromium.connect_over_cdp(
                     f"http://{self.debugger_address}"
                 )
@@ -463,8 +519,11 @@ class PlaywrightDriver(BrowserDriverBase):
             context_id = self._page_contexts.get(page)
             if context_id:
                 return context_id
-            if not await self._is_owned_page(page):
+            marker = await self._owned_page_marker(page)
+            if not marker:
                 continue
+            self._page_ownership_markers[page] = marker
+            self._ownership_store.remember_marker(marker)
             return self._register_page(page, owned=True)
         return None
 
@@ -1032,6 +1091,7 @@ class PlaywrightDriver(BrowserDriverBase):
         self._pages.clear()
         self._page_contexts.clear()
         self._owned_contexts.clear()
+        self._page_ownership_markers.clear()
         self.context = ""
         self._network_subscribed = False
         self._send_capture = None
