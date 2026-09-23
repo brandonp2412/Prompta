@@ -947,6 +947,7 @@ class PlaywrightDriver(BrowserDriverBase):
                     await asyncio.sleep(0.05)
             except PlaywrightError:
                 await asyncio.sleep(0.1)
+        raise RuntimeError("ChatGPT Chat surface did not become active")
 
     async def _effort_trigger_locator(self) -> Locator | None:
         page = self._page()
@@ -1105,21 +1106,35 @@ class PlaywrightDriver(BrowserDriverBase):
         )
         if power is None:
             return {}
+
+        slider = power.locator('[role="slider"]')
         try:
-            description = str(await power.get_attribute("aria-description") or "")
-        except PlaywrightError:
+            if await slider.count() < 1:
+                return {}
+            current_value = int(await slider.first.get_attribute("aria-valuenow") or -1)
+            min_value = int(await slider.first.get_attribute("aria-valuemin") or 0)
+            max_value = int(await slider.first.get_attribute("aria-valuemax") or -1)
+            described_by = str(await power.get_attribute("aria-describedby") or "").split()
+            description_parts: list[str] = []
+            for element_id in described_by:
+                described = page.locator(f'[id="{element_id}"]')
+                if await described.count() < 1:
+                    continue
+                text = (await described.first.inner_text()).strip()
+                if text:
+                    description_parts.append(text)
+        except (PlaywrightError, ValueError):
             return {}
-        match = re.search(
-            r"^\s*([^,]+),\s*(\d+)\s+of\s+(\d+)(?:\.|,|$)",
-            description,
-            re.IGNORECASE,
-        )
-        if not match:
-            return {"description": description}
+
+        if current_value < min_value or max_value < min_value:
+            return {}
+        description = " ".join(description_parts)
+        label = description.split(",", 1)[0].strip() if description else ""
         return {
-            "text": match.group(1).strip(),
-            "position": int(match.group(2)),
-            "total": int(match.group(3)),
+            "text": label,
+            "position": current_value - min_value + 1,
+            "total": max_value - min_value + 1,
+            "value": current_value,
             "description": description,
         }
 

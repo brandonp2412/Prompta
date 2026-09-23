@@ -82,28 +82,12 @@ class BrowserSession:
     ) -> dict[str, Any]:
         return await driver.effort_trigger_info(timeout=timeout)
 
-    async def ensure_high_effort(
-        self,
-        driver: BrowserDriver,
-        *,
-        effort_trigger_info,
-        pointer_click,
-    ) -> None:
+    async def ensure_high_effort(self, driver: BrowserDriver) -> None:
         target_model = "GPT-5.6 Sol"
         target_effort = "high"
         target_position = 3
+
         await driver.ensure_chat_surface()
-
-        trigger = await effort_trigger_info(driver)
-        for attempt in range(2):
-            try:
-                await pointer_click(driver, float(trigger["x"]), float(trigger["y"]))
-                break
-            except RuntimeError as exc:
-                if "out of bounds" not in str(exc).casefold() or attempt > 0:
-                    raise
-                trigger = await effort_trigger_info(driver)
-
         await driver.select_effort_model(target_model)
         power = await driver.set_effort_power_position(target_position)
         if str(power.get("text") or "").strip().casefold() != target_effort:

@@ -288,11 +288,7 @@ class Prompta:
         return await self.browser.effort_trigger_info(driver, timeout=timeout)
 
     async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
-        await self.browser.ensure_high_effort(
-            driver,
-            effort_trigger_info=lambda target: self._effort_trigger_info(target),
-            pointer_click=lambda target, x, y: self._pointer_click(target, x, y),
-        )
+        await self.browser.ensure_high_effort(driver)
 
     async def send_once(
         self,

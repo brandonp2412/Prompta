@@ -295,22 +295,23 @@ async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver
           Thinking effort
         </button>
         <div id="menu" hidden>
+          <span id="power-state">Medium, 2 of 4.</span>
+          <span id="power-help">Use Left and Right arrow keys to adjust power.</span>
           <div id="power" role="menuitem" aria-label="Power" tabindex="0"
-               aria-description="Medium, 2 of 4. Use Left and Right arrow keys to adjust power."
+               aria-describedby="power-state power-help"
                onkeydown="
-                 const descriptions = [
-                   'Instant, 1 of 4. Use Left and Right arrow keys to adjust power.',
-                   'Medium, 2 of 4. Use Left and Right arrow keys to adjust power.',
-                   'High, 3 of 4. Use Left and Right arrow keys to adjust power.',
-                   'Pro, 4 of 4. Upgrade required. Use Left and Right arrow keys to adjust power.'
-                 ];
-                 let current = Number(this.dataset.position || 2);
-                 if (event.key === 'ArrowRight') current = Math.min(4, current + 1);
-                 if (event.key === 'ArrowLeft') current = Math.max(1, current - 1);
-                 this.dataset.position = String(current);
-                 this.setAttribute('aria-description', descriptions[current - 1]);
+                 const labels = ['Instant', 'Medium', 'High', 'Pro'];
+                 const slider = this.querySelector('[role=slider]');
+                 let value = Number(slider.getAttribute('aria-valuenow'));
+                 if (event.key === 'ArrowRight') value = Math.min(3, value + 1);
+                 if (event.key === 'ArrowLeft') value = Math.max(0, value - 1);
+                 slider.setAttribute('aria-valuenow', String(value));
+                 document.getElementById('power-state').textContent =
+                   labels[value] + ', ' + (value + 1) + ' of 4.';
                ">
             Power
+            <span role="slider" aria-valuemin="0" aria-valuemax="3"
+                  aria-valuenow="1" aria-hidden="true"></span>
           </div>
         </div>
         """
@@ -320,8 +321,12 @@ async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver
 
     assert info["text"] == "High"
     assert info["position"] == 3
+    assert info["value"] == 2
     assert "Upgrade required" not in info["description"]
 
+
+@pytest.mark.asyncio
+async def test_new_tab_navigates_directly_without_clicking_new_chat_ui(live_driver) -> None:
     driver, page = live_driver
     context = driver._browser_context
     assert context is not None

@@ -824,53 +824,22 @@ async def test_chat_mode_model_and_high_power_are_selected(tmp_path: Path) -> No
     driver.ensure_chat_surface = AsyncMock()
     driver.select_effort_model = AsyncMock()
     driver.set_effort_power_position = AsyncMock(
-        return_value={"text": "High", "position": 3, "total": 4, "description": "High, 3 of 4."}
+        return_value={
+            "text": "High",
+            "position": 3,
+            "total": 4,
+            "value": 2,
+            "description": "High, 3 of 4. Use Left and Right arrow keys to adjust power.",
+        }
     )
     driver._perform_actions = AsyncMock()
-    prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
-        return_value={"text": "Thinking effort", "label": "Thinking effort", "x": 10.0, "y": 20.0}
-    )
-    prompta._pointer_click = AsyncMock()  # type: ignore[method-assign]
 
     await prompta._ensure_high_effort(driver)
 
     driver.ensure_chat_surface.assert_awaited_once()
     driver.select_effort_model.assert_awaited_once_with("GPT-5.6 Sol")
     driver.set_effort_power_position.assert_awaited_once_with(3)
-    prompta._pointer_click.assert_awaited_once_with(driver, 10.0, 20.0)
     driver._perform_actions.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_chat_mode_rechecks_stale_viewport_coordinates(tmp_path: Path) -> None:
-    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
-    driver = MagicMock()
-    driver.context = "context-1"
-    driver.ensure_chat_surface = AsyncMock()
-    driver.select_effort_model = AsyncMock()
-    driver.set_effort_power_position = AsyncMock(
-        return_value={"text": "High", "position": 3, "total": 4, "description": "High, 3 of 4."}
-    )
-    driver._perform_actions = AsyncMock()
-    prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
-        side_effect=[
-            {"text": "Thinking effort", "label": "Thinking effort", "x": 10.0, "y": 700.0},
-            {"text": "Thinking effort", "label": "Thinking effort", "x": 10.0, "y": 20.0},
-        ]
-    )
-    prompta._pointer_click = AsyncMock(  # type: ignore[method-assign]
-        side_effect=[
-            RuntimeError("move target out of bounds"),
-            None,
-        ]
-    )
-
-    await prompta._ensure_high_effort(driver)
-
-    assert prompta._effort_trigger_info.await_count == 2
-    assert prompta._pointer_click.await_count == 2
-    driver.select_effort_model.assert_awaited_once_with("GPT-5.6 Sol")
-    driver.set_effort_power_position.assert_awaited_once_with(3)
 
 
 def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
