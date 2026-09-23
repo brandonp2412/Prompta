@@ -117,7 +117,7 @@ def add_job(
     daily_at: str | None = None,
     exact_interval: bool = False,
     run_at_epoch: float | None = None,
-) -> None:
+) -> PromptJob:
     if not name.strip():
         raise ValueError("prompta job name is empty")
     if not prompt.strip():
@@ -127,7 +127,7 @@ def add_job(
     normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
     if normalised_run_at is not None and normalised_run_at <= 0:
         raise ValueError("run_at_epoch must be a positive Unix timestamp")
-    jobs[name] = PromptJob(
+    job = PromptJob(
         name,
         prompt,
         max(0.0, interval_seconds),
@@ -135,17 +135,22 @@ def add_job(
         exact_interval,
         normalised_run_at,
     )
+    jobs[name] = job
     _write_jobs(path, jobs)
+    return job
 
 
-def remove_job(path: Path, name: str) -> None:
+def remove_job(path: Path, name: str) -> bool:
     jobs = load_jobs(path)
-    jobs.pop(name, None)
+    existed = jobs.pop(name, None) is not None
     _write_jobs(path, jobs)
+    return existed
 
 
-def clear_jobs(path: Path) -> None:
+def clear_jobs(path: Path) -> int:
+    count = len(load_jobs(path))
     try:
         path.expanduser().unlink()
     except FileNotFoundError:
         pass
+    return count

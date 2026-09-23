@@ -4,7 +4,6 @@ import base64
 import concurrent.futures
 import json
 import subprocess
-import sys
 import time
 from datetime import datetime
 from http import HTTPStatus
@@ -20,6 +19,7 @@ from prompta.cache import ChatCache
 from prompta.control_server import ControlDeferredError, ControlUnavailableError
 from prompta.core import RateLimitError
 from prompta.image_previews import ImagePreviewStore
+from prompta.jobs import add_job, load_jobs
 from prompta.web import (
     PromptaUIHandler,
     PromptaUIServer,
@@ -277,10 +277,7 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
             }
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
-        assert (
-            ImagePreviewStore(tmp_path).records["image-client"]["conversation_id"]
-            == "chat-1"
-        )
+        assert ImagePreviewStore(tmp_path).records["image-client"]["conversation_id"] == "chat-1"
     finally:
         for target in saved:
             Path(target).unlink(missing_ok=True)
@@ -2692,19 +2689,14 @@ def test_ui_server_exposes_server_identity_and_manifest(tmp_path: Path) -> None:
     assert manifest_type == "application/manifest+json"
 
 
-def test_jobs_cli_add_maps_to_prompta_cli(tmp_path: Path) -> None:
+def test_jobs_control_add_and_replace_use_shared_backend_primitives(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     jobs_path = tmp_path / "jobs.json"
     state_path = tmp_path / "state.json"
     server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
-    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     try:
-        with (
-            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
-            patch("prompta.web._start_local_scheduler_service", return_value=True) as start,
-            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
-        ):
-            result = server._run_job_cli(
+        with patch("prompta.web._start_local_scheduler_service", return_value=True) as start:
+            added = server._run_job_cli(
                 "add",
                 {
                     "name": "kite-roadmap",
@@ -2713,68 +2705,69 @@ def test_jobs_cli_add_maps_to_prompta_cli(tmp_path: Path) -> None:
                     "exact_interval": True,
                 },
             )
+            replaced = server._run_job_cli(
+                "replace",
+                {
+                    "name": "kite-roadmap",
+                    "prompt": "Finish Kite",
+                    "interval_minutes": 45,
+                },
+            )
     finally:
         server.server_close()
 
-    run_cli.assert_called_once_with(
-        [
-            sys.executable,
-            "-m",
-            "prompta.core",
-            "add",
-            "kite-roadmap",
-            "Keep working on Kite",
-            "--interval-minutes",
-            "30.0",
-            "--exact-interval",
-            "--jobs-file",
-            str(jobs_path),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    start.assert_called_once_with()
-    assert result["command"][:4] == ["prompta", "add", "kite-roadmap", "Keep working on Kite"]
+    persisted = load_jobs(jobs_path)["kite-roadmap"]
+    assert persisted.prompt == "Finish Kite"
+    assert persisted.interval_seconds == 45 * 60
+    assert added["command"][:4] == ["prompta", "add", "kite-roadmap", "Keep working on Kite"]
+    assert replaced["command"][:4] == ["prompta", "replace", "kite-roadmap", "Finish Kite"]
+    assert start.call_count == 2
 
 
-@pytest.mark.parametrize(
-    ("action", "expected"),
-    [
-        ("pause", ["pause", "kite-roadmap"]),
-        ("resume", ["resume", "kite-roadmap"]),
-        ("remove", ["remove", "kite-roadmap"]),
-    ],
-)
-def test_jobs_cli_named_actions_map_to_prompta_cli(
+@pytest.mark.parametrize("action", ["pause", "resume", "remove"])
+def test_jobs_control_named_actions_use_shared_backend_primitives(
     tmp_path: Path,
     action: str,
-    expected: list[str],
 ) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     jobs_path = tmp_path / "jobs.json"
     state_path = tmp_path / "state.json"
+    add_job(jobs_path, "kite-roadmap", "Keep working on Kite")
     server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
-    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     try:
-        with (
-            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
-            patch("prompta.web._start_local_scheduler_service", return_value=True),
-            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
-        ):
-            server._run_job_cli(action, {"name": "kite-roadmap"})
+        with patch("prompta.web._start_local_scheduler_service", return_value=True):
+            result = server._run_job_cli(action, {"name": "kite-roadmap"})
     finally:
         server.server_close()
 
-    command = run_cli.call_args.args[0]
-    assert command[:3] == [sys.executable, "-m", "prompta.core"]
-    assert command[3:5] == expected
-    assert command[-2:] == (
-        ["--state", str(state_path)]
-        if action in {"pause", "resume"}
-        else ["--jobs-file", str(jobs_path)]
-    )
+    assert result["command"][:3] == ["prompta", action, "kite-roadmap"]
+    if action == "remove":
+        assert "kite-roadmap" not in load_jobs(jobs_path)
+    else:
+        paused = json.loads(state_path.read_text())["jobs"]["kite-roadmap"]["paused"]
+        assert paused is (action == "pause")
+
+
+def test_jobs_control_supports_pause_all_show_list_and_clear(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    add_job(jobs_path, "flux", "Continue Flux")
+    add_job(jobs_path, "kite", "Continue Kite")
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    try:
+        paused = server._run_job_cli("pause", {})
+        shown = server._run_job_cli("show", {"name": "flux"})
+        listed = server._run_job_cli("list", {})
+        cleared = server._run_job_cli("clear", {})
+    finally:
+        server.server_close()
+
+    assert paused["affected_jobs"] == 2
+    assert shown["job"]["name"] == "flux"
+    assert {job["name"] for job in listed["jobs"]} == {"flux", "kite"}
+    assert cleared["affected_jobs"] == 2
+    assert load_jobs(jobs_path) == {}
 
 
 def test_jobs_cli_add_without_interval_uses_cli_default(tmp_path: Path) -> None:
@@ -2782,50 +2775,36 @@ def test_jobs_cli_add_without_interval_uses_cli_default(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     state_path = tmp_path / "state.json"
     server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
-    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     try:
-        with (
-            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
-            patch("prompta.web._start_local_scheduler_service", return_value=True),
-            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
-        ):
-            server._run_job_cli("add", {"name": "nox", "prompt": "fix nox"})
+        with patch("prompta.web._start_local_scheduler_service", return_value=True):
+            result = server._run_job_cli("add", {"name": "nox", "prompt": "fix nox"})
     finally:
         server.server_close()
 
-    command = run_cli.call_args.args[0]
-    assert command[:6] == [
-        sys.executable,
-        "-m",
-        "prompta.core",
-        "add",
-        "nox",
-        "fix nox",
-    ]
-    assert "--interval-minutes" not in command
-    assert command[-2:] == ["--jobs-file", str(jobs_path)]
+    job = load_jobs(jobs_path)["nox"]
+    assert job.interval_seconds == 40 * 60
+    assert "--interval-minutes" not in result["command"]
+    assert result["command"][-2:] == ["--jobs-file", str(jobs_path)]
 
 
 def test_jobs_cli_pause_without_name_maps_to_pause_all(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     jobs_path = tmp_path / "jobs.json"
     state_path = tmp_path / "state.json"
+    add_job(jobs_path, "nox", "fix nox")
+    add_job(jobs_path, "kite", "fix kite")
     server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
-    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     try:
-        with (
-            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
-            patch("prompta.web._start_local_scheduler_service", return_value=True),
-            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
-        ):
-            server._run_job_cli("pause", {})
+        result = server._run_job_cli("pause", {})
     finally:
         server.server_close()
 
-    assert run_cli.call_args.args[0] == [
-        sys.executable,
-        "-m",
-        "prompta.core",
+    state = json.loads(state_path.read_text())
+    assert result["affected_jobs"] == 2
+    assert state["jobs"]["nox"]["paused"] is True
+    assert state["jobs"]["kite"]["paused"] is True
+    assert result["command"] == [
+        "prompta",
         "pause",
         "--jobs-file",
         str(jobs_path),

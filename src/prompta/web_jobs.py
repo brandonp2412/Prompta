@@ -4,14 +4,13 @@ import hashlib
 import json
 import math
 import re
-import subprocess
-import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .jobs import add_job, load_jobs
+from .jobs import add_job, clear_jobs, load_jobs, remove_job
+from .scheduler_runtime import SchedulerRuntime
 
 
 def schedule_job_name(prompt: str, interval_minutes: float) -> str:
@@ -76,24 +75,36 @@ class WebJobService:
 
     def run_cli(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         action = action.strip().lower()
-        command = [sys.executable, "-m", "prompta.core"]
+        display = ["prompta", action]
+        runtime = SchedulerRuntime(self.state_path, self.jobs_path)
+        affected_jobs: int | None = None
+        shown_job: dict[str, Any] | None = None
 
-        if action == "add":
+        if action in {"add", "replace"}:
             name = str(payload.get("name") or "").strip()
             prompt = str(payload.get("prompt") or "").strip()
             if not name:
                 raise ValueError("Job name is required")
             if not prompt:
                 raise ValueError("Job prompt is required")
-            command += ["add", name, prompt]
+            display += [name, prompt]
             daily_at = str(payload.get("daily_at") or "").strip()
             if daily_at:
                 if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at):
                     raise ValueError("Daily time must use HH:MM")
-                command += ["--daily-at", daily_at]
+                add_job(self.jobs_path, name, prompt, daily_at=daily_at)
+                display += ["--daily-at", daily_at]
             else:
                 raw_interval_minutes = payload.get("interval_minutes")
-                if raw_interval_minutes is not None:
+                exact_interval = payload.get("exact_interval") is True
+                if raw_interval_minutes is None:
+                    add_job(
+                        self.jobs_path,
+                        name,
+                        prompt,
+                        exact_interval=exact_interval,
+                    )
+                else:
                     if not isinstance(raw_interval_minutes, (str, int, float)) or isinstance(
                         raw_interval_minutes, bool
                     ):
@@ -104,42 +115,88 @@ class WebJobService:
                         raise ValueError("Interval minutes must be a number") from exc
                     if not math.isfinite(interval_minutes) or interval_minutes <= 0:
                         raise ValueError("Interval minutes must be greater than zero")
-                    command += ["--interval-minutes", str(interval_minutes)]
-                if payload.get("exact_interval") is True:
-                    command.append("--exact-interval")
-            command += ["--jobs-file", str(self.jobs_path)]
-        elif action in {"remove", "pause", "resume"}:
+                    add_job(
+                        self.jobs_path,
+                        name,
+                        prompt,
+                        interval_minutes * 60.0,
+                        exact_interval=exact_interval,
+                    )
+                    display += ["--interval-minutes", str(interval_minutes)]
+                if exact_interval:
+                    display.append("--exact-interval")
+            display += ["--jobs-file", str(self.jobs_path)]
+        elif action == "remove":
             name = str(payload.get("name") or "").strip()
-            if not name and action != "pause":
+            if not name:
                 raise ValueError("Job name is required")
-            command.append(action)
+            remove_job(self.jobs_path, name)
+            display += [name, "--jobs-file", str(self.jobs_path)]
+        elif action == "pause":
+            name = str(payload.get("name") or "").strip()
             if name:
-                command.append(name)
-            command += ["--jobs-file", str(self.jobs_path)]
-            if action in {"pause", "resume"}:
-                command += ["--state", str(self.state_path)]
+                if not runtime.set_job_paused(name, True):
+                    raise ValueError(f"No Prompta job named {name!r}")
+                affected_jobs = 1
+                display.append(name)
+            else:
+                affected_jobs = runtime.set_all_jobs_paused(True)
+            display += ["--jobs-file", str(self.jobs_path), "--state", str(self.state_path)]
+        elif action == "resume":
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("Job name is required")
+            if not runtime.set_job_paused(name, False):
+                raise ValueError(f"No Prompta job named {name!r}")
+            affected_jobs = 1
+            display += [
+                name,
+                "--jobs-file",
+                str(self.jobs_path),
+                "--state",
+                str(self.state_path),
+            ]
         elif action == "clear":
-            command += ["clear", "--jobs-file", str(self.jobs_path)]
+            affected_jobs = clear_jobs(self.jobs_path)
+            display += ["--jobs-file", str(self.jobs_path)]
+        elif action in {"show", "list"}:
+            jobs = self.scheduled_jobs()
+            if action == "show":
+                name = str(payload.get("name") or "").strip()
+                if not name:
+                    raise ValueError("Job name is required")
+                shown_job = next((job for job in jobs["jobs"] if job["name"] == name), None)
+                if shown_job is None:
+                    raise ValueError(f"No Prompta job named {name!r}")
+                display += [
+                    name,
+                    "--jobs-file",
+                    str(self.jobs_path),
+                    "--state",
+                    str(self.state_path),
+                ]
+            else:
+                display += [
+                    "--jobs-file",
+                    str(self.jobs_path),
+                    "--state",
+                    str(self.state_path),
+                ]
+            return {
+                "ok": True,
+                "command": display,
+                **({"job": shown_job} if shown_job is not None else {}),
+                **jobs,
+            }
         else:
             raise ValueError(f"Unsupported jobs command: {action}")
 
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise RuntimeError(detail or f"prompta {action} failed")
-
-        if action in {"add", "resume"}:
+        if action in {"add", "replace", "resume"}:
             self.start_scheduler()
-        display = ["prompta", *command[3:]]
         return {
             "ok": True,
             "command": display,
+            **({"affected_jobs": affected_jobs} if affected_jobs is not None else {}),
             **self.scheduled_jobs(),
         }
 
