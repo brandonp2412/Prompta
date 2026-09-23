@@ -366,8 +366,16 @@ class Prompta:
             attachments=attachments,
         )
 
-    async def _run_job(self, job: PromptJob, *, now: float) -> bool:
+    async def _enqueue_scheduled_job(self, job: PromptJob, *, now: float) -> bool:
         return await self.scheduler_execution.run_job(job, now=now)
+
+    async def _run_job(self, job: PromptJob, *, now: float) -> bool:
+        """Compatibility adapter: enqueue durably, then try the in-process consumer."""
+        await self._enqueue_scheduled_job(job, now=now)
+        return await self.scheduler_execution.drain_scheduled_deliveries(now=now)
+
+    async def _drain_scheduled_deliveries(self) -> bool:
+        return await self.scheduler_execution.drain_scheduled_deliveries()
 
     def _interrupt_active_conversations(self) -> None:
         for active in self._active_conversations.values():
@@ -483,14 +491,15 @@ class Prompta:
                 scheduled_jobs = list(jobs.values())
                 self._ensure_initial_schedules(scheduled_jobs, now)
                 for job in scheduled_jobs:
-                    if await self._run_job(job, now=now):
+                    if await self._enqueue_scheduled_job(job, now=now):
                         did_work = True
-                    if self._global_backoff.remaining() > 0:
-                        break
-                if once:
-                    for active in list(self._active_conversations.values()):
-                        await self.wait_for_cached_response(active.conversation_id)
-                    return
+
+            delivered_scheduled = await self._drain_scheduled_deliveries()
+            did_work = delivered_scheduled or did_work
+            if once and (jobs or delivered_scheduled):
+                for active in list(self._active_conversations.values()):
+                    await self.wait_for_cached_response(active.conversation_id)
+                return
 
             await self._run_browser_maintenance(
                 "orphan browser cleanup",

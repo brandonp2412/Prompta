@@ -5,7 +5,6 @@ import hashlib
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -107,13 +106,69 @@ class SchedulerExecution:
         self._resource_pressure_reason = reason
         return False
 
+    def _delivery_idempotency_key(self, job: PromptJob) -> str:
+        state = self.scheduler.job_state(job.name)
+        marker = 0.0
+        try:
+            last_sent_at = float(state.get("last_sent_at") or 0.0)
+            last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
+        except (TypeError, ValueError):
+            last_sent_at = 0.0
+            last_uncertain_send_at = 0.0
+        keys = (
+            ("last_uncertain_send_at",)
+            if last_uncertain_send_at > last_sent_at
+            else ("next_due_at_epoch", "initial_due_at_epoch", "last_sent_at")
+        )
+        for key in keys:
+            try:
+                value = float(state.get(key) or 0.0)
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0:
+                marker = value
+                break
+        if job.run_at_epoch is not None:
+            marker = float(job.run_at_epoch)
+        raw = f"{job.name}\0{prompt_hash(job.prompt)}\0{marker:.6f}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
     async def run_job(self, job: PromptJob, *, now: float) -> bool:
+        """Make the durable scheduling decision; browser delivery is a separate step."""
         if self.scheduler.job_state(job.name).get("paused") is True:
             return False
         if self.scheduler.due_in(job, now) > 0:
             return False
-        if any(active.job_name == job.name for active in self.active.values()):
+        if self.scheduler.has_queued_delivery(job.name):
             return False
+
+        prompt = scheduled_job_prompt(job)
+        intent_id, created = self.scheduler.enqueue_delivery_intent(
+            job,
+            prompt=prompt,
+            job_prompt_sha256=prompt_hash(job.prompt),
+            idempotency_key=self._delivery_idempotency_key(job),
+            queued_at=now,
+        )
+        if not created:
+            return False
+        if job.run_at_epoch is not None:
+            remove_job(self.jobs_file, job.name)
+            logger.info(
+                "Prompta one-time job=%s durably queued delivery_intent=%d and was removed",
+                job.name,
+                intent_id,
+            )
+        else:
+            logger.info(
+                "Prompta job=%s durably queued delivery_intent=%d",
+                job.name,
+                intent_id,
+            )
+        return True
+
+    async def drain_scheduled_deliveries(self, *, now: float | None = None) -> bool:
+        attempted_at = time.time() if now is None else now
         if not self.can_start_new_conversation():
             return False
         active_scheduled_jobs = sum(
@@ -121,52 +176,76 @@ class SchedulerExecution:
         )
         if active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
             return False
-        backoff = self.scheduler.backoffs.setdefault(job.name, RateLimitBackoff())
-        if backoff.remaining() > 0:
-            return False
         if self.scheduler.global_backoff.remaining() > 0:
             return False
-        if self.scheduler.failure_retry_remaining(job.name, now) > 0:
+        if self.scheduler.send_gap_remaining(attempted_at) > 0:
             return False
-        if self.scheduler.send_gap_remaining(now) > 0:
+
+        intent = next(
+            (
+                candidate
+                for candidate in self.scheduler.pending_delivery_intents(attempted_at)
+                if not any(
+                    active.job_name == candidate["job_name"] for active in self.active.values()
+                )
+                and self.scheduler.backoffs.setdefault(
+                    candidate["job_name"], RateLimitBackoff()
+                ).remaining()
+                <= 0
+                and self.scheduler.failure_retry_remaining(candidate["job_name"], attempted_at) <= 0
+            ),
+            None,
+        )
+        if intent is None:
             return False
-        self.scheduler.update_scheduler_state({"last_attempt_at": now})
-        prompt = scheduled_job_prompt(job)
+
+        job_name = intent["job_name"]
+        backoff = self.scheduler.backoffs.setdefault(job_name, RateLimitBackoff())
+        self.scheduler.update_scheduler_state({"last_attempt_at": attempted_at})
+        self.scheduler.mark_delivery_attempt(intent["id"], attempted_at)
         try:
             try:
-                conversation_id = await self.send_once_callback(prompt, job_name=job.name)
+                conversation_id = await self.send_once_callback(
+                    intent["prompt"],
+                    job_name=job_name,
+                )
             except SendNotAcceptedError:
                 logger.warning(
-                    "Prompta job=%s was not accepted by ChatGPT; retrying once immediately",
-                    job.name,
+                    "Prompta delivery intent=%d job=%s was not accepted; retrying once immediately",
+                    intent["id"],
+                    job_name,
                 )
-                conversation_id = await self.send_once_callback(prompt, job_name=job.name)
+                conversation_id = await self.send_once_callback(
+                    intent["prompt"],
+                    job_name=job_name,
+                )
         except RateLimitError as exc:
             delay = self.scheduler.record_global_rate_limit(exc)
-            self.scheduler.mark_failure(job.name, str(exc))
+            self.scheduler.mark_failure(job_name, str(exc))
+            self.scheduler.defer_delivery(
+                intent["id"],
+                error=str(exc),
+                available_at=attempted_at + delay,
+            )
             logger.warning(
-                "Prompta job=%s rate limited account-wide; attempt=%d retry_after=%ds pausing all jobs for %.1fs",
-                job.name,
-                self.scheduler.global_backoff.attempts,
-                exc.retry_after,
+                "Prompta delivery intent=%d job=%s rate limited account-wide; retrying after %.1fs",
+                intent["id"],
+                job_name,
                 delay,
             )
             return False
         except SendVerificationError as exc:
-            attempted_at = time.time()
-            self.scheduler.update_job_state(
-                job.name,
-                {
-                    "last_uncertain_send_at": attempted_at,
-                    "status": "failing",
-                    "status_message": str(exc),
-                    "status_at": attempted_at,
-                },
+            uncertain_at = time.time() if now is None else attempted_at
+            self.scheduler.mark_delivery_uncertain(
+                intent["id"],
+                job_name,
+                attempted_at=uncertain_at,
+                error=str(exc),
             )
             logger.warning(
-                "Prompta job=%s send outcome uncertain; suppressing retries for %.0fs: %s",
-                job.name,
-                job.interval_seconds,
+                "Prompta delivery intent=%d job=%s outcome uncertain; not retrying this intent: %s",
+                intent["id"],
+                job_name,
                 exc,
             )
             if self.driver is not None:
@@ -175,9 +254,19 @@ class SchedulerExecution:
                 self.driver = None
             return False
         except (ConnectionClosed, OSError, RuntimeError) as exc:
-            logger.exception("Prompta job=%s send failed: %s", job.name, exc)
-            retry_until = time.time() + _FAILURE_RETRY_SECONDS
-            self.scheduler.mark_failure(job.name, str(exc), retry_until=retry_until)
+            logger.exception(
+                "Prompta delivery intent=%d job=%s send failed: %s",
+                intent["id"],
+                job_name,
+                exc,
+            )
+            retry_until = attempted_at + _FAILURE_RETRY_SECONDS
+            self.scheduler.mark_failure(job_name, str(exc), retry_until=retry_until)
+            self.scheduler.defer_delivery(
+                intent["id"],
+                error=str(exc),
+                available_at=retry_until,
+            )
             browser_restart_required = bool(
                 self.driver is not None and self.driver.needs_browser_restart is True
             )
@@ -186,47 +275,35 @@ class SchedulerExecution:
                 if not browser_restart_required:
                     await self.driver.close()
                     self.driver = None
-            self.scheduler.failure_retry_until[job.name] = retry_until
+            self.scheduler.failure_retry_until[job_name] = retry_until
             if browser_restart_required:
                 raise RuntimeError(
                     "Browser session was lost; restarting Prompta to recycle browser"
                 ) from exc
             return False
-        sent_at = time.time()
-        if job.run_at_epoch is not None:
-            backoff.reset()
-            self.scheduler.failure_retry_until.pop(job.name, None)
-            self.scheduler.update_job_state(
-                job.name,
-                {
-                    "prompt_sha256": prompt_hash(job.prompt),
-                    "last_sent_at": sent_at,
-                    "last_uncertain_send_at": 0.0,
-                    "initial_due_at_epoch": 0.0,
-                    "next_due_at_epoch": 0.0,
-                    "last_conversation_id": conversation_id,
-                    "rate_limit_backoff": backoff.snapshot(),
-                    "failure_retry_until_epoch": 0.0,
-                    "status": "healthy",
-                    "status_message": "",
-                    "status_at": sent_at,
-                },
-            )
-            remove_job(self.jobs_file, job.name)
-            logger.info("Prompta one-time job=%s completed and was removed", job.name)
-            return True
-        if job.daily_at is not None:
-            next_due_at = _next_daily_epoch(job.daily_at, sent_at)
-            next_delay = max(0.0, next_due_at - sent_at)
-        else:
-            next_delay = self.scheduler.next_delay(job)
-            next_due_at = sent_at + next_delay
+
+        sent_at = time.time() if now is None else attempted_at
+        next_due_at = 0.0
+        if not intent["one_time"]:
+            if intent["daily_at"] is not None:
+                next_due_at = _next_daily_epoch(intent["daily_at"], sent_at)
+            else:
+                delivery_job = PromptJob(
+                    job_name,
+                    "",
+                    intent["interval_seconds"],
+                    exact_interval=intent["exact_interval"],
+                )
+                next_due_at = sent_at + self.scheduler.next_delay(delivery_job)
         backoff.reset()
-        self.scheduler.failure_retry_until.pop(job.name, None)
-        self.scheduler.update_job_state(
-            job.name,
-            {
-                "prompt_sha256": prompt_hash(job.prompt),
+        self.scheduler.failure_retry_until.pop(job_name, None)
+        self.scheduler.complete_delivery(
+            intent["id"],
+            job_name,
+            conversation_id=conversation_id,
+            sent_at=sent_at,
+            job_updates={
+                "prompt_sha256": intent["job_prompt_sha256"],
                 "last_sent_at": sent_at,
                 "last_uncertain_send_at": 0.0,
                 "initial_due_at_epoch": 0.0,
@@ -239,19 +316,12 @@ class SchedulerExecution:
                 "status_at": sent_at,
             },
         )
-        if job.daily_at is not None:
-            logger.info(
-                "Prompta job=%s completed; next daily send at %s",
-                job.name,
-                datetime.fromtimestamp(next_due_at).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
-            )
-        else:
-            logger.info(
-                "Prompta job=%s completed; next send in %.0fs (includes %.0fs jitter)",
-                job.name,
-                next_delay,
-                max(0.0, next_delay - job.interval_seconds),
-            )
+        logger.info(
+            "Prompta delivered intent=%d job=%s conversation=%s",
+            intent["id"],
+            job_name,
+            conversation_id,
+        )
         return True
 
     async def drain_once_requests(self) -> bool:
