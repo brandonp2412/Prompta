@@ -84,9 +84,18 @@ class ConversationTracker:
             )
             return False
         if not isinstance(payload, dict) or not payload.get("ok"):
+            logger.warning(
+                "Prompta backend final-text recovery unavailable conversation=%s status=%s",
+                conversation_id,
+                payload.get("status") if isinstance(payload, dict) else None,
+            )
             return False
         final_event = payload.get("final_event")
         if not isinstance(final_event, dict):
+            logger.warning(
+                "Prompta backend conversation=%s has no authoritative final text event",
+                conversation_id,
+            )
             return False
 
         cached_messages = self.cache.messages(conversation_id)
