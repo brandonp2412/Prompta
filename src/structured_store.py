@@ -501,26 +501,45 @@ def promote_structured_capture(
     observed_at: float,
 ) -> None:
     """Carry structured tool/prose capture from a live DOM key to its durable message id."""
+    existing_events: list[dict[str, Any]] = []
     inherited_events: list[dict[str, Any]] = []
-    for row in connection.execute(
-        """
-        SELECT raw_json
-        FROM source_events
-        WHERE conversation_id = ? AND message_key = ?
-        ORDER BY ordinal, observed_at, rowid
-        """,
-        (conversation_id, transient_message_key),
-    ).fetchall():
-        try:
-            event = json.loads(str(row[0] or "{}"))
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict) and not str(event.get("id") or "").endswith(":dom-prose"):
-            inherited_events.append(event)
+    for message_key, destination in (
+        (durable_message_key, existing_events),
+        (transient_message_key, inherited_events),
+    ):
+        for row in connection.execute(
+            """
+            SELECT raw_json
+            FROM source_events
+            WHERE conversation_id = ? AND message_key = ?
+            ORDER BY ordinal, observed_at, rowid
+            """,
+            (conversation_id, message_key),
+        ).fetchall():
+            try:
+                event = json.loads(str(row[0] or "{}"))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                destination.append(event)
+
+    destination_has_text = any(
+        str(event.get("role") or "") == "assistant"
+        and str(event.get("recipient") or "") in {"", "all"}
+        and str(event.get("content_type") or "") in {"text", "multimodal_text"}
+        for event in [*existing_events, *incoming_events]
+        if isinstance(event, dict)
+    )
+    if destination_has_text:
+        inherited_events = [
+            event
+            for event in inherited_events
+            if not str(event.get("id") or "").endswith(":dom-prose")
+        ]
 
     merged_by_key: dict[str, dict[str, Any]] = {}
     ordered_keys: list[str] = []
-    for index, event in enumerate([*inherited_events, *incoming_events]):
+    for index, event in enumerate([*existing_events, *inherited_events, *incoming_events]):
         if not isinstance(event, dict):
             continue
         event_key = stable_event_key(event, index)
@@ -553,3 +572,56 @@ def promote_structured_capture(
             f"DELETE FROM {table} WHERE conversation_id = ? AND message_key = ?",
             (conversation_id, transient_message_key),
         )
+
+
+def repair_unambiguous_orphaned_structured_capture(
+    connection: sqlite3.Connection,
+    *,
+    observed_at: float,
+) -> int:
+    """Promote historical orphaned live-tool streams only when one target assistant exists."""
+    candidates = connection.execute(
+        """
+        SELECT DISTINCT tc.conversation_id, tc.message_key
+        FROM tool_calls tc
+        LEFT JOIN messages source
+          ON source.conversation_id = tc.conversation_id
+         AND source.message_key = tc.message_key
+        WHERE source.message_key IS NULL
+          AND tc.message_key LIKE '__prompta_live_assistant_%'
+          AND (
+              SELECT COUNT(*)
+              FROM messages target
+              WHERE target.conversation_id = tc.conversation_id
+                AND target.role = 'assistant'
+                AND target.message_key NOT LIKE '__prompta_live_assistant_%'
+                AND target.message_key NOT LIKE 'request-placeholder-%'
+          ) = 1
+        ORDER BY tc.conversation_id, tc.message_key
+        """
+    ).fetchall()
+    repaired = 0
+    for conversation_id, transient_message_key in candidates:
+        target = connection.execute(
+            """
+            SELECT message_key
+            FROM messages
+            WHERE conversation_id = ?
+              AND role = 'assistant'
+              AND message_key NOT LIKE '__prompta_live_assistant_%'
+              AND message_key NOT LIKE 'request-placeholder-%'
+            """,
+            (str(conversation_id),),
+        ).fetchone()
+        if target is None:
+            continue
+        promote_structured_capture(
+            connection,
+            conversation_id=str(conversation_id),
+            transient_message_key=str(transient_message_key),
+            durable_message_key=str(target[0]),
+            incoming_events=[],
+            observed_at=observed_at,
+        )
+        repaired += 1
+    return repaired
