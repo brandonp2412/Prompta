@@ -2042,6 +2042,10 @@ textarea:focus-visible {
     width: 100%;
   }
 
+  .conversation-viewport {
+    touch-action: pan-y pinch-zoom;
+  }
+
   .conversation {
     padding: 28px 15px 80px;
   }

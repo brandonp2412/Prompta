@@ -39,7 +39,7 @@ export function pendingLongPressMoved(
   startY: number,
   currentX: number,
   currentY: number,
-  tolerance = 12,
+  tolerance = 8,
 ) {
-  return Math.hypot(currentX - startX, currentY - startY) > tolerance;
+  return Math.max(Math.abs(currentX - startX), Math.abs(currentY - startY)) > tolerance;
 }

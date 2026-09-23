@@ -1,9 +1,5 @@
 export type SidebarDragDirection = "pending" | "horizontal" | "vertical";
 
-export function sidebarDragCanStart(wasOpen: boolean, clientX: number) {
-  return wasOpen || clientX <= 144;
-}
-
 export function sidebarDragDirection(deltaX: number, deltaY: number): SidebarDragDirection {
   if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) <= 8) return "pending";
 

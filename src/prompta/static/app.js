@@ -16115,6 +16115,25 @@ var init_conversationState_svelte = __esmMin((() => {
 	conversationState = new ConversationState();
 }));
 //#endregion
+//#region src/prompta/ui/conversationLogic.ts
+function imageAttachments(message) {
+	return (Array.isArray(message?.attachments) ? message.attachments : []).filter((attachment) => attachment && typeof attachment === "object" && String(attachment.type || "").startsWith("image/") && (Boolean(attachment.id) || String(attachment.src || "").startsWith("data:image/")));
+}
+function pendingImageAttachments(serializedAttachments) {
+	return serializedAttachments.filter((attachment) => attachment.type.startsWith("image/")).map((attachment) => ({
+		name: attachment.name,
+		type: attachment.type,
+		src: "data:" + attachment.type + ";base64," + attachment.data
+	}));
+}
+function shouldHandlePendingLongPress(pointerType, coarsePointer) {
+	return pointerType !== "mouse" || coarsePointer;
+}
+function pendingLongPressMoved(startX, startY, currentX, currentY, tolerance = 8) {
+	return Math.max(Math.abs(currentX - startX), Math.abs(currentY - startY)) > tolerance;
+}
+var init_conversationLogic = __esmMin((() => {}));
+//#endregion
 //#region src/prompta/ui/ConversationMessages.svelte
 init_client();
 init_index_client();
@@ -16122,6 +16141,7 @@ init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_clientLogic();
 init_conversationState_svelte();
+init_conversationLogic();
 var root$4 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div> <div class="conversation-loading-row conversation-loading-assistant"></div> <div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
 var root_1$3 = /* @__PURE__ */ from_html(`<div class="message-label"><span class="assistant-avatar"> </span> </div>`);
 var root_2$2 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img class="message-image-preview" loading="lazy" decoding="async"/></div>`);
@@ -16136,6 +16156,10 @@ function ConversationMessages($$anchor, $$props) {
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
 	let actionsKey = /* @__PURE__ */ state$1("");
 	let actionsOpen = /* @__PURE__ */ state$1(false);
+	let pendingLongPressTimer;
+	let pendingLongPressPointerId = null;
+	let pendingLongPressStartX = 0;
+	let pendingLongPressStartY = 0;
 	function timestamp(message, _clockTick) {
 		const millis = messageTimestampMillis(message.display_at, message.created_at ?? message.updated_at);
 		if (millis === null) return {
@@ -16185,8 +16209,35 @@ function ConversationMessages($$anchor, $$props) {
 	function imageSrc(item) {
 		return String(item.src || "").startsWith("data:image/") ? item.src : item.id ? `api/attachment-previews/${encodeURIComponent(item.id)}` : "";
 	}
+	function clearPendingLongPress() {
+		if (pendingLongPressTimer !== void 0) {
+			clearTimeout(pendingLongPressTimer);
+			pendingLongPressTimer = void 0;
+		}
+		pendingLongPressPointerId = null;
+	}
+	function startPendingLongPress(event, message) {
+		if (!message.pending_delete_key || !shouldHandlePendingLongPress(event.pointerType, coarsePointer.current)) return;
+		clearPendingLongPress();
+		pendingLongPressPointerId = event.pointerId;
+		pendingLongPressStartX = event.clientX;
+		pendingLongPressStartY = event.clientY;
+		pendingLongPressTimer = setTimeout(() => {
+			pendingLongPressTimer = void 0;
+			pendingLongPressPointerId = null;
+			openActions(message);
+		}, 480);
+	}
+	function movePendingLongPress(event) {
+		if (event.pointerId !== pendingLongPressPointerId) return;
+		if (pendingLongPressMoved(pendingLongPressStartX, pendingLongPressStartY, event.clientX, event.clientY)) clearPendingLongPress();
+	}
+	function endPendingLongPress(event) {
+		if (event.pointerId === pendingLongPressPointerId) clearPendingLongPress();
+	}
 	function openActions(message) {
 		if (!message.pending_delete_key) return;
+		clearPendingLongPress();
 		set(actionsKey, String(message.pending_delete_key), true);
 		set(actionsOpen, true);
 	}
@@ -16336,9 +16387,10 @@ function ConversationMessages($$anchor, $$props) {
 				"pending-message-deleting": deleting
 			}
 		]), () => key(get(message), get(index))]);
-		delegated("pointerdown", section, (event) => {
-			if (event.pointerType !== "mouse" && get(message).pending_delete_key) setTimeout(() => openActions(get(message)), 480);
-		});
+		delegated("pointerdown", section, (event) => startPendingLongPress(event, get(message)));
+		delegated("pointermove", section, movePendingLongPress);
+		delegated("pointerup", section, endPendingLongPress);
+		event("pointercancel", section, endPendingLongPress);
 		delegated("contextmenu", section, (event) => {
 			if (get(message).pending_delete_key && coarsePointer.current) {
 				event.preventDefault();
@@ -16364,6 +16416,8 @@ function ConversationMessages($$anchor, $$props) {
 }
 delegate([
 	"pointerdown",
+	"pointermove",
+	"pointerup",
 	"contextmenu",
 	"click"
 ]);
@@ -16905,9 +16959,6 @@ function SidebarList($$anchor, $$props) {
 delegate(["click"]);
 //#endregion
 //#region src/prompta/ui/sidebarGesture.ts
-function sidebarDragCanStart(wasOpen, clientX) {
-	return wasOpen || clientX <= 144;
-}
 function sidebarDragDirection(deltaX, deltaY) {
 	if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) <= 8) return "pending";
 	return Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? "horizontal" : "vertical";
@@ -16996,7 +17047,6 @@ function App($$anchor, $$props) {
 		if (event.pointerType === "mouse" || sidebarDrag.pointerId !== null || sidebarDrag.active || !mobileSidebarEnabled() || get(sidebarWidth) <= 0) return;
 		const width = get(sidebarWidth);
 		const wasOpen = sidebarState.open;
-		if (!sidebarDragCanStart(wasOpen, event.clientX)) return;
 		sidebarDrag.pointerId = event.pointerId;
 		sidebarDrag.startX = event.clientX;
 		sidebarDrag.startY = event.clientY;
@@ -17019,6 +17069,7 @@ function App($$anchor, $$props) {
 				clearSidebarDrag();
 				return;
 			}
+			if (!sidebarDrag.wasOpen && deltaX <= 0) return;
 			sidebarDrag.active = true;
 			sidebarState.moving = true;
 		}
@@ -17447,19 +17498,6 @@ var init_browserState_svelte = __esmMin((() => {
 	init_index_client();
 	finePointer = new MediaQuery("(pointer: fine)");
 }));
-//#endregion
-//#region src/prompta/ui/conversationLogic.ts
-function imageAttachments(message) {
-	return (Array.isArray(message?.attachments) ? message.attachments : []).filter((attachment) => attachment && typeof attachment === "object" && String(attachment.type || "").startsWith("image/") && (Boolean(attachment.id) || String(attachment.src || "").startsWith("data:image/")));
-}
-function pendingImageAttachments(serializedAttachments) {
-	return serializedAttachments.filter((attachment) => attachment.type.startsWith("image/")).map((attachment) => ({
-		name: attachment.name,
-		type: attachment.type,
-		src: "data:" + attachment.type + ";base64," + attachment.data
-	}));
-}
-var init_conversationLogic = __esmMin((() => {}));
 //#endregion
 //#region src/prompta/ui/conversationRenderer.ts
 function createConversationRenderer({ onRetry, onDelete, onEdit }) {

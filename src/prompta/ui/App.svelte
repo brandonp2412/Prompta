@@ -28,7 +28,6 @@
     sidebarState,
   } from "./sidebarState.svelte";
   import {
-    sidebarDragCanStart,
     sidebarDragDirection,
     sidebarDragPosition,
     sidebarDragShouldOpen,
@@ -116,8 +115,6 @@
     const width = sidebarWidth;
     const wasOpen = sidebarState.open;
 
-    if (!sidebarDragCanStart(wasOpen, event.clientX)) return;
-
     sidebarDrag.pointerId = event.pointerId;
     sidebarDrag.startX = event.clientX;
     sidebarDrag.startY = event.clientY;
@@ -144,6 +141,8 @@
         clearSidebarDrag();
         return;
       }
+
+      if (!sidebarDrag.wasOpen && deltaX <= 0) return;
 
       sidebarDrag.active = true;
       sidebarState.moving = true;

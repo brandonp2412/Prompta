@@ -1,29 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import {
-  sidebarDragCanStart,
-  sidebarDragDirection,
-  sidebarDragPosition,
-  sidebarDragShouldOpen,
-} from "./sidebarGesture";
+import { sidebarDragDirection, sidebarDragPosition, sidebarDragShouldOpen } from "./sidebarGesture";
 
 describe("mobile sidebar drag", () => {
-  test("allows closing drags to start anywhere while keeping opening edge-bound", () => {
-    expect(sidebarDragCanStart(false, 10)).toBe(true);
-    expect(sidebarDragCanStart(false, 145)).toBe(false);
-    expect(sidebarDragCanStart(true, 0)).toBe(true);
-    expect(sidebarDragCanStart(true, 390)).toBe(true);
-  });
-
   test("locks horizontal drags without stealing vertical scrolling", () => {
     expect(sidebarDragDirection(6, 2)).toBe("pending");
     expect(sidebarDragDirection(20, 5)).toBe("horizontal");
     expect(sidebarDragDirection(8, 20)).toBe("vertical");
   });
 
-  test("tracks a closed sidebar from fully hidden to fully open", () => {
-    expect(sidebarDragPosition(false, 320, 0, 0)).toEqual({ x: -320, progress: 0 });
-    expect(sidebarDragPosition(false, 320, 0, 160)).toEqual({ x: -160, progress: 0.5 });
-    expect(sidebarDragPosition(false, 320, 0, 400)).toEqual({ x: 0, progress: 1 });
+  test("tracks a closed sidebar from any screen position", () => {
+    expect(sidebarDragPosition(false, 320, 280, 280)).toEqual({ x: -320, progress: 0 });
+    expect(sidebarDragPosition(false, 320, 280, 400)).toEqual({ x: -200, progress: 0.375 });
+    expect(sidebarDragPosition(false, 320, 120, 440)).toEqual({ x: 0, progress: 1 });
   });
 
   test("tracks an open sidebar 1:1 with leftward movement from any start point", () => {

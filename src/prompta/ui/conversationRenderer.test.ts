@@ -14,9 +14,10 @@ describe("pending message long press", () => {
     expect(shouldHandlePendingLongPress("mouse", false)).toBe(false);
   });
 
-  test("cancels a long press when the pointer turns into a scroll gesture", () => {
+  test("cancels a long press as soon as movement becomes a drag", () => {
     expect(pendingLongPressMoved(10, 10, 18, 18)).toBe(false);
-    expect(pendingLongPressMoved(10, 10, 24, 10)).toBe(true);
+    expect(pendingLongPressMoved(10, 10, 19, 10)).toBe(true);
+    expect(pendingLongPressMoved(10, 10, 10, 19)).toBe(true);
   });
 });
 

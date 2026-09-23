@@ -6,12 +6,17 @@
   import { formatClockTime12Hour, messageAgeText, messageTimestampMillis } from "./clientLogic";
   import MarkdownContent from "./MarkdownContent.svelte";
   import { conversationState } from "./conversationState.svelte";
+  import { pendingLongPressMoved, shouldHandlePendingLongPress } from "./conversationLogic";
 
   type Message = Record<string, any>;
 
   const coarsePointer = new MediaQuery("(pointer: coarse)");
   let actionsKey = $state("");
   let actionsOpen = $state(false);
+  let pendingLongPressTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingLongPressPointerId: number | null = null;
+  let pendingLongPressStartX = 0;
+  let pendingLongPressStartY = 0;
 
   function timestamp(message: Message, _clockTick: number) {
     const millis = messageTimestampMillis(message.display_at, message.created_at ?? message.updated_at);
@@ -57,9 +62,57 @@
         : "";
   }
 
+  function clearPendingLongPress() {
+    if (pendingLongPressTimer !== undefined) {
+      clearTimeout(pendingLongPressTimer);
+      pendingLongPressTimer = undefined;
+    }
+
+    pendingLongPressPointerId = null;
+  }
+
+  function startPendingLongPress(event: PointerEvent, message: Message) {
+    if (
+      !message.pending_delete_key ||
+      !shouldHandlePendingLongPress(event.pointerType, coarsePointer.current)
+    ) {
+      return;
+    }
+
+    clearPendingLongPress();
+    pendingLongPressPointerId = event.pointerId;
+    pendingLongPressStartX = event.clientX;
+    pendingLongPressStartY = event.clientY;
+    pendingLongPressTimer = setTimeout(() => {
+      pendingLongPressTimer = undefined;
+      pendingLongPressPointerId = null;
+      openActions(message);
+    }, 480);
+  }
+
+  function movePendingLongPress(event: PointerEvent) {
+    if (event.pointerId !== pendingLongPressPointerId) return;
+
+    if (
+      pendingLongPressMoved(
+        pendingLongPressStartX,
+        pendingLongPressStartY,
+        event.clientX,
+        event.clientY,
+      )
+    ) {
+      clearPendingLongPress();
+    }
+  }
+
+  function endPendingLongPress(event: PointerEvent) {
+    if (event.pointerId === pendingLongPressPointerId) clearPendingLongPress();
+  }
+
   function openActions(message: Message) {
     if (!message.pending_delete_key) return;
 
+    clearPendingLongPress();
     actionsKey = String(message.pending_delete_key);
     actionsOpen = true;
   }
@@ -116,11 +169,10 @@
         },
       ]}
       data-message-key={key(message, index)}
-      onpointerdown={(event) => {
-        if (event.pointerType !== "mouse" && message.pending_delete_key) {
-          setTimeout(() => openActions(message), 480);
-        }
-      }}
+      onpointerdown={(event) => startPendingLongPress(event, message)}
+      onpointermove={movePendingLongPress}
+      onpointerup={endPendingLongPress}
+      onpointercancel={endPendingLongPress}
       oncontextmenu={(event) => {
         if (message.pending_delete_key && coarsePointer.current) {
           event.preventDefault();
