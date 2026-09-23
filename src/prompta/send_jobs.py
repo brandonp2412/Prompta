@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 import sqlite3
 import threading
 import time
@@ -137,7 +136,7 @@ class SendJobRegistry:
             attachments = json.loads(str(row["attachments_json"] or "[]"))
         except (TypeError, ValueError):
             attachments = []
-        return {
+        record = {
             "send_id": str(row["send_id"]),
             "operation": str(row["operation"]),
             "message": str(row["message"]),
@@ -150,9 +149,14 @@ class SendJobRegistry:
             "retry_at": float(row["retry_at"] or 0.0),
             "retry_attempt": max(0, int(row["retry_attempt"] or 0)),
             "created_at": float(row["created_at"] or 0.0),
-            "last_error": str(row["last_error"] or ""),
-            "finished_at": float(row["finished_at"] or 0.0),
         }
+        last_error = str(row["last_error"] or "")
+        if last_error:
+            record["last_error"] = last_error
+        finished_at = float(row["finished_at"] or 0.0)
+        if finished_at > 0:
+            record["finished_at"] = finished_at
+        return record
 
     def _database_records(self) -> list[dict[str, Any]]:
         connection = self._connect_database()
@@ -287,20 +291,14 @@ class SendJobRegistry:
             connection.close()
 
     def _write_recovery_locked(self) -> None:
-        if self._recovery_path is None:
-            return
+        # Durable recovery lives in the send_jobs SQLite table. The JSON path is
+        # retained only long enough to import installations from older Prompta.
         path = self._recovery_path
-        if not self._recoverable:
-            path.unlink(missing_ok=True)
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(f"{path.suffix}.tmp")
-        payload = json.dumps({"jobs": list(self._recoverable.values())}, ensure_ascii=False)
-        with temporary.open("w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        temporary.replace(path)
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove legacy Prompta retry JSON %s", path, exc_info=True)
 
     def _remember_recoverable(
         self,
@@ -318,7 +316,7 @@ class SendJobRegistry:
         last_error: str = "",
         finished_at: float = 0.0,
     ) -> None:
-        if self._recovery_path is None:
+        if self._queue_path is None:
             return
         record = {
             "send_id": send_id,
@@ -338,6 +336,7 @@ class SendJobRegistry:
             record["finished_at"] = finished_at
         self._upsert_database_record(record)
         expired_attachments: list[str] = []
+        expired_ids: list[str] = []
         retained_attachments: set[str] = set()
         with self._recovery_lock:
             self._recoverable[send_id] = record
@@ -352,6 +351,7 @@ class SendJobRegistry:
                 )
                 for expired_id, expired_record in dead_letters[:-_DEAD_LETTER_LIMIT]:
                     self._recoverable.pop(expired_id, None)
+                    expired_ids.append(expired_id)
                     raw_attachments = expired_record.get("attachments", [])
                     if isinstance(raw_attachments, list):
                         expired_attachments.extend(
@@ -370,6 +370,7 @@ class SendJobRegistry:
                 )
                 for expired_id, expired_record in succeeded[:-_SUCCEEDED_RECEIPT_LIMIT]:
                     self._recoverable.pop(expired_id, None)
+                    expired_ids.append(expired_id)
                     raw_attachments = expired_record.get("attachments", [])
                     if isinstance(raw_attachments, list):
                         expired_attachments.extend(
@@ -387,6 +388,8 @@ class SendJobRegistry:
                     if isinstance(value, str)
                 }
             self._write_recovery_locked()
+        for expired_id in expired_ids:
+            self._delete_database_record(expired_id)
         if expired_attachments:
             self._cleanup_attachments(
                 [
@@ -398,7 +401,7 @@ class SendJobRegistry:
 
     def _forget_recoverable(self, send_id: str) -> None:
         self._delete_database_record(send_id)
-        if self._recovery_path is None:
+        if self._queue_path is None:
             return
         with self._recovery_lock:
             if self._recoverable.pop(send_id, None) is not None:
@@ -415,9 +418,21 @@ class SendJobRegistry:
                 for record in records:
                     if isinstance(record, dict):
                         self._upsert_database_record(record)
+                path.unlink(missing_ok=True)
             except (OSError, ValueError):
                 logger.warning("Could not restore Prompta UI retry state %s", path, exc_info=True)
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
                 return
+        elif records and path is not None and path.exists():
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "Could not remove legacy Prompta UI retry state %s", path, exc_info=True
+                )
         if not records:
             return
 

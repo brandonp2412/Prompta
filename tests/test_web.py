@@ -19,6 +19,7 @@ import pytest
 from prompta.cache import ChatCache
 from prompta.control_server import ControlDeferredError, ControlUnavailableError
 from prompta.core import RateLimitError
+from prompta.jobs import load_jobs
 from prompta.web import (
     PromptaUIHandler,
     PromptaUIServer,
@@ -276,12 +277,8 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
             }
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
-        assert (
-            json.loads(server._image_preview_path.read_text())["records"]["image-client"][
-                "conversation_id"
-            ]
-            == "chat-1"
-        )
+        assert server.image_previews._load_database()["image-client"]["conversation_id"] == "chat-1"
+        assert not server.image_previews.legacy_path.exists()
     finally:
         for target in saved:
             Path(target).unlink(missing_ok=True)
@@ -879,7 +876,7 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
     assert started.wait(timeout=1.0)
     queue_path = tmp_path / "ui-send-jobs.sqlite3"
     assert queue_path.exists()
-    persisted = json.loads(recovery_path.read_text())
+    persisted = {"jobs": registry._database_records()}
     assert persisted["jobs"] == [
         {
             "send_id": queued["send_id"],
@@ -904,7 +901,7 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
 
     assert result is not None
     assert result["status"] == "succeeded"
-    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    receipt = registry._database_records()[0]
     assert receipt["send_id"] == queued["send_id"]
     assert receipt["status"] == "succeeded"
     assert receipt["conversation_id"] == "chat-new"
@@ -965,7 +962,7 @@ def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) ->
     assert result["status"] == "succeeded"
     assert result["conversation_id"] == "chat-restored-queued"
     assert calls == 1
-    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    receipt = registry._database_records()[0]
     assert receipt["status"] == "succeeded"
     assert receipt["conversation_id"] == "chat-restored-queued"
 
@@ -1001,7 +998,7 @@ def test_send_job_registry_dead_letters_inflight_send_after_restart(tmp_path: Pa
     assert result is not None
     assert result["status"] == "dead_lettered"
     assert "in-flight send" in result["error"]
-    persisted = json.loads(recovery_path.read_text())["jobs"][0]
+    persisted = registry._database_records()[0]
     assert persisted["status"] == "dead_lettered"
     assert "in-flight send" in persisted["last_error"]
 
@@ -1037,7 +1034,7 @@ def test_send_job_registry_does_not_restore_cancelled_send(tmp_path: Path) -> No
     result = registry.get("cancelled-before-restart")
     assert result is not None
     assert result["status"] == "cancelled"
-    persisted = json.loads(recovery_path.read_text())["jobs"][0]
+    persisted = registry._database_records()[0]
     assert persisted["status"] == "cancelled"
 
 
@@ -1098,7 +1095,7 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
         assert limited["retry_after_seconds"] == 120
         assert limited["retry_attempt"] == 1
         assert attachment.exists()
-        recovery = json.loads(recovery_path.read_text())
+        recovery = {"jobs": registry._database_records()}
         assert recovery["jobs"][0]["send_id"] == queued["send_id"]
         assert recovery["jobs"][0]["message"] == "Hello"
 
@@ -1163,7 +1160,7 @@ def test_send_job_registry_restores_rate_limited_send_after_restart(tmp_path: Pa
     assert result["status"] == "succeeded"
     assert result["conversation_id"] == "chat-restored"
     assert calls == 1
-    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    receipt = registry._database_records()[0]
     assert receipt["status"] == "succeeded"
     duplicate = registry.submit(
         operation="once",
@@ -1214,7 +1211,7 @@ def test_send_job_registry_restores_generic_retry_after_restart(tmp_path: Path) 
     assert result is not None
     assert result["status"] == "succeeded"
     assert calls == 1
-    receipt = json.loads(recovery_path.read_text())["jobs"][0]
+    receipt = registry._database_records()[0]
     assert receipt["status"] == "succeeded"
 
 
@@ -1299,7 +1296,7 @@ def test_send_job_registry_replays_legacy_pre_send_control_outage_dead_letter(
     assert result["conversation_id"] == "chat-recovered"
     assert result["retry_attempt"] == 0
     sender.assert_called_once_with("once", "Previously stranded", "", [])
-    persisted = json.loads(recovery_path.read_text())["jobs"][0]
+    persisted = registry._database_records()[0]
     assert persisted["status"] == "succeeded"
     assert persisted["conversation_id"] == "chat-recovered"
 
@@ -1388,7 +1385,7 @@ def test_send_job_registry_does_not_replay_dead_letters(tmp_path: Path) -> None:
     assert duplicate["send_id"] == "dead-before-restart"
     assert duplicate["status"] == "dead_lettered"
     assert calls == 0
-    persisted = json.loads(recovery_path.read_text())
+    persisted = {"jobs": registry._database_records()}
     assert persisted["jobs"][0]["status"] == "dead_lettered"
 
 
@@ -1419,7 +1416,7 @@ def test_send_job_registry_cleans_attachments_when_dead_letters_are_evicted(tmp_
     assert not attachments[0].exists()
     assert attachments[1].exists()
     assert attachments[2].exists()
-    persisted = json.loads(recovery_path.read_text())
+    persisted = {"jobs": registry._database_records()}
     assert [job["send_id"] for job in persisted["jobs"]] == ["dead-1", "dead-2"]
 
 
@@ -1882,7 +1879,7 @@ def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:
     assert result["retry_attempt"] == 5
     assert calls == 5
     assert attachment.exists()
-    persisted = json.loads(recovery_path.read_text())
+    persisted = {"jobs": registry._database_records()}
     assert persisted["jobs"] == [
         {
             "send_id": queued["send_id"],
@@ -2339,11 +2336,10 @@ def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
         with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=0)):
             result = server.schedule_every("fix bugs", 30)
 
-        payload = json.loads(jobs_path.read_text())
-        saved = payload["jobs"][result["name"]]
-        assert saved["prompt"] == "fix bugs"
-        assert saved["interval_seconds"] == 1800
-        assert saved["exact_interval"] is True
+        saved = load_jobs(jobs_path)[result["name"]]
+        assert saved.prompt == "fix bugs"
+        assert saved.interval_seconds == 1800
+        assert saved.exact_interval is True
         assert result["scheduler_started"] is True
         assert result["interval_minutes"] == 30
     finally:

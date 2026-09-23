@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import re
 import sys
@@ -16,6 +15,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
 from prompta import core
+from prompta.scheduler_runtime import SchedulerRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs" / "assets" / "prompta-ls.png"
@@ -53,8 +53,9 @@ def _font_path(bold: bool) -> Path:
 def _sample_output() -> str:
     with tempfile.TemporaryDirectory(prefix="prompta-readme-") as temporary:
         root = Path(temporary)
-        jobs_path = root / "jobs.json"
-        state_path = root / "state.json"
+        runtime_path = root / "runtime.sqlite3"
+        jobs_path = runtime_path
+        state_path = runtime_path
         core.add_job(
             jobs_path,
             "ci-watch",
@@ -73,26 +74,20 @@ def _sample_output() -> str:
             "Draft release notes from changes merged since the last release.",
             60 * 60,
         )
-        state_path.write_text(
-            json.dumps(
-                {
-                    "jobs": {
-                        "ci-watch": {
-                            "last_sent_at": FIXED_NOW - 10 * 60,
-                            "next_due_at_epoch": FIXED_NOW + 20 * 60,
-                            "status": "healthy",
-                        },
-                        "morning-review": {
-                            "initial_due_at_epoch": FIXED_NOW + 45 * 60,
-                        },
-                        "release-notes": {"paused": True},
-                    }
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
+        scheduler = SchedulerRuntime(state_path, jobs_path)
+        scheduler.update_job_state(
+            "ci-watch",
+            {
+                "last_sent_at": FIXED_NOW - 10 * 60,
+                "next_due_at_epoch": FIXED_NOW + 20 * 60,
+                "status": "healthy",
+            },
         )
+        scheduler.update_job_state(
+            "morning-review",
+            {"initial_due_at_epoch": FIXED_NOW + 45 * 60},
+        )
+        scheduler.update_job_state("release-notes", {"paused": True})
 
         output = TtyBuffer()
         environment = {

@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import random
+import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .jobs import PromptJob, _next_daily_epoch, load_jobs
+from .persistence import (
+    DEFAULT_RUNTIME_PATH,
+    LEGACY_STATE_PATH,
+    connect_sqlite,
+    is_sqlite_file,
+    read_legacy_json,
+    remove_legacy_json,
+)
 from .rate_limit import RateLimitBackoff, RateLimitError
 
 logger = logging.getLogger(__name__)
@@ -29,54 +37,191 @@ class SchedulerRuntime:
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
 
+    def _migration_candidates(self) -> list[Path]:
+        target = self.state_path.expanduser()
+        candidates: list[Path] = []
+        if target.exists() and not is_sqlite_file(target):
+            candidates.append(target)
+        if target == DEFAULT_RUNTIME_PATH and LEGACY_STATE_PATH not in candidates:
+            candidates.append(LEGACY_STATE_PATH)
+        return candidates
+
+    def _connect_state(self) -> sqlite3.Connection:
+        target = self.state_path.expanduser()
+        legacy_payloads: list[tuple[Path, object]] = []
+        for candidate in self._migration_candidates():
+            payload = read_legacy_json(candidate)
+            if payload is not None:
+                legacy_payloads.append((candidate, payload))
+
+        if target.exists() and not is_sqlite_file(target):
+            target.unlink(missing_ok=True)
+
+        connection = connect_sqlite(target)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduler_state (
+                scope TEXT NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                key TEXT NOT NULL,
+                value_json TEXT NOT NULL,
+                PRIMARY KEY (scope, name, key)
+            )
+            """
+        )
+        existing = int(connection.execute("SELECT COUNT(*) FROM scheduler_state").fetchone()[0])
+        if existing == 0:
+            for _legacy_path, payload in legacy_payloads:
+                if not isinstance(payload, dict):
+                    continue
+                self._write_state_to_connection(connection, payload)
+                existing = int(
+                    connection.execute("SELECT COUNT(*) FROM scheduler_state").fetchone()[0]
+                )
+                if existing:
+                    logger.info("Migrated Prompta scheduler state into SQLite")
+                    break
+
+        for legacy_path, _payload in legacy_payloads:
+            remove_legacy_json(legacy_path)
+        return connection
+
+    @staticmethod
+    def _write_state_to_connection(
+        connection: sqlite3.Connection,
+        state: dict[str, Any],
+    ) -> None:
+        rows: list[tuple[str, str, str, str]] = []
+        scheduler = state.get("scheduler")
+        if isinstance(scheduler, dict):
+            rows.extend(
+                ("scheduler", "", str(key), json.dumps(value, ensure_ascii=False))
+                for key, value in scheduler.items()
+            )
+        jobs = state.get("jobs")
+        if isinstance(jobs, dict):
+            for name, raw_state in jobs.items():
+                if not isinstance(raw_state, dict):
+                    continue
+                rows.extend(
+                    ("job", str(name), str(key), json.dumps(value, ensure_ascii=False))
+                    for key, value in raw_state.items()
+                )
+        if rows:
+            connection.executemany(
+                """
+                INSERT INTO scheduler_state(scope, name, key, value_json)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(scope, name, key) DO UPDATE SET
+                    value_json = excluded.value_json
+                """,
+                rows,
+            )
+        connection.commit()
+
     def load_state(self) -> dict[str, Any]:
-        path = self.state_path.expanduser()
         try:
-            value = json.loads(path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            with self._connect_state() as connection:
+                rows = connection.execute(
+                    "SELECT scope, name, key, value_json FROM scheduler_state"
+                ).fetchall()
+        except (OSError, sqlite3.DatabaseError):
+            logger.warning("Could not read Prompta scheduler state", exc_info=True)
             return {}
-        return value if isinstance(value, dict) else {}
+
+        state: dict[str, Any] = {}
+        for row in rows:
+            try:
+                value = json.loads(str(row["value_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+            scope = str(row["scope"])
+            key = str(row["key"])
+            if scope == "scheduler":
+                state.setdefault("scheduler", {})[key] = value
+            elif scope == "job":
+                state.setdefault("jobs", {}).setdefault(str(row["name"]), {})[key] = value
+        return state
 
     def write_state(self, state: dict[str, Any]) -> None:
-        path = self.state_path.expanduser()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
-        os.chmod(temporary, 0o600)
-        temporary.replace(path)
+        with self._connect_state() as connection:
+            connection.execute("DELETE FROM scheduler_state")
+            self._write_state_to_connection(connection, state)
 
     def job_state(self, name: str) -> dict[str, Any]:
-        jobs = self.load_state().get("jobs")
-        if not isinstance(jobs, dict):
+        try:
+            with self._connect_state() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT key, value_json
+                    FROM scheduler_state
+                    WHERE scope = 'job' AND name = ?
+                    """,
+                    (name,),
+                ).fetchall()
+        except (OSError, sqlite3.DatabaseError):
             return {}
-        value = jobs.get(name)
-        return value if isinstance(value, dict) else {}
+        result: dict[str, Any] = {}
+        for row in rows:
+            try:
+                result[str(row["key"])] = json.loads(str(row["value_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return result
 
     def update_job_state(self, name: str, updates: dict[str, Any]) -> None:
-        state = self.load_state()
-        jobs = state.setdefault("jobs", {})
-        if not isinstance(jobs, dict):
-            jobs = {}
-            state["jobs"] = jobs
-        current = jobs.get(name)
-        if not isinstance(current, dict):
-            current = {}
-            jobs[name] = current
-        current.update(updates)
-        self.write_state(state)
+        if not updates:
+            return
+        with self._connect_state() as connection:
+            connection.executemany(
+                """
+                INSERT INTO scheduler_state(scope, name, key, value_json)
+                VALUES ('job', ?, ?, ?)
+                ON CONFLICT(scope, name, key) DO UPDATE SET
+                    value_json = excluded.value_json
+                """,
+                [
+                    (name, str(key), json.dumps(value, ensure_ascii=False))
+                    for key, value in updates.items()
+                ],
+            )
 
     def scheduler_state(self) -> dict[str, Any]:
-        value = self.load_state().get("scheduler")
-        return value if isinstance(value, dict) else {}
+        try:
+            with self._connect_state() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT key, value_json
+                    FROM scheduler_state
+                    WHERE scope = 'scheduler' AND name = ''
+                    """
+                ).fetchall()
+        except (OSError, sqlite3.DatabaseError):
+            return {}
+        result: dict[str, Any] = {}
+        for row in rows:
+            try:
+                result[str(row["key"])] = json.loads(str(row["value_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return result
 
     def update_scheduler_state(self, updates: dict[str, Any]) -> None:
-        state = self.load_state()
-        scheduler = state.setdefault("scheduler", {})
-        if not isinstance(scheduler, dict):
-            scheduler = {}
-            state["scheduler"] = scheduler
-        scheduler.update(updates)
-        self.write_state(state)
+        if not updates:
+            return
+        with self._connect_state() as connection:
+            connection.executemany(
+                """
+                INSERT INTO scheduler_state(scope, name, key, value_json)
+                VALUES ('scheduler', '', ?, ?)
+                ON CONFLICT(scope, name, key) DO UPDATE SET
+                    value_json = excluded.value_json
+                """,
+                [
+                    (str(key), json.dumps(value, ensure_ascii=False))
+                    for key, value in updates.items()
+                ],
+            )
 
     def restore_backoffs(self) -> None:
         state = self.load_state()

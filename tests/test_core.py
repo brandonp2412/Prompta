@@ -39,6 +39,7 @@ from prompta.core import (
     set_job_paused,
 )
 from prompta.scheduler_execution import _MAX_ACTIVE_BROWSER_CONVERSATIONS
+from prompta.scheduler_runtime import SchedulerRuntime
 from prompta.webdriver import BrowsingContextUnavailableError
 
 
@@ -958,9 +959,10 @@ def test_pause_state_round_trip(tmp_path: Path) -> None:
     add_job(jobs_path, "flux", "same")
 
     assert set_job_paused(jobs_path, state_path, "flux", True) is True
-    assert json.loads(state_path.read_text())["jobs"]["flux"]["paused"] is True
+    runtime = SchedulerRuntime(state_path, jobs_path)
+    assert runtime.job_state("flux")["paused"] is True
     assert set_job_paused(jobs_path, state_path, "flux", False) is True
-    assert json.loads(state_path.read_text())["jobs"]["flux"]["paused"] is False
+    assert runtime.job_state("flux")["paused"] is False
     assert set_job_paused(jobs_path, state_path, "missing", True) is False
 
 

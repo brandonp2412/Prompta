@@ -53,6 +53,7 @@ from .jobs import (
     load_jobs,
     remove_job,
 )
+from .persistence import DEFAULT_RUNTIME_PATH
 from .playwright_driver import PlaywrightDriver
 from .rate_limit import (
     DEFAULT_RETRY_AFTER,
@@ -73,8 +74,8 @@ _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 15.0
 BrowserDriver = PlaywrightDriver
 DriverFactory = Callable[[], BrowserDriver]
 
-DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
-DEFAULT_STATE_PATH = Path.home() / ".local" / "state" / "prompta" / "state.json"
+DEFAULT_JOBS_PATH = DEFAULT_RUNTIME_PATH
+DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
 DEFAULT_CHROME_PROFILE = Path.home() / ".local" / "state" / "prompta" / "chrome-profile"
 _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0

@@ -114,12 +114,18 @@ uv run prompta pause my-job
 uv run prompta resume my-job
 ```
 
-Runtime data defaults to:
+Runtime data defaults to SQLite-backed stores:
 
-- `~/.config/prompta/jobs.json`
-- `~/.local/state/prompta/state.json`
-- `~/.local/state/prompta/chrome-profile`
-- `~/.local/state/prompta/chats.sqlite3`
+- `~/.local/state/prompta/runtime.sqlite3` — scheduled jobs and scheduler state
+- `~/.local/state/prompta/chats.sqlite3` — conversation history and capture data
+- `~/.local/state/prompta/ui-send-jobs.sqlite3` — durable UI send queue and recovery
+- `~/.local/state/prompta/ui-pinned-chats.sqlite3` — shared pin state
+- `~/.local/state/prompta/ui-image-previews.sqlite3` — image-preview metadata
+- `~/.local/state/prompta/ui-conversation-state.sqlite3` — read/unread state
+- `~/.local/state/prompta/chrome-profile` — Chromium profile data
+
+Older JSON runtime stores are imported into their SQLite replacements once and are no
+longer written after migration.
 
 ## Conversation cache
 

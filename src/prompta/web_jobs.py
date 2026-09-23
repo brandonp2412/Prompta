@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 import subprocess
@@ -12,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .jobs import add_job, load_jobs
+from .scheduler_runtime import SchedulerRuntime
 
 
 def schedule_job_name(prompt: str, interval_minutes: float) -> str:
@@ -38,10 +38,7 @@ class WebJobService:
         self.start_scheduler = start_scheduler
 
     def scheduled_jobs(self) -> dict[str, Any]:
-        try:
-            state_payload = json.loads(self.state_path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            state_payload = {}
+        state_payload = SchedulerRuntime(self.state_path, self.jobs_path).load_state()
         state_jobs = state_payload.get("jobs") if isinstance(state_payload, dict) else {}
         if not isinstance(state_jobs, dict):
             state_jobs = {}
