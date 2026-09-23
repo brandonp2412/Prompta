@@ -6051,12 +6051,36 @@ var init_index_client = __esmMin((() => {
 }));
 //#endregion
 //#region src/prompta/ui/browserAttachments.svelte.ts
+function viewportPinnedToBottom(element) {
+	const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+	return Math.max(0, maxScrollTop - element.scrollTop) <= CONVERSATION_BOTTOM_SLOP;
+}
+function keepConversationViewportAtBottom(element) {
+	const restoreToken = ++conversationViewportRestoreToken;
+	requestAnimationFrame(() => {
+		if (restoreToken !== conversationViewportRestoreToken || conversationViewportElement !== element || !conversationViewportPinnedToBottom) return;
+		element.scrollTop = element.scrollHeight;
+	});
+}
 function conversationViewport() {
 	return (element) => {
 		conversationViewportElement = element;
+		conversationViewportPinnedToBottom = true;
+		const handleScroll = () => {
+			conversationViewportPinnedToBottom = viewportPinnedToBottom(element);
+		};
+		element.addEventListener("scroll", handleScroll, { passive: true });
+		const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+			if (conversationViewportElement === element && conversationViewportPinnedToBottom) keepConversationViewportAtBottom(element);
+		});
+		resizeObserver?.observe(element);
+		for (const child of Array.from(element.children)) resizeObserver?.observe(child);
 		return () => {
+			element.removeEventListener("scroll", handleScroll);
+			resizeObserver?.disconnect();
 			if (conversationViewportElement === element) conversationViewportElement = null;
 			conversationViewportRestoreToken += 1;
+			conversationViewportPinnedToBottom = true;
 		};
 	};
 }
@@ -6066,20 +6090,22 @@ function captureConversationViewport() {
 		pinnedToBottom: true,
 		scrollTop: 0
 	};
-	const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
 	return {
-		pinnedToBottom: Math.max(0, maxScrollTop - element.scrollTop) <= CONVERSATION_BOTTOM_SLOP,
+		pinnedToBottom: viewportPinnedToBottom(element),
 		scrollTop: element.scrollTop
 	};
 }
 function restoreConversationViewport(snapshot, forceBottom = false) {
 	const element = conversationViewportElement;
 	if (!element) return;
+	const shouldPinToBottom = forceBottom || Boolean(snapshot.pinnedToBottom);
+	conversationViewportPinnedToBottom = shouldPinToBottom;
 	const restoreToken = ++conversationViewportRestoreToken;
 	requestAnimationFrame(() => {
 		if (restoreToken !== conversationViewportRestoreToken || conversationViewportElement !== element) return;
-		if (forceBottom || snapshot.pinnedToBottom) {
+		if (shouldPinToBottom) {
 			element.scrollTop = element.scrollHeight;
+			keepConversationViewportAtBottom(element);
 			return;
 		}
 		const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
@@ -6209,12 +6235,13 @@ function dialogVisibility(getOpen, getModal, onNativeClose) {
 		return () => element.removeEventListener("close", handleClose);
 	};
 }
-var CONVERSATION_BOTTOM_SLOP, conversationViewportElement, conversationViewportRestoreToken;
+var CONVERSATION_BOTTOM_SLOP, conversationViewportElement, conversationViewportRestoreToken, conversationViewportPinnedToBottom;
 var init_browserAttachments_svelte = __esmMin((() => {
 	init_client();
 	CONVERSATION_BOTTOM_SLOP = 24;
 	conversationViewportElement = null;
 	conversationViewportRestoreToken = 0;
+	conversationViewportPinnedToBottom = true;
 }));
 //#endregion
 //#region src/prompta/ui/changelog.ts

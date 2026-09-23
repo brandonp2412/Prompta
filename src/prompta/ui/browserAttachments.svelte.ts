@@ -11,15 +11,64 @@ const CONVERSATION_BOTTOM_SLOP = 24;
 
 let conversationViewportElement: HTMLElement | null = null;
 let conversationViewportRestoreToken = 0;
+let conversationViewportPinnedToBottom = true;
+
+function viewportPinnedToBottom(element: HTMLElement) {
+  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+
+  return Math.max(0, maxScrollTop - element.scrollTop) <= CONVERSATION_BOTTOM_SLOP;
+}
+
+function keepConversationViewportAtBottom(element: HTMLElement) {
+  const restoreToken = ++conversationViewportRestoreToken;
+
+  requestAnimationFrame(() => {
+    if (
+      restoreToken !== conversationViewportRestoreToken ||
+      conversationViewportElement !== element ||
+      !conversationViewportPinnedToBottom
+    ) {
+      return;
+    }
+
+    element.scrollTop = element.scrollHeight;
+  });
+}
 
 export function conversationViewport(): Attachment<HTMLElement> {
   return (element) => {
     conversationViewportElement = element;
+    conversationViewportPinnedToBottom = true;
+
+    const handleScroll = () => {
+      conversationViewportPinnedToBottom = viewportPinnedToBottom(element);
+    };
+
+    element.addEventListener("scroll", handleScroll, { passive: true });
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            if (conversationViewportElement === element && conversationViewportPinnedToBottom) {
+              keepConversationViewportAtBottom(element);
+            }
+          });
+
+    resizeObserver?.observe(element);
+
+    for (const child of Array.from(element.children)) {
+      resizeObserver?.observe(child);
+    }
 
     return () => {
+      element.removeEventListener("scroll", handleScroll);
+      resizeObserver?.disconnect();
+
       if (conversationViewportElement === element) conversationViewportElement = null;
 
       conversationViewportRestoreToken += 1;
+      conversationViewportPinnedToBottom = true;
     };
   };
 }
@@ -29,11 +78,8 @@ export function captureConversationViewport(): ConversationViewportSnapshot {
 
   if (!element) return { pinnedToBottom: true, scrollTop: 0 };
 
-  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-  const bottomGap = Math.max(0, maxScrollTop - element.scrollTop);
-
   return {
-    pinnedToBottom: bottomGap <= CONVERSATION_BOTTOM_SLOP,
+    pinnedToBottom: viewportPinnedToBottom(element),
     scrollTop: element.scrollTop,
   };
 }
@@ -46,6 +92,9 @@ export function restoreConversationViewport(
 
   if (!element) return;
 
+  const shouldPinToBottom = forceBottom || Boolean(snapshot.pinnedToBottom);
+  conversationViewportPinnedToBottom = shouldPinToBottom;
+
   const restoreToken = ++conversationViewportRestoreToken;
   requestAnimationFrame(() => {
     if (
@@ -55,8 +104,9 @@ export function restoreConversationViewport(
       return;
     }
 
-    if (forceBottom || snapshot.pinnedToBottom) {
+    if (shouldPinToBottom) {
       element.scrollTop = element.scrollHeight;
+      keepConversationViewportAtBottom(element);
 
       return;
     }

@@ -19,7 +19,10 @@ function fakeViewport({
     scrollTop,
     scrollHeight,
     clientHeight,
-  } as HTMLElement;
+    children: [],
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  } as unknown as HTMLElement;
 }
 
 function attachViewport(element: HTMLElement) {
@@ -60,6 +63,42 @@ describe("conversation viewport memory", () => {
 
     cleanup();
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+  });
+
+  test("keeps a pinned chat at the newest message while late content changes its height", () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    globalThis.requestAnimationFrame = (callback) => {
+      callback(0);
+
+      return 1;
+    };
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    const element = fakeViewport({
+      scrollTop: 800,
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    const cleanup = attachViewport(element);
+
+    element.scrollHeight = 1600;
+    resizeCallback?.([], {} as ResizeObserver);
+    expect(element.scrollTop).toBe(1600);
+
+    cleanup();
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    globalThis.ResizeObserver = originalResizeObserver;
   });
 
   test("treats a viewport already near the bottom as pinned to the latest message", () => {
