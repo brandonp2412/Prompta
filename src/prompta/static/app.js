@@ -6236,6 +6236,32 @@ function dialogVisibility(getOpen, getModal, onNativeClose) {
 		return () => element.removeEventListener("close", handleClose);
 	};
 }
+function fitVisualViewport() {
+	return (element) => {
+		const viewport = window.visualViewport;
+		if (!viewport) return;
+		let animationFrame = 0;
+		const syncViewport = () => {
+			cancelAnimationFrame(animationFrame);
+			animationFrame = requestAnimationFrame(() => {
+				element.style.setProperty("--app-visual-viewport-height", `${viewport.height}px`);
+				element.style.setProperty("--app-visual-viewport-offset-top", `${viewport.offsetTop}px`);
+			});
+		};
+		viewport.addEventListener("resize", syncViewport, { passive: true });
+		viewport.addEventListener("scroll", syncViewport, { passive: true });
+		window.addEventListener("resize", syncViewport, { passive: true });
+		syncViewport();
+		return () => {
+			cancelAnimationFrame(animationFrame);
+			viewport.removeEventListener("resize", syncViewport);
+			viewport.removeEventListener("scroll", syncViewport);
+			window.removeEventListener("resize", syncViewport);
+			element.style.removeProperty("--app-visual-viewport-height");
+			element.style.removeProperty("--app-visual-viewport-offset-top");
+		};
+	};
+}
 function reportElementWidth(onWidth) {
 	return (element) => {
 		const updateWidth = () => onWidth(element.getBoundingClientRect().width);
@@ -17136,6 +17162,7 @@ function App($$anchor, $$props) {
 	});
 	reset(main);
 	reset(div);
+	attach(div, fitVisualViewport);
 	var button_6 = sibling(div, 2);
 	var text_5 = only_child(button_6, true);
 	var node_4 = sibling(button_6, 2);

@@ -15,6 +15,7 @@
   import {
     blurOnRequest,
     conversationViewport,
+    fitVisualViewport,
     focusOnRequest,
     reportElementWidth,
     scrollToTopOnRequest,
@@ -256,7 +257,7 @@
   onpointercancel={handleSidebarPointerCancel}
 />
 
-<div class="app-shell">
+<div {@attach fitVisualViewport()} class="app-shell">
   <aside
     {@attach reportElementWidth((width) => (sidebarWidth = width))}
     class={["sidebar", { "is-open": sidebarState.open }]}

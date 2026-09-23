@@ -293,6 +293,38 @@ export function dialogVisibility(
   };
 }
 
+export function fitVisualViewport(): Attachment<HTMLElement> {
+  return (element) => {
+    const viewport = window.visualViewport;
+
+    if (!viewport) return;
+
+    let animationFrame = 0;
+
+    const syncViewport = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        element.style.setProperty("--app-visual-viewport-height", `${viewport.height}px`);
+        element.style.setProperty("--app-visual-viewport-offset-top", `${viewport.offsetTop}px`);
+      });
+    };
+
+    viewport.addEventListener("resize", syncViewport, { passive: true });
+    viewport.addEventListener("scroll", syncViewport, { passive: true });
+    window.addEventListener("resize", syncViewport, { passive: true });
+    syncViewport();
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      viewport.removeEventListener("resize", syncViewport);
+      viewport.removeEventListener("scroll", syncViewport);
+      window.removeEventListener("resize", syncViewport);
+      element.style.removeProperty("--app-visual-viewport-height");
+      element.style.removeProperty("--app-visual-viewport-offset-top");
+    };
+  };
+}
+
 export function reportElementWidth(onWidth: (width: number) => void): Attachment<HTMLElement> {
   return (element) => {
     const updateWidth = () => onWidth(element.getBoundingClientRect().width);
