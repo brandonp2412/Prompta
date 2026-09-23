@@ -1,6 +1,90 @@
 <script lang="ts">
+  import { MediaQuery } from "svelte/reactivity";
+
+  import { dialogVisibility } from "./browserAttachments.svelte";
+  import { pendingLongPressMoved } from "./conversationLogic";
   import { sidebarListActions, sidebarListState } from "./sidebarState.svelte";
+
+  const coarsePointer = new MediaQuery("(pointer: coarse)");
+  let actionsChatId = $state("");
+  let actionsChatPinned = $state(false);
+  let actionsOpen = $state(false);
+  let longPressTimer: ReturnType<typeof setTimeout> | undefined;
+  let longPressPointerId: number | null = null;
+  let longPressStartX = 0;
+  let longPressStartY = 0;
+  let suppressSelectChatId = "";
+
+  function clearLongPress() {
+    if (longPressTimer !== undefined) {
+      clearTimeout(longPressTimer);
+      longPressTimer = undefined;
+    }
+
+    longPressPointerId = null;
+  }
+
+  function openActions(chatId: string, pinned: boolean) {
+    clearLongPress();
+    actionsChatId = chatId;
+    actionsChatPinned = pinned;
+    actionsOpen = true;
+  }
+
+  function closeActions() {
+    actionsOpen = false;
+    suppressSelectChatId = "";
+  }
+
+  function startLongPress(event: PointerEvent, chatId: string, pinned: boolean) {
+    if (!coarsePointer.current || event.pointerType === "mouse") return;
+
+    clearLongPress();
+    suppressSelectChatId = "";
+    longPressPointerId = event.pointerId;
+    longPressStartX = event.clientX;
+    longPressStartY = event.clientY;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = undefined;
+      longPressPointerId = null;
+      suppressSelectChatId = chatId;
+      openActions(chatId, pinned);
+    }, 480);
+  }
+
+  function moveLongPress(event: PointerEvent) {
+    if (event.pointerId !== longPressPointerId) return;
+
+    if (pendingLongPressMoved(longPressStartX, longPressStartY, event.clientX, event.clientY)) {
+      clearLongPress();
+    }
+  }
+
+  function endLongPress(event: PointerEvent) {
+    if (event.pointerId === longPressPointerId) clearLongPress();
+  }
+
+  function selectChat(chatId: string, optimisticNew: boolean) {
+    if (suppressSelectChatId === chatId) {
+      suppressSelectChatId = "";
+      return;
+    }
+
+    sidebarListActions.onSelect(chatId, optimisticNew);
+  }
+
+  function togglePinFromActions() {
+    const chatId = actionsChatId;
+    closeActions();
+    if (chatId) sidebarListActions.onPin(chatId);
+  }
 </script>
+
+<svelte:window
+  onkeydown={(event) => {
+    if (event.key === "Escape" && actionsOpen) closeActions();
+  }}
+/>
 
 {#if sidebarListState.model.groups.length === 0}
   <div class="list-empty">
@@ -22,7 +106,17 @@
             data-chat-id={chat.id}
             data-optimistic-new={chat.optimisticNew ? "true" : "false"}
             aria-current={chat.selected ? "true" : undefined}
-            onclick={() => sidebarListActions.onSelect(chat.id, chat.optimisticNew)}
+            onpointerdown={(event) => startLongPress(event, chat.id, chat.pinned)}
+            onpointermove={moveLongPress}
+            onpointerup={endLongPress}
+            onpointercancel={endLongPress}
+            oncontextmenu={(event) => {
+              if (!coarsePointer.current) return;
+              event.preventDefault();
+              suppressSelectChatId = chat.id;
+              openActions(chat.id, chat.pinned);
+            }}
+            onclick={() => selectChat(chat.id, chat.optimisticNew)}
           >
             <div class="chat-item-top">
               {#if chat.statusClass}
@@ -64,3 +158,17 @@
     </section>
   {/each}
 {/if}
+
+<dialog
+  {@attach dialogVisibility(() => actionsOpen, () => true, closeActions)}
+  class="pending-message-actions"
+  aria-labelledby="sidebarChatActionsTitle"
+>
+  <div class="pending-message-actions-shell">
+    <div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div>
+    <button type="button" class="pending-message-action" onclick={togglePinFromActions}>
+      {actionsChatPinned ? "Unpin chat" : "Pin chat"}
+    </button>
+    <button type="button" class="pending-message-action cancel" onclick={closeActions}>Cancel</button>
+  </div>
+</dialog>

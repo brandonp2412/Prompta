@@ -47,10 +47,6 @@ var init_esm_env = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/shared/utils.js
-/** @param {Function} fn */
-function run(fn) {
-	return fn();
-}
 /** @param {Array<() => void>} arr */
 function run_all(arr) {
 	for (var i = 0; i < arr.length; i++) arr[i]();
@@ -336,13 +332,7 @@ function svelte_boundary_reset_onerror() {
 var init_errors = __esmMin((() => {
 	init_esm_env();
 	init_errors$1();
-}));
-//#endregion
-//#region node_modules/svelte/src/internal/flags/index.js
-function enable_legacy_mode_flag() {
-	legacy_mode_flag = true;
-}
-var async_mode_flag, legacy_mode_flag;
+})), async_mode_flag, legacy_mode_flag;
 var init_flags = __esmMin((() => {
 	async_mode_flag = false;
 	legacy_mode_flag = false;
@@ -2358,15 +2348,6 @@ function create_user_effect(fn) {
 	return create_effect(4 | USER_EFFECT, fn);
 }
 /**
-* Internal representation of `$effect.pre(...)`
-* @param {() => void | (() => void)} fn
-* @returns {Effect}
-*/
-function user_pre_effect(fn) {
-	validate_effect("$effect.pre");
-	return create_effect(8 | USER_EFFECT, fn);
-}
-/**
 * An effect root whose children can transition out
 * @param {() => void} fn
 * @returns {(options?: { outro?: boolean }) => Promise<void>}
@@ -2999,46 +2980,6 @@ function untrack(fn) {
 		return fn();
 	} finally {
 		untracking = previous_untracking;
-	}
-}
-/**
-* Possibly traverse an object and read all its properties so that they're all reactive in case this is `$state`.
-* Does only check first level of an object for performance reasons (heuristic should be good for 99% of all cases).
-* @param {any} value
-* @returns {void}
-*/
-function deep_read_state(value) {
-	if (typeof value !== "object" || !value || value instanceof EventTarget) return;
-	if (STATE_SYMBOL in value) deep_read(value);
-	else if (!Array.isArray(value)) for (let key in value) {
-		const prop = value[key];
-		if (typeof prop === "object" && prop && STATE_SYMBOL in prop) deep_read(prop);
-	}
-}
-/**
-* Deeply traverse an object and read all its properties
-* so that they're all reactive in case this is `$state`
-* @param {any} value
-* @param {Set<any>} visited
-* @returns {void}
-*/
-function deep_read(value, visited = /* @__PURE__ */ new Set()) {
-	if (typeof value === "object" && value !== null && !(value instanceof EventTarget) && !visited.has(value)) {
-		visited.add(value);
-		if (value instanceof Date) value.getTime();
-		for (let key in value) try {
-			deep_read(value[key], visited);
-		} catch (e) {}
-		const proto = get_prototype_of(value);
-		if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== Date.prototype) {
-			const descriptors = get_descriptors(proto);
-			for (let key in descriptors) {
-				const get = descriptors[key].get;
-				if (get) try {
-					get.call(value);
-				} catch (e) {}
-			}
-		}
 	}
 }
 var is_updating_effect, is_destroying_effect, active_reaction, untracking, active_effect, current_sources, new_deps, skipped_deps, untracked_writes, write_version, read_version, update_version;
@@ -5600,55 +5541,6 @@ var init_event_modifiers = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
-/**
-* Legacy-mode only: Call `onMount` callbacks and set up `beforeUpdate`/`afterUpdate` effects
-* @param {boolean} [immutable]
-*/
-function init(immutable = false) {
-	const context = component_context;
-	const callbacks = context.l.u;
-	if (!callbacks) return;
-	let props = () => deep_read_state(context.s);
-	if (immutable) {
-		let version = 0;
-		let prev = {};
-		const d = /* @__PURE__ */ derived(() => {
-			let changed = false;
-			const props = context.s;
-			for (const key in props) if (props[key] !== prev[key]) {
-				prev[key] = props[key];
-				changed = true;
-			}
-			if (changed) version++;
-			return version;
-		});
-		props = () => get(d);
-	}
-	if (callbacks.b.length) user_pre_effect(() => {
-		observe_all(context, props);
-		run_all(callbacks.b);
-	});
-	user_effect(() => {
-		const fns = untrack(() => callbacks.m.map(run));
-		return () => {
-			for (const fn of fns) if (typeof fn === "function") fn();
-		};
-	});
-	if (callbacks.a.length) user_effect(() => {
-		observe_all(context, props);
-		run_all(callbacks.a);
-	});
-}
-/**
-* Invoke the getter of all signals associated with a component
-* so they can be registered to the effect this function is called in.
-* @param {ComponentContextLegacy} context
-* @param {(() => void)} props
-*/
-function observe_all(context, props) {
-	if (context.l.s) for (const signal of context.l.s) get(signal);
-	props();
-}
 var init_lifecycle = __esmMin((() => {
 	init_utils$3();
 	init_context();
@@ -15513,7 +15405,7 @@ var root_2$3 = /* @__PURE__ */ from_html(`<em><!></em>`);
 var root_3$3 = /* @__PURE__ */ from_html(`<del><!></del>`);
 var root_4$3 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<br/>`);
-var root_6$2 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
+var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
 var root_7$2 = /* @__PURE__ */ from_html(`<p><!></p>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
 var root_9 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
@@ -15644,7 +15536,7 @@ function MarkdownContent($$anchor, $$props) {
 				var fragment_9 = comment();
 				var node_10 = first_child(fragment_9);
 				var consequent_10 = ($$anchor) => {
-					var a = root_6$2();
+					var a = root_6$3();
 					var node_11 = child(a);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16188,7 +16080,7 @@ var root_2$2 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img 
 var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
 var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="delete-pending-button" aria-label="Delete queued message" title="Delete queued message">×</button>`);
 var root_5$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
-var root_6$1 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
+var root_6$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
 var root_7$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
 var root_8$1 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function ConversationMessages($$anchor, $$props) {
@@ -16401,7 +16293,7 @@ function ConversationMessages($$anchor, $$props) {
 		var text_3 = only_child(span_1, true);
 		var node_9 = sibling(span_1, 2);
 		var consequent_7 = ($$anchor) => {
-			var span_2 = root_6$1();
+			var span_2 = root_6$2();
 			var text_4 = only_child(span_2);
 			template_effect(() => set_text(text_4, `· ${value.age ?? ""}`));
 			append($$anchor, span_2);
@@ -16478,7 +16370,7 @@ var root_2$1 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
 var root_3$1 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
 var root_4$1 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> </div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
-var root_6 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
 var root_7 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
 var root_8 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
 function JobsDialog($$anchor, $$props) {
@@ -16697,7 +16589,7 @@ function JobsDialog($$anchor, $$props) {
 		append($$anchor, label_3);
 	};
 	var alternate_1 = ($$anchor) => {
-		var label_4 = root_6();
+		var label_4 = root_6$1();
 		var input_2 = sibling(child(label_4), 2);
 		remove_input_defaults(input_2);
 		reset(label_4);
@@ -16845,10 +16737,6 @@ function LogsPanel($$anchor, $$props) {
 	return pop($$exports);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/flags/legacy.js
-init_flags();
-enable_legacy_mode_flag();
-//#endregion
 //#region src/prompta/ui/sidebarState.svelte.ts
 function configureSidebar(onMotionEnd) {
 	motionEnd = onMotionEnd;
@@ -16886,6 +16774,9 @@ var init_sidebarState_svelte = __esmMin((() => {
 //#endregion
 //#region src/prompta/ui/SidebarList.svelte
 init_client();
+init_index_client();
+init_browserAttachments_svelte();
+init_conversationLogic();
 init_sidebarState_svelte();
 var root$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
 var root_1$1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
@@ -16893,10 +16784,72 @@ var root_2 = /* @__PURE__ */ from_html(`<span></span>`);
 var root_3 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
 var root_4 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
 var root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
+var root_6 = /* @__PURE__ */ from_html(`<!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"> </button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function SidebarList($$anchor, $$props) {
-	push($$props, false);
-	init();
-	var fragment = comment();
+	push($$props, true);
+	const coarsePointer = new MediaQuery("(pointer: coarse)");
+	let actionsChatId = /* @__PURE__ */ state$1("");
+	let actionsChatPinned = /* @__PURE__ */ state$1(false);
+	let actionsOpen = /* @__PURE__ */ state$1(false);
+	let longPressTimer;
+	let longPressPointerId = null;
+	let longPressStartX = 0;
+	let longPressStartY = 0;
+	let suppressSelectChatId = "";
+	function clearLongPress() {
+		if (longPressTimer !== void 0) {
+			clearTimeout(longPressTimer);
+			longPressTimer = void 0;
+		}
+		longPressPointerId = null;
+	}
+	function openActions(chatId, pinned) {
+		clearLongPress();
+		set(actionsChatId, chatId, true);
+		set(actionsChatPinned, pinned, true);
+		set(actionsOpen, true);
+	}
+	function closeActions() {
+		set(actionsOpen, false);
+		suppressSelectChatId = "";
+	}
+	function startLongPress(event, chatId, pinned) {
+		if (!coarsePointer.current || event.pointerType === "mouse") return;
+		clearLongPress();
+		suppressSelectChatId = "";
+		longPressPointerId = event.pointerId;
+		longPressStartX = event.clientX;
+		longPressStartY = event.clientY;
+		longPressTimer = setTimeout(() => {
+			longPressTimer = void 0;
+			longPressPointerId = null;
+			suppressSelectChatId = chatId;
+			openActions(chatId, pinned);
+		}, 480);
+	}
+	function moveLongPress(event) {
+		if (event.pointerId !== longPressPointerId) return;
+		if (pendingLongPressMoved(longPressStartX, longPressStartY, event.clientX, event.clientY)) clearLongPress();
+	}
+	function endLongPress(event) {
+		if (event.pointerId === longPressPointerId) clearLongPress();
+	}
+	function selectChat(chatId, optimisticNew) {
+		if (suppressSelectChatId === chatId) {
+			suppressSelectChatId = "";
+			return;
+		}
+		sidebarListActions.onSelect(chatId, optimisticNew);
+	}
+	function togglePinFromActions() {
+		const chatId = get(actionsChatId);
+		closeActions();
+		if (chatId) sidebarListActions.onPin(chatId);
+	}
+	var fragment = root_6();
+	event("keydown", $window, (event) => {
+		if (event.key === "Escape" && get(actionsOpen)) closeActions();
+	});
 	var node = first_child(fragment);
 	var consequent_1 = ($$anchor) => {
 		var div = root_1$1();
@@ -16918,11 +16871,11 @@ function SidebarList($$anchor, $$props) {
 	};
 	var alternate_1 = ($$anchor) => {
 		var fragment_2 = comment();
-		each(first_child(fragment_2), 1, () => sidebarListState.model.groups, (group) => group.label, ($$anchor, group) => {
+		each(first_child(fragment_2), 17, () => sidebarListState.model.groups, (group) => group.label, ($$anchor, group) => {
 			var section = root_5();
 			var div_1 = child(section);
 			var text_1 = only_child(div_1, true);
-			each(sibling(div_1, 2), 1, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
+			each(sibling(div_1, 2), 17, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
 				var div_2 = root_4();
 				var button = child(div_2);
 				var div_3 = child(button);
@@ -16977,7 +16930,17 @@ function SidebarList($$anchor, $$props) {
 					set_attribute(button_1, "title", get(chat).pinned ? "Unpin chat" : "Pin chat");
 					set_attribute(button_1, "aria-pressed", get(chat).pinned);
 				});
-				delegated("click", button, () => sidebarListActions.onSelect(get(chat).id, get(chat).optimisticNew));
+				delegated("pointerdown", button, (event) => startLongPress(event, get(chat).id, get(chat).pinned));
+				delegated("pointermove", button, moveLongPress);
+				delegated("pointerup", button, endLongPress);
+				event("pointercancel", button, endLongPress);
+				delegated("contextmenu", button, (event) => {
+					if (!coarsePointer.current) return;
+					event.preventDefault();
+					suppressSelectChatId = get(chat).id;
+					openActions(get(chat).id, get(chat).pinned);
+				});
+				delegated("click", button, () => selectChat(get(chat).id, get(chat).optimisticNew));
 				delegated("click", button_1, () => sidebarListActions.onPin(get(chat).id));
 				append($$anchor, div_2);
 			});
@@ -16994,10 +16957,27 @@ function SidebarList($$anchor, $$props) {
 		if (sidebarListState.model.groups.length === 0) $$render(consequent_1);
 		else $$render(alternate_1, -1);
 	});
+	var dialog = sibling(node, 2);
+	var div_6 = child(dialog);
+	var button_2 = sibling(child(div_6), 2);
+	var text_6 = only_child(button_2, true);
+	var button_3 = sibling(button_2, 2);
+	reset(div_6);
+	reset(dialog);
+	attach(dialog, () => dialogVisibility(() => get(actionsOpen), () => true, closeActions));
+	template_effect(() => set_text(text_6, get(actionsChatPinned) ? "Unpin chat" : "Pin chat"));
+	delegated("click", button_2, togglePinFromActions);
+	delegated("click", button_3, closeActions);
 	append($$anchor, fragment);
 	pop();
 }
-delegate(["click"]);
+delegate([
+	"pointerdown",
+	"pointermove",
+	"pointerup",
+	"contextmenu",
+	"click"
+]);
 //#endregion
 //#region src/prompta/ui/sidebarGesture.ts
 function sidebarDragDirection(deltaX, deltaY) {
