@@ -34,7 +34,6 @@ from .chatgpt_dom import (
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
     FILE_INPUT_SELECTORS,
     MESSAGE_ROLE_SELECTOR,
-    RATE_LIMIT_SELECTORS,
     SEND_BUTTON_SELECTORS,
     STOP_BUTTON_SELECTORS,
 )
@@ -503,7 +502,7 @@ class PlaywrightDriver(BrowserDriverBase):
             return True
         fallback = await self._first_usable(
             [
-                page.locator('button[data-testid="login-button"]'),
+                page.get_by_test_id("login-button"),
                 page.locator('a[href*="/auth/login"]'),
                 page.locator('a[href*="/login"]'),
             ],
@@ -794,7 +793,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 [
                     page.get_by_role("progressbar"),
                     page.locator('[aria-busy="true"]'),
-                    page.locator('[data-testid*="upload" i]'),
+                    page.get_by_test_id(re.compile(r"upload", re.IGNORECASE)),
                 ],
                 enabled=False,
             )
@@ -856,7 +855,7 @@ class PlaywrightDriver(BrowserDriverBase):
         # Conversation-history throttling is unrelated to sending prompts. Dismiss
         # it for hygiene, but never surface it as a send-rate-limit signal.
         history_rate_limit = await self._first_usable(
-            [page.locator(CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR)],
+            [page.get_by_test_id("modal-conversation-history-rate-limit")],
             enabled=False,
         )
         if history_rate_limit is not None:
@@ -892,22 +891,23 @@ class PlaywrightDriver(BrowserDriverBase):
 
         # Fall back only to stable rate-limit test IDs. The history-throttling
         # test ID also contains "rate-limit", so explicitly exclude it.
-        for selector in RATE_LIMIT_SELECTORS:
-            matches = page.locator(selector).filter(has_text=_RATE_LIMIT_RE)
+        matches = page.get_by_test_id(re.compile(r"rate-limit", re.IGNORECASE)).filter(
+            has_text=_RATE_LIMIT_RE
+        )
+        try:
+            match_count = min(await matches.count(), 12)
+        except PlaywrightError:
+            match_count = 0
+        for index in range(match_count):
+            candidate = matches.nth(index)
             try:
-                match_count = min(await matches.count(), 12)
-            except PlaywrightError:
-                match_count = 0
-            for index in range(match_count):
-                candidate = matches.nth(index)
-                try:
-                    if not await candidate.is_visible() or await is_history_rate_limit(candidate):
-                        continue
-                    text = (await candidate.inner_text()).strip()
-                except PlaywrightError:
+                if not await candidate.is_visible() or await is_history_rate_limit(candidate):
                     continue
-                if text and text not in rate_limit_texts:
-                    rate_limit_texts.append(text)
+                text = (await candidate.inner_text()).strip()
+            except PlaywrightError:
+                continue
+            if text and text not in rate_limit_texts:
+                rate_limit_texts.append(text)
 
         if rate_limit_dialog is not None:
             dismiss = await self._first_usable(
@@ -951,33 +951,25 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _effort_trigger_locator(self) -> Locator | None:
         page = self._page()
-        buttons = page.get_by_role("button")
-        try:
-            count = min(await buttons.count(), 100)
-        except PlaywrightError:
-            return None
-        for index in range(count):
-            button = buttons.nth(index)
+        semantic_candidates = [
+            page.get_by_role("button", name=re.compile(r"thinking effort", re.IGNORECASE)),
+            page.get_by_role("button", name=_EFFORT_RE),
+        ]
+        for buttons in semantic_candidates:
             try:
-                if not await button.is_visible() or not await button.is_enabled():
-                    continue
-                if not await button.get_attribute("aria-haspopup"):
-                    continue
-                label = " ".join(
-                    filter(
-                        None,
-                        (
-                            await button.get_attribute("aria-label"),
-                            await button.get_attribute("title"),
-                            await button.inner_text(),
-                        ),
-                    )
-                )
-                normalized = re.sub(r"\s+", " ", label).strip()
-                if normalized.casefold() == "thinking effort" or _EFFORT_RE.search(normalized):
-                    return button
+                count = min(await buttons.count(), 12)
             except PlaywrightError:
                 continue
+            for index in range(count):
+                button = buttons.nth(index)
+                try:
+                    if not await button.is_visible() or not await button.is_enabled():
+                        continue
+                    if not await button.get_attribute("aria-haspopup"):
+                        continue
+                    return button
+                except PlaywrightError:
+                    continue
         return None
 
     async def effort_trigger_info(self, timeout: float = 20.0) -> dict[str, Any]:
@@ -1059,7 +1051,7 @@ class PlaywrightDriver(BrowserDriverBase):
             return await self._first_usable(
                 [
                     page.get_by_role("menuitemradio", name=model_name_re),
-                    page.locator('[role="menuitemradio"]').filter(has_text=model_name_re),
+                    page.get_by_role("menuitemradio").filter(has_text=model_name_re),
                 ],
                 enabled=True,
             )
@@ -1107,7 +1099,7 @@ class PlaywrightDriver(BrowserDriverBase):
         if power is None:
             return {}
 
-        slider = power.locator('[role="slider"]')
+        slider = power.get_by_role("slider", include_hidden=True)
         try:
             if await slider.count() < 1:
                 return {}

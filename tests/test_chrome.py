@@ -456,10 +456,17 @@ def test_flaresolverr_filters_to_cloudflare_cookies(tmp_path: Path) -> None:
     assert cookies == [{"name": "cf_clearance", "value": "ok"}]
 
 
-def test_semantic_locators_are_first_in_composer_and_button_helpers() -> None:
+def test_semantic_locators_are_first_in_browser_controls() -> None:
     composer_source = inspect.getsource(PlaywrightDriver._composer)
     button_source = inspect.getsource(PlaywrightDriver._semantic_button)
+    effort_trigger_source = inspect.getsource(PlaywrightDriver._effort_trigger_locator)
+    model_source = inspect.getsource(PlaywrightDriver.select_effort_model)
+    power_source = inspect.getsource(PlaywrightDriver.effort_power_info)
 
     assert composer_source.index("get_by_role") < composer_source.index("locator(selector)")
     assert button_source.index("get_by_role") < button_source.index("get_by_test_id")
     assert button_source.index("get_by_test_id") < button_source.index("locator(selector)")
+    assert 'get_by_role("button", name=' in effort_trigger_source
+    assert 'get_by_role("menuitemradio").filter' in model_source
+    assert 'get_by_role("slider", include_hidden=True)' in power_source
+    assert "locator('[role=\"slider\"]')" not in power_source
