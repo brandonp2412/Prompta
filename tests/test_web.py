@@ -785,6 +785,25 @@ def test_stop_conversation_uses_local_backend(tmp_path: Path) -> None:
     stop.assert_called_once_with("chat-1")
 
 
+def test_send_job_registry_restores_before_starting_worker(tmp_path: Path) -> None:
+    events: list[str] = []
+    recovery_path = tmp_path / "ui-send-retries.json"
+
+    with (
+        patch.object(
+            SendJobRegistry,
+            "_restore_recoverable",
+            autospec=True,
+            side_effect=lambda _registry: events.append("restore"),
+        ),
+        patch("prompta.send_jobs.threading.Thread") as thread_class,
+    ):
+        thread_class.return_value.start.side_effect = lambda: events.append("start")
+        SendJobRegistry(lambda *_args: "unused", recovery_path=recovery_path)
+
+    assert events == ["restore", "start"]
+
+
 def test_send_job_registry_returns_before_sender_finishes() -> None:
     release = Event()
 

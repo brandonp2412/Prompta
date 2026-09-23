@@ -78,13 +78,13 @@ class SendJobRegistry:
         self._recoverable: dict[str, dict[str, Any]] = {}
         self._cancelled: set[str] = set()
         self._initialize_database()
+        self._restore_recoverable()
         self._worker = threading.Thread(
             target=self._worker_loop,
             name="prompta-ui-send-worker",
             daemon=True,
         )
         self._worker.start()
-        self._restore_recoverable()
 
     def _connect_database(self) -> sqlite3.Connection | None:
         if self._queue_path is None:
