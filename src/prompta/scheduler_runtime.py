@@ -65,6 +65,30 @@ class SchedulerRuntime:
         current.update(updates)
         self.write_state(state)
 
+    def set_job_paused(self, name: str, paused: bool) -> bool:
+        if name not in load_jobs(self.jobs_file):
+            return False
+        self.update_job_state(name, {"paused": paused})
+        return True
+
+    def set_all_jobs_paused(self, paused: bool) -> int:
+        names = list(load_jobs(self.jobs_file))
+        if not names:
+            return 0
+        state = self.load_state()
+        jobs = state.setdefault("jobs", {})
+        if not isinstance(jobs, dict):
+            jobs = {}
+            state["jobs"] = jobs
+        for name in names:
+            current = jobs.get(name)
+            if not isinstance(current, dict):
+                current = {}
+                jobs[name] = current
+            current["paused"] = paused
+        self.write_state(state)
+        return len(names)
+
     def scheduler_state(self) -> dict[str, Any]:
         value = self.load_state().get("scheduler")
         return value if isinstance(value, dict) else {}

@@ -34,6 +34,7 @@ from prompta.core import (
     add_job,
     clear_jobs,
     load_jobs,
+    main,
     parse_retry_after,
     remove_job,
     set_job_paused,
@@ -1330,6 +1331,77 @@ def test_retry_after_parser() -> None:
     assert parse_retry_after("Please wait 2 minutes") == 120
     assert parse_retry_after("Try again in 1 hour") == 3600
     assert parse_retry_after("Wait a few minutes") == 300
+
+
+def test_replace_alias_parses_as_add_command() -> None:
+    args = _parser().parse_args(["replace", "flux", "Keep working"])
+
+    assert args.command == "replace"
+    assert args.name == "flux"
+    assert args.prompt == "Keep working"
+
+
+def test_pause_command_allows_omitted_name() -> None:
+    args = _parser().parse_args(["pause"])
+
+    assert args.command == "pause"
+    assert args.name is None
+
+
+def test_pause_without_name_pauses_all_jobs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    add_job(jobs_path, "flux", "Continue Flux")
+    add_job(jobs_path, "kite", "Continue Kite")
+
+    with patch(
+        "sys.argv",
+        [
+            "prompta",
+            "pause",
+            "--jobs-file",
+            str(jobs_path),
+            "--state",
+            str(state_path),
+        ],
+    ):
+        main()
+
+    state = json.loads(state_path.read_text())
+    assert state["jobs"]["flux"]["paused"] is True
+    assert state["jobs"]["kite"]["paused"] is True
+    assert "Paused 2 jobs" in capsys.readouterr().out
+
+
+def test_replace_command_overwrites_named_job(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    add_job(jobs_path, "flux", "Old prompt", 1200)
+
+    with patch(
+        "sys.argv",
+        [
+            "prompta",
+            "replace",
+            "flux",
+            "New prompt",
+            "--interval-minutes",
+            "30",
+            "--jobs-file",
+            str(jobs_path),
+        ],
+    ):
+        main()
+
+    job = load_jobs(jobs_path)["flux"]
+    assert job.prompt == "New prompt"
+    assert job.interval_seconds == 1800
+    assert "Saved flux" in capsys.readouterr().out
 
 
 def test_ls_alias_parses_as_list_command() -> None:

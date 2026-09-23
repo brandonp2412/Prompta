@@ -94,6 +94,9 @@ uv run prompta show flux-roadmap
 # Add or replace a 40-minute job
 uv run prompta add my-job "Do the maximum amount of work possible."
 
+# replace is an explicit alias for the same named-job upsert
+uv run prompta replace my-job "Use this updated prompt instead."
+
 # Add or replace a job with another cadence
 uv run prompta add my-job "Do the maximum amount of work possible." --interval-minutes 60
 
@@ -109,7 +112,10 @@ uv run prompta remove my-job
 # Remove all jobs
 uv run prompta clear
 
-# Pause or resume a job
+# Pause every configured job
+uv run prompta pause
+
+# Pause or resume one named job
 uv run prompta pause my-job
 uv run prompta resume my-job
 ```
@@ -171,9 +177,8 @@ system notification. Recurring jobs can be created directly from the composer:
 
 Intervals accept seconds, minutes, hours, and days from 6 seconds through 30 days.
 Repeating an equivalent command reuses the existing schedule. Use `/list` in the
-composer to open the scheduled-jobs manager. Its add, edit,
-pause, resume, remove, and clear actions map to the corresponding Prompta CLI
-commands. `/every` and `/jobs` remain accepted as compatibility aliases.
+composer to open the scheduled-jobs manager. Its add/replace, show/list,
+pause, resume, remove, and clear actions use the same direct job-control primitives as the Prompta CLI. `/every` and `/jobs` remain accepted as compatibility aliases.
 
 Features also include client-first optimistic sends with SSE reconciliation, replies
 to existing chats, history grouped by recency, full-text search across cached
