@@ -1,3 +1,7 @@
+import {
+  captureConversationViewport,
+  restoreConversationViewport,
+} from "./browserAttachments.svelte";
 import { conversationState } from "./conversationState.svelte";
 
 import { imageAttachments } from "./conversationLogic";
@@ -37,18 +41,6 @@ export function createConversationRenderer({
       message.display_at,
       allowStreaming,
     ]);
-  }
-
-  function captureConversationViewport() {
-    return { pinnedToBottom: true, scrollTop: 0 };
-  }
-
-  function restoreConversationViewport(
-    snapshot: { pinnedToBottom?: boolean; scrollTop?: number },
-    forceBottom = false,
-  ) {
-    void snapshot;
-    void forceBottom;
   }
 
   return {

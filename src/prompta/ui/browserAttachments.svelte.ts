@@ -2,6 +2,71 @@ import type { Attachment } from "svelte/attachments";
 
 type TextInput = HTMLInputElement | HTMLTextAreaElement;
 
+export type ConversationViewportSnapshot = {
+  pinnedToBottom: boolean;
+  scrollTop: number;
+};
+
+const CONVERSATION_BOTTOM_SLOP = 24;
+
+let conversationViewportElement: HTMLElement | null = null;
+let conversationViewportRestoreToken = 0;
+
+export function conversationViewport(): Attachment<HTMLElement> {
+  return (element) => {
+    conversationViewportElement = element;
+
+    return () => {
+      if (conversationViewportElement === element) conversationViewportElement = null;
+
+      conversationViewportRestoreToken += 1;
+    };
+  };
+}
+
+export function captureConversationViewport(): ConversationViewportSnapshot {
+  const element = conversationViewportElement;
+
+  if (!element) return { pinnedToBottom: true, scrollTop: 0 };
+
+  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+  const bottomGap = Math.max(0, maxScrollTop - element.scrollTop);
+
+  return {
+    pinnedToBottom: bottomGap <= CONVERSATION_BOTTOM_SLOP,
+    scrollTop: element.scrollTop,
+  };
+}
+
+export function restoreConversationViewport(
+  snapshot: Partial<ConversationViewportSnapshot>,
+  forceBottom = false,
+) {
+  const element = conversationViewportElement;
+
+  if (!element) return;
+
+  const restoreToken = ++conversationViewportRestoreToken;
+  requestAnimationFrame(() => {
+    if (
+      restoreToken !== conversationViewportRestoreToken ||
+      conversationViewportElement !== element
+    ) {
+      return;
+    }
+
+    if (forceBottom || snapshot.pinnedToBottom) {
+      element.scrollTop = element.scrollHeight;
+
+      return;
+    }
+
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    const rememberedScrollTop = Math.max(0, Number(snapshot.scrollTop) || 0);
+    element.scrollTop = Math.min(rememberedScrollTop, maxScrollTop);
+  });
+}
+
 export function focusOnRequest(
   getRequest: () => number,
 ): Attachment<TextInput | HTMLButtonElement> {

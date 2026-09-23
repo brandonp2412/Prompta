@@ -13,6 +13,7 @@
   } from "./appViewState.svelte";
   import {
     blurOnRequest,
+    conversationViewport,
     focusOnRequest,
     scrollToTopOnRequest,
   } from "./browserAttachments.svelte";
@@ -233,6 +234,7 @@
     </header>
 
     <section
+      {@attach conversationViewport()}
       class={["conversation-viewport", { "chat-switching": appViewState.chatSwitching }]}
       id="conversationViewport"
       aria-busy={appViewState.chatSwitching ? "true" : undefined}

@@ -6051,8 +6051,42 @@ var init_index_client = __esmMin((() => {
 }));
 //#endregion
 //#region src/prompta/ui/browserAttachments.svelte.ts
-init_index_client();
-init_client();
+function conversationViewport() {
+	return (element) => {
+		conversationViewportElement = element;
+		return () => {
+			if (conversationViewportElement === element) conversationViewportElement = null;
+			conversationViewportRestoreToken += 1;
+		};
+	};
+}
+function captureConversationViewport() {
+	const element = conversationViewportElement;
+	if (!element) return {
+		pinnedToBottom: true,
+		scrollTop: 0
+	};
+	const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+	return {
+		pinnedToBottom: Math.max(0, maxScrollTop - element.scrollTop) <= CONVERSATION_BOTTOM_SLOP,
+		scrollTop: element.scrollTop
+	};
+}
+function restoreConversationViewport(snapshot, forceBottom = false) {
+	const element = conversationViewportElement;
+	if (!element) return;
+	const restoreToken = ++conversationViewportRestoreToken;
+	requestAnimationFrame(() => {
+		if (restoreToken !== conversationViewportRestoreToken || conversationViewportElement !== element) return;
+		if (forceBottom || snapshot.pinnedToBottom) {
+			element.scrollTop = element.scrollHeight;
+			return;
+		}
+		const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+		const rememberedScrollTop = Math.max(0, Number(snapshot.scrollTop) || 0);
+		element.scrollTop = Math.min(rememberedScrollTop, maxScrollTop);
+	});
+}
 function focusOnRequest(getRequest) {
 	return (element) => {
 		let lastRequest = 0;
@@ -6175,8 +6209,17 @@ function dialogVisibility(getOpen, getModal, onNativeClose) {
 		return () => element.removeEventListener("close", handleClose);
 	};
 }
+var CONVERSATION_BOTTOM_SLOP, conversationViewportElement, conversationViewportRestoreToken;
+var init_browserAttachments_svelte = __esmMin((() => {
+	init_client();
+	CONVERSATION_BOTTOM_SLOP = 24;
+	conversationViewportElement = null;
+	conversationViewportRestoreToken = 0;
+}));
 //#endregion
 //#region src/prompta/ui/changelog.ts
+init_index_client();
+init_browserAttachments_svelte();
 function changelogEntries(payload) {
 	if (!payload || typeof payload !== "object" || !Array.isArray(payload.changes)) return [];
 	return payload.changes;
@@ -6330,6 +6373,7 @@ delegate(["click"]);
 //#endregion
 //#region src/prompta/ui/AttachmentPicker.svelte
 init_client();
+init_browserAttachments_svelte();
 init_uiControllers();
 var root$7 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
 var root_1$6 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" tabindex="-1" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
@@ -7160,6 +7204,7 @@ init_client();
 init_index_client();
 init_appActions_svelte();
 init_appViewState_svelte();
+init_browserAttachments_svelte();
 init_clientLogic();
 var root$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
 var root_1$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
@@ -15997,6 +16042,7 @@ var init_conversationState_svelte = __esmMin((() => {
 init_client();
 init_index_client();
 init_appViewState_svelte();
+init_browserAttachments_svelte();
 init_clientLogic();
 init_conversationState_svelte();
 var root$4 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div> <div class="conversation-loading-row conversation-loading-assistant"></div> <div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
@@ -16252,6 +16298,7 @@ function jobPromptIsExpandable(promptValue) {
 //#region src/prompta/ui/JobsDialog.svelte
 init_client();
 init_index_client();
+init_browserAttachments_svelte();
 init_clientLogic();
 init_uiControllers();
 var root$3 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No scheduled jobs.</div>`);
@@ -16543,6 +16590,7 @@ delegate(["click"]);
 //#region src/prompta/ui/LogsPanel.svelte
 init_client();
 init_appViewState_svelte();
+init_browserAttachments_svelte();
 init_uiControllers();
 var root$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div><strong> </strong><span> </span></div> <span class="logs-live"><i></i> live</span></div> <pre class="log-output"> </pre></div></section>`);
 function LogsPanel($$anchor, $$props) {
@@ -16783,6 +16831,7 @@ delegate(["click"]);
 init_client();
 init_appActions_svelte();
 init_appViewState_svelte();
+init_browserAttachments_svelte();
 init_uiControllers();
 init_sidebarState_svelte();
 var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`);
@@ -16886,6 +16935,7 @@ function App($$anchor, $$props) {
 	ConversationMessages(child(article), {});
 	reset(article);
 	reset(section);
+	attach(section, conversationViewport);
 	var node_2 = sibling(section, 2);
 	LogsPanel(node_2, {});
 	var node_3 = sibling(node_2, 2);
@@ -17207,13 +17257,6 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
 			allowStreaming
 		]);
 	}
-	function captureConversationViewport() {
-		return {
-			pinnedToBottom: true,
-			scrollTop: 0
-		};
-	}
-	function restoreConversationViewport(snapshot, forceBottom = false) {}
 	return {
 		renderMessageNodes: async (messages, allowStreaming) => {
 			conversationState.loading = false;
@@ -17235,6 +17278,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
 	};
 }
 var init_conversationRenderer = __esmMin((() => {
+	init_browserAttachments_svelte();
 	init_conversationState_svelte();
 	init_conversationLogic();
 }));
