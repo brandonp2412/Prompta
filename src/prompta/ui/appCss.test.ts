@@ -50,3 +50,23 @@ test("app stylesheet keeps balanced CSS blocks", async () => {
 
   expect(cssBraceDepth(css)).toBe(0);
 });
+
+test("large repeated UI rows skip offscreen rendering", async () => {
+  const css = await Bun.file(new URL("../static/app.css", import.meta.url)).text();
+
+  expect(css).toMatch(
+    /\.message \{[^}]*content-visibility: auto;[^}]*contain-intrinsic-size: auto 180px;/s,
+  );
+  expect(css).toMatch(
+    /\.chat-item \{[^}]*content-visibility: auto;[^}]*contain-intrinsic-size: auto 66px;/s,
+  );
+  expect(css).toMatch(
+    /\.code-block \{[^}]*content-visibility: auto;[^}]*contain-intrinsic-size: auto 52px;/s,
+  );
+  expect(css).toMatch(
+    /\.changelog-entry \{[^}]*content-visibility: auto;[^}]*contain-intrinsic-size: auto 44px;/s,
+  );
+  expect(css).toMatch(
+    /\.job-row \{[^}]*content-visibility: auto;[^}]*contain-intrinsic-size: auto 150px;/s,
+  );
+});
