@@ -10,3 +10,11 @@ export function changelogEntries(payload: unknown): ChangelogEntry[] {
 
   return (payload as { changes: ChangelogEntry[] }).changes;
 }
+
+export function changelogHasMore(payload: unknown): boolean {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    (payload as { has_more?: unknown }).has_more === true
+  );
+}

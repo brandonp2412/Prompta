@@ -1,37 +1,51 @@
 <script lang="ts">
   import { MediaQuery } from "svelte/reactivity";
 
-  import { dialogVisibility } from "./browserAttachments.svelte";
-  import { changelogEntries, type ChangelogEntry } from "./changelog";
+  import { dialogVisibility, scrollNearBottom } from "./browserAttachments.svelte";
+  import { changelogEntries, changelogHasMore, type ChangelogEntry } from "./changelog";
   import { registerChangelogDialog } from "./uiControllers";
 
   const mobile = new MediaQuery("(max-width: 600px)");
+  const pageSize = 100;
   let status = $state("Commit titles from this Prompta checkout.");
   let changes = $state.raw<ChangelogEntry[]>([]);
   let failed = $state(false);
+  let loading = $state(false);
+  let hasMore = $state(true);
   let open = $state(false);
   let presentation = $state<"modal" | "stack">("modal");
 
   async function load() {
-    status = "Loading changelog…";
+    if (loading || !hasMore) return;
+
+    loading = true;
     failed = false;
-    changes = [];
+    if (!changes.length) status = "Loading changelog…";
 
     try {
-      const response = await fetch("api/changelog", { cache: "no-store" });
+      const response = await fetch(
+        `api/changelog?limit=${pageSize}&offset=${changes.length}`,
+        { cache: "no-store" },
+      );
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      changes = changelogEntries(await response.json());
-      status = `${changes.length} commit${changes.length === 1 ? "" : "s"} · newest first`;
+
+      const payload: unknown = await response.json();
+      const page = changelogEntries(payload);
+      changes = [...changes, ...page];
+      hasMore = changelogHasMore(payload);
+      status = `${changes.length}${hasMore ? "+" : ""} commit${changes.length === 1 && !hasMore ? "" : "s"} · newest first`;
     } catch (error) {
-      failed = true;
+      failed = changes.length === 0;
       status = "Changelog unavailable: " + String(error).replace(/^Error:\s*/, "");
+    } finally {
+      loading = false;
     }
   }
 
   export async function show() {
     presentation = mobile.current ? "stack" : "modal";
     open = true;
-    await load();
+    if (!changes.length && !loading) await load();
   }
 
   export function close() {
@@ -67,7 +81,7 @@
         ×
       </button>
     </header>
-    <ol class="changelog-list" id="changelogList">
+    <ol {@attach scrollNearBottom(() => void load())} class="changelog-list" id="changelogList">
       {#if failed}
         <li class="changelog-empty">Could not load changelog.</li>
       {:else if changes.length}
@@ -77,6 +91,13 @@
             {#if change.hash}<span class="changelog-entry-hash">#{change.hash}</span>{/if}
           </li>
         {/each}
+        {#if hasMore}
+          <li class="changelog-load-more">
+            <button type="button" disabled={loading} onclick={() => void load()}>
+              {loading ? "Loading older commits…" : "Load older commits"}
+            </button>
+          </li>
+        {/if}
       {:else}
         <li class="changelog-empty">
           {status.startsWith("Loading")

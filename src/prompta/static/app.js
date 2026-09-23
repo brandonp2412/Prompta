@@ -5954,6 +5954,15 @@ function keepConversationViewportAtBottom(element) {
 		element.scrollTop = element.scrollHeight;
 	});
 }
+function scrollNearBottom(onNearBottom, threshold = 240) {
+	return (element) => {
+		const handleScroll = () => {
+			if (element.scrollTop + element.clientHeight >= element.scrollHeight - threshold) onNearBottom();
+		};
+		element.addEventListener("scroll", handleScroll, { passive: true });
+		return () => element.removeEventListener("scroll", handleScroll);
+	};
+}
 function conversationViewport() {
 	return (element) => {
 		conversationViewportElement = element;
@@ -6194,6 +6203,9 @@ function changelogEntries(payload) {
 	if (!payload || typeof payload !== "object" || !Array.isArray(payload.changes)) return [];
 	return payload.changes;
 }
+function changelogHasMore(payload) {
+	return !!payload && typeof payload === "object" && payload.has_more === true;
+}
 //#endregion
 //#region src/prompta/ui/uiControllers.ts
 function registerAttachmentPicker(controller) {
@@ -6238,34 +6250,45 @@ init_uiControllers();
 var root$8 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
 var root_1$7 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$6 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
-var root_3$5 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_4$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_3$5 = /* @__PURE__ */ from_html(`<li class="changelog-load-more"><button type="button"> </button></li>`);
+var root_4$5 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_5$5 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
+var root_6$4 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
 	const mobile = new MediaQuery("(max-width: 600px)");
+	const pageSize = 100;
 	let status = /* @__PURE__ */ state$1("Commit titles from this Prompta checkout.");
 	let changes = /* @__PURE__ */ state$1([]);
 	let failed = /* @__PURE__ */ state$1(false);
+	let loading = /* @__PURE__ */ state$1(false);
+	let hasMore = /* @__PURE__ */ state$1(true);
 	let open = /* @__PURE__ */ state$1(false);
 	let presentation = /* @__PURE__ */ state$1("modal");
 	async function load() {
-		set(status, "Loading changelog…");
+		if (get(loading) || !get(hasMore)) return;
+		set(loading, true);
 		set(failed, false);
-		set(changes, []);
+		if (!get(changes).length) set(status, "Loading changelog…");
 		try {
-			const response = await fetch("api/changelog", { cache: "no-store" });
+			const response = await fetch(`api/changelog?limit=${pageSize}&offset=${get(changes).length}`, { cache: "no-store" });
 			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-			set(changes, changelogEntries(await response.json()));
-			set(status, `${get(changes).length} commit${get(changes).length === 1 ? "" : "s"} · newest first`);
+			const payload = await response.json();
+			const page = changelogEntries(payload);
+			set(changes, [...get(changes), ...page]);
+			set(hasMore, changelogHasMore(payload), true);
+			set(status, `${get(changes).length}${get(hasMore) ? "+" : ""} commit${get(changes).length === 1 && !get(hasMore) ? "" : "s"} · newest first`);
 		} catch (error) {
-			set(failed, true);
+			set(failed, get(changes).length === 0);
 			set(status, "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""));
+		} finally {
+			set(loading, false);
 		}
 	}
 	async function show() {
 		set(presentation, mobile.current ? "stack" : "modal", true);
 		set(open, true);
-		await load();
+		if (!get(changes).length && !get(loading)) await load();
 	}
 	function close() {
 		set(open, false);
@@ -6278,7 +6301,7 @@ function ChangelogDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_4$5();
+	var dialog = root_6$4();
 	var div = child(dialog);
 	var header = child(div);
 	var div_1 = child(header);
@@ -6291,9 +6314,10 @@ function ChangelogDialog($$anchor, $$props) {
 	var consequent = ($$anchor) => {
 		append($$anchor, root$8());
 	};
-	var consequent_2 = ($$anchor) => {
-		var fragment = comment();
-		each(first_child(fragment), 17, () => get(changes), (change) => (change.hash || "") + (change.title || ""), ($$anchor, change) => {
+	var consequent_3 = ($$anchor) => {
+		var fragment = root_4$5();
+		var node_1 = first_child(fragment);
+		each(node_1, 17, () => get(changes), (change) => (change.hash || "") + (change.title || ""), ($$anchor, change) => {
 			var li_1 = root_2$6();
 			var span = child(li_1);
 			var text_1 = only_child(span, true);
@@ -6311,20 +6335,37 @@ function ChangelogDialog($$anchor, $$props) {
 			template_effect(() => set_text(text_1, get(change).title || ""));
 			append($$anchor, li_1);
 		});
+		var node_3 = sibling(node_1, 2);
+		var consequent_2 = ($$anchor) => {
+			var li_2 = root_3$5();
+			var button_1 = child(li_2);
+			var text_3 = only_child(button_1, true);
+			reset(li_2);
+			template_effect(() => {
+				button_1.disabled = get(loading);
+				set_text(text_3, get(loading) ? "Loading older commits…" : "Load older commits");
+			});
+			delegated("click", button_1, () => void load());
+			append($$anchor, li_2);
+		};
+		if_block(node_3, ($$render) => {
+			if (get(hasMore)) $$render(consequent_2);
+		});
 		append($$anchor, fragment);
 	};
 	var alternate = ($$anchor) => {
-		var li_2 = root_3$5();
-		var text_3 = only_child(li_2, true);
-		template_effect(($0) => set_text(text_3, $0), [() => get(status).startsWith("Loading") ? "Loading changes…" : "No Git commit history is available."]);
-		append($$anchor, li_2);
+		var li_3 = root_5$5();
+		var text_4 = only_child(li_3, true);
+		template_effect(($0) => set_text(text_4, $0), [() => get(status).startsWith("Loading") ? "Loading changes…" : "No Git commit history is available."]);
+		append($$anchor, li_3);
 	};
 	if_block(node, ($$render) => {
 		if (get(failed)) $$render(consequent);
-		else if (get(changes).length) $$render(consequent_2, 1);
+		else if (get(changes).length) $$render(consequent_3, 1);
 		else $$render(alternate, -1);
 	});
 	reset(ol);
+	attach(ol, () => scrollNearBottom(() => void load()));
 	reset(div);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(open), () => get(presentation) === "modal", close));

@@ -72,6 +72,23 @@ def test_git_changelog_uses_commit_titles() -> None:
         ]
 
 
+def test_git_changelog_pages_git_history() -> None:
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="abc1234\tNewest change\n",
+        stderr="",
+    )
+    with patch("prompta.web.subprocess.run", return_value=completed) as run_git:
+        assert _git_changelog(limit=25, offset=50) == [
+            {"hash": "abc1234", "title": "Newest change"}
+        ]
+
+    command = run_git.call_args.args[0]
+    assert "--max-count=25" in command
+    assert "--skip=50" in command
+
+
 def test_git_changelog_tolerates_unavailable_git() -> None:
     with patch("prompta.web.subprocess.run", side_effect=OSError("git unavailable")):
         assert _git_changelog() == []

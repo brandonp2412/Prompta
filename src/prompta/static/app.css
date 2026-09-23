@@ -2203,6 +2203,30 @@ textarea:focus-visible {
   display: flex;
   align-items: baseline;
   gap: 12px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+
+.changelog-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.changelog-load-more button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.changelog-load-more button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .changelog-entry-title {
