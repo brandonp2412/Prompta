@@ -594,6 +594,7 @@ def test_ui_server_keeps_successful_new_chat_visible_before_cache_adopts_it(tmp_
             "_pending_send": True,
             "_send_id": "send-sidebar",
             "_client_id": "client-sidebar",
+            "unread": False,
         }
     ]
     assert chat is not None

@@ -33,6 +33,7 @@ from .core import (
 )
 from .image_previews import ImagePreviewStore
 from .pinned_chats import PinnedChatStore
+from .read_state import ConversationReadState
 from .send_jobs import SendJobRegistry as SendJobRegistry
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
@@ -130,6 +131,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.image_previews = ImagePreviewStore(self.state_path.parent)
         self.attachments = AttachmentStore(self.state_path.parent, self.image_previews)
         self.pinned_chats = PinnedChatStore(self.state_path.parent)
+        self.read_state = ConversationReadState(self.state_path.parent)
         self.job_service = WebJobService(
             self.jobs_path,
             self.state_path,
@@ -338,6 +340,7 @@ class PromptaUIServer(ThreadingHTTPServer):
             rows.append(summary)
             known_ids.add(summary["id"])
 
+        rows = self.read_state.decorate(rows)
         pinned_ids = set(included_ids)
         rows.sort(
             key=lambda chat: (
@@ -852,6 +855,18 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 return
             try:
                 result = cast(PromptaUIServer, self.server).pinned_chats.set_pinned(chat_id, pinned)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(result)
+            return
+
+        read_prefix = "/api/chats/"
+        read_suffix = "/read"
+        if path.startswith(read_prefix) and path.endswith(read_suffix):
+            conversation_id = unquote(path[len(read_prefix) : -len(read_suffix)]).strip("/")
+            try:
+                result = cast(PromptaUIServer, self.server).read_state.mark_read(conversation_id)
             except ValueError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return

@@ -6676,6 +6676,8 @@ function clientIdBelongsToSession(clientId, sessionId) {
 function sortSidebarChats(chats, pinnedIds) {
 	const pinnedOrder = new Map(Array.from(pinnedIds, (id, index) => [id, index]));
 	return [...chats].sort((left, right) => {
+		const unreadDelta = Number(Boolean(right.unread)) - Number(Boolean(left.unread));
+		if (unreadDelta) return unreadDelta;
 		const leftPinnedIndex = pinnedOrder.get(left.id);
 		const rightPinnedIndex = pinnedOrder.get(right.id);
 		if (leftPinnedIndex !== void 0 || rightPinnedIndex !== void 0) {
@@ -16342,6 +16344,9 @@ function ConversationMessages($$anchor, $$props) {
 	reset(div_7);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(actionsOpen), () => true, closeActions));
+	delegated("click", dialog, (event) => {
+		if (event.target === event.currentTarget) closeActions();
+	});
 	delegated("click", button_2, editPending);
 	delegated("click", button_3, deletePending);
 	delegated("click", button_4, closeActions);
@@ -16916,7 +16921,10 @@ function SidebarList($$anchor, $$props) {
 				var button_1 = sibling(button, 2);
 				reset(div_2);
 				template_effect(() => {
-					set_class(div_2, 1, clsx(["chat-item", { selected: get(chat).selected }]));
+					set_class(div_2, 1, clsx(["chat-item", {
+						selected: get(chat).selected,
+						unread: get(chat).unread
+					}]));
 					set_attribute(div_2, "data-dom-key", "chat:" + get(chat).id);
 					set_attribute(button, "data-chat-id", get(chat).id);
 					set_attribute(button, "data-optimistic-new", get(chat).optimisticNew ? "true" : "false");
@@ -16968,6 +16976,9 @@ function SidebarList($$anchor, $$props) {
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(actionsOpen), () => true, closeActions));
 	template_effect(() => set_text(text_6, get(actionsChatPinned) ? "Unpin chat" : "Pin chat"));
+	delegated("click", dialog, (event) => {
+		if (event.target === event.currentTarget) closeActions();
+	});
 	delegated("click", button_2, togglePinFromActions);
 	delegated("click", button_3, closeActions);
 	append($$anchor, fragment);
@@ -17974,6 +17985,16 @@ function promoteServerPendingPins(chats) {
 		state.sidebarFingerprint = "";
 	}
 }
+function markChatRead(chatId) {
+	const chat = state.chats.find((candidate) => candidate.id === chatId);
+	if (!chat?.unread) return;
+	chat.unread = false;
+	state.sidebarFingerprint = "";
+	renderSidebar();
+	postJsonRequest(`api/chats/${encodeURIComponent(chatId)}/read`, {}, 2, 5e3).catch((error) => {
+		console.warn("Could not persist Prompta read state", error);
+	});
+}
 function composerDraftTarget() {
 	if (state.composingNew) return "new";
 	return state.selectedId ? "chat:" + state.selectedId : "";
@@ -18114,9 +18135,12 @@ function sidebarGroupAt(chat) {
 }
 function groupChats(chats) {
 	const ordered = sortSidebarChats(chats, state.pinnedIds);
-	const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
-	const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
+	const unread = ordered.filter((chat) => Boolean(chat.unread));
+	const read = ordered.filter((chat) => !chat.unread);
+	const pinned = read.filter((chat) => state.pinnedIds.has(chat.id));
+	const unpinned = read.filter((chat) => !state.pinnedIds.has(chat.id));
 	return [
+		["Unread", unread],
 		["Pinned", pinned],
 		["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
 		["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
@@ -18206,7 +18230,8 @@ function renderSidebar(force = false) {
 		chatIsBroken(chat),
 		Boolean(chat._optimisticNew),
 		Boolean(chat._optimisticReply),
-		state.pinnedIds.has(chat.id)
+		state.pinnedIds.has(chat.id),
+		Boolean(chat.unread)
 	])) + (/* @__PURE__ */ new Date()).toDateString() + selectionId;
 	if (!force && fingerprint === state.sidebarFingerprint) return;
 	state.sidebarFingerprint = fingerprint;
@@ -18240,7 +18265,8 @@ function renderSidebar(force = false) {
 					jobLabel: String(chat.job_name || String(chat.message_count || 0) + " messages"),
 					activityAt,
 					relativeTime: formatRelativeTime(activityAt),
-					pinned: state.pinnedIds.has(chat.id)
+					pinned: state.pinnedIds.has(chat.id),
+					unread: Boolean(chat.unread)
 				};
 			})
 		}))
@@ -18745,6 +18771,7 @@ async function loadSelectedChat() {
 		state.selectedUpdatedAt = chat.updated_at;
 		recentChatCache.remember(chat);
 		renderConversation(chat);
+		markChatRead(chat.id);
 		if (shouldProbeHistoricalActivity(chat.status)) probeHistoricalActivity(chat.id);
 	} catch (error) {
 		if (requestId !== state.selectedRequestId || selectedId !== state.selectedId) return;
@@ -18768,6 +18795,7 @@ async function selectChat(id) {
 		renderNewChat();
 		return;
 	}
+	markChatRead(id);
 	if (id === state.selectedId) {
 		if (!state.selectedChat || state.selectedChat.id !== id) await loadSelectedChat();
 		return;

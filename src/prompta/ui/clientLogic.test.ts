@@ -229,6 +229,22 @@ describe("deterministic sidebar ordering", () => {
     ]);
   });
 
+  test("puts unread conversations before read conversations, including read pins", () => {
+    const chats = [
+      { id: "read-pin", created_at: 50 },
+      { id: "read-new", created_at: 100 },
+      { id: "unread-old", created_at: 10, unread: true },
+      { id: "unread-new", created_at: 20, unread: true },
+    ];
+
+    expect(sortSidebarChats(chats, new Set(["read-pin"])).map((chat) => chat.id)).toEqual([
+      "unread-new",
+      "unread-old",
+      "read-pin",
+      "read-new",
+    ]);
+  });
+
   test("keeps pinned chats in pin insertion order with new pins at the end", () => {
     const chats = [
       { id: "third-pin", created_at: 300 },

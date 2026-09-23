@@ -206,6 +206,19 @@ const state: UiState = {
   activityProbeAt: new Map<string, number>(),
 };
 
+function markChatRead(chatId: string) {
+  const chat = state.chats.find((candidate) => candidate.id === chatId);
+
+  if (!chat?.unread) return;
+
+  chat.unread = false;
+  state.sidebarFingerprint = "";
+  renderSidebar();
+  void postJson(`api/chats/${encodeURIComponent(chatId)}/read`, {}, 2, 5_000).catch((error) => {
+    console.warn("Could not persist Prompta read state", error);
+  });
+}
+
 let sidebarRenderDeferred = false;
 
 configureSidebar(() => {
@@ -515,9 +528,12 @@ function sidebarGroupAt(chat) {
 
 function groupChats(chats: UiChat[]) {
   const ordered = sortSidebarChats(chats, state.pinnedIds);
-  const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
-  const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
+  const unread = ordered.filter((chat) => Boolean(chat.unread));
+  const read = ordered.filter((chat) => !chat.unread);
+  const pinned = read.filter((chat) => state.pinnedIds.has(chat.id));
+  const unpinned = read.filter((chat) => !state.pinnedIds.has(chat.id));
   const groups: Array<[string, UiChat[]]> = [
+    ["Unread", unread],
     ["Pinned", pinned],
     ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
     ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
@@ -681,6 +697,7 @@ function renderSidebar(force = false) {
         Boolean(chat._optimisticNew),
         Boolean(chat._optimisticReply),
         state.pinnedIds.has(chat.id),
+        Boolean(chat.unread),
       ]),
     ) +
     new Date().toDateString() +
@@ -739,6 +756,7 @@ function renderSidebar(force = false) {
           activityAt,
           relativeTime: formatRelativeTime(activityAt),
           pinned: state.pinnedIds.has(chat.id),
+          unread: Boolean(chat.unread),
         };
       }),
     })),
@@ -1553,6 +1571,7 @@ async function loadSelectedChat() {
     state.selectedUpdatedAt = chat.updated_at;
     recentChatCache.remember(chat);
     renderConversation(chat);
+    markChatRead(chat.id);
 
     if (shouldProbeHistoricalActivity(chat.status)) {
       void probeHistoricalActivity(chat.id);
@@ -1595,6 +1614,8 @@ async function selectChat(id) {
 
     return;
   }
+
+  markChatRead(id);
 
   if (id === state.selectedId) {
     if (!state.selectedChat || state.selectedChat.id !== id) {

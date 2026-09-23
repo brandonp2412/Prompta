@@ -414,6 +414,15 @@ textarea:focus-visible {
   color: #fff;
 }
 
+.chat-item.unread .chat-title {
+  color: #fff;
+  font-weight: 700;
+}
+
+.chat-item.unread .chat-preview {
+  color: #c7c7c7;
+}
+
 .item-status-dot {
   width: 7px;
   height: 7px;

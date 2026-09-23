@@ -49,6 +49,7 @@ export type SidebarOrderChat = {
   _pending_send?: unknown;
   _optimisticNew?: unknown;
   _optimisticReply?: unknown;
+  unread?: unknown;
 };
 
 export function sidebarChatCreatedAt(chat: SidebarOrderChat | null | undefined): number {
@@ -201,6 +202,10 @@ export function sortSidebarChats<T extends SidebarOrderChat>(
   const pinnedOrder = new Map(Array.from(pinnedIds, (id, index) => [id, index]));
 
   return [...chats].sort((left, right) => {
+    const unreadDelta = Number(Boolean(right.unread)) - Number(Boolean(left.unread));
+
+    if (unreadDelta) return unreadDelta;
+
     const leftPinnedIndex = pinnedOrder.get(left.id);
     const rightPinnedIndex = pinnedOrder.get(right.id);
 

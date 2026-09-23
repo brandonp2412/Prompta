@@ -99,7 +99,10 @@
     <section class="chat-group" data-dom-key={"group:" + group.label}>
       <div class="chat-group-label">{group.label}</div>
       {#each group.chats as chat (chat.id)}
-        <div class={["chat-item", { selected: chat.selected }]} data-dom-key={"chat:" + chat.id}>
+        <div
+          class={["chat-item", { selected: chat.selected, unread: chat.unread }]}
+          data-dom-key={"chat:" + chat.id}
+        >
           <button
             type="button"
             class="chat-item-select"

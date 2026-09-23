@@ -19,6 +19,7 @@ export type SidebarListModel = {
       activityAt: string | number;
       relativeTime: string;
       pinned: boolean;
+      unread: boolean;
     }>;
   }>;
 };
