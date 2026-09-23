@@ -1081,7 +1081,9 @@ async def test_total_browser_conversation_limit_blocks_scheduled_job(tmp_path: P
             prompt="manual work still running",
         )
 
-    assert await prompta._run_job(PromptJob("background", "scheduled work", 1800), now=1000.0) is False
+    assert (
+        await prompta._run_job(PromptJob("background", "scheduled work", 1800), now=1000.0) is False
+    )
     assert prompta.send_once.await_count == 0
 
 

@@ -114,16 +114,14 @@ def evaluate_resource_admission(
     if some_avg10 > limits.max_memory_psi_some_avg10:
         return (
             False,
-            f"memory PSI some avg10 {some_avg10:.1f}% > "
-            f"{limits.max_memory_psi_some_avg10:.1f}%",
+            f"memory PSI some avg10 {some_avg10:.1f}% > {limits.max_memory_psi_some_avg10:.1f}%",
         )
 
     full_avg10 = _psi_avg10(memory_pressure_text, "full")
     if full_avg10 > limits.max_memory_psi_full_avg10:
         return (
             False,
-            f"memory PSI full avg10 {full_avg10:.1f}% > "
-            f"{limits.max_memory_psi_full_avg10:.1f}%",
+            f"memory PSI full avg10 {full_avg10:.1f}% > {limits.max_memory_psi_full_avg10:.1f}%",
         )
 
     swap_total = mem.get("SwapTotal", 0)
@@ -131,10 +129,7 @@ def evaluate_resource_admission(
     if total > 0 and swap_total > 0:
         available_fraction = available / total
         swap_free_fraction = swap_free / swap_total
-        if (
-            available_fraction < 0.30
-            and swap_free_fraction < limits.min_swap_free_fraction
-        ):
+        if available_fraction < 0.30 and swap_free_fraction < limits.min_swap_free_fraction:
             return (
                 False,
                 f"swap free {swap_free_fraction:.0%} < "

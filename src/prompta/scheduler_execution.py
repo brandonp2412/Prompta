@@ -85,8 +85,13 @@ class SchedulerExecution:
             self._resource_pressure_logged_at = 0.0
             return True
 
-        if self._resource_pressure_logged_at <= 0 or now - self._resource_pressure_logged_at >= 60.0:
-            logger.warning("Prompta deferred new queue work: %s", reason or "host resource pressure")
+        if (
+            self._resource_pressure_logged_at <= 0
+            or now - self._resource_pressure_logged_at >= 60.0
+        ):
+            logger.warning(
+                "Prompta deferred new queue work: %s", reason or "host resource pressure"
+            )
             self._resource_pressure_logged_at = now
         self._resource_pressure_reason = reason
         return False
