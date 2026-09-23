@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { MediaQuery } from "svelte/reactivity";
+
   import AttachmentPicker from "./AttachmentPicker.svelte";
   import { appActions } from "./appActions.svelte";
-  import { appViewState } from "./appViewState.svelte";
+  import { appViewState, requestComposerFocus } from "./appViewState.svelte";
+  import { composerTextarea } from "./browserAttachments.svelte";
   import { nextSlashCommandIndex } from "./clientLogic";
 
   const commands = [
@@ -12,10 +14,8 @@
     { command: "/at ", name: "/at", description: "Run a prompt at a date and time", id: "slashCommandAt" },
   ] as const;
 
-  let messageInput: HTMLTextAreaElement;
+  const mobileInput = new MediaQuery("(max-width: 780px), (pointer: coarse)");
   let slashDismissed = $state(false);
-  let lastFocusRequest = 0;
-  let lastSelectEndRequest = 0;
 
   const visibleCommands = $derived.by(() => {
     const value = appViewState.composerValue;
@@ -35,31 +35,17 @@
       null,
   );
 
-  function resize(value: string) {
-    if (!messageInput) return;
-    messageInput.style.overflowY = "hidden";
-    if (!value) {
-      messageInput.style.height = "34px";
-      return;
-    }
-    messageInput.style.height = "auto";
-    const contentHeight = messageInput.scrollHeight;
-    messageInput.style.height = String(Math.min(180, contentHeight)) + "px";
-    messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
-  }
-
-  async function insertSlashCommand(command: string) {
+  function insertSlashCommand(command: string) {
     slashDismissed = true;
     appViewState.activeSlashCommand = "";
     appViewState.composerValue = command;
     appActions.onComposerInput(command);
-    await tick();
-    messageInput.focus();
-    messageInput.setSelectionRange(command.length, command.length);
+    requestComposerFocus(true);
   }
 
   function moveSlashSelection(direction: number) {
     if (!visibleCommands.length) return;
+
     const currentIndex = visibleCommands.findIndex(
       (item) => item.command === (activeCommand?.command ?? ""),
     );
@@ -84,7 +70,7 @@
       if (event.key === "Tab" || (event.key === "Enter" && !event.isComposing)) {
         if (activeCommand) {
           event.preventDefault();
-          void insertSlashCommand(activeCommand.command);
+          insertSlashCommand(activeCommand.command);
           return;
         }
       }
@@ -98,36 +84,16 @@
       }
     }
 
-    const mobileInput =
-      matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
-
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.isComposing &&
+      !mobileInput.current
+    ) {
       event.preventDefault();
       appActions.onSubmit();
     }
   }
-
-  $effect(() => {
-    resize(appViewState.composerValue);
-  });
-
-  $effect(() => {
-    const request = appViewState.composerFocusRequest;
-    if (!messageInput || request === lastFocusRequest) return;
-    lastFocusRequest = request;
-    requestAnimationFrame(() => messageInput.focus());
-  });
-
-  $effect(() => {
-    const request = appViewState.composerSelectEndRequest;
-    if (!messageInput || request === lastSelectEndRequest) return;
-    lastSelectEndRequest = request;
-    requestAnimationFrame(() => {
-      messageInput.focus();
-      const end = appViewState.composerValue.length;
-      messageInput.setSelectionRange(end, end);
-    });
-  });
 </script>
 
 <footer class="composer-footer" id="composerFooter">
@@ -141,7 +107,11 @@
   >
     <AttachmentPicker>
       <textarea
-        bind:this={messageInput}
+        {@attach composerTextarea(
+          () => appViewState.composerValue,
+          () => appViewState.composerFocusRequest,
+          () => appViewState.composerSelectEndRequest,
+        )}
         bind:value={appViewState.composerValue}
         id="messageInput"
         rows="1"

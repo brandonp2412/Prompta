@@ -9,12 +9,14 @@ export type AttachmentPickerController = {
 };
 
 export type JobsDialogController = { open(clearComposer?: boolean): Promise<void>; close(): void };
+export type ChangelogDialogController = { open(): Promise<void>; close(): void };
 export type LogsPanelController = {
   load(): Promise<void>;
   setServerTitle(display: string): void;
 };
 let attachmentPicker: AttachmentPickerController | null = null;
 let jobsDialog: JobsDialogController | null = null;
+let changelogDialog: ChangelogDialogController | null = null;
 let logsPanel: LogsPanelController | null = null;
 
 export function registerAttachmentPicker(controller: AttachmentPickerController) {
@@ -35,6 +37,16 @@ export function getJobsDialog() {
   if (!jobsDialog) throw new Error("Jobs dialog was not mounted");
 
   return jobsDialog;
+}
+
+export function registerChangelogDialog(controller: ChangelogDialogController) {
+  changelogDialog = controller;
+}
+
+export function getChangelogDialog() {
+  if (!changelogDialog) throw new Error("Changelog dialog was not mounted");
+
+  return changelogDialog;
 }
 
 export function registerLogsPanel(controller: LogsPanelController) {

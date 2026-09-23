@@ -37,6 +37,7 @@ export const appViewState = $state({
   composerFocusRequest: 0,
   composerSelectEndRequest: 0,
   searchFocusRequest: 0,
+  searchBlurRequest: 0,
   sidebarTopRequest: 0,
 });
 
@@ -48,6 +49,10 @@ export function requestComposerFocus(selectEnd = false) {
 
 export function requestSearchFocus() {
   appViewState.searchFocusRequest += 1;
+}
+
+export function requestSearchBlur() {
+  appViewState.searchBlurRequest += 1;
 }
 
 export function requestSidebarTop() {

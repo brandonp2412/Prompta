@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import ChangelogDialog from "./ChangelogDialog.svelte";
   import Composer from "./Composer.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
@@ -9,9 +8,15 @@
   import { appActions } from "./appActions.svelte";
   import {
     appViewState,
+    requestSearchBlur,
     requestSearchFocus,
   } from "./appViewState.svelte";
-  import { getAttachmentPicker, getJobsDialog } from "./uiControllers";
+  import {
+    blurOnRequest,
+    focusOnRequest,
+    scrollToTopOnRequest,
+  } from "./browserAttachments.svelte";
+  import { getAttachmentPicker, getChangelogDialog, getJobsDialog } from "./uiControllers";
   import {
     closeSidebar,
     finishSidebarMotion,
@@ -20,18 +25,13 @@
   } from "./sidebarState.svelte";
 
   let { serverName }: { serverName: string } = $props();
-  let changelogDialog: { open: () => Promise<void> } | undefined;
-  let searchInput: HTMLInputElement;
-  let sidebarScroll: HTMLElement;
-  let lastSearchFocusRequest = 0;
-  let lastSidebarTopRequest = 0;
 
   const serverDisplay = $derived(appViewState.serverDisplay || serverName);
-
-  function syncViewportHeight() {
-    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-    document.documentElement.style.setProperty("--app-height", String(Math.round(viewportHeight)) + "px");
-  }
+  const serverLabel = $derived(
+    appViewState.serverLabel === "Server · local"
+      ? "Server · " + serverName
+      : appViewState.serverLabel,
+  );
 
   function handleGlobalKeydown(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
@@ -49,7 +49,9 @@
 
     if (event.key !== "Escape") return;
 
-    if (document.activeElement === searchInput && appViewState.searchValue) {
+    const searchTarget = target instanceof HTMLInputElement && target.id === "searchInput";
+
+    if (searchTarget && appViewState.searchValue) {
       event.preventDefault();
       appViewState.searchValue = "";
       appActions.onSearch("");
@@ -58,48 +60,10 @@
 
     getAttachmentPicker().closeMenu();
     getJobsDialog().close();
-    searchInput?.blur();
+    getChangelogDialog().close();
+    requestSearchBlur();
     closeSidebar(true);
   }
-
-  onMount(() => {
-    if (appViewState.serverLabel === "Server · local") {
-      appViewState.serverLabel = "Server · " + serverName;
-    }
-
-    syncViewportHeight();
-    const visualViewport = window.visualViewport;
-    const bootFallback = window.setTimeout(
-      () => document.documentElement.classList.remove("booting"),
-      1200,
-    );
-    visualViewport?.addEventListener("resize", syncViewportHeight);
-
-    return () => {
-      window.clearTimeout(bootFallback);
-      visualViewport?.removeEventListener("resize", syncViewportHeight);
-    };
-  });
-
-  $effect(() => {
-    if (appViewState.bootComplete) document.documentElement.classList.remove("booting");
-  });
-
-  $effect(() => {
-    const request = appViewState.searchFocusRequest;
-    if (!searchInput || request === lastSearchFocusRequest) return;
-    lastSearchFocusRequest = request;
-    requestAnimationFrame(() => searchInput.focus({ preventScroll: true }));
-  });
-
-  $effect(() => {
-    const request = appViewState.sidebarTopRequest;
-    if (!sidebarScroll || request === lastSidebarTopRequest) return;
-    lastSidebarTopRequest = request;
-    requestAnimationFrame(() => {
-      sidebarScroll.scrollTop = 0;
-    });
-  });
 </script>
 
 <svelte:head>
@@ -112,7 +76,6 @@
   onhashchange={appActions.onHashChange}
   onpagehide={appActions.onPageHide}
   onpageshow={appActions.onPageShow}
-  onresize={syncViewportHeight}
 />
 
 <div class="app-shell">
@@ -137,7 +100,7 @@
         <div class="brand-mark" aria-hidden="true">P</div>
         <div class="brand-copy">
           <strong>Prompta</strong>
-          <span id="serverLabel">{appViewState.serverLabel}</span>
+          <span id="serverLabel">{serverLabel}</span>
         </div>
         <div
           class={["live-orb", { live: appViewState.live }]}
@@ -150,7 +113,8 @@
           ><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg
         >
         <input
-          bind:this={searchInput}
+          {@attach focusOnRequest(() => appViewState.searchFocusRequest)}
+          {@attach blurOnRequest(() => appViewState.searchBlurRequest)}
           bind:value={appViewState.searchValue}
           id="searchInput"
           type="search"
@@ -164,7 +128,7 @@
       </label>
     </div>
 
-    <div bind:this={sidebarScroll} class="sidebar-scroll">
+    <div {@attach scrollToTopOnRequest(() => appViewState.sidebarTopRequest)} class="sidebar-scroll">
       <button
         type="button"
         class="sidebar-action"
@@ -193,7 +157,7 @@
         title={appViewState.headTitle}
         aria-haspopup="dialog"
         aria-controls="changelogDialog"
-        onclick={() => void changelogDialog?.open()}
+        onclick={() => void getChangelogDialog().open()}
       >{appViewState.headLabel}</button>
     </div>
   </aside>
@@ -311,4 +275,4 @@
 >{appViewState.updateApplying ? "Updating…" : "Update available"}</button>
 
 <JobsDialog />
-<ChangelogDialog bind:this={changelogDialog} />
+<ChangelogDialog />

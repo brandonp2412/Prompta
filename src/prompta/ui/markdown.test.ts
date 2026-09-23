@@ -1,215 +1,184 @@
 import { describe, expect, test } from "bun:test";
+import type { RootContent } from "hast";
+import type { Token, Tokens } from "marked";
 
-import { renderDeferredToolCode, renderMarkdown, type DeferredToolBody } from "./markdown";
+import { codePresentation, parseMarkdown, safeLinkHref } from "./markdown";
 
-describe("tool-call rendering", () => {
-  test("shows a tool call timestamp even without a reasoning summary", () => {
-    const rendered = renderMarkdown(
-      [
-        "```tool:files.search",
-        JSON.stringify({
-          created_at: 1_700_000_000,
-          arguments: { search_query: [{ q: "rendering" }] },
-          status: "completed",
-        }),
-        "```",
-      ].join("\n"),
-    );
+function codeToken(tokens: Token[]) {
+  return tokens.find((token): token is Tokens.Code => token.type === "code");
+}
 
-    expect(rendered).not.toContain("tool-has-meta");
-    expect(rendered).not.toContain('class="tool-expanded-meta"');
-    expect(rendered).toContain('class="tool-time"');
-    expect(rendered).toContain('datetime="2023-11-14T22:13:20.000Z"');
-    expect(rendered).toMatch(/class="tool-time"[^>]*>\d{1,2}:\d{2}:\d{2}(?:am|pm)<\/time>/);
-    const summary =
-      rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
-    expect(summary).toContain('<span class="tool-primary-name">files.search</span>');
-    expect(summary).not.toContain("<button");
-  });
+function collectClasses(nodes: RootContent[], result: string[] = []) {
+  for (const node of nodes) {
+    if (node.type !== "element") continue;
 
-  test("hides redundant expanded metadata for Serena control-plane calls", () => {
-    const rendered = renderMarkdown(
-      [
-        "```tool:Glass Serena · activate_project",
-        JSON.stringify({ arguments: { project: "/home/example/project" }, status: "completed" }),
-        "```",
-      ].join("\n"),
-    );
+    const classes = node.properties.className;
 
-    expect(rendered).not.toContain("tool-has-meta");
-    expect(rendered).not.toContain('class="tool-expanded-meta"');
-  });
+    if (Array.isArray(classes)) result.push(...classes.map(String));
+    else if (typeof classes === "string") result.push(classes);
 
-  test("hides expanded metadata when the collapsed title already has the tool identity", () => {
-    const rendered = renderMarkdown(
-      [
-        "```tool:Glass · execute_python",
-        JSON.stringify({ arguments: { code: "print(1)" }, status: "completed" }),
-        "```",
-      ].join("\n"),
-    );
+    collectClasses(node.children, result);
+  }
 
-    const summary =
-      rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
-    expect(summary).toContain('<span class="tool-primary-name">Glass · execute_python</span>');
-    expect(rendered).not.toContain("tool-has-meta");
-    expect(rendered).not.toContain('class="tool-expanded-meta"');
-    expect(rendered).toContain('class="language-python"');
-    expect(rendered).toContain('<span class="syntax-function">print</span>');
-    expect(rendered).toContain('<span class="syntax-number">1</span>');
-  });
+  return result;
+}
 
-  test("shows persisted reasoning titles in the collapsed tool row", () => {
-    const rendered = renderMarkdown(
-      [
-        "```tool:Glass Serena · serena_repl",
-        JSON.stringify({
-          summary: "Remembering",
-          arguments: { expression: "1 + 1" },
-          status: "completed",
-        }),
-        "```",
-      ].join("\n"),
-    );
+function collectText(nodes: RootContent[]) {
+  let value = "";
 
-    const summary =
-      rendered.split('<summary class="code-header">')[1]?.split("</summary>")[0] || "";
-    expect(summary).toContain('<span class="tool-summary">Remembering</span>');
-    expect(summary).toContain(
-      '<span class="tool-inline-meta"><span class="tool-expanded-separator">|</span><span class="tool-expanded-action">serena_repl</span><span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">Glass Serena</span></span>',
-    );
-    expect(summary).not.toContain(">tool call<");
-    expect(rendered.match(/<span class="tool-summary">Remembering<\/span>/g)).toHaveLength(1);
-    const expandedHeader = rendered.split("</summary>")[1]?.split("<pre>")[0] || "";
-    expect(expandedHeader).toContain('<span class="tool-expanded-action">serena_repl</span>');
-    expect(expandedHeader).toContain('<span class="tool-expanded-separator">|</span>');
-    expect(expandedHeader).toContain('<span class="tool-expanded-connector">Glass Serena</span>');
-    expect(expandedHeader.indexOf("serena_repl")).toBeLessThan(
-      expandedHeader.indexOf("Glass Serena"),
-    );
-  });
+  for (const node of nodes) {
+    if (node.type === "text") value += node.value;
+    else if (node.type === "element") value += collectText(node.children);
+  }
 
-  test("can defer collapsed tool payloads out of the rendered DOM", () => {
-    const deferredToolBodies: DeferredToolBody[] = [];
-    const rendered = renderMarkdown(
-      [
-        "```tool:files.search",
-        JSON.stringify({
-          arguments: { top_k: 5 },
-          result: "VERY_LARGE_TOOL_BODY",
-          status: "completed",
-        }),
-        "```",
-      ].join("\n"),
-      deferredToolBodies,
-    );
+  return value;
+}
 
-    expect(rendered).toContain('data-deferred-tool-body-index="0"');
-    expect(rendered).toContain('class="deferred-tool-body"');
-    expect(rendered).not.toContain("VERY_LARGE_TOOL_BODY");
-    expect(deferredToolBodies).toHaveLength(1);
-    expect(deferredToolBodies[0]?.code).toContain("VERY_LARGE_TOOL_BODY");
-    expect(deferredToolBodies[0]?.language).toBe("json");
-    expect(deferredToolBodies[0]?.highlight).toBe(false);
-  });
-
-  test("preserves Python highlighting when a deferred tool body is expanded", () => {
-    const deferredToolBodies: DeferredToolBody[] = [];
-    const rendered = renderMarkdown(
-      [
-        "```tool:Glass · execute_python",
-        JSON.stringify({ arguments: { code: "print(1)" }, status: "completed" }),
-        "```",
-      ].join("\n"),
-      deferredToolBodies,
-    );
-
-    expect(rendered).toContain('class="deferred-tool-body"');
-    expect(rendered).not.toContain('<span class="syntax-function">print</span>');
-    expect(deferredToolBodies).toHaveLength(1);
-    expect(deferredToolBodies[0]).toMatchObject({
-      code: "print(1)",
-      language: "python",
-      highlight: true,
-    });
-    expect(renderDeferredToolCode(deferredToolBodies[0]!)).toContain(
-      '<span class="syntax-function">print</span>',
-    );
-    expect(renderDeferredToolCode(deferredToolBodies[0]!)).toContain(
-      '<span class="syntax-number">1</span>',
-    );
-  });
-  test("keeps collapsed structured tool payloads lightweight", () => {
-    const rendered = renderMarkdown(
-      [
-        "```tool:files.search",
-        JSON.stringify(
-          {
-            arguments: { top_k: 5 },
+describe("tool-call markdown model", () => {
+  test("extracts tool identity and timestamp without requiring expanded metadata", () => {
+    const token = codeToken(
+      parseMarkdown(
+        [
+          "~~~tool:files.search",
+          JSON.stringify({
+            created_at: 1_700_000_000,
+            arguments: { search_query: [{ q: "rendering" }] },
             status: "completed",
-          },
-          null,
-          2,
-        ),
-        "```",
-      ].join("\n"),
+          }),
+          "~~~",
+        ]
+          .join("\n")
+          .replaceAll("~~~", "```"),
+      ),
     );
 
-    expect(rendered).toContain('class="language-json"');
-    expect(rendered).toContain("&quot;top_k&quot;: 5");
-    expect(rendered).not.toContain('class="syntax-property"');
-    expect(rendered).not.toContain('class="syntax-number"');
-    expect(rendered).not.toContain('class="syntax-string"');
+    expect(token).toBeDefined();
+    const presentation = codePresentation(token!);
+
+    expect(presentation?.tool?.name).toBe("files.search");
+    expect(presentation?.tool?.time?.iso).toBe("2023-11-14T22:13:20.000Z");
+    expect(presentation?.tool?.time?.text).toMatch(/^\d{1,2}:\d{2}:\d{2}(?:am|pm)$/);
+    expect(presentation?.tool?.hasMeta).toBe(false);
+  });
+
+  test("keeps Serena control-plane calls compact", () => {
+    const token = codeToken(
+      parseMarkdown(
+        [
+          "~~~tool:Glass Serena · activate_project",
+          JSON.stringify({ arguments: { project: "/home/example/project" }, status: "completed" }),
+          "~~~",
+        ]
+          .join("\n")
+          .replaceAll("~~~", "```"),
+      ),
+    );
+
+    const presentation = codePresentation(token!);
+
+    expect(presentation?.tool?.name).toBe("Glass Serena · activate_project");
+    expect(presentation?.tool?.summary).toBe("");
+    expect(presentation?.tool?.hasMeta).toBe(false);
+  });
+
+  test("extracts Python from execute_python and highlights it with Lowlight", () => {
+    const token = codeToken(
+      parseMarkdown(
+        [
+          "~~~tool:Glass · execute_python",
+          JSON.stringify({ arguments: { code: "print(1)" }, status: "completed" }),
+          "~~~",
+        ]
+          .join("\n")
+          .replaceAll("~~~", "```"),
+      ),
+    );
+
+    const presentation = codePresentation(token!);
+
+    expect(presentation?.language).toBe("python");
+    expect(presentation?.code).toBe("print(1)");
+    expect(presentation?.highlight).toBe(true);
+    expect(collectText(presentation?.highlighted || [])).toBe("print(1)");
+    expect(
+      collectClasses(presentation?.highlighted || []).some((name) => name.startsWith("hljs-")),
+    ).toBe(true);
+  });
+
+  test("preserves reasoning summaries and tool identity parts", () => {
+    const token = codeToken(
+      parseMarkdown(
+        [
+          "~~~tool:Glass Serena · serena_repl",
+          JSON.stringify({
+            summary: "Remembering",
+            arguments: { expression: "1 + 1" },
+            status: "completed",
+          }),
+          "~~~",
+        ]
+          .join("\n")
+          .replaceAll("~~~", "```"),
+      ),
+    );
+
+    const presentation = codePresentation(token!);
+
+    expect(presentation?.tool).toMatchObject({
+      summary: "Remembering",
+      action: "serena_repl",
+      connector: "Glass Serena",
+      hasMeta: true,
+    });
+  });
+
+  test("keeps structured tool payloads as plain AST text until expanded", () => {
+    const token = codeToken(
+      parseMarkdown(
+        [
+          "~~~tool:files.search",
+          JSON.stringify({ arguments: { top_k: 5 }, result: "VERY_LARGE_TOOL_BODY" }),
+          "~~~",
+        ]
+          .join("\n")
+          .replaceAll("~~~", "```"),
+      ),
+    );
+
+    const presentation = codePresentation(token!);
+
+    expect(presentation?.highlight).toBe(false);
+    expect(presentation?.highlighted).toEqual([{ type: "text", value: token!.text }]);
   });
 });
 
 describe("streaming markdown", () => {
-  test("boxes an unterminated streaming tool call before its closing fence arrives", () => {
-    const deferredToolBodies: DeferredToolBody[] = [];
-    const rendered = renderMarkdown(
-      ["Before", "", "```tool:files.search", '{"arguments":{"top_k":'].join("\n"),
-      deferredToolBodies,
-      { renderIncompleteFence: true },
-    );
+  test("closes an unfinished tool fence only for a live stream", () => {
+    const source = ["Before", "", "~~~tool:files.search", '{"arguments":{"top_k":']
+      .join("\n")
+      .replaceAll("~~~", "```");
 
-    expect(rendered).toContain("<p>Before</p>");
-    expect(rendered).toContain("tool-call-block");
-    expect(rendered).toContain("files.search");
-    expect(rendered).not.toContain("```tool:files.search");
+    const streaming = parseMarkdown(source, { renderIncompleteFence: true });
+    const settled = parseMarkdown(source);
+
+    expect(codeToken(streaming)).toBeDefined();
+    expect(codePresentation(codeToken(streaming)!)?.tool?.name).toBe("files.search");
+    expect(codeToken(settled)).toBeUndefined();
   });
 
-  test("keeps an unterminated fence as prose outside a live stream", () => {
-    const rendered = renderMarkdown(["Before", "", "```tool:files.search", "{}"].join("\n"));
+  test("closes an unfinished ordinary code fence while streaming", () => {
+    const source = ["~~~python", "print(1)"].join("\n").replaceAll("~~~", "```");
+    const token = codeToken(parseMarkdown(source, { renderIncompleteFence: true }));
+    const presentation = codePresentation(token!);
 
-    expect(rendered).not.toContain("tool-call-block");
-    expect(rendered).toContain("```tool:files.search");
-  });
-
-  test("boxes an unterminated ordinary code fence while streaming", () => {
-    const rendered = renderMarkdown(["```python", "print(1)"].join("\n"), null, {
-      renderIncompleteFence: true,
-    });
-
-    expect(rendered).toContain('class="code-block"');
-    expect(rendered).toContain('class="language-python"');
-    expect(rendered).not.toContain("```python");
+    expect(presentation?.language).toBe("python");
+    expect(collectText(presentation?.highlighted || [])).toBe("print(1)");
   });
 });
 
 describe("message markdown", () => {
-  test("syntax-highlights ordinary fenced code", () => {
-    const rendered = renderMarkdown(
-      ["```python", "def greet(name):", '    return f"Hello {name}"', "```"].join("\n"),
-    );
-
-    expect(rendered).toContain('class="language-python"');
-    expect(rendered).toContain('<span class="syntax-keyword">def</span>');
-    expect(rendered).toContain('<span class="syntax-function">greet</span>');
-    expect(rendered).toContain('<span class="syntax-keyword">return</span>');
-  });
-
-  test("renders nested lists and common markdown blocks", () => {
-    const rendered = renderMarkdown(
+  test("uses Marked for GFM block structure", () => {
+    const tokens = parseMarkdown(
       [
         "# Heading",
         "",
@@ -229,22 +198,49 @@ describe("message markdown", () => {
       ].join("\n"),
     );
 
-    expect(rendered).toContain("<h1>Heading</h1>");
-    expect(rendered).toContain("<ul><li>Parent<ul><li>Child</li>");
-    expect(rendered).toContain('class="task-item"');
-    expect(rendered).toContain("<ol><li>First</li><li>Second</li></ol>");
-    expect(rendered).toContain("<blockquote><p>Quoted <strong>text</strong></p></blockquote>");
-    expect(rendered).toContain("<table><thead>");
-    expect(rendered).toContain('class="table-scroll"');
-    expect(rendered).not.toContain("table-scroll-wide");
-    expect(rendered).toContain('style="text-align:right"');
+    expect(tokens.some((token) => token.type === "heading")).toBe(true);
+    expect(tokens.filter((token) => token.type === "list")).toHaveLength(2);
+    expect(tokens.some((token) => token.type === "blockquote")).toBe(true);
+
+    const table = tokens.find((token): token is Tokens.Table => token.type === "table");
+    expect(table?.header).toHaveLength(2);
+    expect(table?.align).toEqual([null, "right"]);
   });
 
-  test("marks tables with three or more columns as horizontally scrollable", () => {
-    const rendered = renderMarkdown(
+  test("recognizes wide GFM tables by their AST column count", () => {
+    const table = parseMarkdown(
       ["| Name | State | Owner |", "| --- | --- | --- |", "| tool | done | prompta |"].join("\n"),
+    ).find((token): token is Tokens.Table => token.type === "table");
+
+    expect(table?.header).toHaveLength(3);
+  });
+
+  test("highlights ordinary Python and Dart through Lowlight/highlight.js", () => {
+    const python = codePresentation(
+      codeToken(
+        parseMarkdown(
+          ["~~~python", "def greet(name):", '    return f"Hello {name}"', "~~~"]
+            .join("\n")
+            .replaceAll("~~~", "```"),
+        ),
+      )!,
+    );
+    const dart = codePresentation(
+      codeToken(
+        parseMarkdown(["~~~dart", "final answer = 42;", "~~~"].join("\n").replaceAll("~~~", "```")),
+      )!,
     );
 
-    expect(rendered).toContain('class="table-scroll table-scroll-wide"');
+    expect(collectClasses(python?.highlighted || []).some((name) => name.startsWith("hljs-"))).toBe(
+      true,
+    );
+    expect(collectClasses(dart?.highlighted || []).some((name) => name.startsWith("hljs-"))).toBe(
+      true,
+    );
+  });
+
+  test("allows only http(s) renderer links", () => {
+    expect(safeLinkHref("https://example.com/path")).toBe("https://example.com/path");
+    expect(safeLinkHref("javascript:alert(1)")).toBe("");
   });
 });

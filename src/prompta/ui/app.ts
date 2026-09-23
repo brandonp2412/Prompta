@@ -36,6 +36,7 @@ import {
 import { RecentChatCache } from "./recentChatCache";
 import { appViewState, requestComposerFocus, requestSidebarTop } from "./appViewState.svelte";
 import { copyText } from "./clipboard";
+import { finePointer } from "./browserState.svelte";
 import { appActions } from "./appActions.svelte";
 import {
   closeSidebar,
@@ -1169,14 +1170,14 @@ function renderNewChat() {
     scrollSidebarToNewest();
     sidebar.close();
 
-    if (!waiting && matchMedia("(pointer: fine)").matches) {
+    if (!waiting && finePointer.current) {
       requestComposerFocus();
     }
   }
 }
 
 async function fetchJson(url, timeoutMs = 10_000, controller = new AbortController()) {
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -1188,7 +1189,7 @@ async function fetchJson(url, timeoutMs = 10_000, controller = new AbortControll
 
     return await response.json();
   } finally {
-    window.clearTimeout(timeout);
+    clearTimeout(timeout);
   }
 }
 
@@ -1213,15 +1214,15 @@ async function hydratePinnedIds() {
 }
 
 async function hydrateRecentChatCache() {
-  let timeout: number | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   const cached = await Promise.race([
     Promise.all([recentChatCache.warm(), recentChatCache.warmSummaries()]),
     new Promise<null>((resolve) => {
-      timeout = window.setTimeout(() => resolve(null), 500);
+      timeout = setTimeout(() => resolve(null), 500);
     }),
   ]);
 
-  if (timeout !== undefined) window.clearTimeout(timeout);
+  if (timeout !== undefined) clearTimeout(timeout);
 
   if (!cached) return false;
 
@@ -1635,7 +1636,7 @@ async function runScheduleSlashCommand(command, originalMessage) {
     attachmentPicker.setDisabled(false);
     syncSendButton();
 
-    if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
+    if (finePointer.current) requestComposerFocus();
   }
 }
 
@@ -1668,7 +1669,7 @@ async function runAtSlashCommand(command, originalMessage) {
     attachmentPicker.setDisabled(false);
     syncSendButton();
 
-    if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
+    if (finePointer.current) requestComposerFocus();
   }
 }
 
@@ -2299,12 +2300,12 @@ async function sendSelectedMessage() {
       appViewState.composerDisabled = false;
       syncSendButton();
 
-      if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
+      if (finePointer.current) requestComposerFocus();
     } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
       appViewState.composerDisabled = false;
       syncSendButton();
 
-      if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
+      if (finePointer.current) requestComposerFocus();
     }
 
     updateComposerActionButton();
