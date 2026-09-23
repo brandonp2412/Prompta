@@ -462,6 +462,21 @@ class ReadOnlyChatStore:
                     if "tool_calls" in tables
                     else []
                 )
+                tool_call_diffs = (
+                    connection.execute(
+                        """
+                        SELECT message_key, call_key, before_tree_id, after_tree_id,
+                               patch_text, changed_file_count, additions, deletions,
+                               truncated, repository_root, worktree_path,
+                               created_at, updated_at
+                        FROM tool_call_diffs
+                        WHERE conversation_id = ?
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "tool_call_diffs" in tables
+                    else []
+                )
                 source_event_counts = (
                     connection.execute(
                         """
@@ -543,6 +558,9 @@ class ReadOnlyChatStore:
             except json.JSONDecodeError:
                 part["metadata"] = {}
             parts_by_message.setdefault(str(part["message_key"]), []).append(part)
+        diffs_by_call = {
+            (str(row["message_key"]), str(row["call_key"])): dict(row) for row in tool_call_diffs
+        }
         calls_by_message: dict[str, list[dict[str, Any]]] = {}
         for row in tool_calls:
             call = dict(row)
@@ -559,6 +577,12 @@ class ReadOnlyChatStore:
                     call[target] = json.loads(str(encoded))
                 except json.JSONDecodeError:
                     call[target] = str(encoded)
+            diff = diffs_by_call.get((str(call["message_key"]), str(call["call_key"])))
+            if diff is not None:
+                diff.pop("message_key", None)
+                diff.pop("call_key", None)
+                diff["truncated"] = bool(diff.get("truncated"))
+                call["code_diff"] = diff
             calls_by_message.setdefault(str(call["message_key"]), []).append(call)
         event_count_by_message = {
             str(row["message_key"]): int(row["event_count"] or 0) for row in source_event_counts

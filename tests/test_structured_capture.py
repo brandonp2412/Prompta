@@ -978,6 +978,157 @@ def test_cache_persists_structured_events_parts_tools_and_message_versions(
     assert any("Finished, revised" in row["raw_json"] for row in raw_final_events)
 
 
+def test_tool_call_diff_persists_across_snapshot_refresh_and_is_read_with_tool_call(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-diff"
+    cache.start(
+        conversation_id,
+        context_id="context-1",
+        job_name="",
+        prompt="Change the code",
+    )
+    snapshot = {
+        "title": "Diff",
+        "path": f"/c/{conversation_id}",
+        "streaming": False,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Change the code"},
+            {"id": "a1", "role": "assistant", "content": "Finished"},
+        ],
+        "source_events": _source_events(),
+    }
+    cache.write_snapshot(conversation_id, snapshot, complete=True)
+    tool = cache.connection.execute(
+        """
+        SELECT call_key
+        FROM tool_calls
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (conversation_id, "a1"),
+    ).fetchone()
+    assert tool is not None
+    call_key = str(tool["call_key"])
+
+    cache.record_tool_call_diff(
+        conversation_id,
+        "a1",
+        call_key,
+        before_tree_id="a" * 40,
+        after_tree_id="b" * 40,
+        patch_text="diff --git a/app.py b/app.py\n+print('changed')\n",
+        changed_file_count=1,
+        additions=1,
+        deletions=0,
+        truncated=False,
+        repository_root="/home/brandon/prompta",
+        worktree_path="/home/brandon/worktrees/prompta-diff-previews",
+        observed_at=200.0,
+    )
+
+    cache.write_snapshot(conversation_id, snapshot, complete=True)
+    persisted = cache.connection.execute(
+        """
+        SELECT before_tree_id, after_tree_id, patch_text, changed_file_count,
+               additions, deletions, truncated, repository_root, worktree_path,
+               created_at, updated_at
+        FROM tool_call_diffs
+        WHERE conversation_id = ? AND message_key = ? AND call_key = ?
+        """,
+        (conversation_id, "a1", call_key),
+    ).fetchone()
+    assert persisted is not None
+    assert persisted["before_tree_id"] == "a" * 40
+    assert persisted["after_tree_id"] == "b" * 40
+    assert persisted["changed_file_count"] == 1
+    assert persisted["additions"] == 1
+    assert persisted["deletions"] == 0
+    assert persisted["truncated"] == 0
+    assert persisted["created_at"] == 200.0
+    assert persisted["updated_at"] == 200.0
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+    assert chat is not None
+    code_diff = chat["messages"][-1]["tool_calls"][0]["code_diff"]
+    assert code_diff["before_tree_id"] == "a" * 40
+    assert code_diff["after_tree_id"] == "b" * 40
+    assert code_diff["patch_text"].endswith("+print('changed')\n")
+    assert code_diff["changed_file_count"] == 1
+    assert code_diff["additions"] == 1
+    assert code_diff["deletions"] == 0
+    assert code_diff["truncated"] is False
+    assert code_diff["repository_root"] == "/home/brandon/prompta"
+    assert code_diff["worktree_path"] == "/home/brandon/worktrees/prompta-diff-previews"
+
+    cache.record_tool_call_diff(
+        conversation_id,
+        "a1",
+        call_key,
+        before_tree_id="a" * 40,
+        after_tree_id="c" * 40,
+        patch_text="truncated patch",
+        changed_file_count=2,
+        additions=3,
+        deletions=1,
+        truncated=True,
+        repository_root="/home/brandon/prompta",
+        worktree_path="/home/brandon/worktrees/prompta-diff-previews",
+        observed_at=201.0,
+    )
+    updated = cache.connection.execute(
+        """
+        SELECT after_tree_id, changed_file_count, additions, deletions, truncated,
+               created_at, updated_at
+        FROM tool_call_diffs
+        WHERE conversation_id = ? AND message_key = ? AND call_key = ?
+        """,
+        (conversation_id, "a1", call_key),
+    ).fetchone()
+    cache.close()
+
+    assert updated is not None
+    assert updated["after_tree_id"] == "c" * 40
+    assert updated["changed_file_count"] == 2
+    assert updated["additions"] == 3
+    assert updated["deletions"] == 1
+    assert updated["truncated"] == 1
+    assert updated["created_at"] == 200.0
+    assert updated["updated_at"] == 201.0
+
+
+def test_tool_call_diff_schema_migrates_existing_cache(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-existing",
+        context_id="context-1",
+        job_name="",
+        prompt="Existing data",
+    )
+    cache.connection.execute("DROP TABLE tool_call_diffs")
+    cache.connection.commit()
+    cache.close()
+
+    migrated = ChatCache(path)
+    tables = {
+        str(row["name"])
+        for row in migrated.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    conversation = migrated.connection.execute(
+        "SELECT prompt FROM conversations WHERE id = ?",
+        ("conversation-existing",),
+    ).fetchone()
+    migrated.close()
+
+    assert "tool_call_diffs" in tables
+    assert conversation is not None
+    assert conversation["prompt"] == "Existing data"
+
+
 def test_partial_structured_capture_preserves_known_assistant_text_parts(
     tmp_path: Path,
 ) -> None:
