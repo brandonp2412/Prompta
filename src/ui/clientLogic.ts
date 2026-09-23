@@ -1201,7 +1201,7 @@ export function shouldShowStopAction(
 }
 
 export function shouldProbeHistoricalActivity(chatStatus: unknown): boolean {
-  return textValue(chatStatus).trim().toLowerCase() === "interrupted";
+  return ["interrupted", "unattended"].includes(textValue(chatStatus).trim().toLowerCase());
 }
 
 export function shouldRefreshSelectedChat(

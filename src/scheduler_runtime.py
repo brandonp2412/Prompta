@@ -37,7 +37,8 @@ class DeliveryIntent(TypedDict):
     attempt_count: int
 
 
-_MIN_SEND_GAP_SECONDS = 60.0
+_NORMAL_SEND_GAP_SECONDS = 60.0
+_UNATTENDED_SEND_GAP_SECONDS = 10.0
 _INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
 _RECURRING_JITTER_FRACTION = 0.20
 _RECURRING_JITTER_CAP_SECONDS = 5 * 60.0
@@ -506,12 +507,21 @@ class SchedulerRuntime:
         self.persist_global_backoff()
         return delay
 
+    def unattended_mode(self) -> bool:
+        return self.scheduler_state().get("unattended_mode") is True
+
+    def set_unattended_mode(self, enabled: bool) -> None:
+        self.update_scheduler_state({"unattended_mode": bool(enabled)})
+
+    def send_gap_seconds(self) -> float:
+        return _UNATTENDED_SEND_GAP_SECONDS if self.unattended_mode() else _NORMAL_SEND_GAP_SECONDS
+
     def send_gap_remaining(self, now: float) -> float:
         try:
             last_attempt_at = float(self.scheduler_state().get("last_attempt_at") or 0.0)
         except (TypeError, ValueError):
             return 0.0
-        return max(0.0, last_attempt_at + _MIN_SEND_GAP_SECONDS - now)
+        return max(0.0, last_attempt_at + self.send_gap_seconds() - now)
 
     def ensure_initial_schedules(self, jobs: list[PromptJob], now: float) -> None:
         for job in jobs:

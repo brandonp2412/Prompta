@@ -437,6 +437,23 @@
       </div>
       <div class="topbar-actions" aria-label="Prompta actions">
         <button
+          class={["icon-button", { active: appViewState.unattended }]}
+          id="unattendedModeButton"
+          aria-label={appViewState.unattended ? "Disable unattended mode" : "Enable unattended mode"}
+          title={
+            appViewState.unattended
+              ? "Unattended · no ChatGPT polling · " + appViewState.unattendedSendGapSeconds + "s send gap"
+              : "Unattended mode · disable ChatGPT polling and increase send allowance"
+          }
+          aria-pressed={appViewState.unattended}
+          disabled={appViewState.unattendedUpdating}
+          onclick={appActions.onUnattendedMode}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"
+            ><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg
+          >
+        </button>
+        <button
           class={["icon-button", { active: appViewState.pinActive }]}
           id="pinChatButton"
           aria-label={appViewState.pinLabel}

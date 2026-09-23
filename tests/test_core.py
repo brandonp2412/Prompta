@@ -990,6 +990,46 @@ def test_due_in_uses_persisted_last_send(tmp_path: Path) -> None:
     assert prompta.due_in(PromptJob("flux", "changed", 1800), now=1900.0) == 900.0
 
 
+def test_unattended_mode_persists_and_relaxes_send_gap(tmp_path: Path) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.json", tmp_path / "jobs.json")
+    runtime.update_scheduler_state({"last_attempt_at": 100.0})
+
+    assert runtime.unattended_mode() is False
+    assert runtime.send_gap_seconds() == 60.0
+    assert runtime.send_gap_remaining(105.0) == 55.0
+
+    runtime.set_unattended_mode(True)
+    assert runtime.unattended_mode() is True
+    assert runtime.send_gap_seconds() == 10.0
+    assert runtime.send_gap_remaining(105.0) == 5.0
+
+    reopened = SchedulerRuntime(tmp_path / "state.json", tmp_path / "jobs.json")
+    assert reopened.unattended_mode() is True
+    assert reopened.send_gap_seconds() == 10.0
+
+
+@pytest.mark.asyncio
+async def test_unattended_mode_skips_recovery_and_sync_reads(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.scheduler.set_unattended_mode(True)
+    prompta.conversations.recover_cached_conversations = AsyncMock(return_value=1)  # type: ignore[method-assign]
+    prompta.actions.sync_conversation = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+    assert await prompta.recover_cached_conversations() == 0
+    prompta.conversations.recover_cached_conversations.assert_not_awaited()
+    with pytest.raises(RuntimeError, match="Unattended mode disables ChatGPT chat reads"):
+        await prompta.sync_conversation("chat-1")
+    prompta.actions.sync_conversation.assert_not_awaited()
+    await prompta.close()
+
+
 def test_pause_state_round_trip(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     state_path = tmp_path / "state.json"

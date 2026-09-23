@@ -1203,8 +1203,9 @@ describe("selected chat refresh", () => {
 });
 
 describe("historical activity probing", () => {
-  test("probes interrupted chats because they may still be live in ChatGPT", () => {
+  test("probes interrupted or unattended chats because they may have newer ChatGPT state", () => {
     expect(shouldProbeHistoricalActivity("interrupted")).toBe(true);
+    expect(shouldProbeHistoricalActivity("unattended")).toBe(true);
   });
 
   test("does not probe chats whose activity state is already known", () => {

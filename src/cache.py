@@ -747,6 +747,32 @@ class ChatCache:
                 activity=activity,
             )
 
+    def mark_unattended(self, conversation_id: str) -> None:
+        now = time.time()
+        self.connection.execute(
+            """
+            UPDATE conversations
+            SET status = 'unattended', browser_context_id = '', updated_at = ?,
+                completed_at = COALESCE(completed_at, ?)
+            WHERE id = ?
+            """,
+            (now, now, conversation_id),
+        )
+        record_conversation_state(
+            self.connection,
+            conversation_id=conversation_id,
+            status="unattended",
+            observed_at=now,
+            activity={
+                "streaming": False,
+                "complete": False,
+                "transient": False,
+                "failed": False,
+                "turn_ended": None,
+            },
+        )
+        self.connection.commit()
+
     def mark_interrupted(self, conversation_id: str) -> None:
         now = time.time()
         self.connection.execute(

@@ -7,6 +7,7 @@ export const appActions = $state({
   onNewChat: () => {},
   onPin: () => {},
   onShare: () => {},
+  onUnattendedMode: () => {},
   onSubmit: () => {},
   onComposerInput: (_value: string) => {},
   onApplyUpdate: () => {},

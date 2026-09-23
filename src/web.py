@@ -34,6 +34,7 @@ from .core import (
 from .image_previews import ImagePreviewStore
 from .pinned_chats import PinnedChatStore
 from .read_state import ConversationReadState
+from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import SendJobRegistry as SendJobRegistry
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
@@ -131,6 +132,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.attachments = AttachmentStore(self.state_path.parent, self.image_previews)
         self.pinned_chats = PinnedChatStore(self.state_path.parent)
         self.read_state = ConversationReadState(self.state_path.parent)
+        self.scheduler_runtime = SchedulerRuntime(self.state_path, self.jobs_path)
         self.job_service = WebJobService(
             self.jobs_path,
             self.state_path,
@@ -180,10 +182,23 @@ class PromptaUIServer(ThreadingHTTPServer):
     def host_online(self, *, force: bool = False) -> bool:
         return True
 
+    def unattended_mode(self) -> dict[str, Any]:
+        enabled = self.scheduler_runtime.unattended_mode()
+        return {
+            "unattended": enabled,
+            "chat_polling": not enabled,
+            "send_gap_seconds": self.scheduler_runtime.send_gap_seconds(),
+        }
+
+    def set_unattended_mode(self, enabled: bool) -> dict[str, Any]:
+        self.scheduler_runtime.set_unattended_mode(enabled)
+        return self.unattended_mode()
+
     def event_token(self) -> str:
+        mode = int(self.scheduler_runtime.unattended_mode())
         return (
             f"{self.store.change_token()}:"
-            f"send={self.send_jobs.revision}:online={int(self.host_online())}"
+            f"send={self.send_jobs.revision}:online={int(self.host_online())}:unattended={mode}"
         )
 
     @staticmethod
@@ -410,6 +425,8 @@ class PromptaUIServer(ThreadingHTTPServer):
         return self._stop(conversation_id)
 
     def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int, bool]:
+        if self.scheduler_runtime.unattended_mode():
+            raise RuntimeError("Unattended mode disables ChatGPT chat reads")
         if self.store.conversation(conversation_id) is None:
             raise KeyError(conversation_id)
         verified = True
@@ -759,8 +776,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                     "server": server.host_name,
                     "online": server.host_online(force=True),
                     "head": _UI_HEAD,
+                    **server.unattended_mode(),
                 }
             )
+            return
+        if path == "/api/mode":
+            self._json(cast(PromptaUIServer, self.server).unattended_mode())
             return
         if path == "/api/changelog":
             query = parse_qs(parsed.query)
@@ -860,6 +881,17 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/mode":
+            payload = self._json_body()
+            if payload is None:
+                return
+            unattended = payload.get("unattended")
+            if not isinstance(unattended, bool):
+                self._json({"error": "Expected unattended to be a boolean"}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(cast(PromptaUIServer, self.server).set_unattended_mode(unattended))
+            return
 
         if path == "/api/pins/seed":
             payload = self._json_body()

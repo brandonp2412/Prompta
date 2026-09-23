@@ -1465,6 +1465,8 @@ async function loadServerIdentity() {
     const payload = await fetchJson("api/health");
 
     setServerStatus(payload.server, payload.online);
+    appViewState.unattended = payload.unattended === true;
+    appViewState.unattendedSendGapSeconds = Number(payload.send_gap_seconds || 60);
     const head = String(payload.head || "")
       .trim()
       .toLowerCase();
@@ -1474,6 +1476,29 @@ async function loadServerIdentity() {
   } catch (error) {
     setServerStatus(state.serverName || location.hostname, false);
     console.warn("Could not load Prompta server identity", error);
+  }
+}
+
+async function toggleUnattendedMode() {
+  if (appViewState.unattendedUpdating) return;
+
+  const next = !appViewState.unattended;
+  appViewState.unattendedUpdating = true;
+  try {
+    const payload = await postJson("api/mode", { unattended: next }, 1, 10_000);
+    appViewState.unattended = payload.unattended === true;
+    appViewState.unattendedSendGapSeconds = Number(payload.send_gap_seconds || 60);
+    showActionToast(
+      appViewState.unattended
+        ? "Unattended mode · no chat polling · " +
+            appViewState.unattendedSendGapSeconds +
+            "s send gap"
+        : "Unattended mode off · normal chat polling restored",
+    );
+  } catch (error) {
+    showActionToast("Could not change unattended mode: " + String(error).replace(/^Error:\s*/, ""));
+  } finally {
+    appViewState.unattendedUpdating = false;
   }
 }
 
@@ -1631,7 +1656,12 @@ async function loadChats(forceSelectedRefresh = false) {
 const HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30_000;
 
 async function probeHistoricalActivity(conversationId) {
-  if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status)) return;
+  if (
+    appViewState.unattended ||
+    !conversationId ||
+    !shouldProbeHistoricalActivity(state.selectedChat?.status)
+  )
+    return;
 
   const now = Date.now();
   const lastProbeAt = Number(state.activityProbeAt.get(conversationId) || 0);
@@ -2299,7 +2329,11 @@ async function watchSend(sendId, creatingNew, conversationId) {
     if (state.selectedId === conversationId) await loadSelectedChat();
 
     if (status === "succeeded") {
-      setComposerStatus("Sent. Waiting for the cached response…");
+      setComposerStatus(
+        appViewState.unattended
+          ? "Sent. Unattended mode is not polling ChatGPT for the response."
+          : "Sent. Waiting for the cached response…",
+      );
       await loadChats();
 
       return;
@@ -2665,6 +2699,7 @@ async function copySelectedChatUrl() {
 
 appActions.onPin = toggleSelectedPin;
 appActions.onShare = () => void copySelectedChatUrl();
+appActions.onUnattendedMode = () => void toggleUnattendedMode();
 
 appActions.onSubmit = () => {
   if (appViewState.composerAction === "stop") void stopSelectedChat();

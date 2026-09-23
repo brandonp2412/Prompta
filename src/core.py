@@ -158,6 +158,7 @@ class Prompta:
                     **kwargs,
                 )
             ),
+            unattended_mode=lambda: self.scheduler.unattended_mode(),
         )
         self.scheduler = SchedulerRuntime(config.state_path, config.jobs_file)
         self._backoffs = self.scheduler.backoffs
@@ -303,6 +304,8 @@ class Prompta:
         return await self.actions.send_once(prompt, job_name=job_name, attachments=attachments)
 
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
+        if self.scheduler.unattended_mode():
+            return 0
         recovered = 0
         for _ in range(max(1, limit)):
             if not self.scheduler_execution.can_start_new_conversation():
@@ -351,6 +354,8 @@ class Prompta:
             raise RuntimeError(f"Prompta {label} stalled; browser restart required") from exc
 
     async def sync_conversation(self, conversation_id: str) -> int:
+        if self.scheduler.unattended_mode():
+            raise RuntimeError("Unattended mode disables ChatGPT chat reads")
         return await self.actions.sync_conversation(conversation_id)
 
     async def send_reply(
@@ -380,6 +385,11 @@ class Prompta:
     def _interrupt_active_conversations(self) -> None:
         for active in self._active_conversations.values():
             self.cache.mark_interrupted(active.conversation_id)
+        self._active_conversations.clear()
+
+    def _detach_active_conversations_for_unattended(self) -> None:
+        for active in self._active_conversations.values():
+            self.cache.mark_unattended(active.conversation_id)
         self._active_conversations.clear()
 
     @staticmethod
@@ -475,6 +485,10 @@ class Prompta:
 
     async def run(self, *, once: bool = False) -> None:
         while True:
+            unattended = self.scheduler.unattended_mode()
+            if unattended and self._active_conversations:
+                self._detach_active_conversations_for_unattended()
+
             # UI sends are latency-sensitive. Drain them before browser/cache
             # maintenance so a slow active-conversation poll cannot starve new
             # messages for minutes.
@@ -497,25 +511,27 @@ class Prompta:
             delivered_scheduled = await self._drain_scheduled_deliveries()
             did_work = delivered_scheduled or did_work
             if once and (jobs or delivered_scheduled):
-                for active in list(self._active_conversations.values()):
-                    await self.wait_for_cached_response(active.conversation_id)
+                if not unattended:
+                    for active in list(self._active_conversations.values()):
+                        await self.wait_for_cached_response(active.conversation_id)
                 return
 
             await self._run_browser_maintenance(
                 "orphan browser cleanup",
                 self._cleanup_browser_orphans(),
             )
-            did_work = (
-                await self._run_browser_maintenance(
-                    "cached recovery",
-                    self._retry_cached_recovery_if_due(),
+            if not unattended:
+                did_work = (
+                    await self._run_browser_maintenance(
+                        "cached recovery",
+                        self._retry_cached_recovery_if_due(),
+                    )
+                    or did_work
                 )
-                or did_work
-            )
-            await self._run_browser_maintenance(
-                "active conversation polling",
-                self._poll_active_conversations(),
-            )
+                await self._run_browser_maintenance(
+                    "active conversation polling",
+                    self._poll_active_conversations(),
+                )
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
                     "Browser session was lost; restarting Prompta to recycle browser"
@@ -533,6 +549,8 @@ class Prompta:
 
     async def close(self) -> None:
         driver = self.driver
+        if self.scheduler.unattended_mode() and self._active_conversations:
+            self._detach_active_conversations_for_unattended()
         if driver is not None:
             poisoned = getattr(driver, "needs_browser_restart", False) is True
             for context, active in list(self._active_conversations.items()):

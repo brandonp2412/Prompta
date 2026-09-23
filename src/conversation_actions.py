@@ -35,6 +35,7 @@ class ConversationActions:
         ensure_route: Callable[..., Any],
         enrich_completed_tool_calls: Callable[..., Any],
         wait_for_cached_response: Callable[..., Any],
+        unattended_mode: Callable[[], bool],
     ) -> None:
         self.cache = cache
         self.active = active
@@ -44,6 +45,7 @@ class ConversationActions:
         self.ensure_route = ensure_route
         self.enrich_completed_tool_calls = enrich_completed_tool_calls
         self.wait_for_cached_response_callback = wait_for_cached_response
+        self.unattended_mode = unattended_mode
 
     @staticmethod
     def normalise(text: str) -> str:
@@ -182,12 +184,15 @@ class ConversationActions:
                         job_name=job_name,
                         prompt=prompt,
                     )
-                    self.active[context] = ActiveConversation(
-                        conversation_id=conversation_id,
-                        context_id=context,
-                        job_name=job_name,
-                        prompt=prompt,
-                    )
+                    if self.unattended_mode():
+                        self.cache.mark_unattended(conversation_id)
+                    else:
+                        self.active[context] = ActiveConversation(
+                            conversation_id=conversation_id,
+                            context_id=context,
+                            job_name=job_name,
+                            prompt=prompt,
+                        )
                     succeeded = True
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
@@ -203,12 +208,15 @@ class ConversationActions:
                     job_name=job_name,
                     prompt=prompt,
                 )
-                self.active[context] = ActiveConversation(
-                    conversation_id=provisional_conversation_id,
-                    context_id=context,
-                    job_name=job_name,
-                    prompt=prompt,
-                )
+                if self.unattended_mode():
+                    self.cache.mark_unattended(provisional_conversation_id)
+                else:
+                    self.active[context] = ActiveConversation(
+                        conversation_id=provisional_conversation_id,
+                        context_id=context,
+                        job_name=job_name,
+                        prompt=prompt,
+                    )
                 succeeded = True
                 return provisional_conversation_id
 
@@ -240,11 +248,13 @@ class ConversationActions:
                     await driver.clear_page_send_probe()
                 except Exception:
                     logger.debug("Could not clear page send probe", exc_info=True)
-            if not succeeded:
+            if not succeeded or not any(
+                active.context_id == context for active in self.active.values()
+            ):
                 try:
                     await driver.close_context(context)
                 except Exception:
-                    logger.debug("Could not close failed Prompta tab", exc_info=True)
+                    logger.debug("Could not close Prompta tab", exc_info=True)
 
     async def sync_conversation(self, conversation_id: str) -> int:
 
@@ -526,19 +536,22 @@ class ConversationActions:
                 )
                 if send_confirmed or dom_confirmed:
                     metadata = self.cache.resume(conversation_id, context_id=context)
-                    if active is None:
-                        active = ActiveConversation(
-                            conversation_id=conversation_id,
-                            context_id=context,
-                            job_name=str(metadata.get("job_name") or ""),
-                            prompt=str(metadata.get("prompt") or ""),
-                        )
-                        self.active[context] = active
-                    active.idle_polls = 0
-                    active.settled_at = 0.0
-                    snapshot = await driver.conversation_snapshot(context)
-                    self.cache.write_snapshot(conversation_id, snapshot)
-                    active.last_digest = self.cache.digest(snapshot)
+                    if self.unattended_mode():
+                        self.cache.mark_unattended(conversation_id)
+                    else:
+                        if active is None:
+                            active = ActiveConversation(
+                                conversation_id=conversation_id,
+                                context_id=context,
+                                job_name=str(metadata.get("job_name") or ""),
+                                prompt=str(metadata.get("prompt") or ""),
+                            )
+                            self.active[context] = active
+                        active.idle_polls = 0
+                        active.settled_at = 0.0
+                        snapshot = await driver.conversation_snapshot(context)
+                        self.cache.write_snapshot(conversation_id, snapshot)
+                        active.last_digest = self.cache.digest(snapshot)
                     logger.info(
                         "Prompta sent reply conversation=%s reused_tab=%s",
                         conversation_id,
