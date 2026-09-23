@@ -27,6 +27,10 @@ var init_esm_env = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/shared/utils.js
+/** @param {Function} fn */
+function run(fn) {
+	return fn();
+}
 /** @param {Array<() => void>} arr */
 function run_all(arr) {
 	for (var i = 0; i < arr.length; i++) arr[i]();
@@ -62,7 +66,7 @@ var is_array, index_of, includes, array_from, define_property, get_descriptor, g
 	get_prototype_of = Object.getPrototypeOf;
 	is_extensible = Object.isExtensible;
 	noop = () => {};
-})), CLEAN, DIRTY, MAYBE_DIRTY, INERT, DESTROYED, REACTION_RAN, DESTROYING, EFFECT_TRANSPARENT, EFFECT_PRESERVED, USER_EFFECT, EFFECT_OFFSCREEN, REACTION_IS_UPDATING, ASYNC, ERROR_VALUE, STATE_SYMBOL, COMPONENT_SYMBOL, LOADING_ATTR_SYMBOL, ATTRIBUTES_CACHE, CLASS_CACHE, STYLE_CACHE, TEXT_CACHE, STALE_REACTION, IS_XHTML;
+})), CLEAN, DIRTY, MAYBE_DIRTY, INERT, DESTROYED, REACTION_RAN, DESTROYING, EFFECT_TRANSPARENT, HEAD_EFFECT, EFFECT_PRESERVED, USER_EFFECT, EFFECT_OFFSCREEN, REACTION_IS_UPDATING, ASYNC, ERROR_VALUE, STATE_SYMBOL, COMPONENT_SYMBOL, LOADING_ATTR_SYMBOL, ATTRIBUTES_CACHE, CLASS_CACHE, STYLE_CACHE, TEXT_CACHE, FORM_RESET_HANDLER, STALE_REACTION, IS_XHTML;
 var init_constants$1 = __esmMin((() => {
 	CLEAN = 1024;
 	DIRTY = 2048;
@@ -72,6 +76,7 @@ var init_constants$1 = __esmMin((() => {
 	REACTION_RAN = 32768;
 	DESTROYING = 1 << 25;
 	EFFECT_TRANSPARENT = 65536;
+	HEAD_EFFECT = 1 << 18;
 	EFFECT_PRESERVED = 1 << 19;
 	USER_EFFECT = 1 << 20;
 	EFFECT_OFFSCREEN = 1 << 25;
@@ -85,16 +90,19 @@ var init_constants$1 = __esmMin((() => {
 	CLASS_CACHE = Symbol("class");
 	STYLE_CACHE = Symbol("style");
 	TEXT_CACHE = Symbol("text");
+	FORM_RESET_HANDLER = Symbol("form reset");
 	STALE_REACTION = new class StaleReactionError extends Error {
 		name = "StaleReactionError";
 		message = "The reaction that called `getAbortSignal()` was re-run or destroyed";
 	}();
 	IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
-})), HYDRATION_ERROR, UNINITIALIZED, NAMESPACE_HTML;
+})), HYDRATION_ERROR, UNINITIALIZED, NAMESPACE_HTML, NAMESPACE_SVG, NAMESPACE_MATHML;
 var init_constants = __esmMin((() => {
 	HYDRATION_ERROR = {};
 	UNINITIALIZED = Symbol("uninitialized");
 	NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
+	NAMESPACE_SVG = "http://www.w3.org/2000/svg";
+	NAMESPACE_MATHML = "http://www.w3.org/1998/Math/MathML";
 }));
 /**
 * Reading a derived belonging to a now-destroyed effect may result in stale values
@@ -108,6 +116,12 @@ function derived_inert() {
 */
 function hydration_mismatch(location) {
 	console.warn(`https://svelte.dev/e/hydration_mismatch`);
+}
+/**
+* The `value` property of a `<select multiple>` element should be an array, but it received a non-array value. The selection will be kept as is.
+*/
+function select_multiple_invalid_value() {
+	console.warn(`https://svelte.dev/e/select_multiple_invalid_value`);
 }
 /**
 * A `<svelte:boundary>` `reset` function only resets the boundary the first time it is called
@@ -211,6 +225,14 @@ function safe_equals(value) {
 	return !safe_not_equal(value, this.v);
 }
 var init_equality$1 = __esmMin((() => {}));
+/**
+* `%name%(...)` can only be used during component initialisation
+* @param {string} name
+* @returns {never}
+*/
+function lifecycle_outside_component(name) {
+	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
+}
 var init_errors$1 = __esmMin((() => {
 	init_esm_env();
 }));
@@ -232,6 +254,29 @@ function async_derived_orphan() {
 */
 function each_key_duplicate(a, b, value) {
 	throw new Error(`https://svelte.dev/e/each_key_duplicate`);
+}
+/**
+* `%rune%` cannot be used inside an effect cleanup function
+* @param {string} rune
+* @returns {never}
+*/
+function effect_in_teardown(rune) {
+	throw new Error(`https://svelte.dev/e/effect_in_teardown`);
+}
+/**
+* Effect cannot be created inside a `$derived` value that was not itself created inside an effect
+* @returns {never}
+*/
+function effect_in_unowned_derived() {
+	throw new Error(`https://svelte.dev/e/effect_in_unowned_derived`);
+}
+/**
+* `%rune%` can only be used inside an effect (e.g. during component initialisation)
+* @param {string} rune
+* @returns {never}
+*/
+function effect_orphan(rune) {
+	throw new Error(`https://svelte.dev/e/effect_orphan`);
 }
 /**
 * Maximum update depth exceeded. This typically indicates that an effect reads and writes the same piece of state
@@ -271,7 +316,13 @@ function svelte_boundary_reset_onerror() {
 var init_errors = __esmMin((() => {
 	init_esm_env();
 	init_errors$1();
-})), async_mode_flag, legacy_mode_flag;
+}));
+//#endregion
+//#region node_modules/svelte/src/internal/flags/index.js
+function enable_legacy_mode_flag() {
+	legacy_mode_flag = true;
+}
+var async_mode_flag, legacy_mode_flag;
 var init_flags = __esmMin((() => {
 	async_mode_flag = false;
 	legacy_mode_flag = false;
@@ -379,6 +430,12 @@ function queue_micro_task(fn) {
 	}
 	micro_tasks.push(fn);
 }
+/**
+* Synchronously run any queued tasks.
+*/
+function flush_tasks() {
+	while (micro_tasks.length > 0) run_micro_tasks();
+}
 var micro_tasks;
 var init_task = __esmMin((() => {
 	init_utils$3();
@@ -432,11 +489,33 @@ var init_debug = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/misc.js
+/**
+* The child of a textarea actually corresponds to the defaultValue property, so we need
+* to remove it upon hydration to avoid a bug when someone resets the form value.
+* @param {HTMLTextAreaElement} dom
+* @returns {void}
+*/
+function remove_textarea_child(dom) {
+	if (hydrating && /* @__PURE__ */ get_first_child(dom) !== null) clear_text_content(dom);
+}
+function add_form_reset_listener() {
+	if (!listening_to_form_reset) {
+		listening_to_form_reset = true;
+		document.addEventListener("reset", (evt) => {
+			Promise.resolve().then(() => {
+				if (!evt.defaultPrevented) for (const e of evt.target.elements)
+ /** @type {any} */ e[FORM_RESET_HANDLER]?.();
+			});
+		}, { capture: true });
+	}
+}
+var listening_to_form_reset;
 var init_misc$1 = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
 	init_task();
 	init_constants$1();
+	listening_to_form_reset = false;
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
@@ -455,6 +534,26 @@ function without_reactive_context(fn) {
 		set_active_reaction(previous_reaction);
 		set_active_effect(previous_effect);
 	}
+}
+/**
+* Listen to the given event, and then instantiate a global form reset listener if not already done,
+* to notify all bindings when the form is reset
+* @param {HTMLElement} element
+* @param {string} event
+* @param {(is_reset?: true) => void} handler
+* @param {(is_reset?: true) => void} [on_reset]
+*/
+function listen_to_event_and_reset_event(element, event, handler, on_reset = handler) {
+	element.addEventListener(event, () => without_reactive_context(handler));
+	const prev = element[FORM_RESET_HANDLER];
+	if (prev)
+ /** @type {any} */ element[FORM_RESET_HANDLER] = () => {
+		prev();
+		on_reset(true);
+	};
+	else
+ /** @type {any} */ element[FORM_RESET_HANDLER] = () => on_reset(true);
+	add_form_reset_listener();
 }
 var init_shared$1 = __esmMin((() => {
 	init_effects();
@@ -664,6 +763,17 @@ function async_derived(fn, label, location) {
 * @returns {Derived<V>}
 */
 /*#__NO_SIDE_EFFECTS__*/
+function user_derived(fn) {
+	const d = /* @__PURE__ */ derived(fn);
+	if (!async_mode_flag) push_reaction_value(d);
+	return d;
+}
+/**
+* @template V
+* @param {() => V} fn
+* @returns {Derived<V>}
+*/
+/*#__NO_SIDE_EFFECTS__*/
 function derived_safe_equal(fn) {
 	const signal = /* @__PURE__ */ derived(fn);
 	signal.equals = safe_equals;
@@ -770,6 +880,33 @@ var init_deriveds = __esmMin((() => {
 	init_status();
 	OBSOLETE = Symbol("obsolete");
 }));
+//#endregion
+//#region node_modules/svelte/src/internal/client/reactivity/batch.js
+/**
+* Synchronously flush any pending updates.
+* Returns void if no callback is provided, otherwise returns the result of calling the callback.
+* @template [T=void]
+* @param {(() => T) | undefined} [fn]
+* @returns {T}
+*/
+function flushSync(fn) {
+	var was_flushing_sync = is_flushing_sync;
+	is_flushing_sync = true;
+	try {
+		var result;
+		if (fn) {
+			if (current_batch !== null && !current_batch.is_fork) current_batch.flush();
+			result = fn();
+		}
+		while (true) {
+			flush_tasks();
+			if (current_batch === null) return result;
+			current_batch.flush();
+		}
+	} finally {
+		is_flushing_sync = was_flushing_sync;
+	}
+}
 function infinite_loop_guard() {
 	try {
 		effect_update_depth_exceeded();
@@ -1817,6 +1954,22 @@ function proxy(value) {
 		}
 	});
 }
+/**
+* @param {any} value
+*/
+function get_proxied_value(value) {
+	try {
+		if (value !== null && typeof value === "object" && STATE_SYMBOL in value) return value[STATE_SYMBOL];
+	} catch {}
+	return value;
+}
+/**
+* @param {any} a
+* @param {any} b
+*/
+function is(a, b) {
+	return Object.is(get_proxied_value(a), get_proxied_value(b));
+}
 var init_proxy = __esmMin((() => {
 	init_esm_env();
 	init_runtime();
@@ -2075,6 +2228,16 @@ var init_error_handling = __esmMin((() => {
 //#endregion
 //#region node_modules/svelte/src/internal/client/reactivity/effects.js
 /**
+* @param {'$effect' | '$effect.pre' | '$inspect'} rune
+*/
+function validate_effect(rune) {
+	if (active_effect === null) {
+		if (active_reaction === null) effect_orphan(rune);
+		effect_in_unowned_derived();
+	}
+	if (is_destroying_effect) effect_in_teardown(rune);
+}
+/**
 * @param {Effect} effect
 * @param {Effect} parent_effect
 */
@@ -2157,10 +2320,31 @@ function teardown(fn) {
 	return effect;
 }
 /**
+* Internal representation of `$effect(...)`
+* @param {() => void | (() => void)} fn
+*/
+function user_effect(fn) {
+	validate_effect("$effect");
+	var flags = active_effect.f;
+	if (!active_reaction && (flags & 32) !== 0 && component_context !== null && !component_context.i) {
+		var context = component_context;
+		(context.e ??= []).push(fn);
+	} else return create_user_effect(fn);
+}
+/**
 * @param {() => void | (() => void)} fn
 */
 function create_user_effect(fn) {
 	return create_effect(4 | USER_EFFECT, fn);
+}
+/**
+* Internal representation of `$effect.pre(...)`
+* @param {() => void | (() => void)} fn
+* @returns {Effect}
+*/
+function user_pre_effect(fn) {
+	validate_effect("$effect.pre");
+	return create_effect(8 | USER_EFFECT, fn);
 }
 /**
 * An effect root whose children can transition out
@@ -2187,6 +2371,13 @@ function component_root(fn) {
 * @param {() => void | (() => void)} fn
 * @returns {Effect}
 */
+function effect(fn) {
+	return create_effect(4, fn);
+}
+/**
+* @param {() => void | (() => void)} fn
+* @returns {Effect}
+*/
 function async_effect(fn) {
 	return create_effect(ASYNC | EFFECT_PRESERVED, fn);
 }
@@ -2208,6 +2399,18 @@ function template_effect(fn, sync = [], async = [], blockers = []) {
 		create_effect(8, () => {
 			fn(...values.map(get));
 		});
+	});
+}
+/**
+* Like `template_effect`, but with an effect which is deferred until the batch commits
+* @param {(...expressions: any) => void | (() => void)} fn
+* @param {Array<() => any>} sync
+* @param {Array<() => Promise<any>>} async
+* @param {Blocker[]} blockers
+*/
+function deferred_template_effect(fn, sync = [], async = [], blockers = []) {
+	flatten(blockers, sync, async, (values) => {
+		create_effect(4, () => fn(...values.map(get)));
 	});
 }
 /**
@@ -2658,6 +2861,18 @@ function update_effect(effect) {
 	}
 }
 /**
+* Returns a promise that resolves once any pending state changes have been applied.
+* @returns {Promise<void>}
+*/
+async function tick() {
+	if (async_mode_flag) return new Promise((f) => {
+		requestAnimationFrame(() => f());
+		setTimeout(() => f());
+	});
+	await Promise.resolve();
+	flushSync();
+}
+/**
 * @template V
 * @param {Value<V>} signal
 * @returns {V}
@@ -2759,6 +2974,46 @@ function untrack(fn) {
 		untracking = previous_untracking;
 	}
 }
+/**
+* Possibly traverse an object and read all its properties so that they're all reactive in case this is `$state`.
+* Does only check first level of an object for performance reasons (heuristic should be good for 99% of all cases).
+* @param {any} value
+* @returns {void}
+*/
+function deep_read_state(value) {
+	if (typeof value !== "object" || !value || value instanceof EventTarget) return;
+	if (STATE_SYMBOL in value) deep_read(value);
+	else if (!Array.isArray(value)) for (let key in value) {
+		const prop = value[key];
+		if (typeof prop === "object" && prop && STATE_SYMBOL in prop) deep_read(prop);
+	}
+}
+/**
+* Deeply traverse an object and read all its properties
+* so that they're all reactive in case this is `$state`
+* @param {any} value
+* @param {Set<any>} visited
+* @returns {void}
+*/
+function deep_read(value, visited = /* @__PURE__ */ new Set()) {
+	if (typeof value === "object" && value !== null && !(value instanceof EventTarget) && !visited.has(value)) {
+		visited.add(value);
+		if (value instanceof Date) value.getTime();
+		for (let key in value) try {
+			deep_read(value[key], visited);
+		} catch (e) {}
+		const proto = get_prototype_of(value);
+		if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== Date.prototype) {
+			const descriptors = get_descriptors(proto);
+			for (let key in descriptors) {
+				const get = descriptors[key].get;
+				if (get) try {
+					get.call(value);
+				} catch (e) {}
+			}
+		}
+	}
+}
 var is_updating_effect, is_destroying_effect, active_reaction, untracking, active_effect, current_sources, new_deps, skipped_deps, untracked_writes, write_version, read_version, update_version;
 var init_runtime = __esmMin((() => {
 	init_esm_env();
@@ -2798,8 +3053,6 @@ var init_attachments$1 = __esmMin((() => {
 	init_index_client();
 	init_effects();
 }));
-//#endregion
-//#region node_modules/svelte/src/utils.js
 /**
 * Returns `true` if `name` is a passive event
 * @param {string} name
@@ -2865,6 +3118,49 @@ var init_elements = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/events.js
+/**
+* @param {string} event_name
+* @param {EventTarget} dom
+* @param {EventListener} [handler]
+* @param {AddEventListenerOptions} [options]
+*/
+function create_event(event_name, dom, handler, options = {}) {
+	/**
+	* @this {EventTarget}
+	*/
+	function target_handler(event) {
+		if (!options.capture) handle_event_propagation.call(dom, event);
+		if (!event.cancelBubble) return without_reactive_context(() => {
+			return handler?.call(this, event);
+		});
+	}
+	if (event_name.startsWith("pointer") || event_name.startsWith("touch") || event_name === "wheel") {
+		target_handler.__removed = false;
+		queue_micro_task(() => {
+			if (!target_handler.__removed) dom.addEventListener(event_name, target_handler, options);
+		});
+	} else dom.addEventListener(event_name, target_handler, options);
+	return target_handler;
+}
+/**
+* @param {string} event_name
+* @param {Element} dom
+* @param {EventListener} [handler]
+* @param {boolean} [capture]
+* @param {boolean} [passive]
+* @returns {void}
+*/
+function event(event_name, dom, handler, capture, passive) {
+	var options = {
+		capture,
+		passive
+	};
+	var target_handler = create_event(event_name, dom, handler, options);
+	if (dom === document.body || dom === window || dom === document || dom instanceof HTMLMediaElement) teardown(() => {
+		target_handler.__removed = true;
+		dom.removeEventListener(event_name, target_handler, options);
+	});
+}
 /**
 * @param {string} event_name
 * @param {Element} element
@@ -3045,6 +3341,52 @@ function from_html(content, flags) {
 		} else assign_nodes(clone, clone);
 		return clone;
 	};
+}
+/**
+* @param {string} content
+* @param {number} flags
+* @param {'svg' | 'math'} ns
+* @returns {() => Node | Node[]}
+*/
+/*#__NO_SIDE_EFFECTS__*/
+function from_namespace(content, flags, ns = "svg") {
+	/**
+	* Whether or not the first item is a text/element node. If not, we need to
+	* create an additional comment node to act as `effect.nodes.start`
+	*/
+	var has_start = !content.startsWith("<!>");
+	var is_fragment = (flags & 1) !== 0;
+	var wrapped = `<${ns}>${has_start ? content : "<!>" + content}</${ns}>`;
+	/** @type {Element | DocumentFragment} */
+	var node;
+	return () => {
+		if (hydrating) {
+			assign_nodes(hydrate_node, null);
+			return hydrate_node;
+		}
+		if (!node) {
+			var root = /* @__PURE__ */ get_first_child(create_fragment_from_html(wrapped));
+			if (is_fragment) {
+				node = document.createDocumentFragment();
+				while (/* @__PURE__ */ get_first_child(root)) node.appendChild(/* @__PURE__ */ get_first_child(root));
+			} else node = /* @__PURE__ */ get_first_child(root);
+		}
+		var clone = node.cloneNode(true);
+		if (is_fragment) {
+			var start = /* @__PURE__ */ get_first_child(clone);
+			var end = clone.lastChild;
+			assign_nodes(start, end);
+		} else assign_nodes(clone, clone);
+		return clone;
+	};
+}
+/**
+* @param {string} content
+* @param {number} flags
+*/
+/*#__NO_SIDE_EFFECTS__*/
+function from_svg(content, flags) {
+	return /* @__PURE__ */ from_namespace(content, flags, "svg");
 }
 /**
 * Don't mark this as side-effect-free, hydration needs to walk all nodes
@@ -4385,13 +4727,74 @@ var init_each = __esmMin((() => {
 	init_errors();
 	init_tracing();
 }));
-//#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/html.js
+/**
+* @param {Element | Text | Comment} node
+* @param {() => string | TrustedHTML} get_value
+* @param {boolean} [is_controlled]
+* @param {boolean} [svg]
+* @param {boolean} [mathml]
+* @param {boolean} [skip_warning]
+* @returns {void}
+*/
+function html(node, get_value, is_controlled = false, svg = false, mathml = false, skip_warning = false) {
+	var anchor = node;
+	/** @type {string | TrustedHTML} */
+	var value = "";
+	if (is_controlled) {
+		var parent_node = node;
+		if (hydrating) anchor = set_hydrate_node(/* @__PURE__ */ get_first_child(parent_node));
+	}
+	template_effect(() => {
+		var effect = active_effect;
+		if (value === (value = get_value() ?? "")) {
+			if (hydrating) hydrate_next();
+			return;
+		}
+		if (is_controlled && !hydrating) {
+			effect.nodes = null;
+			parent_node.innerHTML = value;
+			if (value !== "") assign_nodes(/* @__PURE__ */ get_first_child(parent_node), parent_node.lastChild);
+			return;
+		}
+		if (effect.nodes !== null) {
+			remove_effect_dom(effect.nodes.start, effect.nodes.end);
+			effect.nodes = null;
+		}
+		if (value === "") return;
+		if (hydrating) {
+			hydrate_node.data;
+			/** @type {TemplateNode | null} */
+			var next = hydrate_next();
+			var last = next;
+			while (next !== null && (next.nodeType !== 8 || next.data !== "")) {
+				last = next;
+				next = /* @__PURE__ */ get_next_sibling(next);
+			}
+			if (next === null) {
+				hydration_mismatch();
+				throw HYDRATION_ERROR;
+			}
+			assign_nodes(hydrate_node, last);
+			anchor = set_hydrate_node(next);
+			return;
+		}
+		var wrapper = create_element(svg ? "svg" : mathml ? "math" : "template", svg ? NAMESPACE_SVG : mathml ? NAMESPACE_MATHML : void 0);
+		wrapper.innerHTML = value;
+		/** @type {DocumentFragment | Element} */
+		var node = svg || mathml ? wrapper : /** @type {HTMLTemplateElement} */ wrapper.content;
+		assign_nodes(/* @__PURE__ */ get_first_child(node), node.lastChild);
+		if (svg || mathml) while (/* @__PURE__ */ get_first_child(node)) anchor.before(/* @__PURE__ */ get_first_child(node));
+		else anchor.before(node);
+	});
+}
 var init_html = __esmMin((() => {
+	init_constants();
 	init_effects();
 	init_hydration();
 	init_template();
+	init_warnings();
 	init_utils$1();
+	init_esm_env();
 	init_context();
 	init_operations$1();
 	init_runtime();
@@ -4412,6 +4815,20 @@ var init_validate$1 = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/blocks/snippet.js
+/**
+* @template {(node: TemplateNode, ...args: any[]) => void} SnippetFn
+* @param {TemplateNode} node
+* @param {() => SnippetFn | null | undefined} get_snippet
+* @param {(() => any)[]} args
+* @returns {void}
+*/
+function snippet(node, get_snippet, ...args) {
+	var branches = new BranchManager(node);
+	block(() => {
+		const snippet = get_snippet() ?? null;
+		branches.ensure(snippet, snippet && ((anchor) => snippet(anchor, ...args)));
+	}, EFFECT_TRANSPARENT);
+}
 var init_snippet = __esmMin((() => {
 	init_constants$1();
 	init_effects();
@@ -4420,6 +4837,7 @@ var init_snippet = __esmMin((() => {
 	init_reconciler();
 	init_template();
 	init_errors();
+	init_esm_env();
 	init_operations$1();
 	init_validate$1();
 	init_branches();
@@ -4471,6 +4889,49 @@ var init_svelte_element = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+/**
+* @param {string} hash
+* @param {(anchor: Node) => void} render_fn
+* @returns {void}
+*/
+function head(hash, render_fn) {
+	let previous_hydrate_node = null;
+	let was_hydrating = hydrating;
+	/** @type {Comment | Text} */
+	var anchor;
+	if (hydrating) {
+		previous_hydrate_node = hydrate_node;
+		var head_anchor = /* @__PURE__ */ get_first_child(document.head);
+		while (head_anchor !== null && (head_anchor.nodeType !== 8 || head_anchor.data !== hash)) head_anchor = /* @__PURE__ */ get_next_sibling(head_anchor);
+		if (head_anchor === null) set_hydrating(false);
+		else {
+			var start = /* @__PURE__ */ get_next_sibling(head_anchor);
+			head_anchor.remove();
+			set_hydrate_node(start);
+		}
+	}
+	if (!hydrating) anchor = document.head.appendChild(create_text());
+	try {
+		block(() => {
+			var e = branch(() => render_fn(anchor));
+			e.f |= HEAD_EFFECT;
+			if (!hydrating) {
+				if (e.nodes === null) e.nodes = {
+					start: anchor,
+					end: anchor,
+					a: null,
+					t: null
+				};
+				else e.nodes.end = anchor;
+			}
+		});
+	} finally {
+		if (was_hydrating) {
+			set_hydrating(true);
+			set_hydrate_node(previous_hydrate_node);
+		}
+	}
+}
 var init_svelte_head = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
@@ -4496,7 +4957,32 @@ var init_attachments = __esmMin((() => {
 	init_effects();
 }));
 //#endregion
+//#region node_modules/clsx/dist/clsx.mjs
+function r(e) {
+	var t, f, n = "";
+	if ("string" == typeof e || "number" == typeof e) n += e;
+	else if ("object" == typeof e) if (Array.isArray(e)) {
+		var o = e.length;
+		for (t = 0; t < o; t++) e[t] && (f = r(e[t])) && (n && (n += " "), n += f);
+	} else for (f in e) e[f] && (n && (n += " "), n += f);
+	return n;
+}
+function clsx$1() {
+	for (var e, t, f = 0, n = "", o = arguments.length; f < o; f++) (e = arguments[f]) && (t = r(e)) && (n && (n += " "), n += t);
+	return n;
+}
+var init_clsx = __esmMin((() => {}));
+//#endregion
 //#region node_modules/svelte/src/internal/shared/attributes.js
+/**
+* Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
+* TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
+* @param  {any} value
+*/
+function clsx(value) {
+	if (typeof value === "object") return clsx$1(value);
+	else return value ?? "";
+}
 /**
 * @param {any} value
 * @param {string | null} [hash]
@@ -4522,6 +5008,7 @@ function to_class(value, hash, directives) {
 }
 var whitespace;
 var init_attributes$1 = __esmMin((() => {
+	init_clsx();
 	init_utils$3();
 	whitespace = [..." 	\n\r\f\xA0\v﻿"];
 }));
@@ -4566,15 +5053,182 @@ var init_style = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
-var init_select = __esmMin((() => {
+/**
+* Sets the `selected` attribute on an option so form reset can restore it.
+* @param {HTMLOptionElement} option
+* @param {boolean} selected
+*/
+function set_selected(option, selected) {
+	if (selected) {
+		if (!option.hasAttribute("selected")) option.setAttribute("selected", "");
+	} else option.removeAttribute("selected");
+}
+/**
+* Marks the options matching `__defaultValue` as selected. Without `preserve`
+* a newly matching option gets selected, as an inserted `<option selected>` would.
+* @param {HTMLSelectElement} select
+* @param {boolean} preserve
+*/
+function apply_default_select_value(select, preserve) {
+	var value = select.__defaultValue;
+	var multiple = select.multiple;
+	var values = multiple ? value ?? [] : null;
+	if (multiple && !is_array(values)) return;
+	var index = select.selectedIndex;
+	var selected = preserve && multiple ? new Set(select.selectedOptions) : null;
+	for (var option of select.options) {
+		var option_value = get_option_value(option);
+		set_selected(option, multiple ? values.includes(option_value) : is(option_value, value));
+	}
+	if (!preserve) return;
+	if (selected !== null) for (option of select.options) {
+		var was_selected = selected.has(option);
+		if (option.selected !== was_selected) option.selected = was_selected;
+	}
+	else if (select.selectedIndex !== index) select.selectedIndex = index;
+}
+/**
+* Selects the correct option(s) (depending on whether this is a multiple select)
+* @template V
+* @param {HTMLSelectElement} select
+* @param {V} value
+* @param {boolean} mounting
+*/
+function select_option(select, value, mounting = false) {
+	if (select.multiple) {
+		if (value == void 0) return;
+		if (!is_array(value)) return select_multiple_invalid_value();
+		for (var option of select.options) option.selected = value.includes(get_option_value(option));
+		return;
+	}
+	for (option of select.options) if (is(get_option_value(option), value)) {
+		option.selected = true;
+		return;
+	}
+	if (!mounting || value !== void 0) select.selectedIndex = -1;
+}
+/**
+* Sets up a mutation observer to sync the current selection
+* and default to the dom when the options change, for example
+* when they are inside an `#each` block. Called once per `<select>`,
+* by the compiled output or by `attribute_effect` for spreads.
+* @param {HTMLSelectElement} select
+*/
+function init_select(select) {
+	var observer = new MutationObserver((entries) => {
+		if (entries.every(is_selectedcontent_mutation)) return;
+		if ("__defaultValue" in select) apply_default_select_value(select, false);
+		if ("__value" in select) select_option(select, select.__value);
+	});
+	observer.observe(select, {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		attributeFilter: ["value"]
+	});
+	teardown(() => {
+		observer.disconnect();
+	});
+}
+/**
+* @param {HTMLSelectElement} select
+* @param {() => unknown} get
+* @param {(value: unknown) => void} set
+* @returns {void}
+*/
+function bind_select_value(select, get, set = get) {
+	var batches = /* @__PURE__ */ new WeakSet();
+	var mounting = true;
+	listen_to_event_and_reset_event(select, "change", (is_reset) => {
+		var query = is_reset ? "[selected]" : ":checked";
+		/** @type {unknown} */
+		var value;
+		if (select.multiple) value = [].map.call(select.querySelectorAll(query), get_option_value);
+		else {
+			/** @type {HTMLOptionElement | null} */
+			var selected_option = select.querySelector(query) ?? select.querySelector("option:not([disabled])");
+			value = selected_option && get_option_value(selected_option);
+		}
+		set(value);
+		select.__value = value;
+		if (current_batch !== null) batches.add(current_batch);
+	});
+	effect(() => {
+		var value = get();
+		if (select === document.activeElement) {
+			var batch = async_mode_flag ? previous_batch : current_batch;
+			if (batches.has(batch)) return;
+		}
+		select_option(select, value, mounting);
+		if (mounting && value === void 0) {
+			/** @type {HTMLOptionElement | null} */
+			var selected_option = select.querySelector(":checked");
+			if (selected_option !== null) {
+				value = get_option_value(selected_option);
+				set(value);
+			}
+		}
+		select.__value = value;
+		mounting = false;
+	});
+}
+/** @param {HTMLOptionElement} option */
+function get_option_value(option) {
+	if ("__value" in option) return option.__value;
+	else return option.value;
+}
+/**
+* Returns `true` if the mutation stems from the browser mirroring the selected
+* option's content into `<selectedcontent>`, or from us replacing the
+* `<selectedcontent>` element with a clone of itself
+* @param {MutationRecord} entry
+*/
+function is_selectedcontent_mutation(entry) {
+	if (entry.target.closest("selectedcontent") !== null) return true;
+	if (entry.type === "childList") {
+		var nodes = [...entry.addedNodes, ...entry.removedNodes];
+		return nodes.length > 0 && nodes.every((node) => node.nodeName === "SELECTEDCONTENT");
+	}
+	return false;
+}
+var init_select$1 = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 	init_proxy();
 	init_utils$3();
+	init_warnings();
 	init_batch();
+	init_flags();
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
+/**
+* The value/checked attribute in the template actually corresponds to the defaultValue property, so we need
+* to remove it upon hydration to avoid a bug when someone resets the form value.
+* @param {HTMLInputElement} input
+* @returns {void}
+*/
+function remove_input_defaults(input) {
+	if (!hydrating) return;
+	var already_removed = false;
+	var remove_defaults = () => {
+		if (already_removed) return;
+		already_removed = true;
+		if (input.hasAttribute("value")) {
+			var value = input.value;
+			set_attribute(input, "value", null);
+			input.value = value;
+		}
+		if (input.hasAttribute("checked")) {
+			var checked = input.checked;
+			set_attribute(input, "checked", null);
+			input.checked = checked;
+		}
+	};
+	/** @type {any} */ input[FORM_RESET_HANDLER] = remove_defaults;
+	queue_micro_task(remove_defaults);
+	add_form_reset_listener();
+}
 /**
 * @param {Element} element
 * @param {string} attribute
@@ -4640,7 +5294,7 @@ var init_attributes = __esmMin((() => {
 	init_style();
 	init_constants();
 	init_effects();
-	init_select();
+	init_select$1();
 	init_async$1();
 	IS_CUSTOM_ELEMENT = Symbol("is custom element");
 	IS_HTML = Symbol("is html");
@@ -4662,7 +5316,84 @@ var init_document = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+/**
+* @param {HTMLInputElement} input
+* @param {() => unknown} get
+* @param {(value: unknown) => void} set
+* @returns {void}
+*/
+function bind_value(input, get, set = get) {
+	var batches = /* @__PURE__ */ new WeakSet();
+	listen_to_event_and_reset_event(input, "input", async (is_reset) => {
+		/** @type {any} */
+		var value = is_reset ? input.defaultValue : input.value;
+		value = is_numberlike_input(input) ? to_number(value) : value;
+		set(value);
+		if (current_batch !== null) batches.add(current_batch);
+		await tick();
+		if (value !== (value = get())) {
+			var start = input.selectionStart;
+			var end = input.selectionEnd;
+			var length = input.value.length;
+			input.value = value ?? "";
+			if (end !== null) {
+				var new_length = input.value.length;
+				if (start === end && end === length && new_length > length) {
+					input.selectionStart = new_length;
+					input.selectionEnd = new_length;
+				} else {
+					input.selectionStart = start;
+					input.selectionEnd = Math.min(end, new_length);
+				}
+			}
+		}
+	});
+	if (hydrating && input.defaultValue !== input.value || untrack(get) == null && input.value) {
+		set(is_numberlike_input(input) ? to_number(input.value) : input.value);
+		if (current_batch !== null) batches.add(current_batch);
+	}
+	render_effect(() => {
+		var value = get();
+		if (input === document.activeElement) {
+			var batch = async_mode_flag ? previous_batch : current_batch;
+			if (batches.has(batch)) return;
+		}
+		if (is_numberlike_input(input) && value === to_number(input.value)) return;
+		if (input.type === "date" && !value && !input.value) return;
+		if (value !== input.value) input.value = value ?? "";
+	});
+}
+/**
+* @param {HTMLInputElement} input
+* @param {() => unknown} get
+* @param {(value: unknown) => void} set
+* @returns {void}
+*/
+function bind_checked(input, get, set = get) {
+	listen_to_event_and_reset_event(input, "change", (is_reset) => {
+		set(is_reset ? input.defaultChecked : input.checked);
+	});
+	if (hydrating && input.defaultChecked !== input.checked || untrack(get) == null) set(input.checked);
+	render_effect(() => {
+		var value = get();
+		input.checked = Boolean(value);
+	});
+}
+/**
+* @param {HTMLInputElement} input
+*/
+function is_numberlike_input(input) {
+	var type = input.type;
+	return type === "number" || type === "range";
+}
+/**
+* @param {string} value
+*/
+function to_number(value) {
+	return value === "" ? null : +value;
+}
 var init_input = __esmMin((() => {
+	init_esm_env();
 	init_effects();
 	init_shared$1();
 	init_errors();
@@ -4671,6 +5402,7 @@ var init_input = __esmMin((() => {
 	init_hydration();
 	init_runtime();
 	init_batch();
+	init_flags();
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/bindings/media.js
@@ -4697,6 +5429,55 @@ var init_size = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+/**
+* @param {any} bound_value
+* @param {Element} element_or_component
+* @returns {boolean}
+*/
+function is_bound_this(bound_value, element_or_component) {
+	return bound_value === element_or_component || bound_value?.[STATE_SYMBOL] === element_or_component;
+}
+/**
+* @param {any} element_or_component
+* @param {(value: unknown, ...parts: unknown[]) => void} update
+* @param {(...parts: unknown[]) => unknown} get_value
+* @param {() => unknown[]} [get_parts] Set if the this binding is used inside an each block,
+* 										returns all the parts of the each block context that are used in the expression
+* @returns {void}
+*/
+function bind_this(element_or_component = mark_as_component(), update, get_value, get_parts) {
+	var component_effect = component_context.r;
+	var parent = active_effect;
+	effect(() => {
+		/** @type {unknown[]} */
+		var old_parts;
+		/** @type {unknown[]} */
+		var parts;
+		render_effect(() => {
+			old_parts = parts;
+			parts = get_parts?.() || [];
+			untrack(() => {
+				if (!is_bound_this(get_value(...parts), element_or_component)) {
+					update(element_or_component, ...parts);
+					if (old_parts && is_bound_this(get_value(...old_parts), element_or_component)) update(null, ...old_parts);
+				}
+			});
+		});
+		return () => {
+			let p = parent;
+			while (p !== component_effect && p.parent !== null && p.parent.f & 33554432) p = p.parent;
+			const teardown = () => {
+				if (parts && is_bound_this(get_value(...parts), element_or_component)) update(null, ...parts);
+			};
+			const original_teardown = p.teardown;
+			p.teardown = () => {
+				teardown();
+				original_teardown?.();
+			};
+		};
+	});
+	return element_or_component;
+}
 var init_this = __esmMin((() => {
 	init_constants$1();
 	init_context();
@@ -4724,6 +5505,55 @@ var init_event_modifiers = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
+/**
+* Legacy-mode only: Call `onMount` callbacks and set up `beforeUpdate`/`afterUpdate` effects
+* @param {boolean} [immutable]
+*/
+function init(immutable = false) {
+	const context = component_context;
+	const callbacks = context.l.u;
+	if (!callbacks) return;
+	let props = () => deep_read_state(context.s);
+	if (immutable) {
+		let version = 0;
+		let prev = {};
+		const d = /* @__PURE__ */ derived(() => {
+			let changed = false;
+			const props = context.s;
+			for (const key in props) if (props[key] !== prev[key]) {
+				prev[key] = props[key];
+				changed = true;
+			}
+			if (changed) version++;
+			return version;
+		});
+		props = () => get(d);
+	}
+	if (callbacks.b.length) user_pre_effect(() => {
+		observe_all(context, props);
+		run_all(callbacks.b);
+	});
+	user_effect(() => {
+		const fns = untrack(() => callbacks.m.map(run));
+		return () => {
+			for (const fn of fns) if (typeof fn === "function") fn();
+		};
+	});
+	if (callbacks.a.length) user_effect(() => {
+		observe_all(context, props);
+		run_all(callbacks.a);
+	});
+}
+/**
+* Invoke the getter of all signals associated with a component
+* so they can be registered to the effect this function is called in.
+* @param {ComponentContextLegacy} context
+* @param {(() => void)} props
+*/
+function observe_all(context, props) {
+	if (context.l.s) for (const signal of context.l.s) get(signal);
+	props();
+}
 var init_lifecycle = __esmMin((() => {
 	init_utils$3();
 	init_context();
@@ -4851,7 +5681,7 @@ var init_client = __esmMin((() => {
 	init_media();
 	init_navigator();
 	init_props$1();
-	init_select();
+	init_select$1();
 	init_size();
 	init_this();
 	init_universal();
@@ -4892,11 +5722,46 @@ var init_hydratable = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/index-client.js
+/**
+* `onMount`, like [`$effect`](https://svelte.dev/docs/svelte/$effect), schedules a function to run as soon as the component has been mounted to the DOM.
+* Unlike `$effect`, the provided function only runs once.
+*
+* It must be called during the component's initialisation (but doesn't need to live _inside_ the component;
+* it can be called from an external module). If a function is returned _synchronously_ from `onMount`,
+* it will be called when the component is unmounted.
+*
+* `onMount` functions do not run during [server-side rendering](https://svelte.dev/docs/svelte/svelte-server#render).
+*
+* @template T
+* @param {() => NotFunction<T> | Promise<NotFunction<T>> | (() => any)} fn
+* @returns {void}
+*/
+function onMount(fn) {
+	if (component_context === null) lifecycle_outside_component("onMount");
+	if (legacy_mode_flag && component_context.l !== null) init_update_callbacks(component_context).m.push(fn);
+	else user_effect(() => {
+		const cleanup = untrack(fn);
+		if (typeof cleanup === "function") return cleanup;
+	});
+}
+/**
+* Legacy-mode: Init callbacks object for onMount/beforeUpdate/afterUpdate
+* @param {ComponentContext} context
+*/
+function init_update_callbacks(context) {
+	var l = context.l;
+	return l.u ??= {
+		a: [],
+		b: [],
+		m: []
+	};
+}
 var init_index_client = __esmMin((() => {
 	init_runtime();
 	init_utils$3();
 	init_client();
 	init_errors();
+	init_flags();
 	init_context();
 	init_esm_env();
 	init_batch();
@@ -4905,185 +5770,397 @@ var init_index_client = __esmMin((() => {
 	init_snippet();
 }));
 //#endregion
-//#region node_modules/svelte/src/version.js
-var init_version = __esmMin((() => {}));
-//#endregion
 //#region node_modules/svelte/src/internal/disclose-version.js
-var init_disclose_version = __esmMin((() => {
-	init_version();
-	if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
-}));
+if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
-//#region src/prompta/ui/App.svelte
-init_disclose_version();
-init_client();
-var root$1 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <div class="brand-mark" aria-hidden="true">P</div> <div class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></div> <div class="live-orb" id="globalLiveOrb" title="Cache status"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <kbd>/</kbd></label></div> <div class="sidebar-scroll"><button type="button" class="sidebar-action" id="jobsSidebarButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path d="M8 12h3M8 16h3M14 12h2M14 16h2"></path></svg> <span>Jobs</span></button> <nav class="chat-list" id="chatList" aria-label="Cached conversations"></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary">Reading local cache</span></div> <button type="button" class="read-only-pill" id="headLabel" title="View changelog" aria-haspopup="dialog" aria-controls="changelogDialog">…</button></div></aside> <div class="sidebar-scrim" id="sidebarScrim"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title">Prompta</div> <div class="heading-meta">Local conversation history</div></div> <div class="topbar-actions" aria-label="Prompta actions"><button class="icon-button" id="pinChatButton" aria-label="Pin chat" title="Pin chat" aria-pressed="false" disabled=""><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat" disabled=""><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span class="status-icon sync neutral" id="syncLabel" role="img" aria-label="Local cache" title="Local cache"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div></header> <section class="conversation-viewport" id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation" hidden=""></article></section> <section class="logs-viewport" id="logsViewport" hidden=""><div class="logs-shell"><div class="logs-header"><div><strong id="logsServerTitle">Prompta · prompta.service</strong> <span id="logsMeta">Waiting for synced journal</span></div> <span class="logs-live"><i></i> live</span></div> <pre class="log-output" id="logOutput">Loading logs…</pre></div></section> <footer class="composer-footer" id="composerFooter"><form class="composer-bar" id="messageForm"><div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips" hidden=""></div> <textarea id="messageInput" rows="1" placeholder="Message Prompta…" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" disabled=""></textarea> <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Prompta commands" hidden=""><button type="button" id="slashCommandAdd" role="option" aria-selected="false" data-slash-command="/add "><strong>/add</strong><span>Add a repeating scheduled job</span></button> <button type="button" id="slashCommandList" role="option" aria-selected="false" data-slash-command="/list"><strong>/list</strong><span>List and manage scheduled jobs</span></button> <button type="button" id="slashCommandLogs" role="option" aria-selected="false" data-slash-command="/logs"><strong>/logs</strong><span>View Prompta service logs</span></button> <button type="button" id="slashCommandAt" role="option" aria-selected="false" data-slash-command="/at "><strong>/at</strong><span>Run a prompt at a date and time</span></button></div></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment" hidden=""><button type="button" role="menuitem" data-attachment-kind="file">Upload file</button> <button type="button" role="menuitem" data-attachment-kind="photo">Upload photo</button> <button type="button" role="menuitem" data-attachment-kind="camera">Take photo</button></div> <input id="fileUploadInput" type="file" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton" aria-label="Send message" disabled=""><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg></button></div></form> <div class="composer-status" id="composerStatus"></div></footer></main></div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-label="New Prompta version available. Tap to update" aria-live="polite" hidden="">Update available</button> <dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" id="closeJobsDialog" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" id="jobsDialogStatus" role="status"></div> <div class="jobs-list" id="jobsList"></div> <form class="jobs-form" id="jobsForm"><h3 id="jobsFormTitle">Add job</h3> <label><span>Name</span> <input id="jobNameInput" name="name" autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea id="jobPromptInput" name="prompt" rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select id="jobScheduleType"><option>Interval</option><option>Daily</option></select></label> <label id="jobIntervalField"><span>Every (minutes)</span> <input id="jobIntervalInput" type="number" min="0.1" step="0.1" value="40"/></label> <label id="jobDailyField" hidden=""><span>At</span> <input id="jobDailyInput" type="time" value="09:00"/></label></div> <label class="jobs-check" id="jobExactField"><input id="jobExactInput" type="checkbox"/> <span>Exact interval</span></label> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button" id="resetJobForm">Reset</button> <button type="submit" class="jobs-primary-button" id="saveJobButton">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button" id="clearJobsButton">Clear all jobs</button></div></div></dialog> <dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus">Commit titles from this Prompta checkout.</p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"></ol></div></dialog>`, 1);
-function App($$anchor, $$props) {
-	var fragment = root$1();
-	var div = first_child(fragment);
-	var aside = child(div);
-	var div_1 = child(aside);
-	var div_2 = child(div_1);
-	var div_3 = sibling(child(div_2), 4);
-	var text = only_child(sibling(child(div_3), 2));
-	reset(div_3);
-	next(2);
-	reset(div_2);
-	next(2);
-	reset(div_1);
-	next(4);
-	reset(aside);
-	next(4);
-	reset(div);
-	var dialog = sibling(div, 4);
-	var div_4 = child(dialog);
-	var form = sibling(child(div_4), 6);
-	var div_5 = sibling(child(form), 6);
-	var label = child(div_5);
-	var select = sibling(child(label), 2);
-	var option = child(select);
-	option.value = option.__value = "interval";
-	var option_1 = sibling(option);
-	option_1.value = option_1.__value = "daily";
-	reset(select);
-	reset(label);
-	next(4);
-	reset(div_5);
-	next(4);
-	reset(form);
-	next(2);
-	reset(div_4);
-	reset(dialog);
-	next(2);
-	template_effect(() => set_text(text, `Server · ${$$props.serverName ?? ""}`));
-	append($$anchor, fragment);
+//#region src/prompta/ui/changelog.ts
+function changelogEntries(payload) {
+	if (!payload || typeof payload !== "object" || !Array.isArray(payload.changes)) return [];
+	return payload.changes;
 }
 //#endregion
-//#region src/prompta/ui/SidebarList.svelte
-function SidebarList($$anchor, $$props) {
+//#region src/prompta/ui/ChangelogDialog.svelte
+init_client();
+var root$7 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
+var root_1$6 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
+var root_2$5 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
+var root_3$4 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
+var root_4$4 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
-	let model = /* @__PURE__ */ state$1(proxy({
-		emptyState: "none",
-		groups: []
-	}));
-	function update(next) {
-		set(model, next, true);
+	let dialog;
+	let status = /* @__PURE__ */ state$1("Commit titles from this Prompta checkout.");
+	let changes = /* @__PURE__ */ state$1([]);
+	let failed = /* @__PURE__ */ state$1(false);
+	let presentation = /* @__PURE__ */ state$1("modal");
+	async function load() {
+		set(status, "Loading changelog…");
+		set(failed, false);
+		set(changes, []);
+		try {
+			const response = await fetch("api/changelog", { cache: "no-store" });
+			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+			set(changes, changelogEntries(await response.json()));
+			set(status, `${get(changes).length} commit${get(changes).length === 1 ? "" : "s"} · newest first`);
+		} catch (error) {
+			set(failed, true);
+			set(status, "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""));
+		}
 	}
-	var $$exports = { update };
-	var fragment = comment();
-	var node = first_child(fragment);
-	var consequent_1 = ($$anchor) => {
-		var div = root_1();
-		var node_1 = child(div);
-		var consequent = ($$anchor) => {
-			append($$anchor, text("No cached chats match your search."));
-		};
-		var alternate = ($$anchor) => {
-			var fragment_1 = root();
-			next(2);
-			append($$anchor, fragment_1);
-		};
-		if_block(node_1, ($$render) => {
-			if (get(model).emptyState === "search") $$render(consequent);
-			else $$render(alternate, -1);
-		});
-		reset(div);
-		append($$anchor, div);
+	async function open() {
+		if (!dialog.open) {
+			set(presentation, matchMedia("(max-width: 600px)").matches ? "stack" : "modal", true);
+			if (get(presentation) === "stack") dialog.show();
+			else dialog.showModal();
+		}
+		await load();
+	}
+	function close() {
+		if (dialog.open) dialog.close();
+	}
+	var $$exports = {
+		open,
+		close
 	};
-	var alternate_1 = ($$anchor) => {
-		var fragment_2 = comment();
-		each(first_child(fragment_2), 17, () => get(model).groups, (group) => group.label, ($$anchor, group) => {
-			var section = root_5();
-			var div_1 = child(section);
-			var text_1 = only_child(div_1, true);
-			each(sibling(div_1, 2), 17, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
-				var div_2 = root_4();
-				let classes;
-				var button = child(div_2);
-				var div_3 = child(button);
-				var node_4 = child(div_3);
-				var consequent_2 = ($$anchor) => {
-					var span = root_2();
-					template_effect(() => {
-						set_class(span, 1, "item-status-dot " + get(chat).statusClass);
-						set_attribute(span, "title", get(chat).statusLabel || void 0);
-						set_attribute(span, "aria-label", get(chat).statusLabel || void 0);
-					});
-					append($$anchor, span);
-				};
-				if_block(node_4, ($$render) => {
-					if (get(chat).statusClass) $$render(consequent_2);
-				});
-				var span_1 = sibling(node_4, 2);
-				var text_2 = only_child(span_1, true);
-				var node_5 = sibling(span_1, 2);
-				var consequent_3 = ($$anchor) => {
-					append($$anchor, root_3());
-				};
-				if_block(node_5, ($$render) => {
-					if (get(chat).broken) $$render(consequent_3);
-				});
-				reset(div_3);
-				var div_4 = sibling(div_3, 2);
-				var text_3 = only_child(div_4, true);
-				var div_5 = sibling(div_4, 2);
-				var span_3 = child(div_5);
-				var text_4 = only_child(span_3, true);
-				var span_4 = sibling(span_3, 2);
-				var text_5 = only_child(span_4, true);
-				reset(div_5);
-				reset(button);
-				var button_1 = sibling(button, 2);
-				let classes_1;
-				reset(div_2);
-				template_effect(() => {
-					classes = set_class(div_2, 1, "chat-item", null, classes, { selected: get(chat).selected });
-					set_attribute(div_2, "data-dom-key", "chat:" + get(chat).id);
-					set_attribute(button, "data-chat-id", get(chat).id);
-					set_attribute(button, "data-optimistic-new", get(chat).optimisticNew ? "true" : "false");
-					set_attribute(button, "aria-current", get(chat).selected ? "true" : void 0);
-					set_text(text_2, get(chat).title);
-					set_text(text_3, get(chat).preview);
-					set_text(text_4, get(chat).jobLabel);
-					set_attribute(span_4, "data-activity-at", get(chat).activityAt);
-					set_text(text_5, get(chat).relativeTime);
-					classes_1 = set_class(button_1, 1, "chat-row-pin", null, classes_1, { active: get(chat).pinned });
-					set_attribute(button_1, "data-pin-chat-id", get(chat).id);
-					set_attribute(button_1, "aria-label", get(chat).pinned ? "Unpin chat" : "Pin chat");
-					set_attribute(button_1, "title", get(chat).pinned ? "Unpin chat" : "Pin chat");
-					set_attribute(button_1, "aria-pressed", get(chat).pinned);
-				});
-				delegated("click", button, () => $$props.onSelect(get(chat).id, get(chat).optimisticNew));
-				delegated("click", button_1, () => $$props.onPin(get(chat).id));
-				append($$anchor, div_2);
+	var dialog_1 = root_4$4();
+	var div = child(dialog_1);
+	var header = child(div);
+	var div_1 = child(header);
+	var text = only_child(sibling(child(div_1), 2), true);
+	reset(div_1);
+	var button = sibling(div_1, 2);
+	reset(header);
+	var ol = sibling(header, 2);
+	var node = child(ol);
+	var consequent = ($$anchor) => {
+		append($$anchor, root$7());
+	};
+	var consequent_2 = ($$anchor) => {
+		var fragment = comment();
+		each(first_child(fragment), 17, () => get(changes), (change) => (change.hash || "") + (change.title || ""), ($$anchor, change) => {
+			var li_1 = root_2$5();
+			var span = child(li_1);
+			var text_1 = only_child(span, true);
+			var node_2 = sibling(span, 2);
+			var consequent_1 = ($$anchor) => {
+				var span_1 = root_1$6();
+				var text_2 = only_child(span_1);
+				template_effect(() => set_text(text_2, `#${get(change).hash ?? ""}`));
+				append($$anchor, span_1);
+			};
+			if_block(node_2, ($$render) => {
+				if (get(change).hash) $$render(consequent_1);
 			});
-			reset(section);
-			template_effect(() => {
-				set_attribute(section, "data-dom-key", "group:" + get(group).label);
-				set_text(text_1, get(group).label);
-			});
-			append($$anchor, section);
+			reset(li_1);
+			template_effect(() => set_text(text_1, get(change).title || ""));
+			append($$anchor, li_1);
 		});
-		append($$anchor, fragment_2);
+		append($$anchor, fragment);
+	};
+	var alternate = ($$anchor) => {
+		var li_2 = root_3$4();
+		var text_3 = only_child(li_2, true);
+		template_effect(($0) => set_text(text_3, $0), [() => get(status).startsWith("Loading") ? "Loading changes…" : "No Git commit history is available."]);
+		append($$anchor, li_2);
 	};
 	if_block(node, ($$render) => {
-		if (get(model).groups.length === 0) $$render(consequent_1);
-		else $$render(alternate_1, -1);
+		if (get(failed)) $$render(consequent);
+		else if (get(changes).length) $$render(consequent_2, 1);
+		else $$render(alternate, -1);
 	});
+	reset(ol);
+	reset(div);
+	reset(dialog_1);
+	bind_this(dialog_1, ($$value) => dialog = $$value, () => dialog);
+	template_effect(() => {
+		set_attribute(dialog_1, "data-presentation", get(presentation));
+		set_text(text, get(status));
+	});
+	delegated("click", dialog_1, (event) => {
+		if (event.target === dialog && get(presentation) !== "stack") close();
+	});
+	delegated("click", button, close);
+	append($$anchor, dialog_1);
+	return pop($$exports);
+}
+delegate(["click"]);
+//#endregion
+//#region src/prompta/ui/uiControllers.ts
+function registerAttachmentPicker(controller) {
+	attachmentPicker$1 = controller;
+}
+function getAttachmentPicker() {
+	if (!attachmentPicker$1) throw new Error("Attachment picker was not mounted");
+	return attachmentPicker$1;
+}
+function registerJobsDialog(controller) {
+	jobsDialog$1 = controller;
+}
+function getJobsDialog() {
+	if (!jobsDialog$1) throw new Error("Jobs dialog was not mounted");
+	return jobsDialog$1;
+}
+function registerLogsPanel(controller) {
+	logsPanel$1 = controller;
+}
+function getLogsPanel() {
+	if (!logsPanel$1) throw new Error("Logs panel was not mounted");
+	return logsPanel$1;
+}
+var attachmentPicker$1, jobsDialog$1, logsPanel$1;
+var init_uiControllers = __esmMin((() => {
+	attachmentPicker$1 = null;
+	jobsDialog$1 = null;
+	logsPanel$1 = null;
+}));
+//#endregion
+//#region src/prompta/ui/AttachmentPicker.svelte
+init_client();
+init_uiControllers();
+var root$6 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
+var root_1$5 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" tabindex="-1" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
+var root_2$4 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
+function AttachmentPicker($$anchor, $$props) {
+	push($$props, true);
+	let files = /* @__PURE__ */ state$1([]);
+	let menuOpen = /* @__PURE__ */ state$1(false);
+	let disabled = /* @__PURE__ */ state$1(false);
+	let fileInput;
+	let photoInput;
+	let cameraInput;
+	let pickerButton;
+	let options = null;
+	function notifyChange() {
+		options?.onChange();
+	}
+	function truncate(value, length = 28) {
+		return value.length > length ? value.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : value;
+	}
+	function add(nextFiles) {
+		const next = [...get(files)];
+		for (const file of nextFiles) {
+			if (next.length >= 5) break;
+			if (!next.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) next.push(file);
+		}
+		set(files, next);
+		notifyChange();
+		if (nextFiles.length && next.length >= 5) options?.setStatus("Prompta supports up to 5 attachments per message.");
+	}
+	function select(kind) {
+		set(menuOpen, false);
+		(kind === "photo" ? photoInput : kind === "camera" ? cameraInput : fileInput).click();
+	}
+	function read(input) {
+		const selected = Array.from(input.files || []);
+		input.value = "";
+		add(selected);
+	}
+	function payload(file) {
+		if (file.size > 26214400) throw new Error(file.name + " is larger than 25 MB");
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(reader.error || /* @__PURE__ */ new Error("Could not read " + file.name));
+			reader.onload = () => {
+				const result = typeof reader.result === "string" ? reader.result : "";
+				resolve({
+					name: file.name,
+					type: file.type || "application/octet-stream",
+					data: result.slice(result.indexOf(",") + 1)
+				});
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+	function configure(next) {
+		options = next;
+	}
+	function clear() {
+		set(files, []);
+		fileInput.value = "";
+		photoInput.value = "";
+		cameraInput.value = "";
+		notifyChange();
+	}
+	function closeMenu(restoreFocus = false) {
+		set(menuOpen, false);
+		if (restoreFocus) pickerButton.focus();
+	}
+	function count() {
+		return get(files).length;
+	}
+	function snapshot() {
+		return [...get(files)];
+	}
+	function setDisabled(next) {
+		set(disabled, next, true);
+		if (next) set(menuOpen, false);
+	}
+	async function serialize() {
+		if (get(files).reduce((total, file) => total + file.size, 0) > 26214400) throw new Error("Attachments exceed the 25 MB Prompta upload limit");
+		return Promise.all(get(files).map(payload));
+	}
+	registerAttachmentPicker({
+		configure,
+		clear,
+		closeMenu,
+		count,
+		serialize,
+		setDisabled,
+		snapshot
+	});
+	function closeOnOutsideClick(event) {
+		if (get(menuOpen) && !event.target.closest(".composer-tools")) set(menuOpen, false);
+	}
+	var $$exports = {
+		configure,
+		clear,
+		closeMenu,
+		count,
+		snapshot,
+		setDisabled,
+		serialize
+	};
+	var fragment = root_2$4();
+	event("click", $document, closeOnOutsideClick);
+	var div = first_child(fragment);
+	var div_1 = child(div);
+	each(div_1, 23, () => get(files), (file) => file.name + file.size + file.lastModified, ($$anchor, file, index) => {
+		var span = root$6();
+		var span_1 = child(span);
+		var text = only_child(span_1, true);
+		var button = sibling(span_1, 2);
+		reset(span);
+		template_effect(($0) => {
+			set_attribute(span, "data-dom-key", "attachment:" + get(index) + ":" + get(file).name);
+			set_attribute(span_1, "title", get(file).name);
+			set_text(text, $0);
+			button.disabled = get(disabled);
+		}, [() => truncate(get(file).name)]);
+		delegated("click", button, () => {
+			set(files, get(files).filter((_, itemIndex) => itemIndex !== get(index)));
+			notifyChange();
+		});
+		append($$anchor, span);
+	});
+	reset(div_1);
+	snippet(sibling(div_1, 2), () => $$props.children);
+	reset(div);
+	var div_2 = sibling(div, 2);
+	var button_1 = child(div_2);
+	bind_this(button_1, ($$value) => pickerButton = $$value, () => pickerButton);
+	var node_1 = sibling(button_1, 2);
+	var consequent = ($$anchor) => {
+		var div_3 = root_1$5();
+		var button_2 = child(div_3);
+		var button_3 = sibling(button_2, 2);
+		var button_4 = sibling(button_3, 2);
+		reset(div_3);
+		delegated("keydown", div_3, (event) => {
+			if (event.key === "Escape") closeMenu(true);
+		});
+		delegated("click", button_2, () => select("file"));
+		delegated("click", button_3, () => select("photo"));
+		delegated("click", button_4, () => select("camera"));
+		append($$anchor, div_3);
+	};
+	if_block(node_1, ($$render) => {
+		if (get(menuOpen)) $$render(consequent);
+	});
+	var input_1 = sibling(node_1, 2);
+	bind_this(input_1, ($$value) => fileInput = $$value, () => fileInput);
+	var input_2 = sibling(input_1, 2);
+	bind_this(input_2, ($$value) => photoInput = $$value, () => photoInput);
+	var input_3 = sibling(input_2, 2);
+	bind_this(input_3, ($$value) => cameraInput = $$value, () => cameraInput);
+	reset(div_2);
+	template_effect(() => {
+		set_attribute(div_1, "hidden", get(files).length === 0);
+		set_attribute(button_1, "aria-expanded", get(menuOpen));
+		button_1.disabled = get(disabled);
+	});
+	delegated("click", button_1, () => set(menuOpen, !get(menuOpen)));
+	delegated("change", input_1, () => read(fileInput));
+	delegated("change", input_2, () => read(photoInput));
+	delegated("change", input_3, () => read(cameraInput));
 	append($$anchor, fragment);
 	return pop($$exports);
 }
-var root, root_1, root_2, root_3, root_4, root_5;
-var init_SidebarList = __esmMin((() => {
-	init_disclose_version();
+delegate([
+	"click",
+	"keydown",
+	"change"
+]);
+//#endregion
+//#region src/prompta/ui/appActions.svelte.ts
+var appActions;
+var init_appActions_svelte = __esmMin((() => {
 	init_client();
-	root = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
-	root_1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
-	root_2 = /* @__PURE__ */ from_html(`<span></span>`);
-	root_3 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
-	root_4 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
-	root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
-	delegate(["click"]);
+	appActions = proxy({
+		onSearch: (_value) => {},
+		onNewChat: () => {},
+		onPin: () => {},
+		onShare: () => {},
+		onSubmit: () => {},
+		onComposerInput: (_value) => {},
+		onApplyUpdate: () => {},
+		onHashChange: () => {},
+		onPageHide: () => {},
+		onPageShow: () => {}
+	});
+}));
+//#endregion
+//#region src/prompta/ui/appViewState.svelte.ts
+function requestComposerFocus(selectEnd = false) {
+	appViewState.composerFocusRequest += 1;
+	if (selectEnd) appViewState.composerSelectEndRequest += 1;
+}
+function requestSearchFocus() {
+	appViewState.searchFocusRequest += 1;
+}
+function requestSidebarTop() {
+	appViewState.sidebarTopRequest += 1;
+}
+var appViewState;
+var init_appViewState_svelte = __esmMin((() => {
+	init_client();
+	appViewState = proxy({
+		serverDisplay: "",
+		serverLabel: "Server · local",
+		serverOnline: null,
+		live: false,
+		liveTitle: "Cache status",
+		headingTitle: "Prompta",
+		headingMeta: "Local conversation history",
+		syncStatus: "local",
+		syncLabel: "Local cache",
+		cacheSummary: "Reading local cache",
+		headLabel: "…",
+		headTitle: "View changelog",
+		mode: "chats",
+		emptyVisible: true,
+		conversationVisible: false,
+		chatSwitching: false,
+		composerValue: "",
+		composerPlaceholder: "Message Prompta…",
+		composerDisabled: true,
+		composerStatus: "",
+		composerAction: "send",
+		composerActionDisabled: true,
+		shareDisabled: true,
+		pinDisabled: true,
+		pinActive: false,
+		pinLabel: "Pin chat",
+		updateAvailable: false,
+		updateApplying: false,
+		searchValue: "",
+		activeSlashCommand: "",
+		clockTick: Date.now(),
+		bootComplete: false,
+		composerFocusRequest: 0,
+		composerSelectEndRequest: 0,
+		searchFocusRequest: 0,
+		sidebarTopRequest: 0
+	});
 }));
 //#endregion
 //#region src/prompta/ui/clientLogic.ts
@@ -5663,6 +6740,1637 @@ var init_clientLogic = __esmMin((() => {
 	TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
 }));
 //#endregion
+//#region src/prompta/ui/Composer.svelte
+init_client();
+init_index_client();
+init_appActions_svelte();
+init_appViewState_svelte();
+init_clientLogic();
+var root$5 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
+var root_1$4 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
+var root_2$3 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
+var root_3$3 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
+var root_4$3 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
+var root_5$3 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
+function Composer($$anchor, $$props) {
+	push($$props, true);
+	const commands = [
+		{
+			command: "/add ",
+			name: "/add",
+			description: "Add a repeating scheduled job",
+			id: "slashCommandAdd"
+		},
+		{
+			command: "/list",
+			name: "/list",
+			description: "List and manage scheduled jobs",
+			id: "slashCommandList"
+		},
+		{
+			command: "/logs",
+			name: "/logs",
+			description: "View Prompta service logs",
+			id: "slashCommandLogs"
+		},
+		{
+			command: "/at ",
+			name: "/at",
+			description: "Run a prompt at a date and time",
+			id: "slashCommandAt"
+		}
+	];
+	let messageInput;
+	let slashDismissed = /* @__PURE__ */ state$1(false);
+	let lastFocusRequest = 0;
+	let lastSelectEndRequest = 0;
+	const visibleCommands = /* @__PURE__ */ user_derived(() => {
+		const value = appViewState.composerValue;
+		const firstToken = value.split(/\s/, 1)[0].toLowerCase();
+		return !get(slashDismissed) && value.startsWith("/") && !value.includes("\n") && !value.includes(" ") ? commands.filter((item) => item.command.trim().toLowerCase().startsWith(firstToken)) : [];
+	});
+	const slashOpen = /* @__PURE__ */ user_derived(() => get(visibleCommands).length > 0);
+	const activeCommand = /* @__PURE__ */ user_derived(() => get(visibleCommands).find((item) => item.command === appViewState.activeSlashCommand) ?? get(visibleCommands)[0] ?? null);
+	function resize(value) {
+		if (!messageInput) return;
+		messageInput.style.overflowY = "hidden";
+		if (!value) {
+			messageInput.style.height = "34px";
+			return;
+		}
+		messageInput.style.height = "auto";
+		const contentHeight = messageInput.scrollHeight;
+		messageInput.style.height = String(Math.min(180, contentHeight)) + "px";
+		messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
+	}
+	async function insertSlashCommand(command) {
+		set(slashDismissed, true);
+		appViewState.activeSlashCommand = "";
+		appViewState.composerValue = command;
+		appActions.onComposerInput(command);
+		await tick();
+		messageInput.focus();
+		messageInput.setSelectionRange(command.length, command.length);
+	}
+	function moveSlashSelection(direction) {
+		if (!get(visibleCommands).length) return;
+		const currentIndex = get(visibleCommands).findIndex((item) => item.command === (get(activeCommand)?.command ?? ""));
+		const nextIndex = nextSlashCommandIndex(get(visibleCommands).length, currentIndex, direction);
+		appViewState.activeSlashCommand = get(visibleCommands)[nextIndex]?.command ?? "";
+	}
+	function handleInput() {
+		set(slashDismissed, false);
+		appViewState.activeSlashCommand = "";
+		appActions.onComposerInput(appViewState.composerValue);
+	}
+	function handleKeydown(event) {
+		if (get(slashOpen)) {
+			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+				event.preventDefault();
+				moveSlashSelection(event.key === "ArrowUp" ? -1 : 1);
+				return;
+			}
+			if (event.key === "Tab" || event.key === "Enter" && !event.isComposing) {
+				if (get(activeCommand)) {
+					event.preventDefault();
+					insertSlashCommand(get(activeCommand).command);
+					return;
+				}
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				set(slashDismissed, true);
+				appViewState.activeSlashCommand = "";
+				return;
+			}
+		}
+		const mobileInput = matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
+		if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
+			event.preventDefault();
+			appActions.onSubmit();
+		}
+	}
+	user_effect(() => {
+		resize(appViewState.composerValue);
+	});
+	user_effect(() => {
+		const request = appViewState.composerFocusRequest;
+		if (!messageInput || request === lastFocusRequest) return;
+		lastFocusRequest = request;
+		requestAnimationFrame(() => messageInput.focus());
+	});
+	user_effect(() => {
+		const request = appViewState.composerSelectEndRequest;
+		if (!messageInput || request === lastSelectEndRequest) return;
+		lastSelectEndRequest = request;
+		requestAnimationFrame(() => {
+			messageInput.focus();
+			const end = appViewState.composerValue.length;
+			messageInput.setSelectionRange(end, end);
+		});
+	});
+	var footer = root_5$3();
+	var form = child(footer);
+	var node = child(form);
+	AttachmentPicker(node, {
+		children: ($$anchor, $$slotProps) => {
+			var fragment = root_2$3();
+			var textarea = first_child(fragment);
+			remove_textarea_child(textarea);
+			bind_this(textarea, ($$value) => messageInput = $$value, () => messageInput);
+			var node_1 = sibling(textarea, 2);
+			var consequent = ($$anchor) => {
+				var div = root_1$4();
+				each(div, 21, () => get(visibleCommands), (item) => item.command, ($$anchor, item) => {
+					var button = root$5();
+					var strong = child(button);
+					var text = only_child(strong, true);
+					var text_1 = only_child(sibling(strong), true);
+					reset(button);
+					template_effect(() => {
+						set_attribute(button, "id", get(item).id);
+						set_attribute(button, "aria-selected", get(activeCommand)?.command === get(item).command);
+						set_text(text, get(item).name);
+						set_text(text_1, get(item).description);
+					});
+					delegated("pointermove", button, () => appViewState.activeSlashCommand = get(item).command);
+					delegated("click", button, () => void insertSlashCommand(get(item).command));
+					append($$anchor, button);
+				});
+				reset(div);
+				append($$anchor, div);
+			};
+			if_block(node_1, ($$render) => {
+				if (get(slashOpen)) $$render(consequent);
+			});
+			template_effect(() => {
+				set_attribute(textarea, "placeholder", appViewState.composerPlaceholder);
+				set_attribute(textarea, "aria-expanded", get(slashOpen));
+				set_attribute(textarea, "aria-activedescendant", get(slashOpen) && get(activeCommand) ? get(activeCommand).id : void 0);
+				textarea.disabled = appViewState.composerDisabled;
+			});
+			delegated("input", textarea, handleInput);
+			delegated("keydown", textarea, handleKeydown);
+			bind_value(textarea, () => appViewState.composerValue, ($$value) => appViewState.composerValue = $$value);
+			append($$anchor, fragment);
+		},
+		$$slots: { default: true }
+	});
+	var div_1 = sibling(node, 2);
+	var button_1 = child(div_1);
+	var button_2 = sibling(button_1, 2);
+	var node_2 = child(button_2);
+	var consequent_1 = ($$anchor) => {
+		append($$anchor, root_3$3());
+	};
+	var alternate = ($$anchor) => {
+		append($$anchor, root_4$3());
+	};
+	if_block(node_2, ($$render) => {
+		if (appViewState.composerAction === "stop") $$render(consequent_1);
+		else $$render(alternate, -1);
+	});
+	reset(button_2);
+	reset(div_1);
+	reset(form);
+	var text_2 = only_child(sibling(form, 2), true);
+	reset(footer);
+	template_effect(() => {
+		set_attribute(button_2, "data-action", appViewState.composerAction);
+		set_attribute(button_2, "aria-label", appViewState.composerAction === "stop" ? "Stop response" : "Send message");
+		set_attribute(button_2, "title", appViewState.composerAction === "stop" ? "Stop response" : "Send message");
+		button_2.disabled = appViewState.composerActionDisabled;
+		set_text(text_2, appViewState.composerStatus);
+	});
+	event("submit", form, (event) => {
+		event.preventDefault();
+		appActions.onSubmit();
+	});
+	delegated("click", button_1, function(...$$args) {
+		appActions.onNewChat?.apply(this, $$args);
+	});
+	append($$anchor, footer);
+	pop();
+}
+delegate([
+	"input",
+	"keydown",
+	"pointermove",
+	"click"
+]);
+//#endregion
+//#region src/prompta/ui/markdown.ts
+init_clientLogic();
+function escapeHtml(value) {
+	return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");
+}
+var LANGUAGE_ALIASES = {
+	js: "javascript",
+	jsx: "javascript",
+	mjs: "javascript",
+	cjs: "javascript",
+	ts: "typescript",
+	tsx: "typescript",
+	py: "python",
+	sh: "bash",
+	shell: "bash",
+	zsh: "bash",
+	yml: "yaml",
+	c: "cpp",
+	cxx: "cpp",
+	h: "cpp",
+	hpp: "cpp",
+	html: "markup",
+	xml: "markup",
+	svg: "markup",
+	md: "markdown"
+};
+var CODE_KEYWORDS = {
+	javascript: new Set("as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(" ")),
+	typescript: new Set("abstract any as async await boolean break case catch class const constructor continue declare default do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let namespace never new null number object of private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while yield".split(" ")),
+	python: new Set("and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield".split(" ")),
+	bash: new Set("case do done elif else esac export fi for function if in local readonly return select then time until while".split(" ")),
+	cpp: new Set("auto bool break case catch char class const constexpr continue default delete do double else enum explicit extern false float for friend if inline int long namespace new nullptr operator private protected public return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while".split(" ")),
+	dart: new Set("abstract as assert async await break case catch class const continue default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null of on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield".split(" ")),
+	sql: new Set("ADD ALL ALTER AND ANY AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY RIGHT SELECT SET TABLE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH".split(" ")),
+	json: /* @__PURE__ */ new Set([
+		"true",
+		"false",
+		"null"
+	])
+};
+function normalizeLanguage(language) {
+	const raw = String(language || "").trim().toLowerCase().split(/\s+/)[0];
+	return LANGUAGE_ALIASES[raw] || raw || "code";
+}
+function syntaxToken(className, value) {
+	return `<span class="syntax-${className}">${escapeHtml(value)}</span>`;
+}
+function highlightCode(raw, language) {
+	const source = String(raw || "");
+	const normalized = normalizeLanguage(language);
+	const keywords = CODE_KEYWORDS[normalized] || /* @__PURE__ */ new Set();
+	const sql = normalized === "sql";
+	const hashComments = [
+		"python",
+		"bash",
+		"yaml"
+	].includes(normalized);
+	let html = "";
+	let index = 0;
+	while (index < source.length) {
+		if (normalized === "markup" && source.startsWith("<!--", index)) {
+			const end = source.indexOf("-->", index + 4);
+			const next = end < 0 ? source.length : end + 3;
+			html += syntaxToken("comment", source.slice(index, next));
+			index = next;
+			continue;
+		}
+		if (source.startsWith("/*", index)) {
+			const end = source.indexOf("*/", index + 2);
+			const next = end < 0 ? source.length : end + 2;
+			html += syntaxToken("comment", source.slice(index, next));
+			index = next;
+			continue;
+		}
+		if (source.startsWith("//", index) && normalized !== "json") {
+			const end = source.indexOf("\n", index + 2);
+			const next = end < 0 ? source.length : end;
+			html += syntaxToken("comment", source.slice(index, next));
+			index = next;
+			continue;
+		}
+		if (hashComments && source[index] === "#") {
+			const end = source.indexOf("\n", index + 1);
+			const next = end < 0 ? source.length : end;
+			html += syntaxToken("comment", source.slice(index, next));
+			index = next;
+			continue;
+		}
+		const quote = source[index];
+		if (quote === "\"" || quote === "'" || quote === "`") {
+			let cursor = index + 1;
+			while (cursor < source.length) {
+				if (source[cursor] === "\\") {
+					cursor += 2;
+					continue;
+				}
+				if (source[cursor] === quote) {
+					cursor += 1;
+					break;
+				}
+				cursor += 1;
+			}
+			const value = source.slice(index, cursor);
+			const property = normalized === "json" && /^\s*:/.test(source.slice(cursor));
+			html += syntaxToken(property ? "property" : "string", value);
+			index = cursor;
+			continue;
+		}
+		const number = source.slice(index).match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
+		if (number) {
+			html += syntaxToken("number", number[0]);
+			index += number[0].length;
+			continue;
+		}
+		if (/[A-Za-z_$]/.test(source[index])) {
+			let cursor = index + 1;
+			while (/[A-Za-z0-9_$]/.test(source[cursor] || "")) cursor += 1;
+			const value = source.slice(index, cursor);
+			const lookup = sql ? value.toUpperCase() : value;
+			if (keywords.has(lookup)) html += syntaxToken("keyword", value);
+			else if (/^\s*\(/.test(source.slice(cursor))) html += syntaxToken("function", value);
+			else html += escapeHtml(value);
+			index = cursor;
+			continue;
+		}
+		html += /[[\]{}(),.:;]/.test(source[index]) ? syntaxToken("punctuation", source[index]) : escapeHtml(source[index]);
+		index += 1;
+	}
+	return html;
+}
+function inlineMarkdown(text) {
+	const placeholders = [];
+	let source = String(text || "");
+	const stash = (html) => {
+		let token = `\uE000PROMPTA_INLINE_${placeholders.length}\uE001`;
+		while (source.includes(token)) token += "";
+		placeholders.push([token, html]);
+		return token;
+	};
+	source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
+	source = source.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code class="inline-code">${escapeHtml(code)}</code>`));
+	source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>`));
+	let html = escapeHtml(source);
+	html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+	html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+	html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+	html = html.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
+	for (const [token, value] of placeholders) html = html.replaceAll(token, value);
+	return html;
+}
+function splitTableRow(line) {
+	return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+}
+function renderListItem(content) {
+	const task = content.match(/^\[([ xX])\]\s+(.+)$/);
+	if (!task) return `<li>${inlineMarkdown(content)}</li>`;
+	return `<li class="task-item"><input type="checkbox" disabled${task[1].toLowerCase() === "x" ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
+}
+function listLine(line) {
+	const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
+	if (!match) return null;
+	return {
+		indent: match[1].replace(/\t/g, "    ").length,
+		ordered: /^\d/.test(match[2]),
+		content: match[3]
+	};
+}
+function renderListBlock(lines, startIndex, baseIndent = null) {
+	const first = listLine(lines[startIndex]);
+	if (!first) return {
+		html: "",
+		index: startIndex
+	};
+	const indent = baseIndent ?? first.indent;
+	const ordered = first.ordered;
+	const tag = ordered ? "ol" : "ul";
+	const items = [];
+	let index = startIndex;
+	while (index < lines.length) {
+		const current = listLine(lines[index]);
+		if (!current || current.indent < indent) break;
+		if (current.indent === indent && current.ordered !== ordered) break;
+		if (current.indent > indent) {
+			if (!items.length) break;
+			const nested = renderListBlock(lines, index, current.indent);
+			if (!nested.html || nested.index === index) break;
+			items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${nested.html}</li>`);
+			index = nested.index;
+			continue;
+		}
+		items.push(renderListItem(current.content));
+		index += 1;
+	}
+	return {
+		html: `<${tag}>${items.join("")}</${tag}>`,
+		index
+	};
+}
+function renderTextBlock(text) {
+	const lines = String(text || "").replace(/\r/g, "").split("\n");
+	const out = [];
+	let index = 0;
+	const startsBlock = (line, next = "") => !line.trim() || /^(#{1,6})\s+/.test(line) || /^\s*([-+*]|\d+[.)])\s+/.test(line) || /^\s*>\s?/.test(line) || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) || line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next);
+	while (index < lines.length) {
+		const line = lines[index];
+		const next = lines[index + 1] || "";
+		if (!line.trim()) {
+			index += 1;
+			continue;
+		}
+		const heading = line.match(/^(#{1,6})\s+(.+)$/);
+		if (heading) {
+			const level = heading[1].length;
+			out.push(`<h${level}>${inlineMarkdown(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
+			index += 1;
+			continue;
+		}
+		if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+			out.push("<hr>");
+			index += 1;
+			continue;
+		}
+		if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next)) {
+			const headers = splitTableRow(line);
+			const aligns = splitTableRow(next).map((cell) => {
+				const left = cell.startsWith(":");
+				const right = cell.endsWith(":");
+				return left && right ? "center" : right ? "right" : left ? "left" : "";
+			});
+			index += 2;
+			const rows = [];
+			while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+				rows.push(splitTableRow(lines[index]));
+				index += 1;
+			}
+			const tableScrollClass = headers.length >= 3 ? "table-scroll table-scroll-wide" : "table-scroll";
+			out.push(`<div class="${tableScrollClass}"><table><thead><tr>${headers.map((cell, column) => `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((_, column) => `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+			continue;
+		}
+		if (/^\s*>\s?/.test(line)) {
+			const quoted = [];
+			while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+				quoted.push(lines[index].replace(/^\s*>\s?/, ""));
+				index += 1;
+			}
+			out.push(`<blockquote>${renderTextBlock(quoted.join("\n"))}</blockquote>`);
+			continue;
+		}
+		if (listLine(line)) {
+			const rendered = renderListBlock(lines, index);
+			out.push(rendered.html);
+			index = rendered.index;
+			continue;
+		}
+		const paragraph = [line.trim()];
+		index += 1;
+		while (index < lines.length && !startsBlock(lines[index], lines[index + 1] || "")) {
+			paragraph.push(lines[index].trim());
+			index += 1;
+		}
+		out.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+	}
+	return out.join("");
+}
+function expandedToolMetaAddsInformation(summary, action) {
+	return Boolean(summary && action);
+}
+function renderCodeBlock(code, language, deferredToolBodies = null) {
+	const rawLanguage = String(language || "").trim();
+	const normalized = normalizeLanguage(rawLanguage);
+	const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
+	const inlineToolMatch = code.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
+	const toolish = Boolean(toolMatch || inlineToolMatch);
+	const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
+	const toolName = toolCallDisplayName(rawToolName);
+	const trimmedCode = code.trim();
+	const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
+	const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
+	if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
+	const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
+	const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
+	const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
+	const toolTimeText = toolTimestamp === null ? "" : formatClockTime12Hour(toolTimestamp, true);
+	const toolTime = toolTimestamp === null ? "" : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml(toolTimeText)}</time>`;
+	const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
+	const highlightLanguage = pythonCode ? "python" : toolish ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
+	const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
+	const copyButton = renderedCode.trim() ? "<button type=\"button\" class=\"copy-code\">copy</button>" : "";
+	const collapsedLabel = toolish && toolName ? toolName : label;
+	const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
+	const expandedAction = toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
+	const expandedConnector = toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
+	const inlineToolMeta = toolSummary && expandedAction ? `<span class="tool-inline-meta"><span class="tool-expanded-separator">|</span><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</span>` : "";
+	const header = toolish ? toolSummary ? `<span class="tool-summary">${escapeHtml(toolSummary)}</span>${inlineToolMeta}${toolTime}` : `
+        <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml(collapsedLabel)}</span>
+        ${toolTime}` : `
+      <span class="code-language">${escapeHtml(label)}</span>
+      ${copyButton}`;
+	let deferredToolBodyIndex = -1;
+	let body = "";
+	if (renderedCode.trim()) {
+		if (toolish && deferredToolBodies) {
+			deferredToolBodyIndex = deferredToolBodies.push({
+				code: renderedCode,
+				language: highlightLanguage,
+				highlight: Boolean(pythonCode)
+			}) - 1;
+			body = "<div class=\"deferred-tool-body\" aria-hidden=\"true\"></div>";
+		} else {
+			const renderedBody = pythonCode ? highlightCode(renderedCode, highlightLanguage) : toolish ? escapeHtml(renderedCode) : highlightCode(renderedCode, highlightLanguage);
+			body = `<pre><code class="language-${escapeHtml(highlightLanguage)}">${renderedBody}</code></pre>`;
+		}
+	}
+	if (toolish) {
+		const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction) ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml(expandedConnector)}</span>` : ""}</div>` : "";
+		const deferredAttribute = deferredToolBodyIndex < 0 ? "" : ` data-deferred-tool-body-index="${deferredToolBodyIndex}"`;
+		return `
+      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}"${deferredAttribute}>
+        <summary class="code-header">${header}</summary>
+        ${expandedToolHeader}
+        ${body}
+      </details>`;
+	}
+	return `
+    <div class="code-block">
+      <div class="code-header">${header}</div>
+      ${body}
+    </div>`;
+}
+function renderMarkdown(raw, deferredToolBodies = null, { renderIncompleteFence = false } = {}) {
+	const source = String(raw || "");
+	const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
+	let lastIndex = 0;
+	let html = "";
+	let match;
+	while ((match = pattern.exec(source)) !== null) {
+		html += renderTextBlock(source.slice(lastIndex, match.index));
+		const language = match[1].trim() || "code";
+		const code = match[2].replace(/\n$/, "");
+		html += renderCodeBlock(code, language, deferredToolBodies);
+		lastIndex = pattern.lastIndex;
+	}
+	const remainder = source.slice(lastIndex);
+	if (renderIncompleteFence) {
+		const incompleteMatch = /^ {0,3}```([^\n`]*)(?:\r?\n|$)/gm.exec(remainder);
+		if (incompleteMatch) {
+			html += renderTextBlock(remainder.slice(0, incompleteMatch.index));
+			const language = incompleteMatch[1].trim() || "code";
+			const code = remainder.slice(incompleteMatch.index + incompleteMatch[0].length);
+			html += renderCodeBlock(code, language, deferredToolBodies);
+		} else html += renderTextBlock(remainder);
+	} else html += renderTextBlock(remainder);
+	return html || "<p></p>";
+}
+//#endregion
+//#region src/prompta/ui/conversationState.svelte.ts
+var ConversationState, conversationState;
+var init_conversationState_svelte = __esmMin((() => {
+	init_client();
+	ConversationState = class {
+		#messages = /* @__PURE__ */ state$1([]);
+		get messages() {
+			return get(this.#messages);
+		}
+		set messages(value) {
+			set(this.#messages, value);
+		}
+		#allowStreaming = /* @__PURE__ */ state$1(false);
+		get allowStreaming() {
+			return get(this.#allowStreaming);
+		}
+		set allowStreaming(value) {
+			set(this.#allowStreaming, value, true);
+		}
+		#loading = /* @__PURE__ */ state$1(false);
+		get loading() {
+			return get(this.#loading);
+		}
+		set loading(value) {
+			set(this.#loading, value, true);
+		}
+		#deletingKeys = /* @__PURE__ */ state$1(/* @__PURE__ */ new Set());
+		get deletingKeys() {
+			return get(this.#deletingKeys);
+		}
+		set deletingKeys(value) {
+			set(this.#deletingKeys, value);
+		}
+		onRetry = () => {};
+		onDelete = () => {};
+		onEdit = () => {};
+	};
+	conversationState = new ConversationState();
+}));
+//#endregion
+//#region src/prompta/ui/ConversationMessages.svelte
+init_client();
+init_clientLogic();
+init_appViewState_svelte();
+init_conversationState_svelte();
+var root$4 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div><div class="conversation-loading-row conversation-loading-assistant"></div><div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
+var root_1$3 = /* @__PURE__ */ from_html(`<div class="message-label"><span class="assistant-avatar"> </span> </div>`);
+var root_2$2 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img class="message-image-preview" loading="lazy" decoding="async"/></div>`);
+var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
+var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="delete-pending-button" aria-label="Delete queued message" title="Delete queued message">×</button>`);
+var root_5$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
+var root_7$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span><!></time></div></section>`);
+var root_8$1 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div><button type="button" class="pending-message-action">Edit message</button><button type="button" class="pending-message-action danger">Delete message</button><button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
+function ConversationMessages($$anchor, $$props) {
+	push($$props, true);
+	let actionsKey = /* @__PURE__ */ state$1("");
+	let actionsDialog;
+	function timestamp(message, _clockTick) {
+		const millis = messageTimestampMillis(message.display_at, message.created_at ?? message.updated_at);
+		if (millis === null) return {
+			text: "Time unavailable",
+			iso: "",
+			millis: null,
+			age: ""
+		};
+		const date = new Date(millis);
+		return {
+			text: `${date.getDate()} ${[
+				"Jan",
+				"Feb",
+				"Mar",
+				"Apr",
+				"May",
+				"Jun",
+				"Jul",
+				"Aug",
+				"Sept",
+				"Oct",
+				"Nov",
+				"Dec"
+			][date.getMonth()]} ${[
+				"Sun",
+				"Mon",
+				"Tue",
+				"Wed",
+				"Thu",
+				"Fri",
+				"Sat"
+			][date.getDay()]} ${formatClockTime12Hour(date)}`,
+			iso: date.toISOString(),
+			millis,
+			age: messageAgeText(millis)
+		};
+	}
+	function key(message, index) {
+		return String(message.message_key || `${message.role || "message"}:${index}`);
+	}
+	function streaming(message) {
+		return Boolean(message.pending_activity) || conversationState.allowStreaming && message.status === "streaming";
+	}
+	function images(message) {
+		return Array.isArray(message.attachments) ? message.attachments.filter((item) => item && String(item.type || "").startsWith("image/")) : [];
+	}
+	function imageSrc(item) {
+		return String(item.src || "").startsWith("data:image/") ? item.src : item.id ? `api/attachment-previews/${encodeURIComponent(item.id)}` : "";
+	}
+	function content(message) {
+		return message.pending_activity ? "" : renderMarkdown(message.content, null, { renderIncompleteFence: streaming(message) });
+	}
+	function copy(event) {
+		const button = event.target.closest(".copy-code");
+		if (!button) return;
+		event.preventDefault();
+		const code = button.closest(".code-block")?.querySelector("pre code")?.textContent || "";
+		navigator.clipboard.writeText(code).then(() => {
+			const label = button.textContent;
+			button.textContent = "copied";
+			setTimeout(() => {
+				button.textContent = label;
+			}, 1e3);
+		}).catch(() => {
+			button.textContent = "copy unavailable";
+		});
+	}
+	function openActions(message) {
+		if (!message.pending_delete_key) return;
+		set(actionsKey, String(message.pending_delete_key), true);
+		actionsDialog.showModal();
+	}
+	var fragment = root_8$1();
+	event("keydown", $window, (event) => {
+		if (event.key === "Escape" && actionsDialog?.open) actionsDialog.close();
+	});
+	var div = first_child(fragment);
+	var node = child(div);
+	var consequent = ($$anchor) => {
+		append($$anchor, root$4());
+	};
+	if_block(node, ($$render) => {
+		if (conversationState.loading) $$render(consequent);
+	});
+	each(sibling(node, 2), 19, () => conversationState.messages, (message, index) => key(message, index), ($$anchor, message, index) => {
+		const value = timestamp(get(message), appViewState.clockTick);
+		const deleting = conversationState.deletingKeys.has(String(get(message).pending_delete_key || ""));
+		const role = get(message).role === "user" ? "user" : "assistant";
+		var section = root_7$1();
+		var div_2 = child(section);
+		var node_2 = child(div_2);
+		var consequent_1 = ($$anchor) => {
+			var div_3 = root_1$3();
+			var span = child(div_3);
+			var text = only_child(span, true);
+			var text_1 = sibling(span);
+			reset(div_3);
+			template_effect(() => {
+				set_text(text, get(message).send_error ? "!" : "P");
+				set_text(text_1, ` ${get(message).send_error ? "Send error" : "Prompta run"}`);
+			});
+			append($$anchor, div_3);
+		};
+		if_block(node_2, ($$render) => {
+			if (role === "assistant") $$render(consequent_1);
+		});
+		var node_3 = sibling(node_2, 2);
+		var consequent_2 = ($$anchor) => {
+			var fragment_1 = comment();
+			each(first_child(fragment_1), 17, () => images(get(message)), (image) => image.id || image.src || image.name, ($$anchor, image) => {
+				var div_4 = root_2$2();
+				var img = only_child(div_4);
+				template_effect(($0) => {
+					set_attribute(img, "src", $0);
+					set_attribute(img, "alt", get(image).name || "Attached image");
+				}, [() => imageSrc(get(image))]);
+				append($$anchor, div_4);
+			});
+			append($$anchor, fragment_1);
+		};
+		if_block(node_3, ($$render) => {
+			if (!get(message).pending_activity) $$render(consequent_2);
+		});
+		var div_5 = sibling(node_3, 2);
+		html(div_5, () => content(get(message)), true);
+		reset(div_5);
+		var node_5 = sibling(div_5, 2);
+		var consequent_3 = ($$anchor) => {
+			var button_1 = root_3$2();
+			delegated("click", button_1, () => conversationState.onRetry(String(get(message).retry_scope), String(get(message).retry_key)));
+			append($$anchor, button_1);
+		};
+		if_block(node_5, ($$render) => {
+			if (get(message).send_error && get(message).retry_scope && get(message).retry_key) $$render(consequent_3);
+		});
+		var node_6 = sibling(node_5, 2);
+		var consequent_4 = ($$anchor) => {
+			var button_2 = root_4$2();
+			template_effect(() => {
+				button_2.disabled = deleting;
+				set_attribute(button_2, "aria-busy", deleting ? "true" : void 0);
+			});
+			delegated("click", button_2, () => conversationState.onDelete(String(get(message).pending_delete_key)));
+			append($$anchor, button_2);
+		};
+		if_block(node_6, ($$render) => {
+			if (get(message).pending_delete_key) $$render(consequent_4);
+		});
+		var node_7 = sibling(node_6, 2);
+		var consequent_5 = ($$anchor) => {
+			var div_6 = root_5$2();
+			var text_2 = sibling(child(div_6));
+			reset(div_6);
+			template_effect(() => set_text(text_2, ` ${(get(message).pending_activity_label || "writing") ?? ""}`));
+			append($$anchor, div_6);
+		};
+		var d = /* @__PURE__ */ user_derived(() => streaming(get(message)));
+		if_block(node_7, ($$render) => {
+			if (get(d)) $$render(consequent_5);
+		});
+		var time = sibling(node_7, 2);
+		var span_1 = child(time);
+		var text_3 = only_child(span_1, true);
+		var node_8 = sibling(span_1);
+		var consequent_6 = ($$anchor) => {
+			var span_2 = root_6$1();
+			var text_4 = only_child(span_2);
+			template_effect(() => set_text(text_4, `· ${value.age ?? ""}`));
+			append($$anchor, span_2);
+		};
+		if_block(node_8, ($$render) => {
+			if (value.age) $$render(consequent_6);
+		});
+		reset(time);
+		reset(div_2);
+		reset(section);
+		template_effect(($0, $1) => {
+			set_class(section, 1, $0);
+			set_attribute(section, "data-message-key", $1);
+			set_attribute(time, "datetime", value.iso);
+			set_attribute(time, "data-message-at", value.millis ?? void 0);
+			set_text(text_3, value.text);
+		}, [() => clsx([
+			"message",
+			role,
+			{
+				"send-error": Boolean(get(message).send_error),
+				"pending-activity": Boolean(get(message).pending_activity),
+				"pending-message-deleting": deleting
+			}
+		]), () => key(get(message), get(index))]);
+		delegated("pointerdown", section, (event) => {
+			if (event.pointerType !== "mouse" && get(message).pending_delete_key) setTimeout(() => openActions(get(message)), 480);
+		});
+		delegated("contextmenu", section, (event) => {
+			if (get(message).pending_delete_key && matchMedia("(pointer: coarse)").matches) {
+				event.preventDefault();
+				openActions(get(message));
+			}
+		});
+		append($$anchor, section);
+	});
+	reset(div);
+	var dialog = sibling(div, 2);
+	var div_7 = child(dialog);
+	var button_3 = sibling(child(div_7));
+	var button_4 = sibling(button_3);
+	var button_5 = sibling(button_4);
+	reset(div_7);
+	reset(dialog);
+	bind_this(dialog, ($$value) => actionsDialog = $$value, () => actionsDialog);
+	delegated("click", div, copy);
+	delegated("click", button_3, () => {
+		actionsDialog.close();
+		conversationState.onEdit(get(actionsKey));
+	});
+	delegated("click", button_4, () => {
+		actionsDialog.close();
+		conversationState.onDelete(get(actionsKey));
+	});
+	delegated("click", button_5, () => actionsDialog.close());
+	append($$anchor, fragment);
+	pop();
+}
+delegate([
+	"click",
+	"pointerdown",
+	"contextmenu"
+]);
+function jobPromptIsExpandable(promptValue) {
+	const prompt = typeof promptValue === "string" ? promptValue.trim() : "";
+	return prompt.length > 220 || prompt.includes("\n");
+}
+//#endregion
+//#region src/prompta/ui/JobsDialog.svelte
+init_client();
+init_clientLogic();
+init_uiControllers();
+var root$3 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No scheduled jobs.</div>`);
+var root_1$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><summary class="job-prompt-summary"><span class="job-prompt-preview" aria-hidden="true"> </span><span class="job-prompt-toggle-label"><span class="job-prompt-show">Show full prompt</span><span class="job-prompt-hide">Hide prompt</span></span></summary><div class="job-row-prompt job-row-prompt-full"> </div></details>`);
+var root_2$1 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
+var root_3$1 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
+var root_4$1 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div><div class="job-row-meta"> </div></div><span class="job-status"> </span></div> <!> <div class="job-row-actions"><!><button type="button" class="job-action"> </button><button type="button" class="job-action">Remove</button></div></article>`);
+var root_5$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span><input type="number" min="0.1" step="0.1"/></label>`);
+var root_6 = /* @__PURE__ */ from_html(`<label><span>At</span><input type="time"/></label>`);
+var root_7 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/><span>Exact interval</span></label>`);
+var root_8 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div><div class="heading-meta">Create and manage scheduled prompts.</div></div><button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3><label><span>Name</span><input autocomplete="off" required=""/></label><label><span>Prompt</span><textarea rows="3" required=""></textarea></label><div class="jobs-form-grid"><label><span>Schedule</span><select><option>Interval</option><option>Daily</option></select></label><!></div><!><div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button><button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
+function JobsDialog($$anchor, $$props) {
+	push($$props, true);
+	let dialog;
+	let jobs = /* @__PURE__ */ state$1([]);
+	let status = /* @__PURE__ */ state$1("");
+	let saving = /* @__PURE__ */ state$1(false);
+	let editing = /* @__PURE__ */ state$1("");
+	let name = /* @__PURE__ */ state$1("");
+	let prompt = /* @__PURE__ */ state$1("");
+	let schedule = /* @__PURE__ */ state$1("interval");
+	let interval = /* @__PURE__ */ state$1("40");
+	let dailyAt = /* @__PURE__ */ state$1("09:00");
+	let exact = /* @__PURE__ */ state$1(false);
+	function reset$1() {
+		set(editing, "");
+		set(name, "");
+		set(prompt, "");
+		set(schedule, "interval");
+		set(interval, "40");
+		set(dailyAt, "09:00");
+		set(exact, false);
+	}
+	function scheduleText(job) {
+		if (job.run_at_epoch) {
+			const date = /* @__PURE__ */ new Date(job.run_at_epoch * 1e3);
+			return `once · ${date.toLocaleDateString([], {
+				year: "numeric",
+				month: "short",
+				day: "numeric"
+			})} ${formatClockTime12Hour(date)}`;
+		}
+		if (job.daily_at) return `daily · ${formatDailyTime12Hour(job.daily_at)}`;
+		const minutes = Number(job.interval_minutes);
+		return `every ${minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}` : `${minutes} minute${minutes === 1 ? "" : "s"}`}${job.exact_interval ? " · exact" : ""}`;
+	}
+	async function load() {
+		set(status, "Loading jobs…");
+		try {
+			const response = await fetch("api/jobs", { cache: "no-store" });
+			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+			const result = await response.json();
+			set(jobs, Array.isArray(result.jobs) ? result.jobs : []);
+			set(status, `${get(jobs).length} configured job${get(jobs).length === 1 ? "" : "s"}.`);
+		} catch (error) {
+			set(status, `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`);
+		}
+	}
+	async function command(payload, success) {
+		set(status, "Running Prompta CLI command…");
+		set(saving, true);
+		try {
+			const result = await postJsonRequest("api/jobs", payload);
+			set(jobs, Array.isArray(result.jobs) ? result.jobs : []);
+			const invoked = Array.isArray(result.command) ? result.command.join(" ") : "";
+			set(status, invoked ? `${success} · ${invoked}` : success, true);
+			return true;
+		} catch (error) {
+			set(status, `Jobs command failed: ${String(error).replace(/^Error:\s*/, "")}`);
+			return false;
+		} finally {
+			set(saving, false);
+		}
+	}
+	async function submit() {
+		const daily = get(schedule) === "daily";
+		if (await command({
+			action: "add",
+			name: get(name).trim(),
+			prompt: get(prompt).trim(),
+			daily_at: daily ? get(dailyAt) : "",
+			interval_minutes: daily ? null : Number(get(interval)),
+			exact_interval: !daily && get(exact)
+		}, `Saved ${get(name).trim()}`)) reset$1();
+	}
+	function edit(job) {
+		set(editing, job.name, true);
+		set(name, job.name, true);
+		set(prompt, job.prompt || "", true);
+		set(schedule, job.daily_at ? "daily" : "interval", true);
+		set(dailyAt, job.daily_at || "09:00", true);
+		set(interval, String(job.interval_minutes || 40), true);
+		set(exact, Boolean(job.exact_interval), true);
+	}
+	async function open() {
+		reset$1();
+		if (!dialog.open) {
+			if (matchMedia("(max-width: 600px)").matches) dialog.show();
+			else dialog.showModal();
+		}
+		await load();
+	}
+	function close() {
+		if (dialog.open) dialog.close();
+	}
+	registerJobsDialog({
+		open,
+		close
+	});
+	var $$exports = {
+		open,
+		close
+	};
+	var dialog_1 = root_8();
+	var div = child(dialog_1);
+	var header = child(div);
+	var button = sibling(child(header));
+	reset(header);
+	var div_1 = sibling(header, 2);
+	var text = only_child(div_1, true);
+	var div_2 = sibling(div_1, 2);
+	var node = child(div_2);
+	var consequent = ($$anchor) => {
+		append($$anchor, root$3());
+	};
+	if_block(node, ($$render) => {
+		if (!get(jobs).length) $$render(consequent);
+	});
+	each(sibling(node, 2), 17, () => get(jobs), (job) => job.name, ($$anchor, job) => {
+		var article = root_4$1();
+		var div_4 = child(article);
+		var div_5 = child(div_4);
+		var div_6 = child(div_5);
+		var text_1 = only_child(div_6, true);
+		var text_2 = only_child(sibling(div_6), true);
+		reset(div_5);
+		var text_3 = only_child(sibling(div_5), true);
+		reset(div_4);
+		var node_2 = sibling(div_4, 2);
+		var consequent_1 = ($$anchor) => {
+			var details = root_1$2();
+			var summary = child(details);
+			var text_4 = only_child(child(summary), true);
+			next();
+			reset(summary);
+			var text_5 = only_child(sibling(summary), true);
+			reset(details);
+			template_effect(() => {
+				set_text(text_4, get(job).prompt || "");
+				set_text(text_5, get(job).prompt || "");
+			});
+			append($$anchor, details);
+		};
+		var d = /* @__PURE__ */ user_derived(() => jobPromptIsExpandable(get(job).prompt));
+		var alternate = ($$anchor) => {
+			var div_9 = root_2$1();
+			var text_6 = only_child(div_9, true);
+			template_effect(() => set_text(text_6, get(job).prompt || ""));
+			append($$anchor, div_9);
+		};
+		if_block(node_2, ($$render) => {
+			if (get(d)) $$render(consequent_1);
+			else $$render(alternate, -1);
+		});
+		var div_10 = sibling(node_2, 2);
+		var node_3 = child(div_10);
+		var consequent_2 = ($$anchor) => {
+			var button_1 = root_3$1();
+			delegated("click", button_1, () => edit(get(job)));
+			append($$anchor, button_1);
+		};
+		if_block(node_3, ($$render) => {
+			if (!get(job).run_at_epoch) $$render(consequent_2);
+		});
+		var button_2 = sibling(node_3);
+		var text_7 = only_child(button_2, true);
+		var button_3 = sibling(button_2);
+		reset(div_10);
+		reset(article);
+		template_effect(($0) => {
+			set_text(text_1, get(job).name);
+			set_text(text_2, $0);
+			set_text(text_3, get(job).status || (get(job).paused ? "paused" : "pending"));
+			set_text(text_7, get(job).paused ? "Resume" : "Pause");
+		}, [() => scheduleText(get(job))]);
+		delegated("click", button_2, () => void command({
+			action: get(job).paused ? "resume" : "pause",
+			name: get(job).name
+		}, `${get(job).paused ? "Resumed" : "Paused"} ${get(job).name}`));
+		delegated("click", button_3, () => void command({
+			action: "remove",
+			name: get(job).name
+		}, `Removed ${get(job).name}`));
+		append($$anchor, article);
+	});
+	reset(div_2);
+	var form = sibling(div_2, 2);
+	var h3 = child(form);
+	var text_8 = only_child(h3, true);
+	var label = sibling(h3);
+	var input = sibling(child(label));
+	remove_input_defaults(input);
+	reset(label);
+	var label_1 = sibling(label);
+	var textarea = sibling(child(label_1));
+	remove_textarea_child(textarea);
+	reset(label_1);
+	var div_11 = sibling(label_1);
+	var label_2 = child(div_11);
+	var select = sibling(child(label_2));
+	var option = child(select);
+	option.value = option.__value = "interval";
+	var option_1 = sibling(option);
+	option_1.value = option_1.__value = "daily";
+	reset(select);
+	init_select(select);
+	reset(label_2);
+	var node_4 = sibling(label_2);
+	var consequent_3 = ($$anchor) => {
+		var label_3 = root_5$1();
+		var input_1 = sibling(child(label_3));
+		remove_input_defaults(input_1);
+		reset(label_3);
+		bind_value(input_1, () => get(interval), ($$value) => set(interval, $$value));
+		append($$anchor, label_3);
+	};
+	var alternate_1 = ($$anchor) => {
+		var label_4 = root_6();
+		var input_2 = sibling(child(label_4));
+		remove_input_defaults(input_2);
+		reset(label_4);
+		bind_value(input_2, () => get(dailyAt), ($$value) => set(dailyAt, $$value));
+		append($$anchor, label_4);
+	};
+	if_block(node_4, ($$render) => {
+		if (get(schedule) === "interval") $$render(consequent_3);
+		else $$render(alternate_1, -1);
+	});
+	reset(div_11);
+	var node_5 = sibling(div_11);
+	var consequent_4 = ($$anchor) => {
+		var label_5 = root_7();
+		var input_3 = child(label_5);
+		remove_input_defaults(input_3);
+		next();
+		reset(label_5);
+		bind_checked(input_3, () => get(exact), ($$value) => set(exact, $$value));
+		append($$anchor, label_5);
+	};
+	if_block(node_5, ($$render) => {
+		if (get(schedule) === "interval") $$render(consequent_4);
+	});
+	var div_12 = sibling(node_5);
+	var button_4 = child(div_12);
+	var button_5 = sibling(button_4);
+	reset(div_12);
+	reset(form);
+	var button_6 = only_child(sibling(form, 2));
+	reset(div);
+	reset(dialog_1);
+	bind_this(dialog_1, ($$value) => dialog = $$value, () => dialog);
+	template_effect(($0) => {
+		set_text(text, get(status));
+		set_text(text_8, get(editing) ? `Edit ${get(editing)}` : "Add job");
+		input.readOnly = $0;
+		button_5.disabled = get(saving);
+		button_6.disabled = !get(jobs).length || get(saving);
+	}, [() => Boolean(get(editing))]);
+	delegated("click", dialog_1, (event) => {
+		if (event.target === dialog) close();
+	});
+	delegated("click", button, close);
+	event("submit", form, (event) => {
+		event.preventDefault();
+		submit();
+	});
+	bind_value(input, () => get(name), ($$value) => set(name, $$value));
+	bind_value(textarea, () => get(prompt), ($$value) => set(prompt, $$value));
+	bind_select_value(select, () => get(schedule), ($$value) => set(schedule, $$value));
+	delegated("click", button_4, reset$1);
+	delegated("click", button_6, () => {
+		if (confirm(`Clear all ${get(jobs).length} scheduled jobs?`)) command({ action: "clear" }, "Cleared all scheduled jobs");
+	});
+	append($$anchor, dialog_1);
+	return pop($$exports);
+}
+delegate(["click"]);
+//#endregion
+//#region src/prompta/ui/LogsPanel.svelte
+init_client();
+init_appViewState_svelte();
+init_uiControllers();
+var root$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div><strong> </strong><span> </span></div><span class="logs-live"><i></i> live</span></div><pre class="log-output"> </pre></div></section>`);
+function LogsPanel($$anchor, $$props) {
+	push($$props, true);
+	let viewport;
+	const visible = /* @__PURE__ */ user_derived(() => appViewState.mode === "logs");
+	let serverTitle = /* @__PURE__ */ state$1("Prompta · prompta.service");
+	let meta = /* @__PURE__ */ state$1("Waiting for synced journal");
+	let output = /* @__PURE__ */ state$1("Loading logs…");
+	let fingerprint = "";
+	let timer;
+	function relativeTime(epochSeconds) {
+		const value = Number(epochSeconds || 0);
+		if (!value) return "";
+		const delta = Math.abs(Date.now() - value * 1e3);
+		if (delta < 45e3) return "now";
+		if (delta < 36e5) return `${Math.max(1, Math.round(delta / 6e4))}m`;
+		if (delta < 864e5) return `${Math.round(delta / 36e5)}h`;
+		return `${Math.round(delta / 864e5)}d`;
+	}
+	function render(payload) {
+		const lines = Array.isArray(payload.lines) ? payload.lines.map(String) : [];
+		const next = JSON.stringify([payload.updated_at, lines]);
+		const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 120;
+		const initial = !fingerprint;
+		if (next !== fingerprint) {
+			fingerprint = next;
+			set(output, lines.length ? lines.join("\n") : "No Prompta service logs are available yet.", true);
+			if (initial || nearBottom) requestAnimationFrame(() => {
+				viewport.scrollTop = viewport.scrollHeight;
+			});
+		}
+		set(meta, payload.exists ? payload.source === "journal" ? `${lines.length} lines · live journal` : `${lines.length} lines · synced ${relativeTime(payload.updated_at)}` : "Waiting for Prompta service logs", true);
+	}
+	async function load() {
+		try {
+			const response = await fetch("api/logs?limit=800", { cache: "no-store" });
+			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+			render(await response.json());
+		} catch (error) {
+			set(meta, "Logs unavailable");
+			console.error(error);
+		}
+	}
+	function setServerTitle(display) {
+		set(serverTitle, `${display || ""} · prompta.service`);
+	}
+	registerLogsPanel({
+		load,
+		setServerTitle
+	});
+	user_effect(() => {
+		if (!get(visible)) return;
+		load();
+		timer = setInterval(() => {
+			if (document.visibilityState === "visible") load();
+		}, 2e3);
+		return () => {
+			if (timer) clearInterval(timer);
+			timer = void 0;
+		};
+	});
+	var $$exports = {
+		load,
+		setServerTitle
+	};
+	var section = root$2();
+	var div = child(section);
+	var div_1 = child(div);
+	var div_2 = child(div_1);
+	var strong = child(div_2);
+	var text = only_child(strong, true);
+	var text_1 = only_child(sibling(strong), true);
+	reset(div_2);
+	next();
+	reset(div_1);
+	var text_2 = only_child(sibling(div_1), true);
+	reset(div);
+	reset(section);
+	bind_this(section, ($$value) => viewport = $$value, () => viewport);
+	template_effect(() => {
+		set_attribute(section, "hidden", !get(visible));
+		set_text(text, get(serverTitle));
+		set_text(text_1, get(meta));
+		set_text(text_2, get(output));
+	});
+	append($$anchor, section);
+	return pop($$exports);
+}
+//#endregion
+//#region node_modules/svelte/src/internal/flags/legacy.js
+init_flags();
+enable_legacy_mode_flag();
+//#endregion
+//#region src/prompta/ui/sidebarState.svelte.ts
+function configureSidebar(onMotionEnd) {
+	motionEnd = onMotionEnd;
+}
+function openSidebar() {
+	sidebarState.moving = !sidebarState.open;
+	sidebarState.open = true;
+}
+function closeSidebar(_restoreFocus = false) {
+	sidebarState.moving = sidebarState.open;
+	sidebarState.open = false;
+}
+function finishSidebarMotion() {
+	if (!sidebarState.moving) return;
+	sidebarState.moving = false;
+	motionEnd();
+}
+var motionEnd, sidebarState, sidebarListState, sidebarListActions;
+var init_sidebarState_svelte = __esmMin((() => {
+	init_client();
+	motionEnd = () => {};
+	sidebarState = proxy({
+		open: false,
+		moving: false
+	});
+	sidebarListState = proxy({ model: {
+		emptyState: "none",
+		groups: []
+	} });
+	sidebarListActions = proxy({
+		onSelect: () => {},
+		onPin: () => {}
+	});
+}));
+//#endregion
+//#region src/prompta/ui/SidebarList.svelte
+init_client();
+init_sidebarState_svelte();
+var root$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
+var root_1$1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
+var root_2 = /* @__PURE__ */ from_html(`<span></span>`);
+var root_3 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
+var root_4 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
+var root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
+function SidebarList($$anchor, $$props) {
+	push($$props, false);
+	init();
+	var fragment = comment();
+	var node = first_child(fragment);
+	var consequent_1 = ($$anchor) => {
+		var div = root_1$1();
+		var node_1 = child(div);
+		var consequent = ($$anchor) => {
+			append($$anchor, text("No cached chats match your search."));
+		};
+		var alternate = ($$anchor) => {
+			var fragment_1 = root$1();
+			next(2);
+			append($$anchor, fragment_1);
+		};
+		if_block(node_1, ($$render) => {
+			if (sidebarListState.model.emptyState === "search") $$render(consequent);
+			else $$render(alternate, -1);
+		});
+		reset(div);
+		append($$anchor, div);
+	};
+	var alternate_1 = ($$anchor) => {
+		var fragment_2 = comment();
+		each(first_child(fragment_2), 1, () => sidebarListState.model.groups, (group) => group.label, ($$anchor, group) => {
+			var section = root_5();
+			var div_1 = child(section);
+			var text_1 = only_child(div_1, true);
+			each(sibling(div_1, 2), 1, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
+				var div_2 = root_4();
+				var button = child(div_2);
+				var div_3 = child(button);
+				var node_4 = child(div_3);
+				var consequent_2 = ($$anchor) => {
+					var span = root_2();
+					template_effect(() => {
+						set_class(span, 1, clsx(["item-status-dot", get(chat).statusClass]));
+						set_attribute(span, "title", get(chat).statusLabel || void 0);
+						set_attribute(span, "aria-label", get(chat).statusLabel || void 0);
+					});
+					append($$anchor, span);
+				};
+				if_block(node_4, ($$render) => {
+					if (get(chat).statusClass) $$render(consequent_2);
+				});
+				var span_1 = sibling(node_4, 2);
+				var text_2 = only_child(span_1, true);
+				var node_5 = sibling(span_1, 2);
+				var consequent_3 = ($$anchor) => {
+					append($$anchor, root_3());
+				};
+				if_block(node_5, ($$render) => {
+					if (get(chat).broken) $$render(consequent_3);
+				});
+				reset(div_3);
+				var div_4 = sibling(div_3, 2);
+				var text_3 = only_child(div_4, true);
+				var div_5 = sibling(div_4, 2);
+				var span_3 = child(div_5);
+				var text_4 = only_child(span_3, true);
+				var span_4 = sibling(span_3, 2);
+				var text_5 = only_child(span_4, true);
+				reset(div_5);
+				reset(button);
+				var button_1 = sibling(button, 2);
+				reset(div_2);
+				template_effect(() => {
+					set_class(div_2, 1, clsx(["chat-item", { selected: get(chat).selected }]));
+					set_attribute(div_2, "data-dom-key", "chat:" + get(chat).id);
+					set_attribute(button, "data-chat-id", get(chat).id);
+					set_attribute(button, "data-optimistic-new", get(chat).optimisticNew ? "true" : "false");
+					set_attribute(button, "aria-current", get(chat).selected ? "true" : void 0);
+					set_text(text_2, get(chat).title);
+					set_text(text_3, get(chat).preview);
+					set_text(text_4, get(chat).jobLabel);
+					set_attribute(span_4, "data-activity-at", get(chat).activityAt);
+					set_text(text_5, get(chat).relativeTime);
+					set_class(button_1, 1, clsx(["chat-row-pin", { active: get(chat).pinned }]));
+					set_attribute(button_1, "data-pin-chat-id", get(chat).id);
+					set_attribute(button_1, "aria-label", get(chat).pinned ? "Unpin chat" : "Pin chat");
+					set_attribute(button_1, "title", get(chat).pinned ? "Unpin chat" : "Pin chat");
+					set_attribute(button_1, "aria-pressed", get(chat).pinned);
+				});
+				delegated("click", button, () => sidebarListActions.onSelect(get(chat).id, get(chat).optimisticNew));
+				delegated("click", button_1, () => sidebarListActions.onPin(get(chat).id));
+				append($$anchor, div_2);
+			});
+			reset(section);
+			template_effect(() => {
+				set_attribute(section, "data-dom-key", "group:" + get(group).label);
+				set_text(text_1, get(group).label);
+			});
+			append($$anchor, section);
+		});
+		append($$anchor, fragment_2);
+	};
+	if_block(node, ($$render) => {
+		if (sidebarListState.model.groups.length === 0) $$render(consequent_1);
+		else $$render(alternate_1, -1);
+	});
+	append($$anchor, fragment);
+	pop();
+}
+delegate(["click"]);
+//#endregion
+//#region src/prompta/ui/App.svelte
+init_client();
+init_index_client();
+init_appActions_svelte();
+init_appViewState_svelte();
+init_uiControllers();
+init_sidebarState_svelte();
+var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`);
+var root_1 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <div class="brand-mark" aria-hidden="true">P</div> <div class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></div> <div id="globalLiveOrb"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <kbd>/</kbd></label></div> <div class="sidebar-scroll"><button type="button" class="sidebar-action" id="jobsSidebarButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path d="M8 12h3M8 16h3M14 12h2M14 16h2"></path></svg> <span>Jobs</span></button> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" role="button" tabindex="-1" aria-label="Close sidebar"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <div class="topbar-actions" aria-label="Prompta actions"><button id="pinChatButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span id="syncLabel" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!></main></div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!> <!>`, 1);
+function App($$anchor, $$props) {
+	push($$props, true);
+	let changelogDialog;
+	let searchInput;
+	let sidebarScroll;
+	let lastSearchFocusRequest = 0;
+	let lastSidebarTopRequest = 0;
+	const serverDisplay = /* @__PURE__ */ user_derived(() => appViewState.serverDisplay || $$props.serverName);
+	function syncViewportHeight() {
+		const viewportHeight = window.visualViewport?.height || window.innerHeight;
+		document.documentElement.style.setProperty("--app-height", String(Math.round(viewportHeight)) + "px");
+	}
+	function handleGlobalKeydown(event) {
+		const target = event.target;
+		const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || Boolean(target?.isContentEditable);
+		if (event.key === "/" && !typing) {
+			event.preventDefault();
+			openSidebar();
+			requestSearchFocus();
+			return;
+		}
+		if (event.key !== "Escape") return;
+		if (document.activeElement === searchInput && appViewState.searchValue) {
+			event.preventDefault();
+			appViewState.searchValue = "";
+			appActions.onSearch("");
+			return;
+		}
+		getAttachmentPicker().closeMenu();
+		getJobsDialog().close();
+		searchInput?.blur();
+		closeSidebar(true);
+	}
+	onMount(() => {
+		if (appViewState.serverLabel === "Server · local") appViewState.serverLabel = "Server · " + $$props.serverName;
+		syncViewportHeight();
+		const visualViewport = window.visualViewport;
+		const bootFallback = window.setTimeout(() => document.documentElement.classList.remove("booting"), 1200);
+		visualViewport?.addEventListener("resize", syncViewportHeight);
+		return () => {
+			window.clearTimeout(bootFallback);
+			visualViewport?.removeEventListener("resize", syncViewportHeight);
+		};
+	});
+	user_effect(() => {
+		if (appViewState.bootComplete) document.documentElement.classList.remove("booting");
+	});
+	user_effect(() => {
+		const request = appViewState.searchFocusRequest;
+		if (!searchInput || request === lastSearchFocusRequest) return;
+		lastSearchFocusRequest = request;
+		requestAnimationFrame(() => searchInput.focus({ preventScroll: true }));
+	});
+	user_effect(() => {
+		const request = appViewState.sidebarTopRequest;
+		if (!sidebarScroll || request === lastSidebarTopRequest) return;
+		lastSidebarTopRequest = request;
+		requestAnimationFrame(() => {
+			sidebarScroll.scrollTop = 0;
+		});
+	});
+	var fragment = root_1();
+	head("1yzbt2b", ($$anchor) => {
+		var meta = root();
+		template_effect(() => set_attribute(meta, "content", "Prompta " + get(serverDisplay)));
+		deferred_template_effect(() => {
+			$document.title = `Prompta · ${get(serverDisplay) ?? ""}`;
+		});
+		append($$anchor, meta);
+	});
+	event("keydown", $window, handleGlobalKeydown);
+	event("hashchange", $window, function(...$$args) {
+		appActions.onHashChange?.apply(this, $$args);
+	});
+	event("pagehide", $window, function(...$$args) {
+		appActions.onPageHide?.apply(this, $$args);
+	});
+	event("pageshow", $window, function(...$$args) {
+		appActions.onPageShow?.apply(this, $$args);
+	});
+	event("resize", $window, syncViewportHeight);
+	var div = first_child(fragment);
+	var aside = child(div);
+	var div_1 = child(aside);
+	var div_2 = child(div_1);
+	var button = child(div_2);
+	var div_3 = sibling(button, 4);
+	var text = only_child(sibling(child(div_3), 2), true);
+	reset(div_3);
+	var div_4 = sibling(div_3, 2);
+	reset(div_2);
+	var label = sibling(div_2, 2);
+	var input = sibling(child(label), 2);
+	remove_input_defaults(input);
+	bind_this(input, ($$value) => searchInput = $$value, () => searchInput);
+	next(2);
+	reset(label);
+	reset(div_1);
+	var div_5 = sibling(div_1, 2);
+	var button_1 = child(div_5);
+	var nav = sibling(button_1, 2);
+	SidebarList(child(nav), {});
+	reset(nav);
+	reset(div_5);
+	bind_this(div_5, ($$value) => sidebarScroll = $$value, () => sidebarScroll);
+	var div_6 = sibling(div_5, 2);
+	var div_7 = child(div_6);
+	var text_1 = only_child(sibling(child(div_7), 2), true);
+	reset(div_7);
+	var button_2 = sibling(div_7, 2);
+	var text_2 = only_child(button_2, true);
+	reset(div_6);
+	reset(aside);
+	var div_8 = sibling(aside, 2);
+	var main = sibling(div_8, 2);
+	var header = child(main);
+	var button_3 = child(header);
+	var div_9 = sibling(button_3, 2);
+	var div_10 = child(div_9);
+	var text_3 = only_child(div_10, true);
+	var text_4 = only_child(sibling(div_10, 2), true);
+	reset(div_9);
+	var div_12 = sibling(div_9, 2);
+	var button_4 = child(div_12);
+	var button_5 = sibling(button_4, 2);
+	var span_2 = sibling(button_5, 2);
+	reset(div_12);
+	reset(header);
+	var section = sibling(header, 2);
+	var div_13 = child(section);
+	var article = sibling(div_13, 2);
+	ConversationMessages(child(article), {});
+	reset(article);
+	reset(section);
+	var node_2 = sibling(section, 2);
+	LogsPanel(node_2, {});
+	var node_3 = sibling(node_2, 2);
+	var consequent = ($$anchor) => {
+		Composer($$anchor, {});
+	};
+	if_block(node_3, ($$render) => {
+		if (appViewState.mode === "chats") $$render(consequent);
+	});
+	reset(main);
+	reset(div);
+	var button_6 = sibling(div, 2);
+	var text_5 = only_child(button_6, true);
+	var node_4 = sibling(button_6, 2);
+	JobsDialog(node_4, {});
+	bind_this(ChangelogDialog(sibling(node_4, 2), {}), ($$value) => changelogDialog = $$value, () => changelogDialog);
+	template_effect(() => {
+		set_class(aside, 1, clsx(["sidebar", { "is-open": sidebarState.open }]));
+		set_text(text, appViewState.serverLabel);
+		set_class(div_4, 1, clsx(["live-orb", { live: appViewState.live }]));
+		set_attribute(div_4, "title", appViewState.liveTitle);
+		set_text(text_1, appViewState.cacheSummary);
+		set_attribute(button_2, "title", appViewState.headTitle);
+		set_text(text_2, appViewState.headLabel);
+		set_class(div_8, 1, clsx(["sidebar-scrim", { "is-open": sidebarState.open }]));
+		set_attribute(button_3, "aria-expanded", sidebarState.open);
+		set_text(text_3, appViewState.headingTitle);
+		set_text(text_4, appViewState.headingMeta);
+		set_class(button_4, 1, clsx(["icon-button", { active: appViewState.pinActive }]));
+		set_attribute(button_4, "aria-label", appViewState.pinLabel);
+		set_attribute(button_4, "title", appViewState.pinLabel);
+		set_attribute(button_4, "aria-pressed", appViewState.pinActive);
+		button_4.disabled = appViewState.pinDisabled;
+		button_5.disabled = appViewState.shareDisabled;
+		set_class(span_2, 1, clsx([
+			"status-icon",
+			"sync",
+			appViewState.syncStatus
+		]));
+		set_attribute(span_2, "aria-label", appViewState.syncLabel);
+		set_attribute(span_2, "title", appViewState.syncLabel);
+		set_class(section, 1, clsx(["conversation-viewport", { "chat-switching": appViewState.chatSwitching }]));
+		set_attribute(section, "aria-busy", appViewState.chatSwitching ? "true" : void 0);
+		set_attribute(section, "hidden", appViewState.mode === "logs");
+		set_attribute(div_13, "hidden", !appViewState.emptyVisible);
+		set_attribute(article, "hidden", !appViewState.conversationVisible);
+		set_attribute(button_6, "aria-label", appViewState.updateApplying ? "Updating Prompta" : "New Prompta version available. Tap to update");
+		set_attribute(button_6, "hidden", !appViewState.updateAvailable);
+		button_6.disabled = appViewState.updateApplying;
+		set_text(text_5, appViewState.updateApplying ? "Updating…" : "Update available");
+	});
+	event("transitionend", aside, (event) => {
+		if (event.propertyName === "transform") finishSidebarMotion();
+	});
+	delegated("click", button, () => closeSidebar());
+	delegated("input", input, () => appActions.onSearch(appViewState.searchValue));
+	bind_value(input, () => appViewState.searchValue, ($$value) => appViewState.searchValue = $$value);
+	delegated("click", button_1, () => void getJobsDialog().open());
+	delegated("click", button_2, () => void changelogDialog?.open());
+	delegated("click", div_8, () => closeSidebar());
+	delegated("keydown", div_8, (event) => {
+		if (event.key === "Enter" || event.key === " ") closeSidebar();
+	});
+	delegated("click", button_3, function(...$$args) {
+		openSidebar?.apply(this, $$args);
+	});
+	delegated("click", button_4, function(...$$args) {
+		appActions.onPin?.apply(this, $$args);
+	});
+	delegated("click", button_5, function(...$$args) {
+		appActions.onShare?.apply(this, $$args);
+	});
+	delegated("click", button_6, function(...$$args) {
+		appActions.onApplyUpdate?.apply(this, $$args);
+	});
+	append($$anchor, fragment);
+	pop();
+}
+delegate([
+	"click",
+	"input",
+	"keydown"
+]);
+//#endregion
 //#region src/prompta/ui/recentChatCache.ts
 var DATABASE_NAME, DATABASE_VERSION, STORE_NAME, ACCESSED_AT_INDEX_NAME, SUMMARY_STORE_NAME, SUMMARY_LIMIT, RecentChatCache;
 var init_recentChatCache = __esmMin((() => {
@@ -5851,1051 +8559,43 @@ var init_recentChatCache = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region src/prompta/ui/domPatch.ts
-function domPatchKey$2(node) {
-	if (!(node instanceof HTMLElement)) return "";
-	return node.dataset.domKey || "";
-}
-function patchDomNode$2(current, next) {
-	if (current.nodeType !== next.nodeType || current instanceof Element && next instanceof Element && current.tagName !== next.tagName) {
-		const replacement = next.cloneNode(true);
-		const parent = current.parentNode;
-		if (!parent) return current;
-		parent.replaceChild(replacement, current);
-		return replacement;
-	}
-	if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
-		if (current.textContent !== next.textContent) current.textContent = next.textContent;
-		return current;
-	}
-	if (!(current instanceof Element) || !(next instanceof Element)) return current;
-	for (const attribute of Array.from(current.attributes)) if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-	for (const attribute of Array.from(next.attributes)) if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
-	patchDomChildren$2(current, next);
-	return current;
-}
-function patchDomChildren$2(currentParent, nextParent) {
-	let index = 0;
-	while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
-		let current = currentParent.childNodes[index];
-		const next = nextParent.childNodes[index];
-		if (!next) {
-			current.remove();
-			continue;
-		}
-		if (!current) {
-			currentParent.append(next.cloneNode(true));
-			index += 1;
-			continue;
-		}
-		const nextKey = domPatchKey$2(next);
-		if (nextKey && domPatchKey$2(current) !== nextKey) {
-			const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey$2(candidate) === nextKey);
-			if (match) {
-				currentParent.insertBefore(match, current);
-				current = match;
-			} else {
-				currentParent.insertBefore(next.cloneNode(true), current);
-				index += 1;
-				continue;
-			}
-		}
-		patchDomNode$2(current, next);
-		index += 1;
-	}
-}
-function patchHtmlChildren$2(element, html) {
-	const template = document.createElement("template");
-	template.innerHTML = html;
-	patchDomChildren$2(element, template.content);
-}
-var init_domPatch = __esmMin((() => {}));
-//#endregion
-//#region src/prompta/ui/jobsDialog.ts
-function requiredElement$6(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error(`Missing required jobs UI element: ${selector}`);
-	return element;
-}
-function escapeHtml$4(value) {
-	return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");
-}
-function setTextIfChanged$4(element, value) {
-	const text = String(value ?? "");
-	if (element.textContent !== text) element.textContent = text;
-}
-function renderJobPrompt(promptValue) {
-	const prompt = String(promptValue ?? "").trim();
-	const escapedPrompt = escapeHtml$4(prompt);
-	if (prompt.length <= JOB_PROMPT_PREVIEW_LIMIT && !prompt.includes("\n")) return `<div class="job-row-prompt">${escapedPrompt}</div>`;
-	return `
-    <details class="job-prompt-details">
-      <summary class="job-prompt-summary">
-        <span class="job-prompt-preview" aria-hidden="true">${escapedPrompt}</span>
-        <span class="job-prompt-toggle-label">
-          <span class="job-prompt-show">Show full prompt</span>
-          <span class="job-prompt-hide">Hide prompt</span>
-        </span>
-      </summary>
-      <div class="job-row-prompt job-row-prompt-full">${escapedPrompt}</div>
-    </details>
-  `;
-}
-async function fetchJson$1(url, timeoutMs = 1e4) {
-	const controller = new AbortController();
-	const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+//#region src/prompta/ui/clipboard.ts
+async function copyText(value) {
 	try {
-		const response = await fetch(url, {
-			cache: "no-store",
-			signal: controller.signal
-		});
-		if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-		return await response.json();
-	} finally {
-		window.clearTimeout(timeout);
+		await navigator.clipboard.writeText(value);
+		return true;
+	} catch {
+		const textarea = document.createElement("textarea");
+		textarea.value = value;
+		textarea.style.position = "fixed";
+		textarea.style.opacity = "0";
+		document.body.append(textarea);
+		textarea.select();
+		const copied = document.execCommand("copy");
+		textarea.remove();
+		return copied;
 	}
 }
-function formatJobMinutes(value) {
-	const minutes = Number(value);
-	if (!Number.isFinite(minutes)) return "";
-	if (minutes >= 60 && minutes % 60 === 0) {
-		const hours = minutes / 60;
-		return `${hours} hour${hours === 1 ? "" : "s"}`;
-	}
-	return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-}
-function jobScheduleText(job) {
-	if (job.run_at_epoch) {
-		const date = /* @__PURE__ */ new Date(Number(job.run_at_epoch) * 1e3);
-		return `once · ${date.toLocaleDateString([], {
-			year: "numeric",
-			month: "short",
-			day: "numeric"
-		})} ${formatClockTime12Hour(date)}`;
-	}
-	if (job.daily_at) return `daily · ${formatDailyTime12Hour(job.daily_at)}`;
-	return `every ${formatJobMinutes(job.interval_minutes)}${job.exact_interval ? " · exact" : ""}`;
-}
-function createJobsDialog({ closeSidebar, resizeComposer, syncSendButton }) {
-	const els = {
-		jobsSidebarButton: requiredElement$6("#jobsSidebarButton"),
-		jobsDialog: requiredElement$6("#jobsDialog"),
-		closeJobsDialog: requiredElement$6("#closeJobsDialog"),
-		jobsDialogStatus: requiredElement$6("#jobsDialogStatus"),
-		jobsList: requiredElement$6("#jobsList"),
-		jobsForm: requiredElement$6("#jobsForm"),
-		jobsFormTitle: requiredElement$6("#jobsFormTitle"),
-		jobNameInput: requiredElement$6("#jobNameInput"),
-		jobPromptInput: requiredElement$6("#jobPromptInput"),
-		jobScheduleType: requiredElement$6("#jobScheduleType"),
-		jobIntervalField: requiredElement$6("#jobIntervalField"),
-		jobIntervalInput: requiredElement$6("#jobIntervalInput"),
-		jobDailyField: requiredElement$6("#jobDailyField"),
-		jobDailyInput: requiredElement$6("#jobDailyInput"),
-		jobExactField: requiredElement$6("#jobExactField"),
-		jobExactInput: requiredElement$6("#jobExactInput"),
-		resetJobForm: requiredElement$6("#resetJobForm"),
-		saveJobButton: requiredElement$6("#saveJobButton"),
-		clearJobsButton: requiredElement$6("#clearJobsButton"),
-		messageInput: requiredElement$6("#messageInput"),
-		slashMenu: requiredElement$6("#slashMenu")
-	};
-	let scheduledJobs = [];
-	const mobileJobsScreen = window.matchMedia("(max-width: 600px)");
-	const appShell = document.querySelector(".app-shell");
-	function closeJobsView() {
-		if (!els.jobsDialog.open) return;
-		els.jobsDialog.close();
-	}
-	function resetJobForm() {
-		els.jobsForm.reset();
-		setTextIfChanged$4(els.jobsFormTitle, "Add job");
-		els.jobNameInput.readOnly = false;
-		els.jobScheduleType.value = "interval";
-		els.jobIntervalInput.value = "40";
-		els.jobDailyInput.value = "09:00";
-		els.jobExactInput.checked = false;
-		syncJobScheduleFields();
-	}
-	function syncJobScheduleFields() {
-		const daily = els.jobScheduleType.value === "daily";
-		els.jobIntervalField.hidden = daily;
-		els.jobDailyField.hidden = !daily;
-		els.jobExactField.hidden = daily;
-	}
-	function renderJobs(jobs) {
-		scheduledJobs = Array.isArray(jobs) ? jobs : [];
-		els.clearJobsButton.disabled = scheduledJobs.length === 0;
-		if (!scheduledJobs.length) {
-			patchHtmlChildren$2(els.jobsList, "<div class=\"jobs-empty\">No scheduled jobs.</div>");
-			return;
-		}
-		patchHtmlChildren$2(els.jobsList, scheduledJobs.map((job) => {
-			const paused = Boolean(job.paused);
-			const canEdit = !job.run_at_epoch;
-			return `
-        <article class="job-row" data-job-name="${escapeHtml$4(job.name)}">
-          <div class="job-row-top">
-            <div>
-              <div class="job-row-name">${escapeHtml$4(job.name)}</div>
-              <div class="job-row-meta">${escapeHtml$4(jobScheduleText(job))}</div>
-            </div>
-            <span class="job-status">${escapeHtml$4(job.status || (paused ? "paused" : "pending"))}</span>
-          </div>
-          ${renderJobPrompt(job.prompt)}
-          <div class="job-row-actions">
-            ${canEdit ? "<button type=\"button\" class=\"job-action\" data-job-action=\"edit\">Edit</button>" : ""}
-            <button type="button" class="job-action" data-job-action="${paused ? "resume" : "pause"}">${paused ? "Resume" : "Pause"}</button>
-            <button type="button" class="job-action" data-job-action="remove">Remove</button>
-          </div>
-        </article>
-      `;
-		}).join(""));
-	}
-	async function loadJobs() {
-		setTextIfChanged$4(els.jobsDialogStatus, "Loading jobs…");
-		try {
-			const result = await fetchJson$1("api/jobs");
-			renderJobs(result.jobs);
-			setTextIfChanged$4(els.jobsDialogStatus, `${result.jobs?.length || 0} configured job${result.jobs?.length === 1 ? "" : "s"}.`);
-		} catch (error) {
-			setTextIfChanged$4(els.jobsDialogStatus, `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`);
-		}
-	}
-	async function runJobCommand(payload, successText) {
-		setTextIfChanged$4(els.jobsDialogStatus, "Running Prompta CLI command…");
-		els.saveJobButton.disabled = true;
-		try {
-			const result = await postJsonRequest("api/jobs", payload);
-			renderJobs(result.jobs);
-			const command = Array.isArray(result.command) ? result.command.join(" ") : "";
-			setTextIfChanged$4(els.jobsDialogStatus, command ? `${successText} · ${command}` : successText);
-			return true;
-		} catch (error) {
-			setTextIfChanged$4(els.jobsDialogStatus, `Jobs command failed: ${String(error).replace(/^Error:\s*/, "")}`);
-			return false;
-		} finally {
-			els.saveJobButton.disabled = false;
-		}
-	}
-	async function open(clearComposer = false) {
-		if (clearComposer) {
-			els.messageInput.value = "";
-			els.slashMenu.hidden = true;
-			resizeComposer();
-			syncSendButton();
-		}
-		resetJobForm();
-		if (!els.jobsDialog.open) {
-			const stacked = mobileJobsScreen.matches;
-			els.jobsDialog.dataset.presentation = stacked ? "stack" : "modal";
-			if (stacked) {
-				els.jobsDialog.show();
-				if (appShell) appShell.inert = true;
-			} else els.jobsDialog.showModal();
-		}
-		await loadJobs();
-	}
-	els.jobsSidebarButton.addEventListener("click", async () => {
-		closeSidebar();
-		await open();
-	});
-	els.closeJobsDialog.addEventListener("click", closeJobsView);
-	els.jobsDialog.addEventListener("click", (event) => {
-		if (event.target === els.jobsDialog && els.jobsDialog.dataset.presentation !== "stack") closeJobsView();
-	});
-	els.jobsDialog.addEventListener("close", () => {
-		if (appShell) appShell.inert = false;
-		delete els.jobsDialog.dataset.presentation;
-	});
-	els.jobScheduleType.addEventListener("change", syncJobScheduleFields);
-	els.resetJobForm.addEventListener("click", resetJobForm);
-	els.jobsForm.addEventListener("submit", async (event) => {
-		event.preventDefault();
-		const daily = els.jobScheduleType.value === "daily";
-		const payload = {
-			action: "add",
-			name: els.jobNameInput.value.trim(),
-			prompt: els.jobPromptInput.value.trim(),
-			daily_at: daily ? els.jobDailyInput.value : "",
-			interval_minutes: daily ? null : Number(els.jobIntervalInput.value),
-			exact_interval: !daily && els.jobExactInput.checked
-		};
-		if (await runJobCommand(payload, `Saved ${payload.name}`)) resetJobForm();
-	});
-	els.jobsList.addEventListener("click", async (event) => {
-		const button = event.target.closest("[data-job-action]");
-		const row = button?.closest("[data-job-name]");
-		if (!button || !row) return;
-		const name = String(row.dataset.jobName || "");
-		const job = scheduledJobs.find((item) => item.name === name);
-		if (!job) return;
-		const action = String(button.dataset.jobAction || "");
-		if (action === "edit") {
-			setTextIfChanged$4(els.jobsFormTitle, `Edit ${job.name}`);
-			els.jobNameInput.value = job.name;
-			els.jobNameInput.readOnly = true;
-			els.jobPromptInput.value = job.prompt || "";
-			els.jobScheduleType.value = job.daily_at ? "daily" : "interval";
-			els.jobDailyInput.value = job.daily_at || "09:00";
-			els.jobIntervalInput.value = String(job.interval_minutes || 40);
-			els.jobExactInput.checked = Boolean(job.exact_interval);
-			syncJobScheduleFields();
-			els.jobPromptInput.focus();
-			return;
-		}
-		await runJobCommand({
-			action,
-			name
-		}, `${action === "remove" ? "Removed" : action === "pause" ? "Paused" : "Resumed"} ${name}`);
-	});
-	els.clearJobsButton.addEventListener("click", async () => {
-		if (!scheduledJobs.length) return;
-		if (!window.confirm(`Clear all ${scheduledJobs.length} scheduled jobs?`)) return;
-		if (await runJobCommand({ action: "clear" }, "Cleared all scheduled jobs")) resetJobForm();
-	});
-	function close() {
-		closeJobsView();
-	}
-	return {
-		open,
-		close
-	};
-}
-var JOB_PROMPT_PREVIEW_LIMIT;
-var init_jobsDialog = __esmMin((() => {
-	init_clientLogic();
-	init_domPatch();
-	JOB_PROMPT_PREVIEW_LIMIT = 220;
-}));
+var init_clipboard = __esmMin((() => {}));
 //#endregion
-//#region src/prompta/ui/sidebar.ts
-function requiredElement$5(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error(`Missing required sidebar UI element: ${selector}`);
-	return element;
-}
-function createSidebar({ onMotionEnd }) {
-	const els = {
-		sidebar: requiredElement$5("#sidebar"),
-		openSidebar: requiredElement$5("#openSidebar"),
-		closeSidebar: requiredElement$5("#closeSidebar"),
-		sidebarScrim: requiredElement$5("#sidebarScrim"),
-		mainPanel: requiredElement$5(".main-panel")
-	};
-	const mobileSidebarMedia = window.matchMedia("(max-width: 780px)");
-	const swipe = {
-		startX: 0,
-		startY: 0,
-		lastX: 0,
-		lastTime: 0,
-		velocityX: 0,
-		sidebarWidth: 0,
-		progress: 0,
-		wasOpen: false,
-		tracking: false,
-		directionLocked: false,
-		horizontal: false,
-		frameId: 0,
-		pendingX: 0,
-		cleanupTimer: 0
-	};
-	let moving = false;
-	function isOpen() {
-		return els.sidebar.classList.contains("is-open");
-	}
-	function isMoving() {
-		return moving;
-	}
-	function beginMotion() {
-		moving = true;
-	}
-	function endMotion() {
-		if (!moving) return;
-		moving = false;
-		syncSidebarVisibility();
-		onMotionEnd();
-	}
-	function mobileEnabled() {
-		return mobileSidebarMedia.matches;
-	}
-	function sidebarHidden() {
-		return mobileSidebarMedia.matches && !isOpen();
-	}
-	function syncExpandedState() {
-		els.openSidebar.setAttribute("aria-expanded", String(!sidebarHidden()));
-	}
-	function syncSidebarVisibility() {
-		const hidden = sidebarHidden();
-		const backgroundBlocked = mobileEnabled() && isOpen();
-		els.sidebar.toggleAttribute("inert", hidden);
-		els.mainPanel.toggleAttribute("inert", backgroundBlocked);
-		if (hidden) els.sidebar.setAttribute("aria-hidden", "true");
-		else els.sidebar.removeAttribute("aria-hidden");
-	}
-	function syncAccessibility() {
-		syncExpandedState();
-		syncSidebarVisibility();
-	}
-	function resetDragStyles() {
-		if (swipe.frameId) {
-			cancelAnimationFrame(swipe.frameId);
-			swipe.frameId = 0;
-		}
-		if (swipe.cleanupTimer) {
-			clearTimeout(swipe.cleanupTimer);
-			swipe.cleanupTimer = 0;
-		}
-		els.sidebar.style.removeProperty("transition");
-		els.sidebar.style.removeProperty("transform");
-		els.sidebarScrim.style.removeProperty("transition");
-		els.sidebarScrim.style.removeProperty("opacity");
-		endMotion();
-	}
-	function open() {
-		resetDragStyles();
-		if (mobileEnabled() && !isOpen()) beginMotion();
-		els.sidebar.classList.add("is-open");
-		els.sidebarScrim.classList.add("is-open");
-		syncAccessibility();
-	}
-	function close(restoreFocus = false) {
-		resetDragStyles();
-		if (mobileEnabled() && isOpen()) beginMotion();
-		const shouldRestoreFocus = restoreFocus && mobileEnabled() && isOpen();
-		els.sidebar.classList.remove("is-open");
-		els.sidebarScrim.classList.remove("is-open");
-		syncAccessibility();
-		if (shouldRestoreFocus) requestAnimationFrame(() => els.openSidebar.focus({ preventScroll: true }));
-	}
-	function applyDragPosition(x) {
-		const width = swipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
-		swipe.progress = Math.max(0, Math.min(1, 1 + x / width));
-		els.sidebar.style.transform = `translate3d(${x}px, 0, 0)`;
-		els.sidebarScrim.style.opacity = String(swipe.progress);
-	}
-	function queueDragPosition(x) {
-		swipe.pendingX = x;
-		if (swipe.frameId) return;
-		swipe.frameId = requestAnimationFrame(() => {
-			swipe.frameId = 0;
-			applyDragPosition(swipe.pendingX);
-		});
-	}
-	function settleDrag(opened) {
-		const width = swipe.sidebarWidth || els.sidebar.getBoundingClientRect().width;
-		if (swipe.frameId) {
-			cancelAnimationFrame(swipe.frameId);
-			swipe.frameId = 0;
-			applyDragPosition(swipe.pendingX);
-		}
-		const currentX = -width * (1 - swipe.progress);
-		const targetX = opened ? 0 : -width;
-		const remaining = Math.abs(targetX - currentX);
-		const speed = Math.max(.6, Math.abs(swipe.velocityX));
-		const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
-		els.sidebar.classList.toggle("is-open", opened);
-		els.sidebarScrim.classList.toggle("is-open", opened);
-		syncAccessibility();
-		els.sidebar.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
-		els.sidebar.style.transform = `translate3d(${targetX}px, 0, 0)`;
-		els.sidebarScrim.style.transition = `opacity ${duration}ms linear`;
-		els.sidebarScrim.style.opacity = opened ? "1" : "0";
-		if (swipe.cleanupTimer) clearTimeout(swipe.cleanupTimer);
-		swipe.cleanupTimer = window.setTimeout(() => {
-			swipe.cleanupTimer = 0;
-			els.sidebar.style.removeProperty("transition");
-			els.sidebar.style.removeProperty("transform");
-			els.sidebarScrim.style.removeProperty("transition");
-			els.sidebarScrim.style.removeProperty("opacity");
-			endMotion();
-		}, duration + 30);
-	}
-	els.openSidebar.addEventListener("click", () => {
-		open();
-		if (mobileEnabled()) requestAnimationFrame(() => els.closeSidebar.focus({ preventScroll: true }));
-	});
-	els.closeSidebar.addEventListener("click", () => close(true));
-	els.sidebarScrim.addEventListener("click", () => close());
-	mobileSidebarMedia.addEventListener("change", syncAccessibility);
-	window.addEventListener("resize", syncAccessibility);
-	syncAccessibility();
-	els.sidebar.addEventListener("transitionrun", (event) => {
-		if (event.propertyName === "transform" && mobileEnabled()) beginMotion();
-	});
-	els.sidebar.addEventListener("transitionend", (event) => {
-		if (event.propertyName === "transform") endMotion();
-	});
-	els.sidebar.addEventListener("transitioncancel", (event) => {
-		if (event.propertyName === "transform") endMotion();
-	});
-	document.addEventListener("touchstart", (event) => {
-		if (!mobileEnabled() || event.touches.length !== 1) return;
-		resetDragStyles();
-		const touch = event.touches[0];
-		const sidebarOpen = isOpen();
-		if (!sidebarOpen && touch.clientX > 144) return;
-		swipe.startX = touch.clientX;
-		swipe.startY = touch.clientY;
-		swipe.lastX = touch.clientX;
-		swipe.lastTime = performance.now();
-		swipe.velocityX = 0;
-		swipe.sidebarWidth = els.sidebar.getBoundingClientRect().width;
-		swipe.progress = sidebarOpen ? 1 : 0;
-		swipe.wasOpen = sidebarOpen;
-		swipe.tracking = true;
-		swipe.directionLocked = false;
-		swipe.horizontal = false;
-		swipe.pendingX = sidebarOpen ? 0 : -swipe.sidebarWidth;
-	}, { passive: true });
-	document.addEventListener("touchmove", (event) => {
-		if (!swipe.tracking || event.touches.length !== 1) return;
-		const touch = event.touches[0];
-		const deltaX = touch.clientX - swipe.startX;
-		const deltaY = touch.clientY - swipe.startY;
-		if (!swipe.directionLocked && (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8)) {
-			swipe.directionLocked = true;
-			swipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
-			if (swipe.horizontal) {
-				beginMotion();
-				els.sidebar.style.transition = "none";
-				els.sidebarScrim.style.transition = "none";
-			}
-		}
-		if (!swipe.horizontal) return;
-		event.preventDefault();
-		const width = swipe.sidebarWidth;
-		const startX = swipe.wasOpen ? 0 : -width;
-		const x = Math.max(-width, Math.min(0, startX + deltaX));
-		const now = performance.now();
-		const elapsed = Math.max(1, now - swipe.lastTime);
-		swipe.velocityX = (touch.clientX - swipe.lastX) / elapsed;
-		swipe.lastX = touch.clientX;
-		swipe.lastTime = now;
-		queueDragPosition(x);
-	}, { passive: false });
-	document.addEventListener("touchend", () => {
-		if (!swipe.tracking) return;
-		if (swipe.horizontal) {
-			const fastOpen = swipe.velocityX > .35;
-			const fastClose = swipe.velocityX < -.35;
-			settleDrag(fastOpen || !fastClose && swipe.progress >= .5);
-		}
-		swipe.tracking = false;
-	}, { passive: true });
-	document.addEventListener("touchcancel", () => {
-		if (swipe.tracking && swipe.horizontal) settleDrag(swipe.wasOpen);
-		swipe.tracking = false;
-	}, { passive: true });
-	return {
-		open,
-		close,
-		isMoving
-	};
-}
-var init_sidebar = __esmMin((() => {}));
-//#endregion
-//#region src/prompta/ui/markdown.ts
-function escapeHtml$3(value) {
-	return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");
-}
-function normalizeLanguage(language) {
-	const raw = String(language || "").trim().toLowerCase().split(/\s+/)[0];
-	return LANGUAGE_ALIASES[raw] || raw || "code";
-}
-function syntaxToken(className, value) {
-	return `<span class="syntax-${className}">${escapeHtml$3(value)}</span>`;
-}
-function highlightCode(raw, language) {
-	const source = String(raw || "");
-	const normalized = normalizeLanguage(language);
-	const keywords = CODE_KEYWORDS[normalized] || /* @__PURE__ */ new Set();
-	const sql = normalized === "sql";
-	const hashComments = [
-		"python",
-		"bash",
-		"yaml"
-	].includes(normalized);
-	let html = "";
-	let index = 0;
-	while (index < source.length) {
-		if (normalized === "markup" && source.startsWith("<!--", index)) {
-			const end = source.indexOf("-->", index + 4);
-			const next = end < 0 ? source.length : end + 3;
-			html += syntaxToken("comment", source.slice(index, next));
-			index = next;
-			continue;
-		}
-		if (source.startsWith("/*", index)) {
-			const end = source.indexOf("*/", index + 2);
-			const next = end < 0 ? source.length : end + 2;
-			html += syntaxToken("comment", source.slice(index, next));
-			index = next;
-			continue;
-		}
-		if (source.startsWith("//", index) && normalized !== "json") {
-			const end = source.indexOf("\n", index + 2);
-			const next = end < 0 ? source.length : end;
-			html += syntaxToken("comment", source.slice(index, next));
-			index = next;
-			continue;
-		}
-		if (hashComments && source[index] === "#") {
-			const end = source.indexOf("\n", index + 1);
-			const next = end < 0 ? source.length : end;
-			html += syntaxToken("comment", source.slice(index, next));
-			index = next;
-			continue;
-		}
-		const quote = source[index];
-		if (quote === "\"" || quote === "'" || quote === "`") {
-			let cursor = index + 1;
-			while (cursor < source.length) {
-				if (source[cursor] === "\\") {
-					cursor += 2;
-					continue;
-				}
-				if (source[cursor] === quote) {
-					cursor += 1;
-					break;
-				}
-				cursor += 1;
-			}
-			const value = source.slice(index, cursor);
-			const property = normalized === "json" && /^\s*:/.test(source.slice(cursor));
-			html += syntaxToken(property ? "property" : "string", value);
-			index = cursor;
-			continue;
-		}
-		const number = source.slice(index).match(/^-?(?:0x[\da-f]+|0b[01]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
-		if (number) {
-			html += syntaxToken("number", number[0]);
-			index += number[0].length;
-			continue;
-		}
-		if (/[A-Za-z_$]/.test(source[index])) {
-			let cursor = index + 1;
-			while (/[A-Za-z0-9_$]/.test(source[cursor] || "")) cursor += 1;
-			const value = source.slice(index, cursor);
-			const lookup = sql ? value.toUpperCase() : value;
-			if (keywords.has(lookup)) html += syntaxToken("keyword", value);
-			else if (/^\s*\(/.test(source.slice(cursor))) html += syntaxToken("function", value);
-			else html += escapeHtml$3(value);
-			index = cursor;
-			continue;
-		}
-		html += /[[\]{}(),.:;]/.test(source[index]) ? syntaxToken("punctuation", source[index]) : escapeHtml$3(source[index]);
-		index += 1;
-	}
-	return html;
-}
-function inlineMarkdown(text) {
-	const placeholders = [];
-	let source = String(text || "");
-	const stash = (html) => {
-		let token = `\uE000PROMPTA_INLINE_${placeholders.length}\uE001`;
-		while (source.includes(token)) token += "";
-		placeholders.push([token, html]);
-		return token;
-	};
-	source = replaceChatGptRichMarkers(source, (label, url) => stash(`<a href="${escapeHtml$3(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml$3(label)}</a>`));
-	source = source.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code class="inline-code">${escapeHtml$3(code)}</code>`));
-	source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => stash(`<a href="${escapeHtml$3(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml$3(label)}</a>`));
-	let html = escapeHtml$3(source);
-	html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-	html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-	html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
-	html = html.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
-	for (const [token, value] of placeholders) html = html.replaceAll(token, value);
-	return html;
-}
-function splitTableRow(line) {
-	return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
-}
-function renderListItem(content) {
-	const task = content.match(/^\[([ xX])\]\s+(.+)$/);
-	if (!task) return `<li>${inlineMarkdown(content)}</li>`;
-	return `<li class="task-item"><input type="checkbox" disabled${task[1].toLowerCase() === "x" ? " checked" : ""}> <span>${inlineMarkdown(task[2])}</span></li>`;
-}
-function listLine(line) {
-	const match = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.+)$/);
-	if (!match) return null;
-	return {
-		indent: match[1].replace(/\t/g, "    ").length,
-		ordered: /^\d/.test(match[2]),
-		content: match[3]
-	};
-}
-function renderListBlock(lines, startIndex, baseIndent = null) {
-	const first = listLine(lines[startIndex]);
-	if (!first) return {
-		html: "",
-		index: startIndex
-	};
-	const indent = baseIndent ?? first.indent;
-	const ordered = first.ordered;
-	const tag = ordered ? "ol" : "ul";
-	const items = [];
-	let index = startIndex;
-	while (index < lines.length) {
-		const current = listLine(lines[index]);
-		if (!current || current.indent < indent) break;
-		if (current.indent === indent && current.ordered !== ordered) break;
-		if (current.indent > indent) {
-			if (!items.length) break;
-			const nested = renderListBlock(lines, index, current.indent);
-			if (!nested.html || nested.index === index) break;
-			items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${nested.html}</li>`);
-			index = nested.index;
-			continue;
-		}
-		items.push(renderListItem(current.content));
-		index += 1;
-	}
-	return {
-		html: `<${tag}>${items.join("")}</${tag}>`,
-		index
-	};
-}
-function renderTextBlock(text) {
-	const lines = String(text || "").replace(/\r/g, "").split("\n");
-	const out = [];
-	let index = 0;
-	const startsBlock = (line, next = "") => !line.trim() || /^(#{1,6})\s+/.test(line) || /^\s*([-+*]|\d+[.)])\s+/.test(line) || /^\s*>\s?/.test(line) || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) || line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next);
-	while (index < lines.length) {
-		const line = lines[index];
-		const next = lines[index + 1] || "";
-		if (!line.trim()) {
-			index += 1;
-			continue;
-		}
-		const heading = line.match(/^(#{1,6})\s+(.+)$/);
-		if (heading) {
-			const level = heading[1].length;
-			out.push(`<h${level}>${inlineMarkdown(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
-			index += 1;
-			continue;
-		}
-		if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-			out.push("<hr>");
-			index += 1;
-			continue;
-		}
-		if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(next)) {
-			const headers = splitTableRow(line);
-			const aligns = splitTableRow(next).map((cell) => {
-				const left = cell.startsWith(":");
-				const right = cell.endsWith(":");
-				return left && right ? "center" : right ? "right" : left ? "left" : "";
-			});
-			index += 2;
-			const rows = [];
-			while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
-				rows.push(splitTableRow(lines[index]));
-				index += 1;
-			}
-			const tableScrollClass = headers.length >= 3 ? "table-scroll table-scroll-wide" : "table-scroll";
-			out.push(`<div class="${tableScrollClass}"><table><thead><tr>${headers.map((cell, column) => `<th${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((_, column) => `<td${aligns[column] ? ` style="text-align:${aligns[column]}"` : ""}>${inlineMarkdown(row[column] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
-			continue;
-		}
-		if (/^\s*>\s?/.test(line)) {
-			const quoted = [];
-			while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
-				quoted.push(lines[index].replace(/^\s*>\s?/, ""));
-				index += 1;
-			}
-			out.push(`<blockquote>${renderTextBlock(quoted.join("\n"))}</blockquote>`);
-			continue;
-		}
-		if (listLine(line)) {
-			const rendered = renderListBlock(lines, index);
-			out.push(rendered.html);
-			index = rendered.index;
-			continue;
-		}
-		const paragraph = [line.trim()];
-		index += 1;
-		while (index < lines.length && !startsBlock(lines[index], lines[index + 1] || "")) {
-			paragraph.push(lines[index].trim());
-			index += 1;
-		}
-		out.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
-	}
-	return out.join("");
-}
-function expandedToolMetaAddsInformation(summary, action) {
-	return Boolean(summary && action);
-}
-function renderDeferredToolCode(body) {
-	return body.highlight ? highlightCode(body.code, body.language) : escapeHtml$3(body.code);
-}
-function renderCodeBlock(code, language, deferredToolBodies = null) {
-	const rawLanguage = String(language || "").trim();
-	const normalized = normalizeLanguage(rawLanguage);
-	const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
-	const inlineToolMatch = code.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
-	const toolish = Boolean(toolMatch || inlineToolMatch);
-	const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
-	const toolName = toolCallDisplayName(rawToolName);
-	const trimmedCode = code.trim();
-	const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
-	const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
-	if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return "";
-	const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
-	const toolSummary = toolish ? toolCallSummary(trimmedCode) : "";
-	const toolTimestamp = toolish ? toolCallTimestampMillis(trimmedCode) : null;
-	const toolTimeText = toolTimestamp === null ? "" : formatClockTime12Hour(toolTimestamp, true);
-	const toolTime = toolTimestamp === null ? "" : `<time class="tool-time" datetime="${new Date(toolTimestamp).toISOString()}">${escapeHtml$3(toolTimeText)}</time>`;
-	const renderedCode = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : code);
-	const highlightLanguage = pythonCode ? "python" : toolish ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "code" : normalized;
-	const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
-	const copyButton = renderedCode.trim() ? "<button type=\"button\" class=\"copy-code\">copy</button>" : "";
-	const collapsedLabel = toolish && toolName ? toolName : label;
-	const toolIdentityParts = toolName.split(/\s*·\s*/).filter(Boolean);
-	const expandedAction = toolIdentityParts.length > 1 ? toolIdentityParts[toolIdentityParts.length - 1] : toolName;
-	const expandedConnector = toolIdentityParts.length > 1 ? toolIdentityParts.slice(0, -1).join(" · ") : "";
-	const inlineToolMeta = toolSummary && expandedAction ? `<span class="tool-inline-meta"><span class="tool-expanded-separator">|</span><span class="tool-expanded-action">${escapeHtml$3(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml$3(expandedConnector)}</span>` : ""}</span>` : "";
-	const header = toolish ? toolSummary ? `<span class="tool-summary">${escapeHtml$3(toolSummary)}</span>${inlineToolMeta}${toolTime}` : `
-        <span class="${toolName ? "tool-primary-name" : "code-language"}">${escapeHtml$3(collapsedLabel)}</span>
-        ${toolTime}` : `
-      <span class="code-language">${escapeHtml$3(label)}</span>
-      ${copyButton}`;
-	let deferredToolBodyIndex = -1;
-	let body = "";
-	if (renderedCode.trim()) {
-		if (toolish && deferredToolBodies) {
-			deferredToolBodyIndex = deferredToolBodies.push({
-				code: renderedCode,
-				language: highlightLanguage,
-				highlight: Boolean(pythonCode)
-			}) - 1;
-			body = "<div class=\"deferred-tool-body\" aria-hidden=\"true\"></div>";
-		} else {
-			const renderedBody = pythonCode ? highlightCode(renderedCode, highlightLanguage) : toolish ? escapeHtml$3(renderedCode) : highlightCode(renderedCode, highlightLanguage);
-			body = `<pre><code class="language-${escapeHtml$3(highlightLanguage)}">${renderedBody}</code></pre>`;
-		}
-	}
-	if (toolish) {
-		const expandedToolHeader = expandedToolMetaAddsInformation(toolSummary, expandedAction) ? `<div class="tool-expanded-meta"><span class="tool-expanded-action">${escapeHtml$3(expandedAction)}</span>${expandedConnector ? `<span class="tool-expanded-separator">|</span><span class="tool-expanded-connector">${escapeHtml$3(expandedConnector)}</span>` : ""}</div>` : "";
-		const deferredAttribute = deferredToolBodyIndex < 0 ? "" : ` data-deferred-tool-body-index="${deferredToolBodyIndex}"`;
-		return `
-      <details class="code-block tool-call-block${toolSummary ? " tool-has-summary" : ""}${expandedToolHeader ? " tool-has-meta" : ""}"${deferredAttribute}>
-        <summary class="code-header">${header}</summary>
-        ${expandedToolHeader}
-        ${body}
-      </details>`;
-	}
-	return `
-    <div class="code-block">
-      <div class="code-header">${header}</div>
-      ${body}
-    </div>`;
-}
-function renderMarkdown(raw, deferredToolBodies = null, { renderIncompleteFence = false } = {}) {
-	const source = String(raw || "");
-	const pattern = /^ {0,3}```([^\n`]*)\r?\n([\s\S]*?)^ {0,3}```[ \t]*\r?$/gm;
-	let lastIndex = 0;
-	let html = "";
-	let match;
-	while ((match = pattern.exec(source)) !== null) {
-		html += renderTextBlock(source.slice(lastIndex, match.index));
-		const language = match[1].trim() || "code";
-		const code = match[2].replace(/\n$/, "");
-		html += renderCodeBlock(code, language, deferredToolBodies);
-		lastIndex = pattern.lastIndex;
-	}
-	const remainder = source.slice(lastIndex);
-	if (renderIncompleteFence) {
-		const incompleteMatch = /^ {0,3}```([^\n`]*)(?:\r?\n|$)/gm.exec(remainder);
-		if (incompleteMatch) {
-			html += renderTextBlock(remainder.slice(0, incompleteMatch.index));
-			const language = incompleteMatch[1].trim() || "code";
-			const code = remainder.slice(incompleteMatch.index + incompleteMatch[0].length);
-			html += renderCodeBlock(code, language, deferredToolBodies);
-		} else html += renderTextBlock(remainder);
-	} else html += renderTextBlock(remainder);
-	return html || "<p></p>";
-}
-var LANGUAGE_ALIASES, CODE_KEYWORDS;
-var init_markdown = __esmMin((() => {
-	init_clientLogic();
-	LANGUAGE_ALIASES = {
-		js: "javascript",
-		jsx: "javascript",
-		mjs: "javascript",
-		cjs: "javascript",
-		ts: "typescript",
-		tsx: "typescript",
-		py: "python",
-		sh: "bash",
-		shell: "bash",
-		zsh: "bash",
-		yml: "yaml",
-		c: "cpp",
-		cxx: "cpp",
-		h: "cpp",
-		hpp: "cpp",
-		html: "markup",
-		xml: "markup",
-		svg: "markup",
-		md: "markdown"
-	};
-	CODE_KEYWORDS = {
-		javascript: new Set("as async await break case catch class const continue default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while yield".split(" ")),
-		typescript: new Set("abstract any as async await boolean break case catch class const constructor continue declare default do else enum export extends false finally for from function get if implements import in infer instanceof interface keyof let namespace never new null number object of private protected public readonly return satisfies set static string super switch symbol this throw true try type typeof undefined unknown var void while yield".split(" ")),
-		python: new Set("and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield".split(" ")),
-		bash: new Set("case do done elif else esac export fi for function if in local readonly return select then time until while".split(" ")),
-		cpp: new Set("auto bool break case catch char class const constexpr continue default delete do double else enum explicit extern false float for friend if inline int long namespace new nullptr operator private protected public return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while".split(" ")),
-		dart: new Set("abstract as assert async await break case catch class const continue default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null of on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield".split(" ")),
-		sql: new Set("ADD ALL ALTER AND ANY AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY RIGHT SELECT SET TABLE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH".split(" ")),
-		json: /* @__PURE__ */ new Set([
-			"true",
-			"false",
-			"null"
-		])
-	};
-}));
-//#endregion
-//#region src/prompta/ui/conversationRenderer.ts
-function requiredElement$4(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error("Missing required conversation UI element: " + selector);
-	return element;
-}
-function escapeHtml$2(value) {
-	return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");
-}
-function setTextIfChanged$3(element, value) {
-	const text = String(value ?? "");
-	if (element.textContent !== text) element.textContent = text;
-}
-function canMorphPendingMessageNode(messageKey, role, sendError = false) {
-	if (sendError) return false;
-	if (role === "user") return String(messageKey).startsWith("pending-user-");
-	return String(messageKey).startsWith("pending-activity-");
-}
+//#region src/prompta/ui/conversationLogic.ts
 function imageAttachments(message) {
-	return (Array.isArray(message?.attachments) ? message.attachments : []).filter((attachment) => {
-		if (!attachment || typeof attachment !== "object") return false;
-		const type = String(attachment.type || "");
-		const src = String(attachment.src || "");
-		return type.startsWith("image/") && (Boolean(attachment.id) || src.startsWith("data:image/"));
-	});
-}
-function imageAttachmentSrc(attachment) {
-	const inline = String(attachment?.src || "");
-	if (inline.startsWith("data:image/")) return inline;
-	const id = String(attachment?.id || "");
-	return id ? `api/attachment-previews/${encodeURIComponent(id)}` : "";
-}
-function renderMessageAttachments(message) {
-	const images = imageAttachments(message);
-	if (!images.length) return "";
-	return `<div class="message-attachments">${images.map((attachment) => {
-		const src = imageAttachmentSrc(attachment);
-		const name = String(attachment.name || "Attached image");
-		return `<img class="message-image-preview" src="${escapeHtml$2(src)}" alt="${escapeHtml$2(name)}" loading="lazy" decoding="async">`;
-	}).join("")}</div>`;
-}
-function renderPendingDeleteButton(deleteKey) {
-	return `<button type="button"
-                  class="delete-pending-button"
-                  data-delete-pending-key="${escapeHtml$2(deleteKey)}"
-                  aria-label="Delete queued message"
-                  title="Delete queued message">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path>
-            </svg>
-          </button>`;
+	return (Array.isArray(message?.attachments) ? message.attachments : []).filter((attachment) => attachment && typeof attachment === "object" && String(attachment.type || "").startsWith("image/") && (Boolean(attachment.id) || String(attachment.src || "").startsWith("data:image/")));
 }
 function pendingImageAttachments(serializedAttachments) {
-	return serializedAttachments.filter((attachment) => String(attachment.type || "").startsWith("image/")).map((attachment) => ({
+	return serializedAttachments.filter((attachment) => attachment.type.startsWith("image/")).map((attachment) => ({
 		name: attachment.name,
 		type: attachment.type,
-		src: `data:${attachment.type};base64,${attachment.data}`
+		src: "data:" + attachment.type + ";base64," + attachment.data
 	}));
 }
-function shouldHandlePendingLongPress(pointerType, coarsePointer) {
-	return pointerType !== "mouse" || coarsePointer;
-}
-function pendingLongPressMoved(startX, startY, currentX, currentY, tolerance = 12) {
-	return Math.hypot(currentX - startX, currentY - startY) > tolerance;
-}
+var init_conversationLogic = __esmMin((() => {}));
+//#endregion
+//#region src/prompta/ui/conversationRenderer.ts
 function createConversationRenderer({ onRetry, onDelete, onEdit }) {
-	const conversation = requiredElement$4("#conversation");
-	const viewport = requiredElement$4("#conversationViewport");
-	function messageTimestamp(message) {
-		const millis = messageTimestampMillis(message.display_at, message.created_at ?? message.updated_at);
-		if (millis === null) return {
-			text: "Time unavailable",
-			iso: "",
-			millis: null,
-			age: ""
-		};
-		const date = new Date(millis);
-		return {
-			text: `${date.getDate()} ${[
-				"Jan",
-				"Feb",
-				"Mar",
-				"Apr",
-				"May",
-				"Jun",
-				"Jul",
-				"Aug",
-				"Sept",
-				"Oct",
-				"Nov",
-				"Dec"
-			][date.getMonth()]} ${[
-				"Sun",
-				"Mon",
-				"Tue",
-				"Wed",
-				"Thu",
-				"Fri",
-				"Sat"
-			][date.getDay()]} ${formatClockTime12Hour(date)}`,
-			iso: date.toISOString(),
-			millis,
-			age: messageAgeText(millis)
-		};
-	}
-	function renderMessageSection(message, allowStreaming = true, deferredToolBodies = null) {
-		const role = message.role === "user" ? "user" : "assistant";
-		const streaming = Boolean(message.pending_activity) || allowStreaming && message.status === "streaming";
-		const activityLabel = message.pending_activity_label || "writing";
-		const label = message.send_error ? "Send error" : "Prompta run";
-		const timestamp = messageTimestamp(message);
-		const contentHtml = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies, { renderIncompleteFence: streaming });
-		const attachmentsHtml = message.pending_activity ? "" : renderMessageAttachments(message);
-		return `
-      <section class="message ${role}${message.send_error ? " send-error" : ""}${message.pending_activity ? " pending-activity" : ""}">
-        <div class="message-inner">
-          ${role === "assistant" ? `
-            <div class="message-label"><span class="assistant-avatar">${message.send_error ? "!" : "P"}</span> ${label}</div>
-          ` : ""}
-          ${attachmentsHtml}
-          <div class="message-content">${contentHtml}</div>
-          ${message.send_error && message.retry_scope && message.retry_key ? `
-            <button type="button"
-                    class="retry-send-button"
-                    data-retry-scope="${escapeHtml$2(message.retry_scope)}"
-                    data-retry-key="${escapeHtml$2(message.retry_key)}">Retry</button>
-          ` : ""}
-          ${message.pending_delete_key ? renderPendingDeleteButton(message.pending_delete_key) : ""}
-          ${streaming ? `
-            <div class="streaming-indicator">
-              <span class="streaming-dots"><i></i><i></i><i></i></span>
-              ${escapeHtml$2(activityLabel)}
-            </div>
-          ` : ""}
-          <time class="message-timestamp" datetime="${timestamp.iso}"${timestamp.millis === null ? "" : ` data-message-at="${timestamp.millis}"`}>
-            <span class="message-clock">${escapeHtml$2(timestamp.text)}</span>${timestamp.age ? `<span class="message-age"> · ${escapeHtml$2(timestamp.age)}</span>` : ""}
-          </time>
-        </div>
-      </section>`;
-	}
+	conversationState.onRetry = onRetry;
+	conversationState.onDelete = onDelete;
+	conversationState.onEdit = onEdit;
 	function messageNodeFingerprint(message, allowStreaming) {
 		return JSON.stringify([
 			message.role,
@@ -6919,771 +8619,37 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
 			allowStreaming
 		]);
 	}
-	const boundCopyButtons = /* @__PURE__ */ new WeakSet();
-	const boundRetryButtons = /* @__PURE__ */ new WeakSet();
-	const boundDeleteButtons = /* @__PURE__ */ new WeakSet();
-	const boundPendingActionTargets = /* @__PURE__ */ new WeakSet();
-	const deferredToolBodyData = /* @__PURE__ */ new WeakMap();
-	const boundDeferredToolBodies = /* @__PURE__ */ new WeakSet();
-	let pendingActionsSheet = null;
-	let activePendingActionKey = "";
-	function getPendingActionsSheet() {
-		if (pendingActionsSheet) return pendingActionsSheet;
-		const dialog = document.createElement("dialog");
-		dialog.className = "pending-message-actions";
-		dialog.setAttribute("aria-labelledby", "pendingMessageActionsTitle");
-		const shell = document.createElement("div");
-		shell.className = "pending-message-actions-shell";
-		const title = document.createElement("div");
-		title.id = "pendingMessageActionsTitle";
-		title.className = "pending-message-actions-title";
-		title.textContent = "Pending message";
-		const editButton = document.createElement("button");
-		editButton.type = "button";
-		editButton.className = "pending-message-action";
-		editButton.textContent = "Edit message";
-		const deleteButton = document.createElement("button");
-		deleteButton.type = "button";
-		deleteButton.className = "pending-message-action danger";
-		deleteButton.textContent = "Delete message";
-		const cancelButton = document.createElement("button");
-		cancelButton.type = "button";
-		cancelButton.className = "pending-message-action cancel";
-		cancelButton.textContent = "Cancel";
-		shell.append(title, editButton, deleteButton, cancelButton);
-		dialog.append(shell);
-		document.body.append(dialog);
-		editButton.addEventListener("click", () => {
-			const key = activePendingActionKey;
-			dialog.close();
-			activePendingActionKey = "";
-			if (key) onEdit(key);
-		});
-		deleteButton.addEventListener("click", () => {
-			const key = activePendingActionKey;
-			dialog.close();
-			activePendingActionKey = "";
-			if (key) onDelete(key);
-		});
-		cancelButton.addEventListener("click", () => dialog.close());
-		dialog.addEventListener("close", () => {
-			activePendingActionKey = "";
-		});
-		dialog.addEventListener("click", (event) => {
-			if (event.target === dialog) dialog.close();
-		});
-		pendingActionsSheet = dialog;
-		return dialog;
-	}
-	function openPendingActions(deleteKey) {
-		if (!deleteKey) return;
-		activePendingActionKey = deleteKey;
-		const dialog = getPendingActionsSheet();
-		if (!dialog.open) dialog.showModal();
-	}
-	function bindPendingActionTargets(root) {
-		const targets = root.matches?.(".message.user") ? [root] : Array.from(root.querySelectorAll(".message.user"));
-		for (const target of targets) {
-			const node = target;
-			if (boundPendingActionTargets.has(node)) continue;
-			if (!node.querySelector(".delete-pending-button")) continue;
-			boundPendingActionTargets.add(node);
-			node.classList.add("pending-message-action-target");
-			let timer = 0;
-			let startX = 0;
-			let startY = 0;
-			const cancelLongPress = () => {
-				if (!timer) return;
-				clearTimeout(timer);
-				timer = 0;
-			};
-			const actionKey = () => node.querySelector(".delete-pending-button")?.dataset.deletePendingKey || "";
-			node.addEventListener("pointerdown", (event) => {
-				if (!shouldHandlePendingLongPress(event.pointerType, matchMedia("(pointer: coarse)").matches)) return;
-				cancelLongPress();
-				startX = event.clientX;
-				startY = event.clientY;
-				timer = window.setTimeout(() => {
-					timer = 0;
-					openPendingActions(actionKey());
-				}, 480);
-			});
-			node.addEventListener("pointermove", (event) => {
-				if (timer && pendingLongPressMoved(startX, startY, event.clientX, event.clientY)) cancelLongPress();
-			});
-			node.addEventListener("pointerup", cancelLongPress);
-			node.addEventListener("pointercancel", cancelLongPress);
-			node.addEventListener("lostpointercapture", cancelLongPress);
-			node.addEventListener("contextmenu", (event) => {
-				if (!matchMedia("(pointer: coarse)").matches) return;
-				event.preventDefault();
-				cancelLongPress();
-				openPendingActions(actionKey());
-			});
-		}
-	}
-	function bindRetryButtons(root) {
-		for (const button of root.querySelectorAll(".retry-send-button")) {
-			if (boundRetryButtons.has(button)) continue;
-			boundRetryButtons.add(button);
-			button.addEventListener("click", () => {
-				onRetry(button.dataset.retryScope || "", button.dataset.retryKey || "");
-			});
-		}
-	}
-	function bindDeleteButtons(root) {
-		for (const button of root.querySelectorAll(".delete-pending-button")) {
-			if (boundDeleteButtons.has(button)) continue;
-			boundDeleteButtons.add(button);
-			button.addEventListener("click", () => {
-				onDelete(button.dataset.deletePendingKey || "");
-			});
-		}
-	}
-	function renderDeferredToolBody(details) {
-		const deferred = deferredToolBodyData.get(details);
-		const placeholder = details.querySelector(":scope > .deferred-tool-body");
-		const existing = details.querySelector(":scope > pre[data-deferred-tool-body]");
-		if (!deferred) return;
-		if (details.open) {
-			if (existing) return;
-			const pre = document.createElement("pre");
-			pre.dataset.deferredToolBody = "true";
-			const code = document.createElement("code");
-			code.className = `language-${deferred.language}`;
-			if (deferred.highlight) {
-				const template = document.createElement("template");
-				template.innerHTML = renderDeferredToolCode(deferred);
-				code.append(template.content);
-			} else code.textContent = deferred.code;
-			pre.append(code);
-			placeholder?.replaceWith(pre);
-			return;
-		}
-		if (!existing) return;
-		const nextPlaceholder = document.createElement("div");
-		nextPlaceholder.className = "deferred-tool-body";
-		nextPlaceholder.setAttribute("aria-hidden", "true");
-		existing.replaceWith(nextPlaceholder);
-	}
-	function bindDeferredToolBodies(root, bodies) {
-		for (const details of root.querySelectorAll(".tool-call-block[data-deferred-tool-body-index]")) {
-			const index = Number(details.dataset.deferredToolBodyIndex);
-			const deferred = Number.isInteger(index) ? bodies[index] : void 0;
-			if (!deferred) continue;
-			deferredToolBodyData.set(details, deferred);
-			if (!boundDeferredToolBodies.has(details)) {
-				boundDeferredToolBodies.add(details);
-				details.addEventListener("toggle", () => renderDeferredToolBody(details));
-			}
-			renderDeferredToolBody(details);
-		}
-	}
-	function bindCopyButtons(root) {
-		for (const button of root.querySelectorAll(".copy-code")) {
-			if (boundCopyButtons.has(button)) continue;
-			boundCopyButtons.add(button);
-			button.addEventListener("click", async (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				const code = button.closest(".code-block")?.querySelector("pre code")?.textContent || "";
-				try {
-					await navigator.clipboard.writeText(code);
-					const previous = button.textContent;
-					setTextIfChanged$3(button, "copied");
-					setTimeout(() => {
-						setTextIfChanged$3(button, previous);
-					}, 1e3);
-				} catch {
-					setTextIfChanged$3(button, "copy unavailable");
-				}
-			});
-		}
-	}
-	function createMessageNode(message, allowStreaming, messageKey) {
-		const deferredToolBodies = [];
-		const template = document.createElement("template");
-		template.innerHTML = renderMessageSection(message, allowStreaming, deferredToolBodies).trim();
-		const node = template.content.firstElementChild;
-		node.dataset.messageKey = messageKey;
-		node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
-		bindDeferredToolBodies(node, deferredToolBodies);
-		bindCopyButtons(node);
-		bindRetryButtons(node);
-		bindDeleteButtons(node);
-		bindPendingActionTargets(node);
-		return node;
-	}
-	function patchDomNode(current, next) {
-		if (current.nodeType !== next.nodeType || current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName) {
-			const replacement = next.cloneNode(true);
-			current.replaceWith(replacement);
-			return replacement;
-		}
-		if (current.nodeType === Node.TEXT_NODE) {
-			if (current.data !== next.data) current.data = next.data;
-			return current;
-		}
-		if (current.nodeType !== Node.ELEMENT_NODE) return current;
-		const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
-		const detailsOpen = preserveDetailsOpen ? current.open : false;
-		for (const attribute of Array.from(current.attributes)) {
-			if (preserveDetailsOpen && attribute.name === "open") continue;
-			if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-		}
-		for (const attribute of Array.from(next.attributes)) {
-			if (preserveDetailsOpen && attribute.name === "open") continue;
-			if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
-		}
-		patchDomChildren(current, next);
-		if (preserveDetailsOpen) current.open = detailsOpen;
-		return current;
-	}
-	function domPatchKey(node) {
-		if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
-		return node.dataset.domKey || "";
-	}
-	function patchDomChildren(currentParent, nextParent) {
-		let index = 0;
-		while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
-			let current = currentParent.childNodes[index];
-			const next = nextParent.childNodes[index];
-			if (!next) {
-				current.remove();
-				continue;
-			}
-			if (!current) {
-				currentParent.append(next.cloneNode(true));
-				index += 1;
-				continue;
-			}
-			const nextKey = domPatchKey(next);
-			if (nextKey && domPatchKey(current) !== nextKey) {
-				const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
-				if (match) {
-					currentParent.insertBefore(match, current);
-					current = match;
-				} else {
-					currentParent.insertBefore(next.cloneNode(true), current);
-					index += 1;
-					continue;
-				}
-			}
-			patchDomNode(current, next);
-			index += 1;
-		}
-	}
-	function updateMessageNode(node, message, allowStreaming) {
-		const role = message.role === "user" ? "user" : "assistant";
-		const sendError = Boolean(message.send_error);
-		if ((node.classList.contains("user") ? "user" : "assistant") !== role || node.classList.contains("send-error") !== sendError) return false;
-		const content = node.querySelector(".message-content");
-		if (!content) return false;
-		let currentAttachments = node.querySelector(".message-attachments");
-		const nextAttachments = message.pending_activity ? "" : renderMessageAttachments(message);
-		if (!nextAttachments) {
-			currentAttachments?.remove();
-			currentAttachments = null;
-		} else if (!currentAttachments) {
-			const template = document.createElement("template");
-			template.innerHTML = nextAttachments;
-			const nextNode = template.content.firstElementChild;
-			if (nextNode) content.before(nextNode);
-		} else if (currentAttachments.outerHTML !== nextAttachments) {
-			const template = document.createElement("template");
-			template.innerHTML = nextAttachments;
-			const nextNode = template.content.firstElementChild;
-			if (nextNode) patchDomNode(currentAttachments, nextNode);
-		}
-		const deferredToolBodies = [];
-		const nextContent = message.pending_activity ? "" : renderMarkdown(message.content, deferredToolBodies, { renderIncompleteFence: allowStreaming && message.status === "streaming" });
-		if (content.innerHTML !== nextContent) {
-			const template = document.createElement("template");
-			template.innerHTML = nextContent;
-			patchDomChildren(content, template.content);
-			bindCopyButtons(content);
-		}
-		bindDeferredToolBodies(content, deferredToolBodies);
-		const deleteButton = node.querySelector(".delete-pending-button");
-		const deleteKey = String(message.pending_delete_key || "");
-		if (deleteKey) {
-			if (deleteButton) deleteButton.dataset.deletePendingKey = deleteKey;
-			else {
-				content.insertAdjacentHTML("afterend", renderPendingDeleteButton(deleteKey));
-				bindDeleteButtons(node);
-				bindPendingActionTargets(node);
-			}
-		} else if (deleteButton) deleteButton.remove();
-		const retryButton = node.querySelector(".retry-send-button");
-		if (sendError && Boolean(message.retry_scope) && Boolean(message.retry_key)) {
-			if (retryButton) {
-				retryButton.dataset.retryScope = String(message.retry_scope);
-				retryButton.dataset.retryKey = String(message.retry_key);
-			} else {
-				content.insertAdjacentHTML("afterend", `
-          <button type="button"
-                  class="retry-send-button"
-                  data-retry-scope="${escapeHtml$2(message.retry_scope)}"
-                  data-retry-key="${escapeHtml$2(message.retry_key)}">Retry</button>
-        `);
-				bindRetryButtons(node);
-				bindDeleteButtons(node);
-			}
-		} else if (retryButton) retryButton.remove();
-		const timestamp = node.querySelector(".message-timestamp");
-		if (!timestamp) return false;
-		const nextTimestamp = messageTimestamp(message);
-		const clock = timestamp.querySelector(".message-clock");
-		if (!clock) return false;
-		setTextIfChanged$3(clock, nextTimestamp.text);
-		if (timestamp.dateTime !== nextTimestamp.iso) timestamp.dateTime = nextTimestamp.iso;
-		if (nextTimestamp.millis === null) delete timestamp.dataset.messageAt;
-		else if (timestamp.dataset.messageAt !== String(nextTimestamp.millis)) timestamp.dataset.messageAt = String(nextTimestamp.millis);
-		let age = timestamp.querySelector(".message-age");
-		if (nextTimestamp.age) {
-			if (!age) {
-				timestamp.insertAdjacentHTML("beforeend", "<span class=\"message-age\"></span>");
-				age = timestamp.querySelector(".message-age");
-			}
-			if (age) setTextIfChanged$3(age, ` · ${nextTimestamp.age}`);
-		} else age?.remove();
-		const shouldStream = Boolean(message.pending_activity) || allowStreaming && message.status === "streaming";
-		const activityLabel = message.pending_activity_label || "writing";
-		const indicator = node.querySelector(".streaming-indicator");
-		if (shouldStream && !indicator) timestamp.insertAdjacentHTML("beforebegin", `
-        <div class="streaming-indicator">
-          <span class="streaming-dots"><i></i><i></i><i></i></span>
-          ${escapeHtml$2(activityLabel)}
-        </div>
-      `);
-		else if (shouldStream && indicator) {
-			const labelNode = indicator.lastChild;
-			if (labelNode?.nodeType === Node.TEXT_NODE && labelNode.textContent !== ` ${activityLabel}`) labelNode.textContent = ` ${activityLabel}`;
-		} else if (!shouldStream && indicator) indicator.remove();
-		node.dataset.renderFingerprint = messageNodeFingerprint(message, allowStreaming);
-		return true;
-	}
-	function reusablePendingNode(node, message) {
-		if (!(node instanceof HTMLElement) || message.send_error) return null;
-		const key = node.dataset.messageKey || "";
-		const role = message.role === "user" ? "user" : "assistant";
-		if (!canMorphPendingMessageNode(key, role, Boolean(message.send_error))) return null;
-		return node.classList.contains(role) ? node : null;
-	}
-	function renderMessageNodes(messages, allowStreaming) {
-		const existing = new Map(Array.from(conversation.children).map((node) => [node.dataset.messageKey, node]));
-		const desiredKeys = /* @__PURE__ */ new Set();
-		const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
-		const lastAssistantIndex = messages.findLastIndex((message) => message.role === "assistant" && !message.send_error);
-		const streamingIndex = allowStreaming && lastAssistantIndex > lastUserIndex && messages[lastAssistantIndex]?.status === "streaming" ? lastAssistantIndex : -1;
-		messages.forEach((message, index) => {
-			const messageKey = String(message.message_key || `${message.role || "message"}:${index}`);
-			const streamThisMessage = index === streamingIndex;
-			desiredKeys.add(messageKey);
-			const fingerprint = messageNodeFingerprint(message, streamThisMessage);
-			let node = existing.get(messageKey);
-			if (!node) {
-				const candidate = reusablePendingNode(conversation.children[index], message);
-				if (candidate && updateMessageNode(candidate, message, streamThisMessage)) {
-					candidate.dataset.messageKey = messageKey;
-					node = candidate;
-				} else node = createMessageNode(message, streamThisMessage, messageKey);
-			} else if (node.dataset.renderFingerprint !== fingerprint) {
-				if (!updateMessageNode(node, message, streamThisMessage)) {
-					const replacement = createMessageNode(message, streamThisMessage, messageKey);
-					node.replaceWith(replacement);
-					node = replacement;
-				}
-			}
-			const currentAtIndex = conversation.children[index];
-			if (currentAtIndex !== node) conversation.insertBefore(node, currentAtIndex || null);
-		});
-		for (const node of Array.from(conversation.children)) if (!desiredKeys.has(node.dataset.messageKey)) node.remove();
-	}
-	function renderLoadingState() {
-		if (conversation.children.length) return;
-		const loading = document.createElement("div");
-		loading.className = "conversation-loading";
-		loading.dataset.messageKey = "__loading__";
-		loading.setAttribute("aria-live", "polite");
-		loading.setAttribute("aria-label", "Loading conversation");
-		for (const className of [
-			"conversation-loading-row conversation-loading-user",
-			"conversation-loading-row conversation-loading-assistant",
-			"conversation-loading-row conversation-loading-assistant short"
-		]) {
-			const row = document.createElement("div");
-			row.className = className;
-			loading.append(row);
-		}
-		conversation.append(loading);
-	}
-	const CONVERSATION_BOTTOM_SLOP = 24;
-	let trackedViewport = null;
-	function scrollAnchorCandidates(root) {
-		return Array.from(root.querySelectorAll(".message-attachments, .message-content > *, .streaming-indicator, .message-timestamp"));
-	}
-	function scrollAnchorFingerprint(element) {
-		const text = String(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160);
-		return [
-			element.tagName,
-			element.className,
-			text
-		].join("|");
-	}
 	function captureConversationViewport() {
-		const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-		const pinnedToBottom = Math.max(0, maxScrollTop - viewport.scrollTop) <= CONVERSATION_BOTTOM_SLOP;
-		const snapshot = {
-			pinnedToBottom,
-			scrollTop: viewport.scrollTop,
-			anchorElement: null,
-			anchorKey: "",
-			anchorIndex: -1,
-			anchorFingerprint: "",
-			anchorOffset: 0
+		return {
+			pinnedToBottom: true,
+			scrollTop: 0
 		};
-		if (pinnedToBottom) return snapshot;
-		const viewportTop = viewport.getBoundingClientRect().top;
-		const message = Array.from(conversation.children).find((node) => node.getBoundingClientRect().bottom > viewportTop + 1);
-		if (!message) return snapshot;
-		snapshot.anchorKey = String(message.dataset.messageKey || "");
-		const candidates = scrollAnchorCandidates(message);
-		const anchor = candidates.find((node) => node.getBoundingClientRect().bottom > viewportTop + 1) || message;
-		snapshot.anchorElement = anchor;
-		snapshot.anchorIndex = candidates.indexOf(anchor);
-		snapshot.anchorFingerprint = scrollAnchorFingerprint(anchor);
-		snapshot.anchorOffset = anchor.getBoundingClientRect().top - viewportTop;
-		return snapshot;
 	}
-	function resolveConversationAnchor(snapshot) {
-		const direct = snapshot.anchorElement;
-		if (direct && direct.isConnected && conversation.contains(direct) && scrollAnchorFingerprint(direct) === snapshot.anchorFingerprint) return direct;
-		const message = Array.from(conversation.children).find((node) => node.dataset.messageKey === snapshot.anchorKey);
-		if (!message) return null;
-		const candidates = scrollAnchorCandidates(message);
-		if (snapshot.anchorFingerprint) {
-			const matching = candidates.map((node, index) => ({
-				node,
-				index
-			})).filter(({ node }) => scrollAnchorFingerprint(node) === snapshot.anchorFingerprint).sort((left, right) => Math.abs(left.index - snapshot.anchorIndex) - Math.abs(right.index - snapshot.anchorIndex));
-			if (matching.length) return matching[0].node;
-		}
-		return candidates[snapshot.anchorIndex] || message;
-	}
-	function restoreConversationViewport(snapshot, forceBottom = false) {
-		if (forceBottom || snapshot.pinnedToBottom) {
-			viewport.scrollTop = viewport.scrollHeight;
-			trackedViewport = captureConversationViewport();
-			return;
-		}
-		const anchor = resolveConversationAnchor(snapshot);
-		if (anchor) {
-			const viewportTop = viewport.getBoundingClientRect().top;
-			const delta = anchor.getBoundingClientRect().top - viewportTop - snapshot.anchorOffset;
-			if (Math.abs(delta) > .5) viewport.scrollTop += delta;
-		} else {
-			const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-			viewport.scrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
-		}
-		trackedViewport = captureConversationViewport();
-	}
-	viewport.addEventListener("scroll", () => {
-		trackedViewport = captureConversationViewport();
-	}, { passive: true });
-	conversation.addEventListener("load", (event) => {
-		if (!(event.target instanceof HTMLImageElement) || !trackedViewport) return;
-		restoreConversationViewport(trackedViewport);
-	}, true);
-	if ("ResizeObserver" in window) {
-		const resizeObserver = new ResizeObserver(() => {
-			if (!trackedViewport) trackedViewport = captureConversationViewport();
-			restoreConversationViewport(trackedViewport);
-		});
-		resizeObserver.observe(conversation);
-		resizeObserver.observe(viewport);
-	}
-	trackedViewport = captureConversationViewport();
+	function restoreConversationViewport(snapshot, forceBottom = false) {}
 	return {
-		renderMessageNodes,
-		renderLoadingState,
+		renderMessageNodes: async (messages, allowStreaming) => {
+			conversationState.loading = false;
+			conversationState.messages = messages;
+			conversationState.allowStreaming = allowStreaming;
+		},
+		renderLoadingState: () => {
+			if (!conversationState.messages.length) conversationState.loading = true;
+		},
+		setPendingDeleteBusy: (deleteKey, busy) => {
+			const deletingKeys = new Set(conversationState.deletingKeys);
+			if (busy) deletingKeys.add(deleteKey);
+			else deletingKeys.delete(deleteKey);
+			conversationState.deletingKeys = deletingKeys;
+		},
 		messageNodeFingerprint,
 		captureConversationViewport,
 		restoreConversationViewport
 	};
 }
 var init_conversationRenderer = __esmMin((() => {
-	init_clientLogic();
-	init_markdown();
+	init_conversationState_svelte();
+	init_conversationLogic();
 }));
-//#endregion
-//#region src/prompta/ui/attachmentPicker.ts
-function requiredElement$3(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error("Missing required attachment UI element: " + selector);
-	return element;
-}
-function escapeHtml$1(value) {
-	return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");
-}
-function truncate$1(value, length = 88) {
-	const text = String(value || "");
-	return text.length > length ? text.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : text;
-}
-function patchDomNode$1(current, next) {
-	if (current.nodeType !== next.nodeType) {
-		current.replaceWith(next.cloneNode(true));
-		return;
-	}
-	if (current.nodeType === Node.TEXT_NODE) {
-		if (current.textContent !== next.textContent) current.textContent = next.textContent;
-		return;
-	}
-	if (!(current instanceof Element) || !(next instanceof Element) || current.tagName !== next.tagName) {
-		current.replaceWith(next.cloneNode(true));
-		return;
-	}
-	for (const attribute of Array.from(current.attributes)) if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-	for (const attribute of Array.from(next.attributes)) if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
-	patchDomChildren$1(current, next);
-}
-function domPatchKey$1(node) {
-	return node instanceof Element ? node.getAttribute("data-dom-key") || "" : "";
-}
-function patchDomChildren$1(currentParent, nextParent) {
-	const nextChildren = Array.from(nextParent.childNodes);
-	for (let index = 0; index < nextChildren.length; index += 1) {
-		const next = nextChildren[index];
-		let current = currentParent.childNodes[index];
-		const nextKey = domPatchKey$1(next);
-		if (nextKey && domPatchKey$1(current) !== nextKey) {
-			const keyed = Array.from(currentParent.childNodes).slice(index + 1).find((node) => domPatchKey$1(node) === nextKey);
-			if (keyed) {
-				currentParent.insertBefore(keyed, current || null);
-				current = keyed;
-			}
-		}
-		if (!current) {
-			currentParent.appendChild(next.cloneNode(true));
-			continue;
-		}
-		patchDomNode$1(current, next);
-	}
-	while (currentParent.childNodes.length > nextChildren.length) currentParent.lastChild?.remove();
-}
-function patchHtmlChildren$1(element, html) {
-	const template = document.createElement("template");
-	template.innerHTML = html;
-	patchDomChildren$1(element, template.content);
-}
-function createAttachmentPicker({ onChange, setStatus }) {
-	const els = {
-		button: requiredElement$3("#attachmentButton"),
-		menu: requiredElement$3("#attachmentMenu"),
-		fileInput: requiredElement$3("#fileUploadInput"),
-		photoInput: requiredElement$3("#photoUploadInput"),
-		cameraInput: requiredElement$3("#cameraUploadInput"),
-		chips: requiredElement$3("#attachmentChips")
-	};
-	let files = [];
-	function render() {
-		els.chips.hidden = files.length === 0;
-		patchHtmlChildren$1(els.chips, files.map((file, index) => "<span class=\"attachment-chip\" data-dom-key=\"attachment:" + index + ":" + escapeHtml$1(file.name) + "\"><span title=\"" + escapeHtml$1(file.name) + "\">" + escapeHtml$1(truncate$1(file.name, 28)) + "</span><button type=\"button\" data-remove-attachment=\"" + index + "\" aria-label=\"Remove attachment\">×</button></span>").join(""));
-		onChange();
-	}
-	function clear() {
-		files = [];
-		els.fileInput.value = "";
-		els.photoInput.value = "";
-		els.cameraInput.value = "";
-		render();
-	}
-	function setDisabled(disabled) {
-		els.button.disabled = disabled;
-		if (disabled) closeMenu();
-		for (const button of els.chips.querySelectorAll("button")) button.disabled = disabled;
-	}
-	function add(nextFiles) {
-		const current = [...files];
-		for (const file of nextFiles) {
-			if (current.length >= 5) break;
-			if (!current.some((existing) => existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified)) current.push(file);
-		}
-		files = current;
-		render();
-		if (nextFiles.length && current.length >= 5) setStatus("Prompta supports up to 5 attachments per message.");
-	}
-	async function payload(file) {
-		if (file.size > 26214400) throw new Error(file.name + " is larger than 25 MB");
-		const dataUrl = await new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onerror = () => reject(reader.error || /* @__PURE__ */ new Error("Could not read " + file.name));
-			reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-			reader.readAsDataURL(file);
-		});
-		const comma = dataUrl.indexOf(",");
-		return {
-			name: file.name,
-			type: file.type || "application/octet-stream",
-			data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
-		};
-	}
-	async function serialize() {
-		if (files.reduce((sum, file) => sum + Number(file.size || 0), 0) > 26214400) throw new Error("Attachments exceed the 25 MB Prompta upload limit");
-		return Promise.all(files.map(payload));
-	}
-	function menuButtons() {
-		return Array.from(els.menu.querySelectorAll("[data-attachment-kind]"));
-	}
-	function openMenu(focusIndex = 0) {
-		els.menu.hidden = false;
-		els.button.setAttribute("aria-expanded", "true");
-		menuButtons()[focusIndex]?.focus();
-	}
-	function closeMenu(restoreFocus = false) {
-		els.menu.hidden = true;
-		els.button.setAttribute("aria-expanded", "false");
-		if (restoreFocus) els.button.focus();
-	}
-	els.button.addEventListener("click", () => {
-		if (els.menu.hidden) openMenu();
-		else closeMenu();
-	});
-	els.button.addEventListener("keydown", (event) => {
-		if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-		event.preventDefault();
-		const buttons = menuButtons();
-		openMenu(event.key === "ArrowUp" ? Math.max(0, buttons.length - 1) : 0);
-	});
-	els.menu.addEventListener("keydown", (event) => {
-		const buttons = menuButtons();
-		const current = buttons.indexOf(document.activeElement);
-		if (event.key === "Escape") {
-			event.preventDefault();
-			closeMenu(true);
-			return;
-		}
-		if (event.key === "Tab") {
-			closeMenu();
-			return;
-		}
-		let next = current;
-		if (event.key === "ArrowDown") next = (current + 1 + buttons.length) % buttons.length;
-		else if (event.key === "ArrowUp") next = (current - 1 + buttons.length) % buttons.length;
-		else if (event.key === "Home") next = 0;
-		else if (event.key === "End") next = Math.max(0, buttons.length - 1);
-		else return;
-		event.preventDefault();
-		buttons[next]?.focus();
-	});
-	els.menu.addEventListener("click", (event) => {
-		const button = event.target.closest("[data-attachment-kind]");
-		if (!button) return;
-		closeMenu();
-		const kind = button.dataset.attachmentKind;
-		if (kind === "photo") els.photoInput.click();
-		else if (kind === "camera") els.cameraInput.click();
-		else els.fileInput.click();
-	});
-	for (const input of [
-		els.fileInput,
-		els.photoInput,
-		els.cameraInput
-	]) input.addEventListener("change", () => {
-		const selected = Array.from(input.files || []);
-		input.value = "";
-		add(selected);
-	});
-	els.chips.addEventListener("click", (event) => {
-		const button = event.target.closest("[data-remove-attachment]");
-		if (!button) return;
-		const index = Number(button.dataset.removeAttachment);
-		if (!Number.isInteger(index)) return;
-		files.splice(index, 1);
-		render();
-	});
-	document.addEventListener("click", (event) => {
-		const target = event.target;
-		if (!els.menu.hidden && !els.menu.contains(target) && !els.button.contains(target)) closeMenu();
-	});
-	return {
-		clear,
-		closeMenu,
-		count: () => files.length,
-		serialize,
-		setDisabled,
-		snapshot: () => [...files]
-	};
-}
-var init_attachmentPicker = __esmMin((() => {}));
-//#endregion
-//#region src/prompta/ui/logsPanel.ts
-function requiredElement$2(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error("Missing required logs UI element: " + selector);
-	return element;
-}
-function setTextIfChanged$2(element, value) {
-	const text = String(value ?? "");
-	if (element.textContent !== text) element.textContent = text;
-}
-function createLogsPanel({ fetchJson, formatRelativeTime }) {
-	const els = {
-		viewport: requiredElement$2("#logsViewport"),
-		output: requiredElement$2("#logOutput"),
-		meta: requiredElement$2("#logsMeta"),
-		serverTitle: requiredElement$2("#logsServerTitle")
-	};
-	let fingerprint = "";
-	let refreshTimer = null;
-	let visible = false;
-	function render(payload) {
-		const lines = Array.isArray(payload.lines) ? payload.lines : [];
-		const nextFingerprint = JSON.stringify([payload.updated_at, lines]);
-		const wasNearBottom = els.viewport.scrollHeight - els.viewport.scrollTop - els.viewport.clientHeight < 120;
-		const isInitial = !fingerprint;
-		if (nextFingerprint !== fingerprint) {
-			fingerprint = nextFingerprint;
-			setTextIfChanged$2(els.output, lines.length ? lines.join("\n") : "No Prompta service logs are available yet.");
-			if (isInitial || wasNearBottom) requestAnimationFrame(() => {
-				els.viewport.scrollTop = els.viewport.scrollHeight;
-			});
-		}
-		setTextIfChanged$2(els.meta, payload.exists ? payload.source === "journal" ? lines.length + " lines · live journal" : lines.length + " lines · synced " + formatRelativeTime(payload.updated_at) : "Waiting for Prompta service logs");
-	}
-	async function load() {
-		try {
-			render(await fetchJson("api/logs?limit=800"));
-		} catch (error) {
-			setTextIfChanged$2(els.meta, "Logs unavailable");
-			console.error(error);
-		}
-	}
-	function stopRefresh() {
-		if (refreshTimer === null) return;
-		clearInterval(refreshTimer);
-		refreshTimer = null;
-	}
-	function setVisible(nextVisible) {
-		visible = Boolean(nextVisible);
-		els.viewport.hidden = !visible;
-		stopRefresh();
-		if (!visible) return;
-		load();
-		refreshTimer = setInterval(() => {
-			if (visible && document.visibilityState === "visible") load();
-		}, 2e3);
-	}
-	function setServerTitle(display) {
-		setTextIfChanged$2(els.serverTitle, String(display || "") + " · prompta.service");
-	}
-	return {
-		load,
-		setServerTitle,
-		setVisible
-	};
-}
-var init_logsPanel = __esmMin((() => {}));
 //#endregion
 //#region src/prompta/ui/deploymentMonitor.ts
 function createDeploymentMonitor({ onUpdateAvailable = () => {} } = {}) {
@@ -7855,21 +8821,23 @@ function createLiveUpdates({ loadChats, loadServerIdentity, setServerStatus, obs
 		stopPresenceWatchdog();
 		stopTimeRefresh();
 	}
-	window.addEventListener("pagehide", () => {
+	function handlePageHide() {
 		paused = true;
 		stop();
-	});
-	window.addEventListener("pageshow", () => {
+	}
+	function handlePageShow() {
 		onPageShow();
 		if (!paused) return;
 		paused = false;
 		loadServerIdentity();
 		loadChats();
 		start();
-	});
+	}
 	return {
 		start,
-		stop
+		stop,
+		handlePageHide,
+		handlePageShow
 	};
 }
 var init_liveUpdates = __esmMin((() => {}));
@@ -7975,78 +8943,6 @@ function createCompletionNotifications({ displayServerName, getServerName, chatT
 }
 var init_completionNotifications = __esmMin((() => {}));
 //#endregion
-//#region src/prompta/ui/changelogDialog.ts
-function requiredElement$1(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error("Missing required changelog UI element: " + selector);
-	return element;
-}
-function escapeHtml(value) {
-	return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");
-}
-function setTextIfChanged$1(element, value) {
-	const text = String(value ?? "");
-	if (element.textContent !== text) element.textContent = text;
-}
-function renderChangelogEntry(change) {
-	const title = escapeHtml(change?.title || "");
-	const hash = String(change?.hash || "").trim();
-	const hashSuffix = hash ? "<span class=\"changelog-entry-hash\">#" + escapeHtml(hash) + "</span>" : "";
-	return "<li class=\"changelog-entry\"><span class=\"changelog-entry-title\">" + title + "</span>" + hashSuffix + "</li>";
-}
-function createChangelogDialog({ fetchJson, closeSidebar }) {
-	const els = {
-		headLabel: requiredElement$1("#headLabel"),
-		dialog: requiredElement$1("#changelogDialog"),
-		closeButton: requiredElement$1("#closeChangelogDialog"),
-		list: requiredElement$1("#changelogList"),
-		status: requiredElement$1("#changelogDialogStatus")
-	};
-	const mobileChangelogScreen = window.matchMedia("(max-width: 600px)");
-	const appShell = document.querySelector(".app-shell");
-	function close() {
-		if (els.dialog.open) els.dialog.close();
-	}
-	async function open() {
-		closeSidebar();
-		if (!els.dialog.open) {
-			const stacked = mobileChangelogScreen.matches;
-			els.dialog.dataset.presentation = stacked ? "stack" : "modal";
-			if (stacked) {
-				els.dialog.show();
-				if (appShell) appShell.inert = true;
-			} else els.dialog.showModal();
-		}
-		setTextIfChanged$1(els.status, "Loading changelog…");
-		patchHtmlChildren$2(els.list, "<li class=\"changelog-empty\">Loading changes…</li>");
-		try {
-			const payload = await fetchJson("api/changelog");
-			const changes = Array.isArray(payload.changes) ? payload.changes : [];
-			patchHtmlChildren$2(els.list, changes.length ? changes.map(renderChangelogEntry).join("") : "<li class=\"changelog-empty\">No Git commit history is available.</li>");
-			setTextIfChanged$1(els.status, changes.length + " commit" + (changes.length === 1 ? "" : "s") + " · newest first");
-		} catch (error) {
-			patchHtmlChildren$2(els.list, "<li class=\"changelog-empty\">Could not load changelog.</li>");
-			setTextIfChanged$1(els.status, "Changelog unavailable: " + String(error).replace(/^Error:\s*/, ""));
-		}
-	}
-	els.headLabel.addEventListener("click", () => void open());
-	els.closeButton.addEventListener("click", close);
-	els.dialog.addEventListener("click", (event) => {
-		if (event.target === els.dialog && els.dialog.dataset.presentation !== "stack") close();
-	});
-	els.dialog.addEventListener("close", () => {
-		if (appShell) appShell.inert = false;
-		delete els.dialog.dataset.presentation;
-	});
-	return {
-		open,
-		close
-	};
-}
-var init_changelogDialog = __esmMin((() => {
-	init_domPatch();
-}));
-//#endregion
 //#region src/prompta/ui/clientStorage.ts
 function createClientSessionId() {
 	return globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -8149,15 +9045,6 @@ function promoteServerPendingPins(chats) {
 		state.sidebarFingerprint = "";
 	}
 }
-function syncViewportHeight() {
-	const viewportHeight = window.visualViewport?.height || window.innerHeight;
-	document.documentElement.style.setProperty("--app-height", `${Math.round(viewportHeight)}px`);
-}
-function requiredElement(selector) {
-	const element = document.querySelector(selector);
-	if (!element) throw new Error(`Missing required UI element: ${selector}`);
-	return element;
-}
 function composerDraftTarget() {
 	if (state.composingNew) return "new";
 	return state.selectedId ? "chat:" + state.selectedId : "";
@@ -8173,7 +9060,7 @@ function persistComposerDraft() {
 	const target = composerDraftTarget();
 	if (!target) return;
 	state.composerDraftTarget = target;
-	setStoredComposerDraft(target, els.messageInput.value);
+	setStoredComposerDraft(target, appViewState.composerValue);
 }
 function clearComposerDraft(target = composerDraftTarget()) {
 	if (!target) return;
@@ -8182,100 +9069,25 @@ function clearComposerDraft(target = composerDraftTarget()) {
 function syncComposerDraftTarget() {
 	const nextTarget = composerDraftTarget();
 	if (nextTarget === state.composerDraftTarget) return;
-	if (state.composerDraftTarget && !state.sending) setStoredComposerDraft(state.composerDraftTarget, els.messageInput.value);
+	if (state.composerDraftTarget && !state.sending) setStoredComposerDraft(state.composerDraftTarget, appViewState.composerValue);
 	state.composerDraftTarget = nextTarget;
 	const draft = nextTarget ? state.composerDrafts.get(nextTarget) || "" : "";
-	if (els.messageInput.value !== draft) els.messageInput.value = draft;
-	resizeComposer();
-	updateSlashMenu();
+	if (appViewState.composerValue !== draft) appViewState.composerValue = draft;
 	syncSendButton();
 }
-function setTextIfChanged(element, value) {
-	const text = String(value ?? "");
-	if (element.textContent !== text) element.textContent = text;
+function setComposerStatus(value) {
+	appViewState.composerStatus = String(value ?? "");
 }
-function setHiddenIfChanged(element, hidden) {
-	if (element.hidden !== hidden) element.hidden = hidden;
+function setCacheSummary(value) {
+	appViewState.cacheSummary = String(value ?? "");
 }
-function patchDomNode(current, next) {
-	if (current.nodeType !== next.nodeType || current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName) {
-		const replacement = next.cloneNode(true);
-		current.replaceWith(replacement);
-		return replacement;
-	}
-	if (current.nodeType === Node.TEXT_NODE) {
-		if (current.data !== next.data) current.data = next.data;
-		return current;
-	}
-	if (current.nodeType !== Node.ELEMENT_NODE) return current;
-	const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
-	const detailsOpen = preserveDetailsOpen ? current.open : false;
-	for (const attribute of Array.from(current.attributes)) {
-		if (preserveDetailsOpen && attribute.name === "open") continue;
-		if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-	}
-	for (const attribute of Array.from(next.attributes)) {
-		if (preserveDetailsOpen && attribute.name === "open") continue;
-		if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
-	}
-	patchDomChildren(current, next);
-	if (preserveDetailsOpen) current.open = detailsOpen;
-	return current;
-}
-function domPatchKey(node) {
-	if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
-	return node.dataset.domKey || "";
-}
-function patchDomChildren(currentParent, nextParent) {
-	let index = 0;
-	while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
-		let current = currentParent.childNodes[index];
-		const next = nextParent.childNodes[index];
-		if (!next) {
-			current.remove();
-			continue;
-		}
-		if (!current) {
-			currentParent.append(next.cloneNode(true));
-			index += 1;
-			continue;
-		}
-		const nextKey = domPatchKey(next);
-		if (nextKey && domPatchKey(current) !== nextKey) {
-			const match = Array.from(currentParent.childNodes).slice(index + 1).find((candidate) => domPatchKey(candidate) === nextKey);
-			if (match) {
-				currentParent.insertBefore(match, current);
-				current = match;
-			} else {
-				currentParent.insertBefore(next.cloneNode(true), current);
-				index += 1;
-				continue;
-			}
-		}
-		patchDomNode(current, next);
-		index += 1;
-	}
-}
-function patchHtmlChildren(element, html) {
-	const template = document.createElement("template");
-	template.innerHTML = html;
-	patchDomChildren(element, template.content);
+function showConversation(visible) {
+	appViewState.emptyVisible = !visible;
+	appViewState.conversationVisible = visible;
 }
 function setConversationHeading(title, meta) {
-	let titleNode = els.chatHeading.querySelector(".heading-title");
-	let metaNode = els.chatHeading.querySelector(".heading-meta");
-	if (!titleNode) {
-		titleNode = document.createElement("div");
-		titleNode.className = "heading-title";
-		els.chatHeading.prepend(titleNode);
-	}
-	if (!metaNode) {
-		metaNode = document.createElement("div");
-		metaNode.className = "heading-meta";
-		els.chatHeading.append(metaNode);
-	}
-	setTextIfChanged(titleNode, title);
-	setTextIfChanged(metaNode, meta);
+	appViewState.headingTitle = String(title ?? "");
+	appViewState.headingMeta = String(meta ?? "");
 }
 function syncSendButton() {
 	const waitingNew = state.composingNew && state.pendingNewSend && ![
@@ -8284,18 +9096,12 @@ function syncSendButton() {
 		"succeeded"
 	].includes(state.pendingNewSend.status);
 	const hasTarget = state.composingNew || Boolean(state.selectedId);
-	const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
-	const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
+	const hasContent = composerHasContent(appViewState.composerValue, attachmentPicker.count());
+	const canCompose = state.mode === "chats" && !appViewState.composerDisabled && hasTarget;
 	const stopMode = canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew, hasContent);
 	const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
-	const action = stopMode ? "stop" : "send";
-	if (els.sendButton.dataset.action !== action) {
-		els.sendButton.dataset.action = action;
-		patchHtmlChildren(els.sendButton, stopMode ? STOP_ICON : SEND_ICON);
-		els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
-		els.sendButton.title = stopMode ? "Stop response" : "Send message";
-	}
-	els.sendButton.disabled = !canCompose || state.sending || state.stopping || probingActivity || !stopMode && (Boolean(waitingNew) || !hasContent);
+	appViewState.composerAction = stopMode ? "stop" : "send";
+	appViewState.composerActionDisabled = !canCompose || state.sending || state.stopping || probingActivity || !stopMode && (Boolean(waitingNew) || !hasContent);
 }
 function updateComposerActionButton() {
 	syncSendButton();
@@ -8311,13 +9117,12 @@ function setServerStatus(server, online) {
 	if (typeof online === "boolean") state.serverOnline = online;
 	const display = displayServerName(state.serverName || location.hostname);
 	const knownOnline = state.serverOnline;
-	setTextIfChanged(els.serverLabel, knownOnline === false ? `Server · ${display} · offline` : `Server · ${display}`);
-	document.title = `Prompta · ${display}`;
+	appViewState.serverDisplay = display;
+	appViewState.serverLabel = knownOnline === false ? "Server · " + display + " · offline" : "Server · " + display;
+	appViewState.serverOnline = knownOnline;
+	appViewState.live = knownOnline === true;
+	appViewState.liveTitle = knownOnline === false ? display + " is offline" : knownOnline === true ? display + " is online" : display + " status unknown";
 	logsPanel.setServerTitle(display);
-	const appleTitle = document.querySelector("meta[name=\"apple-mobile-web-app-title\"]");
-	if (appleTitle) appleTitle.setAttribute("content", `Prompta ${display}`);
-	els.globalLiveOrb.classList.toggle("live", knownOnline === true);
-	els.globalLiveOrb.title = knownOnline === false ? `${display} is offline` : knownOnline === true ? `${display} is online` : `${display} status unknown`;
 }
 function formatRelativeTime(epochSeconds) {
 	if (!epochSeconds) return "";
@@ -8376,14 +9181,9 @@ function groupChats(chats) {
 		["Previous", unpinned.filter((chat) => !sameLocalDay(sidebarGroupAt(chat)) && !sameLocalDay(sidebarGroupAt(chat), 1))]
 	].filter(([, items]) => items.length);
 }
-function setStatusIcon(element, status, label, kind = "") {
-	element.className = [
-		"status-icon",
-		kind,
-		iconStatusClasses.has(status) ? status : "neutral"
-	].filter(Boolean).join(" ");
-	element.title = label;
-	element.setAttribute("aria-label", label);
+function setStatusIcon(status, label) {
+	appViewState.syncStatus = iconStatusClasses.has(status) ? status : "neutral";
+	appViewState.syncLabel = String(label || "");
 }
 function reconcileOptimisticNew(chats) {
 	const pending = state.pendingNewSend;
@@ -8441,7 +9241,7 @@ function sidebarChats() {
 	return [optimistic, ...chats];
 }
 function scrollSidebarToNewest() {
-	if (els.sidebarScroll.scrollTop) els.sidebarScroll.scrollTop = 0;
+	requestSidebarTop();
 }
 function renderSidebar(force = false) {
 	if (sidebar.isMoving()) {
@@ -8467,13 +9267,13 @@ function renderSidebar(force = false) {
 	if (!force && fingerprint === state.sidebarFingerprint) return;
 	state.sidebarFingerprint = fingerprint;
 	if (!chats.length) {
-		sidebarList.update({
+		sidebarListState.model = {
 			emptyState: state.search ? "search" : "empty",
 			groups: []
-		});
+		};
 		return;
 	}
-	sidebarList.update({
+	sidebarListState.model = {
 		emptyState: "none",
 		groups: groupChats(chats).map(([label, groupedChats]) => ({
 			label,
@@ -8500,7 +9300,7 @@ function renderSidebar(force = false) {
 				};
 			})
 		}))
-	});
+	};
 }
 function pendingReplyMessages(conversationId, cachedMessages) {
 	const pending = pendingConversationSends(conversationId, state.pendingReplies.get(conversationId) || [], state.pendingNewSend);
@@ -8560,12 +9360,9 @@ function updatePinButton() {
 	const chatId = state.selectedId;
 	const available = Boolean(chatId) && !state.composingNew;
 	const pinned = Boolean(available && chatId && state.pinnedIds.has(chatId));
-	els.pinChatButton.disabled = !available;
-	els.pinChatButton.classList.toggle("active", Boolean(pinned));
-	els.pinChatButton.setAttribute("aria-pressed", String(Boolean(pinned)));
-	const label = pinned ? "Unpin chat" : "Pin chat";
-	els.pinChatButton.title = label;
-	els.pinChatButton.setAttribute("aria-label", label);
+	appViewState.pinDisabled = !available;
+	appViewState.pinActive = pinned;
+	appViewState.pinLabel = pinned ? "Unpin chat" : "Pin chat";
 }
 function toggleSelectedPin() {
 	const chatId = state.selectedId;
@@ -8592,9 +9389,7 @@ function renderConversationMeta(chat, visibleMessageCount) {
 	if (metaFingerprint === state.selectedMetaFingerprint) return;
 	state.selectedMetaFingerprint = metaFingerprint;
 	setConversationHeading(title, meta);
-	const syncStatus = broken ? "broken" : chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached";
-	const syncLabel = broken ? "No ChatGPT response for at least 40 minutes" : chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite";
-	setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
+	setStatusIcon(broken ? "broken" : chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached", broken ? "No ChatGPT response for at least 40 minutes" : chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite");
 }
 function rememberConversationViewport(conversationId) {
 	if (!conversationId || state.renderedConversationId !== conversationId) return;
@@ -8612,22 +9407,18 @@ function rememberConversationViewport(conversationId) {
 }
 function beginChatSwitch() {
 	state.chatSwitchToken += 1;
-	els.viewport.classList.add("chat-switching");
-	els.viewport.setAttribute("aria-busy", "true");
+	appViewState.chatSwitching = true;
 }
 function cancelChatSwitch() {
 	state.chatSwitchToken += 1;
-	els.viewport.classList.remove("chat-switching");
-	els.viewport.removeAttribute("aria-busy");
+	appViewState.chatSwitching = false;
 }
 function finishChatSwitch(conversationId) {
-	if (!els.viewport.classList.contains("chat-switching")) return;
+	if (!appViewState.chatSwitching) return;
 	const token = state.chatSwitchToken;
 	requestAnimationFrame(() => {
 		if (token !== state.chatSwitchToken || state.selectedId !== conversationId) return;
-		getComputedStyle(els.conversation).opacity;
-		els.viewport.classList.remove("chat-switching");
-		els.viewport.removeAttribute("aria-busy");
+		appViewState.chatSwitching = false;
 	});
 }
 function renderConversation(chat) {
@@ -8648,35 +9439,31 @@ function renderConversation(chat) {
 	}
 	finishChatSwitch(chat.id);
 	renderConversationMeta(chat, visibleMessages.length);
-	setHiddenIfChanged(els.emptyState, true);
-	setHiddenIfChanged(els.conversation, false);
-	els.messageInput.disabled = false;
+	appViewState.emptyVisible = false;
+	appViewState.conversationVisible = true;
+	appViewState.composerDisabled = false;
 	state.composingNew = false;
 	syncComposerDraftTarget();
 	syncSendButton();
-	els.shareChatButton.disabled = false;
+	appViewState.shareDisabled = false;
 	updatePinButton();
 	syncSendButton();
 	const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition)).find(Boolean);
-	if (pendingActivity) setTextIfChanged(els.composerStatus, pendingActivity.statusText);
-	else if (!state.sending) setTextIfChanged(els.composerStatus, chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.");
+	if (pendingActivity) appViewState.composerStatus = pendingActivity.statusText;
+	else if (!state.sending) appViewState.composerStatus = chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.";
 }
 function showMode(mode) {
 	state.mode = mode === "logs" ? "logs" : "chats";
-	const logsMode = state.mode === "logs";
-	els.viewport.hidden = logsMode;
-	logsPanel.setVisible(logsMode);
-	els.composerFooter.hidden = logsMode;
-	if (logsMode) {
+	appViewState.mode = state.mode === "logs" ? "logs" : "chats";
+	if (state.mode === "logs") {
 		cancelChatSwitch();
 		state.selectedMetaFingerprint = "";
 		const display = displayServerName(state.serverName || location.hostname);
-		setConversationHeading(`${display} Prompta logs`, `journalctl · prompta.service · ${display}`);
-		setStatusIcon(els.syncLabel, "journal", `${display} journal`, "sync");
-		els.messageInput.disabled = true;
-		els.sendButton.disabled = true;
-		els.shareChatButton.disabled = true;
-		setTextIfChanged(els.composerStatus, "Switch back to chats to send a message.");
+		setConversationHeading(display + " Prompta logs", "journalctl · prompta.service · " + display);
+		setStatusIcon("journal", display + " journal");
+		appViewState.composerDisabled = true;
+		appViewState.shareDisabled = true;
+		appViewState.composerStatus = "Switch back to chats to send a message.";
 		updateComposerActionButton();
 		return;
 	}
@@ -8693,17 +9480,16 @@ function clearConversation() {
 	state.selectedMetaFingerprint = "";
 	state.selectedChat = null;
 	state.renderedConversationId = "";
-	setHiddenIfChanged(els.emptyState, false);
-	setHiddenIfChanged(els.conversation, true);
+	appViewState.emptyVisible = true;
+	appViewState.conversationVisible = false;
 	conversationRenderer.renderMessageNodes([], false);
 	setConversationHeading("Prompta", "Local conversation history");
-	setStatusIcon(els.syncLabel, "local", "Local cache", "sync");
-	els.messageInput.disabled = true;
-	els.sendButton.disabled = true;
-	els.shareChatButton.disabled = true;
+	setStatusIcon("local", "Local cache");
+	appViewState.composerDisabled = true;
+	appViewState.shareDisabled = true;
 	updatePinButton();
-	els.messageInput.placeholder = "Message Prompta…";
-	setTextIfChanged(els.composerStatus, "");
+	appViewState.composerPlaceholder = "Message Prompta…";
+	appViewState.composerStatus = "";
 	syncComposerDraftTarget();
 	updateComposerActionButton();
 }
@@ -8717,6 +9503,7 @@ function renderNewChat() {
 	state.selectedChat = null;
 	state.renderedConversationId = "";
 	state.mode = "chats";
+	appViewState.mode = "chats";
 	syncComposerDraftTarget();
 	const pending = state.pendingNewSend;
 	const waiting = pending && ![
@@ -8774,34 +9561,31 @@ function renderNewChat() {
 				retry_key: pending.clientId || pending.sendId
 			});
 			const viewportSnapshot = conversationRenderer.captureConversationViewport();
-			setHiddenIfChanged(els.emptyState, true);
-			setHiddenIfChanged(els.conversation, false);
+			showConversation(true);
 			conversationRenderer.renderMessageNodes(messages, true);
 			conversationRenderer.restoreConversationViewport(viewportSnapshot, enteringNewChat);
 		} else {
-			setHiddenIfChanged(els.emptyState, false);
-			setHiddenIfChanged(els.conversation, true);
+			showConversation(false);
 			conversationRenderer.renderMessageNodes([], false);
 		}
 		setConversationHeading("New chat", pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation");
-		setStatusIcon(els.syncLabel, pending ? "queued" : "new", pending ? "Send queued" : "Fresh conversation", "sync");
-		els.messageInput.disabled = false;
+		setStatusIcon(pending ? "queued" : "new", pending ? "Send queued" : "Fresh conversation");
+		appViewState.composerDisabled = false;
 		syncSendButton();
-		els.shareChatButton.disabled = true;
+		appViewState.shareDisabled = true;
 		updatePinButton();
-		els.messageInput.placeholder = "Start a new chat…";
+		appViewState.composerPlaceholder = "Start a new chat…";
 		const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition) : null;
-		setTextIfChanged(els.composerStatus, pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
+		setComposerStatus(pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
 	}
 	updateComposerActionButton();
 	if (enteringNewChat) {
-		els.viewport.hidden = false;
-		logsPanel.setVisible(false);
+		appViewState.mode = "chats";
 		history.replaceState(null, "", `${location.pathname}${location.search}`);
 		renderSidebar();
 		scrollSidebarToNewest();
 		sidebar.close();
-		if (!waiting && matchMedia("(pointer: fine)").matches) requestAnimationFrame(() => els.messageInput.focus());
+		if (!waiting && matchMedia("(pointer: fine)").matches) requestComposerFocus();
 	}
 }
 async function fetchJson(url, timeoutMs = 1e4, controller = new AbortController()) {
@@ -8845,7 +9629,7 @@ async function hydrateRecentChatCache() {
 	state.chats = sortSidebarChats(Array.from(unique.values()), state.pinnedIds);
 	state.chatOrderScope = "";
 	const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-	setTextIfChanged(els.cacheSummary, sidebarChatCountSummary(state.chats.length, activeCount, state.search));
+	setCacheSummary(sidebarChatCountSummary(state.chats.length, activeCount, state.search));
 	const initialId = conversationIdFromHash(location.hash) || state.chats[0]?.id || "";
 	if (initialId) {
 		state.selectedId = initialId;
@@ -8855,8 +9639,7 @@ async function hydrateRecentChatCache() {
 			renderConversation(chat);
 		} else {
 			conversationRenderer.renderLoadingState();
-			setHiddenIfChanged(els.emptyState, true);
-			setHiddenIfChanged(els.conversation, false);
+			showConversation(true);
 		}
 	}
 	renderSidebar();
@@ -8868,8 +9651,8 @@ async function loadServerIdentity() {
 		setServerStatus(payload.server, payload.online);
 		const head = String(payload.head || "").trim().toLowerCase();
 		deploymentMonitor.observeHead(head);
-		setTextIfChanged(els.headLabel, head ? head : "unknown");
-		els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
+		appViewState.headLabel = head ? head : "unknown";
+		appViewState.headTitle = head ? "UI commit " + head : "UI commit unavailable";
 	} catch (error) {
 		setServerStatus(state.serverName || location.hostname, false);
 		console.warn("Could not load Prompta server identity", error);
@@ -8939,7 +9722,7 @@ async function loadChats(forceSelectedRefresh = false) {
 		state.chats = orderedChats;
 		state.chatOrderScope = state.search;
 		const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-		setTextIfChanged(els.cacheSummary, sidebarChatCountSummary(state.chats.length, activeCount, state.search));
+		setCacheSummary(sidebarChatCountSummary(state.chats.length, activeCount, state.search));
 		const hashId = conversationIdFromHash(location.hash);
 		if (!state.selectedId && hashId) state.selectedId = hashId;
 		state.selectedId = selectedConversationAfterChatRefresh(state.selectedId, state.composingNew, state.chats);
@@ -8951,8 +9734,8 @@ async function loadChats(forceSelectedRefresh = false) {
 		} else await logsPanel.load();
 	} catch (error) {
 		if (requestId !== state.chatsRequestId) return;
-		if (els.globalLiveOrb.classList.contains("live")) els.globalLiveOrb.classList.remove("live");
-		setTextIfChanged(els.cacheSummary, "Cache unavailable");
+		appViewState.live = false;
+		setCacheSummary("Cache unavailable");
 		console.error(error);
 	} finally {
 		if (chatsRequestController === requestController) chatsRequestController = null;
@@ -8966,7 +9749,7 @@ async function probeHistoricalActivity(conversationId) {
 	state.activityProbeAt.set(conversationId, now);
 	state.activityProbes.add(conversationId);
 	if (state.selectedId === conversationId) {
-		setTextIfChanged(els.composerStatus, "Checking whether ChatGPT is still running…");
+		setComposerStatus("Checking whether ChatGPT is still running…");
 		syncSendButton();
 	}
 	try {
@@ -8979,7 +9762,7 @@ async function probeHistoricalActivity(conversationId) {
 		renderConversation(chat);
 		await loadChats();
 	} catch (error) {
-		if (state.selectedId === conversationId) setTextIfChanged(els.composerStatus, "Could not verify whether this interrupted chat is still running.");
+		if (state.selectedId === conversationId) setComposerStatus("Could not verify whether this interrupted chat is still running.");
 		console.warn("Could not probe historical chat activity", error);
 	} finally {
 		state.activityProbes.delete(conversationId);
@@ -8996,8 +9779,7 @@ function renderRecentChatSnapshot(conversationId) {
 	}
 	if (!state.renderedConversationId) {
 		conversationRenderer.renderLoadingState();
-		setHiddenIfChanged(els.emptyState, true);
-		setHiddenIfChanged(els.conversation, false);
+		showConversation(true);
 	}
 	recentChatCache.get(conversationId).then((chat) => {
 		if (!chat || state.mode !== "chats" || state.selectedId !== conversationId || state.selectedChat?.id === conversationId) return;
@@ -9049,7 +9831,7 @@ async function selectChat(id) {
 	const pendingNew = state.pendingNewSend?.conversationId === id ? state.pendingNewSend : null;
 	state.composingNew = false;
 	state.pendingNewId = pendingNew ? id : null;
-	els.messageInput.placeholder = "Message Prompta…";
+	appViewState.composerPlaceholder = "Message Prompta…";
 	state.selectedId = id;
 	state.selectedUpdatedAt = null;
 	state.selectedFingerprint = "";
@@ -9059,27 +9841,14 @@ async function selectChat(id) {
 	renderSidebar();
 	await loadSelectedChat();
 }
-function resizeComposer() {
-	els.messageInput.style.overflowY = "hidden";
-	if (!els.messageInput.value) {
-		els.messageInput.style.height = "34px";
-		return;
-	}
-	els.messageInput.style.height = "auto";
-	const contentHeight = els.messageInput.scrollHeight;
-	els.messageInput.style.height = `${Math.min(180, contentHeight)}px`;
-	els.messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
-}
 async function runScheduleSlashCommand(command, originalMessage) {
 	state.sending = true;
-	els.messageInput.disabled = true;
-	els.sendButton.disabled = true;
+	appViewState.composerDisabled = true;
 	attachmentPicker.setDisabled(true);
 	clearComposerDraft();
-	els.messageInput.value = "";
-	resizeComposer();
+	appViewState.composerValue = "";
 	updateComposerActionButton();
-	setTextIfChanged(els.composerStatus, "Saving schedule…");
+	setComposerStatus("Saving schedule…");
 	try {
 		const result = await postJsonRequest("api/schedule", {
 			interval_minutes: command.intervalMinutes,
@@ -9087,52 +9856,44 @@ async function runScheduleSlashCommand(command, originalMessage) {
 		});
 		const server = displayServerName(result.server || state.serverName || location.hostname);
 		const interval = formatScheduleInterval(Number(result.interval_minutes));
-		const prefix = result.created === false ? "Already scheduled" : "Scheduled";
-		setTextIfChanged(els.composerStatus, `${prefix} on ${server}: every ${interval} · ${command.prompt}`);
+		setComposerStatus((result.created === false ? "Already scheduled" : "Scheduled") + " on " + server + ": every " + interval + " · " + command.prompt);
 	} catch (error) {
-		els.messageInput.value = originalMessage;
+		appViewState.composerValue = originalMessage;
 		persistComposerDraft();
-		resizeComposer();
-		updateSlashMenu();
-		setTextIfChanged(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
+		setComposerStatus("Schedule failed: " + String(error).replace(/^Error:\s*/, ""));
 		console.error(error);
 	} finally {
 		state.sending = false;
-		els.messageInput.disabled = false;
+		appViewState.composerDisabled = false;
 		attachmentPicker.setDisabled(false);
 		syncSendButton();
-		if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+		if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
 	}
 }
 async function runAtSlashCommand(command, originalMessage) {
 	state.sending = true;
-	els.messageInput.disabled = true;
-	els.sendButton.disabled = true;
+	appViewState.composerDisabled = true;
 	attachmentPicker.setDisabled(true);
 	clearComposerDraft();
-	els.messageInput.value = "";
-	resizeComposer();
-	updateSlashMenu();
-	setTextIfChanged(els.composerStatus, "Saving one-time schedule…");
+	appViewState.composerValue = "";
+	updateComposerActionButton();
+	setComposerStatus("Saving one-time schedule…");
 	try {
-		const server = displayServerName((await postJsonRequest("api/schedule-at", {
+		setComposerStatus("Scheduled on " + displayServerName((await postJsonRequest("api/schedule-at", {
 			run_at_epoch: command.runAtEpoch,
 			prompt: command.prompt
-		})).server || state.serverName || location.hostname);
-		setTextIfChanged(els.composerStatus, `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`);
+		})).server || state.serverName || location.hostname) + ": " + command.runAtLabel + " · " + command.prompt);
 	} catch (error) {
-		els.messageInput.value = originalMessage;
+		appViewState.composerValue = originalMessage;
 		persistComposerDraft();
-		resizeComposer();
-		updateSlashMenu();
-		setTextIfChanged(els.composerStatus, `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`);
+		setComposerStatus("Schedule failed: " + String(error).replace(/^Error:\s*/, ""));
 		console.error(error);
 	} finally {
 		state.sending = false;
-		els.messageInput.disabled = false;
+		appViewState.composerDisabled = false;
 		attachmentPicker.setDisabled(false);
 		syncSendButton();
-		if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+		if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
 	}
 }
 function pendingReply(conversationId, sendId) {
@@ -9162,12 +9923,7 @@ function updatePendingReply(conversationId, sendId, updates) {
 	return changed;
 }
 function setPendingDeleteBusy(deleteKey, busy) {
-	for (const button of els.conversation.querySelectorAll(".delete-pending-button")) {
-		if (button.dataset.deletePendingKey !== deleteKey) continue;
-		button.disabled = busy;
-		button.toggleAttribute("aria-busy", busy);
-		button.closest(".message")?.classList.toggle("pending-message-deleting", busy);
-	}
+	conversationRenderer.setPendingDeleteBusy(deleteKey, busy);
 }
 async function deletePendingSend(deleteKey) {
 	let pending = null;
@@ -9181,7 +9937,7 @@ async function deletePendingSend(deleteKey) {
 	const sendId = String(pending.sendId || "");
 	const canDiscardLocally = !sendId && ["failed", "dead_lettered"].includes(String(pending.status || ""));
 	if (!sendId && !canDiscardLocally) {
-		setTextIfChanged(els.composerStatus, "Message is still entering the queue. Try deleting again.");
+		setComposerStatus("Message is still entering the queue. Try deleting again.");
 		return;
 	}
 	if (sendId) {
@@ -9191,7 +9947,7 @@ async function deletePendingSend(deleteKey) {
 		} catch (error) {
 			setPendingDeleteBusy(deleteKey, false);
 			console.warn("Could not delete pending Prompta send", error);
-			setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
+			setComposerStatus("Could not delete the pending message.");
 			return;
 		}
 	}
@@ -9222,14 +9978,14 @@ async function editPendingSend(editKey) {
 	if (!pending) return;
 	const sendId = String(pending.sendId || "");
 	if (!sendId) {
-		setTextIfChanged(els.composerStatus, "Message is still entering the queue. Try editing again.");
+		setComposerStatus("Message is still entering the queue. Try editing again.");
 		return;
 	}
 	try {
 		await deleteRequest("api/sends/" + encodeURIComponent(sendId));
 	} catch (error) {
 		console.warn("Could not cancel pending Prompta send for editing", error);
-		setTextIfChanged(els.composerStatus, "Could not edit the pending message.");
+		setComposerStatus("Could not edit the pending message.");
 		return;
 	}
 	if (creatingNew) {
@@ -9245,16 +10001,13 @@ async function editPendingSend(editKey) {
 		state.selectedFingerprint = "";
 		if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
 	}
-	els.messageInput.value = pending.message || "";
+	appViewState.composerValue = pending.message || "";
 	persistComposerDraft();
-	resizeComposer();
-	updateSlashMenu();
 	syncSendButton();
 	renderSidebar();
-	if ((pending.attachmentNames || []).length) setTextIfChanged(els.composerStatus, "Editing pending message. Reattach the files before sending.");
-	else setTextIfChanged(els.composerStatus, "Editing pending message.");
-	els.messageInput.focus();
-	els.messageInput.setSelectionRange(els.messageInput.value.length, els.messageInput.value.length);
+	if ((pending.attachmentNames || []).length) setComposerStatus("Editing pending message. Reattach the files before sending.");
+	else setComposerStatus("Editing pending message.");
+	requestComposerFocus(true);
 }
 async function watchSend(sendId, creatingNew, conversationId) {
 	let statusFailures = 0;
@@ -9284,7 +10037,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 					if (state.selectedId === conversationId) await loadSelectedChat();
 					if (!pendingReply(conversationId, sendId)) return;
 				}
-				setTextIfChanged(els.composerStatus, "Send status unavailable. Prompta may still be running it; reconnecting…");
+				setComposerStatus("Send status unavailable. Prompta may still be running it; reconnecting…");
 			}
 			await new Promise((resolve) => setTimeout(resolve, Math.min(5e3, 250 * statusFailures)));
 			continue;
@@ -9340,8 +10093,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
 				state.composingNew = false;
 				state.selectedId = newId;
 				history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
-				els.messageInput.placeholder = "Message Prompta…";
-				setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
+				appViewState.composerPlaceholder = "Message Prompta…";
+				setComposerStatus("Sent. Waiting for the cached response…");
 				state.selectedUpdatedAt = null;
 				await loadChats();
 				await loadSelectedChat();
@@ -9368,12 +10121,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
 		})) renderSidebar();
 		if (state.selectedId === conversationId) await loadSelectedChat();
 		if (status === "succeeded") {
-			setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
+			setComposerStatus("Sent. Waiting for the cached response…");
 			await loadChats();
 			return;
 		}
 		if (["failed", "dead_lettered"].includes(status)) {
-			setTextIfChanged(els.composerStatus, status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
+			setComposerStatus(status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
 			return;
 		}
 	}
@@ -9402,12 +10155,11 @@ async function retryFailedSend(scope, retryKey) {
 		}
 	}
 	if (!pending) return;
-	els.messageInput.value = pending.message || "";
-	resizeComposer();
+	appViewState.composerValue = pending.message || "";
 	syncSendButton();
 	if ((pending.attachmentNames || []).length) {
-		setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
-		els.messageInput.focus();
+		setComposerStatus("Reattach the files, then send again.");
+		requestComposerFocus();
 		return;
 	}
 	await sendSelectedMessage();
@@ -9417,16 +10169,16 @@ async function stopSelectedChat() {
 	if (!conversationId || state.mode !== "chats" || state.stopping) return;
 	state.stopping = true;
 	syncSendButton();
-	setTextIfChanged(els.composerStatus, "Stopping response…");
+	setComposerStatus("Stopping response…");
 	try {
 		await postJsonRequest("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
-		setTextIfChanged(els.composerStatus, "Stopped.");
+		setComposerStatus("Stopped.");
 		state.selectedFingerprint = "";
 		state.selectedUpdatedAt = null;
 		await loadSelectedChat();
 		await loadChats();
 	} catch (error) {
-		setTextIfChanged(els.composerStatus, "Stop failed: " + String(error).replace(/^Error:\s*/, ""));
+		setComposerStatus("Stop failed: " + String(error).replace(/^Error:\s*/, ""));
 		console.error(error);
 	} finally {
 		state.stopping = false;
@@ -9434,16 +10186,14 @@ async function stopSelectedChat() {
 	}
 }
 async function sendSelectedMessage() {
-	const message = els.messageInput.value.trim();
+	const message = appViewState.composerValue.trim();
 	const creatingNew = state.composingNew;
 	const conversationId = state.selectedId;
 	const attachments = attachmentPicker.snapshot();
 	if (!message || state.mode !== "chats" || state.sending) return;
 	if (message.toLowerCase() === "/logs") {
 		clearComposerDraft();
-		els.messageInput.value = "";
-		closeSlashMenu();
-		resizeComposer();
+		appViewState.composerValue = "";
 		showMode("logs");
 		return;
 	}
@@ -9455,11 +10205,11 @@ async function sendSelectedMessage() {
 	const scheduleCommand = parseScheduleSlashCommand(message);
 	if (scheduleCommand) {
 		if (attachments.length) {
-			setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+			setComposerStatus("Scheduled prompts do not include attachments.");
 			return;
 		}
 		if ("error" in scheduleCommand) {
-			setTextIfChanged(els.composerStatus, scheduleCommand.error);
+			setComposerStatus(scheduleCommand.error);
 			return;
 		}
 		await runScheduleSlashCommand(scheduleCommand, message);
@@ -9468,11 +10218,11 @@ async function sendSelectedMessage() {
 	const atCommand = parseAtSlashCommand(message);
 	if (atCommand) {
 		if (attachments.length) {
-			setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+			setComposerStatus("Scheduled prompts do not include attachments.");
 			return;
 		}
 		if ("error" in atCommand) {
-			setTextIfChanged(els.composerStatus, atCommand.error);
+			setComposerStatus(atCommand.error);
 			return;
 		}
 		await runAtSlashCommand(atCommand, message);
@@ -9481,25 +10231,25 @@ async function sendSelectedMessage() {
 	if (!creatingNew && isUnresolvedPendingNewConversation(state.pendingNewSend, conversationId)) {
 		state.pendingNewId = state.pendingNewSend?.conversationId || null;
 		renderNewChat();
-		setTextIfChanged(els.composerStatus, "Wait for the pending chat to start before sending another message.");
+		setComposerStatus("Wait for the pending chat to start before sending another message.");
 		return;
 	}
 	if (!creatingNew && !conversationId) return;
 	let serializedAttachments = [];
 	if (attachments.length) {
 		state.sending = true;
-		els.messageInput.disabled = true;
-		els.sendButton.disabled = true;
+		appViewState.composerDisabled = true;
+		appViewState.composerActionDisabled = true;
 		attachmentPicker.setDisabled(true);
-		setTextIfChanged(els.composerStatus, "Preparing attachments…");
+		setComposerStatus("Preparing attachments…");
 		try {
 			serializedAttachments = await attachmentPicker.serialize();
 		} catch (error) {
 			state.sending = false;
-			els.messageInput.disabled = false;
+			appViewState.composerDisabled = false;
 			attachmentPicker.setDisabled(false);
 			syncSendButton();
-			setTextIfChanged(els.composerStatus, "Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
+			setComposerStatus("Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
 			return;
 		}
 		state.sending = false;
@@ -9519,10 +10269,9 @@ async function sendSelectedMessage() {
 		attachments: pendingImageAttachments(serializedAttachments)
 	};
 	state.sending = true;
-	els.sendButton.disabled = true;
+	appViewState.composerActionDisabled = true;
 	clearComposerDraft();
-	els.messageInput.value = "";
-	resizeComposer();
+	appViewState.composerValue = "";
 	if (creatingNew) {
 		state.pendingNewSend = pending;
 		state.newChatFingerprint = "";
@@ -9581,13 +10330,13 @@ async function sendSelectedMessage() {
 		state.sending = false;
 		if (attachments.length) attachmentPicker.setDisabled(false);
 		if (!creatingNew && state.selectedId && state.mode === "chats") {
-			els.messageInput.disabled = false;
+			appViewState.composerDisabled = false;
 			syncSendButton();
-			if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+			if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
 		} else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
-			els.messageInput.disabled = false;
+			appViewState.composerDisabled = false;
 			syncSendButton();
-			if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+			if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
 		}
 		updateComposerActionButton();
 	}
@@ -9595,71 +10344,11 @@ async function sendSelectedMessage() {
 async function copySelectedChatUrl() {
 	if (!state.selectedId) return;
 	const url = new URL(location.href);
-	url.hash = `/${encodeURIComponent(state.selectedId)}`;
-	try {
-		await navigator.clipboard.writeText(url.toString());
-		setTextIfChanged(els.composerStatus, "Chat link copied.");
-	} catch {
-		const textarea = document.createElement("textarea");
-		textarea.value = url.toString();
-		textarea.style.position = "fixed";
-		textarea.style.opacity = "0";
-		document.body.append(textarea);
-		textarea.select();
-		const copied = document.execCommand("copy");
-		textarea.remove();
-		setTextIfChanged(els.composerStatus, copied ? "Chat link copied." : "Could not copy the chat link.");
-	}
-}
-function visibleSlashCommandButtons() {
-	return Array.from(els.slashMenu.querySelectorAll("[data-slash-command]:not([hidden])"));
-}
-function setSlashMenuSelection(button) {
-	activeSlashCommand = button ? String(button.dataset.slashCommand || "") : "";
-	for (const candidate of els.slashMenu.querySelectorAll("[data-slash-command]")) candidate.setAttribute("aria-selected", String(candidate === button));
-	if (button?.id) els.messageInput.setAttribute("aria-activedescendant", button.id);
-	else els.messageInput.removeAttribute("aria-activedescendant");
-}
-function closeSlashMenu() {
-	els.slashMenu.hidden = true;
-	els.messageInput.setAttribute("aria-expanded", "false");
-	setSlashMenuSelection(null);
-}
-function updateSlashMenu() {
-	const value = els.messageInput.value;
-	const firstToken = value.split(/\s/, 1)[0].toLowerCase();
-	const candidates = Array.from(els.slashMenu.querySelectorAll("[data-slash-command]"));
-	const show = value.startsWith("/") && !value.includes("\n") && !value.includes(" ");
-	for (const button of candidates) {
-		const command = String(button.dataset.slashCommand || "").trim().toLowerCase();
-		button.hidden = !(show && command.startsWith(firstToken));
-	}
-	const visible = visibleSlashCommandButtons();
-	if (!visible.length) {
-		closeSlashMenu();
-		return;
-	}
-	els.slashMenu.hidden = false;
-	els.messageInput.setAttribute("aria-expanded", "true");
-	setSlashMenuSelection(visible.find((button) => String(button.dataset.slashCommand || "") === activeSlashCommand) || visible[0]);
-}
-function moveSlashMenuSelection(direction) {
-	const visible = visibleSlashCommandButtons();
-	if (!visible.length) return null;
-	const currentIndex = visible.findIndex((button) => String(button.dataset.slashCommand || "") === activeSlashCommand);
-	const next = visible[nextSlashCommandIndex(visible.length, currentIndex, direction)] || null;
-	setSlashMenuSelection(next);
-	return next;
-}
-function insertSlashCommand(command) {
-	els.messageInput.value = command;
-	closeSlashMenu();
-	resizeComposer();
-	syncSendButton();
-	els.messageInput.focus();
-	els.messageInput.setSelectionRange(command.length, command.length);
+	url.hash = "/" + encodeURIComponent(state.selectedId);
+	setComposerStatus(await copyText(url.toString()) ? "Chat link copied." : "Could not copy the chat link.");
 }
 function refreshDisplayedTimes() {
+	appViewState.clockTick = Date.now();
 	if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "")) {
 		state.newChatFingerprint = "";
 		renderNewChat();
@@ -9667,46 +10356,39 @@ function refreshDisplayedTimes() {
 		state.selectedFingerprint = "";
 		loadSelectedChat();
 	}
-	renderSidebar();
-	for (const time of els.chatList.querySelectorAll(".chat-time[data-activity-at]")) setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
-	for (const time of els.conversation.querySelectorAll(".message-timestamp[data-message-at]")) {
-		const age = time.querySelector(".message-age");
-		if (!age) continue;
-		const ageText = messageAgeText(Number(time.dataset.messageAt || 0));
-		setTextIfChanged(age, ageText ? ` · ${ageText}` : "");
+	renderSidebar(true);
+	if (state.mode === "chats" && state.selectedChat && state.selectedChat.id === state.selectedId && !state.composingNew) {
+		state.selectedMetaFingerprint = "";
+		renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
 	}
-	if (state.mode === "chats" && state.selectedChat && state.selectedChat.id === state.selectedId && !state.composingNew) renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
 }
 async function startApp() {
 	deploymentMonitor.registerServiceWorker();
 	loadServerIdentity();
 	await hydratePinnedIds();
 	await hydratePendingSends();
-	resizeComposer();
 	if (!await hydrateRecentChatCache()) {
 		conversationRenderer.renderLoadingState();
-		setHiddenIfChanged(els.emptyState, true);
-		setHiddenIfChanged(els.conversation, false);
+		showConversation(true);
 	}
-	document.documentElement.classList.remove("booting");
+	appViewState.bootComplete = true;
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, clientSessionId, state, els, sidebarRenderDeferred, sidebar, sidebarList, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, SEND_ICON, STOP_ICON, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer, activeSlashCommand;
+var recentChatCache, clientSessionId, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
-	init_index_client();
-	init_SidebarList();
 	init_clientLogic();
 	init_recentChatCache();
-	init_jobsDialog();
-	init_sidebar();
+	init_appViewState_svelte();
+	init_clipboard();
+	init_appActions_svelte();
+	init_sidebarState_svelte();
 	init_conversationRenderer();
-	init_attachmentPicker();
-	init_logsPanel();
+	init_conversationLogic();
+	init_uiControllers();
 	init_deploymentMonitor();
 	init_liveUpdates();
 	init_completionNotifications();
-	init_changelogDialog();
 	init_clientStorage();
 	recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 	clientSessionId = loadClientSessionId();
@@ -9743,89 +10425,51 @@ var init_app = __esmMin((() => {
 		activityProbes: /* @__PURE__ */ new Set(),
 		activityProbeAt: /* @__PURE__ */ new Map()
 	};
-	syncViewportHeight();
-	window.setTimeout(() => document.documentElement.classList.remove("booting"), 1200);
-	window.addEventListener("resize", syncViewportHeight);
-	window.visualViewport?.addEventListener("resize", syncViewportHeight);
-	els = {
-		chatList: requiredElement("#chatList"),
-		sidebarScroll: requiredElement(".sidebar-scroll"),
-		searchInput: requiredElement("#searchInput"),
-		conversation: requiredElement("#conversation"),
-		emptyState: requiredElement("#emptyState"),
-		viewport: requiredElement("#conversationViewport"),
-		chatHeading: requiredElement("#chatHeading"),
-		syncLabel: requiredElement("#syncLabel"),
-		cacheSummary: requiredElement("#cacheSummary"),
-		headLabel: requiredElement("#headLabel"),
-		versionUpdateNotice: requiredElement("#versionUpdateNotice"),
-		globalLiveOrb: requiredElement("#globalLiveOrb"),
-		serverLabel: requiredElement("#serverLabel"),
-		newChatButton: requiredElement("#newChatButton"),
-		pinChatButton: requiredElement("#pinChatButton"),
-		shareChatButton: requiredElement("#shareChatButton"),
-		slashMenu: requiredElement("#slashMenu"),
-		composerFooter: requiredElement("#composerFooter"),
-		messageForm: requiredElement("#messageForm"),
-		messageInput: requiredElement("#messageInput"),
-		sendButton: requiredElement("#sendButton"),
-		composerStatus: requiredElement("#composerStatus")
-	};
 	sidebarRenderDeferred = false;
-	sidebar = createSidebar({ onMotionEnd: () => {
+	configureSidebar(() => {
 		if (!sidebarRenderDeferred) return;
 		sidebarRenderDeferred = false;
 		renderSidebar();
-	} });
-	sidebarList = mount(SidebarList, {
-		target: els.chatList,
-		props: {
-			onSelect: (chatId, optimisticNew) => {
-				if (optimisticNew && state.pendingNewSend) {
-					renderNewChat();
-					sidebar.close();
-					return;
-				}
-				selectChat(chatId);
-			},
-			onPin: (chatId) => {
-				setChatPinned(chatId, !state.pinnedIds.has(chatId));
-				renderSidebar(true);
-				updatePinButton();
-			}
+	});
+	sidebar = {
+		close: closeSidebar,
+		open: openSidebar,
+		isMoving: () => sidebarState.moving
+	};
+	sidebarListActions.onSelect = (chatId, optimisticNew) => {
+		if (optimisticNew && state.pendingNewSend) {
+			renderNewChat();
+			sidebar.close();
+			return;
 		}
-	});
-	jobsDialog = createJobsDialog({
-		closeSidebar: sidebar.close,
-		resizeComposer,
-		syncSendButton
-	});
+		selectChat(chatId);
+	};
+	sidebarListActions.onPin = (chatId) => {
+		setChatPinned(chatId, !state.pinnedIds.has(chatId));
+		renderSidebar(true);
+		updatePinButton();
+	};
+	jobsDialog = getJobsDialog();
 	conversationRenderer = createConversationRenderer({
 		onRetry: retryFailedSend,
 		onDelete: deletePendingSend,
 		onEdit: editPendingSend
 	});
-	attachmentPicker = createAttachmentPicker({
+	attachmentPicker = getAttachmentPicker();
+	attachmentPicker.configure({
 		onChange: syncSendButton,
-		setStatus: (message) => setTextIfChanged(els.composerStatus, message)
+		setStatus: (message) => {
+			appViewState.composerStatus = message;
+		}
 	});
-	logsPanel = createLogsPanel({
-		fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
-		formatRelativeTime
-	});
+	logsPanel = getLogsPanel();
 	deploymentMonitor = createDeploymentMonitor({ onUpdateAvailable: () => {
-		els.versionUpdateNotice.hidden = false;
+		appViewState.updateAvailable = true;
 	} });
-	els.versionUpdateNotice.addEventListener("click", () => {
-		els.versionUpdateNotice.disabled = true;
-		els.versionUpdateNotice.textContent = "Updating…";
-		els.versionUpdateNotice.setAttribute("aria-label", "Updating Prompta");
+	appActions.onApplyUpdate = () => {
+		appViewState.updateApplying = true;
 		deploymentMonitor.applyUpdate();
-	});
-	createChangelogDialog({
-		fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
-		closeSidebar: sidebar.close
-	});
+	};
 	completionNotifications = createCompletionNotifications({
 		displayServerName,
 		getServerName: () => state.serverName,
@@ -9837,11 +10481,11 @@ var init_app = __esmMin((() => {
 		setServerStatus,
 		observeHead: (head) => deploymentMonitor.observeHead(head),
 		refreshDisplayedTimes,
-		onStreamError: () => els.globalLiveOrb.classList.remove("live"),
+		onStreamError: () => {
+			appViewState.live = false;
+		},
 		onPageShow: () => deploymentMonitor.handleVisibilityChange()
 	});
-	SEND_ICON = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 19V5M6 11l6-6 6 6\"/></svg>";
-	STOP_ICON = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"7.5\" y=\"7.5\" width=\"9\" height=\"9\" rx=\"1.5\" fill=\"currentColor\" stroke=\"none\"/></svg>";
 	iconStatusClasses = /* @__PURE__ */ new Set([
 		"active",
 		"running",
@@ -9863,100 +10507,37 @@ var init_app = __esmMin((() => {
 	]);
 	chatsRequestController = null;
 	HISTORICAL_ACTIVITY_PROBE_TTL_MS = 3e4;
-	els.searchInput.addEventListener("input", () => {
+	appActions.onSearch = (value) => {
+		appViewState.searchValue = value;
 		clearTimeout(searchTimer);
 		searchTimer = setTimeout(() => {
-			state.search = els.searchInput.value.trim();
+			state.search = value.trim();
 			state.sidebarFingerprint = "";
 			loadChats();
 		}, 140);
-	});
-	document.addEventListener("keydown", (event) => {
-		const searchFocused = document.activeElement === els.searchInput;
-		const typing = searchFocused || document.activeElement === els.messageInput;
-		if (event.key === "/" && !typing) {
-			event.preventDefault();
-			sidebar.open();
-			els.searchInput.focus({ preventScroll: true });
-		}
-		if (event.key === "Escape") {
-			if (searchFocused && els.searchInput.value) {
-				event.preventDefault();
-				clearTimeout(searchTimer);
-				els.searchInput.value = "";
-				state.search = "";
-				state.sidebarFingerprint = "";
-				loadChats();
-				return;
-			}
-			attachmentPicker.closeMenu();
-			closeSlashMenu();
-			jobsDialog.close();
-			els.searchInput.blur();
-			sidebar.close(true);
-		}
-	});
-	els.newChatButton.addEventListener("click", () => {
+	};
+	appActions.onNewChat = () => {
 		state.pendingNewSend = null;
 		state.newChatFingerprint = "";
 		renderNewChat();
-	});
-	activeSlashCommand = "";
-	els.pinChatButton.addEventListener("click", toggleSelectedPin);
-	els.shareChatButton.addEventListener("click", copySelectedChatUrl);
-	els.slashMenu.addEventListener("pointermove", (event) => {
-		const button = event.target.closest("[data-slash-command]");
-		if (button && !button.hidden) setSlashMenuSelection(button);
-	});
-	els.slashMenu.addEventListener("click", (event) => {
-		const button = event.target.closest("[data-slash-command]");
-		if (!button) return;
-		insertSlashCommand(String(button.dataset.slashCommand || ""));
-	});
-	els.messageForm.addEventListener("submit", (event) => {
-		event.preventDefault();
-		if (els.sendButton.dataset.action === "stop") stopSelectedChat();
+	};
+	appActions.onPin = toggleSelectedPin;
+	appActions.onShare = () => void copySelectedChatUrl();
+	appActions.onSubmit = () => {
+		if (appViewState.composerAction === "stop") stopSelectedChat();
 		else sendSelectedMessage();
-	});
-	els.messageInput.addEventListener("input", () => {
+	};
+	appActions.onComposerInput = (value) => {
+		appViewState.composerValue = value;
 		persistComposerDraft();
-		resizeComposer();
-		updateSlashMenu();
 		syncSendButton();
-	});
-	els.messageInput.addEventListener("keydown", (event) => {
-		if (!els.slashMenu.hidden) {
-			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-				event.preventDefault();
-				moveSlashMenuSelection(event.key === "ArrowUp" ? -1 : 1);
-				return;
-			}
-			if (event.key === "Tab" || event.key === "Enter" && !event.isComposing) {
-				const selected = visibleSlashCommandButtons().find((button) => String(button.dataset.slashCommand || "") === activeSlashCommand);
-				if (selected) {
-					event.preventDefault();
-					insertSlashCommand(String(selected.dataset.slashCommand || ""));
-					return;
-				}
-			}
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				closeSlashMenu();
-				return;
-			}
-		}
-		const mobileInput = matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
-		if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
-			event.preventDefault();
-			if (els.sendButton.dataset.action === "stop") stopSelectedChat();
-			else sendSelectedMessage();
-		}
-	});
-	window.addEventListener("hashchange", () => {
+	};
+	appActions.onHashChange = () => {
 		const id = conversationIdFromHash(location.hash);
 		if (id && id !== state.selectedId) selectChat(id);
-	});
+	};
+	appActions.onPageHide = () => liveUpdates.handlePageHide();
+	appActions.onPageShow = () => liveUpdates.handlePageShow();
 	startApp();
 }));
 //#endregion

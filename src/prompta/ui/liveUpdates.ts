@@ -167,12 +167,12 @@ export function createLiveUpdates({
     stopTimeRefresh();
   }
 
-  window.addEventListener("pagehide", () => {
+  function handlePageHide() {
     paused = true;
     stop();
-  });
+  }
 
-  window.addEventListener("pageshow", () => {
+  function handlePageShow() {
     onPageShow();
 
     if (!paused) return;
@@ -181,10 +181,12 @@ export function createLiveUpdates({
     void loadServerIdentity();
     void loadChats();
     start();
-  });
+  }
 
   return {
     start,
     stop,
+    handlePageHide,
+    handlePageShow,
   };
 }

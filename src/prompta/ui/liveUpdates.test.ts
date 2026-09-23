@@ -30,10 +30,6 @@ class FakeEventSource {
 
 let windowListeners = new Map<string, Array<() => void>>();
 
-function emitWindow(type: string) {
-  for (const listener of windowListeners.get(type) || []) listener();
-}
-
 const originalWindow = globalThis.window;
 
 const originalEventSource = globalThis.EventSource;
@@ -138,10 +134,10 @@ describe("live chat synchronization", () => {
     expect(FakeEventSource.instances).toHaveLength(1);
 
     const firstStream = FakeEventSource.instances[0];
-    emitWindow("pagehide");
+    liveUpdates.handlePageHide();
     expect(firstStream.closed).toBe(true);
 
-    emitWindow("pageshow");
+    liveUpdates.handlePageShow();
     await Promise.resolve();
 
     expect(pageShows).toBe(1);

@@ -1,6 +1,3 @@
-import { mount } from "svelte";
-import SidebarList from "./SidebarList.svelte";
-
 import {
   chatBrokenReferenceAt,
   chatIsBroken,
@@ -17,8 +14,6 @@ import {
   pendingConversationDisplayId,
   promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
-  messageAgeText,
-  nextSlashCommandIndex,
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   pendingConversationSends,
@@ -39,19 +34,23 @@ import {
   type PendingReply,
 } from "./clientLogic";
 import { RecentChatCache } from "./recentChatCache";
-import { createJobsDialog } from "./jobsDialog";
-import { createSidebar } from "./sidebar";
+import { appViewState, requestComposerFocus, requestSidebarTop } from "./appViewState.svelte";
+import { copyText } from "./clipboard";
+import { appActions } from "./appActions.svelte";
 import {
-  createConversationRenderer,
-  imageAttachments,
-  pendingImageAttachments,
-} from "./conversationRenderer";
-import { createAttachmentPicker } from "./attachmentPicker";
-import { createLogsPanel } from "./logsPanel";
+  closeSidebar,
+  configureSidebar,
+  openSidebar,
+  sidebarListActions,
+  sidebarListState,
+  sidebarState,
+} from "./sidebarState.svelte";
+import { createConversationRenderer } from "./conversationRenderer";
+import { imageAttachments, pendingImageAttachments } from "./conversationLogic";
+import { getAttachmentPicker, getJobsDialog, getLogsPanel } from "./uiControllers";
 import { createDeploymentMonitor } from "./deploymentMonitor";
 import { createLiveUpdates } from "./liveUpdates";
 import { createCompletionNotifications } from "./completionNotifications";
-import { createChangelogDialog } from "./changelogDialog";
 import {
   loadClientSessionId,
   loadComposerDrafts,
@@ -205,89 +204,38 @@ const state: UiState = {
   activityProbeAt: new Map<string, number>(),
 };
 
-function syncViewportHeight() {
-  const viewportHeight = window.visualViewport?.height || window.innerHeight;
-  document.documentElement.style.setProperty("--app-height", `${Math.round(viewportHeight)}px`);
-}
-
-syncViewportHeight();
-
-window.setTimeout(() => document.documentElement.classList.remove("booting"), 1200);
-
-window.addEventListener("resize", syncViewportHeight);
-
-window.visualViewport?.addEventListener("resize", syncViewportHeight);
-
-function requiredElement<T extends Element>(selector: string): T {
-  const element = document.querySelector<T>(selector);
-
-  if (!element) throw new Error(`Missing required UI element: ${selector}`);
-
-  return element;
-}
-
-const els = {
-  chatList: requiredElement<HTMLElement>("#chatList"),
-  sidebarScroll: requiredElement<HTMLElement>(".sidebar-scroll"),
-  searchInput: requiredElement<HTMLInputElement>("#searchInput"),
-  conversation: requiredElement<HTMLElement>("#conversation"),
-  emptyState: requiredElement<HTMLElement>("#emptyState"),
-  viewport: requiredElement<HTMLElement>("#conversationViewport"),
-  chatHeading: requiredElement<HTMLElement>("#chatHeading"),
-  syncLabel: requiredElement<HTMLElement>("#syncLabel"),
-  cacheSummary: requiredElement<HTMLElement>("#cacheSummary"),
-  headLabel: requiredElement<HTMLElement>("#headLabel"),
-  versionUpdateNotice: requiredElement<HTMLButtonElement>("#versionUpdateNotice"),
-  globalLiveOrb: requiredElement<HTMLElement>("#globalLiveOrb"),
-  serverLabel: requiredElement<HTMLElement>("#serverLabel"),
-  newChatButton: requiredElement<HTMLButtonElement>("#newChatButton"),
-  pinChatButton: requiredElement<HTMLButtonElement>("#pinChatButton"),
-  shareChatButton: requiredElement<HTMLButtonElement>("#shareChatButton"),
-  slashMenu: requiredElement<HTMLElement>("#slashMenu"),
-  composerFooter: requiredElement<HTMLElement>("#composerFooter"),
-  messageForm: requiredElement<HTMLFormElement>("#messageForm"),
-  messageInput: requiredElement<HTMLTextAreaElement>("#messageInput"),
-  sendButton: requiredElement<HTMLButtonElement>("#sendButton"),
-  composerStatus: requiredElement<HTMLElement>("#composerStatus"),
-};
-
 let sidebarRenderDeferred = false;
 
-const sidebar = createSidebar({
-  onMotionEnd: () => {
-    if (!sidebarRenderDeferred) return;
+configureSidebar(() => {
+  if (!sidebarRenderDeferred) return;
 
-    sidebarRenderDeferred = false;
-    renderSidebar();
-  },
+  sidebarRenderDeferred = false;
+  renderSidebar();
 });
 
-const sidebarList = mount(SidebarList, {
-  target: els.chatList,
-  props: {
-    onSelect: (chatId: string, optimisticNew: boolean) => {
-      if (optimisticNew && state.pendingNewSend) {
-        renderNewChat();
-        sidebar.close();
+const sidebar = {
+  close: closeSidebar,
+  open: openSidebar,
+  isMoving: () => sidebarState.moving,
+};
 
-        return;
-      }
+sidebarListActions.onSelect = (chatId, optimisticNew) => {
+  if (optimisticNew && state.pendingNewSend) {
+    renderNewChat();
+    sidebar.close();
 
-      void selectChat(chatId);
-    },
-    onPin: (chatId: string) => {
-      setChatPinned(chatId, !state.pinnedIds.has(chatId));
-      renderSidebar(true);
-      updatePinButton();
-    },
-  },
-});
+    return;
+  }
 
-const jobsDialog = createJobsDialog({
-  closeSidebar: sidebar.close,
-  resizeComposer,
-  syncSendButton,
-});
+  void selectChat(chatId);
+};
+sidebarListActions.onPin = (chatId) => {
+  setChatPinned(chatId, !state.pinnedIds.has(chatId));
+  renderSidebar(true);
+  updatePinButton();
+};
+
+const jobsDialog = getJobsDialog();
 
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
@@ -295,33 +243,27 @@ const conversationRenderer = createConversationRenderer({
   onEdit: editPendingSend,
 });
 
-const attachmentPicker = createAttachmentPicker({
+const attachmentPicker = getAttachmentPicker();
+
+attachmentPicker.configure({
   onChange: syncSendButton,
-  setStatus: (message) => setTextIfChanged(els.composerStatus, message),
-});
-
-const logsPanel = createLogsPanel({
-  fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
-  formatRelativeTime,
-});
-
-const deploymentMonitor = createDeploymentMonitor({
-  onUpdateAvailable: () => {
-    els.versionUpdateNotice.hidden = false;
+  setStatus: (message) => {
+    appViewState.composerStatus = message;
   },
 });
 
-els.versionUpdateNotice.addEventListener("click", () => {
-  els.versionUpdateNotice.disabled = true;
-  els.versionUpdateNotice.textContent = "Updating…";
-  els.versionUpdateNotice.setAttribute("aria-label", "Updating Prompta");
-  void deploymentMonitor.applyUpdate();
+const logsPanel = getLogsPanel();
+
+const deploymentMonitor = createDeploymentMonitor({
+  onUpdateAvailable: () => {
+    appViewState.updateAvailable = true;
+  },
 });
 
-createChangelogDialog({
-  fetchJson: (url, timeoutMs) => fetchJson(url, timeoutMs),
-  closeSidebar: sidebar.close,
-});
+appActions.onApplyUpdate = () => {
+  appViewState.updateApplying = true;
+  void deploymentMonitor.applyUpdate();
+};
 
 const completionNotifications = createCompletionNotifications({
   displayServerName,
@@ -335,7 +277,9 @@ const liveUpdates = createLiveUpdates({
   setServerStatus,
   observeHead: (head) => deploymentMonitor.observeHead(head),
   refreshDisplayedTimes,
-  onStreamError: () => els.globalLiveOrb.classList.remove("live"),
+  onStreamError: () => {
+    appViewState.live = false;
+  },
   onPageShow: () => deploymentMonitor.handleVisibilityChange(),
 });
 
@@ -362,7 +306,7 @@ function persistComposerDraft() {
   if (!target) return;
 
   state.composerDraftTarget = target;
-  setStoredComposerDraft(target, els.messageInput.value);
+  setStoredComposerDraft(target, appViewState.composerValue);
 }
 
 function clearComposerDraft(target = composerDraftTarget()) {
@@ -377,149 +321,34 @@ function syncComposerDraftTarget() {
   if (nextTarget === state.composerDraftTarget) return;
 
   if (state.composerDraftTarget && !state.sending) {
-    setStoredComposerDraft(state.composerDraftTarget, els.messageInput.value);
+    setStoredComposerDraft(state.composerDraftTarget, appViewState.composerValue);
   }
 
   state.composerDraftTarget = nextTarget;
   const draft = nextTarget ? state.composerDrafts.get(nextTarget) || "" : "";
 
-  if (els.messageInput.value !== draft) els.messageInput.value = draft;
+  if (appViewState.composerValue !== draft) appViewState.composerValue = draft;
 
-  resizeComposer();
-  updateSlashMenu();
   syncSendButton();
 }
 
-function setTextIfChanged(element: Element, value) {
-  const text = String(value ?? "");
-
-  if (element.textContent !== text) element.textContent = text;
+function setComposerStatus(value) {
+  appViewState.composerStatus = String(value ?? "");
 }
 
-function setHiddenIfChanged(element: HTMLElement, hidden) {
-  if (element.hidden !== hidden) element.hidden = hidden;
+function setCacheSummary(value) {
+  appViewState.cacheSummary = String(value ?? "");
 }
 
-function patchDomNode(current, next) {
-  if (
-    current.nodeType !== next.nodeType ||
-    (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
-  ) {
-    const replacement = next.cloneNode(true);
-    current.replaceWith(replacement);
-
-    return replacement;
-  }
-
-  if (current.nodeType === Node.TEXT_NODE) {
-    if (current.data !== next.data) current.data = next.data;
-
-    return current;
-  }
-
-  if (current.nodeType !== Node.ELEMENT_NODE) return current;
-
-  const preserveDetailsOpen = current.tagName === "DETAILS" && next.tagName === "DETAILS";
-  const detailsOpen = preserveDetailsOpen ? (current as HTMLDetailsElement).open : false;
-
-  for (const attribute of Array.from(current.attributes as NamedNodeMap) as Attr[]) {
-    if (preserveDetailsOpen && attribute.name === "open") continue;
-
-    if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-  }
-
-  for (const attribute of Array.from(next.attributes as NamedNodeMap) as Attr[]) {
-    if (preserveDetailsOpen && attribute.name === "open") continue;
-
-    if (current.getAttribute(attribute.name) !== attribute.value) {
-      current.setAttribute(attribute.name, attribute.value);
-    }
-  }
-
-  patchDomChildren(current, next);
-
-  if (preserveDetailsOpen) (current as HTMLDetailsElement).open = detailsOpen;
-
-  return current;
-}
-
-function domPatchKey(node) {
-  if (!node || node.nodeType !== Node.ELEMENT_NODE) return "";
-
-  return (node as HTMLElement).dataset.domKey || "";
-}
-
-function patchDomChildren(currentParent, nextParent) {
-  let index = 0;
-
-  while (index < nextParent.childNodes.length || index < currentParent.childNodes.length) {
-    let current = currentParent.childNodes[index];
-    const next = nextParent.childNodes[index];
-
-    if (!next) {
-      current.remove();
-      continue;
-    }
-
-    if (!current) {
-      currentParent.append(next.cloneNode(true));
-      index += 1;
-      continue;
-    }
-
-    const nextKey = domPatchKey(next);
-
-    if (nextKey && domPatchKey(current) !== nextKey) {
-      const match = Array.from(currentParent.childNodes)
-        .slice(index + 1)
-        .find((candidate) => domPatchKey(candidate) === nextKey);
-
-      if (match) {
-        currentParent.insertBefore(match, current);
-        current = match;
-      } else {
-        currentParent.insertBefore(next.cloneNode(true), current);
-        index += 1;
-        continue;
-      }
-    }
-
-    patchDomNode(current, next);
-    index += 1;
-  }
-}
-
-function patchHtmlChildren(element: Element, html: string) {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  patchDomChildren(element, template.content);
+function showConversation(visible) {
+  appViewState.emptyVisible = !visible;
+  appViewState.conversationVisible = visible;
 }
 
 function setConversationHeading(title, meta) {
-  let titleNode = els.chatHeading.querySelector(".heading-title");
-  let metaNode = els.chatHeading.querySelector(".heading-meta");
-
-  if (!titleNode) {
-    titleNode = document.createElement("div");
-    titleNode.className = "heading-title";
-    els.chatHeading.prepend(titleNode);
-  }
-
-  if (!metaNode) {
-    metaNode = document.createElement("div");
-    metaNode.className = "heading-meta";
-    els.chatHeading.append(metaNode);
-  }
-
-  setTextIfChanged(titleNode, title);
-  setTextIfChanged(metaNode, meta);
+  appViewState.headingTitle = String(title ?? "");
+  appViewState.headingMeta = String(meta ?? "");
 }
-
-const SEND_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
-
-const STOP_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/></svg>';
 
 function syncSendButton() {
   const waitingNew =
@@ -527,21 +356,14 @@ function syncSendButton() {
     state.pendingNewSend &&
     !["failed", "dead_lettered", "succeeded"].includes(state.pendingNewSend.status);
   const hasTarget = state.composingNew || Boolean(state.selectedId);
-  const hasContent = composerHasContent(els.messageInput.value, attachmentPicker.count());
-  const canCompose = state.mode === "chats" && !els.messageInput.disabled && hasTarget;
+  const hasContent = composerHasContent(appViewState.composerValue, attachmentPicker.count());
+  const canCompose = state.mode === "chats" && !appViewState.composerDisabled && hasTarget;
   const stopMode =
     canCompose && shouldShowStopAction(state.selectedChat?.status, state.composingNew, hasContent);
   const probingActivity = Boolean(state.selectedId && state.activityProbes.has(state.selectedId));
-  const action = stopMode ? "stop" : "send";
 
-  if (els.sendButton.dataset.action !== action) {
-    els.sendButton.dataset.action = action;
-    patchHtmlChildren(els.sendButton, stopMode ? STOP_ICON : SEND_ICON);
-    els.sendButton.setAttribute("aria-label", stopMode ? "Stop response" : "Send message");
-    els.sendButton.title = stopMode ? "Stop response" : "Send message";
-  }
-
-  els.sendButton.disabled =
+  appViewState.composerAction = stopMode ? "stop" : "send";
+  appViewState.composerActionDisabled =
     !canCompose ||
     state.sending ||
     state.stopping ||
@@ -574,23 +396,18 @@ function setServerStatus(server, online) {
 
   const display = displayServerName(state.serverName || location.hostname);
   const knownOnline = state.serverOnline;
-  setTextIfChanged(
-    els.serverLabel,
-    knownOnline === false ? `Server · ${display} · offline` : `Server · ${display}`,
-  );
-  document.title = `Prompta · ${display}`;
-  logsPanel.setServerTitle(display);
-  const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-
-  if (appleTitle) appleTitle.setAttribute("content", `Prompta ${display}`);
-
-  els.globalLiveOrb.classList.toggle("live", knownOnline === true);
-  els.globalLiveOrb.title =
+  appViewState.serverDisplay = display;
+  appViewState.serverLabel =
+    knownOnline === false ? "Server · " + display + " · offline" : "Server · " + display;
+  appViewState.serverOnline = knownOnline;
+  appViewState.live = knownOnline === true;
+  appViewState.liveTitle =
     knownOnline === false
-      ? `${display} is offline`
+      ? display + " is offline"
       : knownOnline === true
-        ? `${display} is online`
-        : `${display} status unknown`;
+        ? display + " is online"
+        : display + " status unknown";
+  logsPanel.setServerTitle(display);
 }
 
 function formatRelativeTime(epochSeconds) {
@@ -715,11 +532,9 @@ const iconStatusClasses = new Set([
   "idle",
 ]);
 
-function setStatusIcon(element, status, label, kind = "") {
-  const statusClassName = iconStatusClasses.has(status) ? status : "neutral";
-  element.className = ["status-icon", kind, statusClassName].filter(Boolean).join(" ");
-  element.title = label;
-  element.setAttribute("aria-label", label);
+function setStatusIcon(status, label) {
+  appViewState.syncStatus = iconStatusClasses.has(status) ? status : "neutral";
+  appViewState.syncLabel = String(label || "");
 }
 
 function reconcileOptimisticNew(chats) {
@@ -808,7 +623,7 @@ function sidebarChats(): UiChat[] {
 }
 
 function scrollSidebarToNewest() {
-  if (els.sidebarScroll.scrollTop) els.sidebarScroll.scrollTop = 0;
+  requestSidebarTop();
 }
 
 function renderSidebar(force = false) {
@@ -851,15 +666,15 @@ function renderSidebar(force = false) {
   state.sidebarFingerprint = fingerprint;
 
   if (!chats.length) {
-    sidebarList.update({
+    sidebarListState.model = {
       emptyState: state.search ? "search" : "empty",
       groups: [],
-    });
+    };
 
     return;
   }
 
-  sidebarList.update({
+  sidebarListState.model = {
     emptyState: "none",
     groups: groupChats(chats).map(([label, groupedChats]) => ({
       label,
@@ -902,7 +717,7 @@ function renderSidebar(force = false) {
         };
       }),
     })),
-  });
+  };
 }
 
 function pendingReplyMessages(conversationId, cachedMessages) {
@@ -1017,12 +832,9 @@ function updatePinButton() {
   const chatId = state.selectedId;
   const available = Boolean(chatId) && !state.composingNew;
   const pinned = Boolean(available && chatId && state.pinnedIds.has(chatId));
-  els.pinChatButton.disabled = !available;
-  els.pinChatButton.classList.toggle("active", Boolean(pinned));
-  els.pinChatButton.setAttribute("aria-pressed", String(Boolean(pinned)));
-  const label = pinned ? "Unpin chat" : "Pin chat";
-  els.pinChatButton.title = label;
-  els.pinChatButton.setAttribute("aria-label", label);
+  appViewState.pinDisabled = !available;
+  appViewState.pinActive = pinned;
+  appViewState.pinLabel = pinned ? "Unpin chat" : "Pin chat";
 }
 
 function toggleSelectedPin() {
@@ -1070,7 +882,7 @@ function renderConversationMeta(chat, visibleMessageCount) {
       : chat.status === "interrupted"
         ? "Last run was interrupted"
         : "Cached in SQLite";
-  setStatusIcon(els.syncLabel, syncStatus, syncLabel, "sync");
+  setStatusIcon(syncStatus, syncLabel);
 }
 
 function rememberConversationViewport(conversationId) {
@@ -1094,26 +906,22 @@ function rememberConversationViewport(conversationId) {
 
 function beginChatSwitch() {
   state.chatSwitchToken += 1;
-  els.viewport.classList.add("chat-switching");
-  els.viewport.setAttribute("aria-busy", "true");
+  appViewState.chatSwitching = true;
 }
 
 function cancelChatSwitch() {
   state.chatSwitchToken += 1;
-  els.viewport.classList.remove("chat-switching");
-  els.viewport.removeAttribute("aria-busy");
+  appViewState.chatSwitching = false;
 }
 
 function finishChatSwitch(conversationId) {
-  if (!els.viewport.classList.contains("chat-switching")) return;
+  if (!appViewState.chatSwitching) return;
 
   const token = state.chatSwitchToken;
   requestAnimationFrame(() => {
     if (token !== state.chatSwitchToken || state.selectedId !== conversationId) return;
 
-    void getComputedStyle(els.conversation).opacity;
-    els.viewport.classList.remove("chat-switching");
-    els.viewport.removeAttribute("aria-busy");
+    appViewState.chatSwitching = false;
   });
 }
 
@@ -1137,7 +945,7 @@ function renderConversation(chat) {
     const viewportSnapshot =
       rememberedViewport || conversationRenderer.captureConversationViewport();
     state.selectedFingerprint = fingerprint;
-    conversationRenderer.renderMessageNodes(visibleMessages, allowStreaming);
+    void conversationRenderer.renderMessageNodes(visibleMessages, allowStreaming);
     state.renderedConversationId = chat.id;
     conversationRenderer.restoreConversationViewport(
       viewportSnapshot,
@@ -1147,13 +955,13 @@ function renderConversation(chat) {
 
   finishChatSwitch(chat.id);
   renderConversationMeta(chat, visibleMessages.length);
-  setHiddenIfChanged(els.emptyState, true);
-  setHiddenIfChanged(els.conversation, false);
-  els.messageInput.disabled = false;
+  appViewState.emptyVisible = false;
+  appViewState.conversationVisible = true;
+  appViewState.composerDisabled = false;
   state.composingNew = false;
   syncComposerDraftTarget();
   syncSendButton();
-  els.shareChatButton.disabled = false;
+  appViewState.shareDisabled = false;
   updatePinButton();
   syncSendButton();
   const pendingActivity = [...(state.pendingReplies.get(chat.id) || [])]
@@ -1171,36 +979,31 @@ function renderConversation(chat) {
     .find(Boolean);
 
   if (pendingActivity) {
-    setTextIfChanged(els.composerStatus, pendingActivity.statusText);
+    appViewState.composerStatus = pendingActivity.statusText;
   } else if (!state.sending) {
-    setTextIfChanged(
-      els.composerStatus,
+    appViewState.composerStatus =
       chat.status === "active"
         ? "Uses the existing live ChatGPT tab."
         : chat.status === "interrupted"
           ? "The last run was interrupted. Sending will reopen this chat."
-          : "Sending will reopen this chat once if its retained tab has expired.",
-    );
+          : "Sending will reopen this chat once if its retained tab has expired.";
   }
 }
 
 function showMode(mode) {
   state.mode = mode === "logs" ? "logs" : "chats";
+  appViewState.mode = state.mode === "logs" ? "logs" : "chats";
   const logsMode = state.mode === "logs";
-  els.viewport.hidden = logsMode;
-  logsPanel.setVisible(logsMode);
-  els.composerFooter.hidden = logsMode;
 
   if (logsMode) {
     cancelChatSwitch();
     state.selectedMetaFingerprint = "";
     const display = displayServerName(state.serverName || location.hostname);
-    setConversationHeading(`${display} Prompta logs`, `journalctl · prompta.service · ${display}`);
-    setStatusIcon(els.syncLabel, "journal", `${display} journal`, "sync");
-    els.messageInput.disabled = true;
-    els.sendButton.disabled = true;
-    els.shareChatButton.disabled = true;
-    setTextIfChanged(els.composerStatus, "Switch back to chats to send a message.");
+    setConversationHeading(display + " Prompta logs", "journalctl · prompta.service · " + display);
+    setStatusIcon("journal", display + " journal");
+    appViewState.composerDisabled = true;
+    appViewState.shareDisabled = true;
+    appViewState.composerStatus = "Switch back to chats to send a message.";
     updateComposerActionButton();
 
     return;
@@ -1224,17 +1027,16 @@ function clearConversation() {
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
   state.renderedConversationId = "";
-  setHiddenIfChanged(els.emptyState, false);
-  setHiddenIfChanged(els.conversation, true);
-  conversationRenderer.renderMessageNodes([], false);
+  appViewState.emptyVisible = true;
+  appViewState.conversationVisible = false;
+  void conversationRenderer.renderMessageNodes([], false);
   setConversationHeading("Prompta", "Local conversation history");
-  setStatusIcon(els.syncLabel, "local", "Local cache", "sync");
-  els.messageInput.disabled = true;
-  els.sendButton.disabled = true;
-  els.shareChatButton.disabled = true;
+  setStatusIcon("local", "Local cache");
+  appViewState.composerDisabled = true;
+  appViewState.shareDisabled = true;
   updatePinButton();
-  els.messageInput.placeholder = "Message Prompta…";
-  setTextIfChanged(els.composerStatus, "");
+  appViewState.composerPlaceholder = "Message Prompta…";
+  appViewState.composerStatus = "";
   syncComposerDraftTarget();
   updateComposerActionButton();
 }
@@ -1249,6 +1051,7 @@ function renderNewChat() {
   state.selectedChat = null;
   state.renderedConversationId = "";
   state.mode = "chats";
+  appViewState.mode = "chats";
   syncComposerDraftTarget();
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "dead_lettered", "succeeded"].includes(pending.status);
@@ -1318,31 +1121,24 @@ function renderNewChat() {
       }
 
       const viewportSnapshot = conversationRenderer.captureConversationViewport();
-      setHiddenIfChanged(els.emptyState, true);
-      setHiddenIfChanged(els.conversation, false);
-      conversationRenderer.renderMessageNodes(messages, true);
+      showConversation(true);
+      void conversationRenderer.renderMessageNodes(messages, true);
       conversationRenderer.restoreConversationViewport(viewportSnapshot, enteringNewChat);
     } else {
-      setHiddenIfChanged(els.emptyState, false);
-      setHiddenIfChanged(els.conversation, true);
-      conversationRenderer.renderMessageNodes([], false);
+      showConversation(false);
+      void conversationRenderer.renderMessageNodes([], false);
     }
 
     setConversationHeading(
       "New chat",
       pending ? "Queued through the live Prompta session" : "Starts a fresh ChatGPT conversation",
     );
-    setStatusIcon(
-      els.syncLabel,
-      pending ? "queued" : "new",
-      pending ? "Send queued" : "Fresh conversation",
-      "sync",
-    );
-    els.messageInput.disabled = false;
+    setStatusIcon(pending ? "queued" : "new", pending ? "Send queued" : "Fresh conversation");
+    appViewState.composerDisabled = false;
     syncSendButton();
-    els.shareChatButton.disabled = true;
+    appViewState.shareDisabled = true;
     updatePinButton();
-    els.messageInput.placeholder = "Start a new chat…";
+    appViewState.composerPlaceholder = "Start a new chat…";
     const activity = pending
       ? pendingSendActivity(
           pending.status,
@@ -1353,8 +1149,7 @@ function renderNewChat() {
           pending.queuePosition,
         )
       : null;
-    setTextIfChanged(
-      els.composerStatus,
+    setComposerStatus(
       pending
         ? ["failed", "dead_lettered"].includes(pending.status)
           ? pending.status === "dead_lettered"
@@ -1368,15 +1163,14 @@ function renderNewChat() {
   updateComposerActionButton();
 
   if (enteringNewChat) {
-    els.viewport.hidden = false;
-    logsPanel.setVisible(false);
+    appViewState.mode = "chats";
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     renderSidebar();
     scrollSidebarToNewest();
     sidebar.close();
 
     if (!waiting && matchMedia("(pointer: fine)").matches) {
-      requestAnimationFrame(() => els.messageInput.focus());
+      requestComposerFocus();
     }
   }
 }
@@ -1445,10 +1239,7 @@ async function hydrateRecentChatCache() {
   state.chats = sortSidebarChats(Array.from(unique.values()), state.pinnedIds);
   state.chatOrderScope = "";
   const activeCount = state.chats.filter((chat) => chat.status === "active").length;
-  setTextIfChanged(
-    els.cacheSummary,
-    sidebarChatCountSummary(state.chats.length, activeCount, state.search),
-  );
+  setCacheSummary(sidebarChatCountSummary(state.chats.length, activeCount, state.search));
   const hashId = conversationIdFromHash(location.hash);
   const initialId = hashId || state.chats[0]?.id || "";
 
@@ -1461,8 +1252,7 @@ async function hydrateRecentChatCache() {
       renderConversation(chat);
     } else {
       conversationRenderer.renderLoadingState();
-      setHiddenIfChanged(els.emptyState, true);
-      setHiddenIfChanged(els.conversation, false);
+      showConversation(true);
     }
   }
 
@@ -1480,8 +1270,8 @@ async function loadServerIdentity() {
       .trim()
       .toLowerCase();
     deploymentMonitor.observeHead(head);
-    setTextIfChanged(els.headLabel, head ? head : "unknown");
-    els.headLabel.title = head ? "UI commit " + head : "UI commit unavailable";
+    appViewState.headLabel = head ? head : "unknown";
+    appViewState.headTitle = head ? "UI commit " + head : "UI commit unavailable";
   } catch (error) {
     setServerStatus(state.serverName || location.hostname, false);
     console.warn("Could not load Prompta server identity", error);
@@ -1574,10 +1364,7 @@ async function loadChats(forceSelectedRefresh = false) {
     state.chatOrderScope = state.search;
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
 
-    setTextIfChanged(
-      els.cacheSummary,
-      sidebarChatCountSummary(state.chats.length, activeCount, state.search),
-    );
+    setCacheSummary(sidebarChatCountSummary(state.chats.length, activeCount, state.search));
     const hashId = conversationIdFromHash(location.hash);
 
     if (!state.selectedId && hashId) {
@@ -1614,11 +1401,8 @@ async function loadChats(forceSelectedRefresh = false) {
   } catch (error) {
     if (requestId !== state.chatsRequestId) return;
 
-    if (els.globalLiveOrb.classList.contains("live")) {
-      els.globalLiveOrb.classList.remove("live");
-    }
-
-    setTextIfChanged(els.cacheSummary, "Cache unavailable");
+    appViewState.live = false;
+    setCacheSummary("Cache unavailable");
     console.error(error);
   } finally {
     if (chatsRequestController === requestController) chatsRequestController = null;
@@ -1643,7 +1427,7 @@ async function probeHistoricalActivity(conversationId) {
   state.activityProbes.add(conversationId);
 
   if (state.selectedId === conversationId) {
-    setTextIfChanged(els.composerStatus, "Checking whether ChatGPT is still running…");
+    setComposerStatus("Checking whether ChatGPT is still running…");
     syncSendButton();
   }
 
@@ -1667,10 +1451,7 @@ async function probeHistoricalActivity(conversationId) {
     await loadChats();
   } catch (error) {
     if (state.selectedId === conversationId) {
-      setTextIfChanged(
-        els.composerStatus,
-        "Could not verify whether this interrupted chat is still running.",
-      );
+      setComposerStatus("Could not verify whether this interrupted chat is still running.");
     }
 
     console.warn("Could not probe historical chat activity", error);
@@ -1695,8 +1476,7 @@ function renderRecentChatSnapshot(conversationId) {
 
   if (!state.renderedConversationId) {
     conversationRenderer.renderLoadingState();
-    setHiddenIfChanged(els.emptyState, true);
-    setHiddenIfChanged(els.conversation, false);
+    showConversation(true);
   }
 
   void recentChatCache.get(conversationId).then((chat) => {
@@ -1797,7 +1577,7 @@ async function selectChat(id) {
   const pendingNew = state.pendingNewSend?.conversationId === id ? state.pendingNewSend : null;
   state.composingNew = false;
   state.pendingNewId = pendingNew ? id : null;
-  els.messageInput.placeholder = "Message Prompta…";
+  appViewState.composerPlaceholder = "Message Prompta…";
   state.selectedId = id;
   state.selectedUpdatedAt = null;
   state.selectedFingerprint = "";
@@ -1810,76 +1590,30 @@ async function selectChat(id) {
 
 let searchTimer;
 
-els.searchInput.addEventListener("input", () => {
+appActions.onSearch = (value) => {
+  appViewState.searchValue = value;
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    state.search = els.searchInput.value.trim();
+    state.search = value.trim();
     state.sidebarFingerprint = "";
     void loadChats();
   }, 140);
-});
+};
 
-document.addEventListener("keydown", (event) => {
-  const searchFocused = document.activeElement === els.searchInput;
-  const typing = searchFocused || document.activeElement === els.messageInput;
-
-  if (event.key === "/" && !typing) {
-    event.preventDefault();
-    sidebar.open();
-    els.searchInput.focus({ preventScroll: true });
-  }
-
-  if (event.key === "Escape") {
-    if (searchFocused && els.searchInput.value) {
-      event.preventDefault();
-      clearTimeout(searchTimer);
-      els.searchInput.value = "";
-      state.search = "";
-      state.sidebarFingerprint = "";
-      void loadChats();
-
-      return;
-    }
-
-    attachmentPicker.closeMenu();
-    closeSlashMenu();
-    jobsDialog.close();
-    els.searchInput.blur();
-    sidebar.close(true);
-  }
-});
-
-els.newChatButton.addEventListener("click", () => {
+appActions.onNewChat = () => {
   state.pendingNewSend = null;
   state.newChatFingerprint = "";
   renderNewChat();
-});
-
-function resizeComposer() {
-  els.messageInput.style.overflowY = "hidden";
-
-  if (!els.messageInput.value) {
-    els.messageInput.style.height = "34px";
-
-    return;
-  }
-
-  els.messageInput.style.height = "auto";
-  const contentHeight = els.messageInput.scrollHeight;
-  els.messageInput.style.height = `${Math.min(180, contentHeight)}px`;
-  els.messageInput.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
-}
+};
 
 async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
-  els.messageInput.disabled = true;
-  els.sendButton.disabled = true;
+  appViewState.composerDisabled = true;
   attachmentPicker.setDisabled(true);
   clearComposerDraft();
-  els.messageInput.value = "";
-  resizeComposer();
+  appViewState.composerValue = "";
   updateComposerActionButton();
-  setTextIfChanged(els.composerStatus, "Saving schedule…");
+  setComposerStatus("Saving schedule…");
 
   try {
     const result = await postJson("api/schedule", {
@@ -1889,40 +1623,30 @@ async function runScheduleSlashCommand(command, originalMessage) {
     const server = displayServerName(result.server || state.serverName || location.hostname);
     const interval = formatScheduleInterval(Number(result.interval_minutes));
     const prefix = result.created === false ? "Already scheduled" : "Scheduled";
-    setTextIfChanged(
-      els.composerStatus,
-      `${prefix} on ${server}: every ${interval} · ${command.prompt}`,
-    );
+    setComposerStatus(prefix + " on " + server + ": every " + interval + " · " + command.prompt);
   } catch (error) {
-    els.messageInput.value = originalMessage;
+    appViewState.composerValue = originalMessage;
     persistComposerDraft();
-    resizeComposer();
-    updateSlashMenu();
-    setTextIfChanged(
-      els.composerStatus,
-      `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`,
-    );
+    setComposerStatus("Schedule failed: " + String(error).replace(/^Error:\s*/, ""));
     console.error(error);
   } finally {
     state.sending = false;
-    els.messageInput.disabled = false;
+    appViewState.composerDisabled = false;
     attachmentPicker.setDisabled(false);
     syncSendButton();
 
-    if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+    if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
   }
 }
 
 async function runAtSlashCommand(command, originalMessage) {
   state.sending = true;
-  els.messageInput.disabled = true;
-  els.sendButton.disabled = true;
+  appViewState.composerDisabled = true;
   attachmentPicker.setDisabled(true);
   clearComposerDraft();
-  els.messageInput.value = "";
-  resizeComposer();
-  updateSlashMenu();
-  setTextIfChanged(els.composerStatus, "Saving one-time schedule…");
+  appViewState.composerValue = "";
+  updateComposerActionButton();
+  setComposerStatus("Saving one-time schedule…");
 
   try {
     const result = await postJson("api/schedule-at", {
@@ -1930,27 +1654,21 @@ async function runAtSlashCommand(command, originalMessage) {
       prompt: command.prompt,
     });
     const server = displayServerName(result.server || state.serverName || location.hostname);
-    setTextIfChanged(
-      els.composerStatus,
-      `Scheduled on ${server}: ${command.runAtLabel} · ${command.prompt}`,
+    setComposerStatus(
+      "Scheduled on " + server + ": " + command.runAtLabel + " · " + command.prompt,
     );
   } catch (error) {
-    els.messageInput.value = originalMessage;
+    appViewState.composerValue = originalMessage;
     persistComposerDraft();
-    resizeComposer();
-    updateSlashMenu();
-    setTextIfChanged(
-      els.composerStatus,
-      `Schedule failed: ${String(error).replace(/^Error:\s*/, "")}`,
-    );
+    setComposerStatus("Schedule failed: " + String(error).replace(/^Error:\s*/, ""));
     console.error(error);
   } finally {
     state.sending = false;
-    els.messageInput.disabled = false;
+    appViewState.composerDisabled = false;
     attachmentPicker.setDisabled(false);
     syncSendButton();
 
-    if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+    if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
   }
 }
 
@@ -1989,15 +1707,7 @@ function updatePendingReply(conversationId, sendId, updates) {
 }
 
 function setPendingDeleteBusy(deleteKey: string, busy: boolean) {
-  for (const button of els.conversation.querySelectorAll<HTMLButtonElement>(
-    ".delete-pending-button",
-  )) {
-    if (button.dataset.deletePendingKey !== deleteKey) continue;
-
-    button.disabled = busy;
-    button.toggleAttribute("aria-busy", busy);
-    button.closest(".message")?.classList.toggle("pending-message-deleting", busy);
-  }
+  conversationRenderer.setPendingDeleteBusy(deleteKey, busy);
 }
 
 async function deletePendingSend(deleteKey: string) {
@@ -2026,10 +1736,7 @@ async function deletePendingSend(deleteKey: string) {
     !sendId && ["failed", "dead_lettered"].includes(String(pending.status || ""));
 
   if (!sendId && !canDiscardLocally) {
-    setTextIfChanged(
-      els.composerStatus,
-      "Message is still entering the queue. Try deleting again.",
-    );
+    setComposerStatus("Message is still entering the queue. Try deleting again.");
 
     return;
   }
@@ -2042,7 +1749,7 @@ async function deletePendingSend(deleteKey: string) {
     } catch (error) {
       setPendingDeleteBusy(deleteKey, false);
       console.warn("Could not delete pending Prompta send", error);
-      setTextIfChanged(els.composerStatus, "Could not delete the pending message.");
+      setComposerStatus("Could not delete the pending message.");
 
       return;
     }
@@ -2093,7 +1800,7 @@ async function editPendingSend(editKey: string) {
   const sendId = String(pending.sendId || "");
 
   if (!sendId) {
-    setTextIfChanged(els.composerStatus, "Message is still entering the queue. Try editing again.");
+    setComposerStatus("Message is still entering the queue. Try editing again.");
 
     return;
   }
@@ -2102,7 +1809,7 @@ async function editPendingSend(editKey: string) {
     await deleteRequest("api/sends/" + encodeURIComponent(sendId));
   } catch (error) {
     console.warn("Could not cancel pending Prompta send for editing", error);
-    setTextIfChanged(els.composerStatus, "Could not edit the pending message.");
+    setComposerStatus("Could not edit the pending message.");
 
     return;
   }
@@ -2125,26 +1832,20 @@ async function editPendingSend(editKey: string) {
     if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
   }
 
-  els.messageInput.value = pending.message || "";
+  appViewState.composerValue = pending.message || "";
   persistComposerDraft();
-  resizeComposer();
-  updateSlashMenu();
   syncSendButton();
   renderSidebar();
 
   const attachmentNames = (pending as UiPendingSend).attachmentNames || [];
 
   if (attachmentNames.length) {
-    setTextIfChanged(
-      els.composerStatus,
-      "Editing pending message. Reattach the files before sending.",
-    );
+    setComposerStatus("Editing pending message. Reattach the files before sending.");
   } else {
-    setTextIfChanged(els.composerStatus, "Editing pending message.");
+    setComposerStatus("Editing pending message.");
   }
 
-  els.messageInput.focus();
-  els.messageInput.setSelectionRange(els.messageInput.value.length, els.messageInput.value.length);
+  requestComposerFocus(true);
 }
 
 async function watchSend(sendId, creatingNew, conversationId) {
@@ -2189,8 +1890,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
           if (!pendingReply(conversationId, sendId)) return;
         }
 
-        setTextIfChanged(
-          els.composerStatus,
+        setComposerStatus(
           "Send status unavailable. Prompta may still be running it; reconnecting…",
         );
       }
@@ -2274,8 +1974,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
         state.composingNew = false;
         state.selectedId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
-        els.messageInput.placeholder = "Message Prompta…";
-        setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
+        appViewState.composerPlaceholder = "Message Prompta…";
+        setComposerStatus("Sent. Waiting for the cached response…");
         state.selectedUpdatedAt = null;
         await loadChats();
         await loadSelectedChat();
@@ -2314,15 +2014,14 @@ async function watchSend(sendId, creatingNew, conversationId) {
     if (state.selectedId === conversationId) await loadSelectedChat();
 
     if (status === "succeeded") {
-      setTextIfChanged(els.composerStatus, "Sent. Waiting for the cached response…");
+      setComposerStatus("Sent. Waiting for the cached response…");
       await loadChats();
 
       return;
     }
 
     if (["failed", "dead_lettered"].includes(status)) {
-      setTextIfChanged(
-        els.composerStatus,
+      setComposerStatus(
         status === "dead_lettered"
           ? "Send exhausted its retry budget. Retry to enqueue it again."
           : "Send failed. The error is shown in the chat.",
@@ -2368,13 +2067,12 @@ async function retryFailedSend(scope, retryKey) {
 
   if (!pending) return;
 
-  els.messageInput.value = pending.message || "";
-  resizeComposer();
+  appViewState.composerValue = pending.message || "";
   syncSendButton();
 
   if (((pending as UiPendingSend).attachmentNames || []).length) {
-    setTextIfChanged(els.composerStatus, "Reattach the files, then send again.");
-    els.messageInput.focus();
+    setComposerStatus("Reattach the files, then send again.");
+    requestComposerFocus();
 
     return;
   }
@@ -2389,17 +2087,17 @@ async function stopSelectedChat() {
 
   state.stopping = true;
   syncSendButton();
-  setTextIfChanged(els.composerStatus, "Stopping response…");
+  setComposerStatus("Stopping response…");
 
   try {
     await postJson("api/chats/" + encodeURIComponent(conversationId) + "/stop", {});
-    setTextIfChanged(els.composerStatus, "Stopped.");
+    setComposerStatus("Stopped.");
     state.selectedFingerprint = "";
     state.selectedUpdatedAt = null;
     await loadSelectedChat();
     await loadChats();
   } catch (error) {
-    setTextIfChanged(els.composerStatus, "Stop failed: " + String(error).replace(/^Error:\s*/, ""));
+    setComposerStatus("Stop failed: " + String(error).replace(/^Error:\s*/, ""));
     console.error(error);
   } finally {
     state.stopping = false;
@@ -2408,7 +2106,7 @@ async function stopSelectedChat() {
 }
 
 async function sendSelectedMessage() {
-  const message = els.messageInput.value.trim();
+  const message = appViewState.composerValue.trim();
   const creatingNew = state.composingNew;
   const conversationId = state.selectedId;
   const attachments = attachmentPicker.snapshot();
@@ -2417,9 +2115,7 @@ async function sendSelectedMessage() {
 
   if (message.toLowerCase() === "/logs") {
     clearComposerDraft();
-    els.messageInput.value = "";
-    closeSlashMenu();
-    resizeComposer();
+    appViewState.composerValue = "";
     showMode("logs");
 
     return;
@@ -2436,13 +2132,13 @@ async function sendSelectedMessage() {
 
   if (scheduleCommand) {
     if (attachments.length) {
-      setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+      setComposerStatus("Scheduled prompts do not include attachments.");
 
       return;
     }
 
     if ("error" in scheduleCommand) {
-      setTextIfChanged(els.composerStatus, scheduleCommand.error);
+      setComposerStatus(scheduleCommand.error);
 
       return;
     }
@@ -2456,13 +2152,13 @@ async function sendSelectedMessage() {
 
   if (atCommand) {
     if (attachments.length) {
-      setTextIfChanged(els.composerStatus, "Scheduled prompts do not include attachments.");
+      setComposerStatus("Scheduled prompts do not include attachments.");
 
       return;
     }
 
     if ("error" in atCommand) {
-      setTextIfChanged(els.composerStatus, atCommand.error);
+      setComposerStatus(atCommand.error);
 
       return;
     }
@@ -2475,10 +2171,7 @@ async function sendSelectedMessage() {
   if (!creatingNew && isUnresolvedPendingNewConversation(state.pendingNewSend, conversationId)) {
     state.pendingNewId = state.pendingNewSend?.conversationId || null;
     renderNewChat();
-    setTextIfChanged(
-      els.composerStatus,
-      "Wait for the pending chat to start before sending another message.",
-    );
+    setComposerStatus("Wait for the pending chat to start before sending another message.");
 
     return;
   }
@@ -2489,22 +2182,19 @@ async function sendSelectedMessage() {
 
   if (attachments.length) {
     state.sending = true;
-    els.messageInput.disabled = true;
-    els.sendButton.disabled = true;
+    appViewState.composerDisabled = true;
+    appViewState.composerActionDisabled = true;
     attachmentPicker.setDisabled(true);
-    setTextIfChanged(els.composerStatus, "Preparing attachments…");
+    setComposerStatus("Preparing attachments…");
 
     try {
       serializedAttachments = await attachmentPicker.serialize();
     } catch (error) {
       state.sending = false;
-      els.messageInput.disabled = false;
+      appViewState.composerDisabled = false;
       attachmentPicker.setDisabled(false);
       syncSendButton();
-      setTextIfChanged(
-        els.composerStatus,
-        "Attachment failed: " + String(error).replace(/^Error:\s*/, ""),
-      );
+      setComposerStatus("Attachment failed: " + String(error).replace(/^Error:\s*/, ""));
 
       return;
     }
@@ -2527,10 +2217,9 @@ async function sendSelectedMessage() {
     attachments: pendingImageAttachments(serializedAttachments),
   };
   state.sending = true;
-  els.sendButton.disabled = true;
+  appViewState.composerActionDisabled = true;
   clearComposerDraft();
-  els.messageInput.value = "";
-  resizeComposer();
+  appViewState.composerValue = "";
 
   if (creatingNew) {
     state.pendingNewSend = pending;
@@ -2607,15 +2296,15 @@ async function sendSelectedMessage() {
     if (attachments.length) attachmentPicker.setDisabled(false);
 
     if (!creatingNew && state.selectedId && state.mode === "chats") {
-      els.messageInput.disabled = false;
+      appViewState.composerDisabled = false;
       syncSendButton();
 
-      if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+      if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
     } else if (creatingNew && state.pendingNewSend?.status === "failed" && state.mode === "chats") {
-      els.messageInput.disabled = false;
+      appViewState.composerDisabled = false;
       syncSendButton();
 
-      if (matchMedia("(pointer: fine)").matches) els.messageInput.focus();
+      if (matchMedia("(pointer: fine)").matches) requestComposerFocus();
     }
 
     updateComposerActionButton();
@@ -2626,190 +2315,37 @@ async function copySelectedChatUrl() {
   if (!state.selectedId) return;
 
   const url = new URL(location.href);
-  url.hash = `/${encodeURIComponent(state.selectedId)}`;
-
-  try {
-    await navigator.clipboard.writeText(url.toString());
-    setTextIfChanged(els.composerStatus, "Chat link copied.");
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = url.toString();
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    const copied = document.execCommand("copy");
-    textarea.remove();
-    setTextIfChanged(
-      els.composerStatus,
-      copied ? "Chat link copied." : "Could not copy the chat link.",
-    );
-  }
+  url.hash = "/" + encodeURIComponent(state.selectedId);
+  const copied = await copyText(url.toString());
+  setComposerStatus(copied ? "Chat link copied." : "Could not copy the chat link.");
 }
 
-let activeSlashCommand = "";
+appActions.onPin = toggleSelectedPin;
+appActions.onShare = () => void copySelectedChatUrl();
 
-function visibleSlashCommandButtons() {
-  return Array.from(
-    els.slashMenu.querySelectorAll<HTMLButtonElement>("[data-slash-command]:not([hidden])"),
-  );
-}
-
-function setSlashMenuSelection(button: HTMLButtonElement | null) {
-  activeSlashCommand = button ? String(button.dataset.slashCommand || "") : "";
-
-  for (const candidate of els.slashMenu.querySelectorAll<HTMLButtonElement>(
-    "[data-slash-command]",
-  )) {
-    candidate.setAttribute("aria-selected", String(candidate === button));
-  }
-
-  if (button?.id) els.messageInput.setAttribute("aria-activedescendant", button.id);
-  else els.messageInput.removeAttribute("aria-activedescendant");
-}
-
-function closeSlashMenu() {
-  els.slashMenu.hidden = true;
-  els.messageInput.setAttribute("aria-expanded", "false");
-  setSlashMenuSelection(null);
-}
-
-function updateSlashMenu() {
-  const value = els.messageInput.value;
-  const firstToken = value.split(/\s/, 1)[0].toLowerCase();
-  const candidates = Array.from(
-    els.slashMenu.querySelectorAll<HTMLButtonElement>("[data-slash-command]"),
-  );
-  const show = value.startsWith("/") && !value.includes("\n") && !value.includes(" ");
-
-  for (const button of candidates) {
-    const command = String(button.dataset.slashCommand || "")
-      .trim()
-      .toLowerCase();
-    button.hidden = !(show && command.startsWith(firstToken));
-  }
-
-  const visible = visibleSlashCommandButtons();
-
-  if (!visible.length) {
-    closeSlashMenu();
-
-    return;
-  }
-
-  els.slashMenu.hidden = false;
-  els.messageInput.setAttribute("aria-expanded", "true");
-  const selected =
-    visible.find((button) => String(button.dataset.slashCommand || "") === activeSlashCommand) ||
-    visible[0];
-  setSlashMenuSelection(selected);
-}
-
-function moveSlashMenuSelection(direction: number) {
-  const visible = visibleSlashCommandButtons();
-
-  if (!visible.length) return null;
-
-  const currentIndex = visible.findIndex(
-    (button) => String(button.dataset.slashCommand || "") === activeSlashCommand,
-  );
-  const nextIndex = nextSlashCommandIndex(visible.length, currentIndex, direction);
-  const next = visible[nextIndex] || null;
-  setSlashMenuSelection(next);
-
-  return next;
-}
-
-function insertSlashCommand(command) {
-  els.messageInput.value = command;
-  closeSlashMenu();
-  resizeComposer();
-  syncSendButton();
-  els.messageInput.focus();
-  els.messageInput.setSelectionRange(command.length, command.length);
-}
-
-els.pinChatButton.addEventListener("click", toggleSelectedPin);
-
-els.shareChatButton.addEventListener("click", copySelectedChatUrl);
-
-els.slashMenu.addEventListener("pointermove", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slash-command]");
-
-  if (button && !button.hidden) setSlashMenuSelection(button);
-});
-
-els.slashMenu.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slash-command]");
-
-  if (!button) return;
-
-  insertSlashCommand(String(button.dataset.slashCommand || ""));
-});
-
-els.messageForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-
-  if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
+appActions.onSubmit = () => {
+  if (appViewState.composerAction === "stop") void stopSelectedChat();
   else void sendSelectedMessage();
-});
+};
 
-els.messageInput.addEventListener("input", () => {
+appActions.onComposerInput = (value) => {
+  appViewState.composerValue = value;
   persistComposerDraft();
-  resizeComposer();
-  updateSlashMenu();
   syncSendButton();
-});
+};
 
-els.messageInput.addEventListener("keydown", (event) => {
-  if (!els.slashMenu.hidden) {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      moveSlashMenuSelection(event.key === "ArrowUp" ? -1 : 1);
-
-      return;
-    }
-
-    if (event.key === "Tab" || (event.key === "Enter" && !event.isComposing)) {
-      const selected = visibleSlashCommandButtons().find(
-        (button) => String(button.dataset.slashCommand || "") === activeSlashCommand,
-      );
-
-      if (selected) {
-        event.preventDefault();
-        insertSlashCommand(String(selected.dataset.slashCommand || ""));
-
-        return;
-      }
-    }
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeSlashMenu();
-
-      return;
-    }
-  }
-
-  const mobileInput =
-    matchMedia("(max-width: 780px)").matches || matchMedia("(pointer: coarse)").matches;
-
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput) {
-    event.preventDefault();
-
-    if (els.sendButton.dataset.action === "stop") void stopSelectedChat();
-    else void sendSelectedMessage();
-  }
-});
-
-window.addEventListener("hashchange", () => {
+appActions.onHashChange = () => {
   const id = conversationIdFromHash(location.hash);
 
   if (id && id !== state.selectedId) void selectChat(id);
-});
+};
+
+appActions.onPageHide = () => liveUpdates.handlePageHide();
+appActions.onPageShow = () => liveUpdates.handlePageShow();
 
 function refreshDisplayedTimes() {
+  appViewState.clockTick = Date.now();
+
   if (
     state.composingNew &&
     ["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "")
@@ -2826,22 +2362,7 @@ function refreshDisplayedTimes() {
     void loadSelectedChat();
   }
 
-  renderSidebar();
-
-  for (const time of els.chatList.querySelectorAll<HTMLElement>(".chat-time[data-activity-at]")) {
-    setTextIfChanged(time, formatRelativeTime(Number(time.dataset.activityAt || 0)));
-  }
-
-  for (const time of els.conversation.querySelectorAll<HTMLElement>(
-    ".message-timestamp[data-message-at]",
-  )) {
-    const age = time.querySelector<HTMLElement>(".message-age");
-
-    if (!age) continue;
-
-    const ageText = messageAgeText(Number(time.dataset.messageAt || 0));
-    setTextIfChanged(age, ageText ? ` · ${ageText}` : "");
-  }
+  renderSidebar(true);
 
   if (
     state.mode === "chats" &&
@@ -2849,6 +2370,7 @@ function refreshDisplayedTimes() {
     state.selectedChat.id === state.selectedId &&
     !state.composingNew
   ) {
+    state.selectedMetaFingerprint = "";
     renderConversationMeta(state.selectedChat, state.selectedVisibleMessageCount);
   }
 }
@@ -2858,20 +2380,14 @@ async function startApp() {
   void loadServerIdentity();
   await hydratePinnedIds();
   await hydratePendingSends();
-  resizeComposer();
   const hydrated = await hydrateRecentChatCache();
 
   if (!hydrated) {
     conversationRenderer.renderLoadingState();
-    setHiddenIfChanged(els.emptyState, true);
-    setHiddenIfChanged(els.conversation, false);
+    showConversation(true);
   }
 
-  document.documentElement.classList.remove("booting");
-  // Cached detail gives us an instant first paint, but it is never authoritative
-  // for a new app session. Server rendering/persistence semantics can change
-  // without changing a conversation's updated_at, so fetch the selected detail
-  // once before live updates take over.
+  appViewState.bootComplete = true;
   await loadChats(true);
   liveUpdates.start();
 }

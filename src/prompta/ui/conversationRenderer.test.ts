@@ -4,7 +4,7 @@ import {
   canMorphPendingMessageNode,
   pendingLongPressMoved,
   shouldHandlePendingLongPress,
-} from "./conversationRenderer";
+} from "./conversationLogic";
 
 describe("pending message long press", () => {
   test("handles touch and coarse pointers without hijacking desktop mouse clicks", () => {

@@ -13,6 +13,5 @@ mount(App, {
   props: { serverName },
 });
 
-// Keep the existing behavior layer during the component migration. Importing it only
-// after Svelte mounts guarantees its requiredElement() lookups see the stable shell.
+// The data/orchestration layer attaches after Svelte has mounted the stable shell.
 await import("./app");
