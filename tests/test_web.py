@@ -360,6 +360,122 @@ def test_ui_conversation_detail_keeps_ordered_parts_but_drops_unused_structured_
     assert "tool_calls" in original["messages"][0]
 
 
+def test_ui_conversation_detail_exposes_diff_metadata_without_raw_tool_payload() -> None:
+    original = {
+        "id": "chat-diff",
+        "messages": [
+            {
+                "message_key": "assistant-1",
+                "role": "assistant",
+                "content": "Changed the code",
+                "tool_calls": [
+                    {
+                        "call_key": "tool-1",
+                        "ordinal": 2,
+                        "connector": "Glass Serena",
+                        "action": "serena_repl",
+                        "summary": "Edit source",
+                        "status": "complete",
+                        "arguments": {"code": "very large input"},
+                        "result": {"stdout": "very large output"},
+                        "error": None,
+                        "code_diff": {
+                            "before_tree_id": "a" * 40,
+                            "after_tree_id": "b" * 40,
+                            "patch_text": "diff --git a/app.py b/app.py\n+changed\n",
+                            "changed_file_count": 1,
+                            "additions": 1,
+                            "deletions": 0,
+                            "truncated": False,
+                            "repository_root": "/home/brandon/prompta",
+                            "worktree_path": "/home/brandon/worktrees/prompta-diff-previews",
+                            "created_at": 100.0,
+                            "updated_at": 101.0,
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    compact = PromptaUIServer._compact_conversation_detail(original)
+
+    call = compact["messages"][0]["tool_calls"][0]
+    assert call == {
+        "call_key": "tool-1",
+        "ordinal": 2,
+        "connector": "Glass Serena",
+        "action": "serena_repl",
+        "summary": "Edit source",
+        "status": "complete",
+        "code_diff": {
+            "before_tree_id": "a" * 40,
+            "after_tree_id": "b" * 40,
+            "patch_text": "diff --git a/app.py b/app.py\n+changed\n",
+            "changed_file_count": 1,
+            "additions": 1,
+            "deletions": 0,
+            "truncated": False,
+            "repository_root": "/home/brandon/prompta",
+            "worktree_path": "/home/brandon/worktrees/prompta-diff-previews",
+            "created_at": 100.0,
+            "updated_at": 101.0,
+        },
+    }
+    assert "arguments" not in call
+    assert "result" not in call
+    assert original["messages"][0]["tool_calls"][0]["arguments"] == {"code": "very large input"}
+
+
+def test_ui_conversation_detail_bounds_diff_patch_payloads() -> None:
+    oversized_patch = "+é changed line\n" * 10_000
+    original = {
+        "id": "chat-large-diffs",
+        "messages": [
+            {
+                "message_key": "assistant-1",
+                "tool_calls": [
+                    {
+                        "call_key": "tool-size",
+                        "code_diff": {
+                            "patch_text": oversized_patch,
+                            "changed_file_count": 1,
+                            "additions": 10_000,
+                            "deletions": 0,
+                            "truncated": False,
+                        },
+                    },
+                    {
+                        "call_key": "tool-files",
+                        "code_diff": {
+                            "patch_text": "diff --git a/generated.txt b/generated.txt\n+generated\n",
+                            "changed_file_count": PromptaUIServer._UI_DIFF_CHANGED_FILE_LIMIT + 1,
+                            "additions": 1,
+                            "deletions": 0,
+                            "truncated": False,
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+    compact = PromptaUIServer._compact_conversation_detail(original)
+    sized_diff = compact["messages"][0]["tool_calls"][0]["code_diff"]
+    file_count_diff = compact["messages"][0]["tool_calls"][1]["code_diff"]
+
+    assert (
+        len(sized_diff["patch_text"].encode("utf-8")) <= PromptaUIServer._UI_DIFF_PATCH_LIMIT_BYTES
+    )
+    assert sized_diff["truncated"] is True
+    assert sized_diff["changed_file_count"] == 1
+    assert sized_diff["additions"] == 10_000
+    assert file_count_diff["patch_text"] == ""
+    assert file_count_diff["truncated"] is True
+    assert file_count_diff["changed_file_count"] == PromptaUIServer._UI_DIFF_CHANGED_FILE_LIMIT + 1
+    assert file_count_diff["additions"] == 1
+
+
 def test_image_attachment_preview_http_route(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")

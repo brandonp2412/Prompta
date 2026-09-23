@@ -94,23 +94,89 @@ class PromptaUIServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    _UNUSED_UI_MESSAGE_FIELDS = frozenset({"tool_calls", "source_event_count", "version_count"})
+    _UNUSED_UI_MESSAGE_FIELDS = frozenset({"source_event_count", "version_count"})
+    _UI_DIFF_PATCH_LIMIT_BYTES = 64 * 1024
+    _UI_DIFF_CHANGED_FILE_LIMIT = 50
+
+    @classmethod
+    def _compact_code_diff(cls, diff: dict[str, Any]) -> dict[str, Any]:
+        compact = {
+            key: diff[key]
+            for key in (
+                "before_tree_id",
+                "after_tree_id",
+                "patch_text",
+                "changed_file_count",
+                "additions",
+                "deletions",
+                "truncated",
+                "repository_root",
+                "worktree_path",
+                "created_at",
+                "updated_at",
+            )
+            if key in diff
+        }
+        patch = str(compact.get("patch_text") or "")
+        changed_file_count = int(compact.get("changed_file_count") or 0)
+        truncated = bool(compact.get("truncated"))
+
+        if changed_file_count > cls._UI_DIFF_CHANGED_FILE_LIMIT:
+            patch = ""
+            truncated = True
+        else:
+            encoded = patch.encode("utf-8")
+            if len(encoded) > cls._UI_DIFF_PATCH_LIMIT_BYTES:
+                patch = encoded[: cls._UI_DIFF_PATCH_LIMIT_BYTES].decode("utf-8", errors="ignore")
+                newline = patch.rfind("\n")
+                if newline >= 0:
+                    patch = patch[: newline + 1]
+                truncated = True
+
+        compact["patch_text"] = patch
+        compact["truncated"] = truncated
+        return compact
+
+    @classmethod
+    def _compact_tool_calls(cls, calls: Any) -> list[dict[str, Any]]:
+        if not isinstance(calls, list):
+            return []
+        compact_calls: list[dict[str, Any]] = []
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            code_diff = call.get("code_diff")
+            if not isinstance(code_diff, dict):
+                continue
+            compact_call = {
+                key: call[key]
+                for key in ("call_key", "ordinal", "connector", "action", "summary", "status")
+                if key in call
+            }
+            compact_call["code_diff"] = cls._compact_code_diff(code_diff)
+            compact_calls.append(compact_call)
+        return compact_calls
 
     @classmethod
     def _compact_conversation_detail(cls, chat: dict[str, Any]) -> dict[str, Any]:
         result = {key: value for key, value in chat.items() if key != "state_events"}
         messages = result.get("messages")
         if isinstance(messages, list):
-            result["messages"] = [
-                {
+            compact_messages: list[Any] = []
+            for message in messages:
+                if not isinstance(message, dict):
+                    compact_messages.append(message)
+                    continue
+                compact_message = {
                     key: value
                     for key, value in message.items()
-                    if key not in cls._UNUSED_UI_MESSAGE_FIELDS
+                    if key not in cls._UNUSED_UI_MESSAGE_FIELDS and key != "tool_calls"
                 }
-                if isinstance(message, dict)
-                else message
-                for message in messages
-            ]
+                compact_calls = cls._compact_tool_calls(message.get("tool_calls"))
+                if compact_calls:
+                    compact_message["tool_calls"] = compact_calls
+                compact_messages.append(compact_message)
+            result["messages"] = compact_messages
         return result
 
     def __init__(
