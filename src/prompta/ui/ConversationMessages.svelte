@@ -258,6 +258,9 @@
   {@attach dialogVisibility(() => actionsOpen, () => true, closeActions)}
   class="pending-message-actions"
   aria-labelledby="pendingMessageActionsTitle"
+  onclick={(event) => {
+    if (event.target === event.currentTarget) closeActions();
+  }}
 >
   <div class="pending-message-actions-shell">
     <div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div>

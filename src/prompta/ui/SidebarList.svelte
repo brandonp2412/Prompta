@@ -163,6 +163,9 @@
   {@attach dialogVisibility(() => actionsOpen, () => true, closeActions)}
   class="pending-message-actions"
   aria-labelledby="sidebarChatActionsTitle"
+  onclick={(event) => {
+    if (event.target === event.currentTarget) closeActions();
+  }}
 >
   <div class="pending-message-actions-shell">
     <div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div>
