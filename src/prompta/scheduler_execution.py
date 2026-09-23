@@ -28,6 +28,17 @@ def prompt_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode()).hexdigest()
 
 
+def scheduled_job_prompt(job: PromptJob) -> str:
+    if not job.source_revision:
+        return job.prompt
+    return (
+        f"{job.prompt}\n\n"
+        "Prompta job context: the Prompta source revision when this job was created was "
+        f"{job.source_revision}. Use this revision when checking whether a reported bug predates "
+        "later code changes."
+    )
+
+
 class SchedulerExecution:
     def __init__(
         self,
@@ -120,15 +131,16 @@ class SchedulerExecution:
         if self.scheduler.send_gap_remaining(now) > 0:
             return False
         self.scheduler.update_scheduler_state({"last_attempt_at": now})
+        prompt = scheduled_job_prompt(job)
         try:
             try:
-                conversation_id = await self.send_once_callback(job.prompt, job_name=job.name)
+                conversation_id = await self.send_once_callback(prompt, job_name=job.name)
             except SendNotAcceptedError:
                 logger.warning(
                     "Prompta job=%s was not accepted by ChatGPT; retrying once immediately",
                     job.name,
                 )
-                conversation_id = await self.send_once_callback(job.prompt, job_name=job.name)
+                conversation_id = await self.send_once_callback(prompt, job_name=job.name)
         except RateLimitError as exc:
             delay = self.scheduler.record_global_rate_limit(exc)
             self.scheduler.mark_failure(job.name, str(exc))

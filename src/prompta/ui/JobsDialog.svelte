@@ -15,6 +15,7 @@
     daily_at?: string;
     interval_minutes?: number;
     exact_interval?: boolean;
+    source_revision?: string;
   };
 
   const mobile = new MediaQuery("(max-width: 600px)");
@@ -171,7 +172,12 @@
           <div class="job-row-top">
             <div>
               <div class="job-row-name">{job.name}</div>
-              <div class="job-row-meta">{scheduleText(job)}</div>
+              <div class="job-row-meta">
+                {scheduleText(job)}
+                {#if job.source_revision}
+                  · rev <span title={job.source_revision}>{job.source_revision.slice(0, 8)}</span>
+                {/if}
+              </div>
             </div>
             <span class="job-status">{job.status || (job.paused ? "paused" : "pending")}</span>
           </div>

@@ -34,7 +34,51 @@ def test_legacy_jobs_json_is_imported_into_sqlite_in_place(tmp_path: Path) -> No
     assert jobs["leftovers"].prompt == "Audit unchecked transcripts"
     assert jobs["leftovers"].interval_seconds == 5400
     assert jobs["leftovers"].exact_interval is True
+    assert jobs["leftovers"].source_revision == ""
     assert is_sqlite_file(path)
+
+
+def test_existing_jobs_sqlite_adds_source_revision_column_in_place(tmp_path: Path) -> None:
+    path = tmp_path / "jobs.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE scheduled_jobs (
+                name TEXT PRIMARY KEY,
+                prompt TEXT NOT NULL,
+                interval_seconds REAL NOT NULL,
+                daily_at TEXT,
+                exact_interval INTEGER NOT NULL DEFAULT 0,
+                run_at_epoch REAL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO scheduled_jobs VALUES (?, ?, ?, ?, ?, ?)",
+            ("older", "Check an older report", 1800.0, None, 1, None),
+        )
+
+    jobs = load_jobs(path)
+
+    assert jobs["older"].source_revision == ""
+    with sqlite3.connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(scheduled_jobs)")}
+    assert "source_revision" in columns
+
+
+def test_job_creation_revision_is_persisted_and_not_rewritten_on_edit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "jobs.sqlite3"
+    monkeypatch.setattr(jobs_module, "current_source_revision", lambda: "a" * 40)
+    jobs_module.add_job(path, "bug", "Investigate the bug", 1800)
+
+    monkeypatch.setattr(jobs_module, "current_source_revision", lambda: "b" * 40)
+    jobs_module.add_job(path, "bug", "Investigate the bug carefully", 1800)
+
+    job = load_jobs(path)["bug"]
+    assert job.prompt == "Investigate the bug carefully"
+    assert job.source_revision == "a" * 40
 
 
 def test_legacy_scheduler_state_json_is_imported_into_sqlite_in_place(tmp_path: Path) -> None:

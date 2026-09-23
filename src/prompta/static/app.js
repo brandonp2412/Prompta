@@ -15594,7 +15594,7 @@ var root_5$3 = /* @__PURE__ */ from_html(`<br/>`);
 var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
 var root_7$3 = /* @__PURE__ */ from_html(`<p><!></p>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
-var root_9$1 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
+var root_9$2 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
 var root_10$1 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
 var root_11 = /* @__PURE__ */ from_html(`<h4><!></h4>`);
 var root_12 = /* @__PURE__ */ from_html(`<h5><!></h5>`);
@@ -15800,7 +15800,7 @@ function MarkdownContent($$anchor, $$props) {
 					append($$anchor, h1);
 				};
 				var consequent_16 = ($$anchor) => {
-					var h2 = root_9$1();
+					var h2 = root_9$2();
 					var node_17 = child(h2);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16282,7 +16282,7 @@ var root_5$2 = /* @__PURE__ */ from_html(`<div class="pending-message-controls" 
 var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
 var root_7$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
 var root_8$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
-var root_9 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action">Send next</button>`);
+var root_9$1 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action">Send next</button>`);
 var root_10 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <!> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function ConversationMessages($$anchor, $$props) {
 	push($$props, true);
@@ -16561,7 +16561,7 @@ function ConversationMessages($$anchor, $$props) {
 	var div_8 = child(dialog);
 	var node_11 = sibling(child(div_8), 2);
 	var consequent_9 = ($$anchor) => {
-		var button_4 = root_9();
+		var button_4 = root_9$1();
 		delegated("click", button_4, bumpPending);
 		append($$anchor, button_4);
 	};
@@ -16602,14 +16602,15 @@ init_browserAttachments_svelte();
 init_clientLogic();
 init_uiControllers();
 var root$3 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No scheduled jobs.</div>`);
-var root_1$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><summary class="job-prompt-summary"><span class="job-prompt-preview" aria-hidden="true"> </span> <span class="job-prompt-toggle-label"><span class="job-prompt-show">Show full prompt</span> <span class="job-prompt-hide">Hide prompt</span></span></summary> <div class="job-row-prompt job-row-prompt-full"> </div></details>`);
-var root_2$2 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
-var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
-var root_4$2 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> </div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
-var root_5$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
-var root_6$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
-var root_7$1 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
-var root_8 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
+var root_1$2 = /* @__PURE__ */ from_html(`· rev <span> </span>`, 1);
+var root_2$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><summary class="job-prompt-summary"><span class="job-prompt-preview" aria-hidden="true"> </span> <span class="job-prompt-toggle-label"><span class="job-prompt-show">Show full prompt</span> <span class="job-prompt-hide">Hide prompt</span></span></summary> <div class="job-row-prompt job-row-prompt-full"> </div></details>`);
+var root_3$2 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
+var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
+var root_5$1 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> <!></div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
+var root_7$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
+var root_8 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
+var root_9 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
 function JobsDialog($$anchor, $$props) {
 	push($$props, true);
 	const mobile = new MediaQuery("(max-width: 600px)");
@@ -16712,7 +16713,7 @@ function JobsDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_8();
+	var dialog = root_9();
 	var div = child(dialog);
 	var header = child(div);
 	var button = sibling(child(header), 2);
@@ -16728,61 +16729,77 @@ function JobsDialog($$anchor, $$props) {
 		if (!get(jobs).length) $$render(consequent);
 	});
 	each(sibling(node, 2), 17, () => get(jobs), (job) => job.name, ($$anchor, job) => {
-		var article = root_4$2();
+		var article = root_5$1();
 		var div_4 = child(article);
 		var div_5 = child(div_4);
 		var div_6 = child(div_5);
 		var text_1 = only_child(div_6, true);
-		var text_2 = only_child(sibling(div_6, 2), true);
-		reset(div_5);
-		var text_3 = only_child(sibling(div_5, 2), true);
-		reset(div_4);
-		var node_2 = sibling(div_4, 2);
+		var div_7 = sibling(div_6, 2);
+		var text_2 = child(div_7);
+		var node_2 = sibling(text_2);
 		var consequent_1 = ($$anchor) => {
-			var details = root_1$2();
+			var fragment = root_1$2();
+			var span = sibling(first_child(fragment));
+			var text_3 = only_child(span, true);
+			template_effect(($0) => {
+				set_attribute(span, "title", get(job).source_revision);
+				set_text(text_3, $0);
+			}, [() => get(job).source_revision.slice(0, 8)]);
+			append($$anchor, fragment);
+		};
+		if_block(node_2, ($$render) => {
+			if (get(job).source_revision) $$render(consequent_1);
+		});
+		reset(div_7);
+		reset(div_5);
+		var text_4 = only_child(sibling(div_5, 2), true);
+		reset(div_4);
+		var node_3 = sibling(div_4, 2);
+		var consequent_2 = ($$anchor) => {
+			var details = root_2$2();
 			var summary = child(details);
-			var text_4 = only_child(child(summary), true);
+			var text_5 = only_child(child(summary), true);
 			next(2);
 			reset(summary);
-			var text_5 = only_child(sibling(summary, 2), true);
+			var text_6 = only_child(sibling(summary, 2), true);
 			reset(details);
 			template_effect(() => {
-				set_text(text_4, get(job).prompt || "");
 				set_text(text_5, get(job).prompt || "");
+				set_text(text_6, get(job).prompt || "");
 			});
 			append($$anchor, details);
 		};
 		var d = /* @__PURE__ */ user_derived(() => jobPromptIsExpandable(get(job).prompt));
 		var alternate = ($$anchor) => {
-			var div_9 = root_2$2();
-			var text_6 = only_child(div_9, true);
-			template_effect(() => set_text(text_6, get(job).prompt || ""));
+			var div_9 = root_3$2();
+			var text_7 = only_child(div_9, true);
+			template_effect(() => set_text(text_7, get(job).prompt || ""));
 			append($$anchor, div_9);
 		};
-		if_block(node_2, ($$render) => {
-			if (get(d)) $$render(consequent_1);
+		if_block(node_3, ($$render) => {
+			if (get(d)) $$render(consequent_2);
 			else $$render(alternate, -1);
 		});
-		var div_10 = sibling(node_2, 2);
-		var node_3 = child(div_10);
-		var consequent_2 = ($$anchor) => {
-			var button_1 = root_3$2();
+		var div_10 = sibling(node_3, 2);
+		var node_4 = child(div_10);
+		var consequent_3 = ($$anchor) => {
+			var button_1 = root_4$2();
 			delegated("click", button_1, () => edit(get(job)));
 			append($$anchor, button_1);
 		};
-		if_block(node_3, ($$render) => {
-			if (!get(job).run_at_epoch) $$render(consequent_2);
+		if_block(node_4, ($$render) => {
+			if (!get(job).run_at_epoch) $$render(consequent_3);
 		});
-		var button_2 = sibling(node_3, 2);
-		var text_7 = only_child(button_2, true);
+		var button_2 = sibling(node_4, 2);
+		var text_8 = only_child(button_2, true);
 		var button_3 = sibling(button_2, 2);
 		reset(div_10);
 		reset(article);
 		template_effect(($0) => {
 			set_text(text_1, get(job).name);
-			set_text(text_2, $0);
-			set_text(text_3, get(job).status || (get(job).paused ? "paused" : "pending"));
-			set_text(text_7, get(job).paused ? "Resume" : "Pause");
+			set_text(text_2, `${$0 ?? ""} `);
+			set_text(text_4, get(job).status || (get(job).paused ? "paused" : "pending"));
+			set_text(text_8, get(job).paused ? "Resume" : "Pause");
 		}, [() => scheduleText(get(job))]);
 		delegated("click", button_2, () => void command({
 			action: get(job).paused ? "resume" : "pause",
@@ -16797,7 +16814,7 @@ function JobsDialog($$anchor, $$props) {
 	reset(div_2);
 	var form = sibling(div_2, 2);
 	var h3 = child(form);
-	var text_8 = only_child(h3, true);
+	var text_9 = only_child(h3, true);
 	var label = sibling(h3, 2);
 	var input = sibling(child(label), 2);
 	remove_input_defaults(input);
@@ -16816,9 +16833,9 @@ function JobsDialog($$anchor, $$props) {
 	reset(select);
 	init_select(select);
 	reset(label_2);
-	var node_4 = sibling(label_2, 2);
-	var consequent_3 = ($$anchor) => {
-		var label_3 = root_5$1();
+	var node_5 = sibling(label_2, 2);
+	var consequent_4 = ($$anchor) => {
+		var label_3 = root_6$1();
 		var input_1 = sibling(child(label_3), 2);
 		remove_input_defaults(input_1);
 		reset(label_3);
@@ -16826,21 +16843,21 @@ function JobsDialog($$anchor, $$props) {
 		append($$anchor, label_3);
 	};
 	var alternate_1 = ($$anchor) => {
-		var label_4 = root_6$1();
+		var label_4 = root_7$1();
 		var input_2 = sibling(child(label_4), 2);
 		remove_input_defaults(input_2);
 		reset(label_4);
 		bind_value(input_2, () => get(dailyAt), ($$value) => set(dailyAt, $$value));
 		append($$anchor, label_4);
 	};
-	if_block(node_4, ($$render) => {
-		if (get(schedule) === "interval") $$render(consequent_3);
+	if_block(node_5, ($$render) => {
+		if (get(schedule) === "interval") $$render(consequent_4);
 		else $$render(alternate_1, -1);
 	});
 	reset(div_11);
-	var node_5 = sibling(div_11, 2);
-	var consequent_4 = ($$anchor) => {
-		var label_5 = root_7$1();
+	var node_6 = sibling(div_11, 2);
+	var consequent_5 = ($$anchor) => {
+		var label_5 = root_8();
 		var input_3 = child(label_5);
 		remove_input_defaults(input_3);
 		next(2);
@@ -16848,10 +16865,10 @@ function JobsDialog($$anchor, $$props) {
 		bind_checked(input_3, () => get(exact), ($$value) => set(exact, $$value));
 		append($$anchor, label_5);
 	};
-	if_block(node_5, ($$render) => {
-		if (get(schedule) === "interval") $$render(consequent_4);
+	if_block(node_6, ($$render) => {
+		if (get(schedule) === "interval") $$render(consequent_5);
 	});
-	var div_12 = sibling(node_5, 2);
+	var div_12 = sibling(node_6, 2);
 	var button_4 = child(div_12);
 	var button_5 = sibling(button_4, 2);
 	reset(div_12);
@@ -16863,7 +16880,7 @@ function JobsDialog($$anchor, $$props) {
 	template_effect(($0) => {
 		set_attribute(dialog, "data-presentation", get(presentation));
 		set_text(text, get(status));
-		set_text(text_8, get(editing) ? `Edit ${get(editing)}` : "Add job");
+		set_text(text_9, get(editing) ? `Edit ${get(editing)}` : "Add job");
 		input.readOnly = $0;
 		button_5.disabled = get(saving);
 		button_6.disabled = !get(jobs).length || get(saving);

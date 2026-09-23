@@ -2991,6 +2991,7 @@ def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
             "daily_at": "09:30",
             "run_at_epoch": None,
             "exact_interval": False,
+            "source_revision": "",
             "paused": True,
             "status": "paused",
             "next_due_at_epoch": 1234.0,

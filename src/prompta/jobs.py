@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from .persistence import (
@@ -19,6 +21,25 @@ from .persistence import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 40 * 60
+
+
+@lru_cache(maxsize=1)
+def current_source_revision() -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    revision = completed.stdout.strip().lower()
+    if completed.returncode != 0 or re.fullmatch(r"[0-9a-f]{7,64}", revision) is None:
+        return ""
+    return revision
 
 
 def _normalise_daily_at(value: str) -> str:
@@ -47,6 +68,7 @@ class PromptJob:
     daily_at: str | None = None
     exact_interval: bool = False
     run_at_epoch: float | None = None
+    source_revision: str = ""
 
 
 def _job_from_legacy(name: object, value: object) -> PromptJob | None:
@@ -66,8 +88,10 @@ def _job_from_legacy(name: object, value: object) -> PromptJob | None:
     daily_at = None
     exact_interval = False
     run_at_epoch: float | None = None
+    source_revision = ""
     if isinstance(value, dict):
         exact_interval = value.get("exact_interval") is True
+        source_revision = str(value.get("source_revision") or "").strip().lower()
         if value.get("run_at_epoch") is not None:
             try:
                 run_at_epoch = float(value["run_at_epoch"])
@@ -89,6 +113,7 @@ def _job_from_legacy(name: object, value: object) -> PromptJob | None:
         daily_at,
         exact_interval,
         run_at_epoch,
+        source_revision,
     )
 
 
@@ -138,10 +163,19 @@ def _connect(path: Path) -> sqlite3.Connection:
             interval_seconds REAL NOT NULL,
             daily_at TEXT,
             exact_interval INTEGER NOT NULL DEFAULT 0 CHECK (exact_interval IN (0, 1)),
-            run_at_epoch REAL
+            run_at_epoch REAL,
+            source_revision TEXT NOT NULL DEFAULT ''
         )
         """
     )
+    columns = {
+        str(row["name"])
+        for row in connection.execute("PRAGMA table_info(scheduled_jobs)").fetchall()
+    }
+    if "source_revision" not in columns:
+        connection.execute(
+            "ALTER TABLE scheduled_jobs ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''"
+        )
     existing = int(connection.execute("SELECT COUNT(*) FROM scheduled_jobs").fetchone()[0])
     if existing == 0:
         for _legacy_path, payload in legacy_payloads:
@@ -151,8 +185,9 @@ def _connect(path: Path) -> sqlite3.Connection:
             connection.executemany(
                 """
                 INSERT INTO scheduled_jobs (
-                    name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
+                    source_revision
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -162,6 +197,7 @@ def _connect(path: Path) -> sqlite3.Connection:
                         job.daily_at,
                         int(job.exact_interval),
                         job.run_at_epoch,
+                        job.source_revision,
                     )
                     for job in jobs.values()
                 ],
@@ -181,7 +217,8 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
         with _connect(path) as connection:
             rows = connection.execute(
                 """
-                SELECT name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch
+                SELECT name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
+                       source_revision
                 FROM scheduled_jobs
                 ORDER BY name
                 """
@@ -198,6 +235,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             str(row["daily_at"]) if row["daily_at"] is not None else None,
             bool(row["exact_interval"]),
             float(row["run_at_epoch"]) if row["run_at_epoch"] is not None else None,
+            str(row["source_revision"] or ""),
         )
         for row in rows
     }
@@ -211,6 +249,7 @@ def add_job(
     daily_at: str | None = None,
     exact_interval: bool = False,
     run_at_epoch: float | None = None,
+    source_revision: str | None = None,
 ) -> None:
     normalized_name = name.strip()
     if not normalized_name:
@@ -219,6 +258,11 @@ def add_job(
         raise ValueError("prompta prompt is empty")
     normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
     normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
+    normalised_source_revision = (
+        source_revision.strip().lower()
+        if source_revision is not None
+        else current_source_revision()
+    )
     if normalised_run_at is not None and normalised_run_at <= 0:
         raise ValueError("run_at_epoch must be a positive Unix timestamp")
 
@@ -226,8 +270,9 @@ def add_job(
         connection.execute(
             """
             INSERT INTO scheduled_jobs (
-                name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
+                source_revision
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 prompt = excluded.prompt,
                 interval_seconds = excluded.interval_seconds,
@@ -242,6 +287,7 @@ def add_job(
                 normalised_daily_at,
                 int(exact_interval),
                 normalised_run_at,
+                normalised_source_revision,
             ),
         )
 

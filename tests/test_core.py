@@ -1080,6 +1080,33 @@ async def test_active_one_shot_does_not_block_scheduled_job(tmp_path: Path) -> N
     )
 
 
+@pytest.mark.asyncio
+async def test_scheduled_job_prompt_includes_creation_revision(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    revision = "a" * 40
+
+    assert (
+        await prompta._run_job(
+            PromptJob("bug", "Investigate the reported bug", 1800, source_revision=revision),
+            now=1000.0,
+        )
+        is True
+    )
+    prompta.send_once.assert_awaited_once_with(
+        "Investigate the reported bug\n\n"
+        "Prompta job context: the Prompta source revision when this job was created was "
+        f"{revision}. Use this revision when checking whether a reported bug predates later code changes.",
+        job_name="bug",
+    )
+
+
 def test_due_in_uses_uncertain_send_to_prevent_duplicate_retry(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     state_path.write_text(json.dumps({"jobs": {"flux": {"last_uncertain_send_at": 1000.0}}}))
