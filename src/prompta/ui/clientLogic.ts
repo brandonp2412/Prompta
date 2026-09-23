@@ -6,13 +6,21 @@ export type ChatSummary = {
   _client_id?: string;
 };
 
-export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>): string {
+export function chatListRequestUrl(
+  search: string,
+  pinnedIds: Iterable<string>,
+  limit = 60,
+  offset = 0,
+): string {
   const params = new URLSearchParams();
   const query = search.trim();
 
+  params.set("limit", String(Math.max(1, Math.floor(limit))));
+  params.set("offset", String(Math.max(0, Math.floor(offset))));
+
   if (query) {
     params.set("q", search);
-  } else {
+  } else if (offset === 0) {
     const seen = new Set<string>();
 
     for (const rawId of pinnedIds) {
@@ -25,9 +33,7 @@ export function chatListRequestUrl(search: string, pinnedIds: Iterable<string>):
     }
   }
 
-  const suffix = params.toString();
-
-  return suffix ? `api/chats?${suffix}` : "api/chats";
+  return "api/chats?" + params.toString();
 }
 
 export function sidebarChatCountSummary(

@@ -75,6 +75,11 @@ type UiChat = {
   [key: string]: any;
 };
 
+const chatDetailRequests = new Map<string, Promise<UiChat | null>>();
+const queuedPrefetchIds: string[] = [];
+const queuedPrefetchSet = new Set<string>();
+let chatPrefetchRunning = false;
+
 type UiPendingSend = PendingReply & {
   message: string;
   status: string;
@@ -100,6 +105,8 @@ type UiState = {
   selectedMetaFingerprint: string;
   chatsRequestId: number;
   chatOrderScope: string | null;
+  chatNextOffset: number | null;
+  loadingMoreChats: boolean;
   selectedRequestId: number;
   selectedChat: UiChat | null;
   selectedVisibleMessageCount: number;
@@ -115,6 +122,87 @@ type UiState = {
   activityProbes: Set<string>;
   activityProbeAt: Map<string, number>;
 };
+
+function cachedChatMatchesSummary(chat: UiChat | null, summary: UiChat | undefined) {
+  if (!chat || !summary || summary.status === "active") return false;
+
+  return (
+    String(chat.id || "") === String(summary.id || "") &&
+    String(chat.updated_at ?? "") === String(summary.updated_at ?? "") &&
+    String(chat.status || "") === String(summary.status || "")
+  );
+}
+
+function fetchChatDetail(conversationId: string) {
+  const existing = chatDetailRequests.get(conversationId);
+
+  if (existing) return existing;
+
+  const request = fetchJson(`api/chats/${encodeURIComponent(conversationId)}`, 30_000)
+    .then((chat) => {
+      if (!chat || String(chat.id || "") !== conversationId) return null;
+
+      recentChatCache.remember(chat);
+
+      return chat as UiChat;
+    })
+    .finally(() => {
+      chatDetailRequests.delete(conversationId);
+    });
+
+  chatDetailRequests.set(conversationId, request);
+
+  return request;
+}
+
+function runQueuedChatPrefetch() {
+  if (chatPrefetchRunning) return;
+
+  const conversationId = queuedPrefetchIds.shift();
+
+  if (!conversationId) return;
+
+  queuedPrefetchSet.delete(conversationId);
+  chatPrefetchRunning = true;
+  void fetchChatDetail(conversationId)
+    .catch((error) => {
+      console.warn("Could not prefetch Prompta chat", conversationId, error);
+    })
+    .finally(() => {
+      chatPrefetchRunning = false;
+
+      if (queuedPrefetchIds.length) {
+        const schedule =
+          typeof requestIdleCallback === "function"
+            ? (callback: () => void) => requestIdleCallback(callback, { timeout: 500 })
+            : (callback: () => void) => setTimeout(callback, 40);
+        schedule(runQueuedChatPrefetch);
+      }
+    });
+}
+
+function queueChatPrefetch(chats: UiChat[]) {
+  for (const chat of chats) {
+    const id = String(chat?.id || "");
+
+    if (
+      !id ||
+      chat.status === "active" ||
+      recentChatCache.getMemory(id) ||
+      queuedPrefetchSet.has(id) ||
+      chatDetailRequests.has(id)
+    ) {
+      continue;
+    }
+
+    queuedPrefetchSet.add(id);
+    queuedPrefetchIds.push(id);
+
+    if (queuedPrefetchIds.length >= 8) break;
+  }
+
+  runQueuedChatPrefetch();
+}
 
 function persistPinChange(chatId: string, pinned: boolean) {
   void postJson("api/pins", { id: chatId, pinned }, 2, 5_000).catch((error) => {
@@ -194,6 +282,8 @@ const state: UiState = {
   selectedMetaFingerprint: "",
   chatsRequestId: 0,
   chatOrderScope: null,
+  chatNextOffset: null,
+  loadingMoreChats: false,
   selectedRequestId: 0,
   selectedChat: null,
   selectedVisibleMessageCount: 0,
@@ -240,6 +330,12 @@ sidebarListActions.onPin = (chatId) => {
   renderSidebar(true);
   updatePinButton();
 };
+sidebarListActions.onPrefetch = (chatId) => {
+  if (recentChatCache.getMemory(chatId)) return;
+
+  void fetchChatDetail(chatId).catch(() => {});
+};
+sidebarListActions.onLoadMore = loadMoreChats;
 
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
@@ -657,11 +753,15 @@ function renderSidebar(force = false) {
       ]),
     ) +
     new Date().toDateString() +
-    selectionId;
+    selectionId +
+    String(state.chatNextOffset) +
+    String(state.loadingMoreChats);
 
   if (!force && fingerprint === state.sidebarFingerprint) return;
 
   state.sidebarFingerprint = fingerprint;
+  sidebarListState.hasMore = state.chatNextOffset !== null;
+  sidebarListState.loadingMore = state.loadingMoreChats;
 
   if (!chats.length) {
     sidebarListState.model = {
@@ -1340,9 +1440,37 @@ async function hydratePendingSends() {
   }
 }
 
+const CHAT_PAGE_SIZE = 60;
+
 let chatsRequestController: AbortController | null = null;
 
-async function loadChats(forceSelectedRefresh = false) {
+function mergeChatPages(current: UiChat[], incoming: UiChat[], keepCurrent: boolean) {
+  const merged = keepCurrent ? [...incoming, ...current] : incoming;
+  const byId = new Map<string, UiChat>();
+
+  for (const chat of merged) {
+    const id = String(chat?.id || "");
+
+    if (id && !byId.has(id)) byId.set(id, chat);
+  }
+
+  return [...byId.values()];
+}
+
+async function loadChats(forceSelectedRefresh = false, append = false) {
+  const sameScope = state.chatOrderScope === state.search;
+
+  if (append && (state.loadingMoreChats || !sameScope || state.chatNextOffset === null)) return;
+
+  const offset = append ? state.chatNextOffset || 0 : 0;
+  const previousChats = sameScope ? state.chats : [];
+
+  if (append) {
+    state.loadingMoreChats = true;
+    state.sidebarFingerprint = "";
+    renderSidebar();
+  }
+
   const requestId = ++state.chatsRequestId;
   chatsRequestController?.abort();
   const requestController = new AbortController();
@@ -1350,23 +1478,40 @@ async function loadChats(forceSelectedRefresh = false) {
 
   try {
     const payload = await fetchJson(
-      chatListRequestUrl(state.search, state.pinnedIds),
+      chatListRequestUrl(state.search, state.pinnedIds, CHAT_PAGE_SIZE, offset),
       10_000,
       requestController,
     );
 
     if (requestId !== state.chatsRequestId) return;
 
-    const chats = payload.chats || [];
-    promoteServerPendingPins(chats);
-    reconcileOptimisticNew(chats);
-    const orderedChats = sortSidebarChats(chats, state.pinnedIds);
+    const page = Array.isArray(payload.chats) ? payload.chats : [];
+    promoteServerPendingPins(page);
+    reconcileOptimisticNew(page);
+    const keepCurrent = append || (sameScope && previousChats.length > page.length);
+    const orderedChats = sortSidebarChats(
+      mergeChatPages(previousChats, page, keepCurrent),
+      state.pinnedIds,
+    );
 
     if (!state.search) recentChatCache.rememberSummaries(orderedChats);
 
-    completionNotifications.trackCompletions(chats);
+    completionNotifications.trackCompletions(page);
     state.chats = orderedChats;
     state.chatOrderScope = state.search;
+
+    if (!append && !state.search) queueChatPrefetch(orderedChats.slice(0, 8));
+
+    const nextOffset = Number(payload.next_offset);
+    const serverNextOffset =
+      payload.next_offset !== null && Number.isFinite(nextOffset) && nextOffset > offset
+        ? nextOffset
+        : null;
+
+    if (append || !sameScope || previousChats.length <= page.length) {
+      state.chatNextOffset = serverNextOffset;
+    }
+
     const activeCount = state.chats.filter((chat) => chat.status === "active").length;
 
     setCacheSummary(sidebarChatCountSummary(state.chats.length, activeCount, state.search));
@@ -1384,6 +1529,7 @@ async function loadChats(forceSelectedRefresh = false) {
       state.chats,
     );
 
+    state.sidebarFingerprint = "";
     renderSidebar();
 
     if (state.mode === "chats") {
@@ -1410,8 +1556,18 @@ async function loadChats(forceSelectedRefresh = false) {
     setCacheSummary("Cache unavailable");
     console.error(error);
   } finally {
+    if (requestId === state.chatsRequestId && append) {
+      state.loadingMoreChats = false;
+      state.sidebarFingerprint = "";
+      renderSidebar();
+    }
+
     if (chatsRequestController === requestController) chatsRequestController = null;
   }
+}
+
+function loadMoreChats() {
+  void loadChats(false, true);
 }
 
 const HISTORICAL_ACTIVITY_PROBE_TTL_MS = 30_000;
@@ -1502,17 +1658,31 @@ async function loadSelectedChat() {
   if (!state.selectedId || state.mode !== "chats") return;
 
   const selectedId = state.selectedId;
+  const summary = state.chats.find((chat) => chat.id === selectedId);
+  const memoryChat = recentChatCache.getMemory(selectedId);
 
   if (!state.selectedChat || state.selectedChat.id !== selectedId) {
-    renderRecentChatSnapshot(selectedId);
+    if (memoryChat) {
+      state.selectedUpdatedAt = memoryChat.updated_at;
+      renderConversation(memoryChat);
+    } else {
+      renderRecentChatSnapshot(selectedId);
+    }
+  }
+
+  if (cachedChatMatchesSummary(memoryChat, summary)) {
+    finishChatSwitch(selectedId);
+
+    return;
   }
 
   const requestId = ++state.selectedRequestId;
 
   try {
-    const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`, 30_000);
+    const chat = await fetchChatDetail(selectedId);
 
     if (
+      !chat ||
       requestId !== state.selectedRequestId ||
       selectedId !== state.selectedId ||
       chat.id !== state.selectedId
@@ -1524,7 +1694,6 @@ async function loadSelectedChat() {
     }
 
     state.selectedUpdatedAt = chat.updated_at;
-    recentChatCache.remember(chat);
     renderConversation(chat);
 
     if (shouldProbeHistoricalActivity(chat.status)) {
@@ -1589,6 +1758,7 @@ async function selectChat(id) {
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
   history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
+  renderRecentChatSnapshot(id);
   renderSidebar();
   await loadSelectedChat();
 }

@@ -6268,7 +6268,7 @@ var init_uiControllers = __esmMin((() => {
 //#region src/prompta/ui/ChangelogDialog.svelte
 init_client();
 init_uiControllers();
-var root$8 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
+var root$7 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
 var root_1$7 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$6 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
 var root_3$5 = /* @__PURE__ */ from_html(`<li class="changelog-load-more"><button type="button"> </button></li>`);
@@ -6340,7 +6340,7 @@ function ChangelogDialog($$anchor, $$props) {
 	var ol = sibling(header, 2);
 	var node = child(ol);
 	var consequent = ($$anchor) => {
-		append($$anchor, root$8());
+		append($$anchor, root$7());
 	};
 	var consequent_3 = ($$anchor) => {
 		var fragment = root_4$5();
@@ -6414,7 +6414,7 @@ delegate(["click"]);
 init_client();
 init_browserAttachments_svelte();
 init_uiControllers();
-var root$7 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
+var root$6 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
 var root_1$6 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" tabindex="-1" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
 var root_2$5 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
 function AttachmentPicker($$anchor, $$props) {
@@ -6518,7 +6518,7 @@ function AttachmentPicker($$anchor, $$props) {
 	var div = first_child(fragment);
 	var div_1 = child(div);
 	each(div_1, 23, () => get(files), (file) => file.name + file.size + file.lastModified, ($$anchor, file, index) => {
-		var span = root$7();
+		var span = root$6();
 		var span_1 = child(span);
 		var text = only_child(span_1, true);
 		var button = sibling(span_1, 2);
@@ -6663,10 +6663,13 @@ var init_appViewState_svelte = __esmMin((() => {
 }));
 //#endregion
 //#region src/prompta/ui/clientLogic.ts
-function chatListRequestUrl(search, pinnedIds) {
+function chatListRequestUrl(search, pinnedIds, limit = 60, offset = 0) {
 	const params = new URLSearchParams();
-	if (search.trim()) params.set("q", search);
-	else {
+	const query = search.trim();
+	params.set("limit", String(Math.max(1, Math.floor(limit))));
+	params.set("offset", String(Math.max(0, Math.floor(offset))));
+	if (query) params.set("q", search);
+	else if (offset === 0) {
 		const seen = /* @__PURE__ */ new Set();
 		for (const rawId of pinnedIds) {
 			const id = String(rawId || "").trim();
@@ -6675,8 +6678,7 @@ function chatListRequestUrl(search, pinnedIds) {
 			params.append("include", id);
 		}
 	}
-	const suffix = params.toString();
-	return suffix ? `api/chats?${suffix}` : "api/chats";
+	return "api/chats?" + params.toString();
 }
 function sidebarChatCountSummary(chatCount, activeCount, search) {
 	return `${search.trim() ? `${chatCount} ${chatCount === 1 ? "result" : "results"}` : `${chatCount} cached`} · ${activeCount} active`;
@@ -7396,7 +7398,7 @@ init_appActions_svelte();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_clientLogic();
-var root$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
+var root$5 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
 var root_1$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
 var root_2$4 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
 var root_3$4 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
@@ -7527,7 +7529,7 @@ function Composer($$anchor, $$props) {
 			var consequent = ($$anchor) => {
 				var div = root_1$5();
 				each(div, 21, () => get(visibleCommands), (item) => item.command, ($$anchor, item) => {
-					var button = root$6();
+					var button = root$5();
 					var strong = child(button);
 					var text = only_child(strong, true);
 					var text_1 = only_child(sibling(strong), true);
@@ -15618,16 +15620,16 @@ function safeLinkHref(value) {
 init_client();
 init_index_client$1();
 init_browserAttachments_svelte();
-var root$5 = /* @__PURE__ */ from_html(`<span><!></span>`);
+var root$4 = /* @__PURE__ */ from_html(`<span><!></span>`);
 var root_1$4 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
 var root_2$3 = /* @__PURE__ */ from_html(`<em><!></em>`);
 var root_3$3 = /* @__PURE__ */ from_html(`<del><!></del>`);
 var root_4$3 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<br/>`);
 var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
-var root_7$2 = /* @__PURE__ */ from_html(`<p><!></p>`);
-var root_8$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
-var root_9$1 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
+var root_7$3 = /* @__PURE__ */ from_html(`<p><!></p>`);
+var root_8$3 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
+var root_9$2 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
 var root_10$1 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
 var root_11 = /* @__PURE__ */ from_html(`<h4><!></h4>`);
 var root_12 = /* @__PURE__ */ from_html(`<h5><!></h5>`);
@@ -15666,7 +15668,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, text$2);
 			};
 			var consequent_1 = ($$anchor) => {
-				var span = root$5();
+				var span = root$4();
 				var node_3 = child(span);
 				highlightNodes(node_3, () => get(node).children);
 				reset(span);
@@ -15810,7 +15812,7 @@ function MarkdownContent($$anchor, $$props) {
 			var fragment_14 = comment();
 			var node_13 = first_child(fragment_14);
 			var consequent_14 = ($$anchor) => {
-				var p = root_7$2();
+				var p = root_7$3();
 				var node_14 = child(p);
 				{
 					let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -15823,7 +15825,7 @@ function MarkdownContent($$anchor, $$props) {
 				var fragment_15 = comment();
 				var node_15 = first_child(fragment_15);
 				var consequent_15 = ($$anchor) => {
-					var h1 = root_8$2();
+					var h1 = root_8$3();
 					var node_16 = child(h1);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -15833,7 +15835,7 @@ function MarkdownContent($$anchor, $$props) {
 					append($$anchor, h1);
 				};
 				var consequent_16 = ($$anchor) => {
-					var h2 = root_9$1();
+					var h2 = root_9$2();
 					var node_17 = child(h2);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16171,7 +16173,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, p_1);
 			};
 			var consequent_41 = ($$anchor) => {
-				var p_2 = root_7$2();
+				var p_2 = root_7$3();
 				var node_43 = child(p_2);
 				inline(node_43, () => [get(token)]);
 				reset(p_2);
@@ -16293,15 +16295,15 @@ init_browserAttachments_svelte();
 init_clientLogic();
 init_conversationState_svelte();
 init_conversationLogic();
-var root$4 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div> <div class="conversation-loading-row conversation-loading-assistant"></div> <div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
+var root$3 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div> <div class="conversation-loading-row conversation-loading-assistant"></div> <div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
 var root_1$3 = /* @__PURE__ */ from_html(`<div class="message-label"><span class="assistant-avatar"> </span> </div>`);
 var root_2$2 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img class="message-image-preview" loading="lazy" decoding="async"/></div>`);
 var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
 var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="delete-pending-button" aria-label="Delete queued message" title="Delete queued message">×</button>`);
 var root_5$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
 var root_6$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
-var root_7$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
-var root_8$1 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
+var root_7$2 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
+var root_8$2 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function ConversationMessages($$anchor, $$props) {
 	push($$props, true);
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
@@ -16403,14 +16405,14 @@ function ConversationMessages($$anchor, $$props) {
 		closeActions();
 		conversationState.onDelete(get(actionsKey));
 	}
-	var fragment = root_8$1();
+	var fragment = root_8$2();
 	event("keydown", $window, (event) => {
 		if (event.key === "Escape" && get(actionsOpen)) closeActions();
 	});
 	var div = first_child(fragment);
 	var node = child(div);
 	var consequent = ($$anchor) => {
-		append($$anchor, root$4());
+		append($$anchor, root$3());
 	};
 	if_block(node, ($$render) => {
 		if (conversationState.loading) $$render(consequent);
@@ -16419,7 +16421,7 @@ function ConversationMessages($$anchor, $$props) {
 		const value = timestamp(get(message), appViewState.clockTick);
 		const deleting = conversationState.deletingKeys.has(String(get(message).pending_delete_key || ""));
 		const role = get(message).role === "user" ? "user" : "assistant";
-		var section = root_7$1();
+		var section = root_7$2();
 		var div_2 = child(section);
 		var node_2 = child(div_2);
 		var consequent_1 = ($$anchor) => {
@@ -16590,16 +16592,16 @@ init_index_client();
 init_browserAttachments_svelte();
 init_clientLogic();
 init_uiControllers();
-var root$3 = /* @__PURE__ */ from_html(`<button type="button"> </button>`);
+var root$2 = /* @__PURE__ */ from_html(`<button type="button"> </button>`);
 var root_1$2 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No scheduled jobs.</div>`);
 var root_2$1 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No jobs match the selected filters.</div>`);
 var root_3$1 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><summary class="job-prompt-summary"><span class="job-prompt-preview" aria-hidden="true"> </span> <span class="job-prompt-toggle-label"><span class="job-prompt-show">Show full prompt</span> <span class="job-prompt-hide">Hide prompt</span></span></summary> <div class="job-row-prompt job-row-prompt-full"> </div></details>`);
 var root_4$1 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
 var root_6$1 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> </div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
-var root_7 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
-var root_8 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
-var root_9 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
+var root_7$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
+var root_8$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
+var root_9$1 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
 var root_10 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-toolbar"><div class="jobs-dialog-status" role="status"> </div> <div class="jobs-filters" aria-label="Job visibility filters"></div></div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
 function JobsDialog($$anchor, $$props) {
 	push($$props, true);
@@ -16740,7 +16742,7 @@ function JobsDialog($$anchor, $$props) {
 	var text = only_child(div_2, true);
 	var div_3 = sibling(div_2, 2);
 	each(div_3, 21, () => visibilityOptions, (option) => option.key, ($$anchor, option) => {
-		var button_1 = root$3();
+		var button_1 = root$2();
 		var text_1 = only_child(button_1, true);
 		template_effect(() => {
 			set_class(button_1, 1, clsx(["jobs-filter-chip", { active: visibility[get(option).key] }]));
@@ -16857,7 +16859,7 @@ function JobsDialog($$anchor, $$props) {
 	reset(label_2);
 	var node_4 = sibling(label_2, 2);
 	var consequent_4 = ($$anchor) => {
-		var label_3 = root_7();
+		var label_3 = root_7$1();
 		var input_1 = sibling(child(label_3), 2);
 		remove_input_defaults(input_1);
 		reset(label_3);
@@ -16865,7 +16867,7 @@ function JobsDialog($$anchor, $$props) {
 		append($$anchor, label_3);
 	};
 	var alternate_1 = ($$anchor) => {
-		var label_4 = root_8();
+		var label_4 = root_8$1();
 		var input_2 = sibling(child(label_4), 2);
 		remove_input_defaults(input_2);
 		reset(label_4);
@@ -16879,7 +16881,7 @@ function JobsDialog($$anchor, $$props) {
 	reset(div_14);
 	var node_5 = sibling(div_14, 2);
 	var consequent_5 = ($$anchor) => {
-		var label_5 = root_9();
+		var label_5 = root_9$1();
 		var input_3 = child(label_5);
 		remove_input_defaults(input_3);
 		next(2);
@@ -16932,7 +16934,7 @@ init_client();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_uiControllers();
-var root$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div><strong> </strong><span> </span></div> <span class="logs-live"><i></i> live</span></div> <pre class="log-output"> </pre></div></section>`);
+var root$1 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div><strong> </strong><span> </span></div> <span class="logs-live"><i></i> live</span></div> <pre class="log-output"> </pre></div></section>`);
 function LogsPanel($$anchor, $$props) {
 	push($$props, true);
 	const visible = /* @__PURE__ */ user_derived(() => appViewState.mode === "logs");
@@ -16989,7 +16991,7 @@ function LogsPanel($$anchor, $$props) {
 		load,
 		setServerTitle
 	};
-	var section = root$2();
+	var section = root$1();
 	var div = child(section);
 	var div_1 = child(div);
 	var div_2 = child(div_1);
@@ -17038,13 +17040,19 @@ var init_sidebarState_svelte = __esmMin((() => {
 		open: false,
 		moving: false
 	});
-	sidebarListState = proxy({ model: {
-		emptyState: "none",
-		groups: []
-	} });
+	sidebarListState = proxy({
+		model: {
+			emptyState: "none",
+			groups: []
+		},
+		hasMore: false,
+		loadingMore: false
+	});
 	sidebarListActions = proxy({
 		onSelect: () => {},
-		onPin: () => {}
+		onPin: () => {},
+		onPrefetch: () => {},
+		onLoadMore: () => {}
 	});
 }));
 //#endregion
@@ -17054,13 +17062,15 @@ init_index_client();
 init_browserAttachments_svelte();
 init_conversationLogic();
 init_sidebarState_svelte();
-var root$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
-var root_1$1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
-var root_2 = /* @__PURE__ */ from_html(`<span></span>`);
-var root_3 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
-var root_4 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
-var root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
-var root_6 = /* @__PURE__ */ from_html(`<!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"> </button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
+var root_1$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
+var root_2 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
+var root_3 = /* @__PURE__ */ from_html(`<span></span>`);
+var root_4 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
+var root_5 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
+var root_6 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
+var root_7 = /* @__PURE__ */ from_html(`<div class="chat-list-load-more" aria-live="polite"> </div>`);
+var root_8 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_9 = /* @__PURE__ */ from_html(`<!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"> </button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function SidebarList($$anchor, $$props) {
 	push($$props, true);
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
@@ -17090,6 +17100,7 @@ function SidebarList($$anchor, $$props) {
 		suppressSelectChatId = "";
 	}
 	function startLongPress(event, chatId, pinned) {
+		sidebarListActions.onPrefetch(chatId);
 		if (!coarsePointer.current || event.pointerType === "mouse") return;
 		clearLongPress();
 		suppressSelectChatId = "";
@@ -17128,19 +17139,33 @@ function SidebarList($$anchor, $$props) {
 		closeActions();
 		if (chatId) sidebarListActions.onPin(chatId);
 	}
-	var fragment = root_6();
+	function loadMoreTrigger() {
+		return (element) => {
+			if (typeof IntersectionObserver === "undefined") return;
+			const root = element.closest(".sidebar-scroll");
+			const observer = new IntersectionObserver((entries) => {
+				if (entries.some((entry) => entry.isIntersecting) && sidebarListState.hasMore && !sidebarListState.loadingMore) sidebarListActions.onLoadMore();
+			}, {
+				root,
+				rootMargin: "360px 0px"
+			});
+			observer.observe(element);
+			return () => observer.disconnect();
+		};
+	}
+	var fragment = root_9();
 	event("keydown", $window, (event) => {
 		if (event.key === "Escape" && get(actionsOpen)) closeActions();
 	});
 	var node = first_child(fragment);
 	var consequent_1 = ($$anchor) => {
-		var div = root_1$1();
+		var div = root_2();
 		var node_1 = child(div);
 		var consequent = ($$anchor) => {
 			append($$anchor, text("No cached chats match your search."));
 		};
 		var alternate = ($$anchor) => {
-			var fragment_1 = root$1();
+			var fragment_1 = root_1$1();
 			next(2);
 			append($$anchor, fragment_1);
 		};
@@ -17152,18 +17177,19 @@ function SidebarList($$anchor, $$props) {
 		append($$anchor, div);
 	};
 	var alternate_1 = ($$anchor) => {
-		var fragment_2 = comment();
-		each(first_child(fragment_2), 17, () => sidebarListState.model.groups, (group) => group.label, ($$anchor, group) => {
-			var section = root_5();
+		var fragment_2 = root_8();
+		var node_2 = first_child(fragment_2);
+		each(node_2, 17, () => sidebarListState.model.groups, (group) => group.label, ($$anchor, group) => {
+			var section = root_6();
 			var div_1 = child(section);
 			var text_1 = only_child(div_1, true);
 			each(sibling(div_1, 2), 17, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
-				var div_2 = root_4();
+				var div_2 = root_5();
 				var button = child(div_2);
 				var div_3 = child(button);
 				var node_4 = child(div_3);
 				var consequent_2 = ($$anchor) => {
-					var span = root_2();
+					var span = root_3();
 					template_effect(() => {
 						set_class(span, 1, clsx(["item-status-dot", get(chat).statusClass]));
 						set_attribute(span, "title", get(chat).statusLabel || void 0);
@@ -17178,7 +17204,7 @@ function SidebarList($$anchor, $$props) {
 				var text_2 = only_child(span_1, true);
 				var node_5 = sibling(span_1, 2);
 				var consequent_3 = ($$anchor) => {
-					append($$anchor, root_3());
+					append($$anchor, root_4());
 				};
 				if_block(node_5, ($$render) => {
 					if (get(chat).broken) $$render(consequent_3);
@@ -17233,6 +17259,20 @@ function SidebarList($$anchor, $$props) {
 			});
 			append($$anchor, section);
 		});
+		var node_6 = sibling(node_2, 2);
+		var consequent_4 = ($$anchor) => {
+			var div_6 = root_7();
+			var text_6 = only_child(div_6, true);
+			attach(div_6, loadMoreTrigger);
+			template_effect(() => {
+				set_attribute(div_6, "aria-busy", sidebarListState.loadingMore ? "true" : void 0);
+				set_text(text_6, sidebarListState.loadingMore ? "Loading older chats…" : "");
+			});
+			append($$anchor, div_6);
+		};
+		if_block(node_6, ($$render) => {
+			if (sidebarListState.hasMore) $$render(consequent_4);
+		});
 		append($$anchor, fragment_2);
 	};
 	if_block(node, ($$render) => {
@@ -17240,14 +17280,14 @@ function SidebarList($$anchor, $$props) {
 		else $$render(alternate_1, -1);
 	});
 	var dialog = sibling(node, 2);
-	var div_6 = child(dialog);
-	var button_2 = sibling(child(div_6), 2);
-	var text_6 = only_child(button_2, true);
+	var div_7 = child(dialog);
+	var button_2 = sibling(child(div_7), 2);
+	var text_7 = only_child(button_2, true);
 	var button_3 = sibling(button_2, 2);
-	reset(div_6);
+	reset(div_7);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(actionsOpen), () => true, closeActions));
-	template_effect(() => set_text(text_6, get(actionsChatPinned) ? "Unpin chat" : "Pin chat"));
+	template_effect(() => set_text(text_7, get(actionsChatPinned) ? "Unpin chat" : "Pin chat"));
 	delegated("click", button_2, togglePinFromActions);
 	delegated("click", button_3, closeActions);
 	append($$anchor, fragment);
@@ -17611,19 +17651,24 @@ delegate([
 ]);
 //#endregion
 //#region src/prompta/ui/recentChatCache.ts
-var DATABASE_NAME, DATABASE_VERSION, STORE_NAME, ACCESSED_AT_INDEX_NAME, SUMMARY_STORE_NAME, SUMMARY_LIMIT, RecentChatCache;
+var DATABASE_NAME, DATABASE_VERSION, STORE_NAME, ACCESSED_AT_INDEX_NAME, SUMMARY_POSITION_INDEX_NAME, SUMMARY_STORE_NAME, SUMMARY_LIMIT, RecentChatCache;
 var init_recentChatCache = __esmMin((() => {
 	DATABASE_NAME = "prompta-recent-chats";
-	DATABASE_VERSION = 3;
+	DATABASE_VERSION = 4;
 	STORE_NAME = "chats";
 	ACCESSED_AT_INDEX_NAME = "scope-accessed-at";
+	SUMMARY_POSITION_INDEX_NAME = "scope-position";
 	SUMMARY_STORE_NAME = "summaries";
 	SUMMARY_LIMIT = 200;
 	RecentChatCache = class {
 		scope;
 		limit;
 		memory = /* @__PURE__ */ new Map();
+		pendingChats = /* @__PURE__ */ new Map();
 		databasePromise = null;
+		persistTimer = null;
+		summariesTimer = null;
+		pendingSummaries = null;
 		constructor(scope, limit = 20) {
 			this.scope = scope;
 			this.limit = limit;
@@ -17647,36 +17692,65 @@ var init_recentChatCache = __esmMin((() => {
 			});
 			if (!record?.chat || record.scope !== this.scope) return null;
 			this.rememberMemory(conversationId, record.chat);
-			this.persist(record.chat);
+			this.schedulePersist(record.chat);
 			return record.chat;
 		}
 		remember(chat) {
 			const conversationId = String(chat?.id || "");
 			if (!conversationId) return;
 			this.rememberMemory(conversationId, chat);
-			this.persist(chat);
+			this.schedulePersist(chat);
 		}
 		rememberSummaries(chats) {
 			const summaries = chats.filter((chat) => String(chat?.id || "")).slice(0, SUMMARY_LIMIT);
-			this.persistSummaries(summaries);
+			this.pendingSummaries = summaries;
+			if (this.summariesTimer !== null) return;
+			this.summariesTimer = setTimeout(() => {
+				this.summariesTimer = null;
+				const pending = this.pendingSummaries;
+				this.pendingSummaries = null;
+				if (pending) this.persistSummaries(pending);
+			}, 200);
 		}
 		async warmSummaries() {
 			const database = await this.database();
 			if (!database) return [];
 			return (await new Promise((resolve) => {
-				const request = database.transaction(SUMMARY_STORE_NAME, "readonly").objectStore(SUMMARY_STORE_NAME).getAll();
-				request.onsuccess = () => resolve(request.result || []);
+				const index = database.transaction(SUMMARY_STORE_NAME, "readonly").objectStore(SUMMARY_STORE_NAME).index(SUMMARY_POSITION_INDEX_NAME);
+				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+				const request = index.openCursor(range);
+				const result = [];
+				request.onsuccess = () => {
+					const cursor = request.result;
+					if (!cursor || result.length >= SUMMARY_LIMIT) {
+						resolve(result);
+						return;
+					}
+					result.push(cursor.value);
+					cursor.continue();
+				};
 				request.onerror = () => resolve([]);
-			})).filter((record) => record.scope === this.scope && record.chat).sort((left, right) => left.position - right.position).slice(0, SUMMARY_LIMIT).map((record) => record.chat);
+			})).filter((record) => record.chat).map((record) => record.chat);
 		}
 		async warm() {
 			const database = await this.database();
 			if (!database) return [];
 			const chats = (await new Promise((resolve) => {
-				const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
-				request.onsuccess = () => resolve(request.result || []);
+				const index = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).index(ACCESSED_AT_INDEX_NAME);
+				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+				const request = index.openCursor(range, "prev");
+				const result = [];
+				request.onsuccess = () => {
+					const cursor = request.result;
+					if (!cursor || result.length >= this.limit) {
+						resolve(result);
+						return;
+					}
+					result.push(cursor.value);
+					cursor.continue();
+				};
 				request.onerror = () => resolve([]);
-			})).filter((record) => record.scope === this.scope && record.chat).sort((left, right) => right.accessedAt - left.accessedAt).slice(0, this.limit).map((record) => record.chat);
+			})).filter((record) => record.chat).map((record) => record.chat);
 			for (const chat of chats) {
 				const conversationId = String(chat?.id || "");
 				if (conversationId) this.rememberMemory(conversationId, chat);
@@ -17685,6 +17759,7 @@ var init_recentChatCache = __esmMin((() => {
 		}
 		async remove(conversationId) {
 			this.memory.delete(conversationId);
+			this.pendingChats.delete(conversationId);
 			const database = await this.database();
 			if (!database) return;
 			await new Promise((resolve) => {
@@ -17708,21 +17783,37 @@ var init_recentChatCache = __esmMin((() => {
 		key(conversationId) {
 			return this.scope + ":" + conversationId;
 		}
-		async persist(chat) {
+		schedulePersist(chat) {
 			const conversationId = String(chat?.id || "");
 			if (!conversationId) return;
+			this.pendingChats.set(conversationId, chat);
+			if (this.persistTimer !== null) return;
+			this.persistTimer = setTimeout(() => {
+				this.persistTimer = null;
+				const pending = [...this.pendingChats.values()];
+				this.pendingChats.clear();
+				this.persistMany(pending);
+			}, 120);
+		}
+		async persistMany(chats) {
+			if (!chats.length) return;
 			const database = await this.database();
 			if (!database) return;
 			await new Promise((resolve) => {
 				const transaction = database.transaction(STORE_NAME, "readwrite");
 				const store = transaction.objectStore(STORE_NAME);
-				store.put({
-					key: this.key(conversationId),
-					scope: this.scope,
-					conversationId,
-					chat,
-					accessedAt: Date.now()
-				});
+				const accessedAt = Date.now();
+				for (const chat of chats) {
+					const conversationId = String(chat?.id || "");
+					if (!conversationId) continue;
+					store.put({
+						key: this.key(conversationId),
+						scope: this.scope,
+						conversationId,
+						chat,
+						accessedAt
+					});
+				}
 				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
 				const cursorRequest = store.index(ACCESSED_AT_INDEX_NAME).openKeyCursor(range, "prev");
 				let retained = 0;
@@ -17745,20 +17836,25 @@ var init_recentChatCache = __esmMin((() => {
 			await new Promise((resolve) => {
 				const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
 				const store = transaction.objectStore(SUMMARY_STORE_NAME);
-				const allRequest = store.getAll();
-				allRequest.onsuccess = () => {
-					for (const record of allRequest.result || []) if (record.scope === this.scope && !retainedIds.has(String(record.conversationId || ""))) store.delete(record.key);
-					chats.forEach((chat, position) => {
-						const conversationId = String(chat.id);
-						store.put({
-							key: this.key(conversationId),
-							scope: this.scope,
-							conversationId,
-							chat,
-							position
-						});
-					});
+				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+				const cursorRequest = store.index(SUMMARY_POSITION_INDEX_NAME).openCursor(range);
+				cursorRequest.onsuccess = () => {
+					const cursor = cursorRequest.result;
+					if (!cursor) return;
+					const record = cursor.value;
+					if (!retainedIds.has(String(record.conversationId || ""))) cursor.delete();
+					cursor.continue();
 				};
+				chats.forEach((chat, position) => {
+					const conversationId = String(chat.id);
+					store.put({
+						key: this.key(conversationId),
+						scope: this.scope,
+						conversationId,
+						chat,
+						position
+					});
+				});
 				transaction.oncomplete = () => resolve();
 				transaction.onerror = () => resolve();
 				transaction.onabort = () => resolve();
@@ -17784,7 +17880,8 @@ var init_recentChatCache = __esmMin((() => {
 					const chatStore = database.objectStoreNames.contains(STORE_NAME) ? transaction?.objectStore(STORE_NAME) : database.createObjectStore(STORE_NAME, { keyPath: "key" });
 					if (chatStore && !chatStore.indexNames.contains(ACCESSED_AT_INDEX_NAME)) chatStore.createIndex(ACCESSED_AT_INDEX_NAME, ["scope", "accessedAt"]);
 					if (chatStore && event.oldVersion > 0 && event.oldVersion < DATABASE_VERSION) chatStore.clear();
-					if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
+					const summaryStore = database.objectStoreNames.contains(SUMMARY_STORE_NAME) ? transaction?.objectStore(SUMMARY_STORE_NAME) : database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
+					if (summaryStore && !summaryStore.indexNames.contains(SUMMARY_POSITION_INDEX_NAME)) summaryStore.createIndex(SUMMARY_POSITION_INDEX_NAME, ["scope", "position"]);
 				};
 				request.onsuccess = () => {
 					const database = request.result;
@@ -18265,6 +18362,46 @@ var init_clientStorage = __esmMin((() => {
 //#endregion
 //#region src/prompta/ui/app.ts
 var app_exports = /* @__PURE__ */ __exportAll({});
+function cachedChatMatchesSummary(chat, summary) {
+	if (!chat || !summary || summary.status === "active") return false;
+	return String(chat.id || "") === String(summary.id || "") && String(chat.updated_at ?? "") === String(summary.updated_at ?? "") && String(chat.status || "") === String(summary.status || "");
+}
+function fetchChatDetail(conversationId) {
+	const existing = chatDetailRequests.get(conversationId);
+	if (existing) return existing;
+	const request = fetchJson(`api/chats/${encodeURIComponent(conversationId)}`, 3e4).then((chat) => {
+		if (!chat || String(chat.id || "") !== conversationId) return null;
+		recentChatCache.remember(chat);
+		return chat;
+	}).finally(() => {
+		chatDetailRequests.delete(conversationId);
+	});
+	chatDetailRequests.set(conversationId, request);
+	return request;
+}
+function runQueuedChatPrefetch() {
+	if (chatPrefetchRunning) return;
+	const conversationId = queuedPrefetchIds.shift();
+	if (!conversationId) return;
+	queuedPrefetchSet.delete(conversationId);
+	chatPrefetchRunning = true;
+	fetchChatDetail(conversationId).catch((error) => {
+		console.warn("Could not prefetch Prompta chat", conversationId, error);
+	}).finally(() => {
+		chatPrefetchRunning = false;
+		if (queuedPrefetchIds.length) (typeof requestIdleCallback === "function" ? (callback) => requestIdleCallback(callback, { timeout: 500 }) : (callback) => setTimeout(callback, 40))(runQueuedChatPrefetch);
+	});
+}
+function queueChatPrefetch(chats) {
+	for (const chat of chats) {
+		const id = String(chat?.id || "");
+		if (!id || chat.status === "active" || recentChatCache.getMemory(id) || queuedPrefetchSet.has(id) || chatDetailRequests.has(id)) continue;
+		queuedPrefetchSet.add(id);
+		queuedPrefetchIds.push(id);
+		if (queuedPrefetchIds.length >= 8) break;
+	}
+	runQueuedChatPrefetch();
+}
 function persistPinChange(chatId, pinned) {
 	postJsonRequest("api/pins", {
 		id: chatId,
@@ -18531,9 +18668,11 @@ function renderSidebar(force = false) {
 		Boolean(chat._optimisticNew),
 		Boolean(chat._optimisticReply),
 		state.pinnedIds.has(chat.id)
-	])) + (/* @__PURE__ */ new Date()).toDateString() + selectionId;
+	])) + (/* @__PURE__ */ new Date()).toDateString() + selectionId + String(state.chatNextOffset) + String(state.loadingMoreChats);
 	if (!force && fingerprint === state.sidebarFingerprint) return;
 	state.sidebarFingerprint = fingerprint;
+	sidebarListState.hasMore = state.chatNextOffset !== null;
+	sidebarListState.loadingMore = state.loadingMoreChats;
 	if (!chats.length) {
 		sidebarListState.model = {
 			emptyState: state.search ? "search" : "empty",
@@ -18975,27 +19114,50 @@ async function hydratePendingSends() {
 		console.warn("Could not hydrate pending Prompta sends", error);
 	}
 }
-async function loadChats(forceSelectedRefresh = false) {
+function mergeChatPages(current, incoming, keepCurrent) {
+	const merged = keepCurrent ? [...incoming, ...current] : incoming;
+	const byId = /* @__PURE__ */ new Map();
+	for (const chat of merged) {
+		const id = String(chat?.id || "");
+		if (id && !byId.has(id)) byId.set(id, chat);
+	}
+	return [...byId.values()];
+}
+async function loadChats(forceSelectedRefresh = false, append = false) {
+	const sameScope = state.chatOrderScope === state.search;
+	if (append && (state.loadingMoreChats || !sameScope || state.chatNextOffset === null)) return;
+	const offset = append ? state.chatNextOffset || 0 : 0;
+	const previousChats = sameScope ? state.chats : [];
+	if (append) {
+		state.loadingMoreChats = true;
+		state.sidebarFingerprint = "";
+		renderSidebar();
+	}
 	const requestId = ++state.chatsRequestId;
 	chatsRequestController?.abort();
 	const requestController = new AbortController();
 	chatsRequestController = requestController;
 	try {
-		const payload = await fetchJson(chatListRequestUrl(state.search, state.pinnedIds), 1e4, requestController);
+		const payload = await fetchJson(chatListRequestUrl(state.search, state.pinnedIds, CHAT_PAGE_SIZE, offset), 1e4, requestController);
 		if (requestId !== state.chatsRequestId) return;
-		const chats = payload.chats || [];
-		promoteServerPendingPins(chats);
-		reconcileOptimisticNew(chats);
-		const orderedChats = sortSidebarChats(chats, state.pinnedIds);
+		const page = Array.isArray(payload.chats) ? payload.chats : [];
+		promoteServerPendingPins(page);
+		reconcileOptimisticNew(page);
+		const orderedChats = sortSidebarChats(mergeChatPages(previousChats, page, append || sameScope && previousChats.length > page.length), state.pinnedIds);
 		if (!state.search) recentChatCache.rememberSummaries(orderedChats);
-		completionNotifications.trackCompletions(chats);
+		completionNotifications.trackCompletions(page);
 		state.chats = orderedChats;
 		state.chatOrderScope = state.search;
+		if (!append && !state.search) queueChatPrefetch(orderedChats.slice(0, 8));
+		const nextOffset = Number(payload.next_offset);
+		const serverNextOffset = payload.next_offset !== null && Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : null;
+		if (append || !sameScope || previousChats.length <= page.length) state.chatNextOffset = serverNextOffset;
 		const activeCount = state.chats.filter((chat) => chat.status === "active").length;
 		setCacheSummary(sidebarChatCountSummary(state.chats.length, activeCount, state.search));
 		const hashId = conversationIdFromHash(location.hash);
 		if (!state.selectedId && hashId) state.selectedId = hashId;
 		state.selectedId = selectedConversationAfterChatRefresh(state.selectedId, state.composingNew, state.chats);
+		state.sidebarFingerprint = "";
 		renderSidebar();
 		if (state.mode === "chats") {
 			if (state.selectedId) {
@@ -19008,8 +19170,16 @@ async function loadChats(forceSelectedRefresh = false) {
 		setCacheSummary("Cache unavailable");
 		console.error(error);
 	} finally {
+		if (requestId === state.chatsRequestId && append) {
+			state.loadingMoreChats = false;
+			state.sidebarFingerprint = "";
+			renderSidebar();
+		}
 		if (chatsRequestController === requestController) chatsRequestController = null;
 	}
+}
+function loadMoreChats() {
+	loadChats(false, true);
 }
 async function probeHistoricalActivity(conversationId) {
 	if (!conversationId || !shouldProbeHistoricalActivity(state.selectedChat?.status)) return;
@@ -19060,14 +19230,24 @@ function renderRecentChatSnapshot(conversationId) {
 async function loadSelectedChat() {
 	if (!state.selectedId || state.mode !== "chats") return;
 	const selectedId = state.selectedId;
-	if (!state.selectedChat || state.selectedChat.id !== selectedId) renderRecentChatSnapshot(selectedId);
+	const summary = state.chats.find((chat) => chat.id === selectedId);
+	const memoryChat = recentChatCache.getMemory(selectedId);
+	if (!state.selectedChat || state.selectedChat.id !== selectedId) {
+		if (memoryChat) {
+			state.selectedUpdatedAt = memoryChat.updated_at;
+			renderConversation(memoryChat);
+		} else renderRecentChatSnapshot(selectedId);
+	}
+	if (cachedChatMatchesSummary(memoryChat, summary)) {
+		finishChatSwitch(selectedId);
+		return;
+	}
 	const requestId = ++state.selectedRequestId;
 	try {
-		const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`, 3e4);
-		if (requestId !== state.selectedRequestId || selectedId !== state.selectedId || chat.id !== state.selectedId) return;
+		const chat = await fetchChatDetail(selectedId);
+		if (!chat || requestId !== state.selectedRequestId || selectedId !== state.selectedId || chat.id !== state.selectedId) return;
 		if (state.pendingNewId === chat.id && !state.pendingNewSend) state.pendingNewId = null;
 		state.selectedUpdatedAt = chat.updated_at;
-		recentChatCache.remember(chat);
 		renderConversation(chat);
 		if (shouldProbeHistoricalActivity(chat.status)) probeHistoricalActivity(chat.id);
 	} catch (error) {
@@ -19108,6 +19288,7 @@ async function selectChat(id) {
 	state.selectedMetaFingerprint = "";
 	state.selectedChat = null;
 	history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
+	renderRecentChatSnapshot(id);
 	renderSidebar();
 	await loadSelectedChat();
 }
@@ -19696,7 +19877,7 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, clientSessionId, actionToastTimer, state, sidebarRenderDeferred, sidebar, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var recentChatCache, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetchIds, queuedPrefetchSet, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, CHAT_PAGE_SIZE, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_clientLogic();
 	init_recentChatCache();
@@ -19715,6 +19896,10 @@ var init_app = __esmMin((() => {
 	recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 	clientSessionId = loadClientSessionId();
 	actionToastTimer = null;
+	chatDetailRequests = /* @__PURE__ */ new Map();
+	queuedPrefetchIds = [];
+	queuedPrefetchSet = /* @__PURE__ */ new Set();
+	chatPrefetchRunning = false;
 	state = {
 		chats: [],
 		selectedId: null,
@@ -19733,6 +19918,8 @@ var init_app = __esmMin((() => {
 		selectedMetaFingerprint: "",
 		chatsRequestId: 0,
 		chatOrderScope: null,
+		chatNextOffset: null,
+		loadingMoreChats: false,
 		selectedRequestId: 0,
 		selectedChat: null,
 		selectedVisibleMessageCount: 0,
@@ -19772,6 +19959,11 @@ var init_app = __esmMin((() => {
 		renderSidebar(true);
 		updatePinButton();
 	};
+	sidebarListActions.onPrefetch = (chatId) => {
+		if (recentChatCache.getMemory(chatId)) return;
+		fetchChatDetail(chatId).catch(() => {});
+	};
+	sidebarListActions.onLoadMore = loadMoreChats;
 	conversationRenderer = createConversationRenderer({
 		onRetry: retryFailedSend,
 		onDelete: deletePendingSend,
@@ -19827,6 +20019,7 @@ var init_app = __esmMin((() => {
 		"new",
 		"idle"
 	]);
+	CHAT_PAGE_SIZE = 60;
 	chatsRequestController = null;
 	HISTORICAL_ACTIVITY_PROBE_TTL_MS = 3e4;
 	appActions.onSearch = (value) => {

@@ -1,10 +1,12 @@
 const DATABASE_NAME = "prompta-recent-chats";
 
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 4;
 
 const STORE_NAME = "chats";
 
 const ACCESSED_AT_INDEX_NAME = "scope-accessed-at";
+
+const SUMMARY_POSITION_INDEX_NAME = "scope-position";
 
 const SUMMARY_STORE_NAME = "summaries";
 
@@ -28,7 +30,11 @@ type CachedChatSummaryRecord = {
 
 export class RecentChatCache {
   private readonly memory = new Map<string, any>();
+  private readonly pendingChats = new Map<string, any>();
   private databasePromise: Promise<IDBDatabase | null> | null = null;
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private summariesTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSummaries: any[] | null = null;
 
   constructor(
     private readonly scope: string,
@@ -65,7 +71,7 @@ export class RecentChatCache {
     if (!record?.chat || record.scope !== this.scope) return null;
 
     this.rememberMemory(conversationId, record.chat);
-    void this.persist(record.chat);
+    this.schedulePersist(record.chat);
 
     return record.chat;
   }
@@ -76,12 +82,22 @@ export class RecentChatCache {
     if (!conversationId) return;
 
     this.rememberMemory(conversationId, chat);
-    void this.persist(chat);
+    this.schedulePersist(chat);
   }
 
   rememberSummaries(chats: any[]) {
     const summaries = chats.filter((chat) => String(chat?.id || "")).slice(0, SUMMARY_LIMIT);
-    void this.persistSummaries(summaries);
+    this.pendingSummaries = summaries;
+
+    if (this.summariesTimer !== null) return;
+
+    this.summariesTimer = setTimeout(() => {
+      this.summariesTimer = null;
+      const pending = this.pendingSummaries;
+      this.pendingSummaries = null;
+
+      if (pending) void this.persistSummaries(pending);
+    }, 200);
   }
 
   async warmSummaries() {
@@ -91,16 +107,28 @@ export class RecentChatCache {
 
     const records = await new Promise<CachedChatSummaryRecord[]>((resolve) => {
       const transaction = database.transaction(SUMMARY_STORE_NAME, "readonly");
-      const request = transaction.objectStore(SUMMARY_STORE_NAME).getAll();
-      request.onsuccess = () => resolve(request.result || []);
+      const store = transaction.objectStore(SUMMARY_STORE_NAME);
+      const index = store.index(SUMMARY_POSITION_INDEX_NAME);
+      const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+      const request = index.openCursor(range);
+      const result: CachedChatSummaryRecord[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+
+        if (!cursor || result.length >= SUMMARY_LIMIT) {
+          resolve(result);
+
+          return;
+        }
+
+        result.push(cursor.value);
+        cursor.continue();
+      };
       request.onerror = () => resolve([]);
     });
 
-    return records
-      .filter((record) => record.scope === this.scope && record.chat)
-      .sort((left, right) => left.position - right.position)
-      .slice(0, SUMMARY_LIMIT)
-      .map((record) => record.chat);
+    return records.filter((record) => record.chat).map((record) => record.chat);
   }
 
   async warm() {
@@ -110,15 +138,27 @@ export class RecentChatCache {
 
     const records = await new Promise<CachedChatRecord[]>((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readonly");
-      const request = transaction.objectStore(STORE_NAME).getAll();
-      request.onsuccess = () => resolve(request.result || []);
+      const store = transaction.objectStore(STORE_NAME);
+      const index = store.index(ACCESSED_AT_INDEX_NAME);
+      const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+      const request = index.openCursor(range, "prev");
+      const result: CachedChatRecord[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+
+        if (!cursor || result.length >= this.limit) {
+          resolve(result);
+
+          return;
+        }
+
+        result.push(cursor.value);
+        cursor.continue();
+      };
       request.onerror = () => resolve([]);
     });
-    const chats = records
-      .filter((record) => record.scope === this.scope && record.chat)
-      .sort((left, right) => right.accessedAt - left.accessedAt)
-      .slice(0, this.limit)
-      .map((record) => record.chat);
+    const chats = records.filter((record) => record.chat).map((record) => record.chat);
 
     for (const chat of chats) {
       const conversationId = String(chat?.id || "");
@@ -131,6 +171,7 @@ export class RecentChatCache {
 
   async remove(conversationId: string) {
     this.memory.delete(conversationId);
+    this.pendingChats.delete(conversationId);
     const database = await this.database();
 
     if (!database) return;
@@ -162,10 +203,25 @@ export class RecentChatCache {
     return this.scope + ":" + conversationId;
   }
 
-  private async persist(chat: any) {
+  private schedulePersist(chat: any) {
     const conversationId = String(chat?.id || "");
 
     if (!conversationId) return;
+
+    this.pendingChats.set(conversationId, chat);
+
+    if (this.persistTimer !== null) return;
+
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      const pending = [...this.pendingChats.values()];
+      this.pendingChats.clear();
+      void this.persistMany(pending);
+    }, 120);
+  }
+
+  private async persistMany(chats: any[]) {
+    if (!chats.length) return;
 
     const database = await this.database();
 
@@ -174,13 +230,21 @@ export class RecentChatCache {
     await new Promise<void>((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
-      store.put({
-        key: this.key(conversationId),
-        scope: this.scope,
-        conversationId,
-        chat,
-        accessedAt: Date.now(),
-      } satisfies CachedChatRecord);
+      const accessedAt = Date.now();
+
+      for (const chat of chats) {
+        const conversationId = String(chat?.id || "");
+
+        if (!conversationId) continue;
+
+        store.put({
+          key: this.key(conversationId),
+          scope: this.scope,
+          conversationId,
+          chat,
+          accessedAt,
+        } satisfies CachedChatRecord);
+      }
 
       const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
       const cursorRequest = store.index(ACCESSED_AT_INDEX_NAME).openKeyCursor(range, "prev");
@@ -213,28 +277,31 @@ export class RecentChatCache {
     await new Promise<void>((resolve) => {
       const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
       const store = transaction.objectStore(SUMMARY_STORE_NAME);
-      const allRequest = store.getAll();
-      allRequest.onsuccess = () => {
-        for (const record of allRequest.result || []) {
-          if (
-            record.scope === this.scope &&
-            !retainedIds.has(String(record.conversationId || ""))
-          ) {
-            store.delete(record.key);
-          }
-        }
+      const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+      const cursorRequest = store.index(SUMMARY_POSITION_INDEX_NAME).openCursor(range);
 
-        chats.forEach((chat, position) => {
-          const conversationId = String(chat.id);
-          store.put({
-            key: this.key(conversationId),
-            scope: this.scope,
-            conversationId,
-            chat,
-            position,
-          } satisfies CachedChatSummaryRecord);
-        });
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+
+        if (!cursor) return;
+
+        const record = cursor.value as CachedChatSummaryRecord;
+
+        if (!retainedIds.has(String(record.conversationId || ""))) cursor.delete();
+
+        cursor.continue();
       };
+
+      chats.forEach((chat, position) => {
+        const conversationId = String(chat.id);
+        store.put({
+          key: this.key(conversationId),
+          scope: this.scope,
+          conversationId,
+          chat,
+          position,
+        } satisfies CachedChatSummaryRecord);
+      });
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => resolve();
       transaction.onabort = () => resolve();
@@ -276,8 +343,12 @@ export class RecentChatCache {
           chatStore.clear();
         }
 
-        if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) {
-          database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
+        const summaryStore = database.objectStoreNames.contains(SUMMARY_STORE_NAME)
+          ? transaction?.objectStore(SUMMARY_STORE_NAME)
+          : database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
+
+        if (summaryStore && !summaryStore.indexNames.contains(SUMMARY_POSITION_INDEX_NAME)) {
+          summaryStore.createIndex(SUMMARY_POSITION_INDEX_NAME, ["scope", "position"]);
         }
       };
       request.onsuccess = () => {

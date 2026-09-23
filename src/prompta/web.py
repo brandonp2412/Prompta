@@ -335,6 +335,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self,
         *,
         limit: int = 200,
+        offset: int = 0,
         query: str = "",
         include_ids: list[str] | tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
@@ -346,14 +347,20 @@ class PromptaUIServer(ThreadingHTTPServer):
             dict(chat)
             for chat in self.store.conversations(
                 limit=bounded_limit,
+                offset=max(0, offset),
                 query=query,
-                include_ids=included_ids,
+                include_ids=included_ids if offset == 0 else (),
             )
         ]
         known_ids = {str(chat.get("id") or "") for chat in rows}
         needle = query.strip().casefold()
 
-        for job in self.send_jobs.list_conversation_receipts():
+        if offset == 0:
+            receipt_jobs = self.send_jobs.list_conversation_receipts()
+        else:
+            receipt_jobs = []
+
+        for job in receipt_jobs:
             summary = self._send_conversation_summary(job)
             if not summary["id"] or summary["id"] in known_ids:
                 continue
@@ -782,16 +789,27 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             search = query.get("q", [""])[0]
             include_ids = query.get("include", [])
             try:
-                limit = int(query.get("limit", ["200"])[0])
+                limit = int(query.get("limit", ["60"])[0])
             except ValueError:
-                limit = 200
+                limit = 60
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except ValueError:
+                offset = 0
+            bounded_limit = max(1, min(limit, 500))
+            bounded_offset = max(0, offset)
+            chats = cast(PromptaUIServer, self.server).conversations(
+                limit=bounded_limit,
+                offset=bounded_offset,
+                query=search,
+                include_ids=include_ids,
+            )
             self._json(
                 {
-                    "chats": cast(PromptaUIServer, self.server).conversations(
-                        limit=limit,
-                        query=search,
-                        include_ids=include_ids,
-                    )
+                    "chats": chats,
+                    "next_offset": bounded_offset + len(chats)
+                    if len(chats) >= bounded_limit
+                    else None,
                 }
             )
             return

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Attachment } from "svelte/attachments";
   import { MediaQuery } from "svelte/reactivity";
 
   import { dialogVisibility, scrollNearBottom } from "./browserAttachments.svelte";
@@ -15,6 +16,8 @@
   let hasMore = $state(true);
   let open = $state(false);
   let presentation = $state<"modal" | "stack">("modal");
+  let nextOffset = $state<number | null>(0);
+  let loadingMore = $state(false);
 
   async function load() {
     if (loading || !hasMore) return;
