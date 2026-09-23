@@ -347,6 +347,80 @@ async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_send_reply_resumes_matching_queued_draft(tmp_path: Path) -> None:
+    prompt = "Continue from the UI"
+    conversation_id = "existing-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class ReplyFakeDriver(FakeDriver):
+        def __init__(self, message: str) -> None:
+            super().__init__(message, initial_composer=message)
+            self.type_calls = 0
+
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def type_message(self, text: str) -> None:
+            self.type_calls += 1
+            await super().type_message(text)
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            return {
+                "title": "Existing chat",
+                "path": f"/c/{conversation_id}",
+                "streaming": True,
+                "messages": [{"id": "u1", "role": "user", "content": prompt}],
+            }
+
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-existing",
+        job_name="kite",
+        prompt="Original prompt",
+    )
+    fake = ReplyFakeDriver(prompt)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    result = await prompta.send_reply(conversation_id, prompt)
+
+    assert result == conversation_id
+    assert fake.type_calls == 0
+    assert fake.sent is True
+    await prompta.close()
+
+
+@pytest.mark.asyncio
+async def test_send_reply_preserves_unrelated_existing_draft(tmp_path: Path) -> None:
+    prompt = "Continue from the UI"
+    conversation_id = "existing-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class ReplyFakeDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-existing",
+        job_name="kite",
+        prompt="Original prompt",
+    )
+    fake = ReplyFakeDriver(prompt, initial_composer="My manual unsent draft")
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="already contains unsent text"):
+        await prompta.send_reply(conversation_id, prompt)
+
+    assert fake.typed == "My manual unsent draft"
+    assert fake.sent is False
+    await prompta.close()
+
+
+@pytest.mark.asyncio
 async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) -> None:
     prompt = "Continue from the UI"
     conversation_id = "existing-chat"

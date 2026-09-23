@@ -460,14 +460,23 @@ class ConversationActions:
                 await driver.attach_files(attachments)
                 await driver.wait_for_composer()
             baseline = await driver.dom_state()
-            if self.normalise(str(baseline.get("composer_text") or "")):
+            prompt_text = self.normalise(prompt)
+            composer_text = self.normalise(str(baseline.get("composer_text") or ""))
+            resume_queued_draft = bool(
+                prompt_text and not attachments and composer_text == prompt_text
+            )
+            if composer_text and not resume_queued_draft:
                 raise RuntimeError("ChatGPT composer already contains unsent text")
+            if resume_queued_draft:
+                logger.warning(
+                    "Prompta found the queued reply already in the composer; resuming its send"
+                )
             baseline_user_id = str(baseline.get("last_user_id") or "")
 
             await driver.arm_page_send_probe()
             probe_armed = True
             capture = driver.arm_send_capture()
-            if prompt.strip():
+            if prompt.strip() and not resume_queued_draft:
                 await driver.type_message(prompt)
             typed = await driver.dom_state()
             if self.normalise(str(typed.get("composer_text") or "")) != self.normalise(prompt):
