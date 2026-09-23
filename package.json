@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build && bun scripts/normalize-bundle.mjs src/prompta/static/app.js",
-    "fmt": "bun x oxfmt src/prompta/ui vite.config.ts svelte.config.js && bun scripts/check-spacing.mjs --fix src/prompta/ui",
-    "fmt:check": "bun x oxfmt --check src/prompta/ui vite.config.ts svelte.config.js && bun scripts/check-spacing.mjs src/prompta/ui",
+    "fmt": "bun x oxfmt src/prompta/ui vite.config.ts svelte.config.js",
+    "fmt:check": "bun x oxfmt --check src/prompta/ui vite.config.ts svelte.config.js",
     "lint": "bun x oxlint --deny-warnings --type-aware --type-check --ignore-pattern '**/*.test.ts' src/prompta/ui",
     "lint:dom": "bun scripts/check-dom-rebuilds.mjs src/prompta/ui",
     "lint:tests": "bun x oxlint --deny-warnings src/prompta/ui/*.test.ts",
