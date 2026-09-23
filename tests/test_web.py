@@ -526,6 +526,35 @@ def test_ui_server_exposes_pending_new_chat_before_chatgpt_assigns_an_id(tmp_pat
     assert chat["messages"][1]["pending_activity_label"] == "queued · #3"
 
 
+def test_ui_server_pending_new_chat_rate_limit_shows_backoff_duration(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    receipt = {
+        "send_id": "send-limited",
+        "operation": "once",
+        "message": "Back off visibly",
+        "client_id": "client-limited",
+        "status": "rate_limited",
+        "conversation_id": "",
+        "created_at": 1_000.0,
+        "updated_at": 1_001.0,
+        "retry_at": 1_300.0,
+        "retry_after_seconds": 300,
+    }
+    server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
+        return_value=[receipt]
+    )
+    pending_id = "pending-new-client-limited"
+    try:
+        with patch("prompta.web.time.time", return_value=1_180.0):
+            chat = server.conversation(pending_id)
+    finally:
+        server.server_close()
+
+    assert chat is not None
+    assert chat["messages"][1]["pending_activity_label"] == "rate limited · retry in 2m"
+
+
 def test_ui_server_keeps_successful_new_chat_visible_before_cache_adopts_it(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")

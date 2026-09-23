@@ -218,6 +218,20 @@ class PromptaUIServer(ThreadingHTTPServer):
             "_client_id": str(job.get("client_id") or ""),
         }
 
+    @staticmethod
+    def _retry_delay_label(job: dict[str, Any]) -> str:
+        retry_at = float(job.get("retry_at") or 0.0)
+        retry_after = float(job.get("retry_after_seconds") or 0.0)
+        remaining = max(0.0, retry_at - time.time()) if retry_at > 0 else max(0.0, retry_after)
+        if remaining <= 0:
+            return "retrying now"
+        if remaining < 60:
+            return "retry in <1m"
+        minutes = math.ceil(remaining / 60)
+        if minutes < 60:
+            return f"retry in {minutes}m"
+        return f"retry in {math.ceil(minutes / 60)}h"
+
     @classmethod
     def _send_conversation_detail(cls, job: dict[str, Any]) -> dict[str, Any]:
         summary = cls._send_conversation_summary(job)
@@ -247,7 +261,7 @@ class PromptaUIServer(ThreadingHTTPServer):
             elif send_status == "retrying":
                 activity_label = "retrying"
             elif send_status == "rate_limited":
-                activity_label = "rate limited"
+                activity_label = f"rate limited · {cls._retry_delay_label(job)}"
             else:
                 activity_label = "waiting"
             summary["messages"].append(
