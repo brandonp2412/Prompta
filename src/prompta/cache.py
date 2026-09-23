@@ -641,6 +641,20 @@ class ChatCache:
         ).fetchone()
         return float(row["activity_at"] or 0.0) if row is not None else 0.0
 
+    def stale_active_conversation_ids(self, *, activity_before: float) -> list[str]:
+        activity_sql = _conversation_meaningful_activity_sql()
+        rows = self.connection.execute(
+            f"""
+            SELECT c.id
+            FROM conversations AS c
+            WHERE c.status = 'active'
+              AND {activity_sql} < ?
+            ORDER BY c.updated_at
+            """,
+            (activity_before,),
+        ).fetchall()
+        return [str(row["id"]) for row in rows]
+
     def status(self, conversation_id: str) -> str | None:
         row = self.connection.execute(
             "SELECT status FROM conversations WHERE id = ?",

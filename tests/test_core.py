@@ -3598,6 +3598,7 @@ async def test_recover_cached_conversations_does_not_reopen_stale_active_chat(
 
     assert await prompta.recover_cached_conversations() == 0
 
+    assert prompta.cache.status(conversation_id) == "interrupted"
     prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 

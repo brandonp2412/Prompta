@@ -167,12 +167,22 @@ class ConversationTracker:
 
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
 
+        activity_after = time.time() - STALE_ACTIVE_TAB_SECONDS
+        for conversation_id in self.cache.stale_active_conversation_ids(
+            activity_before=activity_after
+        ):
+            self.cache.mark_interrupted(conversation_id)
+            logger.warning(
+                "Prompta retired stale cached conversation=%s before restart recovery",
+                conversation_id,
+            )
+
         attached_ids = {active.conversation_id for active in self.active.values()}
         recoverable = [
             row
             for row in self.cache.recoverable_conversations(
                 interrupted_after=time.time() - RESTART_RECOVERY_INTERRUPTED_SECONDS,
-                activity_after=time.time() - STALE_ACTIVE_TAB_SECONDS,
+                activity_after=activity_after,
                 limit=max(1, limit) + len(attached_ids),
             )
             if str(row.get("id") or "") not in attached_ids
