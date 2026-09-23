@@ -571,6 +571,71 @@ async def test_debugger_background_eval_does_not_activate_visible_tab() -> None:
 
 
 @pytest.mark.asyncio
+async def test_debugger_background_navigation_does_not_activate_visible_tab() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "visible-tab"
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "visible-tab"
+    driver._debugger_call = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+    await driver.navigate("https://chatgpt.com/c/background", context="background-tab")
+
+    driver._debugger_call.assert_awaited_once_with(
+        "background-tab",
+        "Page.navigate",
+        {"url": "https://chatgpt.com/c/background"},
+    )
+    selenium.switch_to.window.assert_not_called()
+    selenium.get.assert_not_called()
+    assert driver.context == "visible-tab"
+
+
+@pytest.mark.asyncio
+async def test_debugger_find_context_for_path_does_not_activate_tabs() -> None:
+    selenium = MagicMock()
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "visible-tab"
+    driver._debugger_targets = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            {"id": "visible-tab", "type": "page", "url": "https://chatgpt.com/c/visible"},
+            {"id": "target-tab", "type": "page", "url": "https://chatgpt.com/c/target"},
+        ]
+    )
+
+    assert await driver.find_context_for_path("/c/target") == "target-tab"
+    selenium.switch_to.window.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_debugger_close_background_context_does_not_activate_visible_tab() -> None:
+    selenium = MagicMock()
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "visible-tab"
+    driver._owned_contexts.add("background-tab")
+    driver._close_debugger_targets = MagicMock(return_value=set())  # type: ignore[method-assign]
+
+    await driver.close_context("background-tab")
+
+    driver._close_debugger_targets.assert_called_once_with({"background-tab"})
+    selenium.switch_to.window.assert_not_called()
+    selenium.close.assert_not_called()
+    assert driver.context == "visible-tab"
+    assert "background-tab" not in driver._owned_contexts
+
+
+@pytest.mark.asyncio
 async def test_attachment_upload_returns_to_default_context_after_background_eval(
     tmp_path: Path,
 ) -> None:

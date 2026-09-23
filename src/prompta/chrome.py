@@ -537,19 +537,22 @@ class ChromeDriverDriver(WebDriverBase):
             self.context = target
         return driver
 
-    def _debugger_target_websocket_url(self, context: str) -> str:
+    def _debugger_targets(self) -> list[dict[str, Any]]:
         if not self.debugger_address:
-            return ""
+            return []
         endpoint = f"http://{self.debugger_address}/json/list"
         with urlopen(endpoint, timeout=1.0) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, list):
-            return ""
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
+    def _debugger_target_websocket_url(self, context: str) -> str:
         target = next(
             (
                 item
-                for item in payload
-                if isinstance(item, dict) and str(item.get("id") or "") == context
+                for item in self._debugger_targets()
+                if str(item.get("id") or "") == context
             ),
             None,
         )
@@ -557,13 +560,12 @@ class ChromeDriverDriver(WebDriverBase):
             return ""
         return str(target.get("webSocketDebuggerUrl") or "")
 
-    async def _eval_debugger_context(
+    async def _debugger_call(
         self,
-        expression: str,
-        *,
-        await_promise: bool,
         context: str,
-    ) -> Any:
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         websocket_url = await asyncio.to_thread(self._debugger_target_websocket_url, context)
         if not websocket_url:
             raise RuntimeError(f"Chromium debugger target is unavailable: {context}")
@@ -578,12 +580,8 @@ class ChromeDriverDriver(WebDriverBase):
                 json.dumps(
                     {
                         "id": 1,
-                        "method": "Runtime.evaluate",
-                        "params": {
-                            "expression": f"({expression})",
-                            "returnByValue": True,
-                            "awaitPromise": await_promise,
-                        },
+                        "method": method,
+                        "params": params or {},
                     }
                 )
             )
@@ -592,22 +590,38 @@ class ChromeDriverDriver(WebDriverBase):
                 if response.get("id") != 1:
                     continue
                 if "error" in response:
-                    raise RuntimeError(
-                        f"Chromium debugger evaluation failed: {response['error']}"
-                    )
+                    raise RuntimeError(f"Chromium debugger {method} failed: {response['error']}")
                 result = response.get("result", {})
-                exception = result.get("exceptionDetails")
-                if exception:
-                    detail = str(exception.get("text") or "JavaScript evaluation failed")
-                    raise RuntimeError(f"Chromium debugger script failed: {detail}")
-                remote = result.get("result", {})
-                if not isinstance(remote, dict):
-                    return None
-                if "value" in remote:
-                    return remote["value"]
-                if remote.get("type") == "undefined":
-                    return None
-                return remote.get("description")
+                return result if isinstance(result, dict) else {}
+
+    async def _eval_debugger_context(
+        self,
+        expression: str,
+        *,
+        await_promise: bool,
+        context: str,
+    ) -> Any:
+        result = await self._debugger_call(
+            context,
+            "Runtime.evaluate",
+            {
+                "expression": f"({expression})",
+                "returnByValue": True,
+                "awaitPromise": await_promise,
+            },
+        )
+        exception = result.get("exceptionDetails")
+        if exception:
+            detail = str(exception.get("text") or "JavaScript evaluation failed")
+            raise RuntimeError(f"Chromium debugger script failed: {detail}")
+        remote = result.get("result", {})
+        if not isinstance(remote, dict):
+            return None
+        if "value" in remote:
+            return remote["value"]
+        if remote.get("type") == "undefined":
+            return None
+        return remote.get("description")
 
     async def eval(
         self,
@@ -650,6 +664,10 @@ class ChromeDriverDriver(WebDriverBase):
         return await self._run_webdriver_call("execute Chromium script", execute)
 
     async def navigate(self, url: str, *, context: str | None = None) -> None:
+        if context is not None and self.debugger_address:
+            await self._debugger_call(context, "Page.navigate", {"url": url})
+            return
+
         def navigate_sync() -> None:
             driver = self._activate_context_sync(context)
             driver.get(url)
@@ -658,6 +676,15 @@ class ChromeDriverDriver(WebDriverBase):
 
     async def find_context_for_path(self, expected_path: str) -> str | None:
         target_path = urlsplit(expected_path).path.rstrip("/") or "/"
+        if self.debugger_address:
+            targets = await asyncio.to_thread(self._debugger_targets)
+            for target in targets:
+                if target.get("type") != "page":
+                    continue
+                current_path = urlsplit(str(target.get("url") or "")).path.rstrip("/") or "/"
+                if current_path == target_path:
+                    return str(target.get("id") or "") or None
+            return None
 
         def find() -> str | None:
             driver = self._require_driver()
@@ -717,6 +744,25 @@ class ChromeDriverDriver(WebDriverBase):
         return context
 
     async def close_context(self, context: str) -> None:
+        if self.debugger_address:
+            unresolved = await asyncio.to_thread(self._close_debugger_targets, {context})
+            if context in unresolved:
+                raise RuntimeError(f"Could not close Chromium debugger target: {context}")
+            self._forget_owned_context(context)
+            if self.context == context:
+                targets = await asyncio.to_thread(self._debugger_targets)
+                self.context = next(
+                    (
+                        str(target.get("id") or "")
+                        for target in reversed(targets)
+                        if target.get("type") == "page"
+                        and str(target.get("id") or "")
+                        and str(target.get("id") or "") != context
+                    ),
+                    "",
+                )
+            return
+
         def close_sync() -> None:
             driver = self._require_driver()
             default_context = self.context
