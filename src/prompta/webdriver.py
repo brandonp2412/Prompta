@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import urlsplit
 
 from .browser_script_loader import load_browser_script, render_browser_script
 from .chatgpt_dom import (
@@ -20,9 +19,6 @@ class BrowsingContextUnavailableError(RuntimeError):
     """Raised when a tracked browser tab/context no longer exists."""
 
 
-_SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
-
-
 class BrowserDriverBase:
     # Shared browser-independent helpers used by the Playwright driver.
 
@@ -32,10 +28,6 @@ class BrowserDriverBase:
         self._network_subscribed = False
         self._send_capture: dict[str, Any] | None = None
         self.needs_browser_restart = False
-
-    @staticmethod
-    def _is_send_endpoint(url: str) -> bool:
-        return urlsplit(url).path.rstrip("/") in _SEND_ENDPOINTS
 
     async def arm_page_send_probe(self) -> None:
         await self.eval(load_browser_script("arm_page_send_probe.js"))
