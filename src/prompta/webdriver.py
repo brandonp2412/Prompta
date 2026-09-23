@@ -7,10 +7,9 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .chatgpt_dom import (
-    ASSISTANT_MESSAGE_SELECTOR,
+    MESSAGE_DISCOVERY_SCRIPT,
     STOP_BUTTON_SELECTORS,
     STREAMING_SELECTOR,
-    TURN_SELECTOR,
 )
 from .conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT, parse_conversation_snapshot
 
@@ -233,24 +232,17 @@ class BrowserDriverBase:
 
     async def conversation_activity(self, context: str) -> dict[str, Any]:
         script = r"""JSON.stringify((()=>{
-          const assistantSelector=__ASSISTANT_SELECTOR__;
-          const turnSelector=__TURN_SELECTOR__;
+__MESSAGE_DISCOVERY__
           const stopSelector=__STOP_SELECTOR__;
           const streamingSelector=__STREAMING_SELECTOR__;
           const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
           const stop=[...document.querySelectorAll(stopSelector)].some(visible);
           const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
-          const assistants=[...document.querySelectorAll(assistantSelector)];
-          const assistant=assistants.at(-1);
-          const candidateTurns=[...document.querySelectorAll(turnSelector)].filter(visible);
-          const turn=assistant?.closest(turnSelector)||assistant?.parentElement||candidateTurns.at(-1)||null;
-          const visibleMessageId=assistant?.getAttribute('data-message-id')
-            ||assistant?.getAttribute('data-message-uuid')
-            ||turn?.getAttribute('data-message-id')
-            ||turn?.getAttribute('data-message-uuid')
-            ||turn?.querySelector('[data-message-id]')?.getAttribute('data-message-id')
-            ||turn?.querySelector('[data-message-uuid]')?.getAttribute('data-message-uuid')
-            ||'';
+          const assistant=authorNodes('assistant').at(-1)||null;
+          const semanticTurns=[...document.querySelectorAll(semanticTurnSelector)].filter(visible);
+          const legacyTurns=[...document.querySelectorAll(legacyTurnSelector)].filter(visible);
+          const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
+          const visibleMessageId=messageId(assistant)||turnMessageId(turn,'assistant');
           const reactTurnEnd=()=>{
             const root=turn||document.querySelector('main')||document.body;
             if(!root)return null;
@@ -304,8 +296,7 @@ class BrowserDriverBase:
           const failed=deliveryFailed&&!complete&&!streaming;
           return {streaming,complete,transient,failed,turn_ended:turnEnded};
         })())"""
-        script = script.replace("__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR))
-        script = script.replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
+        script = script.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
         script = script.replace("__STOP_SELECTOR__", json.dumps(",".join(STOP_BUTTON_SELECTORS)))
         script = script.replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
         raw = await self.eval(script, context=context)

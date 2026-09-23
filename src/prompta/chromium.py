@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 
 import websockets
 
-from .chatgpt_dom import ASSISTANT_MESSAGE_SELECTOR, MESSAGE_ROLE_SELECTOR, TURN_SELECTOR
+from .chatgpt_dom import MESSAGE_DISCOVERY_SCRIPT
 from .ui_noise import is_assistant_ui_noise
 
 logger = logging.getLogger(__name__)
@@ -31,12 +31,10 @@ _TOOL_BLOCK_RE = re.compile(
 )
 _REACT_TOOL_SCRIPT = r"""
 (()=>{
-  const assistantSelector=__ASSISTANT_SELECTOR__;
-  const messageRoleSelector=__MESSAGE_ROLE_SELECTOR__;
-  const turnSelector=__TURN_SELECTOR__;
+__MESSAGE_DISCOVERY__
   const assistants=[...document.querySelectorAll(assistantSelector)];
   const latestAssistant=assistants.at(-1);
-  const root=latestAssistant?.closest(turnSelector)
+  const root=turnRoot(latestAssistant)
     ||document.querySelector('main')
     ||document.body;
   if(!root)return {ready:false,messages:[]};
@@ -123,11 +121,7 @@ _REACT_TOOL_SCRIPT = r"""
   };
 })()
 """
-_REACT_TOOL_SCRIPT = (
-    _REACT_TOOL_SCRIPT.replace("__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR))
-    .replace("__MESSAGE_ROLE_SELECTOR__", json.dumps(MESSAGE_ROLE_SELECTOR))
-    .replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
-)
+_REACT_TOOL_SCRIPT = _REACT_TOOL_SCRIPT.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
 
 
 def _json_load(value: Any) -> Any:

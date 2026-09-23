@@ -227,8 +227,10 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
         "end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null" in _REACT_TOOL_SCRIPT
     )
     assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
-    assert "const turnSelector=" in _REACT_TOOL_SCRIPT
-    assert "latestAssistant?.closest(turnSelector)" in _REACT_TOOL_SCRIPT
+    assert "const semanticTurnSelector=" in _REACT_TOOL_SCRIPT
+    assert "const legacyTurnSelector=" in _REACT_TOOL_SCRIPT
+    assert "const turnRoot=node=>semanticTurnRoot(node)" in _REACT_TOOL_SCRIPT
+    assert "const root=turnRoot(latestAssistant)" in _REACT_TOOL_SCRIPT
     assert "name.startsWith('__reactProps$')" in _REACT_TOOL_SCRIPT
     assert "name.startsWith('__reactFiber$')" in _REACT_TOOL_SCRIPT
     assert "name.startsWith('__reactContainer$')" in _REACT_TOOL_SCRIPT

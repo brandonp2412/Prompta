@@ -4,21 +4,17 @@ import json
 from typing import Any
 
 from .chatgpt_dom import (
-    ASSISTANT_MESSAGE_SELECTOR,
     MARKDOWN_SELECTOR,
-    MESSAGE_ROLE_SELECTOR,
+    MESSAGE_DISCOVERY_SCRIPT,
     STOP_BUTTON_SELECTOR,
     STREAMING_SELECTOR,
-    TURN_SELECTOR,
 )
 
 CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
   const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
   const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
-  const messageRoleSelector=__MESSAGE_ROLE_SELECTOR__;
-  const assistantSelector=__ASSISTANT_SELECTOR__;
-  const turnSelector=__TURN_SELECTOR__;
+__MESSAGE_DISCOVERY__
   const markdownSelector=__MARKDOWN_SELECTOR__;
   const stopSelector=__STOP_SELECTOR__;
   const streamingSelector=__STREAMING_SELECTOR__;
@@ -469,25 +465,26 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     if(finalText)parts.push(finalText);
     return collapseStreamingTextParts(parts).join('\\n\\n').trim();
   };
-  const roleNodes=[...document.querySelectorAll(messageRoleSelector)];
-  const agentRoot=node=>node?.closest?.(turnSelector)||node?.parentElement||null;
+  const roleNodes=authorNodes();
+  const userNodes=authorNodes('user');
+  const assistantNodes=authorNodes('assistant');
   const seededAssistantTurns=new Set();
   const entryNodes=roleNodes.filter(node=>{
-    if(node.getAttribute('data-message-author-role')!=='assistant')return true;
-    const turn=agentRoot(node);
+    if(messageRole(node)!=='assistant')return true;
+    const turn=turnRoot(node);
     if(!turn)return true;
     if(seededAssistantTurns.has(turn))return false;
     seededAssistantTurns.add(turn);
     return true;
   });
   const entries=entryNodes.map(e=>{
-    const role=e.getAttribute('data-message-author-role')||'';
+    const role=messageRole(e);
     const rich=role==='assistant'
       ? [...e.querySelectorAll(markdownSelector)].map(markdownText).filter(Boolean).join('\\n\\n').trim()
       : '';
     return {
       node:e,
-      id:e.getAttribute('data-message-id')||e.getAttribute('data-message-uuid')||'',
+      id:messageId(e),
       role,
       content:role==='assistant'?rich:messageText(e)
     };
@@ -501,19 +498,26 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
     if(seenRoleKeys.has(key))entries.splice(index,1);
     else seenRoleKeys.add(key);
   }
-  const assistantNodes=roleNodes.filter(node=>node.getAttribute('data-message-author-role')==='assistant');
-  const explicitUserTurns=new Set(roleNodes
-    .filter(node=>node.getAttribute('data-message-author-role')==='user')
-    .map(agentRoot)
-    .filter(Boolean));
-  const semanticAssistantTurns=[...document.querySelectorAll(turnSelector)]
+  const explicitUserTurns=new Set(userNodes.map(turnRoot).filter(Boolean));
+  const semanticAssistantTurns=[...new Set([
+    ...assistantNodes.map(turnRoot).filter(Boolean),
+    ...document.querySelectorAll(semanticTurnSelector)
+  ])]
     .filter(visible)
     .filter(turn=>!explicitUserTurns.has(turn))
-    .filter(turn=>turn.querySelector(assistantSelector)||turn.querySelector(markdownSelector));
+    .filter(turn=>authorNode(turn,'assistant')||turn.querySelector(markdownSelector));
+  const semanticAssistantSet=new Set(semanticAssistantTurns);
+  // Legacy fallback: class/tag turn wrappers are consulted only for layouts
+  // that do not expose an author node or stable conversation-turn marker.
+  const legacyAssistantTurns=[...document.querySelectorAll(legacyTurnSelector)]
+    .filter(visible)
+    .filter(turn=>!semanticAssistantSet.has(turn))
+    .filter(turn=>!authorNode(turn,'user'))
+    .filter(turn=>authorNode(turn,'assistant')||turn.querySelector(markdownSelector));
   const candidates=[...new Set([
-    ...assistantNodes.map(agentRoot).filter(Boolean),
-    ...semanticAssistantTurns
-  ])].filter(visible);
+    ...semanticAssistantTurns,
+    ...legacyAssistantTurns
+  ])];
   for(const [agentIndex,agent] of candidates.entries()){
     const reactOrdered=reactOrderedContent(agent);
     const reactHasVisibleText=reactHasVisibleAssistantText(agent);
@@ -572,14 +576,8 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       :fallbackContent
     ).trim();
     if(!content)continue;
-    const nested=agent.querySelector(assistantSelector);
-    const id=agent.getAttribute('data-message-id')
-      ||agent.getAttribute('data-message-uuid')
-      ||nested?.getAttribute('data-message-id')
-      ||nested?.getAttribute('data-message-uuid')
-      ||agent.closest('[data-message-id]')?.getAttribute('data-message-id')
-      ||agent.closest('[data-message-uuid]')?.getAttribute('data-message-uuid')
-      ||'';
+    const nested=authorNode(agent,'assistant');
+    const id=turnMessageId(agent,'assistant');
     if(id.startsWith('request-placeholder-'))continue;
     let existing=id?entries.findIndex(message=>message.role==='assistant'&&message.id===id):-1;
     if(existing<0&&nested){
@@ -595,12 +593,10 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       if(id&&!entries[existing].id)entries[existing].id=id;
       continue;
     }
-    const precedingUser=roleNodes
-      .filter(node=>node.getAttribute('data-message-author-role')==='user'
-        &&Boolean(node.compareDocumentPosition(agent)&Node.DOCUMENT_POSITION_FOLLOWING))
+    const precedingUser=userNodes
+      .filter(node=>Boolean(node.compareDocumentPosition(agent)&Node.DOCUMENT_POSITION_FOLLOWING))
       .at(-1);
-    const turnSeed=precedingUser?.getAttribute('data-message-id')
-      ||precedingUser?.getAttribute('data-message-uuid')
+    const turnSeed=messageId(precedingUser)
       ||normalise(messageText(precedingUser))
       ||('agent-'+agentIndex);
     entries.push({
@@ -678,13 +674,9 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   }).map(sanitiseSourceEvent);
   const stop=[...document.querySelectorAll(stopSelector)].some(visible);
   const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
-  const latestAssistant=assistantNodes.at(-1)||latestAgent?.querySelector(assistantSelector)||null;
-  const latestTurn=latestAssistant?agentRoot(latestAssistant):latestAgent;
-  const visibleMessageId=latestAssistant?.getAttribute('data-message-id')
-    ||latestAssistant?.getAttribute('data-message-uuid')
-    ||latestTurn?.getAttribute('data-message-id')
-    ||latestTurn?.getAttribute('data-message-uuid')
-    ||'';
+  const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
+  const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
+  const visibleMessageId=messageId(latestAssistant)||turnMessageId(latestTurn,'assistant');
   const endStateMessages=latestTurn?reactMessages(latestTurn):latestTurnReactMessages;
   const endStates=(visibleMessageId
     ?endStateMessages.filter(message=>String(message?.id||'')===visibleMessageId)
@@ -747,11 +739,7 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
 })())"""
 
 CONVERSATION_SNAPSHOT_SCRIPT = (
-    CONVERSATION_SNAPSHOT_SCRIPT.replace(
-        "__MESSAGE_ROLE_SELECTOR__", json.dumps(MESSAGE_ROLE_SELECTOR)
-    )
-    .replace("__ASSISTANT_SELECTOR__", json.dumps(ASSISTANT_MESSAGE_SELECTOR))
-    .replace("__TURN_SELECTOR__", json.dumps(TURN_SELECTOR))
+    CONVERSATION_SNAPSHOT_SCRIPT.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
     .replace("__MARKDOWN_SELECTOR__", json.dumps(MARKDOWN_SELECTOR))
     .replace("__STOP_SELECTOR__", json.dumps(STOP_BUTTON_SELECTOR))
     .replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
