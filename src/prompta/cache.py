@@ -269,6 +269,7 @@ class ChatCache:
                 title TEXT NOT NULL DEFAULT '',
                 preview TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
+                double_checked INTEGER NOT NULL DEFAULT 0 CHECK (double_checked IN (0, 1)),
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
                 completed_at REAL
@@ -339,6 +340,11 @@ class ChatCache:
         if "preview" not in conversation_columns:
             self.connection.execute(
                 "ALTER TABLE conversations ADD COLUMN preview TEXT NOT NULL DEFAULT ''"
+            )
+        if "double_checked" not in conversation_columns:
+            self.connection.execute(
+                "ALTER TABLE conversations ADD COLUMN double_checked "
+                "INTEGER NOT NULL DEFAULT 0 CHECK (double_checked IN (0, 1))"
             )
         self.connection.execute(
             """
@@ -661,6 +667,14 @@ class ChatCache:
             (conversation_id,),
         ).fetchone()
         return str(row["status"]) if row is not None else None
+
+    def mark_double_checked(self, conversation_id: str, *, checked: bool = True) -> bool:
+        with self.connection:
+            cursor = self.connection.execute(
+                "UPDATE conversations SET double_checked = ? WHERE id = ?",
+                (int(checked), conversation_id),
+            )
+        return cursor.rowcount > 0
 
     def resume(self, conversation_id: str, *, context_id: str) -> dict[str, Any]:
         """Mark an existing cached conversation active in a live browser context."""

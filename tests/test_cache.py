@@ -8,6 +8,70 @@ from pathlib import Path
 from prompta.cache import ChatCache
 
 
+def test_conversation_double_checked_defaults_false_and_can_be_marked(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-audited",
+        context_id="context-1",
+        job_name="once",
+        prompt="Do the work",
+    )
+
+    before = cache.connection.execute(
+        "SELECT double_checked FROM conversations WHERE id = ?",
+        ("conversation-audited",),
+    ).fetchone()
+    assert before is not None
+    assert before["double_checked"] == 0
+
+    assert cache.mark_double_checked("conversation-audited") is True
+    after = cache.connection.execute(
+        "SELECT double_checked FROM conversations WHERE id = ?",
+        ("conversation-audited",),
+    ).fetchone()
+    assert after is not None
+    assert after["double_checked"] == 1
+
+    assert cache.mark_double_checked("conversation-audited", checked=False) is True
+    reset = cache.connection.execute(
+        "SELECT double_checked FROM conversations WHERE id = ?",
+        ("conversation-audited",),
+    ).fetchone()
+    cache.close()
+
+    assert reset is not None
+    assert reset["double_checked"] == 0
+
+
+def test_cache_migration_adds_double_checked_to_existing_database(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-before-migration",
+        context_id="context-1",
+        job_name="once",
+        prompt="Existing work",
+    )
+    cache.connection.execute("ALTER TABLE conversations DROP COLUMN double_checked")
+    cache.connection.commit()
+    cache.close()
+
+    migrated = ChatCache(path)
+    columns = {
+        str(row["name"])
+        for row in migrated.connection.execute("PRAGMA table_info(conversations)").fetchall()
+    }
+    row = migrated.connection.execute(
+        "SELECT double_checked FROM conversations WHERE id = ?",
+        ("conversation-before-migration",),
+    ).fetchone()
+    migrated.close()
+
+    assert "double_checked" in columns
+    assert row is not None
+    assert row["double_checked"] == 0
+
+
 def test_completed_snapshot_trusts_end_turn_final_text_over_corrupt_dom_merge(
     tmp_path: Path,
 ) -> None:
