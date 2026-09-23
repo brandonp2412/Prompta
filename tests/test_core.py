@@ -2643,6 +2643,7 @@ async def test_poll_active_tool_turn_waits_for_authoritative_final_text(
         }
     )
     driver.conversation_snapshot = AsyncMock(return_value=snapshot)
+    driver.conversation_final_event = AsyncMock(return_value={})
     driver.navigate = AsyncMock()
     driver.eval = AsyncMock(return_value=f"/c/{conversation_id}")
     driver.wait_for_composer = AsyncMock()
@@ -3707,6 +3708,169 @@ async def test_recover_cached_conversations_uses_history_after_direct_loads_stay
     assert list(prompta._active_conversations) == ["context-new"]
     assert prompta.cache.status(conversation_id) == "active"
     fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_recover_cached_conversation_uses_backend_final_when_dom_never_hydrates(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "backend-final-recover-chat"
+    target_url = f"https://chatgpt.com/c/{conversation_id}"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    source_events = [
+        {
+            "id": "progress-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Still working"],
+            "text": "",
+            "reasoning_title": "",
+            "create_time": 100.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "path": "/Glass/link_123/execute_python",
+                    "args": {"code": "print('done')"},
+                }
+            ),
+            "connector_tool_payload": json.dumps({"code": "print('done')"}),
+            "reasoning_title": "Checking",
+            "create_time": 101.0,
+            "end_turn": False,
+        },
+        {
+            "id": "result-1",
+            "role": "tool",
+            "recipient": "assistant",
+            "content_type": "code",
+            "text": json.dumps({"text": "done"}),
+            "invoked_resource": {
+                "app_name": "Glass",
+                "resource_uri": "/asdk_app_123/link_123/execute_python",
+            },
+            "create_time": 102.0,
+            "end_turn": False,
+        },
+    ]
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="prompta-bugs",
+        prompt="Keep working",
+    )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {
+            "path": f"/c/{conversation_id}",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Keep working"},
+                {"id": "a1", "role": "assistant", "content": "Still working"},
+            ],
+            "source_events": source_events,
+        },
+    )
+    prompta.cache.mark_interrupted(conversation_id)
+
+    class BackendRecoveryFakeDriver(FakeDriver):
+        def __init__(self, prompt: str) -> None:
+            super().__init__(prompt)
+            self.current_path = "/"
+
+        async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
+            self.context = "context-new"
+            self.navigated.append(url)
+            self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
+            return self.context
+
+        async def navigate(self, url: str, *, context: str | None = None) -> None:
+            assert context == "context-new"
+            self.navigated.append(url)
+            self.navigation_contexts.append(context)
+            self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
+
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
+            assert expression == "location.pathname"
+            assert context == "context-new"
+            return self.current_path
+
+        async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
+            assert context == "context-new"
+            self.current_path = path
+            return True
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            return {
+                "title": "Backend recovered chat",
+                "path": self.current_path,
+                "streaming": False,
+                "messages": [],
+            }
+
+        async def conversation_final_event(
+            self,
+            requested_conversation_id: str,
+            *,
+            context: str | None = None,
+        ) -> dict[str, Any]:
+            assert requested_conversation_id == conversation_id
+            assert context == "context-new"
+            return {
+                "ok": True,
+                "status": 200,
+                "title": "Backend recovered chat",
+                "final_event": {
+                    "id": "final-1",
+                    "parent_id": "result-1",
+                    "role": "assistant",
+                    "recipient": "all",
+                    "content_type": "text",
+                    "parts": ["Finished and verified."],
+                    "text": "",
+                    "create_time": 103.0,
+                    "end_turn": True,
+                },
+            }
+
+    fake = BackendRecoveryFakeDriver("Keep working")
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(_: float) -> None:
+        await original_sleep(0.002)
+
+    with (
+        patch("prompta.core._RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS", 0.001),
+        patch("prompta.core.asyncio.sleep", side_effect=fast_sleep),
+    ):
+        assert await prompta.recover_cached_conversations() == 1
+
+    assert prompta.cache.status(conversation_id) == "complete"
+    assert not prompta._active_conversations
+    fake.close_context.assert_awaited_once_with("context-new")  # type: ignore[attr-defined]
+    messages = prompta.cache.messages(conversation_id)
+    assert "Finished and verified." in messages[-1]["content"]
+    parts = prompta.cache.connection.execute(
+        """
+        SELECT kind, content, end_turn
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id, "a1"),
+    ).fetchall()
+    assert any(tuple(part) == ("final_text", "Finished and verified.", 1) for part in parts)
+    assert any(str(part["kind"]) == "tool_call" for part in parts)
     prompta.cache.close()
 
 

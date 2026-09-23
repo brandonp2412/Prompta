@@ -1296,5 +1296,29 @@ class ChatCache:
                 )
         return messages
 
+    def source_events_for_message(
+        self,
+        conversation_id: str,
+        message_key: str,
+    ) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT raw_json
+            FROM source_events
+            WHERE conversation_id = ? AND message_key = ?
+            ORDER BY ordinal, rowid
+            """,
+            (conversation_id, message_key),
+        ).fetchall()
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                event = json.loads(str(row["raw_json"] or "{}"))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+        return events
+
     def close(self) -> None:
         self.connection.close()

@@ -64,6 +64,89 @@ class ConversationTracker:
         self.active: dict[str, ActiveConversation] = {}
         self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
 
+    async def recover_completed_final_from_backend(
+        self,
+        driver: Any,
+        conversation_id: str,
+        *,
+        context: str,
+    ) -> bool:
+        try:
+            payload = await driver.conversation_final_event(
+                conversation_id,
+                context=context,
+            )
+        except Exception:
+            logger.debug(
+                "Prompta backend final-text recovery failed conversation=%s",
+                conversation_id,
+                exc_info=True,
+            )
+            return False
+        if not isinstance(payload, dict) or not payload.get("ok"):
+            return False
+        final_event = payload.get("final_event")
+        if not isinstance(final_event, dict):
+            return False
+
+        cached_messages = self.cache.messages(conversation_id)
+        assistant = next(
+            (
+                message
+                for message in reversed(cached_messages)
+                if str(message.get("role") or "") == "assistant"
+            ),
+            None,
+        )
+        if assistant is None:
+            return False
+        message_key = str(assistant.get("message_key") or "")
+        if not message_key:
+            return False
+
+        existing_events = self.cache.source_events_for_message(
+            conversation_id,
+            message_key,
+        )
+        final_id = str(final_event.get("id") or "")
+        source_events = [
+            event
+            for event in existing_events
+            if not final_id or str(event.get("id") or "") != final_id
+        ]
+        source_events.append(final_event)
+        if not has_completed_final_text(message_parts_from_source_events(source_events)):
+            return False
+
+        metadata = self.cache.metadata(conversation_id)
+        snapshot = {
+            "title": str(payload.get("title") or metadata.get("title") or ""),
+            "path": f"/c/{conversation_id}",
+            "messages": [
+                {
+                    "id": message_key,
+                    "role": "assistant",
+                    "content": str(assistant.get("content") or ""),
+                    "ordinal": int(assistant.get("ordinal") or 0),
+                }
+            ],
+            "source_events": source_events,
+            "streaming": False,
+            "activity": {
+                "streaming": False,
+                "complete": True,
+                "transient": False,
+                "failed": False,
+                "turn_ended": True,
+            },
+        }
+        self.cache.write_snapshot(conversation_id, snapshot, complete=True)
+        logger.info(
+            "Prompta recovered authoritative backend final text conversation=%s",
+            conversation_id,
+        )
+        return True
+
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
 
         attached_ids = {active.conversation_id for active in self.active.values()}
@@ -131,9 +214,24 @@ class ConversationTracker:
                             break
                         await asyncio.sleep(0.5)
                 if not messages:
+                    backend_recovered = await self.recover_completed_final_from_backend(
+                        driver,
+                        conversation_id,
+                        context=context,
+                    )
+                    if backend_recovered:
+                        try:
+                            await driver.close_context(context)
+                        except Exception:
+                            logger.debug(
+                                "Could not close backend-recovered Prompta tab",
+                                exc_info=True,
+                            )
+                        recovered += 1
+                        continue
                     raise RuntimeError(
                         "ChatGPT conversation did not expose any messages after "
-                        "direct reload and history recovery"
+                        "direct reload, history recovery, and backend final-text recovery"
                     )
 
                 snapshot["streaming"] = True
@@ -537,6 +635,21 @@ class ConversationTracker:
                 continue
 
             if missing_final_text:
+                if await self.recover_completed_final_from_backend(
+                    driver,
+                    active.conversation_id,
+                    context=context,
+                ):
+                    try:
+                        await driver.close_context(context)
+                    except Exception:
+                        logger.debug(
+                            "Could not close backend-recovered Prompta tab",
+                            exc_info=True,
+                        )
+                    self.active.pop(context, None)
+                    continue
+
                 now_epoch = time.time()
                 if active.final_text_missing_since_epoch <= 0:
                     active.final_text_missing_since_epoch = now_epoch
