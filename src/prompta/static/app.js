@@ -16870,6 +16870,9 @@ function SidebarList($$anchor, $$props) {
 delegate(["click"]);
 //#endregion
 //#region src/prompta/ui/sidebarGesture.ts
+function sidebarDragCanStart(wasOpen, clientX) {
+	return wasOpen || clientX <= 144;
+}
 function sidebarDragDirection(deltaX, deltaY) {
 	if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) <= 8) return "pending";
 	return Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? "horizontal" : "vertical";
@@ -16958,8 +16961,7 @@ function App($$anchor, $$props) {
 		if (event.pointerType === "mouse" || sidebarDrag.pointerId !== null || sidebarDrag.active || !mobileSidebarEnabled() || get(sidebarWidth) <= 0) return;
 		const width = get(sidebarWidth);
 		const wasOpen = sidebarState.open;
-		if (!wasOpen && event.clientX > 144) return;
-		if (wasOpen && event.clientX > width + 24) return;
+		if (!sidebarDragCanStart(wasOpen, event.clientX)) return;
 		sidebarDrag.pointerId = event.pointerId;
 		sidebarDrag.startX = event.clientX;
 		sidebarDrag.startY = event.clientY;

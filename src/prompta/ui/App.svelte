@@ -27,6 +27,7 @@
     sidebarState,
   } from "./sidebarState.svelte";
   import {
+    sidebarDragCanStart,
     sidebarDragDirection,
     sidebarDragPosition,
     sidebarDragShouldOpen,
@@ -114,8 +115,7 @@
     const width = sidebarWidth;
     const wasOpen = sidebarState.open;
 
-    if (!wasOpen && event.clientX > 144) return;
-    if (wasOpen && event.clientX > width + 24) return;
+    if (!sidebarDragCanStart(wasOpen, event.clientX)) return;
 
     sidebarDrag.pointerId = event.pointerId;
     sidebarDrag.startX = event.clientX;

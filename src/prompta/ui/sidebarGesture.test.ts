@@ -1,7 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { sidebarDragDirection, sidebarDragPosition, sidebarDragShouldOpen } from "./sidebarGesture";
+import {
+  sidebarDragCanStart,
+  sidebarDragDirection,
+  sidebarDragPosition,
+  sidebarDragShouldOpen,
+} from "./sidebarGesture";
 
 describe("mobile sidebar drag", () => {
+  test("allows closing drags to start anywhere while keeping opening edge-bound", () => {
+    expect(sidebarDragCanStart(false, 10)).toBe(true);
+    expect(sidebarDragCanStart(false, 145)).toBe(false);
+    expect(sidebarDragCanStart(true, 0)).toBe(true);
+    expect(sidebarDragCanStart(true, 390)).toBe(true);
+  });
+
   test("locks horizontal drags without stealing vertical scrolling", () => {
     expect(sidebarDragDirection(6, 2)).toBe("pending");
     expect(sidebarDragDirection(20, 5)).toBe("horizontal");
