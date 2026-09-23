@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Element, RootContent } from "hast";
   import type { Token, Tokens } from "marked";
+  import { tick } from "svelte";
 
+  import { preserveConversationViewportPosition } from "./browserAttachments.svelte";
   import { copyText } from "./clipboard";
   import { codePresentation, highlightedCode, parseMarkdown, safeLinkHref } from "./markdown";
 
@@ -26,13 +28,16 @@
     return Array.isArray(value) ? value.map(String) : typeof value === "string" ? value : "";
   }
 
-  function setToolOpen(key: string, open: boolean) {
+  async function setToolOpen(key: string, open: boolean) {
+    const restoreViewport = preserveConversationViewportPosition();
     const next = new Set(expandedTools);
 
     if (open) next.add(key);
     else next.delete(key);
 
     expandedTools = next;
+    await tick();
+    restoreViewport();
   }
 
   async function copyCode(key: string, code: string) {

@@ -73,6 +73,26 @@ export function conversationViewport(): Attachment<HTMLElement> {
   };
 }
 
+export function preserveConversationViewportPosition() {
+  const element = conversationViewportElement;
+
+  if (!element) return () => {};
+
+  const scrollTop = element.scrollTop;
+  conversationViewportPinnedToBottom = false;
+  conversationViewportRestoreToken += 1;
+
+  return () => {
+    requestAnimationFrame(() => {
+      if (conversationViewportElement !== element) return;
+
+      const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      element.scrollTop = Math.min(scrollTop, maxScrollTop);
+      conversationViewportPinnedToBottom = viewportPinnedToBottom(element);
+    });
+  };
+}
+
 export function captureConversationViewport(): ConversationViewportSnapshot {
   const element = conversationViewportElement;
 

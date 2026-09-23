@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   captureConversationViewport,
   conversationViewport,
+  preserveConversationViewportPosition,
   restoreConversationViewport,
 } from "./browserAttachments.svelte.ts";
 
@@ -115,6 +116,50 @@ describe("conversation viewport memory", () => {
     element.scrollHeight = 1600;
     resizeCallback?.([], {} as ResizeObserver);
     expect(element.scrollTop).toBe(1600);
+
+    cleanup();
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  test("preserves the viewport while an explicit expansion changes conversation height", () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    globalThis.requestAnimationFrame = (callback) => {
+      callback(0);
+
+      return 1;
+    };
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    const element = fakeViewport({
+      scrollTop: 800,
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    const cleanup = attachViewport(element);
+    const restoreViewport = preserveConversationViewportPosition();
+
+    element.scrollHeight = 1600;
+    resizeCallback?.([], {} as ResizeObserver);
+    expect(element.scrollTop).toBe(800);
+
+    restoreViewport();
+    expect(element.scrollTop).toBe(800);
+    expect(captureConversationViewport()).toEqual({
+      pinnedToBottom: false,
+      scrollTop: 800,
+    });
 
     cleanup();
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
