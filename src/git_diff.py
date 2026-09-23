@@ -16,6 +16,7 @@ _SHORTSTAT_DELETIONS_RE = re.compile(r"(\d+) deletions?\(-\)")
 class GitSnapshot:
     repo_root: Path
     tree_id: str
+    repository_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,11 @@ class GitDiffService:
         tree_id = tree_id.strip().lower()
         if re.fullmatch(r"[0-9a-f]{40,64}", tree_id) is None:
             return None
-        return GitSnapshot(repo_root=repo_root, tree_id=tree_id)
+        return GitSnapshot(
+            repo_root=repo_root,
+            tree_id=tree_id,
+            repository_root=self._repository_root(repo_root),
+        )
 
     def diff(self, before: GitSnapshot, cwd: Path) -> GitDiff | None:
         after = self.snapshot(cwd)
@@ -113,6 +118,25 @@ class GitDiffService:
                 renamed=renamed,
             ),
         )
+
+    def _repository_root(self, worktree_path: Path) -> Path:
+        try:
+            common_dir = self._run_git(
+                worktree_path,
+                ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            )
+        except (OSError, subprocess.SubprocessError):
+            return worktree_path
+        if common_dir is None:
+            return worktree_path
+        candidate = Path(common_dir.strip())
+        if not candidate.is_absolute():
+            candidate = worktree_path / candidate
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            return worktree_path
+        return candidate.parent if candidate.name == ".git" else worktree_path
 
     def _repo_root(self, cwd: Path) -> Path | None:
         try:
