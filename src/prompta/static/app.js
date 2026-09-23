@@ -6708,6 +6708,11 @@ function sidebarChatCreatedAt(chat) {
 	const createdAt = Number(chat?.created_at || 0);
 	return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
 }
+function sidebarChatLastUserAt(chat) {
+	const lastUserAt = Number(chat?.last_user_at || 0);
+	if (Number.isFinite(lastUserAt) && lastUserAt > 0) return lastUserAt;
+	return sidebarChatCreatedAt(chat);
+}
 function sidebarChatIsPending(chat) {
 	return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
@@ -6770,8 +6775,8 @@ function sortSidebarChats(chats, pinnedIds) {
 			if (rightPinnedIndex === void 0) return -1;
 			return leftPinnedIndex - rightPinnedIndex;
 		}
-		const createdDelta = sidebarChatCreatedAt(right) - sidebarChatCreatedAt(left);
-		if (createdDelta) return createdDelta;
+		const userActivityDelta = sidebarChatLastUserAt(right) - sidebarChatLastUserAt(left);
+		if (userActivityDelta) return userActivityDelta;
 		return left.id.localeCompare(right.id);
 	});
 }
@@ -6977,6 +6982,7 @@ function missingPendingConversationSummaries(chats, pendingReplies, query = "") 
 			job_name: "new chat",
 			created_at: Number.isFinite(createdAt) ? createdAt : 0,
 			updated_at: Number.isFinite(updatedAt) ? updatedAt : 0,
+			last_user_at: Number.isFinite(createdAt) ? createdAt : 0,
 			_optimisticReply: true
 		});
 	}
@@ -18026,7 +18032,7 @@ function truncate(value, length = 88) {
 	return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
 function sidebarGroupAt(chat) {
-	return sidebarChatCreatedAt(chat);
+	return sidebarChatLastUserAt(chat);
 }
 function groupChats(chats) {
 	const ordered = sortSidebarChats(chats, state.pinnedIds);
@@ -18066,6 +18072,7 @@ function sidebarChats() {
 			status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
 			preview: latest.message,
 			updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
+			last_user_at: Math.max(Number(chat.last_user_at || chat.created_at || 0), Number(latest.createdAt || 0)),
 			_optimisticReply: true
 		};
 	});
@@ -18088,6 +18095,7 @@ function sidebarChats() {
 		job_name: "new chat",
 		created_at: pending.createdAt,
 		updated_at: pending.updatedAt,
+		last_user_at: pending.createdAt,
 		_optimisticNew: true
 	};
 	const needle = state.search.trim().toLowerCase();

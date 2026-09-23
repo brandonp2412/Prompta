@@ -30,6 +30,7 @@ import {
   pythonToolCallCode,
   replaceChatGptRichMarkers,
   sidebarChatCreatedAt,
+  sidebarChatLastUserAt,
   sidebarChatIsPending,
   sidebarChatIsSelected,
   sidebarChatPreviewText,
@@ -204,21 +205,27 @@ describe("conversation hash parsing", () => {
 });
 
 describe("deterministic sidebar ordering", () => {
-  test("orders pinned first, then every unpinned chat by creation time", () => {
+  test("orders pinned first, then every unpinned chat by the latest user message", () => {
     const chats = [
-      { id: "older", created_at: 10, updated_at: 500 },
-      { id: "pending-old", created_at: 20, updated_at: 20, _pending_send: true },
-      { id: "newer", created_at: 30, updated_at: 30 },
-      { id: "pinned", created_at: 5, updated_at: 5 },
-      { id: "optimistic", created_at: 40, _optimisticNew: true },
+      { id: "revived-old", created_at: 10, last_user_at: 50, updated_at: 5_000 },
+      {
+        id: "pending-old",
+        created_at: 20,
+        last_user_at: 20,
+        updated_at: 10_000,
+        _pending_send: true,
+      },
+      { id: "newer", created_at: 30, last_user_at: 30, updated_at: 30 },
+      { id: "pinned", created_at: 5, last_user_at: 5, updated_at: 5 },
+      { id: "optimistic", created_at: 40, last_user_at: 40, _optimisticNew: true },
     ];
 
     expect(sortSidebarChats(chats, new Set(["pinned"])).map((chat) => chat.id)).toEqual([
       "pinned",
+      "revived-old",
       "optimistic",
       "newer",
       "pending-old",
-      "older",
     ]);
   });
 
@@ -237,24 +244,31 @@ describe("deterministic sidebar ordering", () => {
     ).toEqual(["first-pin", "second-pin", "third-pin", "unpinned"]);
   });
 
-  test("response activity never changes ordinary chat position", () => {
+  test("assistant or status activity never changes ordinary chat position", () => {
     const chats = [
-      { id: "newer", created_at: 30, updated_at: 30 },
-      { id: "older-response", created_at: 10, updated_at: 10_000 },
+      { id: "newer-user-message", created_at: 30, last_user_at: 30, updated_at: 30 },
+      { id: "older-user-message", created_at: 10, last_user_at: 10, updated_at: 10_000 },
     ];
 
     expect(sortSidebarChats(chats, new Set()).map((chat) => chat.id)).toEqual([
-      "newer",
-      "older-response",
+      "newer-user-message",
+      "older-user-message",
     ]);
   });
 
-  test("recognizes every sidebar pending representation and uses creation time only", () => {
+  test("falls back to thread creation time only when no user-message timestamp exists", () => {
+    expect(sidebarChatLastUserAt({ id: "chat", created_at: 123, last_user_at: 456 })).toBe(456);
+    expect(sidebarChatLastUserAt({ id: "legacy", created_at: 123 })).toBe(123);
+    expect(sidebarChatCreatedAt({ id: "chat", created_at: 123, last_user_at: 456 } as any)).toBe(
+      123,
+    );
+  });
+
+  test("recognizes every sidebar pending representation", () => {
     expect(sidebarChatIsPending({ id: "server", _pending_send: true })).toBe(true);
     expect(sidebarChatIsPending({ id: "new", _optimisticNew: true })).toBe(true);
     expect(sidebarChatIsPending({ id: "reply", _optimisticReply: true })).toBe(true);
     expect(sidebarChatIsPending({ id: "done" })).toBe(false);
-    expect(sidebarChatCreatedAt({ id: "chat", created_at: 123, updated_at: 999 } as any)).toBe(123);
   });
 
   test("keeps the pending new chat selected after the server assigns its conversation id", () => {

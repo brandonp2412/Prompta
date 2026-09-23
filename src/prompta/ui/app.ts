@@ -19,7 +19,7 @@ import {
   pendingConversationSends,
   pendingSendActivity,
   sidebarChatCountSummary,
-  sidebarChatCreatedAt,
+  sidebarChatLastUserAt,
   sidebarChatIsSelected,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
@@ -491,7 +491,7 @@ function truncate(value, length = 88) {
 }
 
 function sidebarGroupAt(chat) {
-  return sidebarChatCreatedAt(chat);
+  return sidebarChatLastUserAt(chat);
 }
 
 function groupChats(chats: UiChat[]) {
@@ -576,6 +576,10 @@ function sidebarChats(): UiChat[] {
       status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
       preview: latest.message,
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
+      last_user_at: Math.max(
+        Number(chat.last_user_at || chat.created_at || 0),
+        Number(latest.createdAt || 0),
+      ),
       _optimisticReply: true,
     };
   });
@@ -605,6 +609,7 @@ function sidebarChats(): UiChat[] {
     job_name: "new chat",
     created_at: pending.createdAt,
     updated_at: pending.updatedAt,
+    last_user_at: pending.createdAt,
     _optimisticNew: true,
   };
   const needle = state.search.trim().toLowerCase();

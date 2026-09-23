@@ -45,6 +45,7 @@ export function sidebarChatCountSummary(
 export type SidebarOrderChat = {
   id: string;
   created_at?: unknown;
+  last_user_at?: unknown;
   _pending_send?: unknown;
   _optimisticNew?: unknown;
   _optimisticReply?: unknown;
@@ -54,6 +55,14 @@ export function sidebarChatCreatedAt(chat: SidebarOrderChat | null | undefined):
   const createdAt = Number(chat?.created_at || 0);
 
   return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
+}
+
+export function sidebarChatLastUserAt(chat: SidebarOrderChat | null | undefined): number {
+  const lastUserAt = Number(chat?.last_user_at || 0);
+
+  if (Number.isFinite(lastUserAt) && lastUserAt > 0) return lastUserAt;
+
+  return sidebarChatCreatedAt(chat);
 }
 
 export function sidebarChatIsPending(chat: SidebarOrderChat | null | undefined): boolean {
@@ -203,9 +212,9 @@ export function sortSidebarChats<T extends SidebarOrderChat>(
       return leftPinnedIndex - rightPinnedIndex;
     }
 
-    const createdDelta = sidebarChatCreatedAt(right) - sidebarChatCreatedAt(left);
+    const userActivityDelta = sidebarChatLastUserAt(right) - sidebarChatLastUserAt(left);
 
-    if (createdDelta) return createdDelta;
+    if (userActivityDelta) return userActivityDelta;
 
     return left.id.localeCompare(right.id);
   });
@@ -274,6 +283,7 @@ export type PendingConversationSummary = {
   job_name: string;
   created_at: number;
   updated_at: number;
+  last_user_at: number;
   _optimisticReply: true;
 };
 
@@ -606,6 +616,7 @@ export function missingPendingConversationSummaries(
       job_name: "new chat",
       created_at: Number.isFinite(createdAt) ? createdAt : 0,
       updated_at: Number.isFinite(updatedAt) ? updatedAt : 0,
+      last_user_at: Number.isFinite(createdAt) ? createdAt : 0,
       _optimisticReply: true,
     });
   }
