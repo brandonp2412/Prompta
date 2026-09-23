@@ -653,10 +653,13 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
   let latestTurnReactMessages=latestAgent?reactMessages(latestAgent):[];
   if(!latestTurnReactMessages.length&&pageReactMessages.length){
-    const lastUserIndex=pageReactMessages.findLastIndex(message=>
-      String(message?.author?.role||message?.role||'')==='user'
-    );
-    latestTurnReactMessages=pageReactMessages.slice(lastUserIndex+1);
+    latestTurnReactMessages=pageReactMessages;
+  }
+  const latestTurnUserIndex=latestTurnReactMessages.findLastIndex(message=>
+    String(message?.author?.role||message?.role||'')==='user'
+  );
+  if(latestTurnUserIndex>=0){
+    latestTurnReactMessages=latestTurnReactMessages.slice(latestTurnUserIndex+1);
   }
   let sourceEvents=latestTurnReactMessages.filter(message=>{
     const role=String(message?.author?.role||message?.role||'');
@@ -670,10 +673,8 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
       ?content.parts.filter(part=>typeof part==='string'&&part.trim())
       :[];
     const text=normalise(parts.length?parts.join(' '):String(content?.text||''));
-    if(!latestAgent&&(
-      contentType==='text'||contentType==='multimodal_text'
-    ))return Boolean(text);
-    return Boolean(text&&visibleAgentText&&visibleAgentText.includes(text));
+    if(contentType==='text'||contentType==='multimodal_text')return Boolean(text);
+    return false;
   }).map(sanitiseSourceEvent);
   const stop=[...document.querySelectorAll(stopSelector)].some(visible);
   const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);

@@ -76,7 +76,19 @@ def test_browser_source_capture_excludes_unfiltered_react_internals() -> None:
         in CONVERSATION_SNAPSHOT_SCRIPT
     )
     assert "if(message?.end_turn===true)return true;" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "visibleAgentText.includes(text)" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const latestTurnUserIndex=latestTurnReactMessages.findLastIndex" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "latestTurnReactMessages=latestTurnReactMessages.slice(latestTurnUserIndex+1);" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert (
+        "if(contentType==='text'||contentType==='multimodal_text')return Boolean(text);"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "return Boolean(text&&visibleAgentText&&visibleAgentText.includes(text));" not in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
     assert "const sourceHasAssistantText=sourceEvents.some(event=>(" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "':dom-prose'" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "parts:[visibleProse]" in CONVERSATION_SNAPSHOT_SCRIPT
