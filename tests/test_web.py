@@ -2251,6 +2251,37 @@ def test_read_only_store_change_token_ignores_log_writes(tmp_path: Path) -> None
     assert store.change_token() == before
 
 
+def test_ui_serves_static_asset_through_editable_install_symlink(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    store = ReadOnlyChatStore(path)
+    source_assets = tmp_path / "source-assets"
+    source_assets.mkdir()
+    (source_assets / "app.js").write_text("console.log('loaded');")
+    editable_static = tmp_path / "editable-static"
+    editable_static.mkdir()
+    (editable_static / "app.js").symlink_to(source_assets / "app.js")
+
+    with (
+        patch("prompta.web._STATIC_ROOT", editable_static),
+        patch("prompta.web.socket.gethostname", return_value="nox.presley.nz"),
+    ):
+        server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{server.server_port}/app.js",
+                timeout=2,
+            ) as response:
+                assert response.status == 200
+                assert response.read() == b"console.log('loaded');"
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+
 def test_ui_serves_manifest_and_sse_refresh_event(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)

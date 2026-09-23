@@ -638,12 +638,11 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         self._write_response(HTTPStatus.OK, "text/html; charset=utf-8", body)
 
     def _static(self, relative_path: str, content_type: str | None = None) -> None:
-        target = (_STATIC_ROOT / relative_path).resolve()
-        try:
-            target.relative_to(_STATIC_ROOT.resolve())
-        except ValueError:
+        relative = Path(relative_path)
+        if relative.is_absolute() or ".." in relative.parts:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+        target = _STATIC_ROOT / relative
         try:
             body = target.read_bytes()
         except OSError:
