@@ -843,6 +843,43 @@ async def test_chat_mode_model_and_high_power_are_selected(tmp_path: Path) -> No
     driver._perform_actions.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_missing_effort_preference_does_not_block_chat_delivery(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.context = "context-1"
+    driver.needs_browser_restart = False
+    driver.ensure_chat_surface = AsyncMock()
+    driver.select_effort_model = AsyncMock(
+        side_effect=RuntimeError("ChatGPT thinking-effort control did not become available")
+    )
+    driver.set_effort_power_position = AsyncMock()
+    driver._perform_actions = AsyncMock()
+
+    await prompta._ensure_high_effort(driver)
+    await prompta._ensure_high_effort(driver)
+
+    assert driver.ensure_chat_surface.await_count == 2
+    driver.select_effort_model.assert_awaited_once_with("GPT-5.6 Sol")
+    driver.set_effort_power_position.assert_not_awaited()
+    driver._perform_actions.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_effort_preference_failure_propagates_poisoned_browser(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.context = "context-1"
+    driver.needs_browser_restart = True
+    driver.ensure_chat_surface = AsyncMock()
+    driver.select_effort_model = AsyncMock(
+        side_effect=RuntimeError("Playwright browser session is poisoned")
+    )
+
+    with pytest.raises(RuntimeError, match="poisoned"):
+        await prompta._ensure_high_effort(driver)
+
+
 def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
 

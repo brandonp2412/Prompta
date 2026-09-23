@@ -10,8 +10,8 @@ class ResourceLimits:
     min_available_memory_fraction: float = 0.20
     max_load_per_cpu: float = 0.85
     max_cpu_psi_some_avg10: float = 50.0
-    max_memory_psi_some_avg10: float = 5.0
-    max_memory_psi_full_avg10: float = 1.0
+    max_memory_psi_some_avg10: float = 20.0
+    max_memory_psi_full_avg10: float = 10.0
     min_swap_free_fraction: float = 0.10
 
     @classmethod

@@ -73,15 +73,37 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=0
     assert "CPU PSI some" in reason
 
 
-def test_resource_admission_defers_on_sustained_memory_pressure() -> None:
+def test_resource_admission_allows_mild_memory_pressure() -> None:
     allowed, reason = evaluate(
         psi="""some avg10=7.50 avg60=4.00 avg300=1.00 total=1000
-full avg10=0.20 avg60=0.10 avg300=0.00 total=100
+full avg10=2.00 avg60=1.00 avg300=0.50 total=100
+""",
+    )
+
+    assert allowed is True
+    assert reason == ""
+
+
+def test_resource_admission_defers_on_sustained_memory_pressure() -> None:
+    allowed, reason = evaluate(
+        psi="""some avg10=25.00 avg60=20.00 avg300=10.00 total=1000
+full avg10=2.00 avg60=1.00 avg300=0.50 total=100
 """,
     )
 
     assert allowed is False
     assert "memory PSI some" in reason
+
+
+def test_resource_admission_defers_on_severe_full_memory_pressure() -> None:
+    allowed, reason = evaluate(
+        psi="""some avg10=15.00 avg60=10.00 avg300=5.00 total=1000
+full avg10=12.00 avg60=8.00 avg300=4.00 total=100
+""",
+    )
+
+    assert allowed is False
+    assert "memory PSI full" in reason
 
 
 def test_resource_admission_defers_when_swap_is_nearly_exhausted_and_ram_is_tight() -> None:

@@ -13,6 +13,7 @@ BrowserDriver = PlaywrightDriver
 DriverFactory = Callable[[], BrowserDriver]
 
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
+_EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
 
 
 class BrowserSession:
@@ -20,6 +21,7 @@ class BrowserSession:
         self.browser_url = browser_url
         self.driver_factory = driver_factory
         self.driver: BrowserDriver | None = None
+        self._next_effort_preference_retry_at = 0.0
 
     async def ensure_driver(self) -> BrowserDriver:
         if self.driver is None:
@@ -87,14 +89,51 @@ class BrowserSession:
         target_effort = "high"
         target_position = 3
 
+        # Chat mode is a functional requirement. Model/effort are preferences:
+        # ChatGPT changes these controls frequently, so a missing preference
+        # control must never make the whole delivery queue unavailable.
         await driver.ensure_chat_surface()
-        await driver.select_effort_model(target_model)
-        power = await driver.set_effort_power_position(target_position)
-        if str(power.get("text") or "").strip().casefold() != target_effort:
-            raise RuntimeError(f"ChatGPT Chat-mode Power verification failed: {power!r}")
-        if "upgrade required" in str(power.get("description") or "").casefold():
-            raise RuntimeError("ChatGPT Chat-mode High effort unexpectedly requires an upgrade")
 
+        now = asyncio.get_running_loop().time()
+        if now < self._next_effort_preference_retry_at:
+            return
+
+        try:
+            await driver.select_effort_model(target_model)
+            power = await driver.set_effort_power_position(target_position)
+            if str(power.get("text") or "").strip().casefold() != target_effort:
+                raise RuntimeError(f"ChatGPT Chat-mode Power verification failed: {power!r}")
+            if "upgrade required" in str(power.get("description") or "").casefold():
+                raise RuntimeError("ChatGPT Chat-mode High effort unexpectedly requires an upgrade")
+        except RuntimeError as exc:
+            if getattr(driver, "needs_browser_restart", False) is True:
+                raise
+            self._next_effort_preference_retry_at = now + _EFFORT_PREFERENCE_RETRY_SECONDS
+            try:
+                await driver._perform_actions(
+                    driver.context,
+                    [
+                        {
+                            "type": "key",
+                            "id": "keyboard",
+                            "actions": [
+                                {"type": "keyDown", "value": ""},
+                                {"type": "keyUp", "value": ""},
+                            ],
+                        }
+                    ],
+                )
+            except RuntimeError:
+                if getattr(driver, "needs_browser_restart", False) is True:
+                    raise
+            logger.warning(
+                "Prompta could not set preferred Chat model/effort; "
+                "continuing with the current Chat setting and retrying later: %s",
+                exc,
+            )
+            return
+
+        self._next_effort_preference_retry_at = 0.0
         await driver._perform_actions(
             driver.context,
             [
