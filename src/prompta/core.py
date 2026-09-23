@@ -287,14 +287,10 @@ class Prompta:
     ) -> dict[str, Any]:
         return await self.browser.effort_trigger_info(driver, timeout=timeout)
 
-    async def _maximize_effort_slider(self, driver: BrowserDriver) -> None:
-        await self.browser.maximize_effort_slider(driver)
-
     async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
         await self.browser.ensure_high_effort(
             driver,
             effort_trigger_info=lambda target: self._effort_trigger_info(target),
-            maximize_effort_slider=lambda target: self._maximize_effort_slider(target),
             pointer_click=lambda target, x, y: self._pointer_click(target, x, y),
         )
 

@@ -82,33 +82,18 @@ class BrowserSession:
     ) -> dict[str, Any]:
         return await driver.effort_trigger_info(timeout=timeout)
 
-    async def maximize_effort_slider(self, driver: BrowserDriver) -> None:
-        await driver.maximize_effort_slider()
-
     async def ensure_high_effort(
         self,
         driver: BrowserDriver,
         *,
         effort_trigger_info,
-        maximize_effort_slider,
         pointer_click,
     ) -> None:
-        target_model = "GPT-6 Astra"
-        await driver.ensure_work_surface()
-
-        def is_target_selected(info: dict[str, Any]) -> bool:
-            effort = str(info.get("text") or "").strip().casefold()
-            label = str(info.get("label") or "").strip().casefold()
-            return effort in {"max", "extra high"} and target_model.casefold() in label
+        target_model = "GPT-5.6 Sol"
+        target_effort = "medium"
+        await driver.ensure_chat_surface()
 
         trigger = await effort_trigger_info(driver)
-        if is_target_selected(trigger):
-            logger.info("Prompta verified thinking effort=GPT-6 Astra Max")
-            return
-        target_model_selected = (
-            target_model.casefold() in str(trigger.get("label") or "").casefold()
-        )
-
         for attempt in range(2):
             try:
                 await pointer_click(driver, float(trigger["x"]), float(trigger["y"]))
@@ -118,40 +103,13 @@ class BrowserSession:
                     raise
                 trigger = await effort_trigger_info(driver)
 
-        if not target_model_selected:
-            await driver.select_effort_model(target_model)
-
-        await maximize_effort_slider(driver)
-
-        deadline = asyncio.get_running_loop().time() + 2.0
-        while asyncio.get_running_loop().time() < deadline:
-            value = await driver.high_effort_slider_value()
-            maximum = await driver.high_effort_slider_max_value()
-            if value and maximum and value == maximum:
-                break
-            await asyncio.sleep(0.1)
-        else:
-            raise RuntimeError("ChatGPT thinking-effort slider did not reach maximum")
-
-        await driver._perform_actions(
-            driver.context,
-            [
-                {
-                    "type": "key",
-                    "id": "keyboard",
-                    "actions": [
-                        {"type": "keyDown", "value": "\ue00c"},
-                        {"type": "keyUp", "value": "\ue00c"},
-                    ],
-                }
-            ],
-        )
+        await driver.select_effort_model(target_model)
         await asyncio.sleep(0.2)
 
         verified = await effort_trigger_info(driver)
-        if not is_target_selected(verified):
+        if str(verified.get("text") or "").strip().casefold() != target_effort:
             raise RuntimeError(
-                "ChatGPT thinking effort verification failed: "
+                "ChatGPT Chat-mode effort verification failed: "
                 f"{verified.get('label') or verified.get('text')!r}"
             )
-        logger.info("Prompta set and verified thinking effort=GPT-6 Astra Max")
+        logger.info("Prompta set and verified Chat mode model=%s effort=Medium", target_model)

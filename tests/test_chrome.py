@@ -224,77 +224,51 @@ async def test_hidden_file_input_is_supported_as_non_semantic_fallback(
 
 
 @pytest.mark.asyncio
-async def test_ensure_work_surface_selects_work_radio(live_driver) -> None:
+async def test_ensure_chat_surface_selects_chat_radio(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
         """
-        <button id="chat" role="radio" aria-checked="true">Chat</button>
-        <button id="work" role="radio" aria-checked="false"
+        <button id="chat" role="radio" aria-checked="false"
                 onclick="this.setAttribute('aria-checked','true');
-                         document.getElementById('chat').setAttribute('aria-checked','false')">
-          Work
+                         document.getElementById('work').setAttribute('aria-checked','false')">
+          Chat
         </button>
+        <button id="work" role="radio" aria-checked="true">Work</button>
         """
     )
 
-    await driver.ensure_work_surface()
+    await driver.ensure_chat_surface()
 
-    assert await page.locator("#work").get_attribute("aria-checked") == "true"
-    assert await page.locator("#chat").get_attribute("aria-checked") == "false"
+    assert await page.locator("#chat").get_attribute("aria-checked") == "true"
+    assert await page.locator("#work").get_attribute("aria-checked") == "false"
 
 
 @pytest.mark.asyncio
 async def test_effort_trigger_uses_button_role(live_driver) -> None:
     driver, page = live_driver
-    await page.set_content('<button aria-haspopup="menu">GPT-6 Astra Max</button>')
+    await page.set_content('<button aria-haspopup="menu">Medium</button>')
 
     trigger = await driver.effort_trigger_info(timeout=0.2)
 
-    assert trigger["text"] == "Max"
-    assert trigger["label"] == "GPT-6 Astra Max"
+    assert trigger["text"] == "Medium"
+    assert trigger["label"] == "Medium"
     assert trigger["x"] > 0
     assert trigger["y"] > 0
 
 
 @pytest.mark.asyncio
-async def test_select_effort_model_uses_accessible_menu_items(live_driver) -> None:
+async def test_select_effort_model_uses_direct_chat_menu_item(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
-        '<div role="menuitem" aria-label="Select model" '
-        "onclick=\"document.getElementById('astra').hidden=false\">Select model</div>"
-        '<div id="astra" role="menuitemradio" aria-label="GPT-6 Astra" hidden '
-        "onclick=\"this.dataset.clicked='true'\">GPT-6 Astra</div>"
+        """
+        <div id="sol" role="menuitemradio" aria-label="GPT-5.6 Sol"
+             onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        """
     )
 
     await driver.select_effort_model()
 
-    assert await page.locator("#astra").get_attribute("data-clicked") == "true"
-
-
-@pytest.mark.asyncio
-async def test_high_effort_slider_uses_keyboard_to_reach_maximum(live_driver) -> None:
-    driver, page = live_driver
-    await page.set_content(
-        """
-        <div role="menuitem" aria-label="Power" tabindex="0"
-             onkeydown="const slider=this.querySelector('[role=slider]');
-                        if(event.key==='ArrowRight'){
-                          const next=Math.min(Number(slider.getAttribute('aria-valuemax')),
-                            Number(slider.getAttribute('aria-valuenow'))+1);
-                          slider.setAttribute('aria-valuenow', String(next));
-                        }">
-          <div data-model-reasoning-effort-slider>
-            <span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="1"
-                  style="display:block;width:28px;height:28px"></span>
-          </div>
-        </div>
-        """
-    )
-
-    await driver.maximize_effort_slider()
-
-    assert await driver.high_effort_slider_value() == "4"
-    assert await driver.high_effort_slider_max_value() == "4"
+    assert await page.locator("#sol").get_attribute("data-clicked") == "true"
 
 
 @pytest.mark.asyncio

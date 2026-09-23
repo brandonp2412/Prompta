@@ -926,28 +926,28 @@ class PlaywrightDriver(BrowserDriverBase):
             "rate_limit_text": "\n".join(rate_limit_texts),
         }
 
-    async def ensure_work_surface(self, timeout: float = 5.0) -> None:
+    async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
-            work = await self._first_usable(
-                [page.get_by_role("radio", name="Work", exact=True)],
+            chat = await self._first_usable(
+                [page.get_by_role("radio", name="Chat", exact=True)],
                 enabled=True,
             )
-            if work is None:
+            if chat is None:
                 await asyncio.sleep(0.1)
                 continue
             try:
-                if (await work.get_attribute("aria-checked") or "").casefold() == "true":
+                if (await chat.get_attribute("aria-checked") or "").casefold() == "true":
                     return
-                await work.click()
+                await chat.click()
                 while asyncio.get_running_loop().time() < deadline:
-                    if (await work.get_attribute("aria-checked") or "").casefold() == "true":
+                    if (await chat.get_attribute("aria-checked") or "").casefold() == "true":
                         return
                     await asyncio.sleep(0.05)
             except PlaywrightError:
                 await asyncio.sleep(0.1)
-        raise RuntimeError("ChatGPT Work surface did not become active")
+        raise RuntimeError("ChatGPT Chat surface did not become active")
 
     async def effort_trigger_info(self, timeout: float = 20.0) -> dict[str, Any]:
         page = self._page()
@@ -994,110 +994,44 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT thinking-effort control did not become available")
 
-    async def select_effort_model(self, model_name: str = "GPT-6 Astra") -> None:
+    async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
         page = self._page()
-        deadline = asyncio.get_running_loop().time() + 5.0
-        selector: Locator | None = None
-        while asyncio.get_running_loop().time() < deadline:
-            selector = await self._first_usable(
-                [page.get_by_role("menuitem", name="Select model", exact=True)],
-                enabled=True,
-            )
-            if selector is not None:
-                break
-            await asyncio.sleep(0.05)
-        if selector is None:
-            raise RuntimeError("ChatGPT model selector did not open")
-        try:
-            await selector.click()
-        except PlaywrightError as exc:
-            raise RuntimeError("ChatGPT model selector could not be opened") from exc
-
-        deadline = asyncio.get_running_loop().time() + 5.0
-        option: Locator | None = None
         model_name_re = re.compile(rf"^\s*{re.escape(model_name)}(?:\s|$)", re.IGNORECASE)
-        while asyncio.get_running_loop().time() < deadline:
-            option = await self._first_usable(
+
+        async def find_option() -> Locator | None:
+            return await self._first_usable(
                 [
                     page.get_by_role("menuitemradio", name=model_name_re),
                     page.locator('[role="menuitemradio"]').filter(has_text=model_name_re),
                 ],
                 enabled=True,
             )
-            if option is not None:
-                break
-            await asyncio.sleep(0.05)
-        if option is None:
-            raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
-        try:
-            await option.click()
-        except PlaywrightError as exc:
-            raise RuntimeError(f"ChatGPT model {model_name!r} could not be selected") from exc
 
-    async def maximize_effort_slider(self) -> None:
-        page = self._page()
-        deadline = asyncio.get_running_loop().time() + 3.0
+        deadline = asyncio.get_running_loop().time() + 5.0
         while asyncio.get_running_loop().time() < deadline:
-            power = await self._first_usable(
-                [page.get_by_role("menuitem", name="Power", exact=True)],
+            option = await find_option()
+            if option is not None:
+                try:
+                    await option.click()
+                    return
+                except PlaywrightError as exc:
+                    raise RuntimeError(
+                        f"ChatGPT model {model_name!r} could not be selected"
+                    ) from exc
+
+            selector = await self._first_usable(
+                [page.get_by_role("menuitem", name="Select model", exact=True)],
                 enabled=True,
             )
-            slider = await self._first_usable(
-                [
-                    page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
-                    page.get_by_role("slider", include_hidden=True),
-                ],
-                enabled=True,
-            )
-            if power is None or slider is None:
-                await asyncio.sleep(0.1)
-                continue
-            try:
-                min_value = float(await slider.get_attribute("aria-valuemin") or 0)
-                max_value = float(await slider.get_attribute("aria-valuemax") or 0)
-                current_value = float(await slider.get_attribute("aria-valuenow") or min_value)
-                if max_value <= min_value:
-                    raise RuntimeError("ChatGPT maximum effort is unavailable: invalid-range")
-                await power.focus()
-                steps = max(0, int(round(max_value - current_value)))
-                for _ in range(steps):
-                    await page.keyboard.press("ArrowRight")
-                return
-            except (PlaywrightError, ValueError):
-                await asyncio.sleep(0.1)
-        raise RuntimeError("ChatGPT thinking-effort slider did not open")
+            if selector is not None:
+                try:
+                    await selector.click()
+                except PlaywrightError as exc:
+                    raise RuntimeError("ChatGPT model selector could not be opened") from exc
 
-    async def high_effort_slider_value(self) -> str:
-        page = self._page()
-        slider = await self._first_usable(
-            [
-                page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
-                page.get_by_role("slider", include_hidden=True),
-            ],
-            enabled=True,
-        )
-        if slider is None:
-            return ""
-        try:
-            return str(await slider.get_attribute("aria-valuenow") or "")
-        except PlaywrightError:
-            return ""
+            await asyncio.sleep(0.05)
 
-    async def high_effort_slider_max_value(self) -> str:
-        page = self._page()
-        slider = await self._first_usable(
-            [
-                page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
-                page.get_by_role("slider", include_hidden=True),
-            ],
-            enabled=True,
-        )
-        if slider is None:
-            return ""
-        try:
-            return str(await slider.get_attribute("aria-valuemax") or "")
-        except PlaywrightError:
-            return ""
+        raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
 
     async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
         page = self._page(context)
