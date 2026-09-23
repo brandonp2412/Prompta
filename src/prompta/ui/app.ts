@@ -2537,7 +2537,7 @@ appActions.onPageHide = () => liveUpdates.handlePageHide();
 appActions.onPageShow = () => liveUpdates.handlePageShow();
 
 function refreshDisplayedTimes() {
-  appViewState.clockTick = Date.now();
+  appViewState.clockTick = Math.floor(Date.now() / 60_000) * 60_000;
 
   if (
     state.composingNew &&

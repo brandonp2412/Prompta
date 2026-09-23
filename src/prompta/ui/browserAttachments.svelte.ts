@@ -47,9 +47,6 @@ export function conversationViewport(
 
     const handleScroll = () => {
       const pinned = viewportPinnedToBottom(element);
-
-      if (pinned === conversationViewportPinnedToBottom) return;
-
       conversationViewportPinnedToBottom = pinned;
       conversationViewportPinnedChange?.(pinned);
     };

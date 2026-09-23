@@ -5962,7 +5962,6 @@ function conversationViewport(onPinnedChange) {
 		conversationViewportPinnedChange?.(true);
 		const handleScroll = () => {
 			const pinned = viewportPinnedToBottom(element);
-			if (pinned === conversationViewportPinnedToBottom) return;
 			conversationViewportPinnedToBottom = pinned;
 			conversationViewportPinnedChange?.(pinned);
 		};
@@ -6659,7 +6658,7 @@ var init_appViewState_svelte = __esmMin((() => {
 			broken: false
 		},
 		activeSlashCommand: "",
-		clockTick: Date.now(),
+		clockTick: Math.floor(Date.now() / 6e4) * 6e4,
 		bootComplete: false,
 		composerFocusRequest: 0,
 		composerSelectEndRequest: 0,
@@ -19652,7 +19651,7 @@ async function copySelectedChatUrl() {
 	showActionToast(message);
 }
 function refreshDisplayedTimes() {
-	appViewState.clockTick = Date.now();
+	appViewState.clockTick = Math.floor(Date.now() / 6e4) * 6e4;
 	if (state.composingNew && (["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "") || state.pendingNewSend?.status === "queued" && Number(state.pendingNewSend?.queueEtaAt || 0) > 0)) {
 		state.newChatFingerprint = "";
 		renderNewChat();

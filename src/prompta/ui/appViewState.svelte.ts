@@ -36,7 +36,7 @@ export const appViewState = $state({
   searchValue: "",
   sidebarFilters: { unread: false, active: false, broken: false },
   activeSlashCommand: "",
-  clockTick: Date.now(),
+  clockTick: Math.floor(Date.now() / 60_000) * 60_000,
   bootComplete: false,
   composerFocusRequest: 0,
   composerSelectEndRequest: 0,
