@@ -38,6 +38,7 @@ from .chatgpt_dom import (
     SEND_BUTTON_SELECTORS,
     STOP_BUTTON_SELECTORS,
 )
+from .script_assets import browser_script
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -177,13 +178,13 @@ class PlaywrightDriver(BrowserDriverBase):
     async def _mark_owned(self, page: Page) -> None:
         stamp = int(time.time())
         marker = f"{_OWNED_WINDOW_PREFIX}{stamp}:{uuid.uuid4().hex}"
-        await page.evaluate("(value) => { window.name = value; }", marker)
+        await page.evaluate(browser_script("set_window_name.js"), marker)
 
     async def _is_owned_page(self, page: Page) -> bool:
         if page.is_closed():
             return False
         try:
-            name = await page.evaluate("window.name")
+            name = await page.evaluate(browser_script("get_window_name.js"))
         except PlaywrightError:
             return False
         return isinstance(name, str) and name.startswith(_OWNED_WINDOW_PREFIX)
@@ -433,11 +434,15 @@ class PlaywrightDriver(BrowserDriverBase):
         *,
         await_promise: bool = False,
         context: str | None = None,
+        argument: Any = None,
     ) -> Any:
         del await_promise  # Playwright awaits returned promises automatically.
         page = self._page(context)
+        evaluation = (
+            page.evaluate(expression) if argument is None else page.evaluate(expression, argument)
+        )
         try:
-            return await asyncio.wait_for(page.evaluate(expression), timeout=30.0)
+            return await asyncio.wait_for(evaluation, timeout=30.0)
         except TimeoutError as exc:
             self.needs_browser_restart = True
             raise RuntimeError("Playwright page evaluation timed out after 30s") from exc
@@ -735,7 +740,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _composer_text(self, composer: Locator) -> str:
         try:
-            tag = (await composer.evaluate("el => el.tagName")).casefold()
+            tag = (await composer.evaluate(browser_script("element_tag_name.js"))).casefold()
             if tag in {"textarea", "input"}:
                 return await composer.input_value()
             return await composer.inner_text()
@@ -839,9 +844,7 @@ class PlaywrightDriver(BrowserDriverBase):
         deadline = asyncio.get_running_loop().time() + 120.0
         stable = 0
         while asyncio.get_running_loop().time() < deadline:
-            selected = await file_input.evaluate(
-                "input => Array.from(input.files || []).map(file => file.name)"
-            )
+            selected = await file_input.evaluate(browser_script("file_input_names.js"))
             selected_names = set(selected or [])
             visible_names = True
             for name in names:

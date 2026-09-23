@@ -288,6 +288,55 @@ async def test_find_context_for_path_only_adopts_prompta_owned_pages(live_driver
 
 
 @pytest.mark.asyncio
+async def test_page_send_probe_scripts_preserve_request_and_stream_capture(live_driver) -> None:
+    driver, page = live_driver
+
+    async def fulfill(route):
+        if route.request.url.endswith("/backend-api/conversation"):
+            body = '{"conversation_id":"conversation-1","type":"input_message","id":"message-1"}'
+            await route.fulfill(status=200, content_type="application/json", body=body)
+            return
+        await route.fulfill(status=200, content_type="text/html", body="<main></main>")
+
+    await page.route("https://chatgpt.com/**", fulfill)
+    await page.goto("https://chatgpt.com/")
+    await driver.arm_page_send_probe()
+    await page.evaluate(
+        """() => fetch("/backend-api/conversation", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            messages: [{id: "message-1"}],
+            parent_message_id: "parent-1"
+          })
+        })"""
+    )
+    await page.wait_for_timeout(50)
+
+    probe = await driver.page_send_probe()
+
+    assert probe["message_id"] == "message-1"
+    assert probe["parent_message_id"] == "parent-1"
+    assert probe["conversation_id"] == "conversation-1"
+    assert probe["response_status"] == 200
+    assert probe["committed"] is True
+
+    cleared = await driver.clear_page_send_probe()
+    assert cleared == probe
+    assert await driver.page_send_probe() == {}
+
+
+@pytest.mark.asyncio
+async def test_eval_passes_dynamic_values_as_playwright_arguments(live_driver) -> None:
+    driver, _ = live_driver
+    value = 'chat";window.injected=true;//'
+
+    result = await driver.eval("(value) => value", argument=value)
+
+    assert result == value
+
+
+@pytest.mark.asyncio
 async def test_closed_page_becomes_browsing_context_unavailable(live_driver) -> None:
     driver, page = live_driver
     await page.close()
