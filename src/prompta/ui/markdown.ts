@@ -161,7 +161,7 @@ function normalizedLanguage(value: string | null | undefined) {
   return aliases[raw] || raw || "plaintext";
 }
 
-function highlightedCode(code: string, language: string): RootContent[] {
+export function highlightedCode(code: string, language: string): RootContent[] {
   if (!code) return [];
 
   const normalized = normalizedLanguage(language);

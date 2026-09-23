@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { RootContent } from "hast";
 import type { Token, Tokens } from "marked";
 
-import { codePresentation, parseMarkdown, safeLinkHref } from "./markdown";
+import { codePresentation, highlightedCode, parseMarkdown, safeLinkHref } from "./markdown";
 
 function codeToken(tokens: Token[]) {
   return tokens.find((token): token is Tokens.Code => token.type === "code");
@@ -147,8 +147,13 @@ describe("tool-call markdown model", () => {
 
     const presentation = codePresentation(token!);
 
+    expect(presentation?.language).toBe("json");
     expect(presentation?.highlight).toBe(false);
     expect(presentation?.highlighted).toEqual([{ type: "text", value: token!.text }]);
+
+    const expanded = highlightedCode(presentation!.code, presentation!.language);
+    expect(collectText(expanded)).toBe(token!.text);
+    expect(collectClasses(expanded).some((name) => name.startsWith("hljs-"))).toBe(true);
   });
 });
 

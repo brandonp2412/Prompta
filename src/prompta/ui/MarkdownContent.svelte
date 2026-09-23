@@ -3,7 +3,7 @@
   import type { Token, Tokens } from "marked";
 
   import { copyText } from "./clipboard";
-  import { codePresentation, parseMarkdown, safeLinkHref } from "./markdown";
+  import { codePresentation, highlightedCode, parseMarkdown, safeLinkHref } from "./markdown";
 
   let { source, streaming = false }: { source: unknown; streaming?: boolean } = $props();
 
@@ -209,7 +209,7 @@
               </div>
             {/if}
             {#if presentation.code && expandedTools.has(key)}
-              <pre><code class={"language-" + presentation.language}>{@render highlightNodes(presentation.highlighted)}</code></pre>
+              <pre><code class={"language-" + presentation.language}>{@render highlightNodes(presentation.highlight ? presentation.highlighted : highlightedCode(presentation.code, presentation.language))}</code></pre>
             {/if}
           </details>
         {:else}

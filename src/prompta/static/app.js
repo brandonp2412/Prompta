@@ -15939,7 +15939,10 @@ function MarkdownContent($$anchor, $$props) {
 							var pre = root_30();
 							var code_2 = child(pre);
 							var node_39 = child(code_2);
-							highlightNodes(node_39, () => presentation.highlighted);
+							{
+								let $0 = /* @__PURE__ */ user_derived(() => presentation.highlight ? presentation.highlighted : highlightedCode(presentation.code, presentation.language));
+								highlightNodes(node_39, () => get($0));
+							}
 							reset(code_2);
 							reset(pre);
 							template_effect(() => set_class(code_2, 1, "language-" + presentation.language));
