@@ -890,21 +890,17 @@ def test_send_job_registry_persists_send_before_acknowledging_it(tmp_path: Path)
     assert started.wait(timeout=1.0)
     queue_path = tmp_path / "ui-send-jobs.sqlite3"
     assert queue_path.exists()
-    persisted = {"jobs": registry._database_records()}
-    assert persisted["jobs"] == [
-        {
-            "send_id": queued["send_id"],
-            "operation": "once",
-            "message": "Durable hello",
-            "conversation_id": "",
-            "attachments": [],
-            "client_id": "browser-durable-1",
-            "status": "running",
-            "retry_at": 0.0,
-            "retry_attempt": 0,
-            "created_at": queued["created_at"],
-        }
-    ]
+    persisted = registry._database_records()
+    assert len(persisted) == 1
+    running = persisted[0]
+    assert running["send_id"] == queued["send_id"]
+    assert running["operation"] == "once"
+    assert running["message"] == "Durable hello"
+    assert running["client_id"] == "browser-durable-1"
+    assert running["status"] == "running"
+    assert running["created_at"] == queued["created_at"]
+    assert running["lease_owner"] == registry._worker_id
+    assert running["lease_expires_at"] > running["lease_acquired_at"]
 
     release.set()
     deadline = time.monotonic() + 1.0
@@ -981,7 +977,7 @@ def test_send_job_registry_restores_queued_send_after_restart(tmp_path: Path) ->
     assert receipt["conversation_id"] == "chat-restored-queued"
 
 
-def test_send_job_registry_dead_letters_inflight_send_after_restart(tmp_path: Path) -> None:
+def test_send_job_registry_reclaims_legacy_inflight_send_after_restart(tmp_path: Path) -> None:
     recovery_path = tmp_path / "ui-send-retries.json"
     recovery_path.write_text(
         json.dumps(
@@ -1007,14 +1003,18 @@ def test_send_job_registry_dead_letters_inflight_send_after_restart(tmp_path: Pa
 
     registry = SendJobRegistry(sender, recovery_path=recovery_path)
 
-    sender.assert_not_called()
+    deadline = time.monotonic() + 1.0
     result = registry.get("running-before-restart")
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get("running-before-restart")
+
     assert result is not None
-    assert result["status"] == "dead_lettered"
-    assert "in-flight send" in result["error"]
+    assert result["status"] == "succeeded"
+    assert result["conversation_id"] == "chat-1"
+    sender.assert_called_once()
     persisted = registry._database_records()[0]
-    assert persisted["status"] == "dead_lettered"
-    assert "in-flight send" in persisted["last_error"]
+    assert persisted["status"] == "succeeded"
 
 
 def test_send_job_registry_does_not_restore_cancelled_send(tmp_path: Path) -> None:
@@ -1071,8 +1071,6 @@ def test_send_job_registry_does_not_multiply_one_shared_rate_limit() -> None:
 
 def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path: Path) -> None:
     calls = 0
-    sleeping = Event()
-    release = Event()
     attachment = tmp_path / "kept-during-backoff.txt"
     attachment.write_text("payload")
 
@@ -1083,37 +1081,49 @@ def test_send_job_registry_keeps_rate_limited_send_pending_and_retries(tmp_path:
             raise RateLimitError("Try again in 2 minutes", retry_after=120)
         return "chat-new"
 
-    registry_ref: list[SendJobRegistry] = []
-
-    def sleeper(delay: float) -> None:
-        assert delay == pytest.approx(120.0, abs=0.01)
-        sleeping.set()
-        assert release.wait(timeout=1.0)
-        registry = registry_ref[0]
-        with registry._rate_limit_lock:
-            registry._rate_limit_backoff.blocked_until = 0.0
-
     recovery_path = tmp_path / "ui-send-retries.json"
-    registry = SendJobRegistry(sender, sleeper=sleeper, recovery_path=recovery_path)
-    registry_ref.append(registry)
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
     with patch("prompta.core.random.uniform", return_value=0.0):
         queued = registry.submit(
             operation="once",
             message="Hello",
             attachments=[str(attachment)],
         )
-        assert sleeping.wait(timeout=1.0)
+        deadline = time.monotonic() + 1.0
         limited = registry.get(queued["send_id"])
+        while (
+            limited is not None
+            and limited["status"] != "rate_limited"
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+            limited = registry.get(queued["send_id"])
+
         assert limited is not None
         assert limited["status"] == "rate_limited"
         assert limited["retry_after_seconds"] == 120
         assert limited["retry_attempt"] == 1
+        assert calls == 1
         assert attachment.exists()
         recovery = {"jobs": registry._database_records()}
         assert recovery["jobs"][0]["send_id"] == queued["send_id"]
         assert recovery["jobs"][0]["message"] == "Hello"
+        assert recovery["jobs"][0]["lease_owner"] == ""
 
-        release.set()
+        with registry._rate_limit_lock:
+            registry._rate_limit_backoff.blocked_until = 0.0
+        connection = registry._connect_database()
+        assert connection is not None
+        try:
+            connection.execute(
+                "UPDATE send_jobs SET retry_at = ? WHERE send_id = ?",
+                (time.time() - 1.0, queued["send_id"]),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        registry._work_event.set()
+
         deadline = time.monotonic() + 1.0
         result = registry.get(queued["send_id"])
         while (
@@ -1878,11 +1888,25 @@ def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:
         attachments=[str(attachment)],
     )
 
-    deadline = time.monotonic() + 1.0
+    deadline = time.monotonic() + 2.0
+    forced_attempt = 0
     result = registry.get(queued["send_id"])
     while (
         result is not None and result["status"] != "dead_lettered" and time.monotonic() < deadline
     ):
+        if result["status"] == "retrying" and result["retry_attempt"] > forced_attempt:
+            forced_attempt = result["retry_attempt"]
+            connection = registry._connect_database()
+            assert connection is not None
+            try:
+                connection.execute(
+                    "UPDATE send_jobs SET retry_at = ? WHERE send_id = ?",
+                    (time.time() - 1.0, queued["send_id"]),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            registry._work_event.set()
         time.sleep(0.01)
         result = registry.get(queued["send_id"])
 
@@ -1893,22 +1917,18 @@ def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:
     assert result["retry_attempt"] == 5
     assert calls == 5
     assert attachment.exists()
-    persisted = {"jobs": registry._database_records()}
-    assert persisted["jobs"] == [
-        {
-            "send_id": queued["send_id"],
-            "operation": "reply",
-            "message": "Continue",
-            "conversation_id": "chat-1",
-            "attachments": [str(attachment)],
-            "client_id": "",
-            "status": "dead_lettered",
-            "retry_at": 0.0,
-            "retry_attempt": 5,
-            "created_at": queued["created_at"],
-            "last_error": "browser session unavailable",
-        }
-    ]
+    persisted = registry._database_records()
+    assert len(persisted) == 1
+    dead_letter = persisted[0]
+    assert dead_letter["send_id"] == queued["send_id"]
+    assert dead_letter["operation"] == "reply"
+    assert dead_letter["message"] == "Continue"
+    assert dead_letter["conversation_id"] == "chat-1"
+    assert dead_letter["attachments"] == [str(attachment)]
+    assert dead_letter["status"] == "dead_lettered"
+    assert dead_letter["retry_attempt"] == 5
+    assert dead_letter["last_error"] == "browser session unavailable"
+    assert dead_letter["lease_owner"] == ""
 
 
 def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
