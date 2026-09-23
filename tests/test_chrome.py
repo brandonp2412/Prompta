@@ -16,6 +16,7 @@ from selenium.webdriver.remote.file_detector import UselessFileDetector
 from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 
+from prompta.chatgpt_dom import RATE_LIMIT_SELECTORS
 from prompta.chrome import ChromeDebuggerUnavailableError, ChromeDriverDriver, _PromptaChrome
 from prompta.webdriver import BrowsingContextUnavailableError, WebDriverBase
 
@@ -1184,3 +1185,4 @@ def test_dom_state_rate_limit_detection_ignores_history_throttling() -> None:
     assert "historyRateLimitSelector" in source
     assert "!isHistoryRateLimitNode(node)" in source
     assert "historyRateLimitModal,rateLimitModal" in source
+    assert '[role="alert"]' not in RATE_LIMIT_SELECTORS

@@ -59,10 +59,7 @@ STREAMING_SELECTORS = (
 
 CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR = '[data-testid="modal-conversation-history-rate-limit"]'
 
-RATE_LIMIT_SELECTORS = (
-    '[data-testid*="rate-limit" i]',
-    '[role="alert"]',
-)
+RATE_LIMIT_SELECTORS = ('[data-testid*="rate-limit" i]',)
 
 
 def css_union(selectors: tuple[str, ...]) -> str:
