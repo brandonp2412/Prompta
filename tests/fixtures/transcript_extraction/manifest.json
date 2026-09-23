@@ -1,0 +1,73 @@
+[
+  {
+    "name": "semantic-data",
+    "file": "semantic_data.html",
+    "class_free": true,
+    "roles": [
+      "user",
+      "assistant",
+      "user",
+      "assistant"
+    ],
+    "ids": [
+      "u-1",
+      "a-1",
+      "u-2",
+      "a-2"
+    ],
+    "streaming": true,
+    "source_event_ids": [],
+    "content_contains": [
+      "First question",
+      "First answer",
+      "Second question",
+      "Working answer"
+    ]
+  },
+  {
+    "name": "legacy-tool-order",
+    "file": "legacy_tool_order.html",
+    "class_free": false,
+    "roles": [
+      "user",
+      "assistant"
+    ],
+    "ids": [
+      "u-tool",
+      "a-tool"
+    ],
+    "contains_in_order": [
+      "Before tool",
+      "tool:Search",
+      "After tool"
+    ],
+    "streaming": false,
+    "source_event_ids": [
+      "a-tool:dom-prose"
+    ]
+  },
+  {
+    "name": "react-fallback",
+    "file": "react_fallback.html",
+    "class_free": true,
+    "roles": [
+      "user",
+      "assistant"
+    ],
+    "ids": [
+      "user-1",
+      "final-1"
+    ],
+    "contains_in_order": [
+      "Checking",
+      "Done"
+    ],
+    "streaming": false,
+    "source_event_ids": [
+      "reason-1",
+      "call-1",
+      "result-1",
+      "final-1"
+    ]
+  }
+]

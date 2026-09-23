@@ -1,0 +1,23 @@
+<!doctype html>
+<html><body><main id="root">React-backed transcript</main>
+<script>
+const root=document.getElementById('root');
+root.__reactProps$fixture={messages:[
+  {id:'final-1',parent_id:'result-1',create_time:50,end_turn:true,status:'finished_successfully',
+   author:{role:'assistant'},recipient:'all',content:{content_type:'text',parts:['Done']},metadata:{}},
+  {id:'call-1',parent_id:'reason-1',create_time:40,end_turn:false,status:'in_progress',
+   author:{role:'assistant'},recipient:'api_tool.call_tool',
+   content:{content_type:'code',text:'{"path":"/Fixture/link/search","args":{"q":"x"}}'},
+   metadata:{reasoning_title:'Checking'}},
+  {id:'user-1',parent_id:'',create_time:10,end_turn:true,status:'finished_successfully',
+   author:{role:'user'},recipient:'all',content:{content_type:'text',parts:['Question']},metadata:{}},
+  {id:'result-1',parent_id:'call-1',create_time:20,end_turn:false,status:'finished_successfully',
+   author:{role:'tool'},recipient:'assistant',
+   content:{content_type:'code',text:'{"text":"ok"}'},
+   metadata:{invoked_resource:{app_name:'Fixture',resource_uri:'/Fixture/link/search'}}},
+  {id:'reason-1',parent_id:'user-1',create_time:30,end_turn:false,status:'in_progress',
+   author:{role:'assistant'},recipient:'all',content:{content_type:'text',parts:['Checking']},
+   metadata:{reasoning_title:'Checking'}}
+]};
+</script>
+</body></html>
