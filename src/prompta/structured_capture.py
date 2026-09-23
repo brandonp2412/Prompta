@@ -90,6 +90,11 @@ def _causal_order_indexed(
     return [indexed[position] for position in ordered_positions]
 
 
+def ordered_source_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    indexed = [(index, event) for index, event in enumerate(events) if isinstance(event, dict)]
+    return [event for _, event in _causal_order_indexed(indexed)]
+
+
 def _action_from_path(value: Any) -> str:
     if not isinstance(value, str):
         return ""

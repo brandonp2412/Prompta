@@ -240,6 +240,94 @@ def test_live_snapshot_uses_source_event_timeline_for_assistant_content(tmp_path
     assert content.index("Between tools") < content.index("Test MCP · second")
 
 
+def test_source_events_keep_canonical_order_across_reordered_snapshots(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation_id = "conversation-canonical-source-order"
+    cache.start(
+        conversation_id,
+        context_id="context-canonical-source-order",
+        job_name="",
+        prompt="Do work",
+    )
+    events = [
+        {
+            "id": "text-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["First text"],
+            "create_time": 1.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link/first", "args": {"step": 1}}),
+            "create_time": 2.0,
+            "end_turn": False,
+        },
+        {
+            "id": "text-2",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Between tools"],
+            "create_time": 3.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-2",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps({"path": "/Test MCP/link/second", "args": {"step": 2}}),
+            "create_time": 4.0,
+            "end_turn": False,
+        },
+    ]
+    snapshot = {
+        "title": "Work",
+        "streaming": True,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Do work"},
+            {"id": "a1", "role": "assistant", "content": "Working"},
+        ],
+        "source_events": events,
+    }
+    cache.write_snapshot(conversation_id, snapshot)
+
+    revised_call = {**events[1], "reasoning_title": "Updated tool metadata"}
+    cache.write_snapshot(
+        conversation_id,
+        {
+            **snapshot,
+            "source_events": [events[0], events[2], revised_call, events[3]],
+        },
+    )
+
+    rows = cache.connection.execute(
+        """
+        SELECT ordinal, raw_json
+        FROM source_events
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal, rowid
+        """,
+        (conversation_id, "a1"),
+    ).fetchall()
+    cache.close()
+
+    assert [row["ordinal"] for row in rows] == [0, 1, 2, 3, 4]
+    assert [json.loads(row["raw_json"])["id"] for row in rows] == [
+        "text-1",
+        "call-1",
+        "call-1",
+        "text-2",
+        "call-2",
+    ]
+
+
 def test_completed_message_recovers_observed_stream_order_on_read(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(

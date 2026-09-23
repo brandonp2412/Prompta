@@ -6,6 +6,7 @@ from typing import Any
 
 from .structured_capture import (
     message_parts_from_source_events,
+    ordered_source_events,
     source_event_type,
     stable_event_key,
     tool_calls_from_source_events,
@@ -229,6 +230,46 @@ def record_conversation_state(
     )
 
 
+def _canonicalize_source_event_order(
+    connection: sqlite3.Connection,
+    *,
+    conversation_id: str,
+    message_key: str,
+) -> None:
+    rows = connection.execute(
+        """
+        SELECT rowid, event_key, raw_json, observed_at
+        FROM source_events
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY observed_at, rowid
+        """,
+        (conversation_id, message_key),
+    ).fetchall()
+    parsed: list[tuple[str, dict[str, Any]]] = []
+    for row in rows:
+        try:
+            event = json.loads(str(row["raw_json"] or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        parsed.append((str(row["event_key"]), event))
+
+    event_key_by_object = {id(event): event_key for event_key, event in parsed}
+    ordered = ordered_source_events([event for _, event in parsed])
+    connection.executemany(
+        """
+        UPDATE source_events
+        SET ordinal = ?
+        WHERE conversation_id = ? AND message_key = ? AND event_key = ?
+        """,
+        [
+            (ordinal, conversation_id, message_key, event_key_by_object[id(event)])
+            for ordinal, event in enumerate(ordered)
+        ],
+    )
+
+
 def persist_structured_capture(
     connection: sqlite3.Connection,
     *,
@@ -353,6 +394,12 @@ def persist_structured_capture(
                 observed_at,
             ),
         )
+
+    _canonicalize_source_event_order(
+        connection,
+        conversation_id=conversation_id,
+        message_key=message_key,
+    )
 
     for part in parts:
         end_turn = part.get("end_turn")
