@@ -947,52 +947,108 @@ class PlaywrightDriver(BrowserDriverBase):
                     await asyncio.sleep(0.05)
             except PlaywrightError:
                 await asyncio.sleep(0.1)
-        raise RuntimeError("ChatGPT Chat surface did not become active")
+
+    async def _effort_trigger_locator(self) -> Locator | None:
+        page = self._page()
+        buttons = page.get_by_role("button")
+        try:
+            count = min(await buttons.count(), 100)
+        except PlaywrightError:
+            return None
+        for index in range(count):
+            button = buttons.nth(index)
+            try:
+                if not await button.is_visible() or not await button.is_enabled():
+                    continue
+                if not await button.get_attribute("aria-haspopup"):
+                    continue
+                label = " ".join(
+                    filter(
+                        None,
+                        (
+                            await button.get_attribute("aria-label"),
+                            await button.get_attribute("title"),
+                            await button.inner_text(),
+                        ),
+                    )
+                )
+                normalized = re.sub(r"\s+", " ", label).strip()
+                if normalized.casefold() == "thinking effort" or _EFFORT_RE.search(normalized):
+                    return button
+            except PlaywrightError:
+                continue
+        return None
 
     async def effort_trigger_info(self, timeout: float = 20.0) -> dict[str, Any]:
-        page = self._page()
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
-            buttons = page.get_by_role("button")
+            button = await self._effort_trigger_locator()
+            if button is None:
+                await asyncio.sleep(0.15)
+                continue
             try:
-                count = min(await buttons.count(), 100)
-            except PlaywrightError:
-                count = 0
-            for index in range(count):
-                button = buttons.nth(index)
-                try:
-                    if not await button.is_visible() or not await button.is_enabled():
-                        continue
-                    if not await button.get_attribute("aria-haspopup"):
-                        continue
-                    label = " ".join(
-                        filter(
-                            None,
-                            (
-                                await button.get_attribute("aria-label"),
-                                await button.get_attribute("title"),
-                                await button.inner_text(),
-                            ),
-                        )
+                label = " ".join(
+                    filter(
+                        None,
+                        (
+                            await button.get_attribute("aria-label"),
+                            await button.get_attribute("title"),
+                            await button.inner_text(),
+                        ),
                     )
-                    match = _EFFORT_RE.search(label)
-                    if not match:
-                        continue
-                    box = await button.bounding_box()
-                    if box is None:
-                        continue
-                    normalized_label = re.sub(r"\s+", " ", label).strip()
-                    selected = re.sub(r"\s+", " ", match.group(1)).strip().title()
-                    return {
-                        "text": selected,
-                        "label": normalized_label,
-                        "x": box["x"] + box["width"] / 2,
-                        "y": box["y"] + box["height"] / 2,
-                    }
-                except PlaywrightError:
+                )
+                box = await button.bounding_box()
+                if box is None:
+                    await asyncio.sleep(0.1)
                     continue
-            await asyncio.sleep(0.15)
+                normalized_label = re.sub(r"\s+", " ", label).strip()
+                match = _EFFORT_RE.search(normalized_label)
+                selected = (
+                    re.sub(r"\s+", " ", match.group(1)).strip().title()
+                    if match
+                    else "Thinking effort"
+                )
+                return {
+                    "text": selected,
+                    "label": normalized_label,
+                    "x": box["x"] + box["width"] / 2,
+                    "y": box["y"] + box["height"] / 2,
+                }
+            except PlaywrightError:
+                await asyncio.sleep(0.1)
         raise RuntimeError("ChatGPT thinking-effort control did not become available")
+
+    async def _open_effort_menu(self) -> None:
+        page = self._page()
+        power = await self._first_usable(
+            [page.get_by_role("menuitem", name="Power", exact=True)],
+            enabled=True,
+        )
+        if power is not None:
+            return
+
+        for _ in range(2):
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.05)
+
+        trigger = await self._effort_trigger_locator()
+        if trigger is None:
+            raise RuntimeError("ChatGPT thinking-effort control did not become available")
+        try:
+            await trigger.click()
+        except PlaywrightError as exc:
+            raise RuntimeError("ChatGPT thinking-effort menu could not be opened") from exc
+
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while asyncio.get_running_loop().time() < deadline:
+            power = await self._first_usable(
+                [page.get_by_role("menuitem", name="Power", exact=True)],
+                enabled=True,
+            )
+            if power is not None:
+                return
+            await asyncio.sleep(0.05)
+        raise RuntimeError("ChatGPT Power control did not become available")
 
     async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
         page = self._page()
@@ -1012,17 +1068,25 @@ class PlaywrightDriver(BrowserDriverBase):
             option = await find_option()
             if option is not None:
                 try:
+                    if (await option.get_attribute("aria-checked") or "").casefold() == "true":
+                        await page.keyboard.press("Escape")
+                        return
                     await option.click()
                     return
-                except PlaywrightError as exc:
-                    raise RuntimeError(
-                        f"ChatGPT model {model_name!r} could not be selected"
-                    ) from exc
+                except PlaywrightError:
+                    await asyncio.sleep(0.1)
+                    continue
 
             selector = await self._first_usable(
                 [page.get_by_role("menuitem", name="Select model", exact=True)],
                 enabled=True,
             )
+            if selector is None:
+                await self._open_effort_menu()
+                selector = await self._first_usable(
+                    [page.get_by_role("menuitem", name="Select model", exact=True)],
+                    enabled=True,
+                )
             if selector is not None:
                 try:
                     await selector.click()
@@ -1032,6 +1096,64 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.05)
 
         raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
+
+    async def effort_power_info(self) -> dict[str, Any]:
+        page = self._page()
+        power = await self._first_usable(
+            [page.get_by_role("menuitem", name="Power", exact=True)],
+            enabled=True,
+        )
+        if power is None:
+            return {}
+        try:
+            description = str(await power.get_attribute("aria-description") or "")
+        except PlaywrightError:
+            return {}
+        match = re.search(
+            r"^\s*([^,]+),\s*(\d+)\s+of\s+(\d+)(?:\.|,|$)",
+            description,
+            re.IGNORECASE,
+        )
+        if not match:
+            return {"description": description}
+        return {
+            "text": match.group(1).strip(),
+            "position": int(match.group(2)),
+            "total": int(match.group(3)),
+            "description": description,
+        }
+
+    async def set_effort_power_position(self, position: int) -> dict[str, Any]:
+        await self._open_effort_menu()
+        page = self._page()
+        power = await self._first_usable(
+            [page.get_by_role("menuitem", name="Power", exact=True)],
+            enabled=True,
+        )
+        if power is None:
+            raise RuntimeError("ChatGPT Power control did not become available")
+
+        info = await self.effort_power_info()
+        current = int(info.get("position") or 0)
+        total = int(info.get("total") or 0)
+        if current < 1 or total < 1 or position < 1 or position > total:
+            raise RuntimeError(f"ChatGPT Power control has invalid state: {info!r}")
+
+        try:
+            await power.focus()
+            key = "ArrowRight" if position > current else "ArrowLeft"
+            for _ in range(abs(position - current)):
+                await page.keyboard.press(key)
+        except PlaywrightError as exc:
+            raise RuntimeError("ChatGPT Power control could not be adjusted") from exc
+
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while asyncio.get_running_loop().time() < deadline:
+            info = await self.effort_power_info()
+            if int(info.get("position") or 0) == position:
+                return info
+            await asyncio.sleep(0.05)
+        raise RuntimeError(f"ChatGPT Power control did not reach position {position}")
 
     async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
         page = self._page(context)

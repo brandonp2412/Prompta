@@ -90,7 +90,8 @@ class BrowserSession:
         pointer_click,
     ) -> None:
         target_model = "GPT-5.6 Sol"
-        target_effort = "medium"
+        target_effort = "high"
+        target_position = 3
         await driver.ensure_chat_surface()
 
         trigger = await effort_trigger_info(driver)
@@ -104,12 +105,23 @@ class BrowserSession:
                 trigger = await effort_trigger_info(driver)
 
         await driver.select_effort_model(target_model)
-        await asyncio.sleep(0.2)
+        power = await driver.set_effort_power_position(target_position)
+        if str(power.get("text") or "").strip().casefold() != target_effort:
+            raise RuntimeError(f"ChatGPT Chat-mode Power verification failed: {power!r}")
+        if "upgrade required" in str(power.get("description") or "").casefold():
+            raise RuntimeError("ChatGPT Chat-mode High effort unexpectedly requires an upgrade")
 
-        verified = await effort_trigger_info(driver)
-        if str(verified.get("text") or "").strip().casefold() != target_effort:
-            raise RuntimeError(
-                "ChatGPT Chat-mode effort verification failed: "
-                f"{verified.get('label') or verified.get('text')!r}"
-            )
-        logger.info("Prompta set and verified Chat mode model=%s effort=Medium", target_model)
+        await driver._perform_actions(
+            driver.context,
+            [
+                {
+                    "type": "key",
+                    "id": "keyboard",
+                    "actions": [
+                        {"type": "keyDown", "value": ""},
+                        {"type": "keyUp", "value": ""},
+                    ],
+                }
+            ],
+        )
+        logger.info("Prompta set and verified Chat mode model=%s effort=High", target_model)

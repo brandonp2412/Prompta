@@ -244,14 +244,14 @@ async def test_ensure_chat_surface_selects_chat_radio(live_driver) -> None:
 
 
 @pytest.mark.asyncio
-async def test_effort_trigger_uses_button_role(live_driver) -> None:
+async def test_effort_trigger_accepts_thinking_effort_button(live_driver) -> None:
     driver, page = live_driver
-    await page.set_content('<button aria-haspopup="menu">Medium</button>')
+    await page.set_content('<button aria-haspopup="menu">Thinking effort</button>')
 
     trigger = await driver.effort_trigger_info(timeout=0.2)
 
-    assert trigger["text"] == "Medium"
-    assert trigger["label"] == "Medium"
+    assert trigger["text"] == "Thinking effort"
+    assert trigger["label"] == "Thinking effort"
     assert trigger["x"] > 0
     assert trigger["y"] > 0
 
@@ -272,7 +272,56 @@ async def test_select_effort_model_uses_direct_chat_menu_item(live_driver) -> No
 
 
 @pytest.mark.asyncio
-async def test_new_tab_navigates_directly_without_clicking_new_chat_ui(live_driver) -> None:
+async def test_select_effort_model_accepts_already_checked_model(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div id="sol" role="menuitemradio" aria-label="GPT-5.6 Sol"
+             aria-checked="true" onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        """
+    )
+
+    await driver.select_effort_model()
+
+    assert await page.locator("#sol").get_attribute("data-clicked") is None
+
+
+@pytest.mark.asyncio
+async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <button aria-haspopup="menu" onclick="document.getElementById('menu').hidden=false">
+          Thinking effort
+        </button>
+        <div id="menu" hidden>
+          <div id="power" role="menuitem" aria-label="Power" tabindex="0"
+               aria-description="Medium, 2 of 4. Use Left and Right arrow keys to adjust power."
+               onkeydown="
+                 const descriptions = [
+                   'Instant, 1 of 4. Use Left and Right arrow keys to adjust power.',
+                   'Medium, 2 of 4. Use Left and Right arrow keys to adjust power.',
+                   'High, 3 of 4. Use Left and Right arrow keys to adjust power.',
+                   'Pro, 4 of 4. Upgrade required. Use Left and Right arrow keys to adjust power.'
+                 ];
+                 let current = Number(this.dataset.position || 2);
+                 if (event.key === 'ArrowRight') current = Math.min(4, current + 1);
+                 if (event.key === 'ArrowLeft') current = Math.max(1, current - 1);
+                 this.dataset.position = String(current);
+                 this.setAttribute('aria-description', descriptions[current - 1]);
+               ">
+            Power
+          </div>
+        </div>
+        """
+    )
+
+    info = await driver.set_effort_power_position(3)
+
+    assert info["text"] == "High"
+    assert info["position"] == 3
+    assert "Upgrade required" not in info["description"]
+
     driver, page = live_driver
     context = driver._browser_context
     assert context is not None
