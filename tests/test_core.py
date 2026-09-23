@@ -839,10 +839,34 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
 
     await prompta._ensure_high_effort(driver)
 
-    driver.select_effort_model.assert_awaited_once_with("GPT-6 Astra")
+    driver.select_effort_model.assert_not_awaited()
     prompta._maximize_effort_slider.assert_awaited_once_with(driver)
     assert prompta._pointer_click.await_count == 1
     driver._perform_actions.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_high_effort_switches_to_astra_when_another_model_is_selected(tmp_path: Path) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.context = "context-1"
+    driver.select_effort_model = AsyncMock()
+    driver.high_effort_slider_value = AsyncMock(return_value="4")
+    driver.high_effort_slider_max_value = AsyncMock(return_value="4")
+    driver._perform_actions = AsyncMock()
+    prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"text": "Medium", "label": "GPT-6 Sol Medium", "x": 10.0, "y": 20.0},
+            {"text": "Max", "label": "GPT-6 Astra Max", "x": 10.0, "y": 20.0},
+        ]
+    )
+    prompta._maximize_effort_slider = AsyncMock()  # type: ignore[method-assign]
+    prompta._pointer_click = AsyncMock()  # type: ignore[method-assign]
+
+    await prompta._ensure_high_effort(driver)
+
+    driver.select_effort_model.assert_awaited_once_with("GPT-6 Astra")
+    prompta._maximize_effort_slider.assert_awaited_once_with(driver)
 
 
 @pytest.mark.asyncio

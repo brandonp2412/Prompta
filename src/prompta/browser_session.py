@@ -104,6 +104,9 @@ class BrowserSession:
         if is_target_selected(trigger):
             logger.info("Prompta verified thinking effort=GPT-6 Astra Max")
             return
+        target_model_selected = (
+            target_model.casefold() in str(trigger.get("label") or "").casefold()
+        )
 
         for attempt in range(2):
             try:
@@ -114,7 +117,8 @@ class BrowserSession:
                     raise
                 trigger = await effort_trigger_info(driver)
 
-        await driver.select_effort_model(target_model)
+        if not target_model_selected:
+            await driver.select_effort_model(target_model)
 
         await maximize_effort_slider(driver)
 

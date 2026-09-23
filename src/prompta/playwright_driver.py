@@ -973,7 +973,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def select_effort_model(self, model_name: str = "GPT-6 Astra") -> None:
         page = self._page()
-        deadline = asyncio.get_running_loop().time() + 2.0
+        deadline = asyncio.get_running_loop().time() + 5.0
         selector: Locator | None = None
         while asyncio.get_running_loop().time() < deadline:
             selector = await self._first_usable(
@@ -990,11 +990,15 @@ class PlaywrightDriver(BrowserDriverBase):
         except PlaywrightError as exc:
             raise RuntimeError("ChatGPT model selector could not be opened") from exc
 
-        deadline = asyncio.get_running_loop().time() + 2.0
+        deadline = asyncio.get_running_loop().time() + 5.0
         option: Locator | None = None
+        model_name_re = re.compile(rf"^\s*{re.escape(model_name)}(?:\s|$)", re.IGNORECASE)
         while asyncio.get_running_loop().time() < deadline:
             option = await self._first_usable(
-                [page.get_by_role("menuitemradio", name=model_name, exact=True)],
+                [
+                    page.get_by_role("menuitemradio", name=model_name_re),
+                    page.locator('[role="menuitemradio"]').filter(has_text=model_name_re),
+                ],
                 enabled=True,
             )
             if option is not None:
