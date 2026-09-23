@@ -94,6 +94,7 @@ class BrowserSession:
         pointer_click,
     ) -> None:
         target_model = "GPT-6 Astra"
+        await driver.ensure_work_surface()
 
         def is_target_selected(info: dict[str, Any]) -> bool:
             effort = str(info.get("text") or "").strip().casefold()

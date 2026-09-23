@@ -224,6 +224,26 @@ async def test_hidden_file_input_is_supported_as_non_semantic_fallback(
 
 
 @pytest.mark.asyncio
+async def test_ensure_work_surface_selects_work_radio(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <button id="chat" role="radio" aria-checked="true">Chat</button>
+        <button id="work" role="radio" aria-checked="false"
+                onclick="this.setAttribute('aria-checked','true');
+                         document.getElementById('chat').setAttribute('aria-checked','false')">
+          Work
+        </button>
+        """
+    )
+
+    await driver.ensure_work_surface()
+
+    assert await page.locator("#work").get_attribute("aria-checked") == "true"
+    assert await page.locator("#chat").get_attribute("aria-checked") == "false"
+
+
+@pytest.mark.asyncio
 async def test_effort_trigger_uses_button_role(live_driver) -> None:
     driver, page = live_driver
     await page.set_content('<button aria-haspopup="menu">GPT-6 Astra Max</button>')

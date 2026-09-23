@@ -926,6 +926,29 @@ class PlaywrightDriver(BrowserDriverBase):
             "rate_limit_text": "\n".join(rate_limit_texts),
         }
 
+    async def ensure_work_surface(self, timeout: float = 5.0) -> None:
+        page = self._page()
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            work = await self._first_usable(
+                [page.get_by_role("radio", name="Work", exact=True)],
+                enabled=True,
+            )
+            if work is None:
+                await asyncio.sleep(0.1)
+                continue
+            try:
+                if (await work.get_attribute("aria-checked") or "").casefold() == "true":
+                    return
+                await work.click()
+                while asyncio.get_running_loop().time() < deadline:
+                    if (await work.get_attribute("aria-checked") or "").casefold() == "true":
+                        return
+                    await asyncio.sleep(0.05)
+            except PlaywrightError:
+                await asyncio.sleep(0.1)
+        raise RuntimeError("ChatGPT Work surface did not become active")
+
     async def effort_trigger_info(self, timeout: float = 20.0) -> dict[str, Any]:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + timeout

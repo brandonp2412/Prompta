@@ -824,6 +824,7 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
+    driver.ensure_work_surface = AsyncMock()
     driver.select_effort_model = AsyncMock()
     driver.high_effort_slider_value = AsyncMock(return_value="4")
     driver.high_effort_slider_max_value = AsyncMock(return_value="4")
@@ -850,6 +851,7 @@ async def test_high_effort_switches_to_astra_when_another_model_is_selected(tmp_
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
+    driver.ensure_work_surface = AsyncMock()
     driver.select_effort_model = AsyncMock()
     driver.high_effort_slider_value = AsyncMock(return_value="4")
     driver.high_effort_slider_max_value = AsyncMock(return_value="4")
@@ -874,6 +876,7 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
+    driver.ensure_work_surface = AsyncMock()
     driver.select_effort_model = AsyncMock()
     driver.high_effort_slider_value = AsyncMock(return_value="4")
     driver.high_effort_slider_max_value = AsyncMock(return_value="4")
