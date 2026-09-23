@@ -271,9 +271,9 @@ def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "const legacyTurnSelector=" in _REACT_TOOL_SCRIPT
     assert "const turnRoot=node=>semanticTurnRoot(node)" in _REACT_TOOL_SCRIPT
     assert "const root=turnRoot(latestAssistant)" in _REACT_TOOL_SCRIPT
-    assert "name.startsWith('__reactProps$')" in _REACT_TOOL_SCRIPT
-    assert "name.startsWith('__reactFiber$')" in _REACT_TOOL_SCRIPT
-    assert "name.startsWith('__reactContainer$')" in _REACT_TOOL_SCRIPT
+    assert "reactFallback.inspect(root,{" in _REACT_TOOL_SCRIPT
+    assert "reason:'chromium-tool-enrichment'" in _REACT_TOOL_SCRIPT
+    assert "react_fallback:fallback" in _REACT_TOOL_SCRIPT
 
 
 def test_ordered_assistant_content_tolerates_missing_and_invalid_timestamps() -> None:

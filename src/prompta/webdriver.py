@@ -12,6 +12,7 @@ from .chatgpt_dom import (
     STREAMING_SELECTOR,
 )
 from .conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT, parse_conversation_snapshot
+from .react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
 
 
 class BrowsingContextUnavailableError(RuntimeError):
@@ -233,6 +234,7 @@ class BrowserDriverBase:
     async def conversation_activity(self, context: str) -> dict[str, Any]:
         script = r"""JSON.stringify((()=>{
 __MESSAGE_DISCOVERY__
+__REACT_FALLBACK_ADAPTER__
           const stopSelector=__STOP_SELECTOR__;
           const streamingSelector=__STREAMING_SELECTOR__;
           const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
@@ -243,35 +245,17 @@ __MESSAGE_DISCOVERY__
           const legacyTurns=[...document.querySelectorAll(legacyTurnSelector)].filter(visible);
           const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
           const visibleMessageId=messageId(assistant)||turnMessageId(turn,'assistant');
+          let activityReactFallback=null;
           const reactTurnEnd=()=>{
             const root=turn||document.querySelector('main')||document.body;
             if(!root)return null;
-            const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
-            const add=messages=>{
-              if(!Array.isArray(messages)||seenArrays.has(messages))return;
-              seenArrays.add(messages);
-              found.push(...messages.filter(message=>message&&typeof message==='object'&&message.content&&message.author));
-            };
-            const walk=(value,depth)=>{
-              if(!value||depth>7||(typeof value!=='object'&&typeof value!=='function'))return;
-              if(seenObjects.has(value))return;
-              seenObjects.add(value);
-              if(Array.isArray(value)){if(depth<=5)add(value);return;}
-              let keys=[];
-              try{keys=Object.keys(value);}catch{return;}
-              for(const key of keys.slice(0,260)){
-                if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
-                let next;
-                try{next=value[key];}catch{continue;}
-                if(key==='messages')add(next);
-                if(next&&depth<7&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
-              }
-            };
-            for(const node of [root,...root.querySelectorAll('*')]){
-              let keys=[];
-              try{keys=Object.getOwnPropertyNames(node).filter(name=>name.startsWith('__reactProps$')||name.startsWith('__reactFiber$')||name.startsWith('__reactContainer$'));}catch{}
-              for(const key of keys)walk(node[key],0);
-            }
+            activityReactFallback=reactFallback.inspect(root,{
+              allow:true,
+              reason:'activity-end-state',
+              maxDepth:7,
+              maxKeys:260
+            });
+            const found=activityReactFallback.messages;
             const assistantMessages=found.filter(message=>String(message?.author?.role||message?.role||'')==='assistant');
             const target=visibleMessageId
               ?assistantMessages.filter(message=>String(message?.id||'')===visibleMessageId)
@@ -281,7 +265,6 @@ __MESSAGE_DISCOVERY__
             if(states.includes(false))return false;
             return null;
           };
-          const turnEnded=reactTurnEnd();
           const turnText=(turn?.innerText||turn?.textContent||'').trim();
           const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\.?\s*Please check your connection and try again\.?\s*If this issue persists please contact us through our help center at help\.openai\.com\.?)/i.test(turnText);
           const deliveryFailed=/Message delivery timed out\.?\s*Please try again/i.test(turnText);
@@ -290,13 +273,19 @@ __MESSAGE_DISCOVERY__
             const label=(button.getAttribute('aria-label')||button.getAttribute('title')||button.textContent||'').trim();
             return testId==='copy-turn-action-button'||/^Copy(?: response)?$/i.test(label);
           }));
+          const needsReactEndState=Boolean(turn&&!stop&&!streamActive&&!finalAction);
+          const turnEnded=needsReactEndState?reactTurnEnd():null;
           const streaming=stop||streamActive||turnEnded===false;
           const complete=!streaming&&(turnEnded===true||(turnEnded===null&&finalAction));
           const transient=transientText&&!complete;
           const failed=deliveryFailed&&!complete&&!streaming;
-          return {streaming,complete,transient,failed,turn_ended:turnEnded};
+          return {
+            streaming,complete,transient,failed,turn_ended:turnEnded,
+            react_fallback:activityReactFallback
+          };
         })())"""
         script = script.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
+        script = script.replace("__REACT_FALLBACK_ADAPTER__", REACT_FALLBACK_ADAPTER_SCRIPT)
         script = script.replace("__STOP_SELECTOR__", json.dumps(",".join(STOP_BUTTON_SELECTORS)))
         script = script.replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
         raw = await self.eval(script, context=context)

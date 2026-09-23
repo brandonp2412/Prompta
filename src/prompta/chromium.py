@@ -15,6 +15,7 @@ import websockets
 
 from .browser_ownership import new_owned_window_marker
 from .chatgpt_dom import MESSAGE_DISCOVERY_SCRIPT
+from .react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
 from .ui_noise import is_assistant_ui_noise
 
 logger = logging.getLogger(__name__)
@@ -33,46 +34,20 @@ _TOOL_BLOCK_RE = re.compile(
 _REACT_TOOL_SCRIPT = r"""
 (()=>{
 __MESSAGE_DISCOVERY__
+__REACT_FALLBACK_ADAPTER__
   const assistants=[...document.querySelectorAll(assistantSelector)];
   const latestAssistant=assistants.at(-1);
   const root=turnRoot(latestAssistant)
     ||document.querySelector('main')
     ||document.body;
   if(!root)return {ready:false,messages:[]};
-  const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
-  const add=messages=>{
-    if(!Array.isArray(messages)||seenArrays.has(messages))return;
-    seenArrays.add(messages);
-    if(messages.some(message=>message&&typeof message==='object'&&message.content&&message.author)){
-      found.push(...messages);
-    }
-  };
-  const walk=(value,depth)=>{
-    if(!value||depth>7||(typeof value!=='object'&&typeof value!=='function'))return;
-    if(seenObjects.has(value))return;
-    seenObjects.add(value);
-    if(Array.isArray(value)){if(depth<=5)add(value);return;}
-    let keys=[];
-    try{keys=Object.keys(value);}catch{return;}
-    for(const key of keys.slice(0,240)){
-      if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
-      let next;
-      try{next=value[key];}catch{continue;}
-      if(key==='messages')add(next);
-      if(next&&depth<7&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
-    }
-  };
-  for(const node of [root,...root.querySelectorAll('*')]){
-    let keys=[];
-    try{
-      keys=Object.getOwnPropertyNames(node).filter(name=>
-        name.startsWith('__reactProps$')
-        ||name.startsWith('__reactFiber$')
-        ||name.startsWith('__reactContainer$')
-      );
-    }catch{}
-    for(const key of keys)walk(node[key],0);
-  }
+  const fallback=reactFallback.inspect(root,{
+    allow:true,
+    reason:'chromium-tool-enrichment',
+    maxDepth:7,
+    maxKeys:240
+  });
+  const found=fallback.messages;
   const seen=new Set(),messages=[];
   const trimString=value=>typeof value==='string'?value.slice(0,20000):value;
   for(const message of found){
@@ -118,11 +93,14 @@ __MESSAGE_DISCOVERY__
     ready:Boolean(messages.length||document.querySelector(messageRoleSelector)||root),
     href:location.href,
     title:document.title||'',
-    messages
+    messages,
+    react_fallback:fallback
   };
 })()
 """
-_REACT_TOOL_SCRIPT = _REACT_TOOL_SCRIPT.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
+_REACT_TOOL_SCRIPT = _REACT_TOOL_SCRIPT.replace(
+    "__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT
+).replace("__REACT_FALLBACK_ADAPTER__", REACT_FALLBACK_ADAPTER_SCRIPT)
 
 
 def _json_load(value: Any) -> Any:

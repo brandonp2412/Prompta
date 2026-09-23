@@ -10,12 +10,14 @@ from .chatgpt_dom import (
     STOP_BUTTON_SELECTOR,
     STREAMING_SELECTOR,
 )
+from .react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
 
 CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
   const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
   const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
 __MESSAGE_DISCOVERY__
+__REACT_FALLBACK_ADAPTER__
   const proseBlockSelector=__PROSE_BLOCK_SELECTOR__;
   const legacyRichTextSelector=__LEGACY_RICH_TEXT_SELECTOR__;
   const stopSelector=__STOP_SELECTOR__;
@@ -119,99 +121,24 @@ __MESSAGE_DISCOVERY__
     if(structural.length)return structural;
     return !rows.length&&normalise(messageText(scope))?[scope]:[];
   };
-  const reactMessages=agent=>{
-    const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
-    const add=messages=>{
-      if(!Array.isArray(messages)||seenArrays.has(messages))return;
-      seenArrays.add(messages);
-      if(messages.some(message=>message&&typeof message==='object'&&message.content&&message.author))found.push(...messages);
-    };
-    const walk=(value,depth)=>{
-      if(!value||depth>6||(typeof value!=='object'&&typeof value!=='function'))return;
-      if(seenObjects.has(value))return;
-      seenObjects.add(value);
-      if(Array.isArray(value)){if(depth<=4)add(value);return;}
-      let keys=[];
-      try{keys=Object.keys(value);}catch{return;}
-      for(const key of keys.slice(0,220)){
-        if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
-        let next;
-        try{next=value[key];}catch{continue;}
-        if(key==='messages')add(next);
-        if(next&&depth<6&&(typeof next==='object'||typeof next==='function'))walk(next,depth+1);
-      }
-    };
-    for(const node of [agent,...agent.querySelectorAll('*')]){
-      let keys=[];
-      try{
-        keys=Object.getOwnPropertyNames(node).filter(name=>
-          name.startsWith('__reactProps$')
-          ||name.startsWith('__reactFiber$')
-          ||name.startsWith('__reactContainer$')
-        );
-      }catch{}
-      for(const key of keys)walk(node[key],0);
-    }
-    const unique=[],seen=new Set();
-    for(const message of found){
-      const key=message?.id||JSON.stringify([
-        message?.author?.role,
-        message?.recipient,
-        message?.content?.content_type,
-        message?.content?.text||''
-      ]);
-      if(seen.has(key))continue;
-      seen.add(key);
-      unique.push(message);
-    }
-    const messageTime=message=>{
-      const value=Number(message?.create_time);
-      return Number.isFinite(value)?value:Number.POSITIVE_INFINITY;
-    };
-    const positionById=new Map();
-    unique.forEach((message,index)=>{
-      const id=String(message?.id||'').trim();
-      if(id)positionById.set(id,index);
+  const reactFallbackUses=[];
+  const reactMessages=(root,reason)=>{
+    const result=reactFallback.inspect(root,{allow:true,reason,maxDepth:7,maxKeys:240});
+    reactFallbackUses.push({
+      allowed:result.allowed,
+      used:result.used,
+      available:result.available,
+      provenance:result.provenance,
+      reason:result.reason,
+      property_names:result.property_names,
+      error:result.error
     });
-    const indegree=unique.map(()=>0);
-    const children=new Map();
-    unique.forEach((message,index)=>{
-      const parentId=String(message?.parent_id||'').trim();
-      const parentIndex=positionById.get(parentId);
-      if(parentIndex===undefined||parentIndex===index)return;
-      indegree[index]+=1;
-      const descendants=children.get(parentIndex)||[];
-      descendants.push(index);
-      children.set(parentIndex,descendants);
-    });
-    const priority=(left,right)=>{
-      const leftTime=messageTime(unique[left]);
-      const rightTime=messageTime(unique[right]);
-      if(leftTime!==rightTime)return leftTime<rightTime?-1:1;
-      return left-right;
-    };
-    const ready=indegree.map((degree,index)=>degree===0?index:null)
-      .filter(index=>index!==null);
-    const ordered=[];
-    while(ready.length){
-      ready.sort(priority);
-      const index=ready.shift();
-      ordered.push(index);
-      for(const child of children.get(index)||[]){
-        indegree[child]-=1;
-        if(indegree[child]===0)ready.push(child);
-      }
-    }
-    if(ordered.length!==unique.length){
-      const seen=new Set(ordered);
-      ordered.push(...unique.map((_,index)=>index).filter(index=>!seen.has(index)).sort(priority));
-    }
-    return ordered.map(index=>unique[index]);
+    return result.messages;
   };
-  const reactHasVisibleAssistantText=agent=>{
+  const reactHasVisibleAssistantText=(agent,messages)=>{
     const visibleAgentText=normalise(agent?.innerText||agent?.textContent||'');
     if(!visibleAgentText)return false;
-    return reactMessages(agent).some(message=>{
+    return messages.some(message=>{
       const role=String(message?.author?.role||message?.role||'');
       const recipient=String(message?.recipient||'');
       const content=message?.content||{};
@@ -262,8 +189,7 @@ __MESSAGE_DISCOVERY__
       content_references:safeJsonValue(metadata?.content_references??content?.content_references??[])
     };
   };
-  const reactToolBlocks=agent=>{
-    const messages=reactMessages(agent);
+  const reactToolBlocks=messages=>{
     if(!messages.length)return [];
     const parsedText=message=>{
       const text=message?.content?.text;
@@ -372,10 +298,8 @@ __MESSAGE_DISCOVERY__
     }
     return blocks;
   };
-  const toolBlocks=agent=>{
-    const structuredBlocks=reactToolBlocks(agent);
-    if(structuredBlocks.length)return structuredBlocks;
-    return toolRows(agent).map(node=>{
+  const toolBlocks=(agent,fallbackMessages=[])=>{
+    const domBlocks=toolRows(agent).map(node=>{
       const marker=node.matches(toolDataSelector+','+toolTriggerSelector)
         ?node
         :node.querySelector(toolDataSelector+','+toolTriggerSelector);
@@ -397,6 +321,7 @@ __MESSAGE_DISCOVERY__
       if(!body&&!name)return '';
       return '```tool:'+(name||'tool')+'\\n'+body+'\\n```';
     }).filter(Boolean);
+    return domBlocks.length?domBlocks:reactToolBlocks(fallbackMessages);
   };
   const collapseStreamingTextParts=parts=>{
     const collapsed=[];
@@ -431,10 +356,9 @@ __MESSAGE_DISCOVERY__
     .map(line=>line.trim())
     .filter(line=>line&&!assistantUiNoise.test(line))
     .join('\\n').trim();
-  const reactOrderedContent=agent=>{
-    const messages=reactMessages(agent);
+  const reactOrderedContent=messages=>{
     if(!messages.length)return '';
-    const tools=reactToolBlocks(agent);
+    const tools=reactToolBlocks(messages);
     const parsedByIndex=messages.map(message=>{
       const text=message?.content?.text;
       if(typeof text!=='string'||!text.trim())return null;
@@ -563,13 +487,30 @@ __MESSAGE_DISCOVERY__
     ...legacyAssistantTurns
   ])];
   for(const [agentIndex,agent] of candidates.entries()){
-    const reactOrdered=reactOrderedContent(agent);
-    const reactHasVisibleText=reactHasVisibleAssistantText(agent);
     const rows=toolRows(agent);
     const prose=proseRows(agent,rows);
-    const tools=toolBlocks(agent);
     const richText=prose.map(markdownText).filter(Boolean);
     const richPlain=prose.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
+    const explicitAssistant=authorNode(agent,'assistant');
+    const domTools=toolBlocks(agent);
+    const rawVisible=(agent.innerText||agent.textContent||'').replace(networkErrorNoise,'').trim();
+    const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer\\.?)?|waiting for (?:the )?complete answer\\.?|message delivery timed out\\.?\\s*please try again\\.?|a network error occurred\\.?(?:\\s*please check your connection and try again\\.?(?:\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?)?)?)$/i;
+    const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
+      line
+      && !uiNoise.test(line)
+      && !richPlain.some(text=>text===line||text.includes(line)||line.includes(text))
+      && !domTools.some(block=>block.includes(line))
+    )))].slice(0,200);
+    const needsReactFallback=Boolean(
+      !explicitAssistant
+      && !richText.length
+      && !domTools.length
+      && activityLines.length
+    );
+    const fallbackMessages=needsReactFallback
+      ?reactMessages(agent,'assistant-enrichment')
+      :[];
+    const tools=domTools.length?domTools:toolBlocks(agent,fallbackMessages);
     const orderedNodes=[
       ...prose.map(node=>({node,kind:'prose'})),
       ...rows.map(node=>({node,kind:'tool'}))
@@ -584,15 +525,7 @@ __MESSAGE_DISCOVERY__
       return block;
     }).filter(Boolean);
     if(orderedToolIndex<tools.length)orderedParts.push(...tools.slice(orderedToolIndex));
-    const rawVisible=(agent.innerText||agent.textContent||'').replace(networkErrorNoise,'').trim();
-    const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer\\.?)?|waiting for (?:the )?complete answer\\.?|message delivery timed out\\.?\\s*please try again\\.?|a network error occurred\\.?(?:\\s*please check your connection and try again\\.?(?:\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?)?)?)$/i;
-    const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
-      line
-      && !uiNoise.test(line)
-      && !richPlain.some(text=>text===line||text.includes(line)||line.includes(text))
-      && !tools.some(block=>block.includes(line))
-    )))].slice(0,200);
-    const activity=!richText.length&&!tools.length&&activityLines.length
+    const activity=!explicitAssistant&&!richText.length&&!tools.length&&activityLines.length
       ? '**Tool activity**\\n\\n'+activityLines.join('\\n')
       : '';
     const cleanVisible=rawVisible.split(/\\n+/).map(line=>line.trim())
@@ -605,6 +538,8 @@ __MESSAGE_DISCOVERY__
         ]).join('\\n\\n')
       : cleanVisible
     ).trim();
+    const reactOrdered=reactOrderedContent(fallbackMessages);
+    const reactHasVisibleText=reactHasVisibleAssistantText(agent,fallbackMessages);
     const reactVisible=normalise(reactOrdered);
     const reactKeepsVisibleText=!richPlain.length||richPlain.every(text=>{
       const visibleText=normalise(text);
@@ -652,7 +587,9 @@ __MESSAGE_DISCOVERY__
     return left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
   });
   const pageReactRoot=document.querySelector('main')||document.body;
-  const pageReactMessages=pageReactRoot?reactMessages(pageReactRoot):[];
+  const pageReactMessages=(!entries.length&&pageReactRoot)
+    ?reactMessages(pageReactRoot,'transcript-gap')
+    :[];
   if(!entries.length&&pageReactMessages.length){
     for(const message of pageReactMessages){
       const role=String(message?.author?.role||message?.role||'');
@@ -686,7 +623,10 @@ __MESSAGE_DISCOVERY__
   }));
   const latestAgent=candidates.at(-1)||null;
   const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
-  let latestTurnReactMessages=latestAgent?reactMessages(latestAgent):[];
+  const latestHasToolDom=Boolean(latestAgent&&toolRows(latestAgent).length);
+  let latestTurnReactMessages=(latestAgent&&latestHasToolDom)
+    ?reactMessages(latestAgent,'source-events')
+    :[];
   if(!latestTurnReactMessages.length&&pageReactMessages.length){
     latestTurnReactMessages=pageReactMessages;
   }
@@ -716,7 +656,11 @@ __MESSAGE_DISCOVERY__
   const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
   const visibleMessageId=messageId(latestAssistant)||turnMessageId(latestTurn,'assistant');
-  const endStateMessages=latestTurn?reactMessages(latestTurn):latestTurnReactMessages;
+  const endStateMessages=latestTurnReactMessages.length
+    ?latestTurnReactMessages
+    :((latestTurn&&latestHasToolDom&&!stop&&!streamActive)
+      ?reactMessages(latestTurn,'end-state')
+      :[]);
   const endStates=(visibleMessageId
     ?endStateMessages.filter(message=>String(message?.id||'')===visibleMessageId)
     :endStateMessages.slice(-8)
@@ -771,12 +715,18 @@ __MESSAGE_DISCOVERY__
     title:document.title||'',
     messages,
     source_events:sourceEvents,
-    streaming:stop||streamActive||turnEnded===false
+    streaming:stop||streamActive||turnEnded===false,
+    react_fallback:{
+      provenance:'react-private-properties',
+      used:reactFallbackUses.some(result=>result.used),
+      attempts:reactFallbackUses
+    }
   };
 })())"""
 
 CONVERSATION_SNAPSHOT_SCRIPT = (
     CONVERSATION_SNAPSHOT_SCRIPT.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
+    .replace("__REACT_FALLBACK_ADAPTER__", REACT_FALLBACK_ADAPTER_SCRIPT)
     .replace("__PROSE_BLOCK_SELECTOR__", json.dumps(PROSE_BLOCK_SELECTOR))
     .replace("__LEGACY_RICH_TEXT_SELECTOR__", json.dumps(LEGACY_RICH_TEXT_SELECTOR))
     .replace("__STOP_SELECTOR__", json.dumps(STOP_BUTTON_SELECTOR))

@@ -16,6 +16,7 @@ from prompta.chatgpt_dom import (
     TURN_SELECTORS,
 )
 from prompta.conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT
+from prompta.react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
 
 
 def test_selector_contract_prioritizes_current_semantic_composer() -> None:
@@ -61,26 +62,19 @@ def test_snapshot_does_not_treat_explicit_user_turns_as_assistant_fallbacks() ->
     assert ".filter(turn=>!authorNode(turn,'user'))" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
-def test_snapshot_has_page_level_react_fallback() -> None:
-    assert "const pageReactRoot=document.querySelector('main')||document.body;" in (
-        CONVERSATION_SNAPSHOT_SCRIPT
-    )
-    assert "const pageReactMessages=pageReactRoot?reactMessages(pageReactRoot):[];" in (
-        CONVERSATION_SNAPSHOT_SCRIPT
-    )
-    assert "if(!entries.length&&pageReactMessages.length)" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "name.startsWith('__reactFiber$')" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "name.startsWith('__reactContainer$')" in CONVERSATION_SNAPSHOT_SCRIPT
+def test_snapshot_has_explicit_page_level_react_fallback_adapter() -> None:
+    assert "reactFallback.inspect(root,{allow:true,reason" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "!entries.length&&pageReactRoot" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "reactMessages(pageReactRoot,'transcript-gap')" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "react_fallback:{" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
-def test_snapshot_orders_react_messages_by_parent_chain_before_timestamps() -> None:
-    assert "const positionById=new Map();" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "const parentId=String(message?.parent_id||'').trim();" in (CONVERSATION_SNAPSHOT_SCRIPT)
-    assert "indegree[index]+=1;" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert (
-        ".sort((left,right)=>left.time-right.time||left.index-right.index)"
-        not in CONVERSATION_SNAPSHOT_SCRIPT
+def test_react_fallback_orders_messages_by_parent_chain_before_timestamps() -> None:
+    assert "const positionById=new Map();" in REACT_FALLBACK_ADAPTER_SCRIPT
+    assert "const parentId=String(message?.parent_id||'').trim();" in (
+        REACT_FALLBACK_ADAPTER_SCRIPT
     )
+    assert "indegree[index]+=1;" in REACT_FALLBACK_ADAPTER_SCRIPT
 
 
 def test_snapshot_keeps_javascript_newline_escapes_literal() -> None:
@@ -103,6 +97,78 @@ def _snapshot_from_html(html: str) -> dict:
         finally:
             browser.close()
     return json.loads(raw)
+
+
+def _react_fallback_from_html(html: str, setup_script: str = "") -> dict:
+    executable = shutil.which("chromium") or shutil.which("brave")
+    if executable is None:
+        pytest.skip("A Chromium-compatible browser is unavailable")
+    from playwright.sync_api import sync_playwright
+
+    expression = (
+        "JSON.stringify((()=>{"
+        + REACT_FALLBACK_ADAPTER_SCRIPT
+        + "return reactFallback.inspect(document.body,{allow:true,reason:'transcript-gap'});})())"
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(html)
+            if setup_script:
+                page.evaluate(setup_script)
+            raw = page.evaluate(expression)
+        finally:
+            browser.close()
+    return json.loads(raw)
+
+
+def test_react_fallback_without_private_properties_degrades_to_empty_result() -> None:
+    result = _react_fallback_from_html("<main><p>DOM still works</p></main>")
+
+    assert result["allowed"] is True
+    assert result["used"] is True
+    assert result["available"] is False
+    assert result["provenance"] == "react-private-properties"
+    assert result["messages"] == []
+    assert result["error"] == ""
+
+
+def test_react_fallback_accepts_changed_private_property_suffix() -> None:
+    result = _react_fallback_from_html(
+        "<main id='root'></main>",
+        """() => {
+          const root=document.querySelector('#root');
+          root['__reactFiber$changed-build-key']={
+            memoizedProps:{
+              messages:[{
+                id:'assistant-1',
+                author:{role:'assistant'},
+                content:{content_type:'text',parts:['Recovered from fallback']},
+                create_time:1
+              }]
+            }
+          };
+        }""",
+    )
+
+    assert result["available"] is True
+    assert "__reactFiber$changed-build-key" in result["property_names"]
+    assert result["messages"][0]["id"] == "assistant-1"
+
+
+def test_react_fallback_introspection_failure_returns_structured_error() -> None:
+    result = _react_fallback_from_html(
+        "<main></main>",
+        """() => {
+          document.body.querySelectorAll=()=>{throw new Error('private shape changed');};
+        }""",
+    )
+
+    assert result["used"] is True
+    assert result["messages"] == []
+    assert result["error"] == "private shape changed"
+    assert result["provenance"] == "react-private-properties"
 
 
 def test_snapshot_discovers_semantic_and_structural_turns_without_styling_classes() -> None:
@@ -136,6 +202,7 @@ def test_snapshot_discovers_semantic_and_structural_turns_without_styling_classe
     assert contents[1].endswith("Answer one")
     assert contents[2] == "Question two"
     assert contents[3].endswith("Answer two")
+    assert snapshot["react_fallback"]["used"] is False
 
 
 def test_snapshot_preserves_role_nodes_visibility_and_streaming_semantics() -> None:
