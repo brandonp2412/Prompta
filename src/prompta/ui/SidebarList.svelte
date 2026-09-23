@@ -102,7 +102,13 @@
       <div class="chat-group-label">{group.label}</div>
       {#each group.chats as chat (chat.id)}
         <div
-          class={["chat-item", { selected: chat.selected, unread: chat.unread }]}
+          class={[
+            "chat-item",
+            {
+              selected: chat.id === sidebarListState.selectedConversationId,
+              unread: chat.unread,
+            },
+          ]}
           data-dom-key={"chat:" + chat.id}
         >
           <button
@@ -110,7 +116,7 @@
             class="chat-item-select"
             data-chat-id={chat.id}
             data-optimistic-new={chat.optimisticNew ? "true" : "false"}
-            aria-current={chat.selected ? "true" : undefined}
+            aria-current={chat.id === sidebarListState.selectedConversationId ? "true" : undefined}
             onpointerdown={(event) => startLongPress(event, chat.id, chat.pinned)}
             onpointermove={moveLongPress}
             onpointerup={endLongPress}

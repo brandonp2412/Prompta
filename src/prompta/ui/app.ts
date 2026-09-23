@@ -21,7 +21,6 @@ import {
   pendingSendActivity,
   sidebarChatCountSummary,
   sidebarChatLastUserAt,
-  sidebarChatIsSelected,
   sidebarChatMatchesFilters,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
@@ -223,7 +222,16 @@ function markChatRead(chatId: string) {
 
   chat.unread = false;
   state.sidebarFingerprint = "";
-  renderSidebar();
+
+  for (const group of sidebarListState.model.groups) {
+    const row = group.chats.find((candidate) => candidate.id === chatId);
+
+    if (row) {
+      row.unread = false;
+      break;
+    }
+  }
+
   void postJson(`api/chats/${encodeURIComponent(chatId)}/read`, {}, 2, 5_000).catch((error) => {
     console.warn("Could not persist Prompta read state", error);
   });
@@ -681,7 +689,20 @@ function scrollSidebarToNewest() {
   requestSidebarTop();
 }
 
+function syncSidebarSelection() {
+  const pendingNewDisplayId = state.composingNew
+    ? pendingConversationDisplayId(state.pendingNewSend)
+    : "";
+  sidebarListState.selectedConversationId = sidebarSelectedConversationId(
+    state.selectedId,
+    state.composingNew,
+    pendingNewDisplayId,
+  );
+}
+
 function renderSidebar(force = false) {
+  syncSidebarSelection();
+
   if (sidebar.isMoving()) {
     sidebarRenderDeferred = true;
 
@@ -691,14 +712,6 @@ function renderSidebar(force = false) {
   const filtersActive = Object.values(appViewState.sidebarFilters).some(Boolean);
   const chats = sidebarChats().filter((chat) =>
     sidebarChatMatchesFilters(chat, appViewState.sidebarFilters),
-  );
-  const pendingNewDisplayId = state.composingNew
-    ? pendingConversationDisplayId(state.pendingNewSend)
-    : "";
-  const selectionId = sidebarSelectedConversationId(
-    state.selectedId,
-    state.composingNew,
-    pendingNewDisplayId,
   );
   const fingerprint =
     JSON.stringify(
@@ -720,8 +733,7 @@ function renderSidebar(force = false) {
     JSON.stringify(appViewState.sidebarFilters) +
     String(state.chatListHasMore) +
     String(state.chatListLoadingMore) +
-    new Date().toDateString() +
-    selectionId;
+    new Date().toDateString();
 
   if (!force && fingerprint === state.sidebarFingerprint) return;
 
@@ -745,12 +757,6 @@ function renderSidebar(force = false) {
     groups: groupChats(chats).map(([label, groupedChats]) => ({
       label,
       chats: groupedChats.map((chat) => {
-        const selected = sidebarChatIsSelected(
-          chat,
-          state.selectedId,
-          state.composingNew,
-          pendingNewDisplayId,
-        );
         const broken = chatIsBroken(chat);
         let statusClass: "active" | "complete" | "broken" | "neutral" | null = null;
 
@@ -765,7 +771,6 @@ function renderSidebar(force = false) {
 
         return {
           id: chat.id,
-          selected,
           optimisticNew: Boolean(chat._optimisticNew),
           statusClass,
           broken,
@@ -1030,6 +1035,7 @@ function renderConversation(chat) {
   appViewState.conversationVisible = true;
   appViewState.composerDisabled = false;
   state.composingNew = false;
+  syncSidebarSelection();
   syncComposerDraftTarget();
   syncSendButton();
   appViewState.shareDisabled = false;
@@ -1099,6 +1105,7 @@ function clearConversation() {
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
   state.renderedConversationId = "";
+  syncSidebarSelection();
   appViewState.emptyVisible = true;
   appViewState.conversationVisible = false;
   void conversationRenderer.renderMessageNodes([], false);
@@ -1124,6 +1131,7 @@ function renderNewChat() {
   state.renderedConversationId = "";
   state.mode = "chats";
   appViewState.mode = "chats";
+  syncSidebarSelection();
   syncComposerDraftTarget();
   const pending = state.pendingNewSend;
   const waiting = pending && !["failed", "dead_lettered", "succeeded"].includes(pending.status);
@@ -1683,7 +1691,7 @@ async function selectChat(id) {
   state.selectedMetaFingerprint = "";
   state.selectedChat = null;
   history.replaceState(null, "", `#/${encodeURIComponent(id)}`);
-  renderSidebar();
+  syncSidebarSelection();
   await loadSelectedChat();
 }
 

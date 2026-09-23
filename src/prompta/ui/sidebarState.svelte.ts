@@ -10,7 +10,6 @@ export type SidebarListModel = {
     label: string;
     chats: Array<{
       id: string;
-      selected: boolean;
       optimisticNew: boolean;
       statusClass: "active" | "complete" | "broken" | "neutral" | null;
       broken: boolean;
@@ -26,8 +25,12 @@ export type SidebarListModel = {
   }>;
 };
 
-export const sidebarListState = $state<{ model: SidebarListModel }>({
+export const sidebarListState = $state<{
+  model: SidebarListModel;
+  selectedConversationId: string;
+}>({
   model: { emptyState: "none", hasMore: false, loadingMore: false, groups: [] },
+  selectedConversationId: "",
 });
 
 export const sidebarListActions = $state<{
