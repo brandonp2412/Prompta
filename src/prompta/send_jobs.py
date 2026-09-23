@@ -351,7 +351,7 @@ class SendJobRegistry:
                         expired_attachments.extend(
                             value for value in raw_attachments if isinstance(value, str)
                         )
-            if status in {"dead_lettered", "succeeded"}:
+            if status in {"cancelled", "dead_lettered", "succeeded"}:
                 retained_attachments = {
                     value
                     for recoverable in self._recoverable.values()
@@ -444,7 +444,7 @@ class SendJobRegistry:
                 retry_attempt = 0
                 last_error = ""
                 finished_at = 0.0
-            if status in {"dead_lettered", "succeeded"}:
+            if status in {"cancelled", "dead_lettered", "succeeded"}:
                 record = {
                     "send_id": send_id,
                     "operation": operation,
@@ -650,7 +650,7 @@ class SendJobRegistry:
                 durable_terminal_send_ids = {
                     key
                     for key, value in self._recoverable.items()
-                    if value.get("status") in {"succeeded", "dead_lettered"}
+                    if value.get("status") in {"cancelled", "succeeded", "dead_lettered"}
                 }
             self._jobs = {
                 key: value
@@ -749,7 +749,17 @@ class SendJobRegistry:
                 self._cancelled.add(send_id)
                 job["status"] = "cancelled"
                 self._revision += 1
-                self._upsert_database_record({**job, "status": "cancelled"})
+                self._remember_recoverable(
+                    send_id=send_id,
+                    operation=str(job.get("operation") or ""),
+                    message=str(job.get("message") or ""),
+                    conversation_id=str(job.get("conversation_id") or ""),
+                    attachments=attachments,
+                    client_id=str(job.get("client_id") or ""),
+                    created_at=float(job.get("created_at") or time.time()),
+                    status="cancelled",
+                    finished_at=time.time(),
+                )
                 return True
             self._jobs.pop(send_id, None)
             client_id = str(job.get("client_id") or "")

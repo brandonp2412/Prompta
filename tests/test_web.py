@@ -933,6 +933,41 @@ def test_send_job_registry_dead_letters_inflight_send_after_restart(tmp_path: Pa
     assert "in-flight send" in persisted["last_error"]
 
 
+def test_send_job_registry_does_not_restore_cancelled_send(tmp_path: Path) -> None:
+    recovery_path = tmp_path / "ui-send-retries.json"
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "send_id": "cancelled-before-restart",
+                        "operation": "reply",
+                        "message": "Do not deliver",
+                        "conversation_id": "chat-1",
+                        "attachments": [],
+                        "client_id": "browser-cancelled-restart",
+                        "status": "cancelled",
+                        "retry_at": 0.0,
+                        "retry_attempt": 0,
+                        "created_at": time.time() - 10,
+                        "finished_at": time.time() - 5,
+                    }
+                ]
+            }
+        )
+    )
+    sender = MagicMock(return_value="chat-1")
+
+    registry = SendJobRegistry(sender, recovery_path=recovery_path)
+
+    sender.assert_not_called()
+    result = registry.get("cancelled-before-restart")
+    assert result is not None
+    assert result["status"] == "cancelled"
+    persisted = json.loads(recovery_path.read_text())["jobs"][0]
+    assert persisted["status"] == "cancelled"
+
+
 def test_send_job_registry_does_not_multiply_one_shared_rate_limit() -> None:
     registry = SendJobRegistry(lambda *_args: "unused")
 
