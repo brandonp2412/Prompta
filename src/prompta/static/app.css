@@ -209,9 +209,10 @@ textarea:focus-visible {
 }
 
 .sidebar-filters {
+  min-width: 0;
   display: flex;
+  justify-content: flex-end;
   gap: 6px;
-  margin-top: 8px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -314,9 +315,54 @@ textarea:focus-visible {
   scrollbar-color: #3a3a3a transparent;
 }
 
-.sidebar-scroll > .sidebar-action {
-  margin-top: 0;
+.sidebar-toolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 8px;
+}
+
+.sidebar-toolbar .sidebar-action {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 8px;
+}
+
+.sidebar-toolbar-right {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sidebar-toolbar-right::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-mark-all-read {
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-mark-all-read:hover,
+.sidebar-mark-all-read:focus-visible {
+  background: var(--panel-hover);
+  color: var(--text);
 }
 
 .chat-list {

@@ -359,6 +359,29 @@ def test_image_attachment_preview_http_route(tmp_path: Path) -> None:
             Path(target).unlink(missing_ok=True)
 
 
+def test_mark_all_read_http_route(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    thread = Thread(target=server.serve_forever, daemon=True)
+    try:
+        thread.start()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/api/chats/read-all",
+            data=b"{}",
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            body = json.loads(response.read())
+            assert response.status == HTTPStatus.OK
+            assert body["ok"] is True
+            assert isinstance(body["read_at"], float)
+    finally:
+        server.shutdown()
+        server.server_close()
+        if thread.is_alive():
+            thread.join(timeout=2)
+
+
 def test_chat_http_route_accepts_attachment_only_message(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")

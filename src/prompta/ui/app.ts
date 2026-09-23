@@ -341,6 +341,29 @@ function markChatRead(chatId: string) {
   });
 }
 
+async function markAllChatsRead() {
+  const unreadIds = new Set(
+    state.chats.filter((chat) => Boolean(chat.unread)).map((chat) => chat.id),
+  );
+
+  for (const chat of state.chats) {
+    if (unreadIds.has(chat.id)) chat.unread = false;
+  }
+  state.sidebarFingerprint = "";
+  renderSidebar(true);
+
+  try {
+    await postJson("api/chats/read-all", {}, 2, 5_000);
+  } catch (error) {
+    for (const chat of state.chats) {
+      if (unreadIds.has(chat.id)) chat.unread = true;
+    }
+    state.sidebarFingerprint = "";
+    renderSidebar(true);
+    console.warn("Could not mark all Prompta chats read", error);
+  }
+}
+
 let sidebarRenderDeferred = false;
 
 configureSidebar(() => {
@@ -1805,6 +1828,10 @@ appActions.onSidebarFilter = (filter) => {
   appViewState.sidebarFilters[filter] = !appViewState.sidebarFilters[filter];
   state.sidebarFingerprint = "";
   renderSidebar(true);
+};
+
+appActions.onMarkAllRead = () => {
+  void markAllChatsRead();
 };
 
 appActions.onNewChat = () => {

@@ -337,34 +337,45 @@
           <kbd>/</kbd>
         {/if}
       </label>
-      <div class="sidebar-filters" aria-label="Conversation filters">
-        {#each sidebarFilterOptions as filter (filter.key)}
-          <button
-            type="button"
-            class={["sidebar-filter-chip", { active: appViewState.sidebarFilters[filter.key] }]}
-            aria-pressed={appViewState.sidebarFilters[filter.key]}
-            onclick={() => appActions.onSidebarFilter(filter.key)}
-          >
-            {filter.label}
-          </button>
-        {/each}
-      </div>
     </div>
 
     <div {@attach scrollToTopOnRequest(() => appViewState.sidebarTopRequest)} class="sidebar-scroll">
-      <button
-        type="button"
-        class="sidebar-action"
-        id="jobsSidebarButton"
-        onclick={() => void getJobsDialog().open()}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"
-          ><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path
-            d="M8 12h3M8 16h3M14 12h2M14 16h2"
-          ></path></svg
+      <div class="sidebar-toolbar">
+        <button
+          type="button"
+          class="sidebar-action sidebar-jobs-action"
+          id="jobsSidebarButton"
+          onclick={() => void getJobsDialog().open()}
         >
-        <span>Jobs</span>
-      </button>
+          <svg viewBox="0 0 24 24" aria-hidden="true"
+            ><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path
+              d="M8 12h3M8 16h3M14 12h2M14 16h2"
+            ></path></svg
+          >
+          <span>Jobs</span>
+        </button>
+        <div class="sidebar-toolbar-right">
+          <button
+            type="button"
+            class="sidebar-mark-all-read"
+            aria-label="Mark all chats as read"
+            title="Mark all chats as read"
+            onclick={appActions.onMarkAllRead}
+          >Read all</button>
+          <div class="sidebar-filters" aria-label="Conversation filters">
+            {#each sidebarFilterOptions as filter (filter.key)}
+              <button
+                type="button"
+                class={["sidebar-filter-chip", { active: appViewState.sidebarFilters[filter.key] }]}
+                aria-pressed={appViewState.sidebarFilters[filter.key]}
+                onclick={() => appActions.onSidebarFilter(filter.key)}
+              >
+                {filter.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+      </div>
       <nav class="chat-list" id="chatList" aria-label="Cached conversations"><SidebarList /></nav>
     </div>
 

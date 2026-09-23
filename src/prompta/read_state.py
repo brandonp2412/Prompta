@@ -67,6 +67,19 @@ class ConversationReadState:
             )
         return {"ok": True, "id": chat_id, "read_at": read_at}
 
+    def mark_all_read(self) -> dict[str, object]:
+        read_at = float(self.clock())
+        with self.lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO metadata(key, value)
+                VALUES ('all_read_at', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (read_at,),
+            )
+        return {"ok": True, "read_at": read_at}
+
     def decorate(self, conversations: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         rows = [dict(chat) for chat in conversations]
         ids = [str(chat.get("id") or "").strip() for chat in rows]
@@ -74,9 +87,10 @@ class ConversationReadState:
 
         with self.lock, self._connect() as connection:
             baseline_row = connection.execute(
-                "SELECT value FROM metadata WHERE key = 'initialized_at'"
+                "SELECT MAX(value) AS value FROM metadata WHERE key IN ('initialized_at', 'all_read_at')"
             ).fetchone()
-            baseline = float(baseline_row["value"] if baseline_row is not None else self.clock())
+            baseline_value = baseline_row["value"] if baseline_row is not None else None
+            baseline = float(baseline_value if baseline_value is not None else self.clock())
             read_at: dict[str, float] = {}
             if ids:
                 placeholders = ", ".join("?" for _ in ids)
@@ -92,6 +106,6 @@ class ConversationReadState:
                 last_assistant_at = float(chat.get("last_assistant_at") or 0.0)
             except (TypeError, ValueError):
                 last_assistant_at = 0.0
-            chat["unread"] = last_assistant_at > read_at.get(chat_id, baseline)
+            chat["unread"] = last_assistant_at > max(baseline, read_at.get(chat_id, baseline))
 
         return rows

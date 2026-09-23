@@ -908,6 +908,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json(result)
             return
 
+        if path == "/api/chats/read-all":
+            self._json(cast(PromptaUIServer, self.server).read_state.mark_all_read())
+            return
+
         read_prefix = "/api/chats/"
         read_suffix = "/read"
         if path.startswith(read_prefix) and path.endswith(read_suffix):

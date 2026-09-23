@@ -32,6 +32,49 @@ def test_read_state_baseline_and_persistence(tmp_path):
     assert [chat["unread"] for chat in decorated] == [True, True, False]
 
 
+def test_mark_all_read_sets_persistent_global_watermark(tmp_path):
+    now = [100.0]
+    state = ConversationReadState(tmp_path, clock=lambda: now[0])
+
+    now[0] = 101.0
+    state.mark_read("individually-read")
+    assert state.decorate(
+        [
+            {"id": "individually-read", "last_assistant_at": 102.0},
+            {"id": "other", "last_assistant_at": 102.0},
+        ]
+    ) == [
+        {"id": "individually-read", "last_assistant_at": 102.0, "unread": True},
+        {"id": "other", "last_assistant_at": 102.0, "unread": True},
+    ]
+
+    now[0] = 103.0
+    result = state.mark_all_read()
+    assert result == {"ok": True, "read_at": 103.0}
+    assert state.decorate(
+        [
+            {"id": "individually-read", "last_assistant_at": 102.0},
+            {"id": "other", "last_assistant_at": 102.0},
+            {"id": "newer", "last_assistant_at": 104.0},
+        ]
+    ) == [
+        {"id": "individually-read", "last_assistant_at": 102.0, "unread": False},
+        {"id": "other", "last_assistant_at": 102.0, "unread": False},
+        {"id": "newer", "last_assistant_at": 104.0, "unread": True},
+    ]
+
+    restarted = ConversationReadState(tmp_path, clock=lambda: 200.0)
+    assert restarted.decorate(
+        [
+            {"id": "other", "last_assistant_at": 102.0},
+            {"id": "newer", "last_assistant_at": 104.0},
+        ]
+    ) == [
+        {"id": "other", "last_assistant_at": 102.0, "unread": False},
+        {"id": "newer", "last_assistant_at": 104.0, "unread": True},
+    ]
+
+
 def test_mark_read_rejects_empty_conversation_id(tmp_path):
     state = ConversationReadState(tmp_path, clock=lambda: 100.0)
 
