@@ -16986,6 +16986,7 @@ var init_sidebarState_svelte = __esmMin((() => {
 	sidebarListActions = proxy({
 		onSelect: () => {},
 		onPin: () => {},
+		onPrefetch: () => {},
 		onLoadMore: () => {}
 	});
 }));
@@ -17035,6 +17036,7 @@ function SidebarList($$anchor, $$props) {
 		suppressSelectChatId = "";
 	}
 	function startLongPress(event, chatId, pinned) {
+		sidebarListActions.onPrefetch(chatId);
 		if (!coarsePointer.current || event.pointerType === "mouse") return;
 		clearLongPress();
 		suppressSelectChatId = "";
@@ -18285,6 +18287,43 @@ var init_clientStorage = __esmMin((() => {
 //#endregion
 //#region src/prompta/ui/app.ts
 var app_exports = /* @__PURE__ */ __exportAll({});
+function fetchChatDetail(conversationId) {
+	const existing = chatDetailRequests.get(conversationId);
+	if (existing) return existing;
+	const request = fetchJson(`api/chats/${encodeURIComponent(conversationId)}`, 3e4).then((chat) => {
+		if (!chat || String(chat.id || "") !== conversationId) return null;
+		recentChatCache.remember(chat);
+		return chat;
+	}).finally(() => {
+		chatDetailRequests.delete(conversationId);
+	});
+	chatDetailRequests.set(conversationId, request);
+	return request;
+}
+function runQueuedChatPrefetch() {
+	if (chatPrefetchRunning) return;
+	const conversationId = queuedPrefetchIds.shift();
+	if (!conversationId) return;
+	queuedPrefetchSet.delete(conversationId);
+	chatPrefetchRunning = true;
+	fetchChatDetail(conversationId).catch((error) => {
+		console.warn("Could not prefetch Prompta chat", conversationId, error);
+	}).finally(() => {
+		chatPrefetchRunning = false;
+		if (!queuedPrefetchIds.length) return;
+		(typeof requestIdleCallback === "function" ? (callback) => requestIdleCallback(callback, { timeout: 500 }) : (callback) => setTimeout(callback, 40))(runQueuedChatPrefetch);
+	});
+}
+function queueChatPrefetch(chats) {
+	for (const chat of chats) {
+		const id = String(chat?.id || "");
+		if (!id || chat.status === "active" || chat._optimisticNew || chat._pending_send || recentChatCache.getMemory(id) || queuedPrefetchSet.has(id) || chatDetailRequests.has(id)) continue;
+		queuedPrefetchSet.add(id);
+		queuedPrefetchIds.push(id);
+		if (queuedPrefetchIds.length >= 8) break;
+	}
+	runQueuedChatPrefetch();
+}
 function persistPinChange(chatId, pinned) {
 	postJsonRequest("api/pins", {
 		id: chatId,
@@ -19059,7 +19098,10 @@ async function loadChats(forceSelectedRefresh = false) {
 		promoteServerPendingPins(chats);
 		reconcileOptimisticNew(chats);
 		const orderedChats = sortSidebarChats(chats, state.pinnedIds);
-		if (!state.search) recentChatCache.rememberSummaries(orderedChats);
+		if (!state.search) {
+			recentChatCache.rememberSummaries(orderedChats);
+			queueChatPrefetch(orderedChats);
+		}
 		completionNotifications.trackCompletions(chats);
 		state.chats = orderedChats;
 		state.chatOrderScope = state.search;
@@ -19135,8 +19177,8 @@ async function loadSelectedChat() {
 	if (!state.selectedChat || state.selectedChat.id !== selectedId) renderRecentChatSnapshot(selectedId);
 	const requestId = ++state.selectedRequestId;
 	try {
-		const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`, 3e4);
-		if (requestId !== state.selectedRequestId || selectedId !== state.selectedId || chat.id !== state.selectedId) return;
+		const chat = await fetchChatDetail(selectedId);
+		if (!chat || requestId !== state.selectedRequestId || selectedId !== state.selectedId || chat.id !== state.selectedId) return;
 		if (state.pendingNewId === chat.id && !state.pendingNewSend) state.pendingNewId = null;
 		state.selectedUpdatedAt = chat.updated_at;
 		recentChatCache.remember(chat);
@@ -19766,7 +19808,7 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetchIds, queuedPrefetchSet, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_clientLogic();
 	init_recentChatCache();
@@ -19787,6 +19829,10 @@ var init_app = __esmMin((() => {
 	CHAT_LIST_PAGE_SIZE = 50;
 	clientSessionId = loadClientSessionId();
 	actionToastTimer = null;
+	chatDetailRequests = /* @__PURE__ */ new Map();
+	queuedPrefetchIds = [];
+	queuedPrefetchSet = /* @__PURE__ */ new Set();
+	chatPrefetchRunning = false;
 	state = {
 		chats: [],
 		selectedId: null,
@@ -19847,6 +19893,10 @@ var init_app = __esmMin((() => {
 		setChatPinned(chatId, !state.pinnedIds.has(chatId));
 		renderSidebar(true);
 		updatePinButton();
+	};
+	sidebarListActions.onPrefetch = (chatId) => {
+		if (recentChatCache.getMemory(chatId)) return;
+		fetchChatDetail(chatId).catch(() => {});
 	};
 	sidebarListActions.onLoadMore = () => {
 		loadOlderChats();

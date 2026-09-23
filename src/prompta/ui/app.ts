@@ -76,6 +76,84 @@ type UiChat = {
   [key: string]: any;
 };
 
+const chatDetailRequests = new Map<string, Promise<UiChat | null>>();
+const queuedPrefetchIds: string[] = [];
+const queuedPrefetchSet = new Set<string>();
+let chatPrefetchRunning = false;
+
+function fetchChatDetail(conversationId: string) {
+  const existing = chatDetailRequests.get(conversationId);
+
+  if (existing) return existing;
+
+  const request = fetchJson(`api/chats/${encodeURIComponent(conversationId)}`, 30_000)
+    .then((chat) => {
+      if (!chat || String(chat.id || "") !== conversationId) return null;
+
+      recentChatCache.remember(chat);
+
+      return chat as UiChat;
+    })
+    .finally(() => {
+      chatDetailRequests.delete(conversationId);
+    });
+
+  chatDetailRequests.set(conversationId, request);
+
+  return request;
+}
+
+function runQueuedChatPrefetch() {
+  if (chatPrefetchRunning) return;
+
+  const conversationId = queuedPrefetchIds.shift();
+
+  if (!conversationId) return;
+
+  queuedPrefetchSet.delete(conversationId);
+  chatPrefetchRunning = true;
+  void fetchChatDetail(conversationId)
+    .catch((error) => {
+      console.warn("Could not prefetch Prompta chat", conversationId, error);
+    })
+    .finally(() => {
+      chatPrefetchRunning = false;
+
+      if (!queuedPrefetchIds.length) return;
+
+      const schedule =
+        typeof requestIdleCallback === "function"
+          ? (callback: () => void) => requestIdleCallback(callback, { timeout: 500 })
+          : (callback: () => void) => setTimeout(callback, 40);
+      schedule(runQueuedChatPrefetch);
+    });
+}
+
+function queueChatPrefetch(chats: UiChat[]) {
+  for (const chat of chats) {
+    const id = String(chat?.id || "");
+
+    if (
+      !id ||
+      chat.status === "active" ||
+      chat._optimisticNew ||
+      chat._pending_send ||
+      recentChatCache.getMemory(id) ||
+      queuedPrefetchSet.has(id) ||
+      chatDetailRequests.has(id)
+    ) {
+      continue;
+    }
+
+    queuedPrefetchSet.add(id);
+    queuedPrefetchIds.push(id);
+
+    if (queuedPrefetchIds.length >= 8) break;
+  }
+
+  runQueuedChatPrefetch();
+}
+
 type UiPendingSend = PendingReply & {
   message: string;
   status: string;
@@ -270,6 +348,11 @@ sidebarListActions.onPin = (chatId) => {
   setChatPinned(chatId, !state.pinnedIds.has(chatId));
   renderSidebar(true);
   updatePinButton();
+};
+sidebarListActions.onPrefetch = (chatId) => {
+  if (recentChatCache.getMemory(chatId)) return;
+
+  void fetchChatDetail(chatId).catch(() => {});
 };
 sidebarListActions.onLoadMore = () => {
   void loadOlderChats();
@@ -1446,7 +1529,10 @@ async function loadChats(forceSelectedRefresh = false) {
     reconcileOptimisticNew(chats);
     const orderedChats = sortSidebarChats(chats, state.pinnedIds);
 
-    if (!state.search) recentChatCache.rememberSummaries(orderedChats);
+    if (!state.search) {
+      recentChatCache.rememberSummaries(orderedChats);
+      queueChatPrefetch(orderedChats);
+    }
 
     completionNotifications.trackCompletions(chats);
     state.chats = orderedChats;
@@ -1592,9 +1678,10 @@ async function loadSelectedChat() {
   const requestId = ++state.selectedRequestId;
 
   try {
-    const chat = await fetchJson(`api/chats/${encodeURIComponent(selectedId)}`, 30_000);
+    const chat = await fetchChatDetail(selectedId);
 
     if (
+      !chat ||
       requestId !== state.selectedRequestId ||
       selectedId !== state.selectedId ||
       chat.id !== state.selectedId

@@ -31,4 +31,18 @@ describe("sidebar selection rendering", () => {
     expect(selectChatSource).toContain("syncSidebarSelection();");
     expect(selectChatSource).not.toContain("renderSidebar();");
   });
+
+  test("prefetches chat details and coalesces selection fetches", () => {
+    const loadSelectedChatSource = functionSource(
+      "loadSelectedChat",
+      "\nasync function selectChat",
+    );
+
+    expect(sidebarStateSource).toContain("onPrefetch: (chatId: string) => void");
+    expect(sidebarSource).toContain("sidebarListActions.onPrefetch(chatId);");
+    expect(appSource).toContain("const chatDetailRequests = new Map");
+    expect(appSource).toContain("queueChatPrefetch(orderedChats);");
+    expect(loadSelectedChatSource).toContain("fetchChatDetail(selectedId);");
+    expect(loadSelectedChatSource).not.toContain("await fetchJson(");
+  });
 });

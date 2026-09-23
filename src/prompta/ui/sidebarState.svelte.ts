@@ -35,10 +35,12 @@ export const sidebarListState = $state<{
 export const sidebarListActions = $state<{
   onSelect: (chatId: string, optimisticNew: boolean) => void;
   onPin: (chatId: string) => void;
+  onPrefetch: (chatId: string) => void;
   onLoadMore: () => void;
 }>({
   onSelect: () => {},
   onPin: () => {},
+  onPrefetch: () => {},
   onLoadMore: () => {},
 });
 

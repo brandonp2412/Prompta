@@ -39,6 +39,8 @@
   }
 
   function startLongPress(event: PointerEvent, chatId: string, pinned: boolean) {
+    sidebarListActions.onPrefetch(chatId);
+
     if (!coarsePointer.current || event.pointerType === "mouse") return;
 
     clearLongPress();
