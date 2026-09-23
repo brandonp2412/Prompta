@@ -2481,6 +2481,7 @@ def test_read_only_store_tracks_real_message_activity_for_broken_chat_detection(
     detail = store.conversation("chat-health")
     cache.close()
 
+    assert summary["last_message_at"] == 5_001.0
     assert summary["last_user_at"] == 2_000.0
     assert summary["last_assistant_at"] == 5_001.0
     assert detail is not None

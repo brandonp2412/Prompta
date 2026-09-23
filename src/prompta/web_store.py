@@ -170,7 +170,7 @@ class ReadOnlyChatStore:
                     message_stats AS (
                         SELECT
                             m.conversation_id,
-                            MAX(m.created_at) AS last_message_at,
+                            MAX({message_activity}) AS last_message_at,
                             MAX(CASE WHEN m.role = 'assistant' THEN {message_activity} END) AS last_assistant_at,
                             MAX(CASE WHEN m.role = 'user' THEN {message_activity} END) AS last_user_at,
                             COUNT(*) AS message_count

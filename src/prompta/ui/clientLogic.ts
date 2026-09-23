@@ -70,6 +70,50 @@ export function sidebarChatIsPending(chat: SidebarOrderChat | null | undefined):
   return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
 
+type SidebarActivityChat = SidebarOrderChat & {
+  updated_at?: unknown;
+  last_message_at?: unknown;
+  last_assistant_at?: unknown;
+};
+
+export function sidebarChatActivityAt(chat: SidebarActivityChat | null | undefined): number {
+  if (!chat) return 0;
+
+  const messageActivity = Math.max(
+    positiveEpoch(chat.last_message_at),
+    positiveEpoch(chat.last_assistant_at),
+    sidebarChatLastUserAt(chat),
+    sidebarChatCreatedAt(chat),
+  );
+
+  if (sidebarChatIsPending(chat)) {
+    return Math.max(messageActivity, positiveEpoch(chat.updated_at));
+  }
+
+  return messageActivity || positiveEpoch(chat.updated_at);
+}
+
+export function formatRelativeTime(epochSeconds: unknown, nowMillis = Date.now()): string {
+  const epoch = positiveEpoch(epochSeconds);
+
+  if (!epoch) return "";
+
+  const delta = nowMillis - epoch * 1000;
+  const abs = Math.abs(delta);
+
+  if (abs < 45_000) return "now";
+
+  if (abs < 3_600_000) return `${Math.max(1, Math.floor(abs / 60_000))}m`;
+
+  if (abs < 86_400_000) return `${Math.max(1, Math.floor(abs / 3_600_000))}h`;
+
+  if (abs < 604_800_000) return `${Math.max(1, Math.floor(abs / 86_400_000))}d`;
+
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+    new Date(epoch * 1000),
+  );
+}
+
 export const BROKEN_CHAT_AFTER_SECONDS = 40 * 60;
 
 type ChatHealthMessage = {
