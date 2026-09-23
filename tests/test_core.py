@@ -3662,6 +3662,28 @@ async def test_recover_cached_conversations_defers_transient_driver_failure(
 
 
 @pytest.mark.asyncio
+async def test_recover_cached_conversations_stops_when_resource_admission_closes(
+    tmp_path: Path,
+) -> None:
+    admission = MagicMock(side_effect=[(True, ""), (True, ""), (False, "memory pressure")])
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+        resource_admission=admission,
+    )
+    prompta.conversations.recover_cached_conversations = AsyncMock(return_value=1)
+
+    assert await prompta.recover_cached_conversations(limit=50) == 2
+    assert prompta.conversations.recover_cached_conversations.await_count == 2
+    prompta.conversations.recover_cached_conversations.assert_awaited_with(limit=1)
+
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_recover_cached_conversations_reattaches_streaming_chat_after_restart(
     tmp_path: Path,
 ) -> None:

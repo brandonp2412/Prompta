@@ -300,12 +300,20 @@ class Prompta:
         return await self.actions.send_once(prompt, job_name=job_name, attachments=attachments)
 
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
-        try:
-            return await self.conversations.recover_cached_conversations(limit=limit)
-        except Exception:
-            self._next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
-            logger.exception("Prompta cached recovery failed; retrying later")
-            return 0
+        recovered = 0
+        for _ in range(max(1, limit)):
+            if not self.scheduler_execution.can_start_new_conversation():
+                break
+            try:
+                batch_recovered = await self.conversations.recover_cached_conversations(limit=1)
+            except Exception:
+                self._next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
+                logger.exception("Prompta cached recovery failed; retrying later")
+                break
+            recovered += batch_recovered
+            if batch_recovered == 0:
+                break
+        return recovered
 
     async def _retry_cached_recovery_if_due(self) -> bool:
         """Retry one transiently failed restart recovery without recycling the daemon."""
