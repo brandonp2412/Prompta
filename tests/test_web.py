@@ -2811,6 +2811,49 @@ def test_jobs_control_supports_pause_all_show_list_and_clear(tmp_path: Path) -> 
     assert load_jobs(jobs_path) == {}
 
 
+def test_jobs_cli_add_without_interval_uses_cli_default(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    try:
+        with patch("prompta.web._start_local_scheduler_service", return_value=True):
+            result = server._run_job_cli("add", {"name": "nox", "prompt": "fix nox"})
+    finally:
+        server.server_close()
+
+    job = load_jobs(jobs_path)["nox"]
+    assert job.interval_seconds == 40 * 60
+    assert "--interval-minutes" not in result["command"]
+    assert result["command"][-2:] == ["--jobs-file", str(jobs_path)]
+
+
+def test_jobs_cli_pause_without_name_maps_to_pause_all(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    add_job(jobs_path, "nox", "fix nox")
+    add_job(jobs_path, "kite", "fix kite")
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    try:
+        result = server._run_job_cli("pause", {})
+    finally:
+        server.server_close()
+
+    state = json.loads(state_path.read_text())
+    assert result["affected_jobs"] == 2
+    assert state["jobs"]["nox"]["paused"] is True
+    assert state["jobs"]["kite"]["paused"] is True
+    assert result["command"] == [
+        "prompta",
+        "pause",
+        "--jobs-file",
+        str(jobs_path),
+        "--state",
+        str(state_path),
+    ]
+
+
 def test_run_job_cli_rejects_boolean_interval(tmp_path: Path) -> None:
     server = PromptaUIServer(
         ("127.0.0.1", 0),

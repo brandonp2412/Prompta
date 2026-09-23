@@ -15,7 +15,9 @@ import {
   promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
   parseAtSlashCommand,
+  parseJobSlashCommand,
   parseScheduleSlashCommand,
+  jobSlashFeedback,
   pendingConversationSends,
   pendingSendActivity,
   sidebarChatCountSummary,
@@ -48,7 +50,7 @@ import {
 } from "./sidebarState.svelte";
 import { createConversationRenderer } from "./conversationRenderer";
 import { imageAttachments, pendingImageAttachments } from "./conversationLogic";
-import { getAttachmentPicker, getJobsDialog, getLogsPanel } from "./uiControllers";
+import { getAttachmentPicker, getLogsPanel } from "./uiControllers";
 import { createDeploymentMonitor } from "./deploymentMonitor";
 import { createLiveUpdates } from "./liveUpdates";
 import { createCompletionNotifications } from "./completionNotifications";
@@ -236,8 +238,6 @@ sidebarListActions.onPin = (chatId) => {
   renderSidebar(true);
   updatePinButton();
 };
-
-const jobsDialog = getJobsDialog();
 
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
@@ -1638,6 +1638,54 @@ appActions.onNewChat = () => {
   renderNewChat();
 };
 
+async function runJobSlashCommand(command, originalMessage) {
+  state.sending = true;
+  appViewState.composerDisabled = true;
+  attachmentPicker.setDisabled(true);
+  clearComposerDraft();
+  appViewState.composerValue = "";
+  updateComposerActionButton();
+  setComposerStatus(
+    command.action === "list" || command.action === "show" ? "Loading jobs…" : "Updating jobs…",
+  );
+
+  try {
+    let result;
+
+    if (command.action === "list" || command.action === "show") {
+      result = await fetchJson("api/jobs");
+    } else {
+      const payload: Record<string, unknown> = { action: command.action };
+
+      if ("name" in command && command.name) payload.name = command.name;
+
+      if (command.action === "add") {
+        payload.prompt = command.prompt;
+
+        if (command.intervalMinutes !== undefined) {
+          payload.interval_minutes = command.intervalMinutes;
+        }
+      }
+
+      result = await postJson("api/jobs", payload);
+    }
+
+    setComposerStatus(jobSlashFeedback(command, result));
+  } catch (error) {
+    appViewState.composerValue = originalMessage;
+    persistComposerDraft();
+    setComposerStatus("Jobs command failed: " + String(error).replace(/^Error:\s*/, ""));
+    console.error(error);
+  } finally {
+    state.sending = false;
+    appViewState.composerDisabled = false;
+    attachmentPicker.setDisabled(false);
+    syncSendButton();
+
+    if (finePointer.current) requestComposerFocus();
+  }
+}
+
 async function runScheduleSlashCommand(command, originalMessage) {
   state.sending = true;
   appViewState.composerDisabled = true;
@@ -2159,8 +2207,22 @@ async function sendSelectedMessage() {
     return;
   }
 
-  if (["/list", "/jobs"].includes(message.toLowerCase())) {
-    await jobsDialog.open(true);
+  const jobCommand = parseJobSlashCommand(message);
+
+  if (jobCommand) {
+    if (attachments.length) {
+      setComposerStatus("Job commands do not include attachments.");
+
+      return;
+    }
+
+    if ("error" in jobCommand) {
+      setComposerStatus(jobCommand.error);
+
+      return;
+    }
+
+    await runJobSlashCommand(jobCommand, message);
 
     return;
   }

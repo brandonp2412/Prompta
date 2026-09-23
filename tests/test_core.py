@@ -4505,6 +4505,13 @@ async def test_retained_completed_tool_enrichment_refreshes_late_final_text(
     prompta.cache.close()
 
 
+def test_parser_accepts_pause_without_a_job_name() -> None:
+    args = _parser().parse_args(["pause"])
+
+    assert args.command == "pause"
+    assert args.name is None
+
+
 def test_parser_accepts_playwright_chromium_backend(tmp_path: Path) -> None:
     profile = tmp_path / "chrome-profile"
     args = _parser().parse_args(

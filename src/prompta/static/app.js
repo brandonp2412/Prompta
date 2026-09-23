@@ -6204,11 +6204,11 @@ function getAttachmentPicker() {
 	return attachmentPicker$1;
 }
 function registerJobsDialog(controller) {
-	jobsDialog$1 = controller;
+	jobsDialog = controller;
 }
 function getJobsDialog() {
-	if (!jobsDialog$1) throw new Error("Jobs dialog was not mounted");
-	return jobsDialog$1;
+	if (!jobsDialog) throw new Error("Jobs dialog was not mounted");
+	return jobsDialog;
 }
 function registerChangelogDialog(controller) {
 	changelogDialog = controller;
@@ -6224,10 +6224,10 @@ function getLogsPanel() {
 	if (!logsPanel$1) throw new Error("Logs panel was not mounted");
 	return logsPanel$1;
 }
-var attachmentPicker$1, jobsDialog$1, changelogDialog, logsPanel$1;
+var attachmentPicker$1, jobsDialog, changelogDialog, logsPanel$1;
 var init_uiControllers = __esmMin((() => {
 	attachmentPicker$1 = null;
-	jobsDialog$1 = null;
+	jobsDialog = null;
 	changelogDialog = null;
 	logsPanel$1 = null;
 }));
@@ -7046,6 +7046,104 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = /*
 	if (bestIndex >= 0) return bestIndex;
 	return delayedCandidates[0] ?? -1;
 }
+function namedJobCommand(action, args) {
+	if (!args || /\s/.test(args)) return { error: "Use /" + action + " <name>." };
+	return {
+		action,
+		name: args
+	};
+}
+function parseJobSlashCommand(message) {
+	const match = message.trim().match(/^\/([a-z-]+)(?:\s+([\s\S]*))?$/i);
+	if (!match) return null;
+	const command = match[1].toLowerCase();
+	const args = String(match[2] || "").trim();
+	if (command === "add") {
+		const separator = args.search(/\s/);
+		if (separator < 1) return { error: "Use /add <name> [interval] <prompt>, or /add <interval> <prompt> for an unnamed schedule." };
+		const name = args.slice(0, separator);
+		const tail = args.slice(separator).trim();
+		if (LEGACY_INTERVAL_TOKEN.test(name)) return null;
+		if (!tail) return { error: "Job prompt is required." };
+		if (/^\d/.test(tail)) {
+			const interval = parseScheduleSlashCommand("/add " + tail);
+			if (interval && "error" in interval) return interval;
+			if (interval) return {
+				action: "add",
+				name,
+				prompt: interval.prompt,
+				intervalMinutes: interval.intervalMinutes
+			};
+		}
+		return {
+			action: "add",
+			name,
+			prompt: tail
+		};
+	}
+	if (["rm", "remove"].includes(command)) return namedJobCommand("remove", args);
+	if (command === "resume") return namedJobCommand("resume", args);
+	if (command === "show") return namedJobCommand("show", args);
+	if (command === "pause" || command === "pause-all") {
+		if (command === "pause-all" && args) return { error: "Use /pause-all without a job name." };
+		if (args && /\s/.test(args)) return { error: "Use /pause <name>, or /pause with no name for all jobs." };
+		return args ? {
+			action: "pause",
+			name: args
+		} : { action: "pause" };
+	}
+	if ([
+		"ls",
+		"list",
+		"jobs"
+	].includes(command)) return args ? { error: "Use /" + command + " without arguments." } : { action: "list" };
+	if (["clear", "cls"].includes(command)) return args ? { error: "Use /" + command + " without arguments." } : { action: "clear" };
+	return null;
+}
+function jobText(value, fallback = "") {
+	return typeof value === "string" ? value : fallback;
+}
+function jobScheduleText(job) {
+	const dailyAt = jobText(job.daily_at).trim();
+	if (dailyAt) return "daily at " + dailyAt;
+	const intervalMinutes = Number(job.interval_minutes);
+	return Number.isFinite(intervalMinutes) && intervalMinutes > 0 ? "every " + formatScheduleInterval(intervalMinutes) : "";
+}
+function jobSlashFeedback(command, result) {
+	if (!command || "error" in command) return "";
+	const payload = result && typeof result === "object" ? result : {};
+	const jobs = Array.isArray(payload.jobs) ? payload.jobs.filter((job) => Boolean(job && typeof job === "object")) : [];
+	if (command.action === "list") {
+		if (!jobs.length) return "No configured jobs.";
+		return jobs.length + " job" + (jobs.length === 1 ? "" : "s") + " · " + jobs.map((job) => {
+			const name = jobText(job.name, "unnamed");
+			const status = job.paused === true ? "paused" : jobText(job.status, "pending");
+			return name + " (" + status + ")";
+		}).join(", ");
+	}
+	if (command.action === "show") {
+		const job = jobs.find((candidate) => candidate.name === command.name);
+		if (!job) return "No job named " + command.name + ".";
+		const status = job.paused === true ? "paused" : jobText(job.status, "pending");
+		const schedule = jobScheduleText(job);
+		const prompt = jobText(job.prompt).trim();
+		return [
+			command.name,
+			status,
+			schedule,
+			prompt
+		].filter(Boolean).join(" · ");
+	}
+	if (command.action === "add") {
+		const job = jobs.find((candidate) => candidate.name === command.name);
+		const schedule = job ? jobScheduleText(job) : "";
+		return ["Saved " + command.name, schedule].filter(Boolean).join(" · ");
+	}
+	if (command.action === "remove") return "Removed " + command.name + ".";
+	if (command.action === "resume") return "Resumed " + command.name + ".";
+	if (command.action === "pause") return command.name ? "Paused " + command.name + "." : "Paused all jobs.";
+	return "Cleared all jobs.";
+}
 function parseScheduleSlashCommand(message) {
 	if (!/^\/(?:add|every)(?:\s|$)/i.test(message)) return null;
 	const match = message.match(/^\/(?:add|every)\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s+([\s\S]+)$/i);
@@ -7192,13 +7290,14 @@ function parseAtSlashCommand(message, now = /* @__PURE__ */ new Date()) {
 		prompt
 	};
 }
-var BROKEN_CHAT_AFTER_SECONDS, CHATGPT_RICH_START, CHATGPT_RICH_END, CHATGPT_RICH_SEPARATOR, TOOL_UI_NOISE;
+var BROKEN_CHAT_AFTER_SECONDS, CHATGPT_RICH_START, CHATGPT_RICH_END, CHATGPT_RICH_SEPARATOR, TOOL_UI_NOISE, LEGACY_INTERVAL_TOKEN;
 var init_clientLogic = __esmMin((() => {
 	BROKEN_CHAT_AFTER_SECONDS = 2400;
 	CHATGPT_RICH_START = "";
 	CHATGPT_RICH_END = "";
 	CHATGPT_RICH_SEPARATOR = "";
 	TOOL_UI_NOISE = /^(?:open tool call list|close tool call list|tool|tool call|expand|collapse|cot-v5-[\w-]+)$/i;
+	LEGACY_INTERVAL_TOKEN = /^\d+(?:\.\d+)?(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?$/i;
 }));
 //#endregion
 //#region src/prompta/ui/Composer.svelte
@@ -7220,14 +7319,44 @@ function Composer($$anchor, $$props) {
 		{
 			command: "/add ",
 			name: "/add",
-			description: "Add a repeating scheduled job",
+			description: "Add a named or interval job",
 			id: "slashCommandAdd"
 		},
 		{
-			command: "/list",
-			name: "/list",
-			description: "List and manage scheduled jobs",
+			command: "/rm ",
+			name: "/rm",
+			description: "Remove a named job",
+			id: "slashCommandRemove"
+		},
+		{
+			command: "/pause ",
+			name: "/pause",
+			description: "Pause one job or all jobs",
+			id: "slashCommandPause"
+		},
+		{
+			command: "/resume ",
+			name: "/resume",
+			description: "Resume a named job",
+			id: "slashCommandResume"
+		},
+		{
+			command: "/show ",
+			name: "/show",
+			description: "Show a named job",
+			id: "slashCommandShow"
+		},
+		{
+			command: "/ls",
+			name: "/ls",
+			description: "List scheduled jobs",
 			id: "slashCommandList"
+		},
+		{
+			command: "/clear",
+			name: "/clear",
+			description: "Clear all scheduled jobs",
+			id: "slashCommandClear"
 		},
 		{
 			command: "/logs",
@@ -18849,6 +18978,40 @@ async function selectChat(id) {
 	renderSidebar();
 	await loadSelectedChat();
 }
+async function runJobSlashCommand(command, originalMessage) {
+	state.sending = true;
+	appViewState.composerDisabled = true;
+	attachmentPicker.setDisabled(true);
+	clearComposerDraft();
+	appViewState.composerValue = "";
+	updateComposerActionButton();
+	setComposerStatus(command.action === "list" || command.action === "show" ? "Loading jobs…" : "Updating jobs…");
+	try {
+		let result;
+		if (command.action === "list" || command.action === "show") result = await fetchJson("api/jobs");
+		else {
+			const payload = { action: command.action };
+			if ("name" in command && command.name) payload.name = command.name;
+			if (command.action === "add") {
+				payload.prompt = command.prompt;
+				if (command.intervalMinutes !== void 0) payload.interval_minutes = command.intervalMinutes;
+			}
+			result = await postJsonRequest("api/jobs", payload);
+		}
+		setComposerStatus(jobSlashFeedback(command, result));
+	} catch (error) {
+		appViewState.composerValue = originalMessage;
+		persistComposerDraft();
+		setComposerStatus("Jobs command failed: " + String(error).replace(/^Error:\s*/, ""));
+		console.error(error);
+	} finally {
+		state.sending = false;
+		appViewState.composerDisabled = false;
+		attachmentPicker.setDisabled(false);
+		syncSendButton();
+		if (finePointer.current) requestComposerFocus();
+	}
+}
 async function runScheduleSlashCommand(command, originalMessage) {
 	state.sending = true;
 	appViewState.composerDisabled = true;
@@ -19210,8 +19373,17 @@ async function sendSelectedMessage() {
 		showMode("logs");
 		return;
 	}
-	if (["/list", "/jobs"].includes(message.toLowerCase())) {
-		await jobsDialog.open(true);
+	const jobCommand = parseJobSlashCommand(message);
+	if (jobCommand) {
+		if (attachments.length) {
+			setComposerStatus("Job commands do not include attachments.");
+			return;
+		}
+		if ("error" in jobCommand) {
+			setComposerStatus(jobCommand.error);
+			return;
+		}
+		await runJobSlashCommand(jobCommand, message);
 		return;
 	}
 	completionNotifications.requestPermissionFromGesture();
@@ -19391,7 +19563,7 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, clientSessionId, actionToastTimer, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var recentChatCache, clientSessionId, actionToastTimer, state, sidebarRenderDeferred, sidebar, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_clientLogic();
 	init_recentChatCache();
@@ -19467,7 +19639,6 @@ var init_app = __esmMin((() => {
 		renderSidebar(true);
 		updatePinButton();
 	};
-	jobsDialog = getJobsDialog();
 	conversationRenderer = createConversationRenderer({
 		onRetry: retryFailedSend,
 		onDelete: deletePendingSend,
