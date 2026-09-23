@@ -108,8 +108,8 @@ describe("completion notifications", () => {
     await settle();
 
     expect(browser.shown).toHaveLength(1);
-    expect(browser.shown[0].title).toBe("Prompta · GLASS");
-    expect(browser.shown[0].options.body).toBe("Roadmap finished");
+    expect(browser.shown[0].title).toBe("Roadmap");
+    expect(browser.shown[0].options.body).toBe("Finished · GLASS");
 
     completion.trackCompletions([
       {
@@ -175,6 +175,7 @@ describe("completion notifications", () => {
     await settle();
 
     expect(browser.shown).toHaveLength(1);
-    expect(browser.shown[0].options.body).toBe("Permission run finished");
+    expect(browser.shown[0].title).toBe("Permission run");
+    expect(browser.shown[0].options.body).toBe("Finished · GLASS");
   });
 });

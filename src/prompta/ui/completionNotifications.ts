@@ -17,7 +17,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
     const display = displayServerName(getServerName() || location.hostname);
     const title = chatTitle(chat);
     const options = {
-      body: title + " finished",
+      body: "Finished · " + display,
       tag: "prompta-finished-" + chat.id,
       icon: "./icon.svg",
       badge: "./icon.svg",
@@ -41,7 +41,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
         }
 
         if (registration) {
-          await registration.showNotification("Prompta · " + display, options);
+          await registration.showNotification(title, options);
 
           return true;
         }
@@ -51,7 +51,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
     }
 
     try {
-      new Notification("Prompta · " + display, options);
+      new Notification(title, options);
 
       return true;
     } catch (error) {
