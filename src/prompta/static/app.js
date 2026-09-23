@@ -17957,12 +17957,69 @@ function createCompletionNotifications({ displayServerName, getServerName, chatT
 	const notifiedCompletions = /* @__PURE__ */ new Set();
 	let baselineReady = false;
 	let permissionRequest = null;
+	let pushSetup = null;
+	let pushRegisteredAt = 0;
 	let flushingNotifications = false;
+	function decodeApplicationServerKey(value) {
+		const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+		const raw = atob(padded);
+		const bytes = new Uint8Array(raw.length);
+		for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+		return bytes;
+	}
+	function sameApplicationServerKey(current, expected) {
+		if (!current) return false;
+		const bytes = new Uint8Array(current);
+		return bytes.length === expected.length && bytes.every((value, index) => value === expected[index]);
+	}
+	async function ensurePushSubscription() {
+		if (pushRegisteredAt) return true;
+		if (pushSetup) return pushSetup;
+		if (!("serviceWorker" in navigator)) return false;
+		pushSetup = (async () => {
+			try {
+				const registration = await navigator.serviceWorker.ready;
+				if (!registration.pushManager) return false;
+				const keyResponse = await fetch("api/push/public-key", { cache: "no-store" });
+				if (!keyResponse.ok) throw new Error("Could not load Web Push public key");
+				const payload = await keyResponse.json();
+				const applicationServerKey = decodeApplicationServerKey(String(payload.public_key || ""));
+				let subscription = await registration.pushManager.getSubscription();
+				if (subscription && !sameApplicationServerKey(subscription.options.applicationServerKey, applicationServerKey)) {
+					await subscription.unsubscribe();
+					subscription = null;
+				}
+				subscription ??= await registration.pushManager.subscribe({
+					userVisibleOnly: true,
+					applicationServerKey
+				});
+				if (!(await fetch("api/push/subscriptions", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(subscription.toJSON())
+				})).ok) throw new Error("Could not save Web Push subscription");
+				pushRegisteredAt = Date.now() / 1e3;
+				return true;
+			} catch (error) {
+				console.warn("Could not enable Prompta background notifications", error);
+				return false;
+			} finally {
+				pushSetup = null;
+			}
+		})();
+		return pushSetup;
+	}
+	async function initialize() {
+		if (!("Notification" in window) || Notification.permission !== "granted") return;
+		await ensurePushSubscription();
+	}
 	function completionKey(chat) {
 		return String(chat.id || "") + ":" + String(chat.completed_at ?? chat.updated_at ?? "");
 	}
 	async function showChatFinished(chat) {
 		if (!("Notification" in window) || Notification.permission !== "granted") return false;
+		const completedAt = Number(chat.completed_at ?? chat.updated_at ?? 0);
+		if (pushRegisteredAt && completedAt >= pushRegisteredAt) return true;
 		const display = displayServerName(getServerName() || location.hostname);
 		const options = {
 			body: chatTitle(chat) + " finished",
@@ -18006,6 +18063,7 @@ function createCompletionNotifications({ displayServerName, getServerName, chatT
 	async function requestPermissionFromGesture() {
 		if (!("Notification" in window)) return;
 		if (Notification.permission === "granted") {
+			await ensurePushSubscription();
 			await flushPendingNotifications();
 			return;
 		}
@@ -18016,7 +18074,10 @@ function createCompletionNotifications({ displayServerName, getServerName, chatT
 		}).finally(() => {
 			permissionRequest = null;
 		});
-		if (await permissionRequest === "granted") await flushPendingNotifications();
+		if (await permissionRequest === "granted") {
+			await ensurePushSubscription();
+			await flushPendingNotifications();
+		}
 	}
 	function queueFinishedChat(chat) {
 		const key = completionKey(chat);
@@ -18043,6 +18104,7 @@ function createCompletionNotifications({ displayServerName, getServerName, chatT
 		flushPendingNotifications();
 	}
 	return {
+		initialize,
 		markActive,
 		requestPermissionFromGesture,
 		trackCompletions
@@ -19538,6 +19600,7 @@ function refreshDisplayedTimes() {
 }
 async function startApp() {
 	deploymentMonitor.registerServiceWorker();
+	completionNotifications.initialize();
 	loadServerIdentity();
 	await hydratePinnedIds();
 	await hydratePendingSends();
