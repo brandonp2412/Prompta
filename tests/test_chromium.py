@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from prompta.browser_ownership import owned_window_started_at
 from prompta.chromium import (
     _REACT_TOOL_SCRIPT,
+    ChromiumToolEnricher,
     finalize_completed_assistant_content,
     merge_tool_blocks,
     ordered_assistant_content_from_messages,
@@ -12,6 +16,42 @@ from prompta.chromium import (
 
 FENCE = chr(96) * 3
 NL = chr(10)
+
+
+@pytest.mark.asyncio
+async def test_new_enrichment_target_is_marked_for_orphan_reaping(monkeypatch) -> None:
+    enricher = ChromiumToolEnricher()
+    markers: list[str | None] = []
+
+    def fake_http_json(path: str, method: str = "GET"):
+        if path == "/json/list":
+            return []
+        if path.startswith("/json/new?"):
+            assert method == "PUT"
+            return {
+                "id": "target-1",
+                "webSocketDebuggerUrl": "ws://example.invalid/devtools/page/1",
+            }
+        if path == "/json/close/target-1":
+            return {}
+        raise AssertionError((path, method))
+
+    async def fake_react_messages(
+        websocket_url: str,
+        *,
+        owned_marker: str | None = None,
+    ):
+        assert websocket_url == "ws://example.invalid/devtools/page/1"
+        markers.append(owned_marker)
+        return []
+
+    monkeypatch.setattr(enricher, "_http_json", fake_http_json)
+    monkeypatch.setattr(enricher, "_react_messages", fake_react_messages)
+
+    await enricher.enrichment("https://chatgpt.com/c/example")
+
+    assert len(markers) == 1
+    assert owned_window_started_at(markers[0]) is not None
 
 
 def test_tool_blocks_from_completed_mcp_wrapper() -> None:

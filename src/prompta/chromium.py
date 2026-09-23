@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 import websockets
 
+from .browser_ownership import new_owned_window_marker
 from .chatgpt_dom import MESSAGE_DISCOVERY_SCRIPT
 from .ui_noise import is_assistant_ui_noise
 
@@ -584,7 +585,10 @@ class ChromiumToolEnricher:
             websocket_url = str(target.get("webSocketDebuggerUrl") or "")
             if not websocket_url:
                 return [], ""
-            messages = await self._react_messages(websocket_url)
+            messages = await self._react_messages(
+                websocket_url,
+                owned_marker=new_owned_window_marker() if created_target else None,
+            )
             blocks = tool_blocks_from_messages(messages)
             return blocks, ordered_assistant_content_from_messages(messages)
         except Exception as exc:
@@ -610,7 +614,12 @@ class ChromiumToolEnricher:
             payload = response.read()
         return json.loads(payload) if payload else {}
 
-    async def _react_messages(self, websocket_url: str) -> list[dict[str, Any]]:
+    async def _react_messages(
+        self,
+        websocket_url: str,
+        *,
+        owned_marker: str | None = None,
+    ) -> list[dict[str, Any]]:
         deadline = asyncio.get_running_loop().time() + self.timeout_seconds
         async with websockets.connect(
             websocket_url,
@@ -642,6 +651,14 @@ class ChromiumToolEnricher:
                         return message
 
             await call("Runtime.enable")
+            if owned_marker:
+                await call(
+                    "Runtime.evaluate",
+                    {
+                        "expression": f"window.name = {json.dumps(owned_marker)}",
+                        "returnByValue": True,
+                    },
+                )
             latest: list[dict[str, Any]] = []
             while asyncio.get_running_loop().time() < deadline:
                 response = await call(

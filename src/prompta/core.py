@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import fcntl
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -452,6 +453,18 @@ class Prompta:
         # driver avoids unnecessary session churn and preserves the authenticated profile.
         return
 
+    async def _cleanup_browser_orphans(self) -> int:
+        driver = self.driver
+        if driver is None or not driver.is_connected:
+            return 0
+        cleanup = getattr(driver, "cleanup_orphan_pages", None)
+        if not callable(cleanup):
+            return 0
+        result = cleanup()
+        if not inspect.isawaitable(result):
+            return 0
+        return int(await result)
+
     async def run(self, *, once: bool = False) -> None:
         while True:
             # UI sends are latency-sensitive. Drain them before browser/cache
@@ -479,6 +492,10 @@ class Prompta:
                         await self.wait_for_cached_response(active.conversation_id)
                     return
 
+            await self._run_browser_maintenance(
+                "orphan browser cleanup",
+                self._cleanup_browser_orphans(),
+            )
             did_work = (
                 await self._run_browser_maintenance(
                     "cached recovery",

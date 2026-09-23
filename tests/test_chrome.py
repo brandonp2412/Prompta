@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -391,6 +392,34 @@ async def test_find_context_for_path_only_adopts_prompta_owned_pages(live_driver
 
     assert context_id
     assert driver._pages[context_id] is owned_page
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_driver) -> None:
+    driver, page = live_driver
+    context = driver._browser_context
+    assert context is not None
+
+    stale_orphan = await context.new_page()
+    await stale_orphan.evaluate("window.name='prompta:1:stale'")
+    recent_orphan = await context.new_page()
+    await recent_orphan.evaluate(
+        "(stamp) => { window.name = 'prompta:' + stamp + ':recent'; }",
+        int(time.time()),
+    )
+    unrelated = await context.new_page()
+    await unrelated.evaluate("window.name='user-owned'")
+
+    closed = await driver.cleanup_orphan_pages(
+        minimum_age_seconds=60,
+        interval_seconds=1,
+    )
+
+    assert closed == 1
+    assert stale_orphan.is_closed()
+    assert not recent_orphan.is_closed()
+    assert not unrelated.is_closed()
+    assert not page.is_closed()
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
+from .browser_ownership import new_owned_window_marker, owned_window_started_at
 from .chatgpt_dom import (
     COMPOSER_SELECTORS,
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
@@ -42,7 +43,6 @@ from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
-_OWNED_WINDOW_PREFIX = "prompta:"
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
@@ -101,6 +101,7 @@ class PlaywrightDriver(BrowserDriverBase):
         self._owned_contexts: set[str] = set()
         self._attached = bool(self.debugger_address)
         self._connected = False
+        self._next_orphan_cleanup_at = 0.0
 
     @property
     def is_connected(self) -> bool:
@@ -172,19 +173,23 @@ class PlaywrightDriver(BrowserDriverBase):
                 "",
             )
 
-    async def _mark_owned(self, page: Page) -> None:
-        stamp = int(time.time())
-        marker = f"{_OWNED_WINDOW_PREFIX}{stamp}:{uuid.uuid4().hex}"
-        await page.evaluate("(value) => { window.name = value; }", marker)
-
-    async def _is_owned_page(self, page: Page) -> bool:
+    async def _owned_page_started_at(self, page: Page) -> int | None:
         if page.is_closed():
-            return False
+            return None
         try:
             name = await page.evaluate("window.name")
         except PlaywrightError:
-            return False
-        return isinstance(name, str) and name.startswith(_OWNED_WINDOW_PREFIX)
+            return None
+        return owned_window_started_at(name)
+
+    async def _mark_owned(self, page: Page) -> None:
+        await page.evaluate(
+            "(value) => { window.name = value; }",
+            new_owned_window_marker(),
+        )
+
+    async def _is_owned_page(self, page: Page) -> bool:
+        return await self._owned_page_started_at(page) is not None
 
     async def _cleanup_stale_owned_pages(self, browser_context: BrowserContext) -> None:
         for page in list(browser_context.pages):
@@ -193,6 +198,39 @@ class PlaywrightDriver(BrowserDriverBase):
                     await page.close()
                 except PlaywrightError:
                     pass
+
+    async def cleanup_orphan_pages(
+        self,
+        *,
+        minimum_age_seconds: float = 60.0,
+        interval_seconds: float = 30.0,
+    ) -> int:
+        browser_context = self._browser_context
+        if browser_context is None:
+            return 0
+
+        loop = asyncio.get_running_loop()
+        now_monotonic = loop.time()
+        if now_monotonic < self._next_orphan_cleanup_at:
+            return 0
+        self._next_orphan_cleanup_at = now_monotonic + max(1.0, interval_seconds)
+
+        cutoff = time.time() - max(1.0, minimum_age_seconds)
+        closed = 0
+        for page in list(browser_context.pages):
+            if page in self._page_contexts:
+                continue
+            started_at = await self._owned_page_started_at(page)
+            if started_at is None or started_at > cutoff:
+                continue
+            try:
+                await page.close()
+            except PlaywrightError:
+                continue
+            closed += 1
+        if closed:
+            logger.warning("Prompta reaped %d orphaned browser tab(s)", closed)
+        return closed
 
     def _on_request(self, request: Request) -> None:
         capture = self._send_capture
