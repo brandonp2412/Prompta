@@ -12,6 +12,7 @@
 
   const coarsePointer = new MediaQuery("(pointer: coarse)");
   let actionsKey = $state("");
+  let actionsCanBump = $state(false);
   let actionsOpen = $state(false);
   let pendingLongPressTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingLongPressPointerId: number | null = null;
@@ -114,11 +115,17 @@
 
     clearPendingLongPress();
     actionsKey = String(message.pending_delete_key);
+    actionsCanBump = Boolean(message.pending_bump_key);
     actionsOpen = true;
   }
 
   function closeActions() {
     actionsOpen = false;
+  }
+
+  function bumpPending() {
+    closeActions();
+    conversationState.onBump(actionsKey);
   }
 
   function editPending() {
@@ -166,6 +173,7 @@
           "send-error": Boolean(message.send_error),
           "pending-activity": Boolean(message.pending_activity),
           "pending-message-action-target": Boolean(message.pending_delete_key),
+          "pending-message-bumpable": Boolean(message.pending_bump_key),
           "pending-message-deleting": deleting,
         },
       ]}
@@ -221,17 +229,47 @@
         {/if}
 
         {#if message.pending_delete_key}
-          <button
-            type="button"
-            class="delete-pending-button"
-            aria-label="Delete queued message"
-            title="Delete queued message"
-            disabled={deleting}
-            aria-busy={deleting ? "true" : undefined}
-            onclick={() => conversationState.onDelete(String(message.pending_delete_key))}
-          >
-            ×
-          </button>
+          <div class="pending-message-controls" aria-label="Queued message actions">
+            <button
+              type="button"
+              class="pending-message-button edit-pending-button"
+              aria-label="Edit queued message"
+              title="Edit queued message"
+              disabled={deleting}
+              onclick={() => conversationState.onEdit(String(message.pending_delete_key))}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Zm10.6-13.4 3 3"></path>
+              </svg>
+            </button>
+            {#if message.pending_bump_key}
+              <button
+                type="button"
+                class="pending-message-button bump-pending-button"
+                aria-label="Send queued message next"
+                title="Send queued message next"
+                disabled={deleting}
+                onclick={() => conversationState.onBump(String(message.pending_bump_key))}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 19V5m-6 6 6-6 6 6"></path>
+                </svg>
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="pending-message-button delete-pending-button"
+              aria-label="Delete queued message"
+              title="Delete queued message"
+              disabled={deleting}
+              aria-busy={deleting ? "true" : undefined}
+              onclick={() => conversationState.onDelete(String(message.pending_delete_key))}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path>
+              </svg>
+            </button>
+          </div>
         {/if}
 
         {#if streaming(message)}
@@ -264,6 +302,9 @@
 >
   <div class="pending-message-actions-shell">
     <div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div>
+    {#if actionsCanBump}
+      <button type="button" class="pending-message-action" onclick={bumpPending}>Send next</button>
+    {/if}
     <button type="button" class="pending-message-action" onclick={editPending}>Edit message</button>
     <button type="button" class="pending-message-action danger" onclick={deletePending}>
       Delete message

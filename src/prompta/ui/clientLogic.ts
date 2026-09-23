@@ -70,6 +70,19 @@ export function sidebarChatIsPending(chat: SidebarOrderChat | null | undefined):
   return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
 
+export function pendingConversationStatus(
+  existingStatus: string | null | undefined,
+  pendingStatus: string | null | undefined,
+): string {
+  const current = String(existingStatus || "").trim();
+
+  if (current) return current;
+
+  const pending = String(pendingStatus || "").trim();
+
+  return ["failed", "dead_lettered"].includes(pending) ? pending : "pending";
+}
+
 export const BROKEN_CHAT_AFTER_SECONDS = 40 * 60;
 
 type ChatHealthMessage = {

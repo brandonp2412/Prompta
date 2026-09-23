@@ -314,7 +314,24 @@
           autocomplete="off"
           oninput={() => appActions.onSearch(appViewState.searchValue)}
         />
-        <kbd>/</kbd>
+        {#if appViewState.searchValue}
+          <button
+            type="button"
+            class="search-clear"
+            aria-label="Clear search"
+            title="Clear search"
+            onclick={() => {
+              appViewState.searchValue = "";
+              appActions.onSearch("");
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18"></path>
+            </svg>
+          </button>
+        {:else}
+          <kbd>/</kbd>
+        {/if}
       </label>
       <div class="sidebar-filters" aria-label="Conversation filters">
         {#each sidebarFilterOptions as filter (filter.key)}

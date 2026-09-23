@@ -19,6 +19,7 @@ import {
   parseAtSlashCommand,
   parseScheduleSlashCommand,
   pendingConversationDisplayId,
+  pendingConversationStatus,
   pendingConversationSends,
   promotePinnedConversationId,
   pendingSendActivity,
@@ -346,6 +347,12 @@ describe("deterministic sidebar ordering", () => {
     expect(sidebarChatIsPending({ id: "new", _optimisticNew: true })).toBe(true);
     expect(sidebarChatIsPending({ id: "reply", _optimisticReply: true })).toBe(true);
     expect(sidebarChatIsPending({ id: "done" })).toBe(false);
+  });
+
+  test("pending sends do not make a conversation active before ChatGPT replies", () => {
+    expect(pendingConversationStatus("complete", "queued")).toBe("complete");
+    expect(pendingConversationStatus("", "queued")).toBe("pending");
+    expect(pendingConversationStatus("", "running")).toBe("pending");
   });
 
   test("keeps the pending new chat selected after the server assigns its conversation id", () => {

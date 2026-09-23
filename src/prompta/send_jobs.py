@@ -221,6 +221,24 @@ class SendJobRegistry:
         finally:
             connection.close()
 
+    def _bump_database_record(self, send_id: str) -> None:
+        connection = self._connect_database()
+        if connection is None:
+            return
+        try:
+            connection.execute(
+                """
+                UPDATE send_jobs
+                SET sequence = (SELECT COALESCE(MIN(sequence), 0) - 1 FROM send_jobs)
+                WHERE send_id = ?
+                  AND status IN ('queued', 'retrying', 'rate_limited')
+                """,
+                (send_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
     def _worker_loop(self) -> None:
         while True:
             task = self._next_database_task()
@@ -483,6 +501,7 @@ class SendJobRegistry:
                     "retry_after_seconds": 0,
                     "retry_attempt": retry_attempt,
                     "attachment_names": [Path(value).name for value in attachments],
+                    "_attachments": attachments,
                 }
                 if client_id:
                     self._client_jobs[client_id] = send_id
@@ -532,6 +551,7 @@ class SendJobRegistry:
                 if restored_status in {"rate_limited", "retrying"}
                 else 0,
                 "attachment_names": [Path(value).name for value in attachments],
+                "_attachments": attachments,
             }
             if client_id:
                 self._client_jobs[client_id] = send_id
@@ -610,6 +630,7 @@ class SendJobRegistry:
 
     def _job_with_queue_position_locked(self, job: dict[str, Any]) -> dict[str, Any]:
         result = dict(job)
+        result.pop("_attachments", None)
         if str(job.get("status") or "") != "queued":
             return result
 
@@ -646,6 +667,92 @@ class SendJobRegistry:
             result["queue_eta_at"] = now + queue_eta_seconds
         return result
 
+    def _coalesce_queued_reply_locked(
+        self,
+        *,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+        client_id: str,
+        now: float,
+    ) -> dict[str, Any] | None:
+        if not conversation_id:
+            return None
+
+        for existing in self._jobs.values():
+            if (
+                str(existing.get("operation") or "") != "reply"
+                or str(existing.get("conversation_id") or "") != conversation_id
+                or str(existing.get("status") or "") != "queued"
+            ):
+                continue
+
+            send_id = str(existing.get("send_id") or "")
+            primary_client_id = str(existing.get("client_id") or "")
+            existing_message = str(existing.get("message") or "")
+            merged_message = "\n".join(value for value in (existing_message, message) if value)
+            raw_existing_attachments = existing.get("_attachments", [])
+            existing_attachments = (
+                [str(value) for value in raw_existing_attachments if isinstance(value, str)]
+                if isinstance(raw_existing_attachments, list)
+                else []
+            )
+            merged_attachments = [*existing_attachments, *attachments]
+
+            existing.update(
+                message=merged_message,
+                updated_at=now,
+                attachment_count=len(merged_attachments),
+                attachment_names=[Path(value).name for value in merged_attachments],
+                _attachments=merged_attachments,
+            )
+            if client_id:
+                self._client_jobs[client_id] = send_id
+
+            if self._queue_path is None:
+                for index, task in enumerate(self._fallback_tasks):
+                    if task[0] != send_id:
+                        continue
+                    self._fallback_tasks[index] = (
+                        send_id,
+                        "reply",
+                        merged_message,
+                        conversation_id,
+                        merged_attachments,
+                        primary_client_id,
+                    )
+                    break
+            elif self._recovery_path is None:
+                self._upsert_database_record(
+                    {
+                        "send_id": send_id,
+                        "operation": "reply",
+                        "message": merged_message,
+                        "conversation_id": conversation_id,
+                        "attachments": merged_attachments,
+                        "client_id": primary_client_id,
+                        "status": "queued",
+                        "created_at": float(existing.get("created_at") or now),
+                    }
+                )
+            else:
+                self._remember_recoverable(
+                    send_id=send_id,
+                    operation="reply",
+                    message=merged_message,
+                    conversation_id=conversation_id,
+                    attachments=merged_attachments,
+                    client_id=primary_client_id,
+                    created_at=float(existing.get("created_at") or now),
+                    status="queued",
+                )
+
+            self._revision += 1
+            self._work_event.set()
+            return self._job_with_queue_position_locked(existing)
+
+        return None
+
     def submit(
         self,
         *,
@@ -671,6 +778,7 @@ class SendJobRegistry:
             "updated_at": now,
             "attachment_count": len(attachment_paths),
             "attachment_names": [Path(value).name for value in attachment_paths],
+            "_attachments": attachment_paths,
         }
         with self._lock:
             cutoff = now - 3600.0
@@ -713,6 +821,18 @@ class SendJobRegistry:
                                 exc_info=True,
                             )
                     return self._job_with_queue_position_locked(existing)
+
+            if operation == "reply":
+                coalesced = self._coalesce_queued_reply_locked(
+                    message=message,
+                    conversation_id=conversation_id,
+                    attachments=attachment_paths,
+                    client_id=normalized_client_id,
+                    now=now,
+                )
+                if coalesced is not None:
+                    return coalesced
+
             try:
                 self._remember_recoverable(
                     send_id=send_id,
@@ -799,6 +919,47 @@ class SendJobRegistry:
         self._cleanup_attachments(attachments)
         self._work_event.set()
         return True
+
+    def bump_to_front(self, send_id: str) -> dict[str, Any] | None:
+        """Move a pending send ahead of the other queued sends."""
+        with self._lock:
+            job = self._jobs.get(send_id)
+            if job is None or str(job.get("status") or "") not in {
+                "queued",
+                "retrying",
+                "rate_limited",
+            }:
+                return None
+
+            if self._queue_path is None:
+                for index, task in enumerate(self._fallback_tasks):
+                    if task[0] != send_id:
+                        continue
+                    self._fallback_tasks.insert(0, self._fallback_tasks.pop(index))
+                    break
+            else:
+                self._bump_database_record(send_id)
+
+            reordered: dict[str, dict[str, Any]] = {}
+            inserted = False
+            for key, candidate in self._jobs.items():
+                if key == send_id:
+                    continue
+                if not inserted and str(candidate.get("status") or "") in {
+                    "queued",
+                    "retrying",
+                    "rate_limited",
+                }:
+                    reordered[send_id] = job
+                    inserted = True
+                reordered[key] = candidate
+            if not inserted:
+                reordered[send_id] = job
+            self._jobs = reordered
+            self._revision += 1
+            result = self._job_with_queue_position_locked(job)
+            self._work_event.set()
+            return result
 
     def list_pending(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -957,6 +1118,18 @@ class SendJobRegistry:
                     status="running",
                     retry_attempt=generic_attempt,
                 )
+                with self._lock:
+                    latest = self._jobs.get(send_id)
+                    if latest is not None:
+                        message = str(latest.get("message") or message)
+                        raw_latest_attachments = latest.get("_attachments")
+                        if isinstance(raw_latest_attachments, list):
+                            attachments = [
+                                str(value)
+                                for value in raw_latest_attachments
+                                if isinstance(value, str)
+                            ]
+
                 try:
                     result = self._sender(operation, message, conversation_id, attachments)
                 except Exception as exc:

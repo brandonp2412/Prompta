@@ -208,7 +208,7 @@ class PromptaUIServer(ThreadingHTTPServer):
             "prompt": message,
             "url": "",
             "title": message[:72] or "New chat",
-            "status": "active",
+            "status": "pending",
             "created_at": created_at,
             "updated_at": updated_at,
             "completed_at": None,
@@ -949,6 +949,26 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
                 return
             self._json({"ok": True, **result}, HTTPStatus.CREATED)
+            return
+
+        send_prefix = "/api/sends/"
+        bump_suffix = "/bump"
+        if path.startswith(send_prefix) and path.endswith(bump_suffix):
+            send_id = unquote(path[len(send_prefix) : -len(bump_suffix)]).strip("/")
+            if not send_id:
+                self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
+                return
+
+            server = cast(PromptaUIServer, self.server)
+            job = server.send_jobs.bump_to_front(send_id)
+            if job is None:
+                current = server.send_jobs.get(send_id)
+                status = HTTPStatus.NOT_FOUND if current is None else HTTPStatus.CONFLICT
+                error = "Send not found" if current is None else "Send is no longer pending"
+                self._json({"error": error}, status)
+                return
+
+            self._json({"ok": True, **job})
             return
 
         if path == "/api/chats":

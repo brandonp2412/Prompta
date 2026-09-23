@@ -518,6 +518,7 @@ def test_ui_server_exposes_pending_new_chat_before_chatgpt_assigns_an_id(tmp_pat
 
     assert [item["id"] for item in chats] == [pending_id]
     assert chats[0]["_pending_send"] is True
+    assert chats[0]["status"] == "pending"
     assert chats[0]["created_at"] == 1_000.0
     assert chat is not None
     assert chat["id"] == pending_id
@@ -584,7 +585,7 @@ def test_ui_server_keeps_successful_new_chat_visible_before_cache_adopts_it(tmp_
             "prompt": "Persist in the sidebar",
             "url": "",
             "title": "Persist in the sidebar",
-            "status": "active",
+            "status": "pending",
             "created_at": 1_000.0,
             "updated_at": 1_005.0,
             "completed_at": None,
@@ -1466,6 +1467,63 @@ def test_send_job_registry_reuses_client_id_concurrently() -> None:
     assert calls == 1
 
 
+def test_send_job_registry_coalesces_queued_replies_for_same_conversation(tmp_path: Path) -> None:
+    blocker_started = Event()
+    release_blocker = Event()
+    calls: list[tuple[str, str, str]] = []
+
+    def sender(
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+    ) -> str:
+        del attachments
+        calls.append((operation, message, conversation_id))
+        if message == "blocker":
+            blocker_started.set()
+            assert release_blocker.wait(timeout=1.0)
+            return "chat-blocker"
+        return conversation_id
+
+    registry = SendJobRegistry(
+        sender,
+        recovery_path=tmp_path / "coalesced-send-recovery.json",
+    )
+    registry.submit(operation="once", message="blocker")
+    assert blocker_started.wait(timeout=1.0)
+
+    first = registry.submit(
+        operation="reply",
+        message="first pending post",
+        conversation_id="chat-pending",
+    )
+    second = registry.submit(
+        operation="reply",
+        message="second pending post",
+        conversation_id="chat-pending",
+    )
+
+    assert second["send_id"] == first["send_id"]
+    queued = registry.get(first["send_id"])
+    assert queued is not None
+    assert queued["message"] == "first pending post\nsecond pending post"
+
+    release_blocker.set()
+    deadline = time.monotonic() + 1.0
+    result = registry.get(first["send_id"])
+    while result is not None and result["status"] != "succeeded" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = registry.get(first["send_id"])
+
+    assert result is not None
+    assert result["status"] == "succeeded"
+    assert calls == [
+        ("once", "blocker", ""),
+        ("reply", "first pending post\nsecond pending post", "chat-pending"),
+    ]
+
+
 def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     first_started = Event()
     release_first = Event()
@@ -1522,6 +1580,47 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     assert first_result is not None and first_result["status"] == "succeeded"
     assert second_result is not None and second_result["status"] == "succeeded"
     assert third_result is not None and third_result["status"] == "succeeded"
+
+
+def test_send_job_registry_can_bump_pending_send_to_front(tmp_path: Path) -> None:
+    first_started = Event()
+    release_first = Event()
+    calls: list[str] = []
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        del operation, conversation_id, attachments
+        calls.append(message)
+        if message == "first":
+            first_started.set()
+            assert release_first.wait(timeout=1.0)
+        return f"chat-{message}"
+
+    registry = SendJobRegistry(sender, recovery_path=tmp_path / "ui-send-retries.json")
+    first = registry.submit(operation="once", message="first")
+    assert first_started.wait(timeout=1.0)
+    second = registry.submit(operation="once", message="second")
+    third = registry.submit(operation="once", message="third")
+
+    bumped = registry.bump_to_front(third["send_id"])
+    assert bumped is not None
+    assert bumped["queue_position"] == 1
+
+    queued_second = registry.get(second["send_id"])
+    assert queued_second is not None
+    assert queued_second["queue_position"] == 2
+
+    release_first.set()
+    deadline = time.monotonic() + 1.0
+    results = [registry.get(item["send_id"]) for item in (first, second, third)]
+    while (
+        any(result is None or result["status"] != "succeeded" for result in results)
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+        results = [registry.get(item["send_id"]) for item in (first, second, third)]
+
+    assert calls == ["first", "third", "second"]
+    assert all(result is not None and result["status"] == "succeeded" for result in results)
 
 
 def test_send_job_registry_estimates_queued_eta_from_active_rate_limit() -> None:

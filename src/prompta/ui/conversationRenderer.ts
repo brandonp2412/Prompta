@@ -8,14 +8,17 @@ import { imageAttachments } from "./conversationLogic";
 
 export function createConversationRenderer({
   onRetry,
+  onBump,
   onDelete,
   onEdit,
 }: {
   onRetry: (scope: string, key: string) => void;
+  onBump: (key: string) => void;
   onDelete: (key: string) => void;
   onEdit: (key: string) => void;
 }) {
   conversationState.onRetry = onRetry;
+  conversationState.onBump = onBump;
   conversationState.onDelete = onDelete;
   conversationState.onEdit = onEdit;
 
@@ -35,6 +38,7 @@ export function createConversationRenderer({
       message.pending_activity_label,
       message.retry_scope,
       message.retry_key,
+      message.pending_bump_key,
       message.pending_delete_key,
       message.created_at,
       message.updated_at,

@@ -243,6 +243,29 @@ textarea:focus-visible {
   border-color: rgba(16, 163, 127, 0.45);
   background: var(--accent-soft);
   color: var(--accent);
+
+.search-clear {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.search-clear:hover,
+.search-clear:focus-visible {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.search-clear svg {
+  width: 14px;
+  height: 14px;
 }
 
 .sidebar-action {
@@ -1023,13 +1046,22 @@ textarea:focus-visible {
 
 .message.user.pending-message-action-target .message-inner {
   position: relative;
-  padding-right: 46px;
+  padding-right: 78px;
 }
 
-.delete-pending-button {
+.message.user.pending-message-bumpable .message-inner {
+  padding-right: 110px;
+}
+
+.pending-message-controls {
   position: absolute;
   top: 7px;
   right: 7px;
+  display: flex;
+  gap: 2px;
+}
+
+.pending-message-button {
   width: 30px;
   height: 30px;
   display: grid;
@@ -1049,7 +1081,7 @@ textarea:focus-visible {
     transform 120ms ease;
 }
 
-.delete-pending-button svg {
+.pending-message-button svg {
   width: 15px;
   height: 15px;
   fill: none;
@@ -1059,9 +1091,16 @@ textarea:focus-visible {
   stroke-linejoin: round;
 }
 
-.message.user:hover .delete-pending-button,
-.delete-pending-button:focus-visible {
+.message.user:hover .pending-message-button,
+.pending-message-button:focus-visible {
   opacity: 1;
+}
+
+.edit-pending-button:hover,
+.bump-pending-button:hover {
+  border-color: color-mix(in srgb, var(--text) 24%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
 }
 
 .delete-pending-button:hover {
@@ -1070,11 +1109,11 @@ textarea:focus-visible {
   color: color-mix(in srgb, var(--danger) 92%, white);
 }
 
-.delete-pending-button:active {
+.pending-message-button:active {
   transform: scale(0.94);
 }
 
-.delete-pending-button:disabled {
+.pending-message-button:disabled {
   cursor: default;
   opacity: 1;
   transform: none;
@@ -1169,7 +1208,7 @@ textarea:focus-visible {
     padding-right: 15px;
   }
 
-  .delete-pending-button {
+  .pending-message-controls {
     display: none;
   }
 }

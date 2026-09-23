@@ -12,6 +12,7 @@ import {
   matchingOptimisticConversation,
   missingPendingConversationSummaries,
   pendingConversationDisplayId,
+  pendingConversationStatus,
   promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
   parseAtSlashCommand,
@@ -255,6 +256,7 @@ const jobsDialog = getJobsDialog();
 
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
+  onBump: bumpPendingSend,
   onDelete: deletePendingSend,
   onEdit: editPendingSend,
 });
@@ -609,7 +611,7 @@ function sidebarChats(): UiChat[] {
 
     return {
       ...chat,
-      status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
+      status: pendingConversationStatus(chat.status, latest.status),
       preview: latest.message,
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
       last_user_at: Math.max(
@@ -638,7 +640,7 @@ function sidebarChats(): UiChat[] {
   const pendingId = pendingConversationDisplayId(pending);
   const optimistic = {
     id: pendingId,
-    status: ["failed", "dead_lettered"].includes(pending.status) ? pending.status : "active",
+    status: pendingConversationStatus("", pending.status),
     title: truncate(pending.message, 72) || "New chat",
     preview: pending.message,
     message_count: 1,
@@ -837,6 +839,8 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         attachments: item.attachments || [],
         status: "complete",
         updated_at: item.updatedAt,
+        pending_bump_key:
+          Number(item.queuePosition || 0) > 1 ? item.clientId || item.sendId || "" : "",
         pending_delete_key: item.clientId || item.sendId || "",
       });
     }
@@ -1137,6 +1141,8 @@ function renderNewChat() {
           attachments: pending.attachments || [],
           status: "complete",
           updated_at: pending.updatedAt,
+          pending_bump_key:
+            Number(pending.queuePosition || 0) > 1 ? pending.clientId || pending.sendId || "" : "",
           pending_delete_key: pending.clientId || pending.sendId || "",
         },
       ];
@@ -1776,6 +1782,51 @@ function setPendingDeleteBusy(deleteKey: string, busy: boolean) {
   conversationRenderer.setPendingDeleteBusy(deleteKey, busy);
 }
 
+async function bumpPendingSend(bumpKey: string) {
+  let pending: PendingReply | null = null;
+  const conversationId = state.selectedId || "";
+
+  if (
+    state.pendingNewSend &&
+    (state.pendingNewSend.clientId === bumpKey || state.pendingNewSend.sendId === bumpKey)
+  ) {
+    pending = state.pendingNewSend;
+  } else if (conversationId) {
+    pending =
+      (state.pendingReplies.get(conversationId) || []).find(
+        (item) => item.clientId === bumpKey || item.sendId === bumpKey,
+      ) || null;
+  }
+
+  if (!pending) return;
+
+  const sendId = String(pending.sendId || "");
+
+  if (!sendId) {
+    setComposerStatus("Message is still entering the queue. Try sending it next again.");
+
+    return;
+  }
+
+  try {
+    const job = await postJson("api/sends/" + encodeURIComponent(sendId) + "/bump", {});
+    pending.queuePosition = Number(job.queue_position || 1);
+    pending.queueEtaAt = Number(job.queue_eta_at || 0);
+    pending.updatedAt = Date.now() / 1000;
+
+    if (state.pendingNewSend === pending && state.composingNew) renderNewChat();
+    else if (state.selectedChat?.id === conversationId) {
+      state.selectedFingerprint = "";
+      renderConversation(state.selectedChat);
+    }
+
+    setComposerStatus("Queued message moved to the front.");
+  } catch (error) {
+    console.warn("Could not bump pending Prompta send", error);
+    setComposerStatus("Could not move the pending message to the front.");
+  }
+}
+
 async function deletePendingSend(deleteKey: string) {
   let pending: PendingReply | null = null;
   let creatingNew = false;
@@ -1981,7 +2032,6 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextQueueEtaAt = Number(job.queue_eta_at || 0);
 
       if (nextConversationId) {
-        completionNotifications.markActive(nextConversationId);
         promotePendingConversationPin(pendingNewSend, nextConversationId);
       }
 
@@ -2324,7 +2374,41 @@ async function sendSelectedMessage() {
 
     if (!result.send_id) throw new Error("Prompta did not return a send id");
 
-    if (!creatingNew) completionNotifications.markActive(conversationId);
+    const coalescedReply = !creatingNew
+      ? (state.pendingReplies.get(conversationId || "") || []).find(
+          (item) => item !== pending && item.sendId === result.send_id,
+        )
+      : null;
+
+    if (coalescedReply) {
+      const coalescedUiReply = coalescedReply as UiPendingSend;
+      coalescedReply.message = [coalescedReply.message, pending.message].filter(Boolean).join("\n");
+      coalescedUiReply.attachmentNames = [
+        ...(coalescedUiReply.attachmentNames || []),
+        ...(pending.attachmentNames || []),
+      ];
+      coalescedReply.attachments = [
+        ...(coalescedReply.attachments || []),
+        ...(pending.attachments || []),
+      ];
+      coalescedReply.status = result.status || "queued";
+      coalescedReply.queuePosition = Number(result.queue_position || 0);
+      coalescedReply.updatedAt = Date.now() / 1000;
+      state.pendingReplies.set(
+        conversationId || "",
+        (state.pendingReplies.get(conversationId || "") || []).filter((item) => item !== pending),
+      );
+
+      if (attachments.length) attachmentPicker.clear();
+
+      state.selectedFingerprint = "";
+
+      if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
+
+      renderSidebar();
+
+      return;
+    }
 
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";

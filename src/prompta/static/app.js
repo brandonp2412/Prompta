@@ -6238,8 +6238,8 @@ init_uiControllers();
 var root$8 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
 var root_1$7 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
-var root_3$5 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_4$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
+var root_4$6 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
 	const mobile = new MediaQuery("(max-width: 600px)");
@@ -6278,7 +6278,7 @@ function ChangelogDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_4$5();
+	var dialog = root_4$6();
 	var div = child(dialog);
 	var header = child(div);
 	var div_1 = child(header);
@@ -6314,7 +6314,7 @@ function ChangelogDialog($$anchor, $$props) {
 		append($$anchor, fragment);
 	};
 	var alternate = ($$anchor) => {
-		var li_2 = root_3$5();
+		var li_2 = root_3$6();
 		var text_3 = only_child(li_2, true);
 		template_effect(($0) => set_text(text_3, $0), [() => get(status).startsWith("Loading") ? "Loading changes…" : "No Git commit history is available."]);
 		append($$anchor, li_2);
@@ -6629,6 +6629,12 @@ function sidebarChatLastUserAt(chat) {
 }
 function sidebarChatIsPending(chat) {
 	return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
+}
+function pendingConversationStatus(existingStatus, pendingStatus) {
+	const current = String(existingStatus || "").trim();
+	if (current) return current;
+	const pending = String(pendingStatus || "").trim();
+	return ["failed", "dead_lettered"].includes(pending) ? pending : "pending";
 }
 function positiveEpoch(value) {
 	const epoch = Number(value || 0);
@@ -7224,8 +7230,8 @@ init_clientLogic();
 var root$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
 var root_1$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
 var root_2$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
-var root_3$4 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
-var root_4$4 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
+var root_3$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
+var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
 var root_5$4 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
 function Composer($$anchor, $$props) {
 	push($$props, true);
@@ -7361,10 +7367,10 @@ function Composer($$anchor, $$props) {
 	var button_2 = sibling(button_1, 2);
 	var node_2 = child(button_2);
 	var consequent_1 = ($$anchor) => {
-		append($$anchor, root_3$4());
+		append($$anchor, root_3$5());
 	};
 	var alternate = ($$anchor) => {
-		append($$anchor, root_4$4());
+		append($$anchor, root_4$5());
 	};
 	if_block(node_2, ($$render) => {
 		if (appViewState.composerAction === "stop") $$render(consequent_1);
@@ -15416,14 +15422,14 @@ init_browserAttachments_svelte();
 var root$5 = /* @__PURE__ */ from_html(`<span><!></span>`);
 var root_1$4 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
 var root_2$4 = /* @__PURE__ */ from_html(`<em><!></em>`);
-var root_3$3 = /* @__PURE__ */ from_html(`<del><!></del>`);
-var root_4$3 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
+var root_3$4 = /* @__PURE__ */ from_html(`<del><!></del>`);
+var root_4$4 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<br/>`);
 var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
 var root_7$2 = /* @__PURE__ */ from_html(`<p><!></p>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
-var root_9 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
-var root_10 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
+var root_9$1 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
+var root_10$1 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
 var root_11 = /* @__PURE__ */ from_html(`<h4><!></h4>`);
 var root_12 = /* @__PURE__ */ from_html(`<h5><!></h5>`);
 var root_13 = /* @__PURE__ */ from_html(`<h6><!></h6>`);
@@ -15528,7 +15534,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, em);
 			};
 			var consequent_7 = ($$anchor) => {
-				var del = root_3$3();
+				var del = root_3$4();
 				var node_9 = child(del);
 				{
 					let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -15538,7 +15544,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, del);
 			};
 			var consequent_8 = ($$anchor) => {
-				var code_1 = root_4$3();
+				var code_1 = root_4$4();
 				var text_3 = only_child(code_1, true);
 				template_effect(() => set_text(text_3, get(token).text));
 				append($$anchor, code_1);
@@ -15628,7 +15634,7 @@ function MarkdownContent($$anchor, $$props) {
 					append($$anchor, h1);
 				};
 				var consequent_16 = ($$anchor) => {
-					var h2 = root_9();
+					var h2 = root_9$1();
 					var node_17 = child(h2);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -15638,7 +15644,7 @@ function MarkdownContent($$anchor, $$props) {
 					append($$anchor, h2);
 				};
 				var consequent_17 = ($$anchor) => {
-					var h3 = root_10();
+					var h3 = root_10$1();
 					var node_18 = child(h3);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16055,6 +16061,7 @@ var init_conversationState_svelte = __esmMin((() => {
 			set(this.#deletingKeys, value);
 		}
 		onRetry = () => {};
+		onBump = () => {};
 		onDelete = () => {};
 		onEdit = () => {};
 	};
@@ -16091,16 +16098,19 @@ init_conversationLogic();
 var root$4 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div> <div class="conversation-loading-row conversation-loading-assistant"></div> <div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
 var root_1$3 = /* @__PURE__ */ from_html(`<div class="message-label"><span class="assistant-avatar"> </span> </div>`);
 var root_2$3 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img class="message-image-preview" loading="lazy" decoding="async"/></div>`);
-var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
-var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="delete-pending-button" aria-label="Delete queued message" title="Delete queued message">×</button>`);
-var root_5$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
-var root_6$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
-var root_7$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
-var root_8$1 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
+var root_3$3 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
+var root_4$3 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-button bump-pending-button" aria-label="Send queued message next" title="Send queued message next"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></button>`);
+var root_5$2 = /* @__PURE__ */ from_html(`<div class="pending-message-controls" aria-label="Queued message actions"><button type="button" class="pending-message-button edit-pending-button" aria-label="Edit queued message" title="Edit queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Zm10.6-13.4 3 3"></path></svg></button> <!> <button type="button" class="pending-message-button delete-pending-button" aria-label="Delete queued message" title="Delete queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path></svg></button></div>`);
+var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
+var root_7$1 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
+var root_8$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
+var root_9 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action">Send next</button>`);
+var root_10 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <!> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function ConversationMessages($$anchor, $$props) {
 	push($$props, true);
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
 	let actionsKey = /* @__PURE__ */ state$1("");
+	let actionsCanBump = /* @__PURE__ */ state$1(false);
 	let actionsOpen = /* @__PURE__ */ state$1(false);
 	let pendingLongPressTimer;
 	let pendingLongPressPointerId = null;
@@ -16185,10 +16195,15 @@ function ConversationMessages($$anchor, $$props) {
 		if (!message.pending_delete_key) return;
 		clearPendingLongPress();
 		set(actionsKey, String(message.pending_delete_key), true);
+		set(actionsCanBump, Boolean(message.pending_bump_key), true);
 		set(actionsOpen, true);
 	}
 	function closeActions() {
 		set(actionsOpen, false);
+	}
+	function bumpPending() {
+		closeActions();
+		conversationState.onBump(get(actionsKey));
 	}
 	function editPending() {
 		closeActions();
@@ -16198,7 +16213,7 @@ function ConversationMessages($$anchor, $$props) {
 		closeActions();
 		conversationState.onDelete(get(actionsKey));
 	}
-	var fragment = root_8$1();
+	var fragment = root_10();
 	event("keydown", $window, (event) => {
 		if (event.key === "Escape" && get(actionsOpen)) closeActions();
 	});
@@ -16214,7 +16229,7 @@ function ConversationMessages($$anchor, $$props) {
 		const value = timestamp(get(message), appViewState.clockTick);
 		const deleting = conversationState.deletingKeys.has(String(get(message).pending_delete_key || ""));
 		const role = get(message).role === "user" ? "user" : "assistant";
-		var section = root_7$1();
+		var section = root_8$1();
 		var div_2 = child(section);
 		var node_2 = child(div_2);
 		var consequent_1 = ($$anchor) => {
@@ -16270,7 +16285,7 @@ function ConversationMessages($$anchor, $$props) {
 		reset(div_5);
 		var node_6 = sibling(div_5, 2);
 		var consequent_4 = ($$anchor) => {
-			var button = root_3$2();
+			var button = root_3$3();
 			delegated("click", button, () => conversationState.onRetry(String(get(message).retry_scope), String(get(message).retry_key)));
 			append($$anchor, button);
 		};
@@ -16278,42 +16293,57 @@ function ConversationMessages($$anchor, $$props) {
 			if (get(message).send_error && get(message).retry_scope && get(message).retry_key) $$render(consequent_4);
 		});
 		var node_7 = sibling(node_6, 2);
-		var consequent_5 = ($$anchor) => {
-			var button_1 = root_4$2();
-			template_effect(() => {
-				button_1.disabled = deleting;
-				set_attribute(button_1, "aria-busy", deleting ? "true" : void 0);
-			});
-			delegated("click", button_1, () => conversationState.onDelete(String(get(message).pending_delete_key)));
-			append($$anchor, button_1);
-		};
-		if_block(node_7, ($$render) => {
-			if (get(message).pending_delete_key) $$render(consequent_5);
-		});
-		var node_8 = sibling(node_7, 2);
 		var consequent_6 = ($$anchor) => {
 			var div_6 = root_5$2();
-			var text_2 = sibling(child(div_6));
+			var button_1 = child(div_6);
+			var node_8 = sibling(button_1, 2);
+			var consequent_5 = ($$anchor) => {
+				var button_2 = root_4$3();
+				template_effect(() => button_2.disabled = deleting);
+				delegated("click", button_2, () => conversationState.onBump(String(get(message).pending_bump_key)));
+				append($$anchor, button_2);
+			};
+			if_block(node_8, ($$render) => {
+				if (get(message).pending_bump_key) $$render(consequent_5);
+			});
+			var button_3 = sibling(node_8, 2);
 			reset(div_6);
-			template_effect(() => set_text(text_2, ` ${(get(message).pending_activity_label || "writing") ?? ""}`));
+			template_effect(() => {
+				button_1.disabled = deleting;
+				button_3.disabled = deleting;
+				set_attribute(button_3, "aria-busy", deleting ? "true" : void 0);
+			});
+			delegated("click", button_1, () => conversationState.onEdit(String(get(message).pending_delete_key)));
+			delegated("click", button_3, () => conversationState.onDelete(String(get(message).pending_delete_key)));
 			append($$anchor, div_6);
 		};
-		var d = /* @__PURE__ */ user_derived(() => streaming(get(message)));
-		if_block(node_8, ($$render) => {
-			if (get(d)) $$render(consequent_6);
+		if_block(node_7, ($$render) => {
+			if (get(message).pending_delete_key) $$render(consequent_6);
 		});
-		var time = sibling(node_8, 2);
+		var node_9 = sibling(node_7, 2);
+		var consequent_7 = ($$anchor) => {
+			var div_7 = root_6$2();
+			var text_2 = sibling(child(div_7));
+			reset(div_7);
+			template_effect(() => set_text(text_2, ` ${(get(message).pending_activity_label || "writing") ?? ""}`));
+			append($$anchor, div_7);
+		};
+		var d = /* @__PURE__ */ user_derived(() => streaming(get(message)));
+		if_block(node_9, ($$render) => {
+			if (get(d)) $$render(consequent_7);
+		});
+		var time = sibling(node_9, 2);
 		var span_1 = child(time);
 		var text_3 = only_child(span_1, true);
-		var node_9 = sibling(span_1, 2);
-		var consequent_7 = ($$anchor) => {
-			var span_2 = root_6$2();
+		var node_10 = sibling(span_1, 2);
+		var consequent_8 = ($$anchor) => {
+			var span_2 = root_7$1();
 			var text_4 = only_child(span_2);
 			template_effect(() => set_text(text_4, `· ${value.age ?? ""}`));
 			append($$anchor, span_2);
 		};
-		if_block(node_9, ($$render) => {
-			if (value.age) $$render(consequent_7);
+		if_block(node_10, ($$render) => {
+			if (value.age) $$render(consequent_8);
 		});
 		reset(time);
 		reset(div_2);
@@ -16331,6 +16361,7 @@ function ConversationMessages($$anchor, $$props) {
 				"send-error": Boolean(get(message).send_error),
 				"pending-activity": Boolean(get(message).pending_activity),
 				"pending-message-action-target": Boolean(get(message).pending_delete_key),
+				"pending-message-bumpable": Boolean(get(message).pending_bump_key),
 				"pending-message-deleting": deleting
 			}
 		]), () => key(get(message), get(index))]);
@@ -16348,19 +16379,28 @@ function ConversationMessages($$anchor, $$props) {
 	});
 	reset(div);
 	var dialog = sibling(div, 2);
-	var div_7 = child(dialog);
-	var button_2 = sibling(child(div_7), 2);
-	var button_3 = sibling(button_2, 2);
-	var button_4 = sibling(button_3, 2);
-	reset(div_7);
+	var div_8 = child(dialog);
+	var node_11 = sibling(child(div_8), 2);
+	var consequent_9 = ($$anchor) => {
+		var button_4 = root_9();
+		delegated("click", button_4, bumpPending);
+		append($$anchor, button_4);
+	};
+	if_block(node_11, ($$render) => {
+		if (get(actionsCanBump)) $$render(consequent_9);
+	});
+	var button_5 = sibling(node_11, 2);
+	var button_6 = sibling(button_5, 2);
+	var button_7 = sibling(button_6, 2);
+	reset(div_8);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(actionsOpen), () => true, closeActions));
 	delegated("click", dialog, (event) => {
 		if (event.target === event.currentTarget) closeActions();
 	});
-	delegated("click", button_2, editPending);
-	delegated("click", button_3, deletePending);
-	delegated("click", button_4, closeActions);
+	delegated("click", button_5, editPending);
+	delegated("click", button_6, deletePending);
+	delegated("click", button_7, closeActions);
 	append($$anchor, fragment);
 	pop();
 }
@@ -16385,8 +16425,8 @@ init_uiControllers();
 var root$3 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No scheduled jobs.</div>`);
 var root_1$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><summary class="job-prompt-summary"><span class="job-prompt-preview" aria-hidden="true"> </span> <span class="job-prompt-toggle-label"><span class="job-prompt-show">Show full prompt</span> <span class="job-prompt-hide">Hide prompt</span></span></summary> <div class="job-row-prompt job-row-prompt-full"> </div></details>`);
 var root_2$2 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
-var root_3$1 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
-var root_4$1 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> </div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
+var root_3$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
+var root_4$2 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> </div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
 var root_6$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
 var root_7 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
@@ -16509,7 +16549,7 @@ function JobsDialog($$anchor, $$props) {
 		if (!get(jobs).length) $$render(consequent);
 	});
 	each(sibling(node, 2), 17, () => get(jobs), (job) => job.name, ($$anchor, job) => {
-		var article = root_4$1();
+		var article = root_4$2();
 		var div_4 = child(article);
 		var div_5 = child(div_4);
 		var div_6 = child(div_5);
@@ -16547,7 +16587,7 @@ function JobsDialog($$anchor, $$props) {
 		var div_10 = sibling(node_2, 2);
 		var node_3 = child(div_10);
 		var consequent_2 = ($$anchor) => {
-			var button_1 = root_3$1();
+			var button_1 = root_3$2();
 			delegated("click", button_1, () => edit(get(job)));
 			append($$anchor, button_1);
 		};
@@ -16799,8 +16839,8 @@ init_sidebarState_svelte();
 var root$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Prompta runs will appear here live.`, 1);
 var root_1$1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
 var root_2$1 = /* @__PURE__ */ from_html(`<span></span>`);
-var root_3 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
-var root_4 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
+var root_3$1 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
+var root_4$1 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
 var root_5 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
 var root_6 = /* @__PURE__ */ from_html(`<!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"> </button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function SidebarList($$anchor, $$props) {
@@ -16898,7 +16938,7 @@ function SidebarList($$anchor, $$props) {
 			var div_1 = child(section);
 			var text_2 = only_child(div_1, true);
 			each(sibling(div_1, 2), 17, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
-				var div_2 = root_4();
+				var div_2 = root_4$1();
 				var button = child(div_2);
 				var div_3 = child(button);
 				var node_4 = child(div_3);
@@ -16918,7 +16958,7 @@ function SidebarList($$anchor, $$props) {
 				var text_3 = only_child(span_1, true);
 				var node_5 = sibling(span_1, 2);
 				var consequent_4 = ($$anchor) => {
-					append($$anchor, root_3());
+					append($$anchor, root_3$1());
 				};
 				if_block(node_5, ($$render) => {
 					if (get(chat).broken) $$render(consequent_4);
@@ -17036,8 +17076,10 @@ init_browserAttachments_svelte();
 init_uiControllers();
 init_sidebarState_svelte();
 var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`);
-var root_1 = /* @__PURE__ */ from_html(`<button type="button"> </button>`);
-var root_2 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <div class="brand-mark" aria-hidden="true">P</div> <div class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></div> <div id="globalLiveOrb"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <kbd>/</kbd></label> <div class="sidebar-filters" aria-label="Conversation filters"></div></div> <div class="sidebar-scroll"><button type="button" class="sidebar-action" id="jobsSidebarButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path d="M8 12h3M8 16h3M14 12h2M14 16h2"></path></svg> <span>Jobs</span></button> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" role="button" tabindex="-1" aria-label="Close sidebar"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <div class="topbar-actions" aria-label="Prompta actions"><button id="pinChatButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span id="syncLabel" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!></main></div> <div class="action-toast" role="status" aria-live="polite" aria-atomic="true"> </div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!> <!>`, 1);
+var root_1 = /* @__PURE__ */ from_html(`<button type="button" class="search-clear" aria-label="Clear search" title="Clear search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>`);
+var root_2 = /* @__PURE__ */ from_html(`<kbd>/</kbd>`);
+var root_3 = /* @__PURE__ */ from_html(`<button type="button"> </button>`);
+var root_4 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <div class="brand-mark" aria-hidden="true">P</div> <div class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></div> <div id="globalLiveOrb"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <!></label> <div class="sidebar-filters" aria-label="Conversation filters"></div></div> <div class="sidebar-scroll"><button type="button" class="sidebar-action" id="jobsSidebarButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path d="M8 12h3M8 16h3M14 12h2M14 16h2"></path></svg> <span>Jobs</span></button> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" role="button" tabindex="-1" aria-label="Close sidebar"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <div class="topbar-actions" aria-label="Prompta actions"><button id="pinChatButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span id="syncLabel" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!></main></div> <div class="action-toast" role="status" aria-live="polite" aria-atomic="true"> </div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!> <!>`, 1);
 function App($$anchor, $$props) {
 	push($$props, true);
 	const serverDisplay = /* @__PURE__ */ user_derived(() => appViewState.serverDisplay || $$props.serverName);
@@ -17194,7 +17236,7 @@ function App($$anchor, $$props) {
 		requestSearchBlur();
 		closeSidebar(true);
 	}
-	var fragment = root_2();
+	var fragment = root_4();
 	head("1yzbt2b", ($$anchor) => {
 		var meta = root();
 		template_effect(() => set_attribute(meta, "content", "Prompta " + get(serverDisplay)));
@@ -17233,25 +17275,40 @@ function App($$anchor, $$props) {
 	remove_input_defaults(input);
 	attach(input, () => focusOnRequest(() => appViewState.searchFocusRequest));
 	attach(input, () => blurOnRequest(() => appViewState.searchBlurRequest));
-	next(2);
+	var node = sibling(input, 2);
+	var consequent = ($$anchor) => {
+		var button_1 = root_1();
+		delegated("click", button_1, () => {
+			appViewState.searchValue = "";
+			appActions.onSearch("");
+		});
+		append($$anchor, button_1);
+	};
+	var alternate = ($$anchor) => {
+		append($$anchor, root_2());
+	};
+	if_block(node, ($$render) => {
+		if (appViewState.searchValue) $$render(consequent);
+		else $$render(alternate, -1);
+	});
 	reset(label);
 	var div_5 = sibling(label, 2);
 	each(div_5, 21, () => sidebarFilterOptions, (filter) => filter.key, ($$anchor, filter) => {
-		var button_1 = root_1();
-		var text_1 = only_child(button_1, true);
+		var button_2 = root_3();
+		var text_1 = only_child(button_2, true);
 		template_effect(() => {
-			set_class(button_1, 1, clsx(["sidebar-filter-chip", { active: appViewState.sidebarFilters[get(filter).key] }]));
-			set_attribute(button_1, "aria-pressed", appViewState.sidebarFilters[get(filter).key]);
+			set_class(button_2, 1, clsx(["sidebar-filter-chip", { active: appViewState.sidebarFilters[get(filter).key] }]));
+			set_attribute(button_2, "aria-pressed", appViewState.sidebarFilters[get(filter).key]);
 			set_text(text_1, get(filter).label);
 		});
-		delegated("click", button_1, () => appActions.onSidebarFilter(get(filter).key));
-		append($$anchor, button_1);
+		delegated("click", button_2, () => appActions.onSidebarFilter(get(filter).key));
+		append($$anchor, button_2);
 	});
 	reset(div_5);
 	reset(div_1);
 	var div_6 = sibling(div_1, 2);
-	var button_2 = child(div_6);
-	var nav = sibling(button_2, 2);
+	var button_3 = child(div_6);
+	var nav = sibling(button_3, 2);
 	SidebarList(child(nav), {});
 	reset(nav);
 	reset(div_6);
@@ -17260,8 +17317,8 @@ function App($$anchor, $$props) {
 	var div_8 = child(div_7);
 	var text_2 = only_child(sibling(child(div_8), 2), true);
 	reset(div_8);
-	var button_3 = sibling(div_8, 2);
-	var text_3 = only_child(button_3, true);
+	var button_4 = sibling(div_8, 2);
+	var text_3 = only_child(button_4, true);
 	reset(div_7);
 	reset(aside);
 	attach(aside, () => reportElementWidth((width) => set(sidebarWidth, width, true)));
@@ -17269,16 +17326,16 @@ function App($$anchor, $$props) {
 	let styles_1;
 	var main = sibling(div_9, 2);
 	var header = child(main);
-	var button_4 = child(header);
-	var div_10 = sibling(button_4, 2);
+	var button_5 = child(header);
+	var div_10 = sibling(button_5, 2);
 	var div_11 = child(div_10);
 	var text_4 = only_child(div_11, true);
 	var text_5 = only_child(sibling(div_11, 2), true);
 	reset(div_10);
 	var div_13 = sibling(div_10, 2);
-	var button_5 = child(div_13);
-	var button_6 = sibling(button_5, 2);
-	var span_2 = sibling(button_6, 2);
+	var button_6 = child(div_13);
+	var button_7 = sibling(button_6, 2);
+	var span_2 = sibling(button_7, 2);
 	reset(div_13);
 	reset(header);
 	var section = sibling(header, 2);
@@ -17288,25 +17345,25 @@ function App($$anchor, $$props) {
 	reset(article);
 	reset(section);
 	attach(section, conversationViewport);
-	var node_2 = sibling(section, 2);
-	LogsPanel(node_2, {});
-	var node_3 = sibling(node_2, 2);
-	var consequent = ($$anchor) => {
+	var node_3 = sibling(section, 2);
+	LogsPanel(node_3, {});
+	var node_4 = sibling(node_3, 2);
+	var consequent_1 = ($$anchor) => {
 		Composer($$anchor, {});
 	};
-	if_block(node_3, ($$render) => {
-		if (appViewState.mode === "chats") $$render(consequent);
+	if_block(node_4, ($$render) => {
+		if (appViewState.mode === "chats") $$render(consequent_1);
 	});
 	reset(main);
 	reset(div);
 	attach(div, fitVisualViewport);
 	var div_15 = sibling(div, 2);
 	var text_6 = only_child(div_15, true);
-	var button_7 = sibling(div_15, 2);
-	var text_7 = only_child(button_7, true);
-	var node_4 = sibling(button_7, 2);
-	JobsDialog(node_4, {});
-	ChangelogDialog(sibling(node_4, 2), {});
+	var button_8 = sibling(div_15, 2);
+	var text_7 = only_child(button_8, true);
+	var node_5 = sibling(button_8, 2);
+	JobsDialog(node_5, {});
+	ChangelogDialog(sibling(node_5, 2), {});
 	template_effect(($0) => {
 		set_class(aside, 1, clsx(["sidebar", { "is-open": sidebarState.open }]));
 		styles = set_style(aside, "", styles, {
@@ -17317,7 +17374,7 @@ function App($$anchor, $$props) {
 		set_class(div_4, 1, clsx(["live-orb", { live: appViewState.live }]));
 		set_attribute(div_4, "title", appViewState.liveTitle);
 		set_text(text_2, appViewState.cacheSummary);
-		set_attribute(button_3, "title", appViewState.headTitle);
+		set_attribute(button_4, "title", appViewState.headTitle);
 		set_text(text_3, appViewState.headLabel);
 		set_class(div_9, 1, clsx(["sidebar-scrim", { "is-open": sidebarState.open }]));
 		styles_1 = set_style(div_9, "", styles_1, {
@@ -17325,15 +17382,15 @@ function App($$anchor, $$props) {
 			transition: sidebarDrag.active ? sidebarDrag.settling ? "opacity " + sidebarDrag.duration + "ms linear" : "none" : void 0,
 			"pointer-events": sidebarDrag.active ? "none" : void 0
 		});
-		set_attribute(button_4, "aria-expanded", sidebarState.open);
+		set_attribute(button_5, "aria-expanded", sidebarState.open);
 		set_text(text_4, appViewState.headingTitle);
 		set_text(text_5, appViewState.headingMeta);
-		set_class(button_5, 1, clsx(["icon-button", { active: appViewState.pinActive }]));
-		set_attribute(button_5, "aria-label", appViewState.pinLabel);
-		set_attribute(button_5, "title", appViewState.pinLabel);
-		set_attribute(button_5, "aria-pressed", appViewState.pinActive);
-		button_5.disabled = appViewState.pinDisabled;
-		button_6.disabled = appViewState.shareDisabled;
+		set_class(button_6, 1, clsx(["icon-button", { active: appViewState.pinActive }]));
+		set_attribute(button_6, "aria-label", appViewState.pinLabel);
+		set_attribute(button_6, "title", appViewState.pinLabel);
+		set_attribute(button_6, "aria-pressed", appViewState.pinActive);
+		button_6.disabled = appViewState.pinDisabled;
+		button_7.disabled = appViewState.shareDisabled;
 		set_class(span_2, 1, clsx([
 			"status-icon",
 			"sync",
@@ -17348,31 +17405,31 @@ function App($$anchor, $$props) {
 		set_attribute(article, "hidden", !appViewState.conversationVisible);
 		set_attribute(div_15, "hidden", !appViewState.actionToast);
 		set_text(text_6, appViewState.actionToast);
-		set_attribute(button_7, "aria-label", appViewState.updateApplying ? "Updating Prompta" : "New Prompta version available. Tap to update");
-		set_attribute(button_7, "hidden", !appViewState.updateAvailable);
-		button_7.disabled = appViewState.updateApplying;
+		set_attribute(button_8, "aria-label", appViewState.updateApplying ? "Updating Prompta" : "New Prompta version available. Tap to update");
+		set_attribute(button_8, "hidden", !appViewState.updateAvailable);
+		button_8.disabled = appViewState.updateApplying;
 		set_text(text_7, appViewState.updateApplying ? "Updating…" : "Update available");
 	}, [() => sidebarDrag.active ? String(sidebarDrag.progress) : void 0]);
 	event("transitionend", aside, handleSidebarTransitionEnd);
 	delegated("click", button, () => closeSidebar());
 	delegated("input", input, () => appActions.onSearch(appViewState.searchValue));
 	bind_value(input, () => appViewState.searchValue, ($$value) => appViewState.searchValue = $$value);
-	delegated("click", button_2, () => void getJobsDialog().open());
-	delegated("click", button_3, () => void getChangelogDialog().open());
+	delegated("click", button_3, () => void getJobsDialog().open());
+	delegated("click", button_4, () => void getChangelogDialog().open());
 	delegated("click", div_9, () => closeSidebar());
 	delegated("keydown", div_9, (event) => {
 		if (event.key === "Enter" || event.key === " ") closeSidebar();
 	});
-	delegated("click", button_4, function(...$$args) {
+	delegated("click", button_5, function(...$$args) {
 		openSidebar?.apply(this, $$args);
 	});
-	delegated("click", button_5, function(...$$args) {
+	delegated("click", button_6, function(...$$args) {
 		appActions.onPin?.apply(this, $$args);
 	});
-	delegated("click", button_6, function(...$$args) {
+	delegated("click", button_7, function(...$$args) {
 		appActions.onShare?.apply(this, $$args);
 	});
-	delegated("click", button_7, function(...$$args) {
+	delegated("click", button_8, function(...$$args) {
 		appActions.onApplyUpdate?.apply(this, $$args);
 	});
 	append($$anchor, fragment);
@@ -17581,8 +17638,9 @@ var init_browserState_svelte = __esmMin((() => {
 }));
 //#endregion
 //#region src/prompta/ui/conversationRenderer.ts
-function createConversationRenderer({ onRetry, onDelete, onEdit }) {
+function createConversationRenderer({ onRetry, onBump, onDelete, onEdit }) {
 	conversationState.onRetry = onRetry;
+	conversationState.onBump = onBump;
 	conversationState.onDelete = onDelete;
 	conversationState.onEdit = onEdit;
 	function messageNodeFingerprint(message, allowStreaming) {
@@ -17601,6 +17659,7 @@ function createConversationRenderer({ onRetry, onDelete, onEdit }) {
 			message.pending_activity_label,
 			message.retry_scope,
 			message.retry_key,
+			message.pending_bump_key,
 			message.pending_delete_key,
 			message.created_at,
 			message.updated_at,
@@ -18214,7 +18273,7 @@ function sidebarChats() {
 		const latest = pending[pending.length - 1];
 		return {
 			...chat,
-			status: ["failed", "dead_lettered"].includes(latest.status || "") ? chat.status : "active",
+			status: pendingConversationStatus(chat.status, latest.status),
 			preview: latest.message,
 			updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
 			last_user_at: Math.max(Number(chat.last_user_at || chat.created_at || 0), Number(latest.createdAt || 0)),
@@ -18233,7 +18292,7 @@ function sidebarChats() {
 	}
 	const optimistic = {
 		id: pendingConversationDisplayId(pending),
-		status: ["failed", "dead_lettered"].includes(pending.status) ? pending.status : "active",
+		status: pendingConversationStatus("", pending.status),
 		title: truncate(pending.message, 72) || "New chat",
 		preview: pending.message,
 		message_count: 1,
@@ -18345,6 +18404,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 			attachments: item.attachments || [],
 			status: "complete",
 			updated_at: item.updatedAt,
+			pending_bump_key: Number(item.queuePosition || 0) > 1 ? item.clientId || item.sendId || "" : "",
 			pending_delete_key: item.clientId || item.sendId || ""
 		});
 		const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt);
@@ -18553,6 +18613,7 @@ function renderNewChat() {
 				attachments: pending.attachments || [],
 				status: "complete",
 				updated_at: pending.updatedAt,
+				pending_bump_key: Number(pending.queuePosition || 0) > 1 ? pending.clientId || pending.sendId || "" : "",
 				pending_delete_key: pending.clientId || pending.sendId || ""
 			}];
 			const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt);
@@ -18945,6 +19006,33 @@ function updatePendingReply(conversationId, sendId, updates) {
 function setPendingDeleteBusy(deleteKey, busy) {
 	conversationRenderer.setPendingDeleteBusy(deleteKey, busy);
 }
+async function bumpPendingSend(bumpKey) {
+	let pending = null;
+	const conversationId = state.selectedId || "";
+	if (state.pendingNewSend && (state.pendingNewSend.clientId === bumpKey || state.pendingNewSend.sendId === bumpKey)) pending = state.pendingNewSend;
+	else if (conversationId) pending = (state.pendingReplies.get(conversationId) || []).find((item) => item.clientId === bumpKey || item.sendId === bumpKey) || null;
+	if (!pending) return;
+	const sendId = String(pending.sendId || "");
+	if (!sendId) {
+		setComposerStatus("Message is still entering the queue. Try sending it next again.");
+		return;
+	}
+	try {
+		const job = await postJsonRequest("api/sends/" + encodeURIComponent(sendId) + "/bump", {});
+		pending.queuePosition = Number(job.queue_position || 1);
+		pending.queueEtaAt = Number(job.queue_eta_at || 0);
+		pending.updatedAt = Date.now() / 1e3;
+		if (state.pendingNewSend === pending && state.composingNew) renderNewChat();
+		else if (state.selectedChat?.id === conversationId) {
+			state.selectedFingerprint = "";
+			renderConversation(state.selectedChat);
+		}
+		setComposerStatus("Queued message moved to the front.");
+	} catch (error) {
+		console.warn("Could not bump pending Prompta send", error);
+		setComposerStatus("Could not move the pending message to the front.");
+	}
+}
 async function deletePendingSend(deleteKey) {
 	let pending = null;
 	let creatingNew = false;
@@ -19073,10 +19161,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 			const nextRetryAttempt = Number(job.retry_attempt || 0);
 			const nextQueuePosition = Number(job.queue_position || 0);
 			const nextQueueEtaAt = Number(job.queue_eta_at || 0);
-			if (nextConversationId) {
-				completionNotifications.markActive(nextConversationId);
-				promotePendingConversationPin(pendingNewSend, nextConversationId);
-			}
+			if (nextConversationId) promotePendingConversationPin(pendingNewSend, nextConversationId);
 			const changed = pendingNewSend.status !== status || pendingNewSend.error !== nextError || pendingNewSend.conversationId !== nextConversationId || pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || pendingNewSend.retryAt !== nextRetryAt || pendingNewSend.retryAttempt !== nextRetryAttempt || pendingNewSend.queuePosition !== nextQueuePosition || pendingNewSend.queueEtaAt !== nextQueueEtaAt;
 			Object.assign(pendingNewSend, {
 				status,
@@ -19321,7 +19406,22 @@ async function sendSelectedMessage() {
 			client_id: pending.clientId
 		}, attachments.length ? 1 : 3);
 		if (!result.send_id) throw new Error("Prompta did not return a send id");
-		if (!creatingNew) completionNotifications.markActive(conversationId);
+		const coalescedReply = !creatingNew ? (state.pendingReplies.get(conversationId || "") || []).find((item) => item !== pending && item.sendId === result.send_id) : null;
+		if (coalescedReply) {
+			const coalescedUiReply = coalescedReply;
+			coalescedReply.message = [coalescedReply.message, pending.message].filter(Boolean).join("\n");
+			coalescedUiReply.attachmentNames = [...coalescedUiReply.attachmentNames || [], ...pending.attachmentNames || []];
+			coalescedReply.attachments = [...coalescedReply.attachments || [], ...pending.attachments || []];
+			coalescedReply.status = result.status || "queued";
+			coalescedReply.queuePosition = Number(result.queue_position || 0);
+			coalescedReply.updatedAt = Date.now() / 1e3;
+			state.pendingReplies.set(conversationId || "", (state.pendingReplies.get(conversationId || "") || []).filter((item) => item !== pending));
+			if (attachments.length) attachmentPicker.clear();
+			state.selectedFingerprint = "";
+			if (state.selectedChat?.id === conversationId) renderConversation(state.selectedChat);
+			renderSidebar();
+			return;
+		}
 		pending.sendId = result.send_id;
 		pending.status = result.status || "queued";
 		pending.queuePosition = Number(result.queue_position || 0);
@@ -19479,6 +19579,7 @@ var init_app = __esmMin((() => {
 	jobsDialog = getJobsDialog();
 	conversationRenderer = createConversationRenderer({
 		onRetry: retryFailedSend,
+		onBump: bumpPendingSend,
 		onDelete: deletePendingSend,
 		onEdit: editPendingSend
 	});

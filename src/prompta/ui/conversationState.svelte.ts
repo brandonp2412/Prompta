@@ -6,6 +6,7 @@ export class ConversationState {
   loading = $state(false);
   deletingKeys = $state.raw(new Set<string>());
   onRetry: (scope: string, key: string) => void = () => {};
+  onBump: (key: string) => void = () => {};
   onDelete: (key: string) => void = () => {};
   onEdit: (key: string) => void = () => {};
 }
