@@ -804,26 +804,19 @@ async def test_send_reply_reloads_when_recovered_route_still_has_no_composer(
 
 
 @pytest.mark.asyncio
-async def test_effort_controls_keep_click_targets_inside_viewport(tmp_path: Path) -> None:
+async def test_effort_controls_delegate_to_playwright_driver(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
-    driver.eval = AsyncMock(
-        side_effect=[
-            '{"text":"Medium","x":10.0,"y":20.0}',
-            '{"x":30.0,"y":40.0}',
-        ]
-    )
+    driver.effort_trigger_info = AsyncMock(return_value={"text": "Medium", "x": 10.0, "y": 20.0})
+    driver.high_effort_slider_point = AsyncMock(return_value={"x": 30.0, "y": 40.0})
 
     trigger = await prompta._effort_trigger_info(driver)
     slider = await prompta._high_effort_slider_point(driver)
 
-    assert trigger["text"] == "Medium"
+    assert trigger == {"text": "Medium", "x": 10.0, "y": 20.0}
     assert slider == {"x": 30.0, "y": 40.0}
-    trigger_expression = driver.eval.await_args_list[0].args[0]
-    slider_expression = driver.eval.await_args_list[1].args[0]
-    assert "scrollIntoView" in trigger_expression
-    assert "clientHeight" in trigger_expression
-    assert "clientHeight" in slider_expression
+    driver.effort_trigger_info.assert_awaited_once()
+    driver.high_effort_slider_point.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -831,7 +824,7 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
-    driver.eval = AsyncMock(return_value="2")
+    driver.high_effort_slider_value = AsyncMock(return_value="2")
     driver._perform_actions = AsyncMock()
     prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
@@ -855,7 +848,7 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
-    driver.eval = AsyncMock(return_value="2")
+    driver.high_effort_slider_value = AsyncMock(return_value="2")
     driver._perform_actions = AsyncMock()
     prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
@@ -3637,7 +3630,7 @@ async def test_recover_cached_conversations_defers_transient_driver_failure(
         "ws://unused",
     )
     prompta.conversations.recover_cached_conversations = AsyncMock(
-        side_effect=RuntimeError("create ChromeDriver session: timed out; browser restart required")
+        side_effect=RuntimeError("create Playwright session: timed out; browser restart required")
     )
     before = time.monotonic()
 
@@ -4440,7 +4433,7 @@ async def test_retained_completed_tool_enrichment_refreshes_late_final_text(
     prompta.cache.close()
 
 
-def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
+def test_parser_accepts_playwright_chromium_backend(tmp_path: Path) -> None:
     profile = tmp_path / "chrome-profile"
     args = _parser().parse_args(
         [
@@ -4453,8 +4446,6 @@ def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
             str(profile),
             "--chrome-path",
             "/custom/chromium",
-            "--chromedriver-path",
-            "/custom/chromedriver",
             "--flaresolverr-url",
             "http://127.0.0.1:8191",
         ]
@@ -4464,14 +4455,13 @@ def test_parser_accepts_chromedriver_backend(tmp_path: Path) -> None:
     assert args.direct_browser is True
     assert args.chrome_profile == profile
     assert args.chrome_path == "/custom/chromium"
-    assert args.chromedriver_path == "/custom/chromedriver"
     assert args.chrome_debugger_address is None
     assert args.flaresolverr_url == "http://127.0.0.1:8191"
     assert args.chrome_headed is False
     assert args.chrome_auth_timeout_seconds == 30.0
 
 
-def test_parser_defaults_to_chromedriver_backend() -> None:
+def test_parser_defaults_to_playwright_backend() -> None:
     args = _parser().parse_args(["sync", "existing-chat"])
 
     assert args.browser == "chrome"

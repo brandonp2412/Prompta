@@ -8,14 +8,13 @@ Send ChatGPT prompts once or on a schedule.
 uv sync --locked
 ```
 
-Prompta automates Chromium through ChromeDriver. The browser profile defaults to
+Prompta automates Chromium through Playwright. The browser profile defaults to
 `~/.local/state/prompta/chrome-profile` and must have an authenticated ChatGPT
 session.
 
-### Chromium / ChromeDriver setup
+### Chromium / Playwright setup
 
-Install Chromium and ChromeDriver, then perform the first login with the dedicated
-Prompta profile in a visible browser:
+Install Chromium, then perform the first login with the dedicated Prompta profile in a visible browser:
 
 ```bash
 mkdir -p ~/.local/state/prompta/chrome-profile
@@ -26,7 +25,7 @@ chromium \
   https://chatgpt.com/
 ```
 
-After logging in, **close Chromium** so ChromeDriver can exclusively open the profile.
+After logging in, **close Chromium** so Playwright can exclusively open the persistent profile.
 Test the backend without changing the service default:
 
 ```bash
@@ -53,9 +52,10 @@ systemctl --user daemon-reload
 systemctl --user restart prompta
 ```
 
-`PROMPTA_CHROME_PROFILE`, `PROMPTA_CHROME_PATH`, and
-`PROMPTA_CHROMEDRIVER_PATH` can override the Chromium defaults. The equivalent
-CLI flags are `--chrome-profile`, `--chrome-path`, and `--chromedriver-path`.
+`PROMPTA_CHROME_PROFILE` and `PROMPTA_CHROME_PATH` can override the Chromium defaults.
+The equivalent CLI flags are `--chrome-profile` and `--chrome-path`. Set
+`PROMPTA_CHROME_DEBUGGER_ADDRESS` or `--chrome-debugger-address` to attach Playwright
+to an already-running Chromium CDP endpoint instead of launching the dedicated profile.
 
 ## One-shot tasks
 
@@ -125,7 +125,7 @@ Runtime data defaults to:
 
 Scheduled conversations stay open in browser tabs while ChatGPT is producing the
 response. Prompta reads the already-rendered message DOM and React message state through
-the Chromium/ChromeDriver browser session, then writes
+the Chromium/Playwright browser session, then writes
 changed snapshots to the SQLite cache roughly once per scheduler tick. Cache capture does
 not poll ChatGPT HTTP APIs or submit additional model requests.
 

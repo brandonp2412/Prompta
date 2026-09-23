@@ -21,7 +21,6 @@ from typing import Any
 
 from .browser_session import BrowserSession
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
-from .chrome import ChromeDriverDriver
 from .control_server import (
     ControlDeferredError,
 )
@@ -54,6 +53,7 @@ from .jobs import (
     load_jobs,
     remove_job,
 )
+from .playwright_driver import PlaywrightDriver
 from .rate_limit import (
     DEFAULT_RETRY_AFTER,
     RateLimitBackoff,
@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 
 _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 15.0
 
-BrowserDriver = ChromeDriverDriver
+BrowserDriver = PlaywrightDriver
 DriverFactory = Callable[[], BrowserDriver]
 
 DEFAULT_JOBS_PATH = Path.home() / ".config" / "prompta" / "jobs.json"
@@ -440,7 +440,7 @@ class Prompta:
             did_work = await self._drain_sync_requests() or did_work
 
             # Dispatch due scheduled work before cache maintenance. A stale
-            # recovered browser tab can block or poison WebDriver calls, but it
+            # recovered browser tab can block or poison browser calls, but it
             # must not starve unrelated scheduled jobs indefinitely.
             jobs = self.read_jobs()
             if jobs:
@@ -871,13 +871,9 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
         default=os.environ.get("PROMPTA_CHROME_PATH", "/usr/bin/chromium"),
     )
     parser.add_argument(
-        "--chromedriver-path",
-        default=os.environ.get("PROMPTA_CHROMEDRIVER_PATH", "/usr/bin/chromedriver"),
-    )
-    parser.add_argument(
         "--chrome-debugger-address",
         default=os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS"),
-        help="Attach ChromeDriver to an existing Chromium-family browser debugger address",
+        help="Attach Playwright to an existing Chromium-family browser CDP address",
     )
     parser.add_argument(
         "--flaresolverr-url",
@@ -888,7 +884,7 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
         "--chrome-auth-timeout-seconds",
         type=float,
         default=float(os.environ.get("PROMPTA_CHROME_AUTH_TIMEOUT_SECONDS", "30")),
-        help="How long ChromeDriver may wait for a ChatGPT login before failing",
+        help="How long Playwright may wait for a ChatGPT login before failing",
     )
     parser.add_argument(
         "--chrome-headed",
@@ -897,17 +893,15 @@ def _add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _chrome_driver_factory(args: argparse.Namespace) -> DriverFactory:
+def _playwright_driver_factory(args: argparse.Namespace) -> DriverFactory:
     profile = args.chrome_profile.expanduser().resolve()
     chrome_path = str(args.chrome_path)
-    chromedriver_path = str(args.chromedriver_path)
     headless = not bool(args.chrome_headed)
 
     def factory() -> BrowserDriver:
-        return ChromeDriverDriver(
+        return PlaywrightDriver(
             profile=profile,
             chrome_path=chrome_path,
-            chromedriver_path=chromedriver_path,
             headless=headless,
             auth_timeout_seconds=max(0.1, float(args.chrome_auth_timeout_seconds)),
             debugger_address=args.chrome_debugger_address,
@@ -1018,7 +1012,7 @@ async def _run(args: argparse.Namespace) -> None:
         daemon_lock = _acquire_daemon_lock(args.state)
 
     try:
-        driver_factory = _chrome_driver_factory(args)
+        driver_factory = _playwright_driver_factory(args)
 
         prompta = Prompta(
             PromptaConfig(
