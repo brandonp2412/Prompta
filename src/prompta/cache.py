@@ -1241,30 +1241,49 @@ class ChatCache:
         self,
         *,
         interrupted_after: float,
+        activity_after: float | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Return conversations whose live capture should be reattached after restart."""
 
-        rows = self.connection.execute(
+        activity_filter = ""
+        parameters: list[float | int] = [interrupted_after]
+        if activity_after is not None:
+            activity_filter = """
+              AND COALESCE(
+                    (
+                        SELECT MAX(COALESCE(activity.activity_at, activity.created_at))
+                        FROM messages AS activity
+                        WHERE activity.conversation_id = c.id
+                    ),
+                    c.created_at
+                  ) >= ?
             """
+            parameters.append(activity_after)
+        parameters.append(max(1, limit))
+        rows = self.connection.execute(
+            f"""
             SELECT c.id, c.job_name, c.prompt, c.url, c.status,
                    c.created_at, c.updated_at, c.completed_at
             FROM conversations AS c
-            WHERE c.status = 'active'
-               OR (
-                    c.status = 'interrupted'
-                    AND c.updated_at >= ?
-                    AND EXISTS (
-                        SELECT 1
-                        FROM messages AS m
-                        WHERE m.conversation_id = c.id
-                          AND m.status = 'streaming'
+            WHERE (
+                    c.status = 'active'
+                    OR (
+                        c.status = 'interrupted'
+                        AND c.updated_at >= ?
+                        AND EXISTS (
+                            SELECT 1
+                            FROM messages AS m
+                            WHERE m.conversation_id = c.id
+                              AND m.status = 'streaming'
+                        )
                     )
-               )
+                  )
+              {activity_filter}
             ORDER BY c.updated_at DESC
             LIMIT ?
             """,
-            (interrupted_after, max(1, limit)),
+            parameters,
         ).fetchall()
         return [dict(row) for row in rows]
 

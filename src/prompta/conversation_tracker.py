@@ -172,6 +172,7 @@ class ConversationTracker:
             row
             for row in self.cache.recoverable_conversations(
                 interrupted_after=time.time() - RESTART_RECOVERY_INTERRUPTED_SECONDS,
+                activity_after=time.time() - STALE_ACTIVE_TAB_SECONDS,
                 limit=max(1, limit) + len(attached_ids),
             )
             if str(row.get("id") or "") not in attached_ids

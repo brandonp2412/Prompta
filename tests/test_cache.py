@@ -809,6 +809,37 @@ def test_cache_lists_active_and_recent_interrupted_streaming_conversations(
     cache.close()
 
 
+def test_cache_excludes_stale_active_conversation_from_restart_recovery(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "stale-active-chat",
+        context_id="context-stale",
+        job_name="",
+        prompt="Old work",
+    )
+    stale_at = time.time() - 60 * 60
+    with cache.connection:
+        cache.connection.execute(
+            "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+            (stale_at, stale_at, "stale-active-chat"),
+        )
+        cache.connection.execute(
+            "UPDATE messages SET created_at = ?, updated_at = ?, activity_at = ? "
+            "WHERE conversation_id = ?",
+            (stale_at, stale_at, stale_at, "stale-active-chat"),
+        )
+
+    rows = cache.recoverable_conversations(
+        interrupted_after=time.time() - 60,
+        activity_after=time.time() - 40 * 60,
+    )
+
+    assert rows == []
+    cache.close()
+
+
 def test_cache_seeds_prompt_before_first_browser_snapshot(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

@@ -3564,6 +3564,45 @@ async def test_sync_conversation_waits_for_final_turn_evidence(
 
 
 @pytest.mark.asyncio
+async def test_recover_cached_conversations_does_not_reopen_stale_active_chat(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "stale-restart-chat"
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="",
+        prompt="Old work",
+    )
+    stale_at = time.time() - STALE_ACTIVE_TAB_SECONDS - 1
+    with prompta.cache.connection:
+        prompta.cache.connection.execute(
+            "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+            (stale_at, stale_at, conversation_id),
+        )
+        prompta.cache.connection.execute(
+            "UPDATE messages SET created_at = ?, updated_at = ?, activity_at = ? "
+            "WHERE conversation_id = ?",
+            (stale_at, stale_at, stale_at, conversation_id),
+        )
+    prompta._ensure_driver = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("stale chats must not reopen browser tabs")
+    )
+
+    assert await prompta.recover_cached_conversations() == 0
+
+    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_recover_cached_conversations_defers_when_chrome_debugger_is_offline(
     tmp_path: Path,
 ) -> None:
