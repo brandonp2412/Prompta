@@ -8,8 +8,13 @@
   import { nextSlashCommandIndex } from "./clientLogic";
 
   const commands = [
-    { command: "/add ", name: "/add", description: "Add a repeating scheduled job", id: "slashCommandAdd" },
-    { command: "/list", name: "/list", description: "List and manage scheduled jobs", id: "slashCommandList" },
+    { command: "/add ", name: "/add", description: "Add a named or interval job", id: "slashCommandAdd" },
+    { command: "/rm ", name: "/rm", description: "Remove a named job", id: "slashCommandRemove" },
+    { command: "/pause ", name: "/pause", description: "Pause one job or all jobs", id: "slashCommandPause" },
+    { command: "/resume ", name: "/resume", description: "Resume a named job", id: "slashCommandResume" },
+    { command: "/show ", name: "/show", description: "Show a named job", id: "slashCommandShow" },
+    { command: "/ls", name: "/ls", description: "List scheduled jobs", id: "slashCommandList" },
+    { command: "/clear", name: "/clear", description: "Clear all scheduled jobs", id: "slashCommandClear" },
     { command: "/logs", name: "/logs", description: "View Prompta service logs", id: "slashCommandLogs" },
     { command: "/at ", name: "/at", description: "Run a prompt at a date and time", id: "slashCommandAt" },
   ] as const;

@@ -17,7 +17,9 @@ import {
   messageTimestampMillis,
   nextSlashCommandIndex,
   parseAtSlashCommand,
+  parseJobSlashCommand,
   parseScheduleSlashCommand,
+  jobSlashFeedback,
   pendingConversationDisplayId,
   pendingConversationSends,
   promotePinnedConversationId,
@@ -1072,6 +1074,80 @@ describe("composer content", () => {
 
   test("accepts text without attachments", () => {
     expect(composerHasContent("hello", 0)).toBe(true);
+  });
+});
+
+describe("job slash commands", () => {
+  test("parses a named add with the normal default interval", () => {
+    expect(parseJobSlashCommand("/add nox fix nox")).toEqual({
+      action: "add",
+      name: "nox",
+      prompt: "fix nox",
+    });
+  });
+
+  test("parses a named add with an explicit interval", () => {
+    expect(parseJobSlashCommand("/add nox 2h fix nox")).toEqual({
+      action: "add",
+      name: "nox",
+      prompt: "fix nox",
+      intervalMinutes: 120,
+    });
+  });
+
+  test("leaves the legacy interval form for the existing schedule parser", () => {
+    expect(parseJobSlashCommand("/add 30 fix bugs")).toBeNull();
+    expect(parseScheduleSlashCommand("/add 30 fix bugs")).toEqual({
+      intervalMinutes: 30,
+      prompt: "fix bugs",
+    });
+  });
+
+  test.each([
+    ["/rm nox", { action: "remove", name: "nox" }],
+    ["/remove nox", { action: "remove", name: "nox" }],
+    ["/pause nox", { action: "pause", name: "nox" }],
+    ["/pause", { action: "pause" }],
+    ["/pause-all", { action: "pause" }],
+    ["/resume nox", { action: "resume", name: "nox" }],
+    ["/show nox", { action: "show", name: "nox" }],
+    ["/ls", { action: "list" }],
+    ["/list", { action: "list" }],
+    ["/jobs", { action: "list" }],
+    ["/clear", { action: "clear" }],
+  ])("parses %s", (input, expected) => {
+    expect(parseJobSlashCommand(input)).toEqual(expected);
+  });
+
+  test("returns concise list and show feedback for the composer", () => {
+    const result = {
+      jobs: [
+        {
+          name: "nox",
+          prompt: "fix nox",
+          interval_minutes: 40,
+          paused: false,
+          status: "healthy",
+        },
+        {
+          name: "kite",
+          prompt: "fix kite",
+          interval_minutes: 30,
+          paused: true,
+          status: "paused",
+        },
+      ],
+    };
+
+    expect(jobSlashFeedback({ action: "list" }, result)).toBe(
+      "2 jobs · nox (healthy), kite (paused)",
+    );
+    expect(jobSlashFeedback({ action: "show", name: "nox" }, result)).toBe(
+      "nox · healthy · every 40 minutes · fix nox",
+    );
+    expect(jobSlashFeedback({ action: "add", name: "nox", prompt: "fix nox" }, result)).toBe(
+      "Saved nox · every 40 minutes",
+    );
   });
 });
 
