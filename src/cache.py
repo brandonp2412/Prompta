@@ -32,7 +32,6 @@ from .structured_store import (
     promote_structured_capture,
     record_conversation_state,
     record_message_version,
-    repair_unambiguous_orphaned_structured_capture,
 )
 from .ui_noise import strip_assistant_ui_noise
 
@@ -335,7 +334,6 @@ class ChatCache:
             """
         )
         migrate_structured_capture(self.connection)
-        repair_unambiguous_orphaned_structured_capture(self.connection, observed_at=time.time())
         conversation_columns = {
             str(row["name"])
             for row in self.connection.execute("PRAGMA table_info(conversations)").fetchall()
