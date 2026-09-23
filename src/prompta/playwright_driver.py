@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
 _OWNED_WINDOW_PREFIX = "prompta:"
+_SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
@@ -200,7 +201,10 @@ class PlaywrightDriver(BrowserDriverBase):
         capture = self._send_capture
         if capture is None:
             return
-        if request.method.upper() != "POST" or not self._is_send_endpoint(request.url):
+        if (
+            request.method.upper() != "POST"
+            or urlsplit(request.url).path.rstrip("/") not in _SEND_ENDPOINTS
+        ):
             return
         capture["request_obj"] = request
         capture["request_id"] = str(id(request))
@@ -1069,38 +1073,6 @@ class PlaywrightDriver(BrowserDriverBase):
             return str(await slider.get_attribute("aria-valuenow") or "")
         except PlaywrightError:
             return ""
-
-    async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
-        page = self._page(context)
-        key_map = {
-            "\ue003": "Backspace",
-            "\ue007": "Enter",
-            "\ue009": "Control",
-            "\ue00c": "Escape",
-        }
-        for source in actions:
-            source_type = source.get("type")
-            entries = source.get("actions") or []
-            if source_type == "key":
-                for action in entries:
-                    value = key_map.get(
-                        str(action.get("value") or ""), str(action.get("value") or "")
-                    )
-                    if action.get("type") == "keyDown":
-                        await page.keyboard.down(value)
-                    elif action.get("type") == "keyUp":
-                        await page.keyboard.up(value)
-            elif source_type == "pointer":
-                for action in entries:
-                    kind = action.get("type")
-                    if kind == "pointerMove":
-                        await page.mouse.move(
-                            float(action.get("x") or 0), float(action.get("y") or 0)
-                        )
-                    elif kind == "pointerDown":
-                        await page.mouse.down(button="left")
-                    elif kind == "pointerUp":
-                        await page.mouse.up(button="left")
 
     async def _click_viewport_point(self, context: str, x: float, y: float) -> None:
         page = self._page(context)

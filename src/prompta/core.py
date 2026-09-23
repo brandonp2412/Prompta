@@ -81,7 +81,6 @@ _CONTROL_RESTART_POLL_SECONDS = 0.1
 _BROWSER_RESTART_REQUIRED_SUFFIX = "browser restart required"
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
-_EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
 _IDLE_POLL_SECONDS = 1.0
 _CACHE_COMPLETION_TIMEOUT_SECONDS = 2 * 60 * 60.0
 _FAILURE_RETRY_SECONDS = 300.0
@@ -119,12 +118,8 @@ class Prompta:
         self.cache = ChatCache(cache_path)
         self.conversations = ConversationTracker(
             self.cache,
-            ensure_driver=lambda: self._ensure_driver(),
-            ensure_route=lambda driver, expected_path, **kwargs: self._ensure_conversation_route(
-                driver,
-                expected_path,
-                **kwargs,
-            ),
+            ensure_driver=self.browser.ensure_driver,
+            ensure_route=self.browser.ensure_conversation_route,
             current_driver=lambda: self.driver,
             recovery_message_timeout_seconds=lambda: _RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS,
         )
@@ -133,13 +128,9 @@ class Prompta:
             self.cache,
             self._active_conversations,
             config.send_timeout_seconds,
-            ensure_driver=lambda: self._ensure_driver(),
-            ensure_high_effort=lambda driver: self._ensure_high_effort(driver),
-            ensure_route=lambda driver, expected_path, **kwargs: self._ensure_conversation_route(
-                driver,
-                expected_path,
-                **kwargs,
-            ),
+            ensure_driver=self.browser.ensure_driver,
+            ensure_high_effort=self.browser.ensure_high_effort,
+            ensure_route=self.browser.ensure_conversation_route,
             enrich_completed_tool_calls=lambda conversation_id, snapshot, **kwargs: (
                 self._enrich_completed_tool_calls(
                     conversation_id,
@@ -256,44 +247,6 @@ class Prompta:
 
     def due_in(self, job: PromptJob, now: float | None = None) -> float:
         return self.scheduler.due_in(job, now)
-
-    async def _ensure_driver(self) -> BrowserDriver:
-        return await self.browser.ensure_driver()
-
-    async def _ensure_conversation_route(
-        self,
-        driver: BrowserDriver,
-        expected_path: str,
-        *,
-        context: str | None = None,
-    ) -> None:
-        await self.browser.ensure_conversation_route(
-            driver,
-            expected_path,
-            context=context,
-        )
-
-    async def _pointer_click(self, driver: BrowserDriver, x: float, y: float) -> None:
-        await self.browser.pointer_click(driver, x, y)
-
-    async def _effort_trigger_info(
-        self,
-        driver: BrowserDriver,
-        *,
-        timeout: float = _EFFORT_CONTROL_TIMEOUT_SECONDS,
-    ) -> dict[str, Any]:
-        return await self.browser.effort_trigger_info(driver, timeout=timeout)
-
-    async def _high_effort_slider_point(self, driver: BrowserDriver) -> dict[str, float]:
-        return await self.browser.high_effort_slider_point(driver)
-
-    async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
-        await self.browser.ensure_high_effort(
-            driver,
-            effort_trigger_info=lambda target: self._effort_trigger_info(target),
-            high_effort_slider_point=lambda target: self._high_effort_slider_point(target),
-            pointer_click=lambda target, x, y: self._pointer_click(target, x, y),
-        )
 
     async def send_once(
         self,

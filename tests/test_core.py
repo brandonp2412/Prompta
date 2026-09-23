@@ -171,7 +171,7 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
@@ -179,7 +179,7 @@ async def test_send_once_always_starts_from_new_chat(tmp_path: Path) -> None:
     assert fake.navigated == ["https://chatgpt.com/"]
     assert fake.sent is True
     assert fake.clear_composer_calls == 0
-    prompta._ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
+    prompta.actions.ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -188,11 +188,11 @@ async def test_scheduled_send_requires_high_effort(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     assert await prompta.send_once(prompt, job_name="scheduled-job") == "new-chat"
 
-    prompta._ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
+    prompta.actions.ensure_high_effort.assert_awaited_once_with(fake)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -203,7 +203,7 @@ async def test_send_once_falls_back_to_send_button_when_enter_does_not_submit(
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt, enter_submits=False)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
@@ -219,7 +219,7 @@ async def test_send_once_accepts_visible_user_message_without_transport_confirma
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt, committed=False, capture_status=0)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
@@ -244,7 +244,7 @@ async def test_send_once_requires_dom_or_transport_confirmation(tmp_path: Path) 
         route_after_send=False,
     )
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     with pytest.raises(SendVerificationError, match="could not prove"):
         await prompta.send_once(prompt)
@@ -256,7 +256,7 @@ async def test_send_once_accepts_new_conversation_route_as_confirmation(tmp_path
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt, committed=False, capture_status=0, expose_user_message=False)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
@@ -291,7 +291,7 @@ async def test_send_once_ignores_provisional_web_route_until_durable_id(tmp_path
     )
     fake = ProvisionalRouteDriver()
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
@@ -307,7 +307,7 @@ async def test_send_once_with_attachment_clicks_send_button(tmp_path: Path) -> N
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt, attachments=["/tmp/sample.txt"])
 
@@ -322,7 +322,7 @@ async def test_send_once_allows_attachment_only_message(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver("")
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once("", attachments=["/tmp/sample.txt"])
 
@@ -339,7 +339,7 @@ async def test_send_once_clears_stale_dedicated_composer(tmp_path: Path) -> None
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     fake = FakeDriver(prompt, initial_composer="stale draft from previous failed attempt")
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
@@ -383,7 +383,7 @@ async def test_send_reply_resumes_matching_queued_draft(tmp_path: Path) -> None:
     )
     fake = ReplyFakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     result = await prompta.send_reply(conversation_id, prompt)
 
@@ -412,7 +412,7 @@ async def test_send_reply_preserves_unrelated_existing_draft(tmp_path: Path) -> 
     )
     fake = ReplyFakeDriver(prompt, initial_composer="My manual unsent draft")
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     with pytest.raises(RuntimeError, match="already contains unsent text"):
         await prompta.send_reply(conversation_id, prompt)
@@ -446,7 +446,7 @@ async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) ->
 
     fake = ReplyFakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     wait_for_cached_response = AsyncMock(return_value=True)
     prompta.actions.wait_for_cached_response_callback = wait_for_cached_response
     prompta.cache.start(
@@ -498,7 +498,7 @@ async def test_send_reply_allows_attachment_only_message(tmp_path: Path) -> None
 
     fake = ReplyAttachmentDriver("")
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     prompta.cache.start(
         conversation_id,
         context_id="context-old",
@@ -546,7 +546,7 @@ async def test_send_reply_falls_back_to_send_button_when_enter_does_not_submit(
 
     fake = ReplyFakeDriver(prompt, enter_submits=False)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     prompta.cache.start(
         conversation_id,
         context_id="context-old",
@@ -597,7 +597,7 @@ async def test_send_reply_recovers_history_link_after_deep_link_redirect(
 
     fake = LegacyReplyFakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     prompta.cache.start(
         conversation_id,
         context_id="old-context",
@@ -648,7 +648,7 @@ async def test_ensure_conversation_route_recovers_blank_page_by_direct_navigatio
 
     fake = BlankRouteDriver()
 
-    await prompta._ensure_conversation_route(
+    await prompta.browser.ensure_conversation_route(
         cast(Any, fake),
         expected_path,
         context="context-blank",
@@ -704,7 +704,7 @@ async def test_send_reply_recovers_when_deep_link_has_no_composer(tmp_path: Path
 
     fake = MissingComposerReplyFakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     prompta.cache.start(
         conversation_id,
         context_id="old-context",
@@ -776,7 +776,7 @@ async def test_send_reply_reloads_when_recovered_route_still_has_no_composer(
 
     fake = DelayedComposerReplyFakeDriver(prompt)
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     prompta.cache.start(
         conversation_id,
         context_id="old-context",
@@ -804,43 +804,27 @@ async def test_send_reply_reloads_when_recovered_route_still_has_no_composer(
 
 
 @pytest.mark.asyncio
-async def test_effort_controls_delegate_to_playwright_driver(tmp_path: Path) -> None:
-    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
-    driver = MagicMock()
-    driver.effort_trigger_info = AsyncMock(return_value={"text": "Medium", "x": 10.0, "y": 20.0})
-    driver.high_effort_slider_point = AsyncMock(return_value={"x": 30.0, "y": 40.0})
-
-    trigger = await prompta._effort_trigger_info(driver)
-    slider = await prompta._high_effort_slider_point(driver)
-
-    assert trigger == {"text": "Medium", "x": 10.0, "y": 20.0}
-    assert slider == {"x": 30.0, "y": 40.0}
-    driver.effort_trigger_info.assert_awaited_once()
-    driver.high_effort_slider_point.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
     driver.high_effort_slider_value = AsyncMock(return_value="2")
-    driver._perform_actions = AsyncMock()
-    prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
+    page = MagicMock()
+    page.keyboard.press = AsyncMock()
+    driver._page.return_value = page
+    driver.effort_trigger_info = AsyncMock(
         side_effect=[
             {"text": "Medium", "x": 10.0, "y": 20.0},
             {"text": "High", "x": 10.0, "y": 20.0},
         ]
     )
-    prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]
-        return_value={"x": 30.0, "y": 40.0}
-    )
-    prompta._pointer_click = AsyncMock()  # type: ignore[method-assign]
+    driver.high_effort_slider_point = AsyncMock(return_value={"x": 30.0, "y": 40.0})
+    driver._click_viewport_point = AsyncMock()
 
-    await prompta._ensure_high_effort(driver)
+    await prompta.browser.ensure_high_effort(driver)
 
-    assert prompta._pointer_click.await_count == 2
-    driver._perform_actions.assert_awaited_once()
+    assert driver._click_viewport_point.await_count == 2
+    page.keyboard.press.assert_awaited_once_with("Escape")
 
 
 @pytest.mark.asyncio
@@ -849,21 +833,23 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
     driver = MagicMock()
     driver.context = "context-1"
     driver.high_effort_slider_value = AsyncMock(return_value="2")
-    driver._perform_actions = AsyncMock()
-    prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
+    page = MagicMock()
+    page.keyboard.press = AsyncMock()
+    driver._page.return_value = page
+    driver.effort_trigger_info = AsyncMock(
         side_effect=[
             {"text": "Medium", "x": 10.0, "y": 700.0},
             {"text": "Medium", "x": 10.0, "y": 20.0},
             {"text": "High", "x": 10.0, "y": 20.0},
         ]
     )
-    prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]
+    driver.high_effort_slider_point = AsyncMock(
         side_effect=[
             {"x": 30.0, "y": 700.0},
             {"x": 30.0, "y": 40.0},
         ]
     )
-    prompta._pointer_click = AsyncMock(  # type: ignore[method-assign]
+    driver._click_viewport_point = AsyncMock(
         side_effect=[
             RuntimeError("move target out of bounds"),
             None,
@@ -872,12 +858,12 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
         ]
     )
 
-    await prompta._ensure_high_effort(driver)
+    await prompta.browser.ensure_high_effort(driver)
 
-    assert prompta._effort_trigger_info.await_count == 3
-    assert prompta._high_effort_slider_point.await_count == 2
-    assert prompta._pointer_click.await_count == 4
-    driver._perform_actions.assert_awaited_once()
+    assert driver.effort_trigger_info.await_count == 3
+    assert driver.high_effort_slider_point.await_count == 2
+    assert driver._click_viewport_point.await_count == 4
+    page.keyboard.press.assert_awaited_once_with("Escape")
 
 
 def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
@@ -3302,7 +3288,7 @@ async def test_one_shot_waits_for_stream_and_persists_messages_end_to_end(tmp_pa
 
     fake = StreamingFakeDriver()
     prompta.driver = cast(Any, fake)
-    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.actions.ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     with patch("prompta.core.asyncio.sleep", AsyncMock()):
         conversation_id = await prompta.send_once(prompt)
@@ -3338,10 +3324,10 @@ async def test_sync_conversation_reuses_existing_active_context(tmp_path: Path) 
         job_name="sloppatv",
         prompt="Long task",
     )
-    prompta._ensure_driver = AsyncMock()  # type: ignore[method-assign]
+    prompta.conversations.ensure_driver = AsyncMock()  # type: ignore[method-assign]
 
     assert await prompta.sync_conversation(conversation_id) == 1
-    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.conversations.ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
     assert list(prompta._active_conversations) == ["context-live"]
     prompta.cache.close()
 
@@ -3585,14 +3571,14 @@ async def test_recover_cached_conversations_does_not_reopen_stale_active_chat(
             "WHERE conversation_id = ?",
             (stale_at, stale_at, stale_at, conversation_id),
         )
-    prompta._ensure_driver = AsyncMock(  # type: ignore[method-assign]
+    prompta.conversations.ensure_driver = AsyncMock(  # type: ignore[method-assign]
         side_effect=AssertionError("stale chats must not reopen browser tabs")
     )
 
     assert await prompta.recover_cached_conversations() == 0
 
     assert prompta.cache.status(conversation_id) == "interrupted"
-    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.conversations.ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 
@@ -4069,12 +4055,12 @@ async def test_recover_cached_conversations_skips_already_attached_chat(tmp_path
         job_name="prompta-bugs",
         prompt="Keep working",
     )
-    prompta._ensure_driver = AsyncMock(  # type: ignore[method-assign]
+    prompta.conversations.ensure_driver = AsyncMock(  # type: ignore[method-assign]
         side_effect=AssertionError("already attached chats must not be reopened")
     )
 
     assert await prompta.recover_cached_conversations(limit=1) == 0
-    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.conversations.ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 
