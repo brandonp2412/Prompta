@@ -6235,6 +6235,15 @@ function dialogVisibility(getOpen, getModal, onNativeClose) {
 		return () => element.removeEventListener("close", handleClose);
 	};
 }
+function reportElementWidth(onWidth) {
+	return (element) => {
+		const updateWidth = () => onWidth(element.getBoundingClientRect().width);
+		const observer = new ResizeObserver(updateWidth);
+		updateWidth();
+		observer.observe(element);
+		return () => observer.disconnect();
+	};
+}
 var CONVERSATION_BOTTOM_SLOP, conversationViewportElement, conversationViewportRestoreToken, conversationViewportPinnedToBottom;
 var init_browserAttachments_svelte = __esmMin((() => {
 	init_client();
@@ -16859,8 +16868,29 @@ function SidebarList($$anchor, $$props) {
 }
 delegate(["click"]);
 //#endregion
+//#region src/prompta/ui/sidebarGesture.ts
+function sidebarDragDirection(deltaX, deltaY) {
+	if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) <= 8) return "pending";
+	return Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? "horizontal" : "vertical";
+}
+function sidebarDragPosition(wasOpen, width, startClientX, clientX) {
+	const startX = wasOpen ? 0 : -width;
+	const x = Math.max(-width, Math.min(0, startX + clientX - startClientX));
+	const progress = width > 0 ? 1 + x / width : 0;
+	return {
+		x,
+		progress: Math.max(0, Math.min(1, progress))
+	};
+}
+function sidebarDragShouldOpen(velocityX, progress) {
+	if (velocityX > .35) return true;
+	if (velocityX < -.35) return false;
+	return progress >= .5;
+}
+//#endregion
 //#region src/prompta/ui/App.svelte
 init_client();
+init_index_client();
 init_appActions_svelte();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
@@ -16872,6 +16902,123 @@ function App($$anchor, $$props) {
 	push($$props, true);
 	const serverDisplay = /* @__PURE__ */ user_derived(() => appViewState.serverDisplay || $$props.serverName);
 	const serverLabel = /* @__PURE__ */ user_derived(() => appViewState.serverLabel === "Server · local" ? "Server · " + $$props.serverName : appViewState.serverLabel);
+	const mobileSidebarMedia = new MediaQuery("(max-width: 780px)");
+	let sidebarWidth = /* @__PURE__ */ state$1(0);
+	let sidebarDragCleanupTimer;
+	const sidebarDrag = proxy({
+		pointerId: null,
+		startX: 0,
+		startY: 0,
+		lastX: 0,
+		lastAt: 0,
+		velocityX: 0,
+		width: 0,
+		wasOpen: false,
+		active: false,
+		settling: false,
+		x: 0,
+		progress: 0,
+		duration: 0
+	});
+	function mobileSidebarEnabled() {
+		return mobileSidebarMedia.current;
+	}
+	function clearSidebarDrag() {
+		if (sidebarDragCleanupTimer !== void 0) {
+			clearTimeout(sidebarDragCleanupTimer);
+			sidebarDragCleanupTimer = void 0;
+		}
+		sidebarDrag.pointerId = null;
+		sidebarDrag.active = false;
+		sidebarDrag.settling = false;
+		sidebarDrag.width = 0;
+		sidebarDrag.velocityX = 0;
+		sidebarDrag.duration = 0;
+	}
+	function completeSidebarDrag() {
+		const wasMoving = sidebarState.moving;
+		clearSidebarDrag();
+		if (wasMoving) finishSidebarMotion();
+	}
+	function settleSidebarDrag(opened) {
+		const targetX = opened ? 0 : -sidebarDrag.width;
+		const remaining = Math.abs(targetX - sidebarDrag.x);
+		const speed = Math.max(.6, Math.abs(sidebarDrag.velocityX));
+		const duration = Math.max(90, Math.min(180, Math.round(remaining / speed)));
+		sidebarState.open = opened;
+		sidebarState.moving = true;
+		sidebarDrag.settling = true;
+		sidebarDrag.duration = duration;
+		sidebarDrag.x = targetX;
+		sidebarDrag.progress = opened ? 1 : 0;
+		sidebarDragCleanupTimer = setTimeout(completeSidebarDrag, duration + 40);
+	}
+	function handleSidebarPointerDown(event) {
+		if (event.pointerType === "mouse" || sidebarDrag.pointerId !== null || sidebarDrag.active || !mobileSidebarEnabled() || get(sidebarWidth) <= 0) return;
+		const width = get(sidebarWidth);
+		const wasOpen = sidebarState.open;
+		if (!wasOpen && event.clientX > 144) return;
+		if (wasOpen && event.clientX > width + 24) return;
+		sidebarDrag.pointerId = event.pointerId;
+		sidebarDrag.startX = event.clientX;
+		sidebarDrag.startY = event.clientY;
+		sidebarDrag.lastX = event.clientX;
+		sidebarDrag.lastAt = performance.now();
+		sidebarDrag.velocityX = 0;
+		sidebarDrag.width = width;
+		sidebarDrag.wasOpen = wasOpen;
+		sidebarDrag.x = wasOpen ? 0 : -width;
+		sidebarDrag.progress = wasOpen ? 1 : 0;
+	}
+	function handleSidebarPointerMove(event) {
+		if (event.pointerId !== sidebarDrag.pointerId) return;
+		const deltaX = event.clientX - sidebarDrag.startX;
+		const deltaY = event.clientY - sidebarDrag.startY;
+		if (!sidebarDrag.active) {
+			const direction = sidebarDragDirection(deltaX, deltaY);
+			if (direction === "pending") return;
+			if (direction === "vertical") {
+				clearSidebarDrag();
+				return;
+			}
+			sidebarDrag.active = true;
+			sidebarState.moving = true;
+		}
+		event.preventDefault();
+		const now = performance.now();
+		const elapsed = Math.max(1, now - sidebarDrag.lastAt);
+		const { x, progress } = sidebarDragPosition(sidebarDrag.wasOpen, sidebarDrag.width, sidebarDrag.startX, event.clientX);
+		sidebarDrag.velocityX = (event.clientX - sidebarDrag.lastX) / elapsed;
+		sidebarDrag.lastX = event.clientX;
+		sidebarDrag.lastAt = now;
+		sidebarDrag.x = x;
+		sidebarDrag.progress = progress;
+	}
+	function handleSidebarPointerUp(event) {
+		if (event.pointerId !== sidebarDrag.pointerId) return;
+		if (!sidebarDrag.active) {
+			clearSidebarDrag();
+			return;
+		}
+		const { x, progress } = sidebarDragPosition(sidebarDrag.wasOpen, sidebarDrag.width, sidebarDrag.startX, event.clientX);
+		const now = performance.now();
+		const elapsed = Math.max(1, now - sidebarDrag.lastAt);
+		const finalVelocity = (event.clientX - sidebarDrag.lastX) / elapsed;
+		sidebarDrag.x = x;
+		sidebarDrag.progress = progress;
+		if (Math.abs(finalVelocity) > Math.abs(sidebarDrag.velocityX)) sidebarDrag.velocityX = finalVelocity;
+		settleSidebarDrag(sidebarDragShouldOpen(sidebarDrag.velocityX, progress));
+	}
+	function handleSidebarPointerCancel(event) {
+		if (event.pointerId !== sidebarDrag.pointerId) return;
+		if (sidebarDrag.active) settleSidebarDrag(sidebarDrag.wasOpen);
+		else clearSidebarDrag();
+	}
+	function handleSidebarTransitionEnd(event) {
+		if (event.propertyName !== "transform") return;
+		if (sidebarDrag.settling) completeSidebarDrag();
+		else finishSidebarMotion();
+	}
 	function handleGlobalKeydown(event) {
 		const target = event.target;
 		const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || Boolean(target?.isContentEditable);
@@ -16913,8 +17060,13 @@ function App($$anchor, $$props) {
 	event("pageshow", $window, function(...$$args) {
 		appActions.onPageShow?.apply(this, $$args);
 	});
+	event("pointerdown", $window, handleSidebarPointerDown);
+	event("pointermove", $window, handleSidebarPointerMove);
+	event("pointerup", $window, handleSidebarPointerUp);
+	event("pointercancel", $window, handleSidebarPointerCancel);
 	var div = first_child(fragment);
 	var aside = child(div);
+	let styles;
 	var div_1 = child(aside);
 	var div_2 = child(div_1);
 	var button = child(div_2);
@@ -16946,7 +17098,9 @@ function App($$anchor, $$props) {
 	var text_2 = only_child(button_2, true);
 	reset(div_6);
 	reset(aside);
+	attach(aside, () => reportElementWidth((width) => set(sidebarWidth, width, true)));
 	var div_8 = sibling(aside, 2);
+	let styles_1;
 	var main = sibling(div_8, 2);
 	var header = child(main);
 	var button_3 = child(header);
@@ -16984,8 +17138,12 @@ function App($$anchor, $$props) {
 	var node_4 = sibling(button_6, 2);
 	JobsDialog(node_4, {});
 	ChangelogDialog(sibling(node_4, 2), {});
-	template_effect(() => {
+	template_effect(($0) => {
 		set_class(aside, 1, clsx(["sidebar", { "is-open": sidebarState.open }]));
+		styles = set_style(aside, "", styles, {
+			transform: sidebarDrag.active ? "translate3d(" + sidebarDrag.x + "px, 0, 0)" : void 0,
+			transition: sidebarDrag.active ? sidebarDrag.settling ? "transform " + sidebarDrag.duration + "ms cubic-bezier(0.2, 0, 0, 1)" : "none" : void 0
+		});
 		set_text(text, get(serverLabel));
 		set_class(div_4, 1, clsx(["live-orb", { live: appViewState.live }]));
 		set_attribute(div_4, "title", appViewState.liveTitle);
@@ -16993,6 +17151,11 @@ function App($$anchor, $$props) {
 		set_attribute(button_2, "title", appViewState.headTitle);
 		set_text(text_2, appViewState.headLabel);
 		set_class(div_8, 1, clsx(["sidebar-scrim", { "is-open": sidebarState.open }]));
+		styles_1 = set_style(div_8, "", styles_1, {
+			opacity: $0,
+			transition: sidebarDrag.active ? sidebarDrag.settling ? "opacity " + sidebarDrag.duration + "ms linear" : "none" : void 0,
+			"pointer-events": sidebarDrag.active ? "none" : void 0
+		});
 		set_attribute(button_3, "aria-expanded", sidebarState.open);
 		set_text(text_3, appViewState.headingTitle);
 		set_text(text_4, appViewState.headingMeta);
@@ -17018,10 +17181,8 @@ function App($$anchor, $$props) {
 		set_attribute(button_6, "hidden", !appViewState.updateAvailable);
 		button_6.disabled = appViewState.updateApplying;
 		set_text(text_5, appViewState.updateApplying ? "Updating…" : "Update available");
-	});
-	event("transitionend", aside, (event) => {
-		if (event.propertyName === "transform") finishSidebarMotion();
-	});
+	}, [() => sidebarDrag.active ? String(sidebarDrag.progress) : void 0]);
+	event("transitionend", aside, handleSidebarTransitionEnd);
 	delegated("click", button, () => closeSidebar());
 	delegated("input", input, () => appActions.onSearch(appViewState.searchValue));
 	bind_value(input, () => appViewState.searchValue, ($$value) => appViewState.searchValue = $$value);

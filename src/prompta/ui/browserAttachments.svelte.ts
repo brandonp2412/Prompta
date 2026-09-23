@@ -290,3 +290,15 @@ export function dialogVisibility(
     return () => element.removeEventListener("close", handleClose);
   };
 }
+
+export function reportElementWidth(onWidth: (width: number) => void): Attachment<HTMLElement> {
+  return (element) => {
+    const updateWidth = () => onWidth(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver(updateWidth);
+
+    updateWidth();
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  };
+}
