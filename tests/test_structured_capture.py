@@ -494,7 +494,9 @@ def test_read_only_store_recovers_completed_turn_order_from_dom_observations(
     second_tool = (
         f'{fence}tool:Test MCP · second\n{{"created_at": 40.0, "status": "completed"}}\n{fence}'
     )
-    grouped = "\n\n".join(["Intro text", "Between tools", first_tool, second_tool])
+    grouped = "\n\n".join(
+        ["Intro text", "Between tools", "Legacy uncaptured text", first_tool, second_tool]
+    )
     cache.write_snapshot(
         "conversation-observed-order",
         {
@@ -506,10 +508,36 @@ def test_read_only_store_recovers_completed_turn_order_from_dom_observations(
             ],
         },
     )
+    with cache.connection:
+        cache.connection.executemany(
+            "INSERT INTO message_parts (conversation_id, message_key, part_key, ordinal, kind, content, source_created_at, source_event_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "conversation-observed-order",
+                    "a1",
+                    "intro-part",
+                    0,
+                    "assistant_text",
+                    "Intro text",
+                    10.0,
+                    "intro-source",
+                ),
+                (
+                    "conversation-observed-order",
+                    "a1",
+                    "between-part",
+                    1,
+                    "assistant_text",
+                    "Between tools",
+                    30.0,
+                    "between-source",
+                ),
+            ],
+        )
     for index, (observed_at, parts) in enumerate(
         [
-            (10.0, ["Intro text"]),
-            (30.0, ["Intro text", "Between tools"]),
+            (30.0, ["Intro text"]),
+            (50.0, ["Intro text", "Between tools", "Legacy uncaptured text"]),
         ],
         start=1,
     ):
@@ -554,6 +582,7 @@ def test_read_only_store_recovers_completed_turn_order_from_dom_observations(
     assert content.index("Intro text") < content.index("Test MCP · first")
     assert content.index("Test MCP · first") < content.index("Between tools")
     assert content.index("Between tools") < content.index("Test MCP · second")
+    assert content.index("Test MCP · second") < content.index("Legacy uncaptured text")
 
 
 def test_active_conversation_uses_structured_order_for_completed_assistant_turn(

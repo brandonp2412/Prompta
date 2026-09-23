@@ -544,7 +544,25 @@ class ReadOnlyChatStore:
                     message["content"] = structured_content
                     message["parts_renderable"] = True
             if use_structured_content:
-                observations = dom_prose_by_message.get(message_key, [])
+                canonical_text_observations = [
+                    (
+                        float(part["source_created_at"]),
+                        str(part.get("content") or ""),
+                    )
+                    for part in structured_parts
+                    if str(part.get("kind") or "")
+                    in {
+                        "assistant_text",
+                        "final_text",
+                        "reasoning",
+                    }
+                    and part.get("source_created_at") is not None
+                    and str(part.get("content") or "").strip()
+                ]
+                observations = [
+                    *canonical_text_observations,
+                    *dom_prose_by_message.get(message_key, []),
+                ]
                 content = str(message.get("content") or "")
                 if (
                     not message["parts_renderable"]
