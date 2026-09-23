@@ -102,16 +102,16 @@ class ConversationActions:
                     )
                     await driver.click_send_button(timeout=5.0)
 
-            provisional_conversation_id = ""
+            provisional_id = ""
             provisional_confirmed = False
             last_state: dict[str, Any] = post_submit if not attachments else {}
             last_probe: dict[str, Any] = {}
             last_path = baseline_path
             last_send_confirmed = False
-            confirmation_timeout = max(1.0, self.send_timeout_seconds)
+            confirm_timeout = max(1.0, self.send_timeout_seconds)
             if attachments:
-                confirmation_timeout = max(confirmation_timeout, 120.0)
-            deadline = asyncio.get_running_loop().time() + confirmation_timeout
+                confirm_timeout = max(confirm_timeout, 120.0)
+            deadline = asyncio.get_running_loop().time() + confirm_timeout
             while asyncio.get_running_loop().time() < deadline:
                 state = await driver.dom_state()
                 rate_limit_text = str(state.get("rate_limit_text") or "")
@@ -141,14 +141,12 @@ class ConversationActions:
                 dom_confirmed = user_text == self.normalise(prompt) and not self.normalise(
                     str(state.get("composer_text") or "")
                 )
-                route_conversation_id = (
-                    path.removeprefix("/c/").split("/", 1)[0] if route_confirmed else ""
-                )
-                probe_conversation_id = str(probe.get("conversation_id") or "")
-                durable_conversation_id = next(
+                route_id = path.removeprefix("/c/").split("/", 1)[0] if route_confirmed else ""
+                probe_id = str(probe.get("conversation_id") or "")
+                durable_id = next(
                     (
                         candidate
-                        for candidate in (probe_conversation_id, route_conversation_id)
+                        for candidate in (probe_id, route_id)
                         if candidate and not candidate.startswith("WEB:")
                     ),
                     "",
@@ -156,19 +154,19 @@ class ConversationActions:
                 provisional = next(
                     (
                         candidate
-                        for candidate in (probe_conversation_id, route_conversation_id)
+                        for candidate in (probe_id, route_id)
                         if candidate.startswith("WEB:")
                     ),
                     "",
                 )
                 if provisional:
-                    provisional_conversation_id = provisional
+                    provisional_id = provisional
                     provisional_confirmed = (
                         provisional_confirmed or send_confirmed or dom_confirmed or route_confirmed
                     )
 
-                if durable_conversation_id:
-                    conversation_id = durable_conversation_id
+                if durable_id:
+                    conversation_id = durable_id
                     logger.info(
                         "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s dom_confirmed=%s",
                         conversation_id,
@@ -192,25 +190,25 @@ class ConversationActions:
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
 
-            if provisional_conversation_id and provisional_confirmed:
+            if provisional_id and provisional_confirmed:
                 logger.warning(
                     "Prompta only observed provisional conversation=%s before send confirmation timeout; continuing cache capture until ChatGPT publishes the durable route",
-                    provisional_conversation_id,
+                    provisional_id,
                 )
                 self.cache.start(
-                    provisional_conversation_id,
+                    provisional_id,
                     context_id=context,
                     job_name=job_name,
                     prompt=prompt,
                 )
                 self.active[context] = ActiveConversation(
-                    conversation_id=provisional_conversation_id,
+                    conversation_id=provisional_id,
                     context_id=context,
                     job_name=job_name,
                     prompt=prompt,
                 )
                 succeeded = True
-                return provisional_conversation_id
+                return provisional_id
 
             final_composer = self.normalise(str(last_state.get("composer_text") or ""))
             final_user_text = self.normalise(str(last_state.get("last_user_text") or ""))
@@ -218,7 +216,7 @@ class ConversationActions:
                 final_composer == self.normalise(prompt)
                 and final_user_text != self.normalise(prompt)
                 and not last_send_confirmed
-                and not provisional_conversation_id
+                and not provisional_id
                 and last_path == baseline_path
             ):
                 raise SendNotAcceptedError(
@@ -336,27 +334,26 @@ class ConversationActions:
                     stable_polls = 0
                 last_digest = digest
 
-                if stable_polls >= 2 and completion_hint:
-                    latest = await self.enrich_completed_tool_calls(
-                        conversation_id,
-                        latest,
-                    )
+                if stable_polls < 2:
+                    await asyncio.sleep(0.5)
+                    continue
+                if completion_hint:
+                    latest = await self.enrich_completed_tool_calls(conversation_id, latest)
                     self.cache.write_snapshot(conversation_id, latest, complete=True)
                     return len(messages)
-                if stable_polls >= 2 and not completion_hint:
-                    self.cache.resume(conversation_id, context_id=context)
-                    self.cache.write_snapshot(conversation_id, latest)
-                    self.active[context] = ActiveConversation(
-                        conversation_id=conversation_id,
-                        context_id=context,
-                        job_name=str(metadata.get("job_name") or ""),
-                        prompt=str(metadata.get("prompt") or ""),
-                        last_digest=digest,
-                        last_live_snapshot_at=time.monotonic(),
-                    )
-                    retain_context = True
-                    return len(messages)
-                await asyncio.sleep(0.5)
+
+                self.cache.resume(conversation_id, context_id=context)
+                self.cache.write_snapshot(conversation_id, latest)
+                self.active[context] = ActiveConversation(
+                    conversation_id=conversation_id,
+                    context_id=context,
+                    job_name=str(metadata.get("job_name") or ""),
+                    prompt=str(metadata.get("prompt") or ""),
+                    last_digest=digest,
+                    last_live_snapshot_at=time.monotonic(),
+                )
+                retain_context = True
+                return len(messages)
 
             messages = latest.get("messages")
             if not isinstance(messages, list) or not messages:
@@ -422,8 +419,6 @@ class ConversationActions:
 
         context = await driver.new_tab(target_url)
         active: ActiveConversation | None = None
-        created_context = True
-
         capture: dict[str, Any] | None = None
         probe_armed = False
         try:
@@ -432,7 +427,7 @@ class ConversationActions:
                 try:
                     await driver.wait_for_composer()
                 except RuntimeError as exc:
-                    if not created_context or "composer did not become ready" not in str(exc):
+                    if "composer did not become ready" not in str(exc):
                         raise
                     logger.warning(
                         "Prompta deep-link composer unavailable for conversation=%s; retrying via ChatGPT home",
@@ -446,7 +441,7 @@ class ConversationActions:
             try:
                 await prepare_conversation_route()
             except RuntimeError as exc:
-                if not created_context or "composer did not become ready" not in str(exc):
+                if "composer did not become ready" not in str(exc):
                     raise
                 logger.warning(
                     "Prompta conversation composer still unavailable for conversation=%s; reloading target once",
@@ -495,10 +490,10 @@ class ConversationActions:
                     )
                     await driver.click_send_button(timeout=5.0)
 
-            confirmation_timeout = max(1.0, self.send_timeout_seconds)
+            confirm_timeout = max(1.0, self.send_timeout_seconds)
             if attachments:
-                confirmation_timeout = max(confirmation_timeout, 120.0)
-            deadline = asyncio.get_running_loop().time() + confirmation_timeout
+                confirm_timeout = max(confirm_timeout, 120.0)
+            deadline = asyncio.get_running_loop().time() + confirm_timeout
             while asyncio.get_running_loop().time() < deadline:
                 state = await driver.dom_state()
                 rate_limit_text = str(state.get("rate_limit_text") or "")
@@ -540,9 +535,8 @@ class ConversationActions:
                     self.cache.write_snapshot(conversation_id, snapshot)
                     active.last_digest = self.cache.digest(snapshot)
                     logger.info(
-                        "Prompta sent reply conversation=%s reused_tab=%s",
+                        "Prompta sent reply conversation=%s reused_tab=False",
                         conversation_id,
-                        not created_context,
                     )
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
@@ -558,9 +552,7 @@ class ConversationActions:
                     await driver.clear_page_send_probe()
                 except Exception:
                     logger.debug("Could not clear page send probe", exc_info=True)
-            if created_context and not any(
-                active.context_id == context for active in self.active.values()
-            ):
+            if not any(active.context_id == context for active in self.active.values()):
                 try:
                     await driver.close_context(context)
                 except Exception:
