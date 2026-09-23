@@ -64,7 +64,15 @@
     }
   }
 
-  function endLongPress(event: PointerEvent) {
+  function endLongPress(event: PointerEvent, chatId: string, optimisticNew: boolean) {
+    if (event.pointerId !== longPressPointerId) return;
+
+    clearLongPress();
+    suppressSelectChatId = chatId;
+    sidebarListActions.onSelect(chatId, optimisticNew);
+  }
+
+  function cancelLongPress(event: PointerEvent) {
     if (event.pointerId === longPressPointerId) clearLongPress();
   }
 
@@ -123,8 +131,8 @@
             aria-current={chat.id === sidebarListState.selectedConversationId ? "true" : undefined}
             onpointerdown={(event) => startLongPress(event, chat.id, chat.pinned)}
             onpointermove={moveLongPress}
-            onpointerup={endLongPress}
-            onpointercancel={endLongPress}
+            onpointerup={(event) => endLongPress(event, chat.id, chat.optimisticNew)}
+            onpointercancel={cancelLongPress}
             oncontextmenu={(event) => {
               if (!coarsePointer.current) return;
               event.preventDefault();
