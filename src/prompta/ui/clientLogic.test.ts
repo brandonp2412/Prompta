@@ -62,9 +62,9 @@ describe("chat list request URL", () => {
     );
   });
 
-  test("paginates later chat-list pages without repeating pinned includes", () => {
+  test("keeps pinned ordering stable across later chat-list pages", () => {
     expect(chatListRequestUrl("", new Set(["WEB:old-chat"]), 40, 80)).toBe(
-      "api/chats?limit=40&offset=80",
+      "api/chats?limit=40&offset=80&include=WEB%3Aold-chat",
     );
   });
 });

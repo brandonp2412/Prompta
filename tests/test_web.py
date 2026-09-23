@@ -305,10 +305,7 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
             }
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
-        assert (
-            ImagePreviewStore(tmp_path).records["image-client"]["conversation_id"]
-            == "chat-1"
-        )
+        assert ImagePreviewStore(tmp_path).records["image-client"]["conversation_id"] == "chat-1"
     finally:
         for target in saved:
             Path(target).unlink(missing_ok=True)
@@ -1952,7 +1949,7 @@ def test_read_only_store_pages_unpinned_chats_after_pinned_first_page(tmp_path: 
 
     store = ReadOnlyChatStore(path)
     first = store.conversations(limit=2, include_ids=["chat-0"])
-    second = store.conversations(limit=2, offset=2)
+    second = store.conversations(limit=2, offset=len(first), include_ids=["chat-0"])
 
     assert [chat["id"] for chat in first] == ["chat-0", "chat-4", "chat-3"]
     assert [chat["id"] for chat in second] == ["chat-2", "chat-1"]

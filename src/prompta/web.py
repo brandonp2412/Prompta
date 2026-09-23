@@ -349,7 +349,7 @@ class PromptaUIServer(ThreadingHTTPServer):
                 limit=bounded_limit,
                 offset=max(0, offset),
                 query=query,
-                include_ids=included_ids if offset == 0 else (),
+                include_ids=included_ids,
             )
         ]
         known_ids = {str(chat.get("id") or "") for chat in rows}

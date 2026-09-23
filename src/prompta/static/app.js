@@ -6669,7 +6669,7 @@ function chatListRequestUrl(search, pinnedIds, limit = 60, offset = 0) {
 	params.set("limit", String(Math.max(1, Math.floor(limit))));
 	params.set("offset", String(Math.max(0, Math.floor(offset))));
 	if (query) params.set("q", search);
-	else if (offset === 0) {
+	else {
 		const seen = /* @__PURE__ */ new Set();
 		for (const rawId of pinnedIds) {
 			const id = String(rawId || "").trim();

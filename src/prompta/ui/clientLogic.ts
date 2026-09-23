@@ -20,7 +20,7 @@ export function chatListRequestUrl(
 
   if (query) {
     params.set("q", search);
-  } else if (offset === 0) {
+  } else {
     const seen = new Set<string>();
 
     for (const rawId of pinnedIds) {
