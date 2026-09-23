@@ -19,7 +19,7 @@
 
   const mobile = new MediaQuery("(max-width: 600px)");
   let dialogOpen = $state(false);
-  let modal = $state(true);
+  let presentation = $state<"modal" | "stack">("modal");
   let jobs = $state.raw<Job[]>([]);
   let status = $state("");
   let saving = $state(false);
@@ -123,7 +123,7 @@
 
   export async function show() {
     reset();
-    modal = !mobile.current;
+    presentation = mobile.current ? "stack" : "modal";
     dialogOpen = true;
     await load();
   }
@@ -136,12 +136,13 @@
 </script>
 
 <dialog
-  {@attach dialogVisibility(() => dialogOpen, () => modal, close)}
+  {@attach dialogVisibility(() => dialogOpen, () => presentation === "modal", close)}
   class="jobs-dialog"
   id="jobsDialog"
   aria-labelledby="jobsDialogTitle"
+  data-presentation={presentation}
   onclick={(event) => {
-    if (event.target === event.currentTarget) close();
+    if (event.target === event.currentTarget && presentation !== "stack") close();
   }}
 >
   <div class="jobs-dialog-shell">

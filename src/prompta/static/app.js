@@ -16485,7 +16485,7 @@ function JobsDialog($$anchor, $$props) {
 	push($$props, true);
 	const mobile = new MediaQuery("(max-width: 600px)");
 	let dialogOpen = /* @__PURE__ */ state$1(false);
-	let modal = /* @__PURE__ */ state$1(true);
+	let presentation = /* @__PURE__ */ state$1("modal");
 	let jobs = /* @__PURE__ */ state$1([]);
 	let status = /* @__PURE__ */ state$1("");
 	let saving = /* @__PURE__ */ state$1(false);
@@ -16568,7 +16568,7 @@ function JobsDialog($$anchor, $$props) {
 	}
 	async function show() {
 		reset$1();
-		set(modal, !mobile.current);
+		set(presentation, mobile.current ? "stack" : "modal", true);
 		set(dialogOpen, true);
 		await load();
 	}
@@ -16730,8 +16730,9 @@ function JobsDialog($$anchor, $$props) {
 	var button_6 = only_child(sibling(form, 2));
 	reset(div);
 	reset(dialog);
-	attach(dialog, () => dialogVisibility(() => get(dialogOpen), () => get(modal), close));
+	attach(dialog, () => dialogVisibility(() => get(dialogOpen), () => get(presentation) === "modal", close));
 	template_effect(($0) => {
+		set_attribute(dialog, "data-presentation", get(presentation));
 		set_text(text, get(status));
 		set_text(text_8, get(editing) ? `Edit ${get(editing)}` : "Add job");
 		input.readOnly = $0;
@@ -16739,7 +16740,7 @@ function JobsDialog($$anchor, $$props) {
 		button_6.disabled = !get(jobs).length || get(saving);
 	}, [() => Boolean(get(editing))]);
 	delegated("click", dialog, (event) => {
-		if (event.target === event.currentTarget) close();
+		if (event.target === event.currentTarget && get(presentation) !== "stack") close();
 	});
 	delegated("click", button, close);
 	event("submit", form, (event) => {
