@@ -519,14 +519,29 @@ def test_read_only_store_recovers_completed_turn_order_from_dom_observations(
         }
         with cache.connection:
             cache.connection.execute(
-                "INSERT INTO source_events (conversation_id, message_key, event_key, ordinal, raw_json, observed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO source_events (conversation_id, message_key, event_key, ordinal, raw_json, observed_at, source_created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     "conversation-observed-order",
-                    "a1",
+                    "__prompta_live_assistant_legacy__",
                     f"observation-{index}:dom-prose:source",
                     index,
                     json.dumps(event),
                     observed_at,
+                    observed_at,
+                ),
+            )
+    with cache.connection:
+        for index, source_created_at in enumerate((10.0, 40.0), start=1):
+            cache.connection.execute(
+                "INSERT INTO source_events (conversation_id, message_key, event_key, ordinal, raw_json, observed_at, source_created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "conversation-observed-order",
+                    "a1",
+                    f"canonical-marker-{index}",
+                    100 + index,
+                    json.dumps({"id": f"canonical-marker-{index}"}),
+                    50.0 + index,
+                    source_created_at,
                 ),
             )
     cache.close()

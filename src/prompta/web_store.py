@@ -14,6 +14,49 @@ from .stream_order import has_stream_order_inversion, recover_stream_order_from_
 from .structured_capture import has_completed_final_text, rendered_content_from_parts
 
 
+def _attach_transient_dom_prose_observations(
+    messages: list[dict[str, Any]],
+    observations_by_message: dict[str, list[tuple[float, str]]],
+    source_ranges_by_message: dict[str, tuple[float, float]],
+) -> None:
+    """Attach legacy live-assistant prose observations to their durable turn."""
+
+    durable_assistant_keys = [
+        str(message.get("message_key") or "")
+        for message in messages
+        if str(message.get("role") or "") == "assistant"
+        and not str(message.get("message_key") or "").startswith("__prompta_live_assistant_")
+    ]
+    durable_keys = set(durable_assistant_keys)
+    for transient_key, observations in list(observations_by_message.items()):
+        if transient_key in durable_keys or not transient_key.startswith(
+            "__prompta_live_assistant_"
+        ):
+            continue
+        transient_range = source_ranges_by_message.get(transient_key)
+        if transient_range is None:
+            continue
+        transient_start, transient_end = transient_range
+        candidates: list[tuple[float, str]] = []
+        for durable_key in durable_assistant_keys:
+            durable_range = source_ranges_by_message.get(durable_key)
+            if durable_range is None:
+                continue
+            durable_start, durable_end = durable_range
+            overlap = min(transient_end, durable_end) - max(transient_start, durable_start)
+            if overlap >= 0:
+                candidates.append((overlap, durable_key))
+        if not candidates:
+            continue
+        candidates.sort(reverse=True)
+        best_overlap, best_key = candidates[0]
+        if len(candidates) > 1 and candidates[1][0] == best_overlap:
+            continue
+        existing = observations_by_message.setdefault(best_key, [])
+        existing.extend(observations)
+        existing.sort(key=lambda item: item[0])
+
+
 class ReadOnlyChatStore:
     """Open fresh read-only data sources for each web request."""
 
@@ -331,6 +374,7 @@ class ReadOnlyChatStore:
                     connection.execute(
                         """
                         SELECT message_key, COUNT(*) AS event_count,
+                               MIN(source_created_at) AS earliest_source_created_at,
                                MAX(source_created_at) AS latest_source_created_at
                         FROM source_events
                         WHERE conversation_id = ?
@@ -432,6 +476,15 @@ class ReadOnlyChatStore:
             for row in source_event_counts
             if row["latest_source_created_at"] is not None
         }
+        source_ranges_by_message = {
+            str(row["message_key"]): (
+                float(row["earliest_source_created_at"]),
+                float(row["latest_source_created_at"]),
+            )
+            for row in source_event_counts
+            if row["earliest_source_created_at"] is not None
+            and row["latest_source_created_at"] is not None
+        }
         dom_prose_by_message: dict[str, list[tuple[float, str]]] = {}
         for row in dom_prose_events:
             try:
@@ -446,6 +499,11 @@ class ReadOnlyChatStore:
             dom_prose_by_message.setdefault(str(row["message_key"]), []).append(
                 (float(row["observed_at"]), prose)
             )
+        _attach_transient_dom_prose_observations(
+            message_payloads,
+            dom_prose_by_message,
+            source_ranges_by_message,
+        )
         version_count_by_message = {
             str(row["message_key"]): int(row["version_count"] or 0) for row in version_counts
         }
