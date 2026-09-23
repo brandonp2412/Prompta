@@ -892,19 +892,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
         # Conversation-history throttling is unrelated to sending prompts. Dismiss
         # it for hygiene, but never surface it as a send-rate-limit signal.
-        history_rate_limit = await self._first_usable(
-            [page.get_by_test_id("modal-conversation-history-rate-limit")],
-            enabled=False,
-        )
-        if history_rate_limit is not None:
-            dismiss = await self._first_usable(
-                [history_rate_limit.get_by_role("button", name=_DISMISS_RE)]
-            )
-            if dismiss is not None:
-                try:
-                    await dismiss.click()
-                except PlaywrightError:
-                    pass
+        await self._dismiss_history_rate_limit(page)
 
         # A dedicated rate-limit dialog is a useful semantic signal. Generic
         # role=alert elements are intentionally ignored because ChatGPT uses them
@@ -964,10 +952,31 @@ class PlaywrightDriver(BrowserDriverBase):
             "rate_limit_text": "\n".join(rate_limit_texts),
         }
 
+    async def _dismiss_history_rate_limit(self, page: Page | None = None) -> bool:
+        current_page = page or self._page()
+        history_rate_limit = await self._first_usable(
+            [current_page.get_by_test_id("modal-conversation-history-rate-limit")],
+            enabled=False,
+        )
+        if history_rate_limit is None:
+            return False
+        dismiss = await self._first_usable(
+            [history_rate_limit.get_by_role("button", name=_DISMISS_RE)]
+        )
+        if dismiss is None:
+            return False
+        try:
+            await dismiss.click()
+            await history_rate_limit.wait_for(state="hidden", timeout=1_000)
+        except PlaywrightError:
+            return False
+        return True
+
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
+            await self._dismiss_history_rate_limit(page)
             chat = await self._first_usable(
                 [page.get_by_role("radio", name="Chat", exact=True)],
                 enabled=True,

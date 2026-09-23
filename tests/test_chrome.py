@@ -225,6 +225,25 @@ async def test_hidden_file_input_is_supported_as_non_semantic_fallback(
 
 
 @pytest.mark.asyncio
+async def test_ensure_chat_surface_dismisses_history_rate_limit_modal(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div role="dialog" data-testid="modal-conversation-history-rate-limit">
+          <p>Too many requests. Please wait a few minutes before trying again.</p>
+          <button onclick="this.closest('[role=dialog]').remove()">Got it</button>
+        </div>
+        <button role="radio" aria-checked="true">Chat</button>
+        <button role="radio" aria-checked="false">Work</button>
+        """
+    )
+
+    await driver.ensure_chat_surface(timeout=0.5)
+
+    assert await page.get_by_role("dialog").count() == 0
+
+
+@pytest.mark.asyncio
 async def test_ensure_chat_surface_selects_chat_radio(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
