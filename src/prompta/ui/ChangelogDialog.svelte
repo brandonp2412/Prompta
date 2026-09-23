@@ -3,6 +3,7 @@
 
   import { dialogVisibility } from "./browserAttachments.svelte";
   import { changelogEntries, type ChangelogEntry } from "./changelog";
+  import { popStackPage, pushStackPage, stackPageFromState } from "./stackNavigation";
   import { registerChangelogDialog } from "./uiControllers";
 
   const mobile = new MediaQuery("(max-width: 600px)");
@@ -28,18 +29,33 @@
     }
   }
 
+  function handlePopState(event: PopStateEvent) {
+    if (presentation !== "stack") return;
+
+    open = stackPageFromState(event.state) === "changelog";
+  }
+
   export async function show() {
     presentation = mobile.current ? "stack" : "modal";
+
+    if (presentation === "stack" && stackPageFromState(history.state) !== "changelog") {
+      pushStackPage("changelog");
+    }
+
     open = true;
     await load();
   }
 
   export function close() {
+    if (presentation === "stack" && open && popStackPage("changelog")) return;
+
     open = false;
   }
 
   registerChangelogDialog({ open: show, close });
 </script>
+
+<svelte:window onpopstate={handlePopState} />
 
 <dialog
   {@attach dialogVisibility(() => open, () => presentation === "modal", close)}
