@@ -2548,8 +2548,14 @@ textarea:focus-visible {
     overflow: visible;
   }
 
+  .changelog-dialog[data-presentation="stack"] .changelog-entry {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+
   .changelog-dialog[data-presentation="stack"] .changelog-entry-hash {
-    display: none;
+    display: block;
   }
 
   .jobs-dialog[data-presentation="stack"] {
