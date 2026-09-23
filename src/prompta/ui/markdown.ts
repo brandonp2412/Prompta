@@ -51,6 +51,42 @@ lowlight.registerAlias({
 
 export type MarkdownDocument = Token[];
 
+const MARKDOWN_CACHE_MAX_ENTRIES = 192;
+const MARKDOWN_CACHE_MAX_SOURCE_CHARS = 1_000_000;
+const markdownCache = new Map<string, { document: MarkdownDocument; sourceChars: number }>();
+let markdownCacheSourceChars = 0;
+
+const HIGHLIGHT_CACHE_MAX_ENTRIES = 128;
+const HIGHLIGHT_CACHE_MAX_CODE_CHARS = 512_000;
+const highlightCache = new Map<string, { nodes: RootContent[]; codeChars: number }>();
+let highlightCacheCodeChars = 0;
+
+function promoteCacheEntry<T>(cache: Map<string, T>, key: string, value: T) {
+  cache.delete(key);
+  cache.set(key, value);
+}
+
+function evictCacheEntries<T extends { sourceChars?: number; codeChars?: number }>(
+  cache: Map<string, T>,
+  maxEntries: number,
+  currentChars: number,
+  incomingChars: number,
+  maxChars: number,
+) {
+  let chars = currentChars;
+
+  while (cache.size && (cache.size >= maxEntries || chars + incomingChars > maxChars)) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+
+    const oldest = cache.get(oldestKey);
+    cache.delete(oldestKey);
+    chars -= oldest?.sourceChars ?? oldest?.codeChars ?? 0;
+  }
+
+  return chars;
+}
+
 export type ToolPresentation = {
   name: string;
   summary: string;
@@ -93,11 +129,7 @@ function incompleteFenceStart(source: string) {
   return openAt;
 }
 
-export function parseMarkdown(
-  raw: unknown,
-  { renderIncompleteFence = false }: { renderIncompleteFence?: boolean } = {},
-): MarkdownDocument {
-  let source = richMarkersToMarkdown(raw);
+function lexMarkdown(source: string, renderIncompleteFence: boolean): MarkdownDocument {
   const openFenceAt = incompleteFenceStart(source);
 
   if (openFenceAt >= 0) {
@@ -128,6 +160,35 @@ export function parseMarkdown(
     breaks: false,
     gfm: true,
   });
+}
+
+export function parseMarkdown(
+  raw: unknown,
+  { renderIncompleteFence = false }: { renderIncompleteFence?: boolean } = {},
+): MarkdownDocument {
+  const source = richMarkersToMarkdown(raw);
+
+  if (renderIncompleteFence || source.length > MARKDOWN_CACHE_MAX_SOURCE_CHARS) {
+    return lexMarkdown(source, renderIncompleteFence);
+  }
+
+  const cached = markdownCache.get(source);
+  if (cached) {
+    promoteCacheEntry(markdownCache, source, cached);
+    return cached.document;
+  }
+
+  const document = lexMarkdown(source, false);
+  markdownCacheSourceChars = evictCacheEntries(
+    markdownCache,
+    MARKDOWN_CACHE_MAX_ENTRIES,
+    markdownCacheSourceChars,
+    source.length,
+    MARKDOWN_CACHE_MAX_SOURCE_CHARS,
+  );
+  markdownCache.set(source, { document, sourceChars: source.length });
+  markdownCacheSourceChars += source.length;
+  return document;
 }
 
 function normalizedLanguage(value: string | null | undefined) {
@@ -168,11 +229,33 @@ export function highlightedCode(code: string, language: string): RootContent[] {
 
   if (!lowlight.registered(normalized)) return [{ type: "text", value: code }];
 
-  try {
-    return lowlight.highlight(normalized, code).children;
-  } catch {
-    return [{ type: "text", value: code }];
+  const key = `${normalized}\u0000${code}`;
+  const cached = highlightCache.get(key);
+  if (cached) {
+    promoteCacheEntry(highlightCache, key, cached);
+    return cached.nodes;
   }
+
+  let nodes: RootContent[];
+  try {
+    nodes = lowlight.highlight(normalized, code).children;
+  } catch {
+    nodes = [{ type: "text", value: code }];
+  }
+
+  if (code.length <= HIGHLIGHT_CACHE_MAX_CODE_CHARS) {
+    highlightCacheCodeChars = evictCacheEntries(
+      highlightCache,
+      HIGHLIGHT_CACHE_MAX_ENTRIES,
+      highlightCacheCodeChars,
+      code.length,
+      HIGHLIGHT_CACHE_MAX_CODE_CHARS,
+    );
+    highlightCache.set(key, { nodes, codeChars: code.length });
+    highlightCacheCodeChars += code.length;
+  }
+
+  return nodes;
 }
 
 export function codePresentation(token: Tokens.Code): CodePresentation | null {

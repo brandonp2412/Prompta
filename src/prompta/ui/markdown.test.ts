@@ -244,6 +244,27 @@ describe("message markdown", () => {
     );
   });
 
+  test("reuses settled markdown parse results without caching streaming snapshots", () => {
+    const source = "Prompta markdown cache sentinel with **stable** content.";
+
+    const first = parseMarkdown(source);
+    const second = parseMarkdown(source);
+    const streamingFirst = parseMarkdown(source, { renderIncompleteFence: true });
+    const streamingSecond = parseMarkdown(source, { renderIncompleteFence: true });
+
+    expect(second).toBe(first);
+    expect(streamingSecond).not.toBe(streamingFirst);
+  });
+
+  test("reuses syntax highlighting for unchanged code", () => {
+    const code = "const promptaCacheSentinel: number = 42;";
+    const first = highlightedCode(code, "typescript");
+    const second = highlightedCode(code, "typescript");
+
+    expect(second).toBe(first);
+    expect(collectText(second)).toBe(code);
+  });
+
   test("allows only http(s) renderer links", () => {
     expect(safeLinkHref("https://example.com/path")).toBe("https://example.com/path");
     expect(safeLinkHref("javascript:alert(1)")).toBe("");

@@ -15273,6 +15273,29 @@ lowlight.registerAlias({
 	xml: ["html", "svg"],
 	yaml: ["yml"]
 });
+var MARKDOWN_CACHE_MAX_ENTRIES = 192;
+var MARKDOWN_CACHE_MAX_SOURCE_CHARS = 1e6;
+var markdownCache = /* @__PURE__ */ new Map();
+var markdownCacheSourceChars = 0;
+var HIGHLIGHT_CACHE_MAX_ENTRIES = 128;
+var HIGHLIGHT_CACHE_MAX_CODE_CHARS = 512e3;
+var highlightCache = /* @__PURE__ */ new Map();
+var highlightCacheCodeChars = 0;
+function promoteCacheEntry(cache, key, value) {
+	cache.delete(key);
+	cache.set(key, value);
+}
+function evictCacheEntries(cache, maxEntries, currentChars, incomingChars, maxChars) {
+	let chars = currentChars;
+	while (cache.size && (cache.size >= maxEntries || chars + incomingChars > maxChars)) {
+		const oldestKey = cache.keys().next().value;
+		if (oldestKey === void 0) break;
+		const oldest = cache.get(oldestKey);
+		cache.delete(oldestKey);
+		chars -= oldest?.sourceChars ?? oldest?.codeChars ?? 0;
+	}
+	return chars;
+}
 function escapeMarkdownLabel(value) {
 	return value.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
@@ -15289,8 +15312,7 @@ function incompleteFenceStart(source) {
 	while ((match = pattern.exec(source)) !== null) openAt = openAt < 0 ? match.index : -1;
 	return openAt;
 }
-function parseMarkdown(raw, { renderIncompleteFence = false } = {}) {
-	let source = richMarkersToMarkdown(raw);
+function lexMarkdown(source, renderIncompleteFence) {
 	const openFenceAt = incompleteFenceStart(source);
 	if (openFenceAt >= 0) {
 		if (renderIncompleteFence) source += "\n```";
@@ -15318,6 +15340,23 @@ function parseMarkdown(raw, { renderIncompleteFence = false } = {}) {
 		breaks: false,
 		gfm: true
 	});
+}
+function parseMarkdown(raw, { renderIncompleteFence = false } = {}) {
+	const source = richMarkersToMarkdown(raw);
+	if (renderIncompleteFence || source.length > MARKDOWN_CACHE_MAX_SOURCE_CHARS) return lexMarkdown(source, renderIncompleteFence);
+	const cached = markdownCache.get(source);
+	if (cached) {
+		promoteCacheEntry(markdownCache, source, cached);
+		return cached.document;
+	}
+	const document = lexMarkdown(source, false);
+	markdownCacheSourceChars = evictCacheEntries(markdownCache, MARKDOWN_CACHE_MAX_ENTRIES, markdownCacheSourceChars, source.length, MARKDOWN_CACHE_MAX_SOURCE_CHARS);
+	markdownCache.set(source, {
+		document,
+		sourceChars: source.length
+	});
+	markdownCacheSourceChars += source.length;
+	return document;
 }
 function normalizedLanguage(value) {
 	const raw = String(value || "").trim().toLowerCase().split(/\s+/)[0];
@@ -15350,14 +15389,30 @@ function highlightedCode(code, language) {
 		type: "text",
 		value: code
 	}];
+	const key = `${normalized}\u0000${code}`;
+	const cached = highlightCache.get(key);
+	if (cached) {
+		promoteCacheEntry(highlightCache, key, cached);
+		return cached.nodes;
+	}
+	let nodes;
 	try {
-		return lowlight.highlight(normalized, code).children;
+		nodes = lowlight.highlight(normalized, code).children;
 	} catch {
-		return [{
+		nodes = [{
 			type: "text",
 			value: code
 		}];
 	}
+	if (code.length <= HIGHLIGHT_CACHE_MAX_CODE_CHARS) {
+		highlightCacheCodeChars = evictCacheEntries(highlightCache, HIGHLIGHT_CACHE_MAX_ENTRIES, highlightCacheCodeChars, code.length, HIGHLIGHT_CACHE_MAX_CODE_CHARS);
+		highlightCache.set(key, {
+			nodes,
+			codeChars: code.length
+		});
+		highlightCacheCodeChars += code.length;
+	}
+	return nodes;
 }
 function codePresentation(token) {
 	const rawLanguage = String(token.lang || "").trim();
