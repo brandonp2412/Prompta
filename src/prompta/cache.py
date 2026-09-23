@@ -120,6 +120,8 @@ class ActiveConversation:
     transient_since_epoch: float = 0.0
     transient_recovery_attempts: int = 0
     recovered_cache_updated_at: float = 0.0
+    final_text_missing_since_epoch: float = 0.0
+    final_text_recovery_attempts: int = 0
     structured_tool_blocks: tuple[str, ...] = ()
 
 

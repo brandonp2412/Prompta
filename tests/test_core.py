@@ -2552,6 +2552,162 @@ async def test_poll_active_conversation_debounces_copy_action_when_react_end_tur
 
 
 @pytest.mark.asyncio
+async def test_poll_active_tool_turn_waits_for_authoritative_final_text(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-tool-missing-final"
+    context_id = "context-tool-missing-final"
+    source_events = [
+        {
+            "id": "progress-1",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Still working"],
+            "text": "",
+            "reasoning_title": "",
+            "create_time": 100.0,
+            "end_turn": False,
+        },
+        {
+            "id": "call-1",
+            "role": "assistant",
+            "recipient": "api_tool.call_tool",
+            "content_type": "code",
+            "text": json.dumps(
+                {
+                    "path": "/Glass/link_123/execute_python",
+                    "args": {"code": "print('done')"},
+                }
+            ),
+            "connector_tool_payload": json.dumps({"code": "print('done')"}),
+            "reasoning_title": "Checking",
+            "create_time": 101.0,
+            "end_turn": False,
+        },
+        {
+            "id": "result-1",
+            "role": "tool",
+            "recipient": "assistant",
+            "content_type": "code",
+            "text": json.dumps({"text": "done"}),
+            "invoked_resource": {
+                "app_name": "Glass",
+                "resource_uri": "/asdk_app_123/link_123/execute_python",
+            },
+            "create_time": 102.0,
+            "end_turn": False,
+        },
+    ]
+    snapshot = {
+        "title": "Tool turn",
+        "messages": [
+            {"id": "user-1", "role": "user", "content": "Do work"},
+            {"id": "assistant-1", "role": "assistant", "content": "Still working"},
+        ],
+        "source_events": source_events,
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta.cache.write_snapshot(conversation_id, snapshot)
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+        last_digest=prompta.cache.digest(snapshot),
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+            "turn_ended": None,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=snapshot)
+    driver.navigate = AsyncMock()
+    driver.eval = AsyncMock(return_value=f"/c/{conversation_id}")
+    driver.wait_for_composer = AsyncMock()
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    for _ in range(10):
+        await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert active.settled_at == 0.0
+    assert active.final_text_recovery_attempts == 1
+    driver.navigate.assert_awaited_once_with(
+        f"https://chatgpt.com/c/{conversation_id}",
+        context=context_id,
+    )
+    driver.wait_for_composer.assert_awaited_once_with(
+        timeout=10.0,
+        context=context_id,
+    )
+
+    completed_snapshot = {
+        **snapshot,
+        "messages": [
+            snapshot["messages"][0],
+            {
+                "id": "assistant-1",
+                "role": "assistant",
+                "content": "Still working\n\nFinished",
+            },
+        ],
+        "source_events": [
+            *source_events,
+            {
+                "id": "final-1",
+                "role": "assistant",
+                "recipient": "all",
+                "content_type": "text",
+                "parts": ["Finished"],
+                "text": "",
+                "reasoning_title": "",
+                "create_time": 103.0,
+                "end_turn": True,
+            },
+        ],
+    }
+    driver.conversation_snapshot.return_value = completed_snapshot
+    for _ in range(11):
+        await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "complete"
+    parts = prompta.cache.connection.execute(
+        """
+        SELECT kind, content, end_turn
+        FROM message_parts
+        WHERE conversation_id = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id,),
+    ).fetchall()
+    assert ("final_text", "Finished", 1) in [tuple(part) for part in parts]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversation_marks_persistent_delivery_timeout_interrupted(
     tmp_path: Path,
 ) -> None:

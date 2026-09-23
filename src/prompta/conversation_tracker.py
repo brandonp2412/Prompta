@@ -13,6 +13,7 @@ from .chromium import (
     merge_tool_blocks,
     preserves_non_tool_text,
 )
+from .structured_capture import has_completed_final_text, message_parts_from_source_events
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,19 @@ DELIVERY_RECOVERY_MAX_ATTEMPTS = 1
 DELIVERY_RECOVERY_GRACE_SECONDS = 15.0
 TRANSIENT_RECOVERY_DELAY_SECONDS = 30.0
 TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
+FINAL_TEXT_RECOVERY_MAX_ATTEMPTS = 1
+FINAL_TEXT_FAILURE_TIMEOUT_SECONDS = 2 * 60.0
+
+
+def _structured_tool_turn_missing_final_text(snapshot: dict[str, Any]) -> bool:
+    events = snapshot.get("source_events")
+    if not isinstance(events, list) or not events:
+        return False
+    parts = message_parts_from_source_events(events)
+    has_tool_call = any(
+        isinstance(part, dict) and str(part.get("kind") or "") == "tool_call" for part in parts
+    )
+    return has_tool_call and not has_completed_final_text(parts)
 
 
 class ConversationTracker:
@@ -506,12 +520,77 @@ class ConversationTracker:
                 active.idle_polls = 0
                 active.settled_at = 0.0
 
-            completion_polls = 3
-            if completion_hint and "turn_ended" in activity and activity.get("turn_ended") is None:
-                completion_polls = FALLBACK_COMPLETION_POLLS
+            fallback_completion = (
+                completion_hint and "turn_ended" in activity and activity.get("turn_ended") is None
+            )
+            missing_final_text = fallback_completion and _structured_tool_turn_missing_final_text(
+                snapshot
+            )
+            if not missing_final_text:
+                active.final_text_missing_since_epoch = 0.0
+                active.final_text_recovery_attempts = 0
+
+            completion_polls = FALLBACK_COMPLETION_POLLS if fallback_completion else 3
             if active.idle_polls < completion_polls:
                 continue
             if not completion_hint and active.idle_polls < 30:
+                continue
+
+            if missing_final_text:
+                now_epoch = time.time()
+                if active.final_text_missing_since_epoch <= 0:
+                    active.final_text_missing_since_epoch = now_epoch
+                if active.final_text_recovery_attempts < FINAL_TEXT_RECOVERY_MAX_ATTEMPTS:
+                    target_url = str(
+                        self.cache.metadata(active.conversation_id).get("url")
+                        or f"https://chatgpt.com/c/{active.conversation_id}"
+                    )
+                    expected_path = urlsplit(target_url).path.rstrip("/")
+                    try:
+                        await driver.navigate(target_url, context=context)
+                        await self.ensure_route(
+                            driver,
+                            expected_path,
+                            context=context,
+                        )
+                        await driver.wait_for_composer(
+                            timeout=10.0,
+                            context=context,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Prompta missing-final-text recovery reload failed conversation=%s",
+                            active.conversation_id,
+                        )
+                    else:
+                        active.final_text_recovery_attempts += 1
+                        active.idle_polls = 0
+                        active.last_live_snapshot_at = 0.0
+                        logger.warning(
+                            "Prompta reloaded tool conversation=%s because completion chrome "
+                            "appeared before authoritative final text",
+                            active.conversation_id,
+                        )
+                        continue
+                if (
+                    now_epoch - active.final_text_missing_since_epoch
+                    < FINAL_TEXT_FAILURE_TIMEOUT_SECONDS
+                ):
+                    continue
+                self.cache.mark_interrupted(active.conversation_id)
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.debug(
+                        "Could not close Prompta tab missing final text",
+                        exc_info=True,
+                    )
+                self.active.pop(context, None)
+                logger.warning(
+                    "Prompta marked conversation=%s interrupted because a tool turn "
+                    "never exposed authoritative final text",
+                    active.conversation_id,
+                )
                 continue
 
             if active.settled_at <= 0:
