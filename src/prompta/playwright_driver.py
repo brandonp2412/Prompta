@@ -179,13 +179,13 @@ class PlaywrightDriver(BrowserDriverBase):
     async def _mark_owned(self, page: Page) -> None:
         stamp = int(time.time())
         marker = f"{_OWNED_WINDOW_PREFIX}{stamp}:{uuid.uuid4().hex}"
-        await page.evaluate("(value) => { window.name = value; }", marker)
+        await page.evaluate(load_browser_script("set_window_name.js"), marker)
 
     async def _is_owned_page(self, page: Page) -> bool:
         if page.is_closed():
             return False
         try:
-            name = await page.evaluate("window.name")
+            name = await page.evaluate(load_browser_script("get_window_name.js"))
         except PlaywrightError:
             return False
         return isinstance(name, str) and name.startswith(_OWNED_WINDOW_PREFIX)
@@ -582,7 +582,7 @@ class PlaywrightDriver(BrowserDriverBase):
             raise RuntimeError("FlareSolverr is not configured")
         page = self._page(context)
         url = page.url
-        user_agent = str(await page.evaluate("navigator.userAgent"))
+        user_agent = str(await page.evaluate(load_browser_script("browser_user_agent.js")))
         logger.warning("Cloudflare challenge detected; requesting clearance from FlareSolverr")
         cookies = await asyncio.to_thread(self._request_flaresolverr, url, user_agent)
         if not cookies:
@@ -678,7 +678,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _composer_text(self, composer: Locator) -> str:
         try:
-            tag = (await composer.evaluate("el => el.tagName")).casefold()
+            tag = (await composer.evaluate(load_browser_script("element_tag_name.js"))).casefold()
             if tag in {"textarea", "input"}:
                 return await composer.input_value()
             return await composer.inner_text()
@@ -782,9 +782,7 @@ class PlaywrightDriver(BrowserDriverBase):
         deadline = asyncio.get_running_loop().time() + 120.0
         stable = 0
         while asyncio.get_running_loop().time() < deadline:
-            selected = await file_input.evaluate(
-                "input => Array.from(input.files || []).map(file => file.name)"
-            )
+            selected = await file_input.evaluate(load_browser_script("file_input_names.js"))
             selected_names = set(selected or [])
             visible_names = True
             for name in names:

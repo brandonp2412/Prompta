@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ import subprocess
 import pytest
 
 from prompta.browser_script_loader import load_browser_script, render_browser_script
+from prompta.playwright_driver import PlaywrightDriver
 
 SCRIPT_NAMES = (
     "arm_page_send_probe.js",
@@ -16,6 +18,11 @@ SCRIPT_NAMES = (
     "conversation_final_event.js",
     "conversation_activity.js",
     "conversation_snapshot.js",
+    "set_window_name.js",
+    "get_window_name.js",
+    "browser_user_agent.js",
+    "element_tag_name.js",
+    "file_input_names.js",
 )
 
 
@@ -33,6 +40,18 @@ def test_browser_script_parses_as_javascript(tmp_path, script_name: str) -> None
         capture_output=True,
         text=True,
     )
+
+
+def test_playwright_eval_helpers_are_externalized() -> None:
+    source = inspect.getsource(PlaywrightDriver)
+
+    for embedded_javascript in (
+        "window.name",
+        "navigator.userAgent",
+        "el => el.tagName",
+        "input => Array.from",
+    ):
+        assert embedded_javascript not in source
 
 
 def test_browser_script_template_json_encodes_values() -> None:
