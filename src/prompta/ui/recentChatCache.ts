@@ -108,13 +108,29 @@ export class RecentChatCache {
 
     const records = await new Promise<CachedChatSummaryRecord[]>((resolve) => {
       const transaction = database.transaction(SUMMARY_STORE_NAME, "readonly");
-      const request = transaction.objectStore(SUMMARY_STORE_NAME).getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => resolve([]);
+      const store = transaction.objectStore(SUMMARY_STORE_NAME);
+      const request = store.openCursor(this.scopeKeyRange());
+      const scopedRecords: CachedChatSummaryRecord[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+
+        if (!cursor) {
+          resolve(scopedRecords);
+
+          return;
+        }
+
+        const record = cursor.value as CachedChatSummaryRecord;
+
+        if (record.chat) scopedRecords.push(record);
+
+        cursor.continue();
+      };
+      request.onerror = () => resolve(scopedRecords);
     });
 
     const chats = records
-      .filter((record) => record.scope === this.scope && record.chat)
       .sort((left, right) => left.position - right.position)
       .slice(0, SUMMARY_LIMIT)
       .map((record) => record.chat);
@@ -128,17 +144,36 @@ export class RecentChatCache {
 
     if (!database) return [];
 
-    const records = await new Promise<CachedChatRecord[]>((resolve) => {
+    const chats = await new Promise<any[]>((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readonly");
-      const request = transaction.objectStore(STORE_NAME).getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => resolve([]);
+      const store = transaction.objectStore(STORE_NAME);
+      const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+      const request = store.index(ACCESSED_AT_INDEX_NAME).openCursor(range, "prev");
+      const scopedChats: any[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+
+        if (!cursor || scopedChats.length >= this.limit) {
+          resolve(scopedChats);
+
+          return;
+        }
+
+        const record = cursor.value as CachedChatRecord;
+
+        if (record.chat) scopedChats.push(record.chat);
+
+        if (scopedChats.length >= this.limit) {
+          resolve(scopedChats);
+
+          return;
+        }
+
+        cursor.continue();
+      };
+      request.onerror = () => resolve(scopedChats);
     });
-    const chats = records
-      .filter((record) => record.scope === this.scope && record.chat)
-      .sort((left, right) => right.accessedAt - left.accessedAt)
-      .slice(0, this.limit)
-      .map((record) => record.chat);
 
     for (const chat of chats) {
       const conversationId = String(chat?.id || "");
@@ -180,6 +215,12 @@ export class RecentChatCache {
 
   private key(conversationId: string) {
     return this.scope + ":" + conversationId;
+  }
+
+  private scopeKeyRange() {
+    const prefix = this.scope + ":";
+
+    return IDBKeyRange.bound(prefix, prefix + "￿");
   }
 
   private async persist(chat: any) {
@@ -258,15 +299,18 @@ export class RecentChatCache {
     await new Promise<void>((resolve) => {
       const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
       const store = transaction.objectStore(SUMMARY_STORE_NAME);
-      const allRequest = store.getAll();
-      allRequest.onsuccess = () => {
-        for (const record of allRequest.result || []) {
-          if (
-            record.scope === this.scope &&
-            !retainedIds.has(String(record.conversationId || ""))
-          ) {
-            store.delete(record.key);
-          }
+      const cursorRequest = store.openCursor(this.scopeKeyRange());
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+
+        if (cursor) {
+          const record = cursor.value as CachedChatSummaryRecord;
+
+          if (!retainedIds.has(String(record.conversationId || ""))) cursor.delete();
+
+          cursor.continue();
+
+          return;
         }
 
         chats.forEach((chat, position) => {

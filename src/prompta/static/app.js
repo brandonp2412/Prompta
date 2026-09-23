@@ -17687,21 +17687,47 @@ var init_recentChatCache = __esmMin((() => {
 			const database = await this.database();
 			if (!database) return [];
 			const chats = (await new Promise((resolve) => {
-				const request = database.transaction(SUMMARY_STORE_NAME, "readonly").objectStore(SUMMARY_STORE_NAME).getAll();
-				request.onsuccess = () => resolve(request.result || []);
-				request.onerror = () => resolve([]);
-			})).filter((record) => record.scope === this.scope && record.chat).sort((left, right) => left.position - right.position).slice(0, SUMMARY_LIMIT).map((record) => record.chat);
+				const request = database.transaction(SUMMARY_STORE_NAME, "readonly").objectStore(SUMMARY_STORE_NAME).openCursor(this.scopeKeyRange());
+				const scopedRecords = [];
+				request.onsuccess = () => {
+					const cursor = request.result;
+					if (!cursor) {
+						resolve(scopedRecords);
+						return;
+					}
+					const record = cursor.value;
+					if (record.chat) scopedRecords.push(record);
+					cursor.continue();
+				};
+				request.onerror = () => resolve(scopedRecords);
+			})).sort((left, right) => left.position - right.position).slice(0, SUMMARY_LIMIT).map((record) => record.chat);
 			this.persistedSummaryFingerprint = JSON.stringify(chats);
 			return chats;
 		}
 		async warm() {
 			const database = await this.database();
 			if (!database) return [];
-			const chats = (await new Promise((resolve) => {
-				const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
-				request.onsuccess = () => resolve(request.result || []);
-				request.onerror = () => resolve([]);
-			})).filter((record) => record.scope === this.scope && record.chat).sort((left, right) => right.accessedAt - left.accessedAt).slice(0, this.limit).map((record) => record.chat);
+			const chats = await new Promise((resolve) => {
+				const store = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
+				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
+				const request = store.index(ACCESSED_AT_INDEX_NAME).openCursor(range, "prev");
+				const scopedChats = [];
+				request.onsuccess = () => {
+					const cursor = request.result;
+					if (!cursor || scopedChats.length >= this.limit) {
+						resolve(scopedChats);
+						return;
+					}
+					const record = cursor.value;
+					if (record.chat) scopedChats.push(record.chat);
+					if (scopedChats.length >= this.limit) {
+						resolve(scopedChats);
+						return;
+					}
+					cursor.continue();
+				};
+				request.onerror = () => resolve(scopedChats);
+			});
 			for (const chat of chats) {
 				const conversationId = String(chat?.id || "");
 				if (conversationId) this.rememberMemory(conversationId, chat);
@@ -17732,6 +17758,10 @@ var init_recentChatCache = __esmMin((() => {
 		}
 		key(conversationId) {
 			return this.scope + ":" + conversationId;
+		}
+		scopeKeyRange() {
+			const prefix = this.scope + ":";
+			return IDBKeyRange.bound(prefix, prefix + "￿");
 		}
 		async persist(chat) {
 			const conversationId = String(chat?.id || "");
@@ -17789,9 +17819,15 @@ var init_recentChatCache = __esmMin((() => {
 			await new Promise((resolve) => {
 				const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
 				const store = transaction.objectStore(SUMMARY_STORE_NAME);
-				const allRequest = store.getAll();
-				allRequest.onsuccess = () => {
-					for (const record of allRequest.result || []) if (record.scope === this.scope && !retainedIds.has(String(record.conversationId || ""))) store.delete(record.key);
+				const cursorRequest = store.openCursor(this.scopeKeyRange());
+				cursorRequest.onsuccess = () => {
+					const cursor = cursorRequest.result;
+					if (cursor) {
+						const record = cursor.value;
+						if (!retainedIds.has(String(record.conversationId || ""))) cursor.delete();
+						cursor.continue();
+						return;
+					}
 					chats.forEach((chat, position) => {
 						const conversationId = String(chat.id);
 						store.put({
