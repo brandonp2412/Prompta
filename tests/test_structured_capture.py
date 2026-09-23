@@ -412,6 +412,7 @@ def test_read_only_store_trusts_completed_structured_final_over_corrupt_cached_c
     assert chat is not None
     assistant = chat["messages"][-1]
     assert assistant["content"].endswith("Finished")
+    assert assistant["parts_renderable"] is True
     assert "FinishedFinished" not in assistant["content"]
     assert "Glass Serena" in assistant["content"]
 
@@ -471,6 +472,7 @@ def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale
     assert chat is not None
     assistant = chat["messages"][-1]
     assert final_text in assistant["content"]
+    assert assistant["parts_renderable"] is False
     assert "Glass Serena · serena_repl" in assistant["content"]
 
 

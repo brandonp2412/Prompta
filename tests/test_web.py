@@ -285,7 +285,7 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
         server.server_close()
 
 
-def test_ui_conversation_detail_drops_unused_structured_payload() -> None:
+def test_ui_conversation_detail_keeps_ordered_parts_but_drops_unused_structured_payload() -> None:
     original = {
         "id": "chat-heavy",
         "state_events": [{"type": "tool", "payload": "large"}],
@@ -296,6 +296,7 @@ def test_ui_conversation_detail_drops_unused_structured_payload() -> None:
                 "content": "Visible response",
                 "status": "complete",
                 "parts": [{"type": "tool", "payload": "large"}],
+                "parts_renderable": True,
                 "tool_calls": [{"name": "execute_python", "output": "large"}],
                 "source_event_count": 42,
                 "version_count": 3,
@@ -313,6 +314,8 @@ def test_ui_conversation_detail_drops_unused_structured_payload() -> None:
             "role": "assistant",
             "content": "Visible response",
             "status": "complete",
+            "parts": [{"type": "tool", "payload": "large"}],
+            "parts_renderable": True,
             "attachments": [{"id": "preview-1", "type": "image/png"}],
         }
     ]

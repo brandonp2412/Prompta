@@ -43,3 +43,31 @@ export function pendingLongPressMoved(
 ) {
   return Math.max(Math.abs(currentX - startX), Math.abs(currentY - startY)) > tolerance;
 }
+
+export function messageDisplayContent(message: Record<string, any> | null | undefined) {
+  const fallback = String(message?.content || "");
+
+  if (message?.role !== "assistant" || message?.parts_renderable !== true) return fallback;
+  if (!Array.isArray(message.parts)) return fallback;
+
+  const ordered = message.parts
+    .map((part: any, index: number) => ({
+      content: String(part?.content || "").trim(),
+      index,
+      ordinal: Number.isFinite(Number(part?.ordinal)) ? Number(part.ordinal) : index,
+    }))
+    .filter((part: { content: string }) => Boolean(part.content))
+    .sort(
+      (left: { ordinal: number; index: number }, right: { ordinal: number; index: number }) =>
+        left.ordinal - right.ordinal || left.index - right.index,
+    );
+
+  if (!ordered.length) return fallback;
+
+  const rendered = ordered
+    .map((part: { content: string }) => part.content)
+    .join("\n\n")
+    .trim();
+
+  return rendered || fallback;
+}

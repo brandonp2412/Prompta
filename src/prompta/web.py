@@ -94,9 +94,7 @@ class PromptaUIServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    _UNUSED_UI_MESSAGE_FIELDS = frozenset(
-        {"parts", "tool_calls", "source_event_count", "version_count"}
-    )
+    _UNUSED_UI_MESSAGE_FIELDS = frozenset({"tool_calls", "source_event_count", "version_count"})
 
     @classmethod
     def _compact_conversation_detail(cls, chat: dict[str, Any]) -> dict[str, Any]:

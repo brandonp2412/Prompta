@@ -6,7 +6,11 @@
   import { formatClockTime12Hour, messageAgeText, messageTimestampMillis } from "./clientLogic";
   import MarkdownContent from "./MarkdownContent.svelte";
   import { conversationState } from "./conversationState.svelte";
-  import { pendingLongPressMoved, shouldHandlePendingLongPress } from "./conversationLogic";
+  import {
+    messageDisplayContent,
+    pendingLongPressMoved,
+    shouldHandlePendingLongPress,
+  } from "./conversationLogic";
 
   type Message = Record<string, any>;
 
@@ -213,7 +217,7 @@
 
         <div class="message-content">
           {#if !message.pending_activity}
-            <MarkdownContent source={message.content} streaming={streaming(message)} />
+            <MarkdownContent source={messageDisplayContent(message)} streaming={streaming(message)} />
           {/if}
         </div>
 

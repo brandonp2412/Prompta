@@ -4,7 +4,7 @@ import {
 } from "./browserAttachments.svelte";
 import { conversationState } from "./conversationState.svelte";
 
-import { imageAttachments } from "./conversationLogic";
+import { imageAttachments, messageDisplayContent } from "./conversationLogic";
 
 export function createConversationRenderer({
   onRetry,
@@ -26,7 +26,7 @@ export function createConversationRenderer({
     return JSON.stringify([
       message.role,
       message.status,
-      message.content,
+      messageDisplayContent(message),
       imageAttachments(message).map((attachment) => [
         attachment.id || "",
         attachment.name || "",

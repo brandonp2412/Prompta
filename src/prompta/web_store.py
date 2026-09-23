@@ -465,6 +465,7 @@ class ReadOnlyChatStore:
                             str(part.get("content") or "")
                         )
             message["parts"] = structured_parts
+            message["parts_renderable"] = False
             message["tool_calls"] = calls_by_message.get(message_key, [])
             message["source_event_count"] = event_count_by_message.get(message_key, 0)
             message["display_at"] = latest_source_time_by_message.get(
@@ -483,10 +484,15 @@ class ReadOnlyChatStore:
                     or preserves_non_tool_text(canonical_content, structured_content)
                 ):
                     message["content"] = structured_content
+                    message["parts_renderable"] = True
             if use_structured_content:
                 observations = dom_prose_by_message.get(message_key, [])
                 content = str(message.get("content") or "")
-                if observations and has_stream_order_inversion(content, observations):
+                if (
+                    not message["parts_renderable"]
+                    and observations
+                    and has_stream_order_inversion(content, observations)
+                ):
                     message["content"] = recover_stream_order_from_observations(
                         content, observations
                     )

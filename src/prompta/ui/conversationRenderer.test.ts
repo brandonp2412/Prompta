@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   canMorphPendingMessageNode,
+  messageDisplayContent,
   pendingLongPressMoved,
   shouldHandlePendingLongPress,
 } from "./conversationLogic";
@@ -12,6 +13,48 @@ const conversationMessagesSource = readFileSync(
   "utf8",
 );
 const appCssSource = readFileSync(new URL("../static/app.css", import.meta.url), "utf8");
+
+describe("canonical assistant transcript rendering", () => {
+  test("renders structured text and tool calls by canonical ordinal instead of grouped cached content", () => {
+    const content = messageDisplayContent({
+      role: "assistant",
+      content: "First text\n\nBetween tools\n\nFirst tool\n\nSecond tool\n\nDone",
+      parts_renderable: true,
+      parts: [
+        { ordinal: 4, kind: "final_text", content: "Done" },
+        { ordinal: 1, kind: "tool_call", content: "First tool" },
+        { ordinal: 3, kind: "tool_call", content: "Second tool" },
+        { ordinal: 0, kind: "assistant_text", content: "First text" },
+        { ordinal: 2, kind: "assistant_text", content: "Between tools" },
+      ],
+    });
+
+    expect(content.indexOf("First text")).toBeLessThan(content.indexOf("First tool"));
+    expect(content.indexOf("First tool")).toBeLessThan(content.indexOf("Between tools"));
+    expect(content.indexOf("Between tools")).toBeLessThan(content.indexOf("Second tool"));
+    expect(content.indexOf("Second tool")).toBeLessThan(content.indexOf("Done"));
+  });
+
+  test("falls back to cached content when canonical parts are absent or not trusted", () => {
+    const legacy = "Legacy cached transcript";
+
+    expect(messageDisplayContent({ role: "assistant", content: legacy })).toBe(legacy);
+    expect(
+      messageDisplayContent({
+        role: "assistant",
+        content: legacy,
+        parts_renderable: false,
+        parts: [{ ordinal: 0, content: "Partial structured content" }],
+      }),
+    ).toBe(legacy);
+  });
+
+  test("the Svelte message view consumes canonical display content", () => {
+    expect(conversationMessagesSource).toContain(
+      "<MarkdownContent source={messageDisplayContent(message)} streaming={streaming(message)} />",
+    );
+  });
+});
 
 describe("pending message long press", () => {
   test("handles touch and coarse pointers without hijacking desktop mouse clicks", () => {
