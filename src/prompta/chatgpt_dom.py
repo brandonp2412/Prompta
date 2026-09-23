@@ -57,9 +57,9 @@ STREAMING_SELECTORS = (
     '[aria-busy="true"][data-testid*="turn" i]',
 )
 
+CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR = '[data-testid="modal-conversation-history-rate-limit"]'
+
 RATE_LIMIT_SELECTORS = (
-    '[data-testid="modal-conversation-history-rate-limit"]',
-    '[data-testid="conversation-fetch-error-toaster"]',
     '[data-testid*="rate-limit" i]',
     '[role="alert"]',
 )

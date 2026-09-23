@@ -14,6 +14,7 @@ from websockets.exceptions import ConnectionClosed, InvalidMessage
 from .chatgpt_dom import (
     ASSISTANT_MESSAGE_SELECTOR,
     COMPOSER_SELECTORS,
+    CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
     FILE_INPUT_SELECTORS,
     MESSAGE_ROLE_SELECTOR,
     RATE_LIMIT_SELECTOR,
@@ -1005,6 +1006,7 @@ class WebDriverBase:
           const composerSelectors=__COMPOSER_SELECTORS__;
           const messageSelector=__MESSAGE_SELECTOR__;
           const rateLimitSelector=__RATE_LIMIT_SELECTOR__;
+          const historyRateLimitSelector=__HISTORY_RATE_LIMIT_SELECTOR__;
           const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
           let composer=null;
           for(const selector of composerSelectors){
@@ -1022,16 +1024,20 @@ class WebDriverBase:
           const messages=[...document.querySelectorAll(messageSelector)];
           const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
           const rateLimitPattern=/(?:too many requests|temporarily limited access|requests too quickly|rate limit)/i;
+          const isHistoryRateLimitNode=node=>Boolean(
+            node?.matches?.(historyRateLimitSelector)||node?.closest?.(historyRateLimitSelector)
+          );
+          const historyRateLimitModal=[...document.querySelectorAll(historyRateLimitSelector)].find(visible);
           const rateLimitNodes=[...document.querySelectorAll(rateLimitSelector)]
-            .filter(node=>visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
+            .filter(node=>!isHistoryRateLimitNode(node)&&visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
           const rateLimitModal=[...document.querySelectorAll('dialog,[role="dialog"],[data-testid*="rate-limit" i]')]
-            .find(node=>visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
+            .find(node=>!isHistoryRateLimitNode(node)&&visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
           const rateLimitText=[...new Set([
             ...rateLimitNodes.map(node=>node.innerText||node.textContent||''),
             rateLimitModal?.innerText||rateLimitModal?.textContent||''
           ].map(text=>text.trim()).filter(Boolean))].join('\n');
-          if(rateLimitModal){
-            const acknowledge=[...rateLimitModal.querySelectorAll('button')].find(button=>{
+          for(const modal of [historyRateLimitModal,rateLimitModal].filter(Boolean)){
+            const acknowledge=[...modal.querySelectorAll('button')].find(button=>{
               const label=(button.innerText||button.textContent||button.getAttribute('aria-label')||'').trim();
               return visible(button)&&/^(?:got it|ok|okay|dismiss|close)$/i.test(label);
             });
@@ -1048,6 +1054,10 @@ class WebDriverBase:
         script = script.replace("__COMPOSER_SELECTORS__", json.dumps(COMPOSER_SELECTORS))
         script = script.replace("__MESSAGE_SELECTOR__", json.dumps(MESSAGE_ROLE_SELECTOR))
         script = script.replace("__RATE_LIMIT_SELECTOR__", json.dumps(RATE_LIMIT_SELECTOR))
+        script = script.replace(
+            "__HISTORY_RATE_LIMIT_SELECTOR__",
+            json.dumps(CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR),
+        )
         raw = await self.eval(script)
         return json.loads(raw or "{}")
 

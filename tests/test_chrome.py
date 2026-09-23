@@ -1177,8 +1177,10 @@ def test_webdriver_activity_probe_treats_network_error_banner_as_transient() -> 
     assert "openai" in source
 
 
-def test_dom_state_rate_limit_detection_does_not_scan_conversation_body() -> None:
+def test_dom_state_rate_limit_detection_ignores_history_throttling() -> None:
     source = inspect.getsource(WebDriverBase.dom_state)
 
     assert "document.body?.innerText" not in source
-    assert ".filter(node=>visible(node)&&rateLimitPattern.test(" in source
+    assert "historyRateLimitSelector" in source
+    assert "!isHistoryRateLimitNode(node)" in source
+    assert "historyRateLimitModal,rateLimitModal" in source
