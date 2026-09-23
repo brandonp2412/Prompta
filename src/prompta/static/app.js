@@ -7058,18 +7058,23 @@ function matchingPendingReplyMessageIndex(messages, pending, claimedIndexes = /*
 	if (!pendingTimes.length) return -1;
 	let bestIndex = -1;
 	let bestDistance = Number.POSITIVE_INFINITY;
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
+	const delayedCandidates = [];
+	const earliestPendingTime = Math.min(...pendingTimes);
+	for (let index = 0; index < messages.length; index += 1) {
 		if (claimedIndexes.has(index)) continue;
 		const message = messages[index];
 		if (message.role !== "user" || comparablePrompt(message.content) !== content) continue;
 		const messageTime = comparableTimestampSeconds(message.created_at || message.updated_at);
 		if (messageTime <= 0) continue;
 		const distance = Math.min(...pendingTimes.map((pendingTime) => Math.abs(messageTime - pendingTime)));
-		if (distance > 30 || distance >= bestDistance) continue;
-		bestIndex = index;
-		bestDistance = distance;
+		if (distance <= 30 && distance < bestDistance) {
+			bestIndex = index;
+			bestDistance = distance;
+		}
+		if (messageTime >= earliestPendingTime - 30) delayedCandidates.push(index);
 	}
-	return bestIndex;
+	if (bestIndex >= 0) return bestIndex;
+	return delayedCandidates[0] ?? -1;
 }
 function parseScheduleSlashCommand(message) {
 	if (!/^\/(?:add|every)(?:\s|$)/i.test(message)) return null;

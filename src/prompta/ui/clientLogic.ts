@@ -843,8 +843,10 @@ export function matchingPendingReplyMessageIndex(
 
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
+  const delayedCandidates: number[] = [];
+  const earliestPendingTime = Math.min(...pendingTimes);
 
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
+  for (let index = 0; index < messages.length; index += 1) {
     if (claimedIndexes.has(index)) continue;
 
     const message = messages[index];
@@ -859,13 +861,21 @@ export function matchingPendingReplyMessageIndex(
       ...pendingTimes.map((pendingTime) => Math.abs(messageTime - pendingTime)),
     );
 
-    if (distance > 30 || distance >= bestDistance) continue;
+    if (distance <= 30 && distance < bestDistance) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
 
-    bestIndex = index;
-    bestDistance = distance;
+    // Cached message timestamps are observation times, not ChatGPT source
+    // timestamps. A long-running response can therefore first persist its user
+    // row well after the 30-second optimistic-send window. It is still safe to
+    // reconcile when the durable row was observed after this pending send.
+    if (messageTime >= earliestPendingTime - 30) delayedCandidates.push(index);
   }
 
-  return bestIndex;
+  if (bestIndex >= 0) return bestIndex;
+
+  return delayedCandidates[0] ?? -1;
 }
 
 export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {

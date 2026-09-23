@@ -914,6 +914,25 @@ describe("optimistic reply reconciliation", () => {
     expect(matchedIndex).toBe(0);
   });
 
+  test("matches a durable reply first observed long after the send", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "keep fixing bugs",
+          created_at: 1_180,
+        },
+      ],
+      {
+        message: "keep fixing bugs",
+        createdAt: 1_000,
+        updatedAt: 1_005,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
+  });
+
   test("requires durable timing metadata instead of guessing from duplicate text", () => {
     const matchedIndex = matchingPendingReplyMessageIndex(
       [
