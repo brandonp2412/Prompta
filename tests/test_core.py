@@ -38,6 +38,7 @@ from prompta.core import (
     remove_job,
     set_job_paused,
 )
+from prompta.scheduler_execution import _MAX_ACTIVE_BROWSER_CONVERSATIONS
 from prompta.webdriver import BrowsingContextUnavailableError
 
 
@@ -1062,6 +1063,29 @@ async def test_active_scheduled_jobs_remain_bounded(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_total_browser_conversation_limit_blocks_scheduled_job(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    for index in range(_MAX_ACTIVE_BROWSER_CONVERSATIONS):
+        context_id = f"context-once-{index}"
+        prompta._active_conversations[context_id] = ActiveConversation(
+            conversation_id=f"conversation-once-{index}",
+            context_id=context_id,
+            job_name="once",
+            prompt="manual work still running",
+        )
+
+    assert await prompta._run_job(PromptJob("background", "scheduled work", 1800), now=1000.0) is False
+    assert prompta.send_once.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_active_one_shot_does_not_block_scheduled_job(tmp_path: Path) -> None:
     prompta = Prompta(
         PromptaConfig(
@@ -1662,6 +1686,40 @@ async def test_control_one_shots_share_scheduler_send_pacing(tmp_path: Path) -> 
     assert await second == "second-chat"
     assert prompta._once_requests.empty()
     assert prompta.send_once.await_count == 2
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_control_one_shot_waits_for_browser_capacity(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.send_once = AsyncMock(return_value="new-chat")  # type: ignore[method-assign]
+    for index in range(_MAX_ACTIVE_BROWSER_CONVERSATIONS):
+        context_id = f"context-{index}"
+        prompta._active_conversations[context_id] = ActiveConversation(
+            conversation_id=f"conversation-{index}",
+            context_id=context_id,
+            job_name="once",
+            prompt="still running",
+        )
+    future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._once_requests.put(("Queued send", [], future))
+
+    assert await prompta._drain_once_requests() is False
+    assert prompta._once_requests.qsize() == 1
+    assert prompta.send_once.await_count == 0
+    assert not future.done()
+
+    prompta._active_conversations.pop("context-0")
+    prompta._update_scheduler_state({"last_attempt_at": 0.0})
+    assert await prompta._drain_once_requests() is True
+    assert await future == "new-chat"
     prompta.cache.close()
 
 
