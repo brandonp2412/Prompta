@@ -18287,6 +18287,18 @@ var init_clientStorage = __esmMin((() => {
 //#endregion
 //#region src/prompta/ui/app.ts
 var app_exports = /* @__PURE__ */ __exportAll({});
+function chatPrefetchRevision(chat) {
+	return JSON.stringify([chat.status || "", chat.updated_at ?? ""]);
+}
+function rememberPrefetchedRevision(conversationId, revision) {
+	prefetchedChatRevisions.delete(conversationId);
+	prefetchedChatRevisions.set(conversationId, revision);
+	while (prefetchedChatRevisions.size > 50) {
+		const oldest = prefetchedChatRevisions.keys().next().value;
+		if (!oldest) break;
+		prefetchedChatRevisions.delete(oldest);
+	}
+}
 function fetchChatDetail(conversationId) {
 	const existing = chatDetailRequests.get(conversationId);
 	if (existing) return existing;
@@ -18302,25 +18314,31 @@ function fetchChatDetail(conversationId) {
 }
 function runQueuedChatPrefetch() {
 	if (chatPrefetchRunning) return;
-	const conversationId = queuedPrefetchIds.shift();
-	if (!conversationId) return;
+	const pending = queuedPrefetches.shift();
+	if (!pending) return;
+	const { conversationId, revision } = pending;
 	queuedPrefetchSet.delete(conversationId);
 	chatPrefetchRunning = true;
-	fetchChatDetail(conversationId).catch((error) => {
+	fetchChatDetail(conversationId).then((chat) => {
+		if (chat) rememberPrefetchedRevision(conversationId, revision);
+	}).catch((error) => {
 		console.warn("Could not prefetch Prompta chat", conversationId, error);
 	}).finally(() => {
 		chatPrefetchRunning = false;
-		if (!queuedPrefetchIds.length) return;
+		if (!queuedPrefetches.length) return;
 		(typeof requestIdleCallback === "function" ? (callback) => requestIdleCallback(callback, { timeout: 500 }) : (callback) => setTimeout(callback, 40))(runQueuedChatPrefetch);
 	});
 }
 function queueChatPrefetch(chats) {
-	for (const chat of chats) {
+	for (const chat of chats.slice(0, 8)) {
 		const id = String(chat?.id || "");
-		if (!id || chat.status === "active" || chat._optimisticNew || chat._pending_send || recentChatCache.getMemory(id) || queuedPrefetchSet.has(id) || chatDetailRequests.has(id)) continue;
+		const revision = chatPrefetchRevision(chat);
+		if (!id || chat.status === "active" || chat._optimisticNew || chat._pending_send || recentChatCache.getMemory(id) || prefetchedChatRevisions.get(id) === revision || queuedPrefetchSet.has(id) || chatDetailRequests.has(id)) continue;
 		queuedPrefetchSet.add(id);
-		queuedPrefetchIds.push(id);
-		if (queuedPrefetchIds.length >= 8) break;
+		queuedPrefetches.push({
+			conversationId: id,
+			revision
+		});
 	}
 	runQueuedChatPrefetch();
 }
@@ -19808,7 +19826,7 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetchIds, queuedPrefetchSet, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetches, queuedPrefetchSet, prefetchedChatRevisions, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, jobsDialog, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_clientLogic();
 	init_recentChatCache();
@@ -19830,8 +19848,9 @@ var init_app = __esmMin((() => {
 	clientSessionId = loadClientSessionId();
 	actionToastTimer = null;
 	chatDetailRequests = /* @__PURE__ */ new Map();
-	queuedPrefetchIds = [];
+	queuedPrefetches = [];
 	queuedPrefetchSet = /* @__PURE__ */ new Set();
+	prefetchedChatRevisions = /* @__PURE__ */ new Map();
 	chatPrefetchRunning = false;
 	state = {
 		chats: [],

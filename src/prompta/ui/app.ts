@@ -77,9 +77,27 @@ type UiChat = {
 };
 
 const chatDetailRequests = new Map<string, Promise<UiChat | null>>();
-const queuedPrefetchIds: string[] = [];
+const queuedPrefetches: Array<{ conversationId: string; revision: string }> = [];
 const queuedPrefetchSet = new Set<string>();
+const prefetchedChatRevisions = new Map<string, string>();
 let chatPrefetchRunning = false;
+
+function chatPrefetchRevision(chat: UiChat) {
+  return JSON.stringify([chat.status || "", chat.updated_at ?? ""]);
+}
+
+function rememberPrefetchedRevision(conversationId: string, revision: string) {
+  prefetchedChatRevisions.delete(conversationId);
+  prefetchedChatRevisions.set(conversationId, revision);
+
+  while (prefetchedChatRevisions.size > 50) {
+    const oldest = prefetchedChatRevisions.keys().next().value;
+
+    if (!oldest) break;
+
+    prefetchedChatRevisions.delete(oldest);
+  }
+}
 
 function fetchChatDetail(conversationId: string) {
   const existing = chatDetailRequests.get(conversationId);
@@ -106,20 +124,24 @@ function fetchChatDetail(conversationId: string) {
 function runQueuedChatPrefetch() {
   if (chatPrefetchRunning) return;
 
-  const conversationId = queuedPrefetchIds.shift();
+  const pending = queuedPrefetches.shift();
 
-  if (!conversationId) return;
+  if (!pending) return;
 
+  const { conversationId, revision } = pending;
   queuedPrefetchSet.delete(conversationId);
   chatPrefetchRunning = true;
   void fetchChatDetail(conversationId)
+    .then((chat) => {
+      if (chat) rememberPrefetchedRevision(conversationId, revision);
+    })
     .catch((error) => {
       console.warn("Could not prefetch Prompta chat", conversationId, error);
     })
     .finally(() => {
       chatPrefetchRunning = false;
 
-      if (!queuedPrefetchIds.length) return;
+      if (!queuedPrefetches.length) return;
 
       const schedule =
         typeof requestIdleCallback === "function"
@@ -130,8 +152,9 @@ function runQueuedChatPrefetch() {
 }
 
 function queueChatPrefetch(chats: UiChat[]) {
-  for (const chat of chats) {
+  for (const chat of chats.slice(0, 8)) {
     const id = String(chat?.id || "");
+    const revision = chatPrefetchRevision(chat);
 
     if (
       !id ||
@@ -139,6 +162,7 @@ function queueChatPrefetch(chats: UiChat[]) {
       chat._optimisticNew ||
       chat._pending_send ||
       recentChatCache.getMemory(id) ||
+      prefetchedChatRevisions.get(id) === revision ||
       queuedPrefetchSet.has(id) ||
       chatDetailRequests.has(id)
     ) {
@@ -146,9 +170,7 @@ function queueChatPrefetch(chats: UiChat[]) {
     }
 
     queuedPrefetchSet.add(id);
-    queuedPrefetchIds.push(id);
-
-    if (queuedPrefetchIds.length >= 8) break;
+    queuedPrefetches.push({ conversationId: id, revision });
   }
 
   runQueuedChatPrefetch();

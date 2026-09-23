@@ -41,6 +41,8 @@ describe("sidebar selection rendering", () => {
     expect(sidebarStateSource).toContain("onPrefetch: (chatId: string) => void");
     expect(sidebarSource).toContain("sidebarListActions.onPrefetch(chatId);");
     expect(appSource).toContain("const chatDetailRequests = new Map");
+    expect(appSource).toContain("for (const chat of chats.slice(0, 8))");
+    expect(appSource).toContain("prefetchedChatRevisions.get(id) === revision");
     expect(appSource).toContain("queueChatPrefetch(orderedChats);");
     expect(loadSelectedChatSource).toContain("fetchChatDetail(selectedId);");
     expect(loadSelectedChatSource).not.toContain("await fetchJson(");
