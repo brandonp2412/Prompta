@@ -3,7 +3,7 @@
 
   import { dialogVisibility } from "./browserAttachments.svelte";
   import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest } from "./clientLogic";
-  import { jobPromptIsExpandable } from "./jobs";
+  import { jobPromptIsExpandable, jobVisibilityGroup, type JobVisibilityGroup } from "./jobs";
   import { registerJobsDialog } from "./uiControllers";
 
   type Job = {
@@ -30,6 +30,18 @@
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
+  let visibility = $state<Record<JobVisibilityGroup, boolean>>({
+    active: true,
+    done: true,
+    broken: true,
+  });
+
+  const visibilityOptions: { key: JobVisibilityGroup; label: string }[] = [
+    { key: "active", label: "Active" },
+    { key: "done", label: "Done" },
+    { key: "broken", label: "Broken" },
+  ];
+  const visibleJobs = $derived(jobs.filter((job) => visibility[jobVisibilityGroup(job.status)]));
 
   function reset() {
     editing = "";
@@ -161,12 +173,32 @@
       </button>
     </header>
 
-    <div class="jobs-dialog-status" role="status">{status}</div>
+    <div class="jobs-dialog-toolbar">
+      <div class="jobs-dialog-status" role="status">{status}</div>
+      <div class="jobs-filters" aria-label="Job visibility filters">
+        {#each visibilityOptions as option (option.key)}
+          <button
+            type="button"
+            class={["jobs-filter-chip", { active: visibility[option.key] }]}
+            aria-pressed={visibility[option.key]}
+            onclick={() => {
+              visibility[option.key] = !visibility[option.key];
+            }}
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
+    </div>
 
     <div class="jobs-list">
-      {#if !jobs.length}<div class="jobs-empty">No scheduled jobs.</div>{/if}
+      {#if !jobs.length}
+        <div class="jobs-empty">No scheduled jobs.</div>
+      {:else if !visibleJobs.length}
+        <div class="jobs-empty">No jobs match the selected filters.</div>
+      {/if}
 
-      {#each jobs as job (job.name)}
+      {#each visibleJobs as job (job.name)}
         <article class="job-row">
           <div class="job-row-top">
             <div>

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { jobPromptIsExpandable } from "./jobs";
+import { jobPromptIsExpandable, jobVisibilityGroup } from "./jobs";
 
 const jobsDialogSource = readFileSync(new URL("./JobsDialog.svelte", import.meta.url), "utf8");
 
@@ -17,6 +17,22 @@ describe("scheduled job prompt presentation", () => {
 
   test("expands multiline prompts", () => {
     expect(jobPromptIsExpandable("first line\nsecond line")).toBeTrue();
+  });
+
+  test("groups scheduler states into Active, Done, and Broken filters", () => {
+    expect(jobVisibilityGroup("pending")).toBe("active");
+    expect(jobVisibilityGroup("paused")).toBe("active");
+    expect(jobVisibilityGroup("healthy")).toBe("done");
+    expect(jobVisibilityGroup("failing")).toBe("broken");
+    expect(jobVisibilityGroup("rate-limited")).toBe("broken");
+  });
+
+  test("renders independently toggleable visibility chips", () => {
+    expect(jobsDialogSource).toContain('label: "Active"');
+    expect(jobsDialogSource).toContain('label: "Done"');
+    expect(jobsDialogSource).toContain('label: "Broken"');
+    expect(jobsDialogSource).toContain("aria-pressed={visibility[option.key]}");
+    expect(jobsDialogSource).toContain("{#each visibleJobs as job (job.name)}");
   });
 
   test("keeps mobile Jobs navigation on the stack presentation", () => {
