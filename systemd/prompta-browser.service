@@ -1,0 +1,16 @@
+[Unit]
+Description=Brave browser used by Prompta
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/rm -rf %h/.local/state/prompta/chrome-profile/Default/Sessions
+ExecStart=/opt/brave-bin/brave --user-data-dir=%h/.local/state/prompta/chrome-profile --profile-directory=Default --remote-debugging-port=9222 --no-startup-window --no-first-run --disable-session-crashed-bubble
+Restart=on-failure
+RestartSec=5
+Slice=prompta.slice
+OOMPolicy=stop
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

@@ -185,8 +185,10 @@ conversation cache, logs, and UI on port 8765 all live there. If the backend is
 unavailable, the UI starts `prompta.service` and fails the send if it does not become
 ready.
 
-Install `systemd/prompta.service` and `systemd/prompta-ui.service` under
-`~/.config/systemd/user/`. The UI unit wants the local worker but remains available across worker restarts and uses
+Install `systemd/prompta.service`, `systemd/prompta-browser.service`, and
+`systemd/prompta-ui.service` under `~/.config/systemd/user/`. The browser unit uses the
+dedicated Prompta profile and clears only its saved tab-session files before startup,
+so Chromium cannot restore stale automation tabs after a restart. The UI unit wants the local worker but remains available across worker restarts and uses
 `--preserve-active` so a UI-only restart cannot mark worker-owned live conversations
 interrupted. Remove legacy `prompta-cache-sync.timer` and `prompta-cache-sync.service` when upgrading.
 
@@ -203,7 +205,8 @@ journalctl --user -u prompta -f
 systemctl --user status prompta-ui
 ```
 
-The unit files are `systemd/prompta.service` and `systemd/prompta-ui.service`.
+The unit files are `systemd/prompta.service`, `systemd/prompta-browser.service`, and
+`systemd/prompta-ui.service`.
 
 ## Development
 
