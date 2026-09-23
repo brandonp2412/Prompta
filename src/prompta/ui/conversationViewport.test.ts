@@ -65,6 +65,26 @@ describe("conversation viewport memory", () => {
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
   });
 
+  test("applies a new chat's bottom position before deferred rendering can recapture scroll", () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const queuedFrames: FrameRequestCallback[] = [];
+
+    globalThis.requestAnimationFrame = (callback) => {
+      queuedFrames.push(callback);
+
+      return queuedFrames.length;
+    };
+
+    const element = fakeViewport({ scrollTop: 275 });
+    const cleanup = attachViewport(element);
+
+    restoreConversationViewport({ pinnedToBottom: false, scrollTop: 0 }, true);
+    expect(element.scrollTop).toBe(element.scrollHeight);
+
+    cleanup();
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+  });
+
   test("keeps a pinned chat at the newest message while late content changes its height", () => {
     const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
     const originalResizeObserver = globalThis.ResizeObserver;

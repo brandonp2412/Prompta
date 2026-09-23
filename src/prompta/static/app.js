@@ -6100,6 +6100,7 @@ function restoreConversationViewport(snapshot, forceBottom = false) {
 	if (!element) return;
 	const shouldPinToBottom = forceBottom || Boolean(snapshot.pinnedToBottom);
 	conversationViewportPinnedToBottom = shouldPinToBottom;
+	if (shouldPinToBottom) element.scrollTop = element.scrollHeight;
 	const restoreToken = ++conversationViewportRestoreToken;
 	requestAnimationFrame(() => {
 		if (restoreToken !== conversationViewportRestoreToken || conversationViewportElement !== element) return;

@@ -95,6 +95,8 @@ export function restoreConversationViewport(
   const shouldPinToBottom = forceBottom || Boolean(snapshot.pinnedToBottom);
   conversationViewportPinnedToBottom = shouldPinToBottom;
 
+  if (shouldPinToBottom) element.scrollTop = element.scrollHeight;
+
   const restoreToken = ++conversationViewportRestoreToken;
   requestAnimationFrame(() => {
     if (
