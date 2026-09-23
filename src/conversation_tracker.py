@@ -14,6 +14,7 @@ from .chromium import (
     preserves_non_tool_text,
 )
 from .structured_capture import has_completed_final_text, message_parts_from_source_events
+from .tool_diff_capture import ToolDiffCapture
 from .webdriver import BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ConversationTracker:
     ) -> None:
         self.cache = cache
         self.tool_enricher = ChromiumToolEnricher()
+        self.tool_diff_capture = ToolDiffCapture(cache)
         self.ensure_driver = ensure_driver
         self.ensure_route = ensure_route
         self.current_driver = current_driver
@@ -72,6 +74,16 @@ class ConversationTracker:
             raise RuntimeError(
                 "Browser session was lost; restarting Prompta to recycle browser"
             ) from exc
+
+    def _write_snapshot(
+        self,
+        conversation_id: str,
+        snapshot: dict[str, Any],
+        *,
+        complete: bool = False,
+    ) -> None:
+        self.cache.write_snapshot(conversation_id, snapshot, complete=complete)
+        self.tool_diff_capture.observe_snapshot(conversation_id, snapshot)
 
     async def recover_completed_final_from_backend(
         self,
@@ -158,7 +170,7 @@ class ConversationTracker:
                 "turn_ended": True,
             },
         }
-        self.cache.write_snapshot(conversation_id, snapshot, complete=True)
+        self._write_snapshot(conversation_id, snapshot, complete=True)
         logger.info(
             "Prompta recovered authoritative backend final text conversation=%s",
             conversation_id,
@@ -266,7 +278,7 @@ class ConversationTracker:
 
                 snapshot["streaming"] = True
                 self.cache.resume(conversation_id, context_id=context)
-                self.cache.write_snapshot(conversation_id, snapshot)
+                self._write_snapshot(conversation_id, snapshot)
                 self.active[context] = ActiveConversation(
                     conversation_id=conversation_id,
                     context_id=context,
@@ -587,7 +599,7 @@ class ConversationTracker:
                     snapshot,
                     active=active,
                 )
-                self.cache.write_snapshot(active.conversation_id, snapshot)
+                self._write_snapshot(active.conversation_id, snapshot)
                 active.last_digest = source_digest
                 changed = False
 
@@ -603,7 +615,7 @@ class ConversationTracker:
             streaming = bool(snapshot.get("streaming"))
 
             if changed:
-                self.cache.write_snapshot(active.conversation_id, snapshot)
+                self._write_snapshot(active.conversation_id, snapshot)
                 active.last_digest = digest
                 if not (
                     active.settled_at > 0 and completion_hint and not streaming and not failure_hint
@@ -814,7 +826,7 @@ class ConversationTracker:
                     snapshot,
                     active=active,
                 )
-                self.cache.write_snapshot(active.conversation_id, snapshot, complete=True)
+                self._write_snapshot(active.conversation_id, snapshot, complete=True)
                 active.last_digest = source_digest
                 active.settled_at = time.monotonic()
                 logger.info(

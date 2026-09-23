@@ -808,6 +808,19 @@ class ChatCache:
             self.mark_unattended(str(row["id"]))
         return len(rows)
 
+    def tool_call_message_key(self, conversation_id: str, call_key: str) -> str | None:
+        row = self.connection.execute(
+            """
+            SELECT message_key
+            FROM tool_calls
+            WHERE conversation_id = ? AND call_key = ?
+            ORDER BY rowid DESC
+            LIMIT 1
+            """,
+            (conversation_id, call_key),
+        ).fetchone()
+        return str(row["message_key"]) if row is not None else None
+
     def record_tool_call_diff(
         self,
         conversation_id: str,
