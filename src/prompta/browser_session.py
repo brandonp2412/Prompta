@@ -82,15 +82,15 @@ class BrowserSession:
     ) -> dict[str, Any]:
         return await driver.effort_trigger_info(timeout=timeout)
 
-    async def high_effort_slider_point(self, driver: BrowserDriver) -> dict[str, float]:
-        return await driver.high_effort_slider_point()
+    async def maximize_effort_slider(self, driver: BrowserDriver) -> None:
+        await driver.maximize_effort_slider()
 
     async def ensure_high_effort(
         self,
         driver: BrowserDriver,
         *,
         effort_trigger_info,
-        high_effort_slider_point,
+        maximize_effort_slider,
         pointer_click,
     ) -> None:
         target_model = "GPT-6 Astra"
@@ -116,14 +116,7 @@ class BrowserSession:
 
         await driver.select_effort_model(target_model)
 
-        for attempt in range(2):
-            point = await high_effort_slider_point(driver)
-            try:
-                await pointer_click(driver, point["x"], point["y"])
-                break
-            except RuntimeError as exc:
-                if "out of bounds" not in str(exc).casefold() or attempt > 0:
-                    raise
+        await maximize_effort_slider(driver)
 
         deadline = asyncio.get_running_loop().time() + 2.0
         while asyncio.get_running_loop().time() < deadline:

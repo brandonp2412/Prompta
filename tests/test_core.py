@@ -809,15 +809,14 @@ async def test_effort_controls_delegate_to_playwright_driver(tmp_path: Path) -> 
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.effort_trigger_info = AsyncMock(return_value={"text": "Medium", "x": 10.0, "y": 20.0})
-    driver.high_effort_slider_point = AsyncMock(return_value={"x": 30.0, "y": 40.0})
+    driver.maximize_effort_slider = AsyncMock()
 
     trigger = await prompta._effort_trigger_info(driver)
-    slider = await prompta._high_effort_slider_point(driver)
+    await prompta._maximize_effort_slider(driver)
 
     assert trigger == {"text": "Medium", "x": 10.0, "y": 20.0}
-    assert slider == {"x": 30.0, "y": 40.0}
     driver.effort_trigger_info.assert_awaited_once()
-    driver.high_effort_slider_point.assert_awaited_once()
+    driver.maximize_effort_slider.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -835,15 +834,14 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
             {"text": "Max", "label": "GPT-6 Astra Max", "x": 10.0, "y": 20.0},
         ]
     )
-    prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]
-        return_value={"x": 30.0, "y": 40.0}
-    )
+    prompta._maximize_effort_slider = AsyncMock()  # type: ignore[method-assign]
     prompta._pointer_click = AsyncMock()  # type: ignore[method-assign]
 
     await prompta._ensure_high_effort(driver)
 
     driver.select_effort_model.assert_awaited_once_with("GPT-6 Astra")
-    assert prompta._pointer_click.await_count == 2
+    prompta._maximize_effort_slider.assert_awaited_once_with(driver)
+    assert prompta._pointer_click.await_count == 1
     driver._perform_actions.assert_awaited_once()
 
 
@@ -863,16 +861,9 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
             {"text": "Max", "label": "GPT-6 Astra Max", "x": 10.0, "y": 20.0},
         ]
     )
-    prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]
-        side_effect=[
-            {"x": 30.0, "y": 700.0},
-            {"x": 30.0, "y": 40.0},
-        ]
-    )
+    prompta._maximize_effort_slider = AsyncMock()  # type: ignore[method-assign]
     prompta._pointer_click = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
-            RuntimeError("move target out of bounds"),
-            None,
             RuntimeError("move target out of bounds"),
             None,
         ]
@@ -881,8 +872,8 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
     await prompta._ensure_high_effort(driver)
 
     assert prompta._effort_trigger_info.await_count == 3
-    assert prompta._high_effort_slider_point.await_count == 2
-    assert prompta._pointer_click.await_count == 4
+    prompta._maximize_effort_slider.assert_awaited_once_with(driver)
+    assert prompta._pointer_click.await_count == 2
     driver._perform_actions.assert_awaited_once()
 
 

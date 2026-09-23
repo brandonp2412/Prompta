@@ -252,22 +252,28 @@ async def test_select_effort_model_uses_accessible_menu_items(live_driver) -> No
 
 
 @pytest.mark.asyncio
-async def test_high_effort_slider_targets_maximum(live_driver) -> None:
+async def test_high_effort_slider_uses_keyboard_to_reach_maximum(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
-        "<div data-model-reasoning-effort-slider>"
-        '<input role="slider" type="range" min="0" max="4" value="1" '
-        'aria-valuemin="0" aria-valuemax="4" aria-valuenow="1">'
-        "</div>"
+        """
+        <div role="menuitem" aria-label="Power" tabindex="0"
+             onkeydown="const slider=this.querySelector('[role=slider]');
+                        if(event.key==='ArrowRight'){
+                          const next=Math.min(Number(slider.getAttribute('aria-valuemax')),
+                            Number(slider.getAttribute('aria-valuenow'))+1);
+                          slider.setAttribute('aria-valuenow', String(next));
+                        }">
+          <div data-model-reasoning-effort-slider>
+            <span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="1"
+                  style="display:block;width:28px;height:28px"></span>
+          </div>
+        </div>
+        """
     )
 
-    slider = page.locator('[data-model-reasoning-effort-slider] [role="slider"]')
-    box = await slider.bounding_box()
-    point = await driver.high_effort_slider_point()
+    await driver.maximize_effort_slider()
 
-    assert box is not None
-    assert point["x"] > box["x"] + box["width"] * 0.75
-    assert point["y"] > 0
+    assert await driver.high_effort_slider_value() == "4"
     assert await driver.high_effort_slider_max_value() == "4"
 
 

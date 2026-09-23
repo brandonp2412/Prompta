@@ -1007,10 +1007,14 @@ class PlaywrightDriver(BrowserDriverBase):
         except PlaywrightError as exc:
             raise RuntimeError(f"ChatGPT model {model_name!r} could not be selected") from exc
 
-    async def high_effort_slider_point(self) -> dict[str, float]:
+    async def maximize_effort_slider(self) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
+            power = await self._first_usable(
+                [page.get_by_role("menuitem", name="Power", exact=True)],
+                enabled=True,
+            )
             slider = await self._first_usable(
                 [
                     page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
@@ -1018,24 +1022,20 @@ class PlaywrightDriver(BrowserDriverBase):
                 ],
                 enabled=True,
             )
-            if slider is None:
+            if power is None or slider is None:
                 await asyncio.sleep(0.1)
                 continue
             try:
                 min_value = float(await slider.get_attribute("aria-valuemin") or 0)
-                max_value = float(await slider.get_attribute("aria-valuemax") or 3)
-                target = max_value
+                max_value = float(await slider.get_attribute("aria-valuemax") or 0)
+                current_value = float(await slider.get_attribute("aria-valuenow") or min_value)
                 if max_value <= min_value:
                     raise RuntimeError("ChatGPT maximum effort is unavailable: invalid-range")
-                box = await slider.bounding_box()
-                if box is None:
-                    await asyncio.sleep(0.1)
-                    continue
-                padding = min(13.0, box["width"] / 4)
-                usable = max(1.0, box["width"] - padding * 2)
-                x = box["x"] + padding + usable * (target - min_value) / (max_value - min_value)
-                y = box["y"] + box["height"] / 2
-                return {"x": float(x), "y": float(y)}
+                await power.focus()
+                steps = max(0, int(round(max_value - current_value)))
+                for _ in range(steps):
+                    await page.keyboard.press("ArrowRight")
+                return
             except (PlaywrightError, ValueError):
                 await asyncio.sleep(0.1)
         raise RuntimeError("ChatGPT thinking-effort slider did not open")
