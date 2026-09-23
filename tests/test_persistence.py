@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import prompta.jobs as jobs_module
@@ -94,10 +95,72 @@ def test_legacy_image_preview_json_is_imported_then_removed(tmp_path: Path) -> N
 
     store = ImagePreviewStore(tmp_path)
 
-    assert store.records["client-a"]["conversation_id"] == "chat-a"
+    record = store.records["client-a"]
+    assert record["conversation_id"] == "chat-a"
+    image = record["images"][0]
+    stored_path = directory / image["path"]
+    assert stored_path.name == "shot.png"
+    assert len(stored_path.parent.name) == 64
+    assert stored_path.read_bytes() == b"preview"
+    assert not (directory / preview_id).exists()
     assert store.image_preview(preview_id) == (b"preview", "image/png")
     assert is_sqlite_file(store.path)
     assert not legacy.exists()
+
+
+def test_image_preview_sqlite_migrates_flat_file_and_adds_relative_path(tmp_path: Path) -> None:
+    directory = tmp_path / "ui-image-previews"
+    directory.mkdir()
+    preview_id = "b" * 32
+    (directory / preview_id).write_bytes(b"old-flat-preview")
+
+    database = tmp_path / "ui-image-previews.sqlite3"
+    connection = sqlite3.connect(database)
+    connection.executescript(
+        """
+        CREATE TABLE image_preview_records (
+            client_id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL DEFAULT '',
+            message TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        );
+        CREATE TABLE image_preview_images (
+            client_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            preview_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            PRIMARY KEY (client_id, position),
+            UNIQUE (preview_id)
+        );
+        INSERT INTO image_preview_records(
+            client_id, conversation_id, message, created_at
+        ) VALUES ('client-old', 'chat-old', 'Old preview', 1.0);
+        INSERT INTO image_preview_images(
+            client_id, position, preview_id, name, media_type
+        ) VALUES ('client-old', 0, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'original name.png', 'image/png');
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    store = ImagePreviewStore(tmp_path)
+
+    image = store.records["client-old"]["images"][0]
+    stored_path = directory / image["path"]
+    assert stored_path.name == "original name.png"
+    assert len(stored_path.parent.name) == 64
+    assert stored_path.read_bytes() == b"old-flat-preview"
+    assert not (directory / preview_id).exists()
+
+    connection = sqlite3.connect(database)
+    row = connection.execute(
+        "SELECT relative_path FROM image_preview_images WHERE preview_id = ?",
+        (preview_id,),
+    ).fetchone()
+    connection.close()
+    assert row is not None
+    assert row[0] == image["path"]
 
 
 def test_runtime_database_imports_separate_legacy_job_and_state_files(

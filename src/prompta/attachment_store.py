@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import base64
 import binascii
-import re
 import uuid
 from pathlib import Path
 from typing import Any
 
+from .file_storage import remove_stored_file, safe_basename, store_hashed_file
 from .image_previews import ImagePreviewStore
 
 
@@ -37,8 +37,7 @@ class AttachmentStore:
             for item in raw_attachments:
                 if not isinstance(item, dict):
                     raise ValueError("Invalid attachment")
-                name = Path(str(item.get("name") or "attachment")).name
-                name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .") or "attachment"
+                name = safe_basename(item.get("name"))
                 media_type = str(item.get("type") or "application/octet-stream").strip().lower()
                 encoded = str(item.get("data") or "")
                 if encoded.startswith("data:") and "," in encoded:
@@ -50,22 +49,29 @@ class AttachmentStore:
                 total_bytes += len(content)
                 if total_bytes > 25 * 1024 * 1024:
                     raise ValueError("Attachments exceed the 25 MB Prompta upload limit")
-                target = self.upload_dir / f"{uuid.uuid4().hex}-{name}"
-                target.write_bytes(content)
-                target.chmod(0o600)
+                target, _upload_path = store_hashed_file(self.upload_dir, name, content)
                 saved.append(str(target))
                 if client_id and media_type.startswith("image/"):
                     preview_id = uuid.uuid4().hex
-                    preview_target = self.image_previews.directory / preview_id
-                    preview_target.write_bytes(content)
-                    preview_target.chmod(0o600)
+                    preview_target, preview_path = store_hashed_file(
+                        self.image_previews.directory,
+                        name,
+                        content,
+                    )
                     preview_files.append(preview_target)
-                    preview_images.append({"id": preview_id, "name": name, "type": media_type})
+                    preview_images.append(
+                        {
+                            "id": preview_id,
+                            "name": name,
+                            "type": media_type,
+                            "path": preview_path,
+                        }
+                    )
         except Exception:
             for target in saved:
-                Path(target).unlink(missing_ok=True)
+                remove_stored_file(self.upload_dir, Path(target))
             for target in preview_files:
-                target.unlink(missing_ok=True)
+                remove_stored_file(self.image_previews.directory, target)
             raise
         if preview_images:
             self.image_previews.replace_staged(client_id, message, preview_images)

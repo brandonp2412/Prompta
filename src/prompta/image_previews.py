@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .file_storage import remove_stored_file, resolve_stored_file, safe_basename, store_hashed_file
 from .persistence import connect_sqlite, read_legacy_json, remove_legacy_json
 
 
@@ -40,6 +41,7 @@ class ImagePreviewStore:
                     preview_id TEXT NOT NULL,
                     name TEXT NOT NULL,
                     media_type TEXT NOT NULL,
+                    relative_path TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (client_id, position),
                     UNIQUE (preview_id),
                     FOREIGN KEY (client_id)
@@ -49,6 +51,15 @@ class ImagePreviewStore:
                 """
             )
             connection.execute("PRAGMA foreign_keys=ON")
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(image_preview_images)")
+            }
+            if "relative_path" not in columns:
+                connection.execute(
+                    "ALTER TABLE image_preview_images "
+                    "ADD COLUMN relative_path TEXT NOT NULL DEFAULT ''"
+                )
 
     def _load_database(self) -> dict[str, dict[str, Any]]:
         with self._connect() as connection:
@@ -61,7 +72,7 @@ class ImagePreviewStore:
             ).fetchall()
             images = connection.execute(
                 """
-                SELECT client_id, position, preview_id, name, media_type
+                SELECT client_id, position, preview_id, name, media_type, relative_path
                 FROM image_preview_images
                 ORDER BY client_id, position
                 """
@@ -74,6 +85,7 @@ class ImagePreviewStore:
                     "id": str(row["preview_id"]),
                     "name": str(row["name"]),
                     "type": str(row["media_type"]),
+                    "path": str(row["relative_path"] or ""),
                 }
             )
         return {
@@ -102,6 +114,30 @@ class ImagePreviewStore:
                 self._write_locked()
         remove_legacy_json(self.legacy_path)
 
+    def _file_for_image(self, image: dict[str, Any]) -> Path | None:
+        stored = resolve_stored_file(self.directory, image.get("path"))
+        if stored is not None:
+            return stored
+        preview_id = str(image.get("id") or "")
+        if not preview_id:
+            return None
+        legacy = self.directory / preview_id
+        return legacy if legacy.is_file() else None
+
+    def _migrate_flat_preview(self, image: dict[str, Any], legacy: Path) -> Path:
+        preview_id = str(image.get("id") or "")
+        content = legacy.read_bytes()
+        target, relative_path = store_hashed_file(
+            self.directory,
+            safe_basename(image.get("name"), default="image"),
+            content,
+            seed=preview_id.encode("utf-8"),
+        )
+        if target != legacy:
+            legacy.unlink(missing_ok=True)
+        image["path"] = relative_path
+        return target
+
     def load(self) -> dict[str, dict[str, Any]]:
         records = self._load_database()
         cutoff = time.time() - (30 * 24 * 60 * 60)
@@ -120,7 +156,7 @@ class ImagePreviewStore:
             if not isinstance(images, list):
                 changed = True
                 continue
-            kept_images = []
+            kept_images: list[dict[str, str]] = []
             for image in images:
                 if not isinstance(image, dict):
                     changed = True
@@ -129,15 +165,29 @@ class ImagePreviewStore:
                 if not preview_id:
                     changed = True
                     continue
-                file_path = self.directory / preview_id
-                if not file_path.is_file():
+
+                stored = resolve_stored_file(self.directory, image.get("path"))
+                if stored is None:
+                    legacy = self.directory / preview_id
+                    if not legacy.is_file():
+                        changed = True
+                        continue
+                    try:
+                        stored = self._migrate_flat_preview(image, legacy)
+                    except OSError:
+                        changed = True
+                        continue
+                    changed = True
+                if not stored.is_file():
                     changed = True
                     continue
+
                 kept_images.append(
                     {
                         "id": preview_id,
-                        "name": str(image.get("name") or "image"),
+                        "name": safe_basename(image.get("name"), default="image"),
                         "type": str(image.get("type") or "image/*"),
+                        "path": str(image.get("path") or ""),
                     }
                 )
             if kept_images:
@@ -180,16 +230,17 @@ class ImagePreviewStore:
                 connection.executemany(
                     """
                     INSERT INTO image_preview_images(
-                        client_id, position, preview_id, name, media_type
-                    ) VALUES (?, ?, ?, ?, ?)
+                        client_id, position, preview_id, name, media_type, relative_path
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
                         (
                             client_id,
                             position,
                             str(image.get("id") or ""),
-                            str(image.get("name") or "image"),
+                            safe_basename(image.get("name"), default="image"),
                             str(image.get("type") or "image/*"),
+                            str(image.get("path") or ""),
                         )
                         for position, image in enumerate(images)
                         if isinstance(image, dict) and image.get("id")
@@ -208,11 +259,15 @@ class ImagePreviewStore:
             previous = self.records.get(client_id)
             if isinstance(previous, dict) and not previous.get("conversation_id"):
                 for image in previous.get("images", []):
-                    if isinstance(image, dict):
-                        try:
-                            (self.directory / str(image.get("id") or "")).unlink(missing_ok=True)
-                        except OSError:
-                            pass
+                    if not isinstance(image, dict):
+                        continue
+                    target = self._file_for_image(image)
+                    if target is None:
+                        continue
+                    try:
+                        remove_stored_file(self.directory, target)
+                    except OSError:
+                        pass
             self.records[client_id] = {
                 "client_id": client_id,
                 "conversation_id": "",
@@ -279,7 +334,7 @@ class ImagePreviewStore:
         if not re.fullmatch(r"[a-f0-9]{32}", preview_id):
             return None
         media_type = "application/octet-stream"
-        found = False
+        target: Path | None = None
         with self.lock:
             for record in self.records.values():
                 if not isinstance(record, dict):
@@ -288,14 +343,14 @@ class ImagePreviewStore:
                     if not isinstance(image, dict) or str(image.get("id") or "") != preview_id:
                         continue
                     media_type = str(image.get("type") or "application/octet-stream")
-                    found = True
+                    target = self._file_for_image(image)
                     break
-                if found:
+                if target is not None:
                     break
-        if not found:
+        if target is None:
             return None
         try:
-            body = (self.directory / preview_id).read_bytes()
+            body = target.read_bytes()
         except OSError:
             return None
         return body, media_type

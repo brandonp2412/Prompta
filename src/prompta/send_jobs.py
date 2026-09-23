@@ -44,8 +44,15 @@ class SendJobRegistry:
     @staticmethod
     def _cleanup_attachments(attachments: list[str]) -> None:
         for attachment in attachments:
+            path = Path(attachment)
             try:
-                Path(attachment).unlink(missing_ok=True)
+                path.unlink(missing_ok=True)
+                parent = path.parent
+                if parent.parent.name == "ui-uploads":
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
             except OSError:
                 logger.warning("Could not remove Prompta UI upload %s", attachment, exc_info=True)
 

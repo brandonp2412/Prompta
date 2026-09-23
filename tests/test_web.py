@@ -260,6 +260,12 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
         record = server._image_previews["image-client"]
         preview = record["images"][0]
         preview_id = preview["id"]
+        preview_path = Path(server.image_previews.directory, preview["path"])
+        assert preview_path.name == "red.png"
+        assert len(preview_path.parent.name) == 64
+        assert preview_path.read_bytes() == b"fake-png-bytes"
+        assert Path(saved[0]).name == "red.png"
+        assert len(Path(saved[0]).parent.name) == 64
 
         server._bind_image_previews(
             "image-client",
@@ -277,7 +283,9 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
             }
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
-        assert server.image_previews._load_database()["image-client"]["conversation_id"] == "chat-1"
+        persisted = server.image_previews._load_database()["image-client"]
+        assert persisted["conversation_id"] == "chat-1"
+        assert persisted["images"][0]["path"] == preview["path"]
         assert not server.image_previews.legacy_path.exists()
     finally:
         for target in saved:
@@ -427,7 +435,10 @@ def test_chat_http_route_accepts_attachment_only_message(tmp_path: Path) -> None
         assert call.kwargs["client_id"] == "attachment-only-client"
         saved = list(call.kwargs["attachments"])
         assert len(saved) == 1
-        assert Path(saved[0]).read_bytes() == b"attachment-only"
+        saved_path = Path(saved[0])
+        assert saved_path.read_bytes() == b"attachment-only"
+        assert saved_path.name == "notes.txt"
+        assert len(saved_path.parent.name) == 64
     finally:
         for target in saved:
             Path(target).unlink(missing_ok=True)
