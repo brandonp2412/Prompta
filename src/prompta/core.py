@@ -81,6 +81,7 @@ _CONTROL_CONNECT_TIMEOUT_SECONDS = 30.0
 _CONTROL_SEND_TIMEOUT_SECONDS = 2 * 60 * 60.0 + 5 * 60.0
 _CONTROL_RESTART_POLL_SECONDS = 0.1
 _BROWSER_RESTART_REQUIRED_SUFFIX = "browser restart required"
+_BROWSER_MAINTENANCE_TIMEOUT_SECONDS = 90.0
 _SEND_CONFIRM_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _EFFORT_CONTROL_TIMEOUT_SECONDS = 20.0
@@ -331,6 +332,23 @@ class Prompta:
             return True
         return False
 
+    async def _run_browser_maintenance(self, label: str, operation: Any) -> Any:
+        try:
+            return await asyncio.wait_for(
+                operation,
+                timeout=_BROWSER_MAINTENANCE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            driver = self.driver
+            if driver is not None:
+                driver.needs_browser_restart = True
+            logger.error(
+                "Prompta %s stalled for %.0fs; recycling browser session and scheduler",
+                label,
+                _BROWSER_MAINTENANCE_TIMEOUT_SECONDS,
+            )
+            raise RuntimeError(f"Prompta {label} stalled; browser restart required") from exc
+
     async def sync_conversation(self, conversation_id: str) -> int:
         return await self.actions.sync_conversation(conversation_id)
 
@@ -461,8 +479,17 @@ class Prompta:
                         await self.wait_for_cached_response(active.conversation_id)
                     return
 
-            did_work = await self._retry_cached_recovery_if_due() or did_work
-            await self._poll_active_conversations()
+            did_work = (
+                await self._run_browser_maintenance(
+                    "cached recovery",
+                    self._retry_cached_recovery_if_due(),
+                )
+                or did_work
+            )
+            await self._run_browser_maintenance(
+                "active conversation polling",
+                self._poll_active_conversations(),
+            )
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
                     "Browser session was lost; restarting Prompta to recycle browser"

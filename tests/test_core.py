@@ -3132,6 +3132,27 @@ async def test_wait_for_cached_response_polls_until_conversation_completes(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_browser_maintenance_timeout_forces_scheduler_recycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    driver = MagicMock()
+    driver.needs_browser_restart = False
+    prompta.driver = cast(Any, driver)
+    monkeypatch.setattr("prompta.core._BROWSER_MAINTENANCE_TIMEOUT_SECONDS", 0.01)
+
+    with pytest.raises(RuntimeError, match="browser restart required"):
+        await prompta._run_browser_maintenance(
+            "active conversation polling",
+            asyncio.sleep(1),
+        )
+
+    assert driver.needs_browser_restart is True
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_run_does_not_abort_just_because_driver_disconnected(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()

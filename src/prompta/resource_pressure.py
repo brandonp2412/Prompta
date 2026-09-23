@@ -9,6 +9,7 @@ from pathlib import Path
 class ResourceLimits:
     min_available_memory_fraction: float = 0.20
     max_load_per_cpu: float = 0.85
+    max_cpu_psi_some_avg10: float = 50.0
     max_memory_psi_some_avg10: float = 5.0
     max_memory_psi_full_avg10: float = 1.0
     min_swap_free_fraction: float = 0.10
@@ -24,6 +25,10 @@ class ResourceLimits:
             max_load_per_cpu=_env_float(
                 "PROMPTA_MAX_LOAD_PER_CPU",
                 defaults.max_load_per_cpu,
+            ),
+            max_cpu_psi_some_avg10=_env_float(
+                "PROMPTA_MAX_CPU_PSI_SOME_AVG10",
+                defaults.max_cpu_psi_some_avg10,
             ),
             max_memory_psi_some_avg10=_env_float(
                 "PROMPTA_MAX_MEMORY_PSI_SOME_AVG10",
@@ -85,6 +90,7 @@ def evaluate_resource_admission(
     *,
     meminfo_text: str,
     memory_pressure_text: str,
+    cpu_pressure_text: str = "",
     load1: float,
     cpu_count: int,
     limits: ResourceLimits,
@@ -101,14 +107,26 @@ def evaluate_resource_admission(
                 f"{limits.min_available_memory_fraction:.0%}",
             )
 
-    cpus = max(1, cpu_count)
-    load_per_cpu = load1 / cpus
-    if load_per_cpu > limits.max_load_per_cpu:
-        return (
-            False,
-            f"load {load1:.1f} across {cpus} CPUs "
-            f"({load_per_cpu:.0%}) > {limits.max_load_per_cpu:.0%}",
-        )
+    cpu_pressure_available = bool(cpu_pressure_text.strip())
+    if cpu_pressure_available:
+        cpu_some_avg10 = _psi_avg10(cpu_pressure_text, "some")
+        if cpu_some_avg10 > limits.max_cpu_psi_some_avg10:
+            return (
+                False,
+                f"CPU PSI some avg10 {cpu_some_avg10:.1f}% > {limits.max_cpu_psi_some_avg10:.1f}%",
+            )
+    else:
+        # Linux load average is a lagging signal and can stay elevated for minutes
+        # after contention has cleared. Keep it only as a fallback for hosts that
+        # do not expose CPU PSI.
+        cpus = max(1, cpu_count)
+        load_per_cpu = load1 / cpus
+        if load_per_cpu > limits.max_load_per_cpu:
+            return (
+                False,
+                f"load {load1:.1f} across {cpus} CPUs "
+                f"({load_per_cpu:.0%}) > {limits.max_load_per_cpu:.0%}",
+            )
 
     some_avg10 = _psi_avg10(memory_pressure_text, "some")
     if some_avg10 > limits.max_memory_psi_some_avg10:
@@ -154,6 +172,8 @@ class ResourceAdmission:
             meminfo_text = (self.proc_root / "meminfo").read_text()
             pressure_path = self.proc_root / "pressure/memory"
             memory_pressure_text = pressure_path.read_text() if pressure_path.exists() else ""
+            cpu_pressure_path = self.proc_root / "pressure/cpu"
+            cpu_pressure_text = cpu_pressure_path.read_text() if cpu_pressure_path.exists() else ""
             load1 = os.getloadavg()[0]
             cpu_count = os.cpu_count() or 1
         except OSError:
@@ -161,6 +181,7 @@ class ResourceAdmission:
         return evaluate_resource_admission(
             meminfo_text=meminfo_text,
             memory_pressure_text=memory_pressure_text,
+            cpu_pressure_text=cpu_pressure_text,
             load1=load1,
             cpu_count=cpu_count,
             limits=self.limits,
