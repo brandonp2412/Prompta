@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
+import websockets
 from selenium import webdriver
 from selenium.common.exceptions import (
     JavascriptException,
@@ -536,6 +537,78 @@ class ChromeDriverDriver(WebDriverBase):
             self.context = target
         return driver
 
+    def _debugger_target_websocket_url(self, context: str) -> str:
+        if not self.debugger_address:
+            return ""
+        endpoint = f"http://{self.debugger_address}/json/list"
+        with urlopen(endpoint, timeout=1.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, list):
+            return ""
+        target = next(
+            (
+                item
+                for item in payload
+                if isinstance(item, dict) and str(item.get("id") or "") == context
+            ),
+            None,
+        )
+        if not isinstance(target, dict):
+            return ""
+        return str(target.get("webSocketDebuggerUrl") or "")
+
+    async def _eval_debugger_context(
+        self,
+        expression: str,
+        *,
+        await_promise: bool,
+        context: str,
+    ) -> Any:
+        websocket_url = await asyncio.to_thread(self._debugger_target_websocket_url, context)
+        if not websocket_url:
+            raise RuntimeError(f"Chromium debugger target is unavailable: {context}")
+
+        async with websockets.connect(
+            websocket_url,
+            max_size=16 * 1024 * 1024,
+            ping_interval=None,
+            open_timeout=3.0,
+        ) as websocket:
+            await websocket.send(
+                json.dumps(
+                    {
+                        "id": 1,
+                        "method": "Runtime.evaluate",
+                        "params": {
+                            "expression": f"({expression})",
+                            "returnByValue": True,
+                            "awaitPromise": await_promise,
+                        },
+                    }
+                )
+            )
+            while True:
+                response = json.loads(await websocket.recv())
+                if response.get("id") != 1:
+                    continue
+                if "error" in response:
+                    raise RuntimeError(
+                        f"Chromium debugger evaluation failed: {response['error']}"
+                    )
+                result = response.get("result", {})
+                exception = result.get("exceptionDetails")
+                if exception:
+                    detail = str(exception.get("text") or "JavaScript evaluation failed")
+                    raise RuntimeError(f"Chromium debugger script failed: {detail}")
+                remote = result.get("result", {})
+                if not isinstance(remote, dict):
+                    return None
+                if "value" in remote:
+                    return remote["value"]
+                if remote.get("type") == "undefined":
+                    return None
+                return remote.get("description")
+
     async def eval(
         self,
         expression: str,
@@ -543,6 +616,19 @@ class ChromeDriverDriver(WebDriverBase):
         await_promise: bool = False,
         context: str | None = None,
     ) -> Any:
+        # Explicit-context calls are predominantly background conversation
+        # watchers. When attached to the user's visible Chromium session, using
+        # Selenium's switch_to.window() here visibly activates each tab and makes
+        # the browser flicker between active chats. Evaluate directly against
+        # that page's CDP websocket instead so background polling never steals
+        # foreground focus.
+        if context is not None and self.debugger_address:
+            return await self._eval_debugger_context(
+                expression,
+                await_promise=await_promise,
+                context=context,
+            )
+
         def execute() -> Any:
             driver = self._activate_context_sync(context)
             try:

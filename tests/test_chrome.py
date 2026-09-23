@@ -546,6 +546,31 @@ async def test_eval_switches_to_requested_window_without_stealing_default_contex
 
 
 @pytest.mark.asyncio
+async def test_debugger_background_eval_does_not_activate_visible_tab() -> None:
+    selenium = MagicMock()
+    selenium.current_window_handle = "visible-tab"
+    driver = ChromeDriverDriver(
+        profile=Path("/tmp/profile"),
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._driver = selenium
+    driver.context = "visible-tab"
+    driver._eval_debugger_context = AsyncMock(return_value="value")  # type: ignore[method-assign]
+
+    result = await driver.eval("location.pathname", context="background-tab")
+
+    assert result == "value"
+    driver._eval_debugger_context.assert_awaited_once_with(
+        "location.pathname",
+        await_promise=False,
+        context="background-tab",
+    )
+    selenium.switch_to.window.assert_not_called()
+    selenium.execute_script.assert_not_called()
+    assert driver.context == "visible-tab"
+
+
+@pytest.mark.asyncio
 async def test_attachment_upload_returns_to_default_context_after_background_eval(
     tmp_path: Path,
 ) -> None:
