@@ -624,6 +624,9 @@ class SendJobRegistry:
             result["queue_position"] = position
 
             now = time.time()
+            slot_backoff = float(DEFAULT_RETRY_AFTER)
+            head_remaining = 0.0
+            active_rate_limit = False
             for candidate in self._jobs.values():
                 if str(candidate.get("status") or "") != "rate_limited":
                     continue
@@ -632,11 +635,15 @@ class SendJobRegistry:
                 if remaining <= 0:
                     continue
                 observed_backoff = float(candidate.get("retry_after_seconds") or 0.0)
-                slot_backoff = max(float(DEFAULT_RETRY_AFTER), observed_backoff)
-                queue_eta_seconds = remaining + max(0, position - 1) * slot_backoff
-                result["queue_eta_seconds"] = max(1, math.ceil(queue_eta_seconds))
-                result["queue_eta_at"] = now + queue_eta_seconds
+                slot_backoff = max(slot_backoff, observed_backoff)
+                head_remaining = remaining
+                active_rate_limit = True
                 break
+
+            slots_after_head = max(0, position - 1) if active_rate_limit else position
+            queue_eta_seconds = head_remaining + slots_after_head * slot_backoff
+            result["queue_eta_seconds"] = max(1, math.ceil(queue_eta_seconds))
+            result["queue_eta_at"] = now + queue_eta_seconds
         return result
 
     def submit(

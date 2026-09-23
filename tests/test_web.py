@@ -1480,8 +1480,8 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     receipts = {job["message"]: job for job in registry.list_conversation_receipts()}
     assert receipts["second"]["queue_position"] == 1
     assert receipts["third"]["queue_position"] == 2
-    assert "queue_eta_at" not in receipts["second"]
-    assert "queue_eta_at" not in receipts["third"]
+    assert receipts["second"]["queue_eta_seconds"] == pytest.approx(300, abs=2)
+    assert receipts["third"]["queue_eta_seconds"] == pytest.approx(600, abs=2)
 
     release_first.set()
     deadline = time.monotonic() + 1.0
