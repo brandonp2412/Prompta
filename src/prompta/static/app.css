@@ -243,6 +243,7 @@ textarea:focus-visible {
   border-color: rgba(16, 163, 127, 0.45);
   background: var(--accent-soft);
   color: var(--accent);
+}
 
 .search-clear {
   width: 24px;
