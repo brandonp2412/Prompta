@@ -489,3 +489,67 @@ def persist_structured_capture(
                 message_key,
             ),
         )
+
+
+def promote_structured_capture(
+    connection: sqlite3.Connection,
+    *,
+    conversation_id: str,
+    transient_message_key: str,
+    durable_message_key: str,
+    incoming_events: list[dict[str, Any]],
+    observed_at: float,
+) -> None:
+    """Carry structured tool/prose capture from a live DOM key to its durable message id."""
+    inherited_events: list[dict[str, Any]] = []
+    for row in connection.execute(
+        """
+        SELECT raw_json
+        FROM source_events
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal, observed_at, rowid
+        """,
+        (conversation_id, transient_message_key),
+    ).fetchall():
+        try:
+            event = json.loads(str(row[0] or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and not str(event.get("id") or "").endswith(":dom-prose"):
+            inherited_events.append(event)
+
+    merged_by_key: dict[str, dict[str, Any]] = {}
+    ordered_keys: list[str] = []
+    for index, event in enumerate([*inherited_events, *incoming_events]):
+        if not isinstance(event, dict):
+            continue
+        event_key = stable_event_key(event, index)
+        if event_key not in merged_by_key:
+            ordered_keys.append(event_key)
+        merged_by_key[event_key] = event
+    merged_events = [merged_by_key[event_key] for event_key in ordered_keys]
+
+    if merged_events:
+        persist_structured_capture(
+            connection,
+            conversation_id=conversation_id,
+            message_key=durable_message_key,
+            source_events=merged_events,
+            observed_at=observed_at,
+        )
+    else:
+        for table in ("message_parts", "tool_calls"):
+            connection.execute(
+                f"""
+                UPDATE {table}
+                SET message_key = ?
+                WHERE conversation_id = ? AND message_key = ?
+                """,
+                (durable_message_key, conversation_id, transient_message_key),
+            )
+
+    for table in ("source_events", "message_parts", "tool_calls"):
+        connection.execute(
+            f"DELETE FROM {table} WHERE conversation_id = ? AND message_key = ?",
+            (conversation_id, transient_message_key),
+        )

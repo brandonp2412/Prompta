@@ -29,6 +29,7 @@ from .structured_capture import (
 from .structured_store import (
     migrate_structured_capture,
     persist_structured_capture,
+    promote_structured_capture,
     record_conversation_state,
     record_message_version,
 )
@@ -985,6 +986,7 @@ class ChatCache:
         next_partial_ordinal = max_existing_ordinal + 1
         snapshot_keys: list[str] = []
         persisted_message_keys: dict[int, str] = {}
+        structured_handoffs: dict[str, str] = {}
         current_by_key = dict(existing_by_key)
 
         with self.connection:
@@ -1101,6 +1103,7 @@ class ChatCache:
                     if transient_candidate is not None:
                         ordinal = expected_ordinal
                         transient_key = str(transient_candidate["message_key"])
+                        structured_handoffs[message_key] = transient_key
                         transient_observations = _dom_prose_observations(
                             self.connection,
                             conversation_id=conversation_id,
@@ -1231,30 +1234,43 @@ class ChatCache:
                     preceding_user_key = message_key
 
             source_events = snapshot.get("source_events")
-            if isinstance(source_events, list) and source_events:
-                structured_message_key = ""
-                for snapshot_index, role, _, _ in reversed(incoming):
-                    if role == "assistant":
-                        structured_message_key = persisted_message_keys.get(snapshot_index, "")
-                        if structured_message_key:
-                            break
-                if structured_message_key:
-                    structured_target = self.connection.execute(
-                        """
-                        SELECT 1
-                        FROM messages
-                        WHERE conversation_id = ? AND message_key = ?
-                        """,
-                        (conversation_id, structured_message_key),
-                    ).fetchone()
-                    if structured_target is not None:
+            structured_events = (
+                [event for event in source_events if isinstance(event, dict)]
+                if isinstance(source_events, list)
+                else []
+            )
+            structured_message_key = ""
+            for snapshot_index, role, _, _ in reversed(incoming):
+                if role == "assistant":
+                    structured_message_key = persisted_message_keys.get(snapshot_index, "")
+                    if structured_message_key:
+                        break
+            if structured_message_key:
+                structured_target = self.connection.execute(
+                    """
+                    SELECT 1
+                    FROM messages
+                    WHERE conversation_id = ? AND message_key = ?
+                    """,
+                    (conversation_id, structured_message_key),
+                ).fetchone()
+                if structured_target is not None:
+                    transient_structured_key = structured_handoffs.get(structured_message_key, "")
+                    if transient_structured_key:
+                        promote_structured_capture(
+                            self.connection,
+                            conversation_id=conversation_id,
+                            transient_message_key=transient_structured_key,
+                            durable_message_key=structured_message_key,
+                            incoming_events=structured_events,
+                            observed_at=now,
+                        )
+                    elif structured_events:
                         persist_structured_capture(
                             self.connection,
                             conversation_id=conversation_id,
                             message_key=structured_message_key,
-                            source_events=[
-                                event for event in source_events if isinstance(event, dict)
-                            ],
+                            source_events=structured_events,
                             observed_at=now,
                         )
 

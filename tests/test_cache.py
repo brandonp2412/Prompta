@@ -448,6 +448,123 @@ def test_live_snapshot_keeps_dom_order_when_source_prose_has_no_timestamp(
     assert content.index("Test MCP · inspect") < content.index("Visible follow-up")
 
 
+def test_snapshot_promotes_transient_structured_tools_to_durable_assistant(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-tool-handoff",
+        context_id="context-tool-handoff",
+        job_name="",
+        prompt="Do work",
+    )
+    transient_key = "__prompta_live_assistant_tool_handoff__"
+    fence = chr(96) * 3
+    invocation = {
+        "id": "call-1",
+        "role": "assistant",
+        "recipient": "api_tool.call_tool",
+        "content_type": "code",
+        "text": json.dumps({"path": "/Test MCP/link_123/inspect", "args": {"target": "kite"}}),
+        "create_time": 2.0,
+    }
+    result = {
+        "id": "result-1",
+        "role": "tool",
+        "recipient": "all",
+        "content_type": "text",
+        "text": json.dumps({"ok": True}),
+        "create_time": 3.0,
+        "invoked_resource": {
+            "resource_uri": "/Test MCP/link_123/inspect",
+            "app_name": "Test MCP",
+        },
+    }
+    cache.write_snapshot(
+        "conversation-tool-handoff",
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": transient_key,
+                    "role": "assistant",
+                    "content": f"{fence}tool:tool\nCalled tool\n{fence}",
+                },
+            ],
+            "source_events": [invocation, result],
+        },
+    )
+
+    final_event = {
+        "id": "final-1",
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "text": "Done",
+        "parts": ["Done"],
+        "create_time": 4.0,
+        "end_turn": True,
+    }
+    cache.write_snapshot(
+        "conversation-tool-handoff",
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": f"{fence}tool:tool\nCalled tool\n{fence}\n\nDone",
+                },
+            ],
+            "source_events": [final_event],
+        },
+        complete=True,
+    )
+
+    calls = cache.connection.execute(
+        """
+        SELECT message_key, connector, action, status, result_json
+        FROM tool_calls
+        WHERE conversation_id = ?
+        ORDER BY ordinal
+        """,
+        ("conversation-tool-handoff",),
+    ).fetchall()
+    parts = cache.connection.execute(
+        """
+        SELECT message_key, kind, content
+        FROM message_parts
+        WHERE conversation_id = ?
+        ORDER BY ordinal
+        """,
+        ("conversation-tool-handoff",),
+    ).fetchall()
+    stale_counts = [
+        cache.connection.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE conversation_id = ? AND message_key = ?",
+            ("conversation-tool-handoff", transient_key),
+        ).fetchone()[0]
+        for table in ("source_events", "message_parts", "tool_calls")
+    ]
+    cache.close()
+
+    assert len(calls) == 1
+    assert calls[0]["message_key"] == "a1"
+    assert calls[0]["connector"] == "Test MCP"
+    assert calls[0]["action"] == "inspect"
+    assert calls[0]["status"] == "completed"
+    assert json.loads(calls[0]["result_json"]) == {"ok": True}
+    assert [part["kind"] for part in parts] == ["tool_call", "final_text"]
+    assert all(part["message_key"] == "a1" for part in parts)
+    assert "Test MCP · inspect" in parts[0]["content"]
+    assert parts[1]["content"] == "Done"
+    assert stale_counts == [0, 0, 0]
+
+
 def test_streaming_snapshot_never_reorders_already_visible_blocks(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(
