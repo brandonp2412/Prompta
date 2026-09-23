@@ -17011,7 +17011,13 @@ function SidebarList($$anchor, $$props) {
 		if (event.pointerId !== longPressPointerId) return;
 		if (pendingLongPressMoved(longPressStartX, longPressStartY, event.clientX, event.clientY)) clearLongPress();
 	}
-	function endLongPress(event) {
+	function endLongPress(event, chatId, optimisticNew) {
+		if (event.pointerId !== longPressPointerId) return;
+		clearLongPress();
+		suppressSelectChatId = chatId;
+		sidebarListActions.onSelect(chatId, optimisticNew);
+	}
+	function cancelLongPress(event) {
 		if (event.pointerId === longPressPointerId) clearLongPress();
 	}
 	function selectChat(chatId, optimisticNew) {
@@ -17112,8 +17118,8 @@ function SidebarList($$anchor, $$props) {
 				});
 				delegated("pointerdown", button, (event) => startLongPress(event, get(chat).id, get(chat).pinned));
 				delegated("pointermove", button, moveLongPress);
-				delegated("pointerup", button, endLongPress);
-				event("pointercancel", button, endLongPress);
+				delegated("pointerup", button, (event) => endLongPress(event, get(chat).id, get(chat).optimisticNew));
+				event("pointercancel", button, cancelLongPress);
 				delegated("contextmenu", button, (event) => {
 					if (!coarsePointer.current) return;
 					event.preventDefault();
