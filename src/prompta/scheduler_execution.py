@@ -43,6 +43,7 @@ class SchedulerExecution:
         set_driver: Callable[[Any], None],
         conversation_complete: Callable[[str], bool] | None = None,
         conversation_messages: Callable[[str], list[dict[str, Any]]] | None = None,
+        resource_admission: Callable[[], tuple[bool, str]] | None = None,
     ) -> None:
         self.scheduler = scheduler
         self.active = active
@@ -55,6 +56,9 @@ class SchedulerExecution:
         self.set_driver = set_driver
         self.conversation_complete = conversation_complete or (lambda _conversation_id: False)
         self.conversation_messages = conversation_messages or (lambda _conversation_id: [])
+        self.resource_admission = resource_admission or (lambda: (True, ""))
+        self._resource_pressure_reason = ""
+        self._resource_pressure_logged_at = 0.0
         self.once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = (
             asyncio.Queue()
         )
@@ -71,6 +75,25 @@ class SchedulerExecution:
     def driver(self, value: Any) -> None:
         self.set_driver(value)
 
+    def can_start_new_conversation(self) -> bool:
+        if len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS:
+            return False
+
+        allowed, reason = self.resource_admission()
+        now = time.monotonic()
+        if allowed:
+            if self._resource_pressure_reason:
+                logger.info("Prompta host pressure cleared; queue admission resumed")
+            self._resource_pressure_reason = ""
+            self._resource_pressure_logged_at = 0.0
+            return True
+
+        if self._resource_pressure_logged_at <= 0 or now - self._resource_pressure_logged_at >= 60.0:
+            logger.warning("Prompta deferred new queue work: %s", reason or "host resource pressure")
+            self._resource_pressure_logged_at = now
+        self._resource_pressure_reason = reason
+        return False
+
     async def run_job(self, job: PromptJob, *, now: float) -> bool:
         if self.scheduler.job_state(job.name).get("paused") is True:
             return False
@@ -78,7 +101,7 @@ class SchedulerExecution:
             return False
         if any(active.job_name == job.name for active in self.active.values()):
             return False
-        if len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS:
+        if not self.can_start_new_conversation():
             return False
         active_scheduled_jobs = sum(
             1 for active in self.active.values() if active.job_name and active.job_name != "once"
@@ -298,7 +321,7 @@ class SchedulerExecution:
     async def drain_once_requests(self) -> bool:
         did_work = False
         while True:
-            if len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS:
+            if not self.can_start_new_conversation():
                 return did_work
             remaining = self.scheduler.global_backoff.remaining()
             attempted_at = time.time()
