@@ -96,6 +96,29 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS tool_calls_message_ordinal_idx
             ON tool_calls(conversation_id, message_key, ordinal);
 
+        -- tool_calls rows are replaced during transcript refreshes, so diff rows
+        -- share their stable identity without a cascading foreign key to tool_calls.
+        CREATE TABLE IF NOT EXISTS tool_call_diffs (
+            conversation_id TEXT NOT NULL,
+            message_key TEXT NOT NULL,
+            call_key TEXT NOT NULL,
+            before_tree_id TEXT,
+            after_tree_id TEXT,
+            patch_text TEXT NOT NULL DEFAULT '',
+            changed_file_count INTEGER NOT NULL DEFAULT 0
+                CHECK (changed_file_count >= 0),
+            additions INTEGER NOT NULL DEFAULT 0 CHECK (additions >= 0),
+            deletions INTEGER NOT NULL DEFAULT 0 CHECK (deletions >= 0),
+            truncated INTEGER NOT NULL DEFAULT 0 CHECK (truncated IN (0, 1)),
+            repository_root TEXT NOT NULL DEFAULT '',
+            worktree_path TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (conversation_id, message_key, call_key),
+            FOREIGN KEY (conversation_id, message_key)
+                REFERENCES messages(conversation_id, message_key) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS conversation_state_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             conversation_id TEXT NOT NULL,
@@ -193,6 +216,63 @@ def _json(value: Any) -> str | None:
     if value is None:
         return None
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def upsert_tool_call_diff(
+    connection: sqlite3.Connection,
+    *,
+    conversation_id: str,
+    message_key: str,
+    call_key: str,
+    before_tree_id: str | None,
+    after_tree_id: str | None,
+    patch_text: str,
+    changed_file_count: int,
+    additions: int,
+    deletions: int,
+    truncated: bool,
+    repository_root: str,
+    worktree_path: str,
+    observed_at: float,
+) -> None:
+    if changed_file_count < 0 or additions < 0 or deletions < 0:
+        raise ValueError("diff summary counts must be non-negative")
+    connection.execute(
+        """
+        INSERT INTO tool_call_diffs (
+            conversation_id, message_key, call_key, before_tree_id, after_tree_id,
+            patch_text, changed_file_count, additions, deletions, truncated,
+            repository_root, worktree_path, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(conversation_id, message_key, call_key) DO UPDATE SET
+            before_tree_id = excluded.before_tree_id,
+            after_tree_id = excluded.after_tree_id,
+            patch_text = excluded.patch_text,
+            changed_file_count = excluded.changed_file_count,
+            additions = excluded.additions,
+            deletions = excluded.deletions,
+            truncated = excluded.truncated,
+            repository_root = excluded.repository_root,
+            worktree_path = excluded.worktree_path,
+            updated_at = excluded.updated_at
+        """,
+        (
+            conversation_id,
+            message_key,
+            call_key,
+            before_tree_id,
+            after_tree_id,
+            patch_text,
+            changed_file_count,
+            additions,
+            deletions,
+            int(truncated),
+            repository_root,
+            worktree_path,
+            observed_at,
+            observed_at,
+        ),
+    )
 
 
 def record_conversation_state(

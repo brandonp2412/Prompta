@@ -32,6 +32,7 @@ from .structured_store import (
     promote_structured_capture,
     record_conversation_state,
     record_message_version,
+    upsert_tool_call_diff,
 )
 from .ui_noise import strip_assistant_ui_noise
 
@@ -806,6 +807,54 @@ class ChatCache:
         for row in rows:
             self.mark_unattended(str(row["id"]))
         return len(rows)
+
+    def record_tool_call_diff(
+        self,
+        conversation_id: str,
+        message_key: str,
+        call_key: str,
+        *,
+        before_tree_id: str | None,
+        after_tree_id: str | None,
+        patch_text: str,
+        changed_file_count: int,
+        additions: int,
+        deletions: int,
+        truncated: bool,
+        repository_root: str,
+        worktree_path: str,
+        observed_at: float | None = None,
+    ) -> None:
+        tool_call = self.connection.execute(
+            """
+            SELECT 1
+            FROM tool_calls
+            WHERE conversation_id = ? AND message_key = ? AND call_key = ?
+            """,
+            (conversation_id, message_key, call_key),
+        ).fetchone()
+        if tool_call is None:
+            raise ValueError(
+                "cannot record a diff for an unknown tool call "
+                f"{conversation_id}/{message_key}/{call_key}"
+            )
+        with self.connection:
+            upsert_tool_call_diff(
+                self.connection,
+                conversation_id=conversation_id,
+                message_key=message_key,
+                call_key=call_key,
+                before_tree_id=before_tree_id,
+                after_tree_id=after_tree_id,
+                patch_text=patch_text,
+                changed_file_count=changed_file_count,
+                additions=additions,
+                deletions=deletions,
+                truncated=truncated,
+                repository_root=repository_root,
+                worktree_path=worktree_path,
+                observed_at=time.time() if observed_at is None else observed_at,
+            )
 
     def mark_interrupted(self, conversation_id: str) -> None:
         now = time.time()
