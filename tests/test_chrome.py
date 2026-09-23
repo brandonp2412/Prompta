@@ -249,6 +249,35 @@ async def test_high_effort_slider_uses_slider_role(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_tab_navigates_directly_without_clicking_new_chat_ui(live_driver) -> None:
+    driver, page = live_driver
+    context = driver._browser_context
+    assert context is not None
+
+    async def fulfill(route):
+        await route.fulfill(
+            status=200,
+            content_type="text/html",
+            body='<a role="link" aria-label="New chat">New chat</a><main>fresh</main>',
+        )
+
+    await context.route("https://chatgpt.com/**", fulfill)
+
+    context_id = await driver.new_tab()
+
+    new_page = driver._pages[context_id]
+    assert new_page.url == "https://chatgpt.com/"
+    assert await new_page.get_by_text("fresh").count() == 1
+
+
+def test_connect_does_not_depend_on_new_chat_sidebar_click() -> None:
+    source = inspect.getsource(PlaywrightDriver.connect)
+
+    assert 'page.goto("https://chatgpt.com/"' in source
+    assert "new_chat.click" not in source
+
+
+@pytest.mark.asyncio
 async def test_history_navigation_uses_link_role(live_driver) -> None:
     driver, page = live_driver
 

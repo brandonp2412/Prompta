@@ -101,7 +101,6 @@ class PlaywrightDriver(BrowserDriverBase):
         self._page_contexts: dict[Page, str] = {}
         self._owned_contexts: set[str] = set()
         self._attached = bool(self.debugger_address)
-        self._bootstrap_url = ""
         self._connected = False
 
     @property
@@ -335,21 +334,6 @@ class PlaywrightDriver(BrowserDriverBase):
                     contexts[0],
                 )
                 self._browser_context = browser_context
-                chatgpt_pages = [
-                    page
-                    for page in browser_context.pages
-                    if not page.is_closed() and self._is_chatgpt_url(page.url)
-                ]
-                conversation_page = next(
-                    (
-                        page
-                        for page in chatgpt_pages
-                        if (urlsplit(page.url).path.rstrip("/") or "/").startswith("/c/")
-                    ),
-                    None,
-                )
-                bootstrap = conversation_page or (chatgpt_pages[0] if chatgpt_pages else None)
-                self._bootstrap_url = bootstrap.url if bootstrap is not None else ""
                 await self._cleanup_stale_owned_pages(browser_context)
             else:
                 self.profile.mkdir(parents=True, exist_ok=True)
@@ -369,12 +353,6 @@ class PlaywrightDriver(BrowserDriverBase):
                     ],
                 )
                 browser_context = self._browser_context
-                existing = [
-                    page
-                    for page in browser_context.pages
-                    if not page.is_closed() and self._is_chatgpt_url(page.url)
-                ]
-                self._bootstrap_url = existing[0].url if existing else ""
 
             page = await browser_context.new_page()
             await self._mark_owned(page)
@@ -382,29 +360,7 @@ class PlaywrightDriver(BrowserDriverBase):
             self._network_subscribed = True
             self._connected = True
 
-            if self.debugger_address and self._bootstrap_url:
-                await page.goto(self._bootstrap_url, wait_until="domcontentloaded")
-                await self.wait_for_composer(
-                    timeout=max(5.0, self.auth_timeout_seconds),
-                    context=self.context,
-                )
-                new_chat = await self._first_usable(
-                    [
-                        page.get_by_role("link", name=re.compile(r"^new chat$", re.IGNORECASE)),
-                        page.get_by_role("button", name=re.compile(r"^new chat$", re.IGNORECASE)),
-                    ]
-                )
-                if new_chat is not None:
-                    await new_chat.click()
-                    try:
-                        await page.wait_for_url(
-                            re.compile(r"https://chatgpt\.com/?(?:\?.*)?$"),
-                            timeout=10_000,
-                        )
-                    except PlaywrightTimeoutError:
-                        pass
-            else:
-                await page.goto("https://chatgpt.com/", wait_until="domcontentloaded")
+            await page.goto("https://chatgpt.com/", wait_until="domcontentloaded")
 
             deadline = asyncio.get_running_loop().time() + self.auth_timeout_seconds
             last_error: Exception | None = None
@@ -515,25 +471,6 @@ class PlaywrightDriver(BrowserDriverBase):
         context_id = self._register_page(page, owned=True)
         self.context = context_id
         try:
-            if (
-                self.debugger_address
-                and self._bootstrap_url
-                and url.rstrip("/") == "https://chatgpt.com"
-            ):
-                await page.goto(self._bootstrap_url, wait_until="domcontentloaded")
-                await self.wait_for_composer(
-                    timeout=max(5.0, self.auth_timeout_seconds),
-                    context=context_id,
-                )
-                new_chat = await self._first_usable(
-                    [
-                        page.get_by_role("link", name=re.compile(r"^new chat$", re.IGNORECASE)),
-                        page.get_by_role("button", name=re.compile(r"^new chat$", re.IGNORECASE)),
-                    ]
-                )
-                if new_chat is not None:
-                    await new_chat.click()
-                    return context_id
             await self.navigate(url, context=context_id)
             return context_id
         except BaseException:
@@ -1149,4 +1086,3 @@ class PlaywrightDriver(BrowserDriverBase):
         self._playwright = None
         self._browser = None
         self._browser_context = None
-        self._bootstrap_url = ""
