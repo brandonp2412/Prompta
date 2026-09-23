@@ -933,6 +933,7 @@ textarea:focus-visible {
   width: 100%;
   margin: 0 0 29px;
   display: flex;
+  contain: layout style;
 }
 
 .message.user {
@@ -1721,8 +1722,50 @@ textarea:focus-visible {
 }
 
 .composer-footer {
+  position: relative;
   padding: 8px 20px 14px;
   background: linear-gradient(transparent, var(--bg) 24%);
+}
+
+.composer-jump-latest-button {
+  position: absolute;
+  left: 50%;
+  top: -34px;
+  z-index: 8;
+  height: 30px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  color: var(--text);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(10px);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.composer-jump-latest-button:hover {
+  background: var(--surface-hover);
+}
+
+.composer-jump-latest-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.composer-jump-latest-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .composer-bar {

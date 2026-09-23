@@ -18,6 +18,7 @@ export const appViewState = $state({
   mode: "chats" as ViewMode,
   emptyVisible: true,
   conversationVisible: false,
+  conversationPinnedToBottom: true,
   chatSwitching: false,
   composerValue: "",
   composerPlaceholder: "Message Prompta…",

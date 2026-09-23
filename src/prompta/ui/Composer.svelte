@@ -4,7 +4,7 @@
   import AttachmentPicker from "./AttachmentPicker.svelte";
   import { appActions } from "./appActions.svelte";
   import { appViewState, requestComposerFocus } from "./appViewState.svelte";
-  import { composerTextarea } from "./browserAttachments.svelte";
+  import { composerTextarea, scrollConversationToBottom } from "./browserAttachments.svelte";
   import { nextSlashCommandIndex } from "./clientLogic";
 
   const commands = [
@@ -97,6 +97,20 @@
 </script>
 
 <footer class="composer-footer" id="composerFooter">
+  {#if appViewState.conversationVisible && !appViewState.conversationPinnedToBottom}
+    <button
+      type="button"
+      class="composer-jump-latest-button"
+      aria-label="Jump to latest message"
+      title="Jump to latest message"
+      onclick={scrollConversationToBottom}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 5v14m-6-6 6 6 6-6"></path>
+      </svg>
+      <span>Latest</span>
+    </button>
+  {/if}
   <form
     class="composer-bar"
     id="messageForm"

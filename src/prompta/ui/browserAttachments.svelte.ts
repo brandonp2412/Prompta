@@ -12,6 +12,7 @@ const CONVERSATION_BOTTOM_SLOP = 24;
 let conversationViewportElement: HTMLElement | null = null;
 let conversationViewportRestoreToken = 0;
 let conversationViewportPinnedToBottom = true;
+let conversationViewportPinnedChange: ((pinned: boolean) => void) | null = null;
 
 function viewportPinnedToBottom(element: HTMLElement) {
   const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
@@ -35,13 +36,22 @@ function keepConversationViewportAtBottom(element: HTMLElement) {
   });
 }
 
-export function conversationViewport(): Attachment<HTMLElement> {
+export function conversationViewport(
+  onPinnedChange?: (pinned: boolean) => void,
+): Attachment<HTMLElement> {
   return (element) => {
     conversationViewportElement = element;
+    conversationViewportPinnedChange = onPinnedChange ?? null;
     conversationViewportPinnedToBottom = true;
+    conversationViewportPinnedChange?.(true);
 
     const handleScroll = () => {
-      conversationViewportPinnedToBottom = viewportPinnedToBottom(element);
+      const pinned = viewportPinnedToBottom(element);
+
+      if (pinned === conversationViewportPinnedToBottom) return;
+
+      conversationViewportPinnedToBottom = pinned;
+      conversationViewportPinnedChange?.(pinned);
     };
 
     element.addEventListener("scroll", handleScroll, { passive: true });
@@ -65,7 +75,10 @@ export function conversationViewport(): Attachment<HTMLElement> {
       element.removeEventListener("scroll", handleScroll);
       resizeObserver?.disconnect();
 
-      if (conversationViewportElement === element) conversationViewportElement = null;
+      if (conversationViewportElement === element) {
+        conversationViewportElement = null;
+        conversationViewportPinnedChange = null;
+      }
 
       conversationViewportRestoreToken += 1;
       conversationViewportPinnedToBottom = true;
@@ -114,6 +127,7 @@ export function restoreConversationViewport(
 
   const shouldPinToBottom = forceBottom || Boolean(snapshot.pinnedToBottom);
   conversationViewportPinnedToBottom = shouldPinToBottom;
+  conversationViewportPinnedChange?.(shouldPinToBottom);
 
   if (shouldPinToBottom) element.scrollTop = element.scrollHeight;
 
@@ -137,6 +151,17 @@ export function restoreConversationViewport(
     const rememberedScrollTop = Math.max(0, Number(snapshot.scrollTop) || 0);
     element.scrollTop = Math.min(rememberedScrollTop, maxScrollTop);
   });
+}
+
+export function scrollConversationToBottom() {
+  const element = conversationViewportElement;
+
+  if (!element) return;
+
+  conversationViewportPinnedToBottom = true;
+  conversationViewportPinnedChange?.(true);
+  element.scrollTop = element.scrollHeight;
+  keepConversationViewportAtBottom(element);
 }
 
 export function focusOnRequest(

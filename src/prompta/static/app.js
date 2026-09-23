@@ -5954,12 +5954,17 @@ function keepConversationViewportAtBottom(element) {
 		element.scrollTop = element.scrollHeight;
 	});
 }
-function conversationViewport() {
+function conversationViewport(onPinnedChange) {
 	return (element) => {
 		conversationViewportElement = element;
+		conversationViewportPinnedChange = onPinnedChange ?? null;
 		conversationViewportPinnedToBottom = true;
+		conversationViewportPinnedChange?.(true);
 		const handleScroll = () => {
-			conversationViewportPinnedToBottom = viewportPinnedToBottom(element);
+			const pinned = viewportPinnedToBottom(element);
+			if (pinned === conversationViewportPinnedToBottom) return;
+			conversationViewportPinnedToBottom = pinned;
+			conversationViewportPinnedChange?.(pinned);
 		};
 		element.addEventListener("scroll", handleScroll, { passive: true });
 		const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
@@ -5970,7 +5975,10 @@ function conversationViewport() {
 		return () => {
 			element.removeEventListener("scroll", handleScroll);
 			resizeObserver?.disconnect();
-			if (conversationViewportElement === element) conversationViewportElement = null;
+			if (conversationViewportElement === element) {
+				conversationViewportElement = null;
+				conversationViewportPinnedChange = null;
+			}
 			conversationViewportRestoreToken += 1;
 			conversationViewportPinnedToBottom = true;
 		};
@@ -6007,6 +6015,7 @@ function restoreConversationViewport(snapshot, forceBottom = false) {
 	if (!element) return;
 	const shouldPinToBottom = forceBottom || Boolean(snapshot.pinnedToBottom);
 	conversationViewportPinnedToBottom = shouldPinToBottom;
+	conversationViewportPinnedChange?.(shouldPinToBottom);
 	if (shouldPinToBottom) element.scrollTop = element.scrollHeight;
 	const restoreToken = ++conversationViewportRestoreToken;
 	requestAnimationFrame(() => {
@@ -6020,6 +6029,14 @@ function restoreConversationViewport(snapshot, forceBottom = false) {
 		const rememberedScrollTop = Math.max(0, Number(snapshot.scrollTop) || 0);
 		element.scrollTop = Math.min(rememberedScrollTop, maxScrollTop);
 	});
+}
+function scrollConversationToBottom() {
+	const element = conversationViewportElement;
+	if (!element) return;
+	conversationViewportPinnedToBottom = true;
+	conversationViewportPinnedChange?.(true);
+	element.scrollTop = element.scrollHeight;
+	keepConversationViewportAtBottom(element);
 }
 function focusOnRequest(getRequest) {
 	return (element) => {
@@ -6178,13 +6195,14 @@ function reportElementWidth(onWidth) {
 		return () => observer.disconnect();
 	};
 }
-var CONVERSATION_BOTTOM_SLOP, conversationViewportElement, conversationViewportRestoreToken, conversationViewportPinnedToBottom;
+var CONVERSATION_BOTTOM_SLOP, conversationViewportElement, conversationViewportRestoreToken, conversationViewportPinnedToBottom, conversationViewportPinnedChange;
 var init_browserAttachments_svelte = __esmMin((() => {
 	init_client();
 	CONVERSATION_BOTTOM_SLOP = 24;
 	conversationViewportElement = null;
 	conversationViewportRestoreToken = 0;
 	conversationViewportPinnedToBottom = true;
+	conversationViewportPinnedChange = null;
 }));
 //#endregion
 //#region src/prompta/ui/changelog.ts
@@ -6251,7 +6269,7 @@ var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span clas
 var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
 var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_5$5 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_6$4 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_6$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
 	const CHANGELOG_PAGE_SIZE = 100;
@@ -6311,7 +6329,7 @@ function ChangelogDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_6$4();
+	var dialog = root_6$5();
 	var div = child(dialog);
 	var header = child(div);
 	var div_1 = child(header);
@@ -6619,6 +6637,7 @@ var init_appViewState_svelte = __esmMin((() => {
 		mode: "chats",
 		emptyVisible: true,
 		conversationVisible: false,
+		conversationPinnedToBottom: true,
 		chatSwitching: false,
 		composerValue: "",
 		composerPlaceholder: "Message Prompta…",
@@ -7279,12 +7298,13 @@ init_appActions_svelte();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_clientLogic();
-var root$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
-var root_1$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
-var root_2$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
-var root_3$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
-var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
-var root_5$4 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
+var root$6 = /* @__PURE__ */ from_html(`<button type="button" class="composer-jump-latest-button" aria-label="Jump to latest message" title="Jump to latest message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14m-6-6 6 6 6-6"></path></svg> <span>Latest</span></button>`);
+var root_1$5 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
+var root_2$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
+var root_3$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
+var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
+var root_5$4 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
+var root_6$4 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><!> <form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
 function Composer($$anchor, $$props) {
 	push($$props, true);
 	const commands = [
@@ -7367,39 +7387,50 @@ function Composer($$anchor, $$props) {
 			appActions.onSubmit();
 		}
 	}
-	var footer = root_5$4();
-	var form = child(footer);
-	var node = child(form);
-	AttachmentPicker(node, {
+	var footer = root_6$4();
+	var node = child(footer);
+	var consequent = ($$anchor) => {
+		var button = root$6();
+		delegated("click", button, function(...$$args) {
+			scrollConversationToBottom?.apply(this, $$args);
+		});
+		append($$anchor, button);
+	};
+	if_block(node, ($$render) => {
+		if (appViewState.conversationVisible && !appViewState.conversationPinnedToBottom) $$render(consequent);
+	});
+	var form = sibling(node, 2);
+	var node_1 = child(form);
+	AttachmentPicker(node_1, {
 		children: ($$anchor, $$slotProps) => {
-			var fragment = root_2$5();
+			var fragment = root_3$5();
 			var textarea = first_child(fragment);
 			remove_textarea_child(textarea);
 			attach(textarea, () => composerTextarea(() => appViewState.composerValue, () => appViewState.composerFocusRequest, () => appViewState.composerSelectEndRequest));
-			var node_1 = sibling(textarea, 2);
-			var consequent = ($$anchor) => {
-				var div = root_1$5();
+			var node_2 = sibling(textarea, 2);
+			var consequent_1 = ($$anchor) => {
+				var div = root_2$5();
 				each(div, 21, () => get(visibleCommands), (item) => item.command, ($$anchor, item) => {
-					var button = root$6();
-					var strong = child(button);
+					var button_1 = root_1$5();
+					var strong = child(button_1);
 					var text = only_child(strong, true);
 					var text_1 = only_child(sibling(strong), true);
-					reset(button);
+					reset(button_1);
 					template_effect(() => {
-						set_attribute(button, "id", get(item).id);
-						set_attribute(button, "aria-selected", get(activeCommand)?.command === get(item).command);
+						set_attribute(button_1, "id", get(item).id);
+						set_attribute(button_1, "aria-selected", get(activeCommand)?.command === get(item).command);
 						set_text(text, get(item).name);
 						set_text(text_1, get(item).description);
 					});
-					delegated("pointermove", button, () => appViewState.activeSlashCommand = get(item).command);
-					delegated("click", button, () => void insertSlashCommand(get(item).command));
-					append($$anchor, button);
+					delegated("pointermove", button_1, () => appViewState.activeSlashCommand = get(item).command);
+					delegated("click", button_1, () => void insertSlashCommand(get(item).command));
+					append($$anchor, button_1);
 				});
 				reset(div);
 				append($$anchor, div);
 			};
-			if_block(node_1, ($$render) => {
-				if (get(slashOpen)) $$render(consequent);
+			if_block(node_2, ($$render) => {
+				if (get(slashOpen)) $$render(consequent_1);
 			});
 			template_effect(() => {
 				set_attribute(textarea, "placeholder", appViewState.composerPlaceholder);
@@ -7414,47 +7445,47 @@ function Composer($$anchor, $$props) {
 		},
 		$$slots: { default: true }
 	});
-	var div_1 = sibling(node, 2);
-	var button_1 = child(div_1);
-	var button_2 = sibling(button_1, 2);
-	var node_2 = child(button_2);
-	var consequent_1 = ($$anchor) => {
-		append($$anchor, root_3$5());
-	};
-	var alternate = ($$anchor) => {
+	var div_1 = sibling(node_1, 2);
+	var button_2 = child(div_1);
+	var button_3 = sibling(button_2, 2);
+	var node_3 = child(button_3);
+	var consequent_2 = ($$anchor) => {
 		append($$anchor, root_4$5());
 	};
-	if_block(node_2, ($$render) => {
-		if (appViewState.composerAction === "stop") $$render(consequent_1);
+	var alternate = ($$anchor) => {
+		append($$anchor, root_5$4());
+	};
+	if_block(node_3, ($$render) => {
+		if (appViewState.composerAction === "stop") $$render(consequent_2);
 		else $$render(alternate, -1);
 	});
-	reset(button_2);
+	reset(button_3);
 	reset(div_1);
 	reset(form);
 	var text_2 = only_child(sibling(form, 2), true);
 	reset(footer);
 	template_effect(() => {
-		set_attribute(button_2, "data-action", appViewState.composerAction);
-		set_attribute(button_2, "aria-label", appViewState.composerAction === "stop" ? "Stop response" : "Send message");
-		set_attribute(button_2, "title", appViewState.composerAction === "stop" ? "Stop response" : "Send message");
-		button_2.disabled = appViewState.composerActionDisabled;
+		set_attribute(button_3, "data-action", appViewState.composerAction);
+		set_attribute(button_3, "aria-label", appViewState.composerAction === "stop" ? "Stop response" : "Send message");
+		set_attribute(button_3, "title", appViewState.composerAction === "stop" ? "Stop response" : "Send message");
+		button_3.disabled = appViewState.composerActionDisabled;
 		set_text(text_2, appViewState.composerStatus);
 	});
 	event("submit", form, (event) => {
 		event.preventDefault();
 		appActions.onSubmit();
 	});
-	delegated("click", button_1, function(...$$args) {
+	delegated("click", button_2, function(...$$args) {
 		appActions.onNewChat?.apply(this, $$args);
 	});
 	append($$anchor, footer);
 	pop();
 }
 delegate([
+	"click",
 	"input",
 	"keydown",
-	"pointermove",
-	"click"
+	"pointermove"
 ]);
 //#endregion
 //#region src/prompta/ui/clipboard.ts
@@ -17245,6 +17276,9 @@ function App($$anchor, $$props) {
 	function mobileSidebarEnabled() {
 		return mobileSidebarMedia.current;
 	}
+	function syncConversationPinned(pinned) {
+		appViewState.conversationPinnedToBottom = pinned;
+	}
 	function clearSidebarDrag() {
 		if (sidebarDragCleanupTimer !== void 0) {
 			clearTimeout(sidebarDragCleanupTimer);
@@ -17470,7 +17504,7 @@ function App($$anchor, $$props) {
 	ConversationMessages(child(article), {});
 	reset(article);
 	reset(section);
-	attach(section, conversationViewport);
+	attach(section, () => conversationViewport(syncConversationPinned));
 	var node_3 = sibling(section, 2);
 	LogsPanel(node_3, {});
 	var node_4 = sibling(node_3, 2);

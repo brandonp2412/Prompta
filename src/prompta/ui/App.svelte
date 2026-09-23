@@ -70,6 +70,10 @@
     return mobileSidebarMedia.current;
   }
 
+  function syncConversationPinned(pinned: boolean) {
+    appViewState.conversationPinnedToBottom = pinned;
+  }
+
   function clearSidebarDrag() {
     if (sidebarDragCleanupTimer !== undefined) {
       clearTimeout(sidebarDragCleanupTimer);
@@ -461,7 +465,7 @@
     </header>
 
     <section
-      {@attach conversationViewport()}
+      {@attach conversationViewport(syncConversationPinned)}
       class={["conversation-viewport", { "chat-switching": appViewState.chatSwitching }]}
       id="conversationViewport"
       aria-busy={appViewState.chatSwitching ? "true" : undefined}

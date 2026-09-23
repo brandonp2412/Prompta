@@ -5,6 +5,7 @@ import {
   conversationViewport,
   preserveConversationViewportPosition,
   restoreConversationViewport,
+  scrollConversationToBottom,
 } from "./browserAttachments.svelte.ts";
 
 function fakeViewport({
@@ -164,6 +165,33 @@ describe("conversation viewport memory", () => {
     cleanup();
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
     globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  test("reports pinned state and lets the latest-message control return to the bottom", () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const pinnedStates: boolean[] = [];
+    globalThis.requestAnimationFrame = (callback) => {
+      callback(0);
+
+      return 1;
+    };
+
+    const element = fakeViewport({
+      scrollTop: 300,
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    const cleanup = conversationViewport((pinned) => pinnedStates.push(pinned))(element);
+
+    restoreConversationViewport({ pinnedToBottom: false, scrollTop: 300 });
+    expect(pinnedStates).toEqual([true, false]);
+
+    scrollConversationToBottom();
+    expect(element.scrollTop).toBe(element.scrollHeight);
+    expect(pinnedStates).toEqual([true, false, true]);
+
+    if (typeof cleanup === "function") cleanup();
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
   });
 
   test("treats a viewport already near the bottom as pinned to the latest message", () => {
