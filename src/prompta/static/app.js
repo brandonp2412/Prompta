@@ -6207,6 +6207,27 @@ function changelogHasMore(payload) {
 	return !!payload && typeof payload === "object" && payload.has_more === true;
 }
 //#endregion
+//#region src/prompta/ui/stackNavigation.ts
+var STACK_PAGE_STATE_KEY = "__promptaStackPage";
+function historyStateRecord(state) {
+	return state !== null && typeof state === "object" && !Array.isArray(state) ? state : {};
+}
+function stackPageFromState(state) {
+	const page = historyStateRecord(state)[STACK_PAGE_STATE_KEY];
+	return page === "jobs" || page === "changelog" ? page : null;
+}
+function pushStackPage(page, historyApi = history, url = location.href) {
+	historyApi.pushState({
+		...historyStateRecord(historyApi.state),
+		[STACK_PAGE_STATE_KEY]: page
+	}, "", url);
+}
+function popStackPage(page, historyApi = history) {
+	if (stackPageFromState(historyApi.state) !== page) return false;
+	historyApi.back();
+	return true;
+}
+//#endregion
 //#region src/prompta/ui/uiControllers.ts
 function registerAttachmentPicker(controller) {
 	attachmentPicker$1 = controller;
@@ -6285,12 +6306,18 @@ function ChangelogDialog($$anchor, $$props) {
 			set(loading, false);
 		}
 	}
+	function handlePopState(event) {
+		if (get(presentation) !== "stack") return;
+		set(open, stackPageFromState(event.state) === "changelog");
+	}
 	async function show() {
 		set(presentation, mobile.current ? "stack" : "modal", true);
+		if (get(presentation) === "stack" && stackPageFromState(history.state) !== "changelog") pushStackPage("changelog");
 		set(open, true);
 		if (!get(changes).length && !get(loading)) await load();
 	}
 	function close() {
+		if (get(presentation) === "stack" && get(open) && popStackPage("changelog")) return;
 		set(open, false);
 	}
 	registerChangelogDialog({
@@ -6302,6 +6329,7 @@ function ChangelogDialog($$anchor, $$props) {
 		close
 	};
 	var dialog = root_6$4();
+	event("popstate", $window, handlePopState);
 	var div = child(dialog);
 	var header = child(div);
 	var div_1 = child(header);
@@ -16678,13 +16706,19 @@ function JobsDialog($$anchor, $$props) {
 		set(interval, String(job.interval_minutes || 40), true);
 		set(exact, Boolean(job.exact_interval), true);
 	}
+	function handlePopState(event) {
+		if (get(presentation) !== "stack") return;
+		set(dialogOpen, stackPageFromState(event.state) === "jobs");
+	}
 	async function show() {
 		reset$1();
 		set(presentation, mobile.current ? "stack" : "modal", true);
+		if (get(presentation) === "stack" && stackPageFromState(history.state) !== "jobs") pushStackPage("jobs");
 		set(dialogOpen, true);
 		await load();
 	}
 	function close() {
+		if (get(presentation) === "stack" && get(dialogOpen) && popStackPage("jobs")) return;
 		set(dialogOpen, false);
 	}
 	registerJobsDialog({
@@ -16696,6 +16730,7 @@ function JobsDialog($$anchor, $$props) {
 		close
 	};
 	var dialog = root_10();
+	event("popstate", $window, handlePopState);
 	var div = child(dialog);
 	var header = child(div);
 	var button = sibling(child(header), 2);

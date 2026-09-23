@@ -4,6 +4,7 @@
   import { dialogVisibility } from "./browserAttachments.svelte";
   import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest } from "./clientLogic";
   import { jobPromptIsExpandable, jobVisibilityGroup, type JobVisibilityGroup } from "./jobs";
+  import { popStackPage, pushStackPage, stackPageFromState } from "./stackNavigation";
   import { registerJobsDialog } from "./uiControllers";
 
   type Job = {
@@ -133,19 +134,34 @@
     exact = Boolean(job.exact_interval);
   }
 
+  function handlePopState(event: PopStateEvent) {
+    if (presentation !== "stack") return;
+
+    dialogOpen = stackPageFromState(event.state) === "jobs";
+  }
+
   export async function show() {
     reset();
     presentation = mobile.current ? "stack" : "modal";
+
+    if (presentation === "stack" && stackPageFromState(history.state) !== "jobs") {
+      pushStackPage("jobs");
+    }
+
     dialogOpen = true;
     await load();
   }
 
   export function close() {
+    if (presentation === "stack" && dialogOpen && popStackPage("jobs")) return;
+
     dialogOpen = false;
   }
 
   registerJobsDialog({ open: show, close });
 </script>
+
+<svelte:window onpopstate={handlePopState} />
 
 <dialog
   {@attach dialogVisibility(() => dialogOpen, () => presentation === "modal", close)}
