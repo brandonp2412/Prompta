@@ -549,11 +549,7 @@ class ChromeDriverDriver(WebDriverBase):
 
     def _debugger_target_websocket_url(self, context: str) -> str:
         target = next(
-            (
-                item
-                for item in self._debugger_targets()
-                if str(item.get("id") or "") == context
-            ),
+            (item for item in self._debugger_targets() if str(item.get("id") or "") == context),
             None,
         )
         if not isinstance(target, dict):
