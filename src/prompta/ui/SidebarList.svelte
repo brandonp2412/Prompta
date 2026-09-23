@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Attachment } from "svelte/attachments";
   import { MediaQuery } from "svelte/reactivity";
 
   import { dialogVisibility } from "./browserAttachments.svelte";
@@ -37,6 +38,8 @@
   }
 
   function startLongPress(event: PointerEvent, chatId: string, pinned: boolean) {
+    sidebarListActions.onPrefetch(chatId);
+
     if (!coarsePointer.current || event.pointerType === "mouse") return;
 
     clearLongPress();
@@ -77,6 +80,30 @@
     const chatId = actionsChatId;
     closeActions();
     if (chatId) sidebarListActions.onPin(chatId);
+  }
+
+
+  function loadMoreTrigger(): Attachment<HTMLElement> {
+    return (element) => {
+      if (typeof IntersectionObserver === "undefined") return;
+
+      const root = element.closest(".sidebar-scroll");
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (
+            entries.some((entry) => entry.isIntersecting) &&
+            sidebarListState.hasMore &&
+            !sidebarListState.loadingMore
+          ) {
+            sidebarListActions.onLoadMore();
+          }
+        },
+        { root, rootMargin: "360px 0px" },
+      );
+      observer.observe(element);
+
+      return () => observer.disconnect();
+    };
   }
 </script>
 
@@ -160,6 +187,17 @@
       {/each}
     </section>
   {/each}
+
+  {#if sidebarListState.hasMore}
+    <div
+      {@attach loadMoreTrigger()}
+      class="chat-list-load-more"
+      aria-live="polite"
+      aria-busy={sidebarListState.loadingMore ? "true" : undefined}
+    >
+      {sidebarListState.loadingMore ? "Loading older chats…" : ""}
+    </div>
+  {/if}
 {/if}
 
 <dialog

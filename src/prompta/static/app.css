@@ -262,6 +262,15 @@ textarea:focus-visible {
   min-height: 0;
 }
 
+
+.chat-list-load-more {
+  min-height: 32px;
+  padding: 8px 10px 14px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
 .chat-group {
   margin-top: 13px;
 }
@@ -846,6 +855,8 @@ textarea:focus-visible {
   width: 100%;
   margin: 0 0 29px;
   display: flex;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
 
 .message.user {
@@ -2208,6 +2219,8 @@ textarea:focus-visible {
   display: flex;
   align-items: baseline;
   gap: 12px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
 }
 
 .changelog-entry-title {
@@ -2349,6 +2362,8 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
 }
 
 .job-row-top {

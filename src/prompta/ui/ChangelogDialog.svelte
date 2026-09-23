@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Attachment } from "svelte/attachments";
   import { MediaQuery } from "svelte/reactivity";
 
   import { dialogVisibility } from "./browserAttachments.svelte";
@@ -11,27 +12,73 @@
   let failed = $state(false);
   let open = $state(false);
   let presentation = $state<"modal" | "stack">("modal");
+  let nextOffset = $state<number | null>(0);
+  let loadingMore = $state(false);
 
-  async function load() {
-    status = "Loading changelog…";
-    failed = false;
-    changes = [];
+  const PAGE_SIZE = 60;
+
+  async function load(reset = false) {
+    if (loadingMore || (!reset && nextOffset === null)) return;
+
+    if (reset) {
+      status = "Loading changelog…";
+      failed = false;
+      changes = [];
+      nextOffset = 0;
+    }
+
+    const offset = reset ? 0 : nextOffset || 0;
+    loadingMore = true;
 
     try {
-      const response = await fetch("api/changelog", { cache: "no-store" });
+      const response = await fetch(`api/changelog?limit=${PAGE_SIZE}&offset=${offset}`, {
+        cache: "no-store",
+      });
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      changes = changelogEntries(await response.json());
-      status = `${changes.length} commit${changes.length === 1 ? "" : "s"} · newest first`;
+
+      const payload = await response.json();
+      const page = changelogEntries(payload);
+      const seen = new Set(changes.map((change) => `${change.hash || ""}:${change.title || ""}`));
+      changes = [
+        ...changes,
+        ...page.filter((change) => !seen.has(`${change.hash || ""}:${change.title || ""}`)),
+      ];
+      const parsedOffset = Number(payload.next_offset);
+      nextOffset =
+        payload.next_offset !== null && Number.isFinite(parsedOffset) ? parsedOffset : null;
+      status = `${changes.length}${nextOffset === null ? "" : "+"} commit${changes.length === 1 ? "" : "s"} · newest first`;
     } catch (error) {
       failed = true;
       status = "Changelog unavailable: " + String(error).replace(/^Error:\s*/, "");
+    } finally {
+      loadingMore = false;
     }
+  }
+
+  function loadMoreTrigger(): Attachment<HTMLElement> {
+    return (element) => {
+      if (typeof IntersectionObserver === "undefined") return;
+
+      const root = element.closest(".changelog-list");
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting) && nextOffset !== null && !loadingMore) {
+            void load();
+          }
+        },
+        { root, rootMargin: "320px 0px" },
+      );
+      observer.observe(element);
+
+      return () => observer.disconnect();
+    };
   }
 
   export async function show() {
     presentation = mobile.current ? "stack" : "modal";
     open = true;
-    await load();
+
+    if (!changes.length || failed) await load(true);
   }
 
   export function close() {
@@ -77,6 +124,15 @@
             {#if change.hash}<span class="changelog-entry-hash">#{change.hash}</span>{/if}
           </li>
         {/each}
+        {#if nextOffset !== null}
+          <li
+            {@attach loadMoreTrigger()}
+            class="changelog-load-more"
+            aria-busy={loadingMore ? "true" : undefined}
+          >
+            {loadingMore ? "Loading older changes…" : ""}
+          </li>
+        {/if}
       {:else}
         <li class="changelog-empty">
           {status.startsWith("Loading")

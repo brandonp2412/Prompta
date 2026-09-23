@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
+import threading
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,11 @@ class ReadOnlyChatStore:
             else self.path.with_name("prompta-nox.log")
         )
         self.journal_unit = journal_unit.strip()
+        self._conversation_cache: OrderedDict[
+            str, tuple[tuple[str, float, float | None], dict[str, Any]]
+        ] = OrderedDict()
+        self._conversation_cache_lock = threading.Lock()
+        self._conversation_cache_limit = 24
 
     def _connect(self) -> sqlite3.Connection:
         if not self.path.is_file():
@@ -48,6 +55,7 @@ class ReadOnlyChatStore:
         self,
         *,
         limit: int = 200,
+        offset: int = 0,
         query: str = "",
         include_ids: list[str] | tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
@@ -79,7 +87,10 @@ class ReadOnlyChatStore:
             include_rank = f"CASE WHEN c.id IN ({placeholders}) THEN 0 ELSE 1 END"
             parameters.extend(included_ids)
 
-        parameters.append(max(1, min(limit, 500)) + (len(included_ids) if not search else 0))
+        parameters.append(
+            max(1, min(limit, 500)) + (len(included_ids) if not search and offset == 0 else 0)
+        )
+        parameters.append(max(0, offset))
 
         try:
             with self._connect() as connection:
@@ -165,7 +176,7 @@ class ReadOnlyChatStore:
                         FROM conversations c
                         {where}
                         ORDER BY include_rank, c.created_at DESC, c.id
-                        LIMIT ?
+                        LIMIT ? OFFSET ?
                     ),
                     message_stats AS (
                         SELECT
@@ -264,6 +275,24 @@ class ReadOnlyChatStore:
                 ).fetchone()
                 if conversation is None:
                     return None
+
+                revision = (
+                    str(conversation["status"] or ""),
+                    float(conversation["updated_at"] or 0.0),
+                    (
+                        float(conversation["completed_at"])
+                        if conversation["completed_at"] is not None
+                        else None
+                    ),
+                )
+                with self._conversation_cache_lock:
+                    cached = self._conversation_cache.get(conversation_id)
+                    if cached is not None and cached[0] == revision:
+                        self._conversation_cache.move_to_end(conversation_id)
+                        return cached[1]
+                    if cached is not None:
+                        self._conversation_cache.pop(conversation_id, None)
+
                 tables = {
                     str(row["name"])
                     for row in connection.execute(
@@ -512,6 +541,11 @@ class ReadOnlyChatStore:
                 }
             ]
         payload["messages"] = message_payloads
+        with self._conversation_cache_lock:
+            self._conversation_cache[conversation_id] = (revision, payload)
+            self._conversation_cache.move_to_end(conversation_id)
+            while len(self._conversation_cache) > self._conversation_cache_limit:
+                self._conversation_cache.popitem(last=False)
         return payload
 
     def logs(self, *, limit: int = 500) -> dict[str, Any]:

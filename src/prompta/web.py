@@ -61,10 +61,19 @@ def _git_short_head() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else ""
 
 
-def _git_changelog() -> list[dict[str, str]]:
+def _git_changelog(*, limit: int = 60, offset: int = 0) -> list[dict[str, str]]:
+    bounded_limit = max(1, min(limit, 200))
+    bounded_offset = max(0, offset)
     try:
         completed = subprocess.run(
-            ["git", "log", "--format=%h%x09%s", "HEAD"],
+            [
+                "git",
+                "log",
+                "--format=%h%x09%s",
+                f"--max-count={bounded_limit}",
+                f"--skip={bounded_offset}",
+                "HEAD",
+            ],
             cwd=Path(__file__).resolve().parents[2],
             check=False,
             capture_output=True,
@@ -310,6 +319,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         self,
         *,
         limit: int = 200,
+        offset: int = 0,
         query: str = "",
         include_ids: list[str] | tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
@@ -321,14 +331,20 @@ class PromptaUIServer(ThreadingHTTPServer):
             dict(chat)
             for chat in self.store.conversations(
                 limit=bounded_limit,
+                offset=max(0, offset),
                 query=query,
-                include_ids=included_ids,
+                include_ids=included_ids if offset == 0 else (),
             )
         ]
         known_ids = {str(chat.get("id") or "") for chat in rows}
         needle = query.strip().casefold()
 
-        for job in self.send_jobs.list_conversation_receipts():
+        if offset == 0:
+            receipt_jobs = self.send_jobs.list_conversation_receipts()
+        else:
+            receipt_jobs = []
+
+        for job in receipt_jobs:
             summary = self._send_conversation_summary(job)
             if not summary["id"] or summary["id"] in known_ids:
                 continue
@@ -729,7 +745,26 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/changelog":
-            self._json({"changes": _git_changelog()})
+            query = parse_qs(parsed.query)
+            try:
+                limit = int(query.get("limit", ["60"])[0])
+            except ValueError:
+                limit = 60
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except ValueError:
+                offset = 0
+            bounded_limit = max(1, min(limit, 200))
+            bounded_offset = max(0, offset)
+            changes = _git_changelog(limit=bounded_limit, offset=bounded_offset)
+            self._json(
+                {
+                    "changes": changes,
+                    "next_offset": (
+                        bounded_offset + len(changes) if len(changes) >= bounded_limit else None
+                    ),
+                }
+            )
             return
         if path == "/api/pins":
             self._json(cast(PromptaUIServer, self.server).pinned_chats.snapshot())
@@ -739,16 +774,27 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             search = query.get("q", [""])[0]
             include_ids = query.get("include", [])
             try:
-                limit = int(query.get("limit", ["200"])[0])
+                limit = int(query.get("limit", ["60"])[0])
             except ValueError:
-                limit = 200
+                limit = 60
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except ValueError:
+                offset = 0
+            bounded_limit = max(1, min(limit, 500))
+            bounded_offset = max(0, offset)
+            chats = cast(PromptaUIServer, self.server).conversations(
+                limit=bounded_limit,
+                offset=bounded_offset,
+                query=search,
+                include_ids=include_ids,
+            )
             self._json(
                 {
-                    "chats": cast(PromptaUIServer, self.server).conversations(
-                        limit=limit,
-                        query=search,
-                        include_ids=include_ids,
-                    )
+                    "chats": chats,
+                    "next_offset": bounded_offset + len(chats)
+                    if len(chats) >= bounded_limit
+                    else None,
                 }
             )
             return

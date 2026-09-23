@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import concurrent.futures
 import json
+import sqlite3
 import subprocess
 import sys
 import time
@@ -74,6 +75,16 @@ def test_git_changelog_uses_commit_titles() -> None:
 def test_git_changelog_tolerates_unavailable_git() -> None:
     with patch("prompta.web.subprocess.run", side_effect=OSError("git unavailable")):
         assert _git_changelog() == []
+
+
+def test_git_changelog_passes_page_bounds_to_git() -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with patch("prompta.web.subprocess.run", return_value=completed) as run_git:
+        assert _git_changelog(limit=25, offset=50) == []
+
+    command = run_git.call_args.args[0]
+    assert "--max-count=25" in command
+    assert "--skip=50" in command
 
 
 @pytest.mark.parametrize(
@@ -1904,6 +1915,61 @@ def test_pinned_chat_is_included_outside_bounded_sidebar_limit(tmp_path: Path) -
         server.server_close()
 
     assert {chat["id"] for chat in chats} == {"old-pinned", "recent-two"}
+
+
+def test_read_only_store_pages_unpinned_chats_after_pinned_first_page(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    for index in range(5):
+        conversation_id = f"chat-{index}"
+        cache.start(
+            conversation_id,
+            context_id=f"context-{index}",
+            job_name="",
+            prompt=conversation_id,
+        )
+        with cache.connection:
+            cache.connection.execute(
+                "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+                (float(index + 1), float(index + 1), conversation_id),
+            )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    first = store.conversations(limit=2, include_ids=["chat-0"])
+    second = store.conversations(limit=2, offset=2)
+
+    assert [chat["id"] for chat in first] == ["chat-0", "chat-4", "chat-3"]
+    assert [chat["id"] for chat in second] == ["chat-2", "chat-1"]
+
+
+def test_read_only_store_caches_detail_until_conversation_revision_changes(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "cached-chat",
+        context_id="context-cached",
+        job_name="",
+        prompt="cached",
+    )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    first = store.conversation("cached-chat")
+    cached = store.conversation("cached-chat")
+
+    assert cached is first
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE conversations SET title = ?, updated_at = updated_at + 1 WHERE id = ?",
+            ("Updated title", "cached-chat"),
+        )
+
+    refreshed = store.conversation("cached-chat")
+    assert refreshed is not first
+    assert refreshed is not None
+    assert refreshed["title"] == "Updated title"
 
 
 def test_read_only_store_hides_delivery_timeout_ui_noise(tmp_path: Path) -> None:

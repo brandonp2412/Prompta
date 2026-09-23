@@ -24,16 +24,26 @@ export type SidebarListModel = {
   }>;
 };
 
-export const sidebarListState = $state<{ model: SidebarListModel }>({
+export const sidebarListState = $state<{
+  model: SidebarListModel;
+  hasMore: boolean;
+  loadingMore: boolean;
+}>({
   model: { emptyState: "none", groups: [] },
+  hasMore: false,
+  loadingMore: false,
 });
 
 export const sidebarListActions = $state<{
   onSelect: (chatId: string, optimisticNew: boolean) => void;
   onPin: (chatId: string) => void;
+  onPrefetch: (chatId: string) => void;
+  onLoadMore: () => void;
 }>({
   onSelect: () => {},
   onPin: () => {},
+  onPrefetch: () => {},
+  onLoadMore: () => {},
 });
 
 export function configureSidebar(onMotionEnd: () => void) {

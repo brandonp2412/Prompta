@@ -48,13 +48,19 @@ import {
 describe("chat list request URL", () => {
   test("keeps pinned chats in the sidebar request even when they are older than the recent limit", () => {
     expect(chatListRequestUrl("", new Set(["WEB:old-chat", "chat-2"]))).toBe(
-      "api/chats?include=WEB%3Aold-chat&include=chat-2",
+      "api/chats?limit=60&offset=0&include=WEB%3Aold-chat&include=chat-2",
     );
   });
 
   test("search does not force unrelated pinned chats into filtered results", () => {
     expect(chatListRequestUrl("Kite work", new Set(["WEB:old-chat"]))).toBe(
-      "api/chats?q=Kite+work",
+      "api/chats?limit=60&offset=0&q=Kite+work",
+    );
+  });
+
+  test("paginates later chat-list pages without repeating pinned includes", () => {
+    expect(chatListRequestUrl("", new Set(["WEB:old-chat"]), 40, 80)).toBe(
+      "api/chats?limit=40&offset=80",
     );
   });
 });
