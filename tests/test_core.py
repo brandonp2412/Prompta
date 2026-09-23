@@ -12,6 +12,7 @@ import pytest
 
 from prompta.cache import ActiveConversation, ChatCache
 from prompta.chrome import ChromeDebuggerUnavailableError
+from prompta.control_server import ControlDeferredError
 from prompta.conversation_actions import SendNotAcceptedError
 from prompta.conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS
 from prompta.core import (
@@ -1511,6 +1512,78 @@ async def test_busy_reply_does_not_block_other_scheduler_requests(tmp_path: Path
     assert prompta._reply_requests.qsize() == 1
     assert not busy_future.done()
     prompta.send_reply.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_ui_control_reply_defers_busy_target_before_delivery(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta._active_conversations["busy-context"] = ActiveConversation(
+        conversation_id="busy-chat",
+        context_id="busy-context",
+        job_name="",
+        prompt="Earlier prompt",
+    )
+    server, socket_path = await _start_control_server(prompta, state_path)
+    try:
+        with pytest.raises(ControlDeferredError, match="deferred before delivery"):
+            await _send_reply_via_control(
+                state_path,
+                "busy-chat",
+                "Follow up",
+                defer_if_busy=True,
+            )
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        prompta.cache.close()
+
+
+def test_completed_cache_prevents_stale_active_reply_lock(tmp_path: Path) -> None:
+    conversation_id = "completed-chat"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.cache.start(
+        conversation_id,
+        context_id="stale-context",
+        job_name="",
+        prompt="Earlier prompt",
+    )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Completed",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Earlier prompt"},
+                {"id": "a1", "role": "assistant", "content": "Done"},
+            ],
+        },
+        complete=True,
+    )
+    prompta._active_conversations["stale-context"] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id="stale-context",
+        job_name="",
+        prompt="Earlier prompt",
+    )
+
+    assert prompta._reply_target_is_busy(conversation_id) is False
     prompta.cache.close()
 
 

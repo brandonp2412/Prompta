@@ -39,6 +39,7 @@ class SchedulerExecution:
         interrupt_active: Callable[[], None],
         current_driver: Callable[[], Any],
         set_driver: Callable[[Any], None],
+        conversation_complete: Callable[[str], bool] | None = None,
     ) -> None:
         self.scheduler = scheduler
         self.active = active
@@ -49,6 +50,7 @@ class SchedulerExecution:
         self.interrupt_active = interrupt_active
         self.current_driver = current_driver
         self.set_driver = set_driver
+        self.conversation_complete = conversation_complete or (lambda _conversation_id: False)
         self.once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = (
             asyncio.Queue()
         )
@@ -243,6 +245,8 @@ class SchedulerExecution:
                 self.once_requests.task_done()
 
     def reply_target_is_busy(self, conversation_id: str) -> bool:
+        if self.conversation_complete(conversation_id):
+            return False
         return any(
             active.conversation_id == conversation_id and active.settled_at <= 0
             for active in self.active.values()

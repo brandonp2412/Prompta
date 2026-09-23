@@ -23,6 +23,9 @@ from .browser_session import BrowserSession
 from .cache import DEFAULT_CACHE_PATH, ActiveConversation, ChatCache
 from .chrome import ChromeDriverDriver
 from .control_server import (
+    ControlDeferredError,
+)
+from .control_server import (
     _acquire_daemon_lock as _acquire_daemon_lock,
 )
 from .control_server import (
@@ -169,6 +172,9 @@ class Prompta:
             interrupt_active=lambda: self._interrupt_active_conversations(),
             current_driver=lambda: self.driver,
             set_driver=lambda value: setattr(self, "driver", value),
+            conversation_complete=lambda conversation_id: (
+                self.cache.status(conversation_id) == "complete"
+            ),
         )
         self._once_requests = self.scheduler_execution.once_requests
         self._reply_requests = self.scheduler_execution.reply_requests
@@ -669,10 +675,13 @@ async def _control_send_request(
     payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         error = str(payload.get("error") or rejected_message)
-        if isinstance(payload, dict) and payload.get("error_type") == "rate_limit":
+        error_type = str(payload.get("error_type") or "") if isinstance(payload, dict) else ""
+        if error_type == "rate_limit":
             raise RateLimitError(
                 error, retry_after=int(payload.get("retry_after") or DEFAULT_RETRY_AFTER)
             )
+        if error_type == "deferred":
+            raise ControlDeferredError(error, retry_after=float(payload.get("retry_after") or 2.0))
         raise RuntimeError(error)
     return payload
 
@@ -724,6 +733,8 @@ async def _send_reply_via_control(
     conversation_id: str,
     prompt: str,
     attachments: list[str] | None = None,
+    *,
+    defer_if_busy: bool = False,
 ) -> str:
     payload = await _control_send_request_with_restart_retry(
         state_path,
@@ -732,6 +743,7 @@ async def _send_reply_via_control(
             "conversation_id": conversation_id,
             "prompt": prompt,
             "attachments": attachments or [],
+            "defer_if_busy": defer_if_busy,
         },
         rejected_message="Prompta scheduler rejected reply",
     )

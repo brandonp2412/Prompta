@@ -21,6 +21,14 @@ class ControlUnavailableError(RuntimeError):
     """The scheduler control channel is unavailable before a request can be sent."""
 
 
+class ControlDeferredError(RuntimeError):
+    """A control send is safe to retry later because it was not attempted."""
+
+    def __init__(self, message: str, *, retry_after: float = 2.0) -> None:
+        super().__init__(message)
+        self.retry_after = max(0.1, float(retry_after))
+
+
 def _control_socket_path(state_path: Path) -> Path:
     return state_path.expanduser().parent / _CONTROL_SOCKET_NAME
 
@@ -100,11 +108,24 @@ async def _handle_control_client(
                 conversation_id = str(payload.get("conversation_id") or "")
                 if not conversation_id.strip():
                     raise ValueError("conversation id is empty")
+                if bool(payload.get("defer_if_busy")) and prompta._reply_target_is_busy(
+                    conversation_id
+                ):
+                    raise ControlDeferredError(
+                        "Conversation is still active; reply was deferred before delivery"
+                    )
                 await prompta._reply_requests.put((conversation_id, prompt, attachments, future))
             else:
                 raise ValueError("unsupported Prompta control request")
             conversation_id = await future
             response = {"ok": True, "conversation_id": conversation_id}
+    except ControlDeferredError as exc:
+        response = {
+            "ok": False,
+            "error": str(exc),
+            "error_type": "deferred",
+            "retry_after": exc.retry_after,
+        }
     except RateLimitError as exc:
         response = {
             "ok": False,

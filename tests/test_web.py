@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from prompta.cache import ChatCache
-from prompta.control_server import ControlUnavailableError
+from prompta.control_server import ControlDeferredError, ControlUnavailableError
 from prompta.core import RateLimitError
 from prompta.web import (
     PromptaUIHandler,
@@ -1471,6 +1471,117 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     assert first_result is not None and first_result["status"] == "succeeded"
     assert second_result is not None and second_result["status"] == "succeeded"
     assert third_result is not None and third_result["status"] == "succeeded"
+
+
+def test_send_job_registry_deferred_head_does_not_block_runnable_jobs(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def sender(
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+    ) -> str:
+        del operation, conversation_id, attachments
+        calls.append(message)
+        if message == "busy reply":
+            raise ControlDeferredError("conversation still active", retry_after=30)
+        return f"chat-{message}"
+
+    registry = SendJobRegistry(
+        sender,
+        recovery_path=tmp_path / "ui-send-retries.json",
+    )
+    first = registry.submit(
+        operation="reply",
+        message="busy reply",
+        conversation_id="chat-busy",
+    )
+
+    deadline = time.monotonic() + 1.0
+    first_result = registry.get(first["send_id"])
+    while (
+        first_result is not None
+        and first_result["status"] != "retrying"
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+        first_result = registry.get(first["send_id"])
+
+    assert first_result is not None
+    assert first_result["status"] == "retrying"
+    assert first_result["retry_after_seconds"] >= 29
+
+    second = registry.submit(operation="once", message="independent new chat")
+    deadline = time.monotonic() + 1.0
+    second_result = registry.get(second["send_id"])
+    while (
+        second_result is not None
+        and second_result["status"] != "succeeded"
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+        second_result = registry.get(second["send_id"])
+
+    assert second_result is not None
+    assert second_result["status"] == "succeeded"
+    assert second_result["conversation_id"] == "chat-independent new chat"
+    assert calls == ["busy reply", "independent new chat"]
+    first_result = registry.get(first["send_id"])
+    assert first_result is not None
+    assert first_result["status"] == "retrying"
+
+
+def test_send_job_registry_backend_outage_head_does_not_block_runnable_jobs(
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    def sender(
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+    ) -> str:
+        del operation, conversation_id, attachments
+        calls.append(message)
+        if message == "backend unavailable":
+            raise ControlUnavailableError("control socket unavailable")
+        return f"chat-{message}"
+
+    registry = SendJobRegistry(
+        sender,
+        recovery_path=tmp_path / "ui-send-retries.json",
+    )
+    first = registry.submit(operation="once", message="backend unavailable")
+
+    deadline = time.monotonic() + 1.0
+    first_result = registry.get(first["send_id"])
+    while (
+        first_result is not None
+        and first_result["status"] != "retrying"
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+        first_result = registry.get(first["send_id"])
+
+    assert first_result is not None
+    assert first_result["status"] == "retrying"
+
+    second = registry.submit(operation="once", message="independent runnable")
+    deadline = time.monotonic() + 1.0
+    second_result = registry.get(second["send_id"])
+    while (
+        second_result is not None
+        and second_result["status"] != "succeeded"
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+        second_result = registry.get(second["send_id"])
+
+    assert second_result is not None
+    assert second_result["status"] == "succeeded"
+    assert calls == ["backend unavailable", "independent runnable"]
 
 
 def test_send_job_registry_retries_transient_background_error() -> None:

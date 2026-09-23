@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .control_server import ControlUnavailableError
+from .control_server import ControlDeferredError, ControlUnavailableError
 from .rate_limit import (
     RateLimitBackoff,
     RateLimitError,
@@ -243,10 +243,15 @@ class SendJobRegistry:
             row = connection.execute(
                 """
                 SELECT * FROM send_jobs
-                WHERE status IN ('queued', 'retrying', 'rate_limited')
+                WHERE status = 'queued'
+                   OR (
+                       status IN ('retrying', 'rate_limited')
+                       AND retry_at <= ?
+                   )
                 ORDER BY sequence
                 LIMIT 1
-                """
+                """,
+                (time.time(),),
             ).fetchone()
             if row is None:
                 return None
@@ -864,6 +869,7 @@ class SendJobRegistry:
                 self._jobs.pop(send_id, None)
                 return
             current = self.get(send_id) or {}
+            durable_queue = self._queue_path is not None
             generic_attempt = (
                 max(0, int(current.get("retry_attempt") or 0))
                 if str(current.get("status") or "") == "retrying"
@@ -872,6 +878,8 @@ class SendJobRegistry:
             infrastructure_attempt = 0
             local_retry_at = float(current.get("retry_at") or 0.0)
             if str(current.get("status") or "") == "retrying" and local_retry_at > time.time():
+                if durable_queue:
+                    return
                 self._sleep(local_retry_at - time.time())
             while True:
                 remaining, attempt = self._rate_limit_remaining()
@@ -929,6 +937,45 @@ class SendJobRegistry:
                 try:
                     result = self._sender(operation, message, conversation_id, attachments)
                 except Exception as exc:
+                    if isinstance(exc, ControlDeferredError):
+                        current = self.get(send_id) or {}
+                        delay = exc.retry_after
+                        retry_at = time.time() + delay
+                        logger.info(
+                            "Prompta UI send deferred send_id=%s operation=%s conversation=%s "
+                            "retrying_in=%.1fs: %s",
+                            send_id,
+                            operation,
+                            conversation_id or "new",
+                            delay,
+                            exc,
+                        )
+                        self._update(
+                            send_id,
+                            status="retrying",
+                            error=str(exc),
+                            retry_at=retry_at,
+                            retry_after_seconds=max(1, math.ceil(delay)),
+                            retry_attempt=generic_attempt,
+                        )
+                        self._remember_recoverable(
+                            send_id=send_id,
+                            operation=operation,
+                            message=message,
+                            conversation_id=conversation_id,
+                            attachments=attachments,
+                            client_id=client_id,
+                            created_at=float(current.get("created_at") or time.time()),
+                            status="retrying",
+                            retry_at=retry_at,
+                            retry_attempt=generic_attempt,
+                            last_error=str(exc),
+                        )
+                        if durable_queue:
+                            return
+                        self._sleep(delay)
+                        continue
+
                     if isinstance(exc, ControlUnavailableError):
                         infrastructure_attempt += 1
                         current = self.get(send_id) or {}
@@ -968,6 +1015,8 @@ class SendJobRegistry:
                             retry_attempt=generic_attempt,
                             last_error=str(exc),
                         )
+                        if durable_queue:
+                            return
                         self._sleep(delay)
                         continue
 
@@ -1126,5 +1175,11 @@ class SendJobRegistry:
                 return
         finally:
             current = self.get(send_id) or {}
-            if current.get("status") != "dead_lettered":
+            if str(current.get("status") or "") not in {
+                "queued",
+                "running",
+                "retrying",
+                "rate_limited",
+                "dead_lettered",
+            }:
                 self._cleanup_attachments(attachments)

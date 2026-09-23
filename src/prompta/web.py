@@ -429,6 +429,7 @@ class PromptaUIServer(ThreadingHTTPServer):
                     conversation_id,
                     message,
                     attachment_paths,
+                    defer_if_busy=True,
                 )
             )
 
