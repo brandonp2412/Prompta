@@ -819,17 +819,43 @@ def test_cache_excludes_stale_active_conversation_from_restart_recovery(
         job_name="",
         prompt="Old work",
     )
+    cache.write_snapshot(
+        "stale-active-chat",
+        {
+            "path": "/c/stale-active-chat",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Old work"},
+                {"id": "a1", "role": "assistant", "content": "Still the same old response"},
+            ],
+        },
+    )
     stale_at = time.time() - 60 * 60
+    fresh_observation_at = time.time()
     with cache.connection:
         cache.connection.execute(
             "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
-            (stale_at, stale_at, "stale-active-chat"),
+            (stale_at, fresh_observation_at, "stale-active-chat"),
         )
         cache.connection.execute(
-            "UPDATE messages SET created_at = ?, updated_at = ?, activity_at = ? "
-            "WHERE conversation_id = ?",
-            (stale_at, stale_at, stale_at, "stale-active-chat"),
+            """
+            UPDATE messages
+            SET created_at = ?,
+                updated_at = ?,
+                activity_at = ?,
+                source_created_at = CASE WHEN role = 'assistant' THEN ? ELSE NULL END
+            WHERE conversation_id = ?
+            """,
+            (
+                stale_at,
+                fresh_observation_at,
+                fresh_observation_at,
+                stale_at,
+                "stale-active-chat",
+            ),
         )
+
+    assert abs(cache.last_message_activity_at("stale-active-chat") - stale_at) < 0.001
 
     rows = cache.recoverable_conversations(
         interrupted_after=time.time() - 60,

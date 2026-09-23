@@ -103,6 +103,48 @@ def _dom_prose_observations(
 logger = logging.getLogger(__name__)
 
 
+def _conversation_meaningful_activity_sql(alias: str = "c") -> str:
+    authoritative_source = f"""
+        SELECT MAX(source.source_created_at)
+        FROM source_events AS source
+        WHERE source.conversation_id = {alias}.id
+          AND source.source_created_at IS NOT NULL
+    """
+    return f"""
+        MAX(
+            {alias}.created_at,
+            COALESCE(
+                (
+                    SELECT MAX(COALESCE(user_message.source_created_at, user_message.created_at))
+                    FROM messages AS user_message
+                    WHERE user_message.conversation_id = {alias}.id
+                      AND user_message.role = 'user'
+                ),
+                0
+            ),
+            COALESCE(({authoritative_source}), 0),
+            CASE
+                WHEN ({authoritative_source}) IS NOT NULL THEN 0
+                ELSE COALESCE(
+                    (
+                        SELECT MAX(
+                            COALESCE(
+                                assistant_message.source_created_at,
+                                assistant_message.activity_at,
+                                assistant_message.created_at
+                            )
+                        )
+                        FROM messages AS assistant_message
+                        WHERE assistant_message.conversation_id = {alias}.id
+                          AND assistant_message.role = 'assistant'
+                    ),
+                    0
+                )
+            END
+        )
+    """
+
+
 @dataclass
 class ActiveConversation:
     conversation_id: str
@@ -588,15 +630,11 @@ class ChatCache:
         return dict(row)
 
     def last_message_activity_at(self, conversation_id: str) -> float:
+        activity_sql = _conversation_meaningful_activity_sql()
         row = self.connection.execute(
-            """
-            SELECT COALESCE(
-                MAX(COALESCE(m.activity_at, m.created_at)),
-                c.created_at,
-                0
-            ) AS activity_at
-            FROM conversations c
-            LEFT JOIN messages m ON m.conversation_id = c.id
+            f"""
+            SELECT {activity_sql} AS activity_at
+            FROM conversations AS c
             WHERE c.id = ?
             """,
             (conversation_id,),
@@ -1249,15 +1287,8 @@ class ChatCache:
         activity_filter = ""
         parameters: list[float | int] = [interrupted_after]
         if activity_after is not None:
-            activity_filter = """
-              AND COALESCE(
-                    (
-                        SELECT MAX(COALESCE(activity.activity_at, activity.created_at))
-                        FROM messages AS activity
-                        WHERE activity.conversation_id = c.id
-                    ),
-                    c.created_at
-                  ) >= ?
+            activity_filter = f"""
+              AND {_conversation_meaningful_activity_sql()} >= ?
             """
             parameters.append(activity_after)
         parameters.append(max(1, limit))
