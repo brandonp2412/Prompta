@@ -1993,6 +1993,10 @@ textarea:focus-visible {
 
   .app-shell {
     display: block;
+  }
+
+  .app-shell,
+  .app-shell * {
     touch-action: pan-y pinch-zoom;
   }
 
