@@ -41,6 +41,11 @@
       ? "Server · " + serverName
       : appViewState.serverLabel,
   );
+  const sidebarFilterOptions = [
+    { key: "unread", label: "Unread" },
+    { key: "active", label: "Active" },
+    { key: "broken", label: "Broken" },
+  ] as const;
 
   const mobileSidebarMedia = new MediaQuery("(max-width: 780px)");
   let sidebarWidth = $state(0);
@@ -311,6 +316,18 @@
         />
         <kbd>/</kbd>
       </label>
+      <div class="sidebar-filters" aria-label="Conversation filters">
+        {#each sidebarFilterOptions as filter (filter.key)}
+          <button
+            type="button"
+            class={["sidebar-filter-chip", { active: appViewState.sidebarFilters[filter.key] }]}
+            aria-pressed={appViewState.sidebarFilters[filter.key]}
+            onclick={() => appActions.onSidebarFilter(filter.key)}
+          >
+            {filter.label}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <div {@attach scrollToTopOnRequest(() => appViewState.sidebarTopRequest)} class="sidebar-scroll">

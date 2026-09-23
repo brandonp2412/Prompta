@@ -1,5 +1,6 @@
 export type ComposerAction = "send" | "stop";
 export type ViewMode = "chats" | "logs";
+export type SidebarFilterKey = "unread" | "active" | "broken";
 
 export const appViewState = $state({
   serverDisplay: "",
@@ -32,6 +33,7 @@ export const appViewState = $state({
   updateAvailable: false,
   updateApplying: false,
   searchValue: "",
+  sidebarFilters: { unread: false, active: false, broken: false },
   activeSlashCommand: "",
   clockTick: Date.now(),
   bootComplete: false,

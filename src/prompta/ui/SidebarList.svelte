@@ -90,6 +90,8 @@
   <div class="list-empty">
     {#if sidebarListState.model.emptyState === "search"}
       No cached chats match your search.
+    {:else if sidebarListState.model.emptyState === "filter"}
+      No conversations match these filters.
     {:else}
       No cached conversations yet.<br />Prompta runs will appear here live.
     {/if}

@@ -33,6 +33,7 @@ import {
   sidebarChatLastUserAt,
   sidebarChatIsPending,
   sidebarChatIsSelected,
+  sidebarChatMatchesFilters,
   sidebarChatPreviewText,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
@@ -186,6 +187,66 @@ describe("broken chat detection", () => {
         now,
       ),
     ).toBe(false);
+  });
+});
+
+describe("sidebar filters", () => {
+  const now = 10_000;
+  const healthyActive = {
+    id: "active",
+    status: "active",
+    created_at: now - 60,
+    last_assistant_at: now - 30,
+  };
+  const unreadComplete = {
+    id: "unread",
+    status: "complete",
+    created_at: now - 120,
+    unread: true,
+  };
+  const brokenInterrupted = {
+    id: "broken",
+    status: "interrupted",
+    created_at: now - 60 * 60,
+    last_assistant_at: now - 41 * 60,
+  };
+
+  test("shows every chat when no chips are selected", () => {
+    expect(
+      sidebarChatMatchesFilters(
+        healthyActive,
+        { unread: false, active: false, broken: false },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  test("matches unread, active, and broken chips against their existing chat state", () => {
+    expect(
+      sidebarChatMatchesFilters(
+        unreadComplete,
+        { unread: true, active: false, broken: false },
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      sidebarChatMatchesFilters(healthyActive, { unread: false, active: true, broken: false }, now),
+    ).toBe(true);
+    expect(
+      sidebarChatMatchesFilters(
+        brokenInterrupted,
+        { unread: false, active: false, broken: true },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  test("combines selected chips as an OR filter", () => {
+    const filters = { unread: true, active: true, broken: false };
+
+    expect(sidebarChatMatchesFilters(unreadComplete, filters, now)).toBe(true);
+    expect(sidebarChatMatchesFilters(healthyActive, filters, now)).toBe(true);
+    expect(sidebarChatMatchesFilters(brokenInterrupted, filters, now)).toBe(false);
   });
 });
 

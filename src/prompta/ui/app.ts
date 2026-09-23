@@ -21,6 +21,7 @@ import {
   sidebarChatCountSummary,
   sidebarChatLastUserAt,
   sidebarChatIsSelected,
+  sidebarChatMatchesFilters,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
   sortSidebarChats,
@@ -674,7 +675,10 @@ function renderSidebar(force = false) {
     return;
   }
 
-  const chats = sidebarChats();
+  const filtersActive = Object.values(appViewState.sidebarFilters).some(Boolean);
+  const chats = sidebarChats().filter((chat) =>
+    sidebarChatMatchesFilters(chat, appViewState.sidebarFilters),
+  );
   const pendingNewDisplayId = state.composingNew
     ? pendingConversationDisplayId(state.pendingNewSend)
     : "";
@@ -700,6 +704,7 @@ function renderSidebar(force = false) {
         Boolean(chat.unread),
       ]),
     ) +
+    JSON.stringify(appViewState.sidebarFilters) +
     new Date().toDateString() +
     selectionId;
 
@@ -709,7 +714,7 @@ function renderSidebar(force = false) {
 
   if (!chats.length) {
     sidebarListState.model = {
-      emptyState: state.search ? "search" : "empty",
+      emptyState: filtersActive ? "filter" : state.search ? "search" : "empty",
       groups: [],
     };
 
@@ -1651,6 +1656,12 @@ appActions.onSearch = (value) => {
     state.sidebarFingerprint = "";
     void loadChats();
   }, 140);
+};
+
+appActions.onSidebarFilter = (filter) => {
+  appViewState.sidebarFilters[filter] = !appViewState.sidebarFilters[filter];
+  state.sidebarFingerprint = "";
+  renderSidebar(true);
 };
 
 appActions.onNewChat = () => {

@@ -3,7 +3,7 @@ let motionEnd = () => {};
 export const sidebarState = $state({ open: false, moving: false });
 
 export type SidebarListModel = {
-  emptyState: "none" | "search" | "empty";
+  emptyState: "none" | "search" | "filter" | "empty";
   groups: Array<{
     label: string;
     chats: Array<{

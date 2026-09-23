@@ -144,6 +144,27 @@ export function chatIsBroken(
   return nowSeconds - referenceAt >= BROKEN_CHAT_AFTER_SECONDS;
 }
 
+export type SidebarFilters = {
+  unread: boolean;
+  active: boolean;
+  broken: boolean;
+};
+
+export function sidebarChatMatchesFilters(
+  chat: ChatHealth | null | undefined,
+  filters: SidebarFilters,
+  nowSeconds = Date.now() / 1000,
+): boolean {
+  if (!filters.unread && !filters.active && !filters.broken) return true;
+  if (!chat) return false;
+
+  return (
+    (filters.unread && Boolean(chat.unread)) ||
+    (filters.active && chat.status === "active") ||
+    (filters.broken && chatIsBroken(chat, nowSeconds))
+  );
+}
+
 export function sidebarSelectedConversationId(
   selectedId: string | null | undefined,
   composingNew: boolean,
