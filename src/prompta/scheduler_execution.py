@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 _FAILURE_RETRY_SECONDS = 300.0
 _MAX_ACTIVE_SCHEDULED_JOBS = 4
-_MAX_ACTIVE_BROWSER_CONVERSATIONS = 6
+_MAX_ACTIVE_BROWSER_CONVERSATIONS = 24
 
 
 def prompt_hash(prompt: str) -> str:
