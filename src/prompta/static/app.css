@@ -2558,6 +2558,20 @@ textarea:focus-visible {
   gap: 10px;
 }
 
+.jobs-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.jobs-pagination-status {
+  min-width: 92px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .jobs-empty {
   padding: 22px;
   border: 1px dashed var(--border-strong);

@@ -3,7 +3,7 @@
 
   import { dialogVisibility } from "./browserAttachments.svelte";
   import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest } from "./clientLogic";
-  import { jobPromptIsExpandable } from "./jobs";
+  import { jobPromptIsExpandable, paginateJobs } from "./jobs";
   import { registerJobsDialog } from "./uiControllers";
 
   type Job = {
@@ -22,6 +22,7 @@
   let dialogOpen = $state(false);
   let presentation = $state<"modal" | "stack">("modal");
   let jobs = $state.raw<Job[]>([]);
+  let page = $state(1);
   let status = $state("");
   let saving = $state(false);
   let editing = $state("");
@@ -31,6 +32,7 @@
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
+  const pagination = $derived(paginateJobs(jobs, page));
 
   function reset() {
     editing = "";
@@ -68,6 +70,7 @@
 
       const result = await response.json();
       jobs = Array.isArray(result.jobs) ? result.jobs : [];
+      page = 1;
       status = `${jobs.length} configured job${jobs.length === 1 ? "" : "s"}.`;
     } catch (error) {
       status = `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`;
@@ -81,6 +84,7 @@
     try {
       const result = await postJsonRequest("api/jobs", payload);
       jobs = Array.isArray(result.jobs) ? result.jobs : [];
+      page = paginateJobs(jobs, page).page;
       const invoked = Array.isArray(result.command) ? result.command.join(" ") : "";
       status = invoked ? `${success} · ${invoked}` : success;
       return true;
@@ -167,7 +171,7 @@
     <div class="jobs-list">
       {#if !jobs.length}<div class="jobs-empty">No scheduled jobs.</div>{/if}
 
-      {#each jobs as job (job.name)}
+      {#each pagination.items as job (job.name)}
         <article class="job-row">
           <div class="job-row-top">
             <div>
@@ -224,6 +228,30 @@
         </article>
       {/each}
     </div>
+
+    {#if pagination.pageCount > 1}
+      <nav class="jobs-pagination" aria-label="Scheduled jobs pages">
+        <button
+          type="button"
+          class="jobs-secondary-button"
+          disabled={pagination.page === 1}
+          onclick={() => (page = pagination.page - 1)}
+        >
+          Previous
+        </button>
+        <span class="jobs-pagination-status" aria-live="polite">
+          Page {pagination.page} of {pagination.pageCount}
+        </span>
+        <button
+          type="button"
+          class="jobs-secondary-button"
+          disabled={pagination.page === pagination.pageCount}
+          onclick={() => (page = pagination.page + 1)}
+        >
+          Next
+        </button>
+      </nav>
+    {/if}
 
     <form
       class="jobs-form"

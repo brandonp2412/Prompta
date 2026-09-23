@@ -15595,7 +15595,7 @@ var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noo
 var root_7$3 = /* @__PURE__ */ from_html(`<p><!></p>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
 var root_9$2 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
-var root_10$1 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
+var root_10$2 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
 var root_11 = /* @__PURE__ */ from_html(`<h4><!></h4>`);
 var root_12 = /* @__PURE__ */ from_html(`<h5><!></h5>`);
 var root_13 = /* @__PURE__ */ from_html(`<h6><!></h6>`);
@@ -15810,7 +15810,7 @@ function MarkdownContent($$anchor, $$props) {
 					append($$anchor, h2);
 				};
 				var consequent_17 = ($$anchor) => {
-					var h3 = root_10$1();
+					var h3 = root_10$2();
 					var node_18 = child(h3);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16283,7 +16283,7 @@ var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span
 var root_7$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
 var root_8$1 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
 var root_9$1 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action">Send next</button>`);
-var root_10 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <!> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
+var root_10$1 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div> <dialog class="pending-message-actions" aria-labelledby="pendingMessageActionsTitle"><div class="pending-message-actions-shell"><div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div> <!> <button type="button" class="pending-message-action">Edit message</button> <button type="button" class="pending-message-action danger">Delete message</button> <button type="button" class="pending-message-action cancel">Cancel</button></div></dialog>`, 1);
 function ConversationMessages($$anchor, $$props) {
 	push($$props, true);
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
@@ -16391,7 +16391,7 @@ function ConversationMessages($$anchor, $$props) {
 		closeActions();
 		conversationState.onDelete(get(actionsKey));
 	}
-	var fragment = root_10();
+	var fragment = root_10$1();
 	event("keydown", $window, (event) => {
 		if (event.key === "Escape" && get(actionsOpen)) closeActions();
 	});
@@ -16594,6 +16594,17 @@ function jobPromptIsExpandable(promptValue) {
 	const prompt = typeof promptValue === "string" ? promptValue.trim() : "";
 	return prompt.length > 220 || prompt.includes("\n");
 }
+function paginateJobs(jobs, requestedPage, pageSize = 10) {
+	const normalizedPageSize = Math.max(1, Math.floor(pageSize));
+	const pageCount = Math.max(1, Math.ceil(jobs.length / normalizedPageSize));
+	const page = Math.min(pageCount, Math.max(1, Math.floor(requestedPage)));
+	const start = (page - 1) * normalizedPageSize;
+	return {
+		items: jobs.slice(start, start + normalizedPageSize),
+		page,
+		pageCount
+	};
+}
 //#endregion
 //#region src/prompta/ui/JobsDialog.svelte
 init_client();
@@ -16607,16 +16618,18 @@ var root_2$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><s
 var root_3$2 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
 var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> <!></div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
-var root_6$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
-var root_7$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
-var root_8 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
-var root_9 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<nav class="jobs-pagination" aria-label="Scheduled jobs pages"><button type="button" class="jobs-secondary-button">Previous</button> <span class="jobs-pagination-status" aria-live="polite"> </span> <button type="button" class="jobs-secondary-button">Next</button></nav>`);
+var root_7$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
+var root_8 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
+var root_9 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
+var root_10 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <!> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
 function JobsDialog($$anchor, $$props) {
 	push($$props, true);
 	const mobile = new MediaQuery("(max-width: 600px)");
 	let dialogOpen = /* @__PURE__ */ state$1(false);
 	let presentation = /* @__PURE__ */ state$1("modal");
 	let jobs = /* @__PURE__ */ state$1([]);
+	let page = /* @__PURE__ */ state$1(1);
 	let status = /* @__PURE__ */ state$1("");
 	let saving = /* @__PURE__ */ state$1(false);
 	let editing = /* @__PURE__ */ state$1("");
@@ -16626,6 +16639,7 @@ function JobsDialog($$anchor, $$props) {
 	let interval = /* @__PURE__ */ state$1("40");
 	let dailyAt = /* @__PURE__ */ state$1("09:00");
 	let exact = /* @__PURE__ */ state$1(false);
+	const pagination = /* @__PURE__ */ user_derived(() => paginateJobs(get(jobs), get(page)));
 	function reset$1() {
 		set(editing, "");
 		set(name, "");
@@ -16655,6 +16669,7 @@ function JobsDialog($$anchor, $$props) {
 			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 			const result = await response.json();
 			set(jobs, Array.isArray(result.jobs) ? result.jobs : []);
+			set(page, 1);
 			set(status, `${get(jobs).length} configured job${get(jobs).length === 1 ? "" : "s"}.`);
 		} catch (error) {
 			set(status, `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`);
@@ -16666,6 +16681,7 @@ function JobsDialog($$anchor, $$props) {
 		try {
 			const result = await postJsonRequest("api/jobs", payload);
 			set(jobs, Array.isArray(result.jobs) ? result.jobs : []);
+			set(page, paginateJobs(get(jobs), get(page)).page, true);
 			const invoked = Array.isArray(result.command) ? result.command.join(" ") : "";
 			set(status, invoked ? `${success} · ${invoked}` : success, true);
 			return true;
@@ -16713,7 +16729,7 @@ function JobsDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_9();
+	var dialog = root_10();
 	var div = child(dialog);
 	var header = child(div);
 	var button = sibling(child(header), 2);
@@ -16728,7 +16744,7 @@ function JobsDialog($$anchor, $$props) {
 	if_block(node, ($$render) => {
 		if (!get(jobs).length) $$render(consequent);
 	});
-	each(sibling(node, 2), 17, () => get(jobs), (job) => job.name, ($$anchor, job) => {
+	each(sibling(node, 2), 17, () => get(pagination).items, (job) => job.name, ($$anchor, job) => {
 		var article = root_5$1();
 		var div_4 = child(article);
 		var div_5 = child(div_4);
@@ -16812,9 +16828,29 @@ function JobsDialog($$anchor, $$props) {
 		append($$anchor, article);
 	});
 	reset(div_2);
-	var form = sibling(div_2, 2);
+	var node_5 = sibling(div_2, 2);
+	var consequent_4 = ($$anchor) => {
+		var nav = root_6$1();
+		var button_4 = child(nav);
+		var span_3 = sibling(button_4, 2);
+		var text_9 = only_child(span_3);
+		var button_5 = sibling(span_3, 2);
+		reset(nav);
+		template_effect(() => {
+			button_4.disabled = get(pagination).page === 1;
+			set_text(text_9, `Page ${get(pagination).page ?? ""} of ${get(pagination).pageCount ?? ""}`);
+			button_5.disabled = get(pagination).page === get(pagination).pageCount;
+		});
+		delegated("click", button_4, () => set(page, get(pagination).page - 1));
+		delegated("click", button_5, () => set(page, get(pagination).page + 1));
+		append($$anchor, nav);
+	};
+	if_block(node_5, ($$render) => {
+		if (get(pagination).pageCount > 1) $$render(consequent_4);
+	});
+	var form = sibling(node_5, 2);
 	var h3 = child(form);
-	var text_9 = only_child(h3, true);
+	var text_10 = only_child(h3, true);
 	var label = sibling(h3, 2);
 	var input = sibling(child(label), 2);
 	remove_input_defaults(input);
@@ -16833,9 +16869,9 @@ function JobsDialog($$anchor, $$props) {
 	reset(select);
 	init_select(select);
 	reset(label_2);
-	var node_5 = sibling(label_2, 2);
-	var consequent_4 = ($$anchor) => {
-		var label_3 = root_6$1();
+	var node_6 = sibling(label_2, 2);
+	var consequent_5 = ($$anchor) => {
+		var label_3 = root_7$1();
 		var input_1 = sibling(child(label_3), 2);
 		remove_input_defaults(input_1);
 		reset(label_3);
@@ -16843,21 +16879,21 @@ function JobsDialog($$anchor, $$props) {
 		append($$anchor, label_3);
 	};
 	var alternate_1 = ($$anchor) => {
-		var label_4 = root_7$1();
+		var label_4 = root_8();
 		var input_2 = sibling(child(label_4), 2);
 		remove_input_defaults(input_2);
 		reset(label_4);
 		bind_value(input_2, () => get(dailyAt), ($$value) => set(dailyAt, $$value));
 		append($$anchor, label_4);
 	};
-	if_block(node_5, ($$render) => {
-		if (get(schedule) === "interval") $$render(consequent_4);
+	if_block(node_6, ($$render) => {
+		if (get(schedule) === "interval") $$render(consequent_5);
 		else $$render(alternate_1, -1);
 	});
 	reset(div_11);
-	var node_6 = sibling(div_11, 2);
-	var consequent_5 = ($$anchor) => {
-		var label_5 = root_8();
+	var node_7 = sibling(div_11, 2);
+	var consequent_6 = ($$anchor) => {
+		var label_5 = root_9();
 		var input_3 = child(label_5);
 		remove_input_defaults(input_3);
 		next(2);
@@ -16865,25 +16901,25 @@ function JobsDialog($$anchor, $$props) {
 		bind_checked(input_3, () => get(exact), ($$value) => set(exact, $$value));
 		append($$anchor, label_5);
 	};
-	if_block(node_6, ($$render) => {
-		if (get(schedule) === "interval") $$render(consequent_5);
+	if_block(node_7, ($$render) => {
+		if (get(schedule) === "interval") $$render(consequent_6);
 	});
-	var div_12 = sibling(node_6, 2);
-	var button_4 = child(div_12);
-	var button_5 = sibling(button_4, 2);
+	var div_12 = sibling(node_7, 2);
+	var button_6 = child(div_12);
+	var button_7 = sibling(button_6, 2);
 	reset(div_12);
 	reset(form);
-	var button_6 = only_child(sibling(form, 2));
+	var button_8 = only_child(sibling(form, 2));
 	reset(div);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(dialogOpen), () => get(presentation) === "modal", close));
 	template_effect(($0) => {
 		set_attribute(dialog, "data-presentation", get(presentation));
 		set_text(text, get(status));
-		set_text(text_9, get(editing) ? `Edit ${get(editing)}` : "Add job");
+		set_text(text_10, get(editing) ? `Edit ${get(editing)}` : "Add job");
 		input.readOnly = $0;
-		button_5.disabled = get(saving);
-		button_6.disabled = !get(jobs).length || get(saving);
+		button_7.disabled = get(saving);
+		button_8.disabled = !get(jobs).length || get(saving);
 	}, [() => Boolean(get(editing))]);
 	delegated("click", dialog, (event) => {
 		if (event.target === event.currentTarget && get(presentation) !== "stack") close();
@@ -16896,8 +16932,8 @@ function JobsDialog($$anchor, $$props) {
 	bind_value(input, () => get(name), ($$value) => set(name, $$value));
 	bind_value(textarea, () => get(prompt), ($$value) => set(prompt, $$value));
 	bind_select_value(select, () => get(schedule), ($$value) => set(schedule, $$value));
-	delegated("click", button_4, reset$1);
-	delegated("click", button_6, () => {
+	delegated("click", button_6, reset$1);
+	delegated("click", button_8, () => {
 		if (confirm(`Clear all ${get(jobs).length} scheduled jobs?`)) command({ action: "clear" }, "Cleared all scheduled jobs");
 	});
 	append($$anchor, dialog);
