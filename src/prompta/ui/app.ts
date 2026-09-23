@@ -663,12 +663,9 @@ function sidebarGroupAt(chat) {
 
 function groupChats(chats: UiChat[]) {
   const ordered = sortSidebarChats(chats, state.pinnedIds);
-  const unread = ordered.filter((chat) => Boolean(chat.unread));
-  const read = ordered.filter((chat) => !chat.unread);
-  const pinned = read.filter((chat) => state.pinnedIds.has(chat.id));
-  const unpinned = read.filter((chat) => !state.pinnedIds.has(chat.id));
+  const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
+  const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
   const groups: Array<[string, UiChat[]]> = [
-    ["Unread", unread],
     ["Pinned", pinned],
     ["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
     ["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],

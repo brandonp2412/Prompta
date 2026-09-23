@@ -338,20 +338,20 @@ describe("deterministic sidebar ordering", () => {
     ]);
   });
 
-  test("puts unread conversations before read conversations, including read pins", () => {
+  test("read state never changes sidebar position", () => {
     const chats = [
-      { id: "read-pin", created_at: 50 },
-      { id: "read-new", created_at: 100 },
-      { id: "unread-old", created_at: 10, unread: true },
-      { id: "unread-new", created_at: 20, unread: true },
+      { id: "pinned", created_at: 5, last_user_at: 5, unread: true },
+      { id: "newest", created_at: 30, last_user_at: 30 },
+      { id: "middle", created_at: 20, last_user_at: 20, unread: true },
+      { id: "oldest", created_at: 10, last_user_at: 10 },
     ];
 
-    expect(sortSidebarChats(chats, new Set(["read-pin"])).map((chat) => chat.id)).toEqual([
-      "unread-new",
-      "unread-old",
-      "read-pin",
-      "read-new",
-    ]);
+    const expected = ["pinned", "newest", "middle", "oldest"];
+    expect(sortSidebarChats(chats, new Set(["pinned"])).map((chat) => chat.id)).toEqual(expected);
+
+    for (const chat of chats) chat.unread = !chat.unread;
+
+    expect(sortSidebarChats(chats, new Set(["pinned"])).map((chat) => chat.id)).toEqual(expected);
   });
 
   test("keeps pinned chats in pin insertion order with new pins at the end", () => {

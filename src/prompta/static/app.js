@@ -6781,8 +6781,6 @@ function clientIdBelongsToSession(clientId, sessionId) {
 function sortSidebarChats(chats, pinnedIds) {
 	const pinnedOrder = new Map(Array.from(pinnedIds, (id, index) => [id, index]));
 	return [...chats].sort((left, right) => {
-		const unreadDelta = Number(Boolean(right.unread)) - Number(Boolean(left.unread));
-		if (unreadDelta) return unreadDelta;
 		const leftPinnedIndex = pinnedOrder.get(left.id);
 		const rightPinnedIndex = pinnedOrder.get(right.id);
 		if (leftPinnedIndex !== void 0 || rightPinnedIndex !== void 0) {
@@ -18565,12 +18563,9 @@ function sidebarGroupAt(chat) {
 }
 function groupChats(chats) {
 	const ordered = sortSidebarChats(chats, state.pinnedIds);
-	const unread = ordered.filter((chat) => Boolean(chat.unread));
-	const read = ordered.filter((chat) => !chat.unread);
-	const pinned = read.filter((chat) => state.pinnedIds.has(chat.id));
-	const unpinned = read.filter((chat) => !state.pinnedIds.has(chat.id));
+	const pinned = ordered.filter((chat) => state.pinnedIds.has(chat.id));
+	const unpinned = ordered.filter((chat) => !state.pinnedIds.has(chat.id));
 	return [
-		["Unread", unread],
 		["Pinned", pinned],
 		["Today", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat)))],
 		["Yesterday", unpinned.filter((chat) => sameLocalDay(sidebarGroupAt(chat), 1))],
