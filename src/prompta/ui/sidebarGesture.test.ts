@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { sidebarDragDirection, sidebarDragPosition, sidebarDragShouldOpen } from "./sidebarGesture";
 
 describe("mobile sidebar drag", () => {
+  test("keeps horizontal drags available from nested scroll targets", () => {
+    const css = readFileSync(new URL("../static/app.css", import.meta.url), "utf8");
+
+    expect(css).toMatch(/\.app-shell,\s*\.app-shell \* \{\s*touch-action: pan-y pinch-zoom;/);
+  });
+
   test("locks horizontal drags without stealing vertical scrolling", () => {
     expect(sidebarDragDirection(6, 2)).toBe("pending");
     expect(sidebarDragDirection(20, 5)).toBe("horizontal");
