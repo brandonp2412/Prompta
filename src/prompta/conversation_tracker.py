@@ -76,11 +76,10 @@ class ConversationTracker:
                 conversation_id,
                 context=context,
             )
-        except Exception as exc:
-            logger.warning(
-                "Prompta backend final-text recovery failed conversation=%s error_type=%s",
+        except Exception:
+            logger.exception(
+                "Prompta backend final-text recovery failed conversation=%s",
                 conversation_id,
-                type(exc).__name__,
             )
             return False
         if not isinstance(payload, dict) or not payload.get("ok"):
