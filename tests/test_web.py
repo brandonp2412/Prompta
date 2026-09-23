@@ -19,6 +19,7 @@ import pytest
 from prompta.cache import ChatCache
 from prompta.control_server import ControlDeferredError, ControlUnavailableError
 from prompta.core import RateLimitError
+from prompta.image_previews import ImagePreviewStore
 from prompta.web import (
     PromptaUIHandler,
     PromptaUIServer,
@@ -277,9 +278,7 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
         ]
         assert server.image_preview(preview_id) == (b"fake-png-bytes", "image/png")
         assert (
-            json.loads(server._image_preview_path.read_text())["records"]["image-client"][
-                "conversation_id"
-            ]
+            ImagePreviewStore(tmp_path).records["image-client"]["conversation_id"]
             == "chat-1"
         )
     finally:

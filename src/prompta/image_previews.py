@@ -7,20 +7,55 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .metadata_store import (
+    UI_METADATA_DB,
+    import_recorded,
+    metadata_connection,
+    record_import,
+)
+
 
 class ImagePreviewStore:
+    _LEGACY_IMPORT = "ui-image-previews-json"
+
     def __init__(self, state_dir: Path) -> None:
-        self.path = state_dir / "ui-image-previews.json"
+        self.path = state_dir / UI_METADATA_DB
+        self.legacy_path = state_dir / "ui-image-previews.json"
         self.directory = state_dir / "ui-image-previews"
         self.lock = threading.Lock()
+        self._migrate()
+        self._import_legacy_json()
         self.records = self.load()
 
-    def load(self) -> dict[str, dict[str, Any]]:
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, ValueError):
-            return {}
-        records = payload.get("records", {}) if isinstance(payload, dict) else {}
+    def _migrate(self) -> None:
+        with metadata_connection(self.path) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS image_preview_records (
+                    client_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL DEFAULT '',
+                    message TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS image_preview_files (
+                    preview_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    FOREIGN KEY(client_id)
+                        REFERENCES image_preview_records(client_id)
+                        ON DELETE CASCADE,
+                    UNIQUE(client_id, position)
+                );
+
+                CREATE INDEX IF NOT EXISTS image_preview_files_client_idx
+                    ON image_preview_files(client_id, position);
+                """
+            )
+
+    def _clean_records(self, records: object) -> dict[str, dict[str, Any]]:
         if not isinstance(records, dict):
             return {}
         cutoff = time.time() - (30 * 24 * 60 * 60)
@@ -56,8 +91,9 @@ class ImagePreviewStore:
                     }
                 )
             if kept_images:
-                cleaned[str(client_id)] = {
-                    "client_id": str(client_id),
+                normalized_id = str(client_id)
+                cleaned[normalized_id] = {
+                    "client_id": normalized_id,
                     "conversation_id": conversation_id,
                     "message": str(raw_record.get("message") or ""),
                     "created_at": created_at or time.time(),
@@ -65,14 +101,128 @@ class ImagePreviewStore:
                 }
         return cleaned
 
+    def _database_records(self) -> dict[str, dict[str, Any]]:
+        with metadata_connection(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT client_id, conversation_id, message, created_at
+                FROM image_preview_records
+                ORDER BY created_at, client_id
+                """
+            ).fetchall()
+            images = connection.execute(
+                """
+                SELECT preview_id, client_id, name, media_type
+                FROM image_preview_files
+                ORDER BY client_id, position
+                """
+            ).fetchall()
+
+        records: dict[str, dict[str, Any]] = {
+            str(row["client_id"]): {
+                "client_id": str(row["client_id"]),
+                "conversation_id": str(row["conversation_id"] or ""),
+                "message": str(row["message"] or ""),
+                "created_at": float(row["created_at"] or 0.0),
+                "images": [],
+            }
+            for row in rows
+        }
+        for row in images:
+            record = records.get(str(row["client_id"]))
+            if record is None:
+                continue
+            record["images"].append(
+                {
+                    "id": str(row["preview_id"]),
+                    "name": str(row["name"] or "image"),
+                    "type": str(row["media_type"] or "image/*"),
+                }
+            )
+        return records
+
+    @staticmethod
+    def _write_records(connection, records: dict[str, dict[str, Any]]) -> None:
+        connection.execute("DELETE FROM image_preview_files")
+        connection.execute("DELETE FROM image_preview_records")
+        for client_id, record in records.items():
+            connection.execute(
+                """
+                INSERT INTO image_preview_records(
+                    client_id,
+                    conversation_id,
+                    message,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    str(record.get("conversation_id") or ""),
+                    str(record.get("message") or ""),
+                    float(record.get("created_at") or time.time()),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO image_preview_files(
+                    preview_id,
+                    client_id,
+                    position,
+                    name,
+                    media_type
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(image.get("id") or ""),
+                        client_id,
+                        position,
+                        str(image.get("name") or "image"),
+                        str(image.get("type") or "image/*"),
+                    )
+                    for position, image in enumerate(record.get("images", []))
+                    if isinstance(image, dict) and image.get("id")
+                ],
+            )
+
+    def _import_legacy_json(self) -> None:
+        try:
+            payload = json.loads(self.legacy_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError):
+            return
+        if not isinstance(payload, dict):
+            return
+
+        records = self._clean_records(payload.get("records", {}))
+        imported = False
+        with metadata_connection(self.path) as connection:
+            if not import_recorded(connection, self._LEGACY_IMPORT):
+                existing = connection.execute(
+                    "SELECT 1 FROM image_preview_records LIMIT 1"
+                ).fetchone()
+                if existing is None:
+                    self._write_records(connection, records)
+                record_import(connection, self._LEGACY_IMPORT)
+            imported = import_recorded(connection, self._LEGACY_IMPORT)
+        if imported:
+            try:
+                self.legacy_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def load(self) -> dict[str, dict[str, Any]]:
+        records = self._database_records()
+        cleaned = self._clean_records(records)
+        if cleaned != records:
+            with metadata_connection(self.path) as connection:
+                self._write_records(connection, cleaned)
+        return cleaned
+
     def _write_locked(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps({"records": self.records}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        temporary.replace(self.path)
+        with metadata_connection(self.path) as connection:
+            self._write_records(connection, self.records)
 
     def replace_staged(
         self,

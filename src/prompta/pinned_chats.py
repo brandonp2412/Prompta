@@ -5,15 +5,26 @@ import threading
 from collections.abc import Iterable
 from pathlib import Path
 
+from .metadata_store import (
+    UI_METADATA_DB,
+    import_recorded,
+    metadata_connection,
+    record_import,
+)
+
 
 class PinnedChatStore:
     """Persist UI pin state independently of any one browser profile."""
 
     _LIMIT = 500
+    _LEGACY_IMPORT = "ui-pinned-chats-json"
 
     def __init__(self, state_dir: Path) -> None:
-        self.path = state_dir / "ui-pinned-chats.json"
+        self.path = state_dir / UI_METADATA_DB
+        self.legacy_path = state_dir / "ui-pinned-chats.json"
         self.lock = threading.Lock()
+        self._migrate()
+        self._import_legacy_json()
         self._initialized, self._ids = self._load()
 
     @classmethod
@@ -30,29 +41,93 @@ class PinnedChatStore:
                 break
         return ids
 
-    def _load(self) -> tuple[bool, list[str]]:
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return False, []
-        except (OSError, ValueError):
-            return False, []
+    def _migrate(self) -> None:
+        with metadata_connection(self.path) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS pinned_chat_state (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                    initialized INTEGER NOT NULL
+                );
 
+                CREATE TABLE IF NOT EXISTS pinned_chats (
+                    chat_id TEXT PRIMARY KEY,
+                    position INTEGER NOT NULL UNIQUE
+                );
+                """
+            )
+
+    def _import_legacy_json(self) -> None:
+        try:
+            payload = json.loads(self.legacy_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError):
+            return
         if not isinstance(payload, dict):
-            return False, []
+            return
         raw_ids = payload.get("ids")
         if not isinstance(raw_ids, list):
-            return False, []
-        return True, self._normalize(raw_ids)
+            return
+
+        ids = self._normalize(raw_ids)
+        imported = False
+        with metadata_connection(self.path) as connection:
+            if not import_recorded(connection, self._LEGACY_IMPORT):
+                state = connection.execute(
+                    "SELECT initialized FROM pinned_chat_state WHERE singleton = 1"
+                ).fetchone()
+                if state is None:
+                    connection.execute(
+                        """
+                        INSERT INTO pinned_chat_state(singleton, initialized)
+                        VALUES (1, 1)
+                        """
+                    )
+                    connection.executemany(
+                        """
+                        INSERT INTO pinned_chats(chat_id, position)
+                        VALUES (?, ?)
+                        """,
+                        [(chat_id, position) for position, chat_id in enumerate(ids)],
+                    )
+                record_import(connection, self._LEGACY_IMPORT)
+            imported = import_recorded(connection, self._LEGACY_IMPORT)
+        if imported:
+            try:
+                self.legacy_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _load(self) -> tuple[bool, list[str]]:
+        with metadata_connection(self.path) as connection:
+            state = connection.execute(
+                "SELECT initialized FROM pinned_chat_state WHERE singleton = 1"
+            ).fetchone()
+            rows = connection.execute(
+                "SELECT chat_id FROM pinned_chats ORDER BY position"
+            ).fetchall()
+        initialized = bool(state["initialized"]) if state is not None else False
+        return initialized, [str(row["chat_id"]) for row in rows]
 
     def _write_locked(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps({"ids": self._ids}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        temporary.replace(self.path)
+        with metadata_connection(self.path) as connection:
+            connection.execute(
+                """
+                INSERT INTO pinned_chat_state(singleton, initialized)
+                VALUES (1, ?)
+                ON CONFLICT(singleton) DO UPDATE SET initialized = excluded.initialized
+                """,
+                (int(self._initialized),),
+            )
+            connection.execute("DELETE FROM pinned_chats")
+            connection.executemany(
+                """
+                INSERT INTO pinned_chats(chat_id, position)
+                VALUES (?, ?)
+                """,
+                [(chat_id, position) for position, chat_id in enumerate(self._ids)],
+            )
 
     def snapshot(self) -> dict[str, object]:
         with self.lock:
