@@ -456,6 +456,14 @@
   </main>
 </div>
 
+<div
+  class="action-toast"
+  role="status"
+  aria-live="polite"
+  aria-atomic="true"
+  hidden={!appViewState.actionToast}
+>{appViewState.actionToast}</div>
+
 <button
   type="button"
   class="version-update-notice"

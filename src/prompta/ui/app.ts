@@ -62,6 +62,7 @@ import {
 
 const recentChatCache = new RecentChatCache(location.pathname.replace(/\/$/, "") || "/", 20);
 const clientSessionId = loadClientSessionId();
+let actionToastTimer: ReturnType<typeof setTimeout> | null = null;
 
 type UiChat = {
   id: string;
@@ -335,6 +336,24 @@ function syncComposerDraftTarget() {
 
 function setComposerStatus(value) {
   appViewState.composerStatus = String(value ?? "");
+}
+
+function showActionToast(value) {
+  const message = String(value ?? "");
+
+  if (actionToastTimer !== null) {
+    clearTimeout(actionToastTimer);
+    actionToastTimer = null;
+  }
+
+  appViewState.actionToast = message;
+
+  if (!message) return;
+
+  actionToastTimer = setTimeout(() => {
+    appViewState.actionToast = "";
+    actionToastTimer = null;
+  }, 2200);
 }
 
 function setCacheSummary(value) {
@@ -2336,7 +2355,9 @@ async function copySelectedChatUrl() {
   const url = new URL(location.href);
   url.hash = "/" + encodeURIComponent(state.selectedId);
   const copied = await copyText(url.toString());
-  setComposerStatus(copied ? "Chat link copied." : "Could not copy the chat link.");
+  const message = copied ? "Chat link copied." : "Could not copy the chat link.";
+  setComposerStatus(message);
+  showActionToast(message);
 }
 
 appActions.onPin = toggleSelectedPin;

@@ -22,6 +22,7 @@ export const appViewState = $state({
   composerPlaceholder: "Message Prompta…",
   composerDisabled: true,
   composerStatus: "",
+  actionToast: "",
   composerAction: "send" as ComposerAction,
   composerActionDisabled: true,
   shareDisabled: true,

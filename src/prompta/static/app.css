@@ -1904,6 +1904,31 @@ textarea:focus-visible {
 }
 
 
+.action-toast {
+  position: fixed;
+  top: calc(70px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 60;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.action-toast[hidden] {
+  display: none;
+}
+
 .version-update-notice {
   position: fixed;
   top: calc(70px + env(safe-area-inset-top));
@@ -1954,6 +1979,11 @@ textarea:focus-visible {
 
 
 @media (max-width: 780px) {
+  .action-toast {
+    top: calc(62px + env(safe-area-inset-top));
+    max-width: min(300px, calc(100vw - 24px));
+  }
+
   .version-update-notice {
     top: calc(62px + env(safe-area-inset-top));
     right: max(10px, env(safe-area-inset-right));
