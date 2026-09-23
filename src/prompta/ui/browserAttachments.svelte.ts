@@ -35,6 +35,23 @@ function keepConversationViewportAtBottom(element: HTMLElement) {
   });
 }
 
+export function scrollNearBottom(
+  onNearBottom: () => void,
+  threshold = 240,
+): Attachment<HTMLElement> {
+  return (element) => {
+    const handleScroll = () => {
+      if (element.scrollTop + element.clientHeight >= element.scrollHeight - threshold) {
+        onNearBottom();
+      }
+    };
+
+    element.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => element.removeEventListener("scroll", handleScroll);
+  };
+}
+
 export function conversationViewport(): Attachment<HTMLElement> {
   return (element) => {
     conversationViewportElement = element;

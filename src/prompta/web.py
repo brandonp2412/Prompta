@@ -61,10 +61,19 @@ def _git_short_head() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else ""
 
 
-def _git_changelog() -> list[dict[str, str]]:
+def _git_changelog(limit: int = 100, offset: int = 0) -> list[dict[str, str]]:
+    limit = max(1, limit)
+    offset = max(0, offset)
     try:
         completed = subprocess.run(
-            ["git", "log", "--format=%h%x09%s", "HEAD"],
+            [
+                "git",
+                "log",
+                f"--max-count={limit}",
+                f"--skip={offset}",
+                "--format=%h%x09%s",
+                "HEAD",
+            ],
             cwd=Path(__file__).resolve().parents[2],
             check=False,
             capture_output=True,
@@ -748,7 +757,22 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json({"public_key": server.push_notifications.public_key()})
             return
         if path == "/api/changelog":
-            self._json({"changes": _git_changelog()})
+            query = parse_qs(parsed.query)
+            try:
+                limit = int(query.get("limit", ["100"])[0])
+                offset = int(query.get("offset", ["0"])[0])
+            except ValueError:
+                self._json({"error": "Invalid changelog pagination"}, HTTPStatus.BAD_REQUEST)
+                return
+            limit = min(200, max(1, limit))
+            offset = max(0, offset)
+            changes = _git_changelog(limit=limit + 1, offset=offset)
+            self._json(
+                {
+                    "changes": changes[:limit],
+                    "has_more": len(changes) > limit,
+                }
+            )
             return
         if path == "/api/pins":
             self._json(cast(PromptaUIServer, self.server).pinned_chats.snapshot())
