@@ -83,7 +83,10 @@ class SchedulerExecution:
         self.set_driver(value)
 
     def can_start_new_conversation(self) -> bool:
-        if len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS:
+        if (
+            not self.scheduler.unattended_mode()
+            and len(self.active) >= _MAX_ACTIVE_BROWSER_CONVERSATIONS
+        ):
             return False
 
         allowed, reason = self.resource_admission()
@@ -171,10 +174,11 @@ class SchedulerExecution:
         attempted_at = time.time() if now is None else now
         if not self.can_start_new_conversation():
             return False
+        machine_gun_mode = self.scheduler.unattended_mode()
         active_scheduled_jobs = sum(
             1 for active in self.active.values() if active.job_name and active.job_name != "once"
         )
-        if active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
+        if not machine_gun_mode and active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
             return False
         if self.scheduler.global_backoff.remaining() > 0:
             return False
@@ -185,8 +189,11 @@ class SchedulerExecution:
             (
                 candidate
                 for candidate in self.scheduler.pending_delivery_intents(attempted_at)
-                if not any(
-                    active.job_name == candidate["job_name"] for active in self.active.values()
+                if (
+                    machine_gun_mode
+                    or not any(
+                        active.job_name == candidate["job_name"] for active in self.active.values()
+                    )
                 )
                 and self.scheduler.backoffs.setdefault(
                     candidate["job_name"], RateLimitBackoff()
@@ -360,7 +367,7 @@ class SchedulerExecution:
                 self.once_requests.task_done()
 
     def reply_target_is_busy(self, conversation_id: str) -> bool:
-        if self.conversation_complete(conversation_id):
+        if self.scheduler.unattended_mode() or self.conversation_complete(conversation_id):
             return False
         return any(
             active.conversation_id == conversation_id and active.settled_at <= 0

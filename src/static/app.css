@@ -294,6 +294,28 @@ textarea:focus-visible {
   color: var(--text);
 }
 
+.sidebar-machine-gun-action {
+  height: 34px;
+  margin: 0 0 8px;
+}
+
+.sidebar-machine-gun-action.active {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sidebar-action-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.sidebar-machine-gun-action.active .sidebar-action-state {
+  color: var(--text);
+}
+
 .sidebar-action svg {
   width: 17px;
   height: 17px;

@@ -891,7 +891,9 @@ function renderSidebar(force = false) {
           broken,
           statusLabel: broken
             ? "No ChatGPT response for at least 40 minutes"
-            : String(chat.status || ""),
+            : String(chat.status || "").toLowerCase() === "unattended"
+              ? "Machine Gun Mode · result polling skipped"
+              : String(chat.status || ""),
           title: String(chatTitle(chat)),
           preview: truncate(
             sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…",
@@ -1490,13 +1492,15 @@ async function toggleUnattendedMode() {
     appViewState.unattendedSendGapSeconds = Number(payload.send_gap_seconds || 60);
     showActionToast(
       appViewState.unattended
-        ? "Unattended mode · no chat polling · " +
+        ? "Machine Gun Mode on · no result polling · " +
             appViewState.unattendedSendGapSeconds +
             "s send gap"
-        : "Unattended mode off · normal chat polling restored",
+        : "Machine Gun Mode off · normal result polling restored",
     );
   } catch (error) {
-    showActionToast("Could not change unattended mode: " + String(error).replace(/^Error:\s*/, ""));
+    showActionToast(
+      "Could not change Machine Gun Mode: " + String(error).replace(/^Error:\s*/, ""),
+    );
   } finally {
     appViewState.unattendedUpdating = false;
   }
@@ -2331,7 +2335,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
     if (status === "succeeded") {
       setComposerStatus(
         appViewState.unattended
-          ? "Sent. Unattended mode is not polling ChatGPT for the response."
+          ? "Sent. Machine Gun Mode will not read the result."
           : "Sent. Waiting for the cached response…",
       );
       await loadChats();

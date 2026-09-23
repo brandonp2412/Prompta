@@ -426,7 +426,7 @@ class PromptaUIServer(ThreadingHTTPServer):
 
     def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int, bool]:
         if self.scheduler_runtime.unattended_mode():
-            raise RuntimeError("Unattended mode disables ChatGPT chat reads")
+            raise RuntimeError("Machine Gun Mode disables ChatGPT result reads")
         if self.store.conversation(conversation_id) is None:
             raise KeyError(conversation_id)
         verified = True

@@ -1024,10 +1024,55 @@ async def test_unattended_mode_skips_recovery_and_sync_reads(tmp_path: Path) -> 
 
     assert await prompta.recover_cached_conversations() == 0
     prompta.conversations.recover_cached_conversations.assert_not_awaited()
-    with pytest.raises(RuntimeError, match="Unattended mode disables ChatGPT chat reads"):
+    with pytest.raises(RuntimeError, match="Machine Gun Mode disables ChatGPT result reads"):
         await prompta.sync_conversation("chat-1")
     prompta.actions.sync_conversation.assert_not_awaited()
     await prompta.close()
+
+
+@pytest.mark.asyncio
+async def test_machine_gun_mode_keeps_all_delivery_types_moving_without_result_capacity(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.scheduler.set_unattended_mode(True)
+    for index in range(_MAX_ACTIVE_BROWSER_CONVERSATIONS):
+        context_id = f"context-{index}"
+        prompta._active_conversations[context_id] = ActiveConversation(
+            conversation_id=f"conversation-{index}",
+            context_id=context_id,
+            job_name="background" if index == 0 else f"job-{index}",
+            prompt="result still running",
+        )
+
+    prompta.send_once = AsyncMock(side_effect=["scheduled-chat", "once-chat"])  # type: ignore[method-assign]
+    assert (
+        await prompta._run_job(PromptJob("background", "scheduled work", 1800), now=1000.0) is True
+    )
+
+    prompta._update_scheduler_state({"last_attempt_at": 0.0})
+    once_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._once_requests.put(("manual work", [], once_future))
+    assert await prompta._drain_once_requests() is True
+    assert await once_future == "once-chat"
+
+    prompta._update_scheduler_state({"last_attempt_at": 0.0})
+    prompta.send_reply = AsyncMock(return_value="conversation-0")  # type: ignore[method-assign]
+    reply_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    await prompta._reply_requests.put(("conversation-0", "follow up", [], reply_future))
+    assert await prompta._drain_reply_requests() is True
+    assert await reply_future == "conversation-0"
+
+    assert prompta.send_once.await_count == 2
+    prompta.send_reply.assert_awaited_once_with("conversation-0", "follow up", attachments=[])
+    prompta.cache.close()
 
 
 def test_pause_state_round_trip(tmp_path: Path) -> None:

@@ -752,6 +752,15 @@ def test_static_bundle_contains_historical_activity_probe() -> None:
     assert "/probe" in bundle
 
 
+def test_machine_gun_mode_control_lives_in_sidebar_source() -> None:
+    source = (Path(__file__).parents[1] / "src" / "ui" / "App.svelte").read_text()
+    sidebar, main = source.split('<main class="main-panel">', maxsplit=1)
+
+    assert "Machine Gun Mode" in sidebar
+    assert 'id="machineGunModeButton"' in sidebar
+    assert 'id="unattendedModeButton"' not in main
+
+
 def test_unattended_mode_disables_live_conversation_probe(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start("chat-1", context_id="ctx", job_name="once", prompt="hello")
@@ -760,7 +769,7 @@ def test_unattended_mode_disables_live_conversation_probe(tmp_path: Path) -> Non
     try:
         mode = server.set_unattended_mode(True)
         assert mode == {"unattended": True, "chat_polling": False, "send_gap_seconds": 10.0}
-        with pytest.raises(RuntimeError, match="Unattended mode disables ChatGPT chat reads"):
+        with pytest.raises(RuntimeError, match="Machine Gun Mode disables ChatGPT result reads"):
             server.probe_conversation("chat-1")
     finally:
         server.server_close()

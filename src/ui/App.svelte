@@ -340,6 +340,28 @@
     </div>
 
     <div {@attach scrollToTopOnRequest(() => appViewState.sidebarTopRequest)} class="sidebar-scroll">
+      <button
+        type="button"
+        class={["sidebar-action", "sidebar-machine-gun-action", { active: appViewState.unattended }]}
+        id="machineGunModeButton"
+        aria-label={appViewState.unattended ? "Disable Machine Gun Mode" : "Enable Machine Gun Mode"}
+        title={
+          appViewState.unattended
+            ? "Machine Gun Mode on · no result polling · " +
+              appViewState.unattendedSendGapSeconds +
+              "s send gap"
+            : "Machine Gun Mode · keep dispatching all jobs without reading results"
+        }
+        aria-pressed={appViewState.unattended}
+        disabled={appViewState.unattendedUpdating}
+        onclick={appActions.onUnattendedMode}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"></path>
+        </svg>
+        <span>Machine Gun Mode</span>
+        <span class="sidebar-action-state">{appViewState.unattended ? "ON" : "OFF"}</span>
+      </button>
       <div class="sidebar-toolbar">
         <button
           type="button"
@@ -436,23 +458,6 @@
         <div class="heading-meta">{appViewState.headingMeta}</div>
       </div>
       <div class="topbar-actions" aria-label="Prompta actions">
-        <button
-          class={["icon-button", { active: appViewState.unattended }]}
-          id="unattendedModeButton"
-          aria-label={appViewState.unattended ? "Disable unattended mode" : "Enable unattended mode"}
-          title={
-            appViewState.unattended
-              ? "Unattended · no ChatGPT polling · " + appViewState.unattendedSendGapSeconds + "s send gap"
-              : "Unattended mode · disable ChatGPT polling and increase send allowance"
-          }
-          aria-pressed={appViewState.unattended}
-          disabled={appViewState.unattendedUpdating}
-          onclick={appActions.onUnattendedMode}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"
-            ><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg
-          >
-        </button>
         <button
           class={["icon-button", { active: appViewState.pinActive }]}
           id="pinChatButton"

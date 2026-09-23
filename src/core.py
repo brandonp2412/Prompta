@@ -355,7 +355,7 @@ class Prompta:
 
     async def sync_conversation(self, conversation_id: str) -> int:
         if self.scheduler.unattended_mode():
-            raise RuntimeError("Unattended mode disables ChatGPT chat reads")
+            raise RuntimeError("Machine Gun Mode disables ChatGPT result reads")
         return await self.actions.sync_conversation(conversation_id)
 
     async def send_reply(

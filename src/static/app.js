@@ -17347,7 +17347,7 @@ var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`
 var root_1 = /* @__PURE__ */ from_html(`<button type="button" class="search-clear" aria-label="Clear search" title="Clear search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>`);
 var root_2 = /* @__PURE__ */ from_html(`<kbd>/</kbd>`);
 var root_3 = /* @__PURE__ */ from_html(`<button type="button"> </button>`);
-var root_4 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <div class="brand-mark" aria-hidden="true">P</div> <div class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></div> <div id="globalLiveOrb"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <!></label></div> <div class="sidebar-scroll"><div class="sidebar-toolbar"><button type="button" class="sidebar-action sidebar-jobs-action" id="jobsSidebarButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path d="M8 12h3M8 16h3M14 12h2M14 16h2"></path></svg> <span>Jobs</span></button> <div class="sidebar-toolbar-right"><button type="button" class="sidebar-mark-all-read" aria-label="Mark all chats as read" title="Mark all chats as read">Read all</button> <div class="sidebar-filters" aria-label="Conversation filters"></div></div></div> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" role="button" tabindex="-1" aria-label="Close sidebar"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <div class="topbar-actions" aria-label="Prompta actions"><button id="unattendedModeButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg></button> <button id="pinChatButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span id="syncLabel" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!></main></div> <div class="action-toast" role="status" aria-live="polite" aria-atomic="true"> </div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!> <!>`, 1);
+var root_4 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <div class="brand-mark" aria-hidden="true">P</div> <div class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></div> <div id="globalLiveOrb"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="search" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <!></label></div> <div class="sidebar-scroll"><button type="button" id="machineGunModeButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"></path></svg> <span>Machine Gun Mode</span> <span class="sidebar-action-state"> </span></button> <div class="sidebar-toolbar"><button type="button" class="sidebar-action sidebar-jobs-action" id="jobsSidebarButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path d="M8 12h3M8 16h3M14 12h2M14 16h2"></path></svg> <span>Jobs</span></button> <div class="sidebar-toolbar-right"><button type="button" class="sidebar-mark-all-read" aria-label="Mark all chats as read" title="Mark all chats as read">Read all</button> <div class="sidebar-filters" aria-label="Conversation filters"></div></div></div> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" role="button" tabindex="-1" aria-label="Close sidebar"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <div class="topbar-actions" aria-label="Prompta actions"><button id="pinChatButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span id="syncLabel" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!></main></div> <div class="action-toast" role="status" aria-live="polite" aria-atomic="true"> </div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!> <!>`, 1);
 function App($$anchor, $$props) {
 	push($$props, true);
 	const serverDisplay = /* @__PURE__ */ user_derived(() => appViewState.serverDisplay || $$props.serverName);
@@ -17565,21 +17565,24 @@ function App($$anchor, $$props) {
 	reset(label);
 	reset(div_1);
 	var div_5 = sibling(div_1, 2);
-	var div_6 = child(div_5);
-	var button_2 = child(div_6);
-	var div_7 = sibling(button_2, 2);
-	var button_3 = child(div_7);
-	var div_8 = sibling(button_3, 2);
+	var button_2 = child(div_5);
+	var text_1 = only_child(sibling(child(button_2), 4), true);
+	reset(button_2);
+	var div_6 = sibling(button_2, 2);
+	var button_3 = child(div_6);
+	var div_7 = sibling(button_3, 2);
+	var button_4 = child(div_7);
+	var div_8 = sibling(button_4, 2);
 	each(div_8, 21, () => sidebarFilterOptions, (filter) => filter.key, ($$anchor, filter) => {
-		var button_4 = root_3();
-		var text_1 = only_child(button_4, true);
+		var button_5 = root_3();
+		var text_2 = only_child(button_5, true);
 		template_effect(() => {
-			set_class(button_4, 1, clsx(["sidebar-filter-chip", { active: appViewState.sidebarFilters[get(filter).key] }]));
-			set_attribute(button_4, "aria-pressed", appViewState.sidebarFilters[get(filter).key]);
-			set_text(text_1, get(filter).label);
+			set_class(button_5, 1, clsx(["sidebar-filter-chip", { active: appViewState.sidebarFilters[get(filter).key] }]));
+			set_attribute(button_5, "aria-pressed", appViewState.sidebarFilters[get(filter).key]);
+			set_text(text_2, get(filter).label);
 		});
-		delegated("click", button_4, () => appActions.onSidebarFilter(get(filter).key));
-		append($$anchor, button_4);
+		delegated("click", button_5, () => appActions.onSidebarFilter(get(filter).key));
+		append($$anchor, button_5);
 	});
 	reset(div_8);
 	reset(div_7);
@@ -17591,10 +17594,10 @@ function App($$anchor, $$props) {
 	attach(div_5, () => scrollToTopOnRequest(() => appViewState.sidebarTopRequest));
 	var div_9 = sibling(div_5, 2);
 	var div_10 = child(div_9);
-	var text_2 = only_child(sibling(child(div_10), 2), true);
+	var text_3 = only_child(sibling(child(div_10), 2), true);
 	reset(div_10);
-	var button_5 = sibling(div_10, 2);
-	var text_3 = only_child(button_5, true);
+	var button_6 = sibling(div_10, 2);
+	var text_4 = only_child(button_6, true);
 	reset(div_9);
 	reset(aside);
 	attach(aside, () => reportElementWidth((width) => set(sidebarWidth, width, true)));
@@ -17602,17 +17605,16 @@ function App($$anchor, $$props) {
 	let styles_1;
 	var main = sibling(div_11, 2);
 	var header = child(main);
-	var button_6 = child(header);
-	var div_12 = sibling(button_6, 2);
+	var button_7 = child(header);
+	var div_12 = sibling(button_7, 2);
 	var div_13 = child(div_12);
-	var text_4 = only_child(div_13, true);
-	var text_5 = only_child(sibling(div_13, 2), true);
+	var text_5 = only_child(div_13, true);
+	var text_6 = only_child(sibling(div_13, 2), true);
 	reset(div_12);
 	var div_15 = sibling(div_12, 2);
-	var button_7 = child(div_15);
-	var button_8 = sibling(button_7, 2);
+	var button_8 = child(div_15);
 	var button_9 = sibling(button_8, 2);
-	var span_2 = sibling(button_9, 2);
+	var span_3 = sibling(button_9, 2);
 	reset(div_15);
 	reset(header);
 	var section = sibling(header, 2);
@@ -17635,9 +17637,9 @@ function App($$anchor, $$props) {
 	reset(div);
 	attach(div, fitVisualViewport);
 	var div_17 = sibling(div, 2);
-	var text_6 = only_child(div_17, true);
+	var text_7 = only_child(div_17, true);
 	var button_10 = sibling(div_17, 2);
-	var text_7 = only_child(button_10, true);
+	var text_8 = only_child(button_10, true);
 	var node_5 = sibling(button_10, 2);
 	JobsDialog(node_5, {});
 	ChangelogDialog(sibling(node_5, 2), {});
@@ -17650,66 +17652,71 @@ function App($$anchor, $$props) {
 		set_text(text, get(serverLabel));
 		set_class(div_4, 1, clsx(["live-orb", { live: appViewState.live }]));
 		set_attribute(div_4, "title", appViewState.liveTitle);
-		set_text(text_2, appViewState.cacheSummary);
-		set_attribute(button_5, "title", appViewState.headTitle);
-		set_text(text_3, appViewState.headLabel);
+		set_class(button_2, 1, clsx([
+			"sidebar-action",
+			"sidebar-machine-gun-action",
+			{ active: appViewState.unattended }
+		]));
+		set_attribute(button_2, "aria-label", appViewState.unattended ? "Disable Machine Gun Mode" : "Enable Machine Gun Mode");
+		set_attribute(button_2, "title", appViewState.unattended ? "Machine Gun Mode on · no result polling · " + appViewState.unattendedSendGapSeconds + "s send gap" : "Machine Gun Mode · keep dispatching all jobs without reading results");
+		set_attribute(button_2, "aria-pressed", appViewState.unattended);
+		button_2.disabled = appViewState.unattendedUpdating;
+		set_text(text_1, appViewState.unattended ? "ON" : "OFF");
+		set_text(text_3, appViewState.cacheSummary);
+		set_attribute(button_6, "title", appViewState.headTitle);
+		set_text(text_4, appViewState.headLabel);
 		set_class(div_11, 1, clsx(["sidebar-scrim", { "is-open": sidebarState.open }]));
 		styles_1 = set_style(div_11, "", styles_1, {
 			opacity: $0,
 			transition: sidebarDrag.active ? sidebarDrag.settling ? "opacity " + sidebarDrag.duration + "ms linear" : "none" : void 0,
 			"pointer-events": sidebarDrag.active ? "none" : void 0
 		});
-		set_attribute(button_6, "aria-expanded", sidebarState.open);
-		set_text(text_4, appViewState.headingTitle);
-		set_text(text_5, appViewState.headingMeta);
-		set_class(button_7, 1, clsx(["icon-button", { active: appViewState.unattended }]));
-		set_attribute(button_7, "aria-label", appViewState.unattended ? "Disable unattended mode" : "Enable unattended mode");
-		set_attribute(button_7, "title", appViewState.unattended ? "Unattended · no ChatGPT polling · " + appViewState.unattendedSendGapSeconds + "s send gap" : "Unattended mode · disable ChatGPT polling and increase send allowance");
-		set_attribute(button_7, "aria-pressed", appViewState.unattended);
-		button_7.disabled = appViewState.unattendedUpdating;
+		set_attribute(button_7, "aria-expanded", sidebarState.open);
+		set_text(text_5, appViewState.headingTitle);
+		set_text(text_6, appViewState.headingMeta);
 		set_class(button_8, 1, clsx(["icon-button", { active: appViewState.pinActive }]));
 		set_attribute(button_8, "aria-label", appViewState.pinLabel);
 		set_attribute(button_8, "title", appViewState.pinLabel);
 		set_attribute(button_8, "aria-pressed", appViewState.pinActive);
 		button_8.disabled = appViewState.pinDisabled;
 		button_9.disabled = appViewState.shareDisabled;
-		set_class(span_2, 1, clsx([
+		set_class(span_3, 1, clsx([
 			"status-icon",
 			"sync",
 			appViewState.syncStatus
 		]));
-		set_attribute(span_2, "aria-label", appViewState.syncLabel);
-		set_attribute(span_2, "title", appViewState.syncLabel);
+		set_attribute(span_3, "aria-label", appViewState.syncLabel);
+		set_attribute(span_3, "title", appViewState.syncLabel);
 		set_class(section, 1, clsx(["conversation-viewport", { "chat-switching": appViewState.chatSwitching }]));
 		set_attribute(section, "aria-busy", appViewState.chatSwitching ? "true" : void 0);
 		set_attribute(section, "hidden", appViewState.mode === "logs");
 		set_attribute(div_16, "hidden", !appViewState.emptyVisible);
 		set_attribute(article, "hidden", !appViewState.conversationVisible);
 		set_attribute(div_17, "hidden", !appViewState.actionToast);
-		set_text(text_6, appViewState.actionToast);
+		set_text(text_7, appViewState.actionToast);
 		set_attribute(button_10, "aria-label", appViewState.updateApplying ? "Updating Prompta" : "New Prompta version available. Tap to update");
 		set_attribute(button_10, "hidden", !appViewState.updateAvailable);
 		button_10.disabled = appViewState.updateApplying;
-		set_text(text_7, appViewState.updateApplying ? "Updating…" : "Update available");
+		set_text(text_8, appViewState.updateApplying ? "Updating…" : "Update available");
 	}, [() => sidebarDrag.active ? String(sidebarDrag.progress) : void 0]);
 	event("transitionend", aside, handleSidebarTransitionEnd);
 	delegated("click", button, () => closeSidebar());
 	delegated("input", input, () => appActions.onSearch(appViewState.searchValue));
 	bind_value(input, () => appViewState.searchValue, ($$value) => appViewState.searchValue = $$value);
-	delegated("click", button_2, () => void getJobsDialog().open());
-	delegated("click", button_3, function(...$$args) {
+	delegated("click", button_2, function(...$$args) {
+		appActions.onUnattendedMode?.apply(this, $$args);
+	});
+	delegated("click", button_3, () => void getJobsDialog().open());
+	delegated("click", button_4, function(...$$args) {
 		appActions.onMarkAllRead?.apply(this, $$args);
 	});
-	delegated("click", button_5, () => void getChangelogDialog().open());
+	delegated("click", button_6, () => void getChangelogDialog().open());
 	delegated("click", div_11, () => closeSidebar());
 	delegated("keydown", div_11, (event) => {
 		if (event.key === "Enter" || event.key === " ") closeSidebar();
 	});
-	delegated("click", button_6, function(...$$args) {
-		openSidebar?.apply(this, $$args);
-	});
 	delegated("click", button_7, function(...$$args) {
-		appActions.onUnattendedMode?.apply(this, $$args);
+		openSidebar?.apply(this, $$args);
 	});
 	delegated("click", button_8, function(...$$args) {
 		appActions.onPin?.apply(this, $$args);
@@ -18866,7 +18873,7 @@ function renderSidebar(force = false) {
 					optimisticNew: Boolean(chat._optimisticNew),
 					statusClass,
 					broken,
-					statusLabel: broken ? "No ChatGPT response for at least 40 minutes" : String(chat.status || ""),
+					statusLabel: broken ? "No ChatGPT response for at least 40 minutes" : String(chat.status || "").toLowerCase() === "unattended" ? "Machine Gun Mode · result polling skipped" : String(chat.status || ""),
 					title: String(chatTitle(chat)),
 					preview: truncate(sidebarChatPreviewText(chat.preview, chat.prompt) || "Waiting for messages…"),
 					jobLabel: String(chat.job_name || String(chat.message_count || 0) + " messages"),
@@ -19250,9 +19257,9 @@ async function toggleUnattendedMode() {
 		const payload = await postJsonRequest("api/mode", { unattended: next }, 1, 1e4);
 		appViewState.unattended = payload.unattended === true;
 		appViewState.unattendedSendGapSeconds = Number(payload.send_gap_seconds || 60);
-		showActionToast(appViewState.unattended ? "Unattended mode · no chat polling · " + appViewState.unattendedSendGapSeconds + "s send gap" : "Unattended mode off · normal chat polling restored");
+		showActionToast(appViewState.unattended ? "Machine Gun Mode on · no result polling · " + appViewState.unattendedSendGapSeconds + "s send gap" : "Machine Gun Mode off · normal result polling restored");
 	} catch (error) {
-		showActionToast("Could not change unattended mode: " + String(error).replace(/^Error:\s*/, ""));
+		showActionToast("Could not change Machine Gun Mode: " + String(error).replace(/^Error:\s*/, ""));
 	} finally {
 		appViewState.unattendedUpdating = false;
 	}
@@ -19770,7 +19777,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 		})) renderSidebar();
 		if (state.selectedId === conversationId) await loadSelectedChat();
 		if (status === "succeeded") {
-			setComposerStatus(appViewState.unattended ? "Sent. Unattended mode is not polling ChatGPT for the response." : "Sent. Waiting for the cached response…");
+			setComposerStatus(appViewState.unattended ? "Sent. Machine Gun Mode will not read the result." : "Sent. Waiting for the cached response…");
 			await loadChats();
 			return;
 		}
