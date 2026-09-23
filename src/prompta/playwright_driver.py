@@ -29,6 +29,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
+from .browser_script_loader import load_browser_script
 from .chatgpt_dom import (
     COMPOSER_SELECTORS,
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
@@ -45,6 +46,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TIMEOUT_MS = 30_000
 _OWNED_WINDOW_PREFIX = "prompta:"
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
+_LAST_USER_TEXT_SCRIPT = load_browser_script("last_user_text.js")
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
@@ -828,18 +830,7 @@ class PlaywrightDriver(BrowserDriverBase):
                     or await last_user.get_attribute("data-message-uuid")
                     or ""
                 )
-                last_user_text = str(
-                    await last_user.evaluate(
-                        """root => {
-                          const clone=root.cloneNode(true);
-                          clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-                          const text=(clone.textContent||'').trim();
-                          const suffix=['Show moreShow less','Show lessShow more'].find(v=>text.endsWith(v));
-                          return (suffix?text.slice(0,-suffix.length):text).trim();
-                        }"""
-                    )
-                    or ""
-                )
+                last_user_text = str(await last_user.evaluate(_LAST_USER_TEXT_SCRIPT) or "")
         except PlaywrightError:
             pass
 
