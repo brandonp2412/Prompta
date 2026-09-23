@@ -1484,8 +1484,6 @@ async function loadChats(forceSelectedRefresh = false) {
       } else if (!state.composingNew) {
         clearConversation();
       }
-    } else {
-      await logsPanel.load();
     }
   } catch (error) {
     if (requestId !== state.chatsRequestId) return;

@@ -29,6 +29,10 @@ type CachedChatSummaryRecord = {
 export class RecentChatCache {
   private readonly memory = new Map<string, any>();
   private databasePromise: Promise<IDBDatabase | null> | null = null;
+  private persistedSummaryFingerprint = "";
+  private activeSummaryFingerprint = "";
+  private pendingSummaryWrite: { fingerprint: string; summaries: any[] } | null = null;
+  private summaryWriteRunning = false;
 
   constructor(
     private readonly scope: string,
@@ -81,7 +85,20 @@ export class RecentChatCache {
 
   rememberSummaries(chats: any[]) {
     const summaries = chats.filter((chat) => String(chat?.id || "")).slice(0, SUMMARY_LIMIT);
-    void this.persistSummaries(summaries);
+    const fingerprint = JSON.stringify(summaries);
+
+    if (
+      fingerprint === this.persistedSummaryFingerprint ||
+      fingerprint === this.activeSummaryFingerprint ||
+      fingerprint === this.pendingSummaryWrite?.fingerprint
+    ) {
+      return false;
+    }
+
+    this.pendingSummaryWrite = { fingerprint, summaries };
+    void this.drainSummaryWrites();
+
+    return true;
   }
 
   async warmSummaries() {
@@ -96,11 +113,14 @@ export class RecentChatCache {
       request.onerror = () => resolve([]);
     });
 
-    return records
+    const chats = records
       .filter((record) => record.scope === this.scope && record.chat)
       .sort((left, right) => left.position - right.position)
       .slice(0, SUMMARY_LIMIT)
       .map((record) => record.chat);
+    this.persistedSummaryFingerprint = JSON.stringify(chats);
+
+    return chats;
   }
 
   async warm() {
@@ -201,6 +221,31 @@ export class RecentChatCache {
       transaction.onerror = () => resolve();
       transaction.onabort = () => resolve();
     });
+  }
+
+  private async drainSummaryWrites() {
+    if (this.summaryWriteRunning) return;
+
+    this.summaryWriteRunning = true;
+
+    try {
+      while (this.pendingSummaryWrite) {
+        const pending = this.pendingSummaryWrite;
+        this.pendingSummaryWrite = null;
+
+        if (pending.fingerprint === this.persistedSummaryFingerprint) continue;
+
+        this.activeSummaryFingerprint = pending.fingerprint;
+        await this.persistSummaries(pending.summaries);
+        this.persistedSummaryFingerprint = pending.fingerprint;
+        this.activeSummaryFingerprint = "";
+      }
+    } finally {
+      this.activeSummaryFingerprint = "";
+      this.summaryWriteRunning = false;
+
+      if (this.pendingSummaryWrite) void this.drainSummaryWrites();
+    }
   }
 
   private async persistSummaries(chats: any[]) {
