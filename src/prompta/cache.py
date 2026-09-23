@@ -587,6 +587,22 @@ class ChatCache:
             raise ValueError(f"unknown cached conversation: {conversation_id}")
         return dict(row)
 
+    def last_message_activity_at(self, conversation_id: str) -> float:
+        row = self.connection.execute(
+            """
+            SELECT COALESCE(
+                MAX(COALESCE(m.activity_at, m.created_at)),
+                c.created_at,
+                0
+            ) AS activity_at
+            FROM conversations c
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE c.id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        return float(row["activity_at"] or 0.0) if row is not None else 0.0
+
     def status(self, conversation_id: str) -> str | None:
         row = self.connection.execute(
             "SELECT status FROM conversations WHERE id = ?",

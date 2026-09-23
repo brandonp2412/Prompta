@@ -14,6 +14,7 @@ from .chromium import (
     preserves_non_tool_text,
 )
 from .structured_capture import has_completed_final_text, message_parts_from_source_events
+from .webdriver import BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ RESTART_RECOVERY_INTERRUPTED_SECONDS = 15 * 60.0
 RESTART_RECOVERY_LOAD_ATTEMPTS = 2
 RESTART_RECOVERY_RETRY_SECONDS = 60.0
 ACTIVE_TAB_RETENTION_SECONDS = 15.0
+STALE_ACTIVE_TAB_SECONDS = 40 * 60.0
 FALLBACK_COMPLETION_POLLS = 10
 DELIVERY_FAILURE_POLLS = 3
 DELIVERY_RETRY_DISCOVERY_POLLS = 3
@@ -398,6 +400,30 @@ class ConversationTracker:
         if driver is None:
             return
         for context, active in list(self.active.items()):
+            last_activity_at = self.cache.last_message_activity_at(active.conversation_id)
+            stale_for = time.time() - last_activity_at if last_activity_at > 0 else 0.0
+            if (
+                active.settled_at <= 0
+                and last_activity_at > 0
+                and stale_for >= STALE_ACTIVE_TAB_SECONDS
+            ):
+                if self.cache.status(active.conversation_id) == "active":
+                    self.cache.mark_interrupted(active.conversation_id)
+                try:
+                    await driver.close_context(context)
+                except BrowsingContextUnavailableError:
+                    pass
+                except Exception as exc:
+                    self._raise_if_browser_restart_required(driver, exc)
+                    logger.debug("Could not close stale Prompta tab", exc_info=True)
+                self.active.pop(context, None)
+                logger.warning(
+                    "Prompta reaped stale conversation tab=%s after %.0fs without message activity",
+                    active.conversation_id,
+                    stale_for,
+                )
+                continue
+
             try:
                 activity = await driver.conversation_activity(context)
                 self.cache.record_state(active.conversation_id, dict(activity))
@@ -486,6 +512,15 @@ class ConversationTracker:
                 snapshot["activity"] = dict(activity)
                 if streaming_hint:
                     snapshot["streaming"] = True
+            except BrowsingContextUnavailableError:
+                if self.cache.status(active.conversation_id) == "active":
+                    self.cache.mark_interrupted(active.conversation_id)
+                self.active.pop(context, None)
+                logger.info(
+                    "Prompta stopped tracking conversation=%s because its browser tab was closed",
+                    active.conversation_id,
+                )
+                continue
             except Exception as exc:
                 self._raise_if_browser_restart_required(driver, exc)
                 logger.exception(

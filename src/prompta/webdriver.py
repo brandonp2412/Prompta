@@ -24,6 +24,11 @@ from .chatgpt_dom import (
 )
 from .conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT, parse_conversation_snapshot
 
+
+class BrowsingContextUnavailableError(RuntimeError):
+    """Raised when a tracked browser tab/context no longer exists."""
+
+
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
 _BIDI_CALL_TIMEOUT_SECONDS = 30.0
 _BIDI_CONNECT_RETRY_SECONDS = 5.0

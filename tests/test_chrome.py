@@ -17,7 +17,7 @@ from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 
 from prompta.chrome import ChromeDebuggerUnavailableError, ChromeDriverDriver, _PromptaChrome
-from prompta.webdriver import WebDriverBase
+from prompta.webdriver import BrowsingContextUnavailableError, WebDriverBase
 
 
 def test_prompta_chrome_applies_timeout_before_start_session() -> None:
@@ -246,6 +246,25 @@ def test_owned_context_registry_tracks_only_prompta_tabs(tmp_path: Path) -> None
     driver._forget_owned_context("prompta-tab")
 
     assert not registry.exists()
+
+
+@pytest.mark.asyncio
+async def test_missing_debugger_target_is_forgotten_and_reported_as_closed(tmp_path: Path) -> None:
+    driver = ChromeDriverDriver(
+        profile=tmp_path / "chrome-profile",
+        debugger_address="127.0.0.1:9222",
+    )
+    driver._owned_contexts.add("closed-tab")
+    driver._persist_owned_contexts()
+
+    with (
+        patch.object(driver, "_debugger_target_websocket_url", return_value=""),
+        pytest.raises(BrowsingContextUnavailableError, match="target is unavailable"),
+    ):
+        await driver._debugger_call("closed-tab", "Runtime.evaluate", {})
+
+    assert "closed-tab" not in driver._owned_contexts
+    assert not driver._owned_contexts_path.exists()
 
 
 @pytest.mark.asyncio

@@ -37,7 +37,7 @@ from .chatgpt_dom import (
     SEND_BUTTON_SELECTORS,
     STOP_BUTTON_SELECTORS,
 )
-from .webdriver import _BIDI_AUTH_TIMEOUT_SECONDS, WebDriverBase
+from .webdriver import _BIDI_AUTH_TIMEOUT_SECONDS, BrowsingContextUnavailableError, WebDriverBase
 
 logger = logging.getLogger(__name__)
 
@@ -568,7 +568,10 @@ class ChromeDriverDriver(WebDriverBase):
     ) -> dict[str, Any]:
         websocket_url = await asyncio.to_thread(self._debugger_target_websocket_url, context)
         if not websocket_url:
-            raise RuntimeError(f"Chromium debugger target is unavailable: {context}")
+            self._forget_owned_context(context)
+            raise BrowsingContextUnavailableError(
+                f"Chromium debugger target is unavailable: {context}"
+            )
 
         async with websockets.connect(
             websocket_url,

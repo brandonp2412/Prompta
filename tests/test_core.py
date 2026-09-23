@@ -14,7 +14,7 @@ from prompta.cache import ActiveConversation, ChatCache
 from prompta.chrome import ChromeDebuggerUnavailableError
 from prompta.control_server import ControlDeferredError
 from prompta.conversation_actions import SendNotAcceptedError
-from prompta.conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS
+from prompta.conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS, STALE_ACTIVE_TAB_SECONDS
 from prompta.core import (
     Prompta,
     PromptaConfig,
@@ -38,6 +38,7 @@ from prompta.core import (
     remove_job,
     set_job_paused,
 )
+from prompta.webdriver import BrowsingContextUnavailableError
 
 
 class FakeDriver:
@@ -2371,6 +2372,95 @@ async def test_poll_active_conversations_fails_fast_when_webdriver_is_poisoned(
         await prompta._poll_active_conversations()
 
     assert driver.conversation_activity.await_count == 1
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_poll_active_conversations_retires_closed_browser_tab(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-closed-tab"
+    context_id = "context-closed-tab"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations[context_id] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.needs_browser_restart = False
+    driver.conversation_activity = AsyncMock(
+        side_effect=BrowsingContextUnavailableError(
+            f"Chromium debugger target is unavailable: {context_id}"
+        )
+    )
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+    await prompta._poll_active_conversations()
+
+    assert context_id not in prompta._active_conversations
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert driver.conversation_activity.await_count == 1
+    assert driver.needs_browser_restart is False
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_poll_active_conversations_reaps_tab_after_40_minutes_without_activity(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-stale-tab"
+    context_id = "context-stale-tab"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta._active_conversations[context_id] = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    prompta.cache.last_message_activity_at = MagicMock(  # type: ignore[method-assign]
+        return_value=time.time() - STALE_ACTIVE_TAB_SECONDS - 1
+    )
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.needs_browser_restart = False
+    driver.close_context = AsyncMock()
+    driver.conversation_activity = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    assert context_id not in prompta._active_conversations
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    driver.close_context.assert_awaited_once_with(context_id)
+    driver.conversation_activity.assert_not_awaited()
     prompta.cache.close()
 
 
