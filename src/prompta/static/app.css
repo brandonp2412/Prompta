@@ -980,8 +980,6 @@ textarea:focus-visible {
   margin: 0 0 29px;
   display: flex;
   contain: layout style;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 180px;
 }
 
 .message.user {
@@ -1509,8 +1507,6 @@ textarea:focus-visible {
   border-radius: 11px;
   background: var(--code);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.14);
-  content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
 }
 
 .code-header {
