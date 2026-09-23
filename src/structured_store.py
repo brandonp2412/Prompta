@@ -11,6 +11,17 @@ from .structured_capture import (
     stable_event_key,
     tool_calls_from_source_events,
 )
+from .ui_noise import strip_assistant_ui_noise
+
+
+def _meaningful_dom_prose(event: dict[str, Any]) -> bool:
+    if not str(event.get("id") or "").endswith(":dom-prose"):
+        return False
+    parts = event.get("parts")
+    if not isinstance(parts, list):
+        return False
+    prose = "\n\n".join(str(part).strip() for part in parts if str(part).strip())
+    return bool(strip_assistant_ui_noise(prose))
 
 
 def migrate_structured_capture(connection: sqlite3.Connection) -> None:
@@ -502,9 +513,11 @@ def promote_structured_capture(
 ) -> None:
     """Carry structured tool/prose capture from a live DOM key to its durable message id."""
     inherited_events: list[dict[str, Any]] = []
+    latest_dom_prose: dict[str, Any] | None = None
+    latest_dom_observed_at = float("-inf")
     for row in connection.execute(
         """
-        SELECT raw_json
+        SELECT raw_json, observed_at
         FROM source_events
         WHERE conversation_id = ? AND message_key = ?
         ORDER BY ordinal, observed_at, rowid
@@ -515,8 +528,21 @@ def promote_structured_capture(
             event = json.loads(str(row[0] or "{}"))
         except json.JSONDecodeError:
             continue
-        if isinstance(event, dict) and not str(event.get("id") or "").endswith(":dom-prose"):
-            inherited_events.append(event)
+        if not isinstance(event, dict):
+            continue
+        if str(event.get("id") or "").endswith(":dom-prose"):
+            observed = float(row[1] or 0.0)
+            if _meaningful_dom_prose(event) and observed >= latest_dom_observed_at:
+                latest_dom_prose = event
+                latest_dom_observed_at = observed
+            continue
+        inherited_events.append(event)
+
+    incoming_has_dom_prose = any(
+        _meaningful_dom_prose(event) for event in incoming_events if isinstance(event, dict)
+    )
+    if latest_dom_prose is not None and not incoming_has_dom_prose:
+        inherited_events.append(latest_dom_prose)
 
     merged_by_key: dict[str, dict[str, Any]] = {}
     ordered_keys: list[str] = []

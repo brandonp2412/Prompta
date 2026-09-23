@@ -565,6 +565,126 @@ def test_snapshot_promotes_transient_structured_tools_to_durable_assistant(
     assert stale_counts == [0, 0, 0]
 
 
+def test_snapshot_handoff_retains_latest_meaningful_dom_prose(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation_id = "conversation-dom-prose-handoff"
+    transient_key = "__prompta_live_assistant_dom_handoff__"
+    cache.start(
+        conversation_id,
+        context_id="context-dom-prose-handoff",
+        job_name="",
+        prompt="Do work",
+    )
+    invocation = {
+        "id": "call-1",
+        "role": "assistant",
+        "recipient": "api_tool.call_tool",
+        "content_type": "code",
+        "text": json.dumps({"path": "/Test MCP/link_123/inspect", "args": {}}),
+        "create_time": 2.0,
+    }
+    result = {
+        "id": "result-1",
+        "role": "tool",
+        "recipient": "all",
+        "content_type": "text",
+        "text": json.dumps({"ok": True}),
+        "create_time": 3.0,
+        "invoked_resource": {
+            "resource_uri": "/Test MCP/link_123/inspect",
+            "app_name": "Test MCP",
+        },
+    }
+    dom_prose = {
+        "id": f"{transient_key}:dom-prose",
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "parts": ["Visible progress"],
+        "text": "",
+        "create_time": None,
+        "end_turn": None,
+    }
+    fence = chr(96) * 3
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": transient_key,
+                    "role": "assistant",
+                    "content": (f"Visible progress\n\n{fence}tool:tool\nCalled tool\n{fence}"),
+                },
+            ],
+            "source_events": [invocation, result, dom_prose],
+        },
+    )
+
+    interruption = {
+        **dom_prose,
+        "id": "a1:dom-prose",
+        "parts": ["Connection interrupted. Waiting for the complete answer"],
+    }
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": f"{fence}tool:tool\nCalled tool\n{fence}",
+                },
+            ],
+            "source_events": [interruption],
+        },
+    )
+
+    durable_parts = cache.connection.execute(
+        """
+        SELECT kind, content
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id, "a1"),
+    ).fetchall()
+    durable_dom_rows = cache.connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM source_events
+        WHERE conversation_id = ?
+          AND message_key = ?
+          AND event_key LIKE '%:dom-prose:%'
+        """,
+        (conversation_id, "a1"),
+    ).fetchone()[0]
+    transient_rows = cache.connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM source_events
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (conversation_id, transient_key),
+    ).fetchone()[0]
+    cache.close()
+
+    assert any(
+        row["kind"] == "assistant_text" and "Visible progress" in row["content"]
+        for row in durable_parts
+    )
+    assert any(row["kind"] == "tool_call" for row in durable_parts)
+    assert durable_dom_rows >= 1
+    assert transient_rows == 0
+
+
 def test_streaming_snapshot_never_reorders_already_visible_blocks(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     cache.start(

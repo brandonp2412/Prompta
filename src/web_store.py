@@ -10,7 +10,12 @@ from typing import Any
 from .cache import DEFAULT_CACHE_PATH, _dom_prose_text, strip_delivery_timeout_noise
 from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
-from .stream_order import has_stream_order_inversion, recover_stream_order_from_observations
+from .stream_order import (
+    compact_prose_observation,
+    has_stream_order_inversion,
+    recover_stream_order_from_observations,
+    stabilize_streaming_content,
+)
 from .structured_capture import has_completed_final_text, rendered_content_from_parts
 
 
@@ -530,6 +535,29 @@ class ReadOnlyChatStore:
                 message_key, message.get("created_at")
             )
             message["version_count"] = version_count_by_message.get(message_key, 0)
+            dom_observations = [
+                (observed_at, cleaned)
+                for observed_at, prose in dom_prose_by_message.get(message_key, [])
+                if (cleaned := compact_prose_observation(strip_delivery_timeout_noise(prose)))
+            ]
+            if str(message.get("role") or "") == "assistant" and dom_observations:
+                latest_dom_prose = dom_observations[-1][1]
+                current_content = str(message.get("content") or "")
+                if latest_dom_prose and not preserves_non_tool_text(
+                    latest_dom_prose,
+                    current_content,
+                ):
+                    recovered_content = stabilize_streaming_content(
+                        latest_dom_prose,
+                        current_content,
+                    )
+                    if has_stream_order_inversion(recovered_content, dom_observations):
+                        recovered_content = recover_stream_order_from_observations(
+                            recovered_content,
+                            dom_observations,
+                        )
+                    message["content"] = recovered_content
+
             use_structured_content = historical or str(message.get("status") or "") == "complete"
             if use_structured_content and structured_parts:
                 structured_content = rendered_content_from_parts(structured_parts)
