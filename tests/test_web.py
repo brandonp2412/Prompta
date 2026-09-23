@@ -747,7 +747,7 @@ def test_local_ui_uses_control_socket_when_backend_is_running(tmp_path: Path) ->
 
 
 def test_static_bundle_contains_historical_activity_probe() -> None:
-    bundle = (Path(__file__).parents[1] / "src" / "prompta" / "static" / "app.js").read_text()
+    bundle = (Path(__file__).parents[1] / "src" / "static" / "app.js").read_text()
     assert "Checking whether ChatGPT is still running" in bundle
     assert "/probe" in bundle
 
@@ -2759,9 +2759,7 @@ def test_ui_server_defaults_identity_to_local_hostname(tmp_path: Path) -> None:
 
 
 def test_service_worker_prefers_network_updates_with_offline_shell_fallback() -> None:
-    script = (
-        Path(__file__).resolve().parents[1] / "src" / "prompta" / "static" / "sw.js"
-    ).read_text()
+    script = (Path(__file__).resolve().parents[1] / "src" / "static" / "sw.js").read_text()
 
     network_fetch = script.index("const response = await fetch(event.request);")
     cache_fallback = script.index("const cached = await caches.match(event.request);")

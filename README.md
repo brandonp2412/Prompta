@@ -216,8 +216,8 @@ The unit files are `systemd/prompta.service`, `systemd/prompta-browser.service`,
 
 ## Development
 
-The browser UI uses Svelte 5 and TypeScript in src/prompta/ui/. Vite builds the
-committed browser bundle at src/prompta/static/app.js, which is served by the existing
+The browser UI uses Svelte 5 and TypeScript in src/ui/. Vite builds the
+committed browser bundle at src/static/app.js, which is served by the existing
 Python UI server. The legacy behavior modules are being migrated incrementally into
 Svelte components so live conversation DOM nodes keep stable identity during updates.
 

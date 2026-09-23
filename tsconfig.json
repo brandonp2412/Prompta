@@ -10,6 +10,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/prompta/ui/**/*.ts"],
-  "exclude": ["src/prompta/ui/**/*.test.ts"]
+  "include": ["src/ui/**/*.ts"],
+  "exclude": ["src/ui/**/*.test.ts"]
 }

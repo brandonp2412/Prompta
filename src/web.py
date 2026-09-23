@@ -50,7 +50,7 @@ def _git_short_head() -> str:
     try:
         completed = subprocess.run(
             ["git", "rev-parse", "--short=8", "HEAD"],
-            cwd=Path(__file__).resolve().parents[2],
+            cwd=Path(__file__).resolve().parents[1],
             check=False,
             capture_output=True,
             text=True,
@@ -65,7 +65,7 @@ def _git_changelog() -> list[dict[str, str]]:
     try:
         completed = subprocess.run(
             ["git", "log", "--format=%h%x09%s", "HEAD"],
-            cwd=Path(__file__).resolve().parents[2],
+            cwd=Path(__file__).resolve().parents[1],
             check=False,
             capture_output=True,
             text=True,

@@ -1,6 +1,6 @@
 # Svelte architecture
 
-Prompta's application UI is fully owned by Svelte 5. `src/prompta/ui/app.ts`
+Prompta's application UI is fully owned by Svelte 5. `src/ui/app.ts`
 contains data loading, reconciliation, persistence, and command orchestration; Svelte
 components and rune modules own view state, markup, interactions, and reactive updates.
 

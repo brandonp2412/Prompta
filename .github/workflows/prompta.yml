@@ -32,7 +32,7 @@ jobs:
       - name: TypeScript
         run: |
           bun run check
-          git diff --exit-code -- src/prompta/static/app.js
+          git diff --exit-code -- src/static/app.js
       - name: ty
         run: uv run ty check
 

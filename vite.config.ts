@@ -5,12 +5,12 @@ export default defineConfig({
   plugins: [svelte()],
   build: {
     target: "es2022",
-    outDir: "src/prompta/static",
+    outDir: "src/static",
     emptyOutDir: false,
     copyPublicDir: false,
     minify: false,
     lib: {
-      entry: "src/prompta/ui/main.ts",
+      entry: "src/ui/main.ts",
       formats: ["es"],
       fileName: () => "app.js",
     },

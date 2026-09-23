@@ -28,7 +28,7 @@ def current_source_revision() -> str:
     try:
         completed = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=Path(__file__).resolve().parents[2],
+            cwd=Path(__file__).resolve().parents[1],
             check=False,
             capture_output=True,
             text=True,

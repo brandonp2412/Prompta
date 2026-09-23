@@ -86,7 +86,7 @@ function collectFiles(target) {
 
 if (import.meta.main) {
   const roots = process.argv.slice(2);
-  const files = roots.length ? roots.flatMap(collectFiles) : collectFiles("src/prompta/ui");
+  const files = roots.length ? roots.flatMap(collectFiles) : collectFiles("src/ui");
   let violationCount = 0;
 
   for (const file of files) {
