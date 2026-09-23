@@ -16317,6 +16317,7 @@ function ConversationMessages($$anchor, $$props) {
 			{
 				"send-error": Boolean(get(message).send_error),
 				"pending-activity": Boolean(get(message).pending_activity),
+				"pending-message-action-target": Boolean(get(message).pending_delete_key),
 				"pending-message-deleting": deleting
 			}
 		]), () => key(get(message), get(index))]);

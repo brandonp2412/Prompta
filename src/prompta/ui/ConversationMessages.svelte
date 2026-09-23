@@ -165,6 +165,7 @@
         {
           "send-error": Boolean(message.send_error),
           "pending-activity": Boolean(message.pending_activity),
+          "pending-message-action-target": Boolean(message.pending_delete_key),
           "pending-message-deleting": deleting,
         },
       ]}
