@@ -8,6 +8,7 @@ import {
   conversationIdFromHash,
   deleteRequest,
   formatClockTime12Hour,
+  formatRelativeTime,
   formatDailyTime12Hour,
   isUnresolvedPendingNewConversation,
   matchingOptimisticConversation,
@@ -31,6 +32,7 @@ import {
   postJsonRequest,
   pythonToolCallCode,
   replaceChatGptRichMarkers,
+  sidebarChatActivityAt,
   sidebarChatCreatedAt,
   sidebarChatLastUserAt,
   sidebarChatIsPending,
@@ -58,6 +60,41 @@ describe("chat list request URL", () => {
     expect(chatListRequestUrl("Kite work", new Set(["WEB:old-chat"]))).toBe(
       "api/chats?q=Kite+work",
     );
+  });
+});
+
+describe("sidebar status times", () => {
+  test("uses real message activity instead of conversation bookkeeping updates", () => {
+    expect(
+      sidebarChatActivityAt({
+        id: "chat",
+        created_at: 1_000,
+        updated_at: 9_000,
+        last_message_at: 2_000,
+        last_user_at: 1_500,
+        last_assistant_at: 3_000,
+      }),
+    ).toBe(3_000);
+  });
+
+  test("keeps optimistic pending status activity visible", () => {
+    expect(
+      sidebarChatActivityAt({
+        id: "chat",
+        created_at: 1_000,
+        updated_at: 4_000,
+        last_message_at: 2_000,
+        last_user_at: 1_500,
+        _optimisticReply: true,
+      }),
+    ).toBe(4_000);
+  });
+
+  test("does not round elapsed minutes or hours up early", () => {
+    const now = 10_000_000;
+
+    expect(formatRelativeTime((now - 119_000) / 1000, now)).toBe("1m");
+    expect(formatRelativeTime((now - 119 * 60_000) / 1000, now)).toBe("1h");
   });
 });
 

@@ -7,6 +7,7 @@ import {
   composerHasContent,
   conversationIdFromHash,
   deleteRequest,
+  formatRelativeTime,
   formatScheduleInterval,
   isUnresolvedPendingNewConversation,
   matchingOptimisticConversation,
@@ -20,6 +21,7 @@ import {
   jobSlashFeedback,
   pendingConversationSends,
   pendingSendActivity,
+  sidebarChatActivityAt,
   sidebarChatCountSummary,
   sidebarChatLastUserAt,
   sidebarChatIsSelected,
@@ -430,35 +432,6 @@ function setServerStatus(server, online) {
   logsPanel.setServerTitle(display);
 }
 
-function formatRelativeTime(epochSeconds) {
-  if (!epochSeconds) return "";
-
-  const delta = Date.now() - epochSeconds * 1000;
-  const abs = Math.abs(delta);
-
-  if (abs < 45_000) return "now";
-
-  if (abs < 3_600_000) return `${Math.max(1, Math.round(abs / 60_000))}m`;
-
-  if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)}h`;
-
-  if (abs < 604_800_000) return `${Math.round(abs / 86_400_000)}d`;
-
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
-    new Date(epochSeconds * 1000),
-  );
-}
-
-function chatActivityAt(chat) {
-  if (!chat) return 0;
-
-  if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") {
-    return Number(chat.updated_at || chat.last_message_at || 0);
-  }
-
-  return Number(chat.last_message_at || chat.updated_at || 0);
-}
-
 function brokenChatLabel(chat) {
   const lastAssistantAt = chatLastAssistantAt(chat);
 
@@ -676,7 +649,7 @@ function renderSidebar(force = false) {
         sidebarChatPreviewText(chat.preview, chat.prompt),
         chat.message_count,
         chat.job_name,
-        chatActivityAt(chat),
+        sidebarChatActivityAt(chat),
         chatIsBroken(chat),
         Boolean(chat._optimisticNew),
         Boolean(chat._optimisticReply),
@@ -720,7 +693,7 @@ function renderSidebar(force = false) {
             chat.status === "active" || chat.status === "complete" ? chat.status : "neutral";
         }
 
-        const activityAt = chatActivityAt(chat);
+        const activityAt = sidebarChatActivityAt(chat);
 
         return {
           id: chat.id,
@@ -882,8 +855,8 @@ function renderConversationMeta(chat, visibleMessageCount) {
     : chat.status === "active"
       ? "updating live"
       : chat.status === "interrupted"
-        ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}`
-        : formatRelativeTime(chatActivityAt(chat));
+        ? `interrupted · ${formatRelativeTime(sidebarChatActivityAt(chat))}`
+        : formatRelativeTime(sidebarChatActivityAt(chat));
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,

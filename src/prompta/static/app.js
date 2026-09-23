@@ -6665,6 +6665,26 @@ function sidebarChatLastUserAt(chat) {
 function sidebarChatIsPending(chat) {
 	return Boolean(chat?._pending_send || chat?._optimisticNew || chat?._optimisticReply);
 }
+function sidebarChatActivityAt(chat) {
+	if (!chat) return 0;
+	const messageActivity = Math.max(positiveEpoch(chat.last_message_at), positiveEpoch(chat.last_assistant_at), sidebarChatLastUserAt(chat), sidebarChatCreatedAt(chat));
+	if (sidebarChatIsPending(chat)) return Math.max(messageActivity, positiveEpoch(chat.updated_at));
+	return messageActivity || positiveEpoch(chat.updated_at);
+}
+function formatRelativeTime(epochSeconds, nowMillis = Date.now()) {
+	const epoch = positiveEpoch(epochSeconds);
+	if (!epoch) return "";
+	const delta = nowMillis - epoch * 1e3;
+	const abs = Math.abs(delta);
+	if (abs < 45e3) return "now";
+	if (abs < 36e5) return `${Math.max(1, Math.floor(abs / 6e4))}m`;
+	if (abs < 864e5) return `${Math.max(1, Math.floor(abs / 36e5))}h`;
+	if (abs < 6048e5) return `${Math.max(1, Math.floor(abs / 864e5))}d`;
+	return new Intl.DateTimeFormat(void 0, {
+		month: "short",
+		day: "numeric"
+	}).format(/* @__PURE__ */ new Date(epoch * 1e3));
+}
 function positiveEpoch(value) {
 	const epoch = Number(value || 0);
 	return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
@@ -18353,24 +18373,6 @@ function setServerStatus(server, online) {
 	appViewState.liveTitle = knownOnline === false ? display + " is offline" : knownOnline === true ? display + " is online" : display + " status unknown";
 	logsPanel.setServerTitle(display);
 }
-function formatRelativeTime(epochSeconds) {
-	if (!epochSeconds) return "";
-	const delta = Date.now() - epochSeconds * 1e3;
-	const abs = Math.abs(delta);
-	if (abs < 45e3) return "now";
-	if (abs < 36e5) return `${Math.max(1, Math.round(abs / 6e4))}m`;
-	if (abs < 864e5) return `${Math.round(abs / 36e5)}h`;
-	if (abs < 6048e5) return `${Math.round(abs / 864e5)}d`;
-	return new Intl.DateTimeFormat(void 0, {
-		month: "short",
-		day: "numeric"
-	}).format(/* @__PURE__ */ new Date(epochSeconds * 1e3));
-}
-function chatActivityAt(chat) {
-	if (!chat) return 0;
-	if (chat._optimisticNew || chat._optimisticReply || chat.status === "active") return Number(chat.updated_at || chat.last_message_at || 0);
-	return Number(chat.last_message_at || chat.updated_at || 0);
-}
 function brokenChatLabel(chat) {
 	const lastAssistantAt = chatLastAssistantAt(chat);
 	if (lastAssistantAt) return "broken · ChatGPT last responded " + formatRelativeTime(lastAssistantAt);
@@ -18489,7 +18491,7 @@ function renderSidebar(force = false) {
 		sidebarChatPreviewText(chat.preview, chat.prompt),
 		chat.message_count,
 		chat.job_name,
-		chatActivityAt(chat),
+		sidebarChatActivityAt(chat),
 		chatIsBroken(chat),
 		Boolean(chat._optimisticNew),
 		Boolean(chat._optimisticReply),
@@ -18514,7 +18516,7 @@ function renderSidebar(force = false) {
 				let statusClass = null;
 				if (broken) statusClass = "broken";
 				else if (chat.status !== "interrupted") statusClass = chat.status === "active" || chat.status === "complete" ? chat.status : "neutral";
-				const activityAt = chatActivityAt(chat);
+				const activityAt = sidebarChatActivityAt(chat);
 				return {
 					id: chat.id,
 					selected,
@@ -18605,7 +18607,7 @@ function toggleSelectedPin() {
 function renderConversationMeta(chat, visibleMessageCount) {
 	const title = chatTitle(chat);
 	const broken = chatIsBroken(chat);
-	const activityLabel = broken ? brokenChatLabel(chat) : chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
+	const activityLabel = broken ? brokenChatLabel(chat) : chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(sidebarChatActivityAt(chat))}` : formatRelativeTime(sidebarChatActivityAt(chat));
 	const meta = [
 		chat.job_name || "one-shot",
 		`${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
