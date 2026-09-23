@@ -28,8 +28,8 @@ DELIVERY_RETRY_MAX_ATTEMPTS = 1
 DELIVERY_RETRY_GRACE_SECONDS = 15.0
 DELIVERY_RECOVERY_MAX_ATTEMPTS = 1
 DELIVERY_RECOVERY_GRACE_SECONDS = 15.0
+TRANSIENT_RECOVERY_DELAY_SECONDS = 30.0
 TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
-TRANSIENT_RECOVERY_GRACE_SECONDS = 15.0
 
 
 class ConversationTracker:
@@ -273,7 +273,10 @@ class ConversationTracker:
                 completion_hint = bool(activity.get("complete", True))
                 transient_hint = bool(activity.get("transient"))
                 failure_hint = bool(activity.get("failed"))
-                persistent_transient = transient_hint and not streaming_hint
+                # A transient connection banner means the current page stream is no longer
+                # trustworthy. ChatGPT can leave stale streaming/end_turn markers behind when
+                # that happens, so transient recovery must take precedence over streaming hints.
+                persistent_transient = transient_hint
                 if persistent_transient:
                     now_epoch = time.time()
                     if active.transient_since_epoch <= 0:
@@ -282,9 +285,9 @@ class ConversationTracker:
                             min(now_epoch, recovered_at) if recovered_at > 0 else now_epoch
                         )
                     transient_timeout = (
-                        TRANSIENT_FAILURE_TIMEOUT_SECONDS
+                        TRANSIENT_RECOVERY_DELAY_SECONDS
                         if active.transient_recovery_attempts <= 0
-                        else TRANSIENT_RECOVERY_GRACE_SECONDS
+                        else TRANSIENT_FAILURE_TIMEOUT_SECONDS
                     )
                     if now_epoch - active.transient_since_epoch >= transient_timeout:
                         if active.transient_recovery_attempts <= 0:

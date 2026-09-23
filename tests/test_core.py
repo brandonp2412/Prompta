@@ -2130,6 +2130,70 @@ async def test_poll_active_conversation_keeps_brief_connection_interruption_live
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversation_recovers_transient_with_stale_streaming_hint(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-transient-stale-streaming"
+    context_id = "context-transient-stale-streaming"
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+    )
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="Do work",
+        recovered_cache_updated_at=time.time() - 31,
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": True,
+            "complete": False,
+            "transient": True,
+            "failed": False,
+            "turn_ended": False,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock()
+    driver.navigate = AsyncMock()
+    driver.eval = AsyncMock(return_value=f"/c/{conversation_id}")
+    driver.wait_for_composer = AsyncMock()
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "active"
+    assert context_id in prompta._active_conversations
+    assert active.transient_recovery_attempts == 1
+    driver.navigate.assert_awaited_once_with(
+        f"https://chatgpt.com/c/{conversation_id}",
+        context=context_id,
+    )
+    driver.wait_for_composer.assert_awaited_once_with(
+        timeout=10.0,
+        context=context_id,
+    )
+    driver.conversation_snapshot.assert_not_awaited()
+    driver.close_context.assert_not_awaited()
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversation_reloads_stale_connection_failure_before_interrupting(
     tmp_path: Path,
 ) -> None:
@@ -2236,7 +2300,7 @@ async def test_poll_active_conversation_interrupts_when_reloaded_connection_fail
         context_id=context_id,
         job_name="",
         prompt="Do work",
-        transient_since_epoch=time.time() - 16,
+        transient_since_epoch=time.time() - 16 * 60,
         transient_recovery_attempts=1,
     )
 
