@@ -5,7 +5,96 @@ export function createCompletionNotifications({ displayServerName, getServerName
   const notifiedCompletions = new Set();
   let baselineReady = false;
   let permissionRequest: Promise<string> | null = null;
+  let pushSetup: Promise<boolean> | null = null;
+  let pushRegisteredAt = 0;
   let flushingNotifications = false;
+
+  function decodeApplicationServerKey(value: string) {
+    const padded = value
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const raw = atob(padded);
+    const bytes = new Uint8Array(raw.length);
+
+    for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+
+    return bytes;
+  }
+
+  function sameApplicationServerKey(current: ArrayBuffer | null, expected: Uint8Array) {
+    if (!current) return false;
+
+    const bytes = new Uint8Array(current);
+
+    return (
+      bytes.length === expected.length && bytes.every((value, index) => value === expected[index])
+    );
+  }
+
+  async function ensurePushSubscription() {
+    if (pushRegisteredAt) return true;
+
+    if (pushSetup) return pushSetup;
+
+    if (!("serviceWorker" in navigator)) return false;
+
+    pushSetup = (async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+
+        if (!registration.pushManager) return false;
+
+        const keyResponse = await fetch("api/push/public-key", { cache: "no-store" });
+
+        if (!keyResponse.ok) throw new Error("Could not load Web Push public key");
+
+        const payload = await keyResponse.json();
+        const publicKey = String(payload.public_key || "");
+        const applicationServerKey = decodeApplicationServerKey(publicKey);
+        let subscription = await registration.pushManager.getSubscription();
+
+        if (
+          subscription &&
+          !sameApplicationServerKey(subscription.options.applicationServerKey, applicationServerKey)
+        ) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+
+        subscription ??= await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+
+        const saveResponse = await fetch("api/push/subscriptions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(subscription.toJSON()),
+        });
+
+        if (!saveResponse.ok) throw new Error("Could not save Web Push subscription");
+
+        pushRegisteredAt = Date.now() / 1000;
+
+        return true;
+      } catch (error) {
+        console.warn("Could not enable Prompta background notifications", error);
+
+        return false;
+      } finally {
+        pushSetup = null;
+      }
+    })();
+
+    return pushSetup;
+  }
+
+  async function initialize() {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    await ensurePushSubscription();
+  }
 
   function completionKey(chat) {
     return String(chat.id || "") + ":" + String(chat.completed_at ?? chat.updated_at ?? "");
@@ -13,6 +102,10 @@ export function createCompletionNotifications({ displayServerName, getServerName
 
   async function showChatFinished(chat) {
     if (!("Notification" in window) || Notification.permission !== "granted") return false;
+
+    const completedAt = Number(chat.completed_at ?? chat.updated_at ?? 0);
+
+    if (pushRegisteredAt && completedAt >= pushRegisteredAt) return true;
 
     const display = displayServerName(getServerName() || location.hostname);
     const title = chatTitle(chat);
@@ -89,6 +182,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
     if (!("Notification" in window)) return;
 
     if (Notification.permission === "granted") {
+      await ensurePushSubscription();
       await flushPendingNotifications();
 
       return;
@@ -111,6 +205,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
     const permission = await permissionRequest;
 
     if (permission === "granted") {
+      await ensurePushSubscription();
       await flushPendingNotifications();
     }
   }
@@ -156,6 +251,7 @@ export function createCompletionNotifications({ displayServerName, getServerName
   }
 
   return {
+    initialize,
     markActive,
     requestPermissionFromGesture,
     trackCompletions,

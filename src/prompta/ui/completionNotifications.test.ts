@@ -69,6 +69,7 @@ function browserNotifications(initialPermission = "granted") {
 
   return {
     shown,
+    registration,
     resolvePermission(next) {
       permissionResolver?.(next);
     },
@@ -150,6 +151,80 @@ describe("completion notifications", () => {
 
     expect(browser.shown).toHaveLength(1);
     expect(browser.shown[0].options.tag).toBe("prompta-finished-chat-fast");
+  });
+
+  test("registers Web Push so later completions do not depend on the page staying awake", async () => {
+    const browser = browserNotifications();
+    const calls = [];
+    const keyBytes = Uint8Array.from({ length: 65 }, (_, index) => (index === 0 ? 4 : index));
+    const publicKey = btoa(String.fromCharCode(...keyBytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const subscription = {
+      options: { applicationServerKey: keyBytes.buffer },
+      async unsubscribe() {
+        return true;
+      },
+      toJSON() {
+        return {
+          endpoint: "https://push.example.test/subscription",
+          keys: { p256dh: "public-key", auth: "auth-secret" },
+        };
+      },
+    };
+
+    browser.registration.pushManager = {
+      async getSubscription() {
+        return null;
+      },
+      async subscribe(options) {
+        expect(new Uint8Array(options.applicationServerKey)).toEqual(keyBytes);
+
+        return subscription;
+      },
+    };
+
+    replaceGlobal("fetch", async (url, options = {}) => {
+      calls.push({ url, options });
+
+      if (url === "api/push/public-key") {
+        return {
+          ok: true,
+          async json() {
+            return { public_key: publicKey };
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        async json() {
+          return {};
+        },
+      };
+    });
+
+    const completion = notifications();
+    await completion.initialize();
+
+    completion.trackCompletions([{ id: "chat-push", status: "active", title: "Mobile" }]);
+    completion.trackCompletions([
+      {
+        id: "chat-push",
+        status: "complete",
+        title: "Mobile",
+        completed_at: Date.now() / 1000 + 1,
+      },
+    ]);
+    await settle();
+
+    expect(browser.shown).toHaveLength(0);
+    expect(calls.map((call) => call.url)).toEqual([
+      "api/push/public-key",
+      "api/push/subscriptions",
+    ]);
+    expect(calls[1].options.method).toBe("POST");
   });
 
   test("holds a completion until an in-flight permission request is granted", async () => {

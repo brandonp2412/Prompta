@@ -17,6 +17,20 @@ self.addEventListener("activate", (event) => {
   })());
 });
 
+self.addEventListener("push", (event) => {
+  const payload = event.data?.json?.() || {};
+  const title = String(payload.title || "Prompta");
+  const options = {
+    body: String(payload.body || "A Prompta conversation finished"),
+    tag: String(payload.tag || "prompta-finished"),
+    icon: String(payload.icon || "./icon.svg"),
+    badge: String(payload.badge || "./icon.svg"),
+    data: { url: String(payload.url || "./") },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = new URL(event.notification.data?.url || "./", self.registration.scope).toString();
