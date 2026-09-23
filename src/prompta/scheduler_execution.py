@@ -132,7 +132,7 @@ class SchedulerExecution:
                 self.driver = None
             return False
         except (ConnectionClosed, OSError, RuntimeError) as exc:
-            logger.exception("Prompta job=%s send failed: %s", job.name, exc)
+            logger.exception("Prompta job=%s send failed", job.name)
             retry_until = time.time() + _FAILURE_RETRY_SECONDS
             self.scheduler.mark_failure(job.name, str(exc), retry_until=retry_until)
             browser_restart_required = bool(

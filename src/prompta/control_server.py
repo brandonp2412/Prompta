@@ -71,6 +71,7 @@ async def _handle_control_client(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
+    op = "unknown"
     try:
         raw = await asyncio.wait_for(reader.readline(), timeout=10.0)
         payload = json.loads(raw.decode("utf-8"))
@@ -133,7 +134,10 @@ async def _handle_control_client(
             "error_type": "rate_limit",
             "retry_after": exc.retry_after,
         }
+    except ValueError as exc:
+        response = {"ok": False, "error": str(exc)}
     except Exception as exc:
+        logger.exception("Prompta control request failed op=%s", op)
         response = {"ok": False, "error": str(exc)}
     try:
         writer.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))

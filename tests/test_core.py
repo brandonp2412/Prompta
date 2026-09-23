@@ -1935,6 +1935,59 @@ async def test_control_socket_routes_stop_directly_to_scheduler(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_control_socket_logs_unexpected_backend_exception(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    prompta.stop_conversation = AsyncMock(side_effect=RuntimeError("backend exploded"))  # type: ignore[method-assign]
+
+    with patch("prompta.control_server.logger.exception") as log_exception:
+        server, socket_path = await _start_control_server(prompta, state_path)
+        try:
+            with pytest.raises(RuntimeError, match="backend exploded"):
+                await _stop_via_control(state_path, "existing-chat")
+        finally:
+            server.close()
+            await server.wait_closed()
+            socket_path.unlink(missing_ok=True)
+            prompta.cache.close()
+
+    log_exception.assert_called_once_with("Prompta control request failed op=%s", "stop")
+
+
+@pytest.mark.asyncio
+async def test_control_socket_does_not_trace_expected_validation_error(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=state_path,
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+
+    with patch("prompta.control_server.logger.exception") as log_exception:
+        server, socket_path = await _start_control_server(prompta, state_path)
+        try:
+            with pytest.raises(RuntimeError, match="conversation id is empty"):
+                await _stop_via_control(state_path, "")
+        finally:
+            server.close()
+            await server.wait_closed()
+            socket_path.unlink(missing_ok=True)
+            prompta.cache.close()
+
+    log_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_control_socket_routes_sync_through_scheduler(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     prompta = Prompta(
