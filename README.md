@@ -103,6 +103,9 @@ uv run prompta add my-job "Do the maximum amount of work possible." --interval-m
 # Disable recurrence jitter when the interval must be exact
 uv run prompta add my-job "Do the maximum amount of work possible." --interval-minutes 30 --exact-interval
 
+# Automatically send up to three `Continue` follow-ups when the assistant says work remains
+uv run prompta add my-job "Do the maximum amount of work possible." --max-reprompts 3
+
 # Add or replace a job at an exact local clock time every day
 uv run prompta add daily-check "Check the thing." --daily-at 07:00
 
@@ -119,6 +122,12 @@ uv run prompta pause
 uv run prompta pause my-job
 uv run prompta resume my-job
 ```
+
+`--max-reprompts N` is per conversation and defaults to `0` (disabled). Prompta only
+uses this budget for automatic `Continue` follow-ups after a completed assistant reply
+explicitly reports that work remains; delivery retries, send verification, and scheduler
+recurrence use their existing independent budgets. The count is derived from cached
+conversation turns, so it survives restarts and a substantive user prompt resets the streak.
 
 Runtime data defaults to:
 

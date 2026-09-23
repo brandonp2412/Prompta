@@ -874,6 +874,151 @@ def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:
     assert not (tmp_path / "daemon.lock").exists()
 
 
+def _seed_reprompt_conversation(
+    prompta: Prompta,
+    job_name: str,
+    conversation_id: str,
+    *,
+    reprompts: int = 0,
+    unfinished: bool = True,
+) -> None:
+    prompta.cache.start(
+        conversation_id,
+        context_id="seed-context",
+        job_name=job_name,
+        prompt="Do work",
+    )
+    messages: list[dict[str, Any]] = [
+        {"id": "user-0", "role": "user", "content": "Do work", "status": "complete"},
+        {
+            "id": "assistant-0",
+            "role": "assistant",
+            "content": "Work remains." if unfinished or reprompts else "Done.",
+            "status": "complete",
+        },
+    ]
+    for index in range(reprompts):
+        messages.extend(
+            [
+                {
+                    "id": f"user-{index + 1}",
+                    "role": "user",
+                    "content": "Continue",
+                    "status": "complete",
+                },
+                {
+                    "id": f"assistant-{index + 1}",
+                    "role": "assistant",
+                    "content": "Work remains." if unfinished else "Done.",
+                    "status": "complete",
+                },
+            ]
+        )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {"messages": messages, "streaming": False},
+        complete=True,
+    )
+    prompta.scheduler.update_job_state(job_name, {"last_conversation_id": conversation_id})
+
+
+@pytest.mark.asyncio
+async def test_reprompt_limit_zero_disables_automatic_followups(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    _seed_reprompt_conversation(prompta, "job", "conversation")
+    prompta.send_reply = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+
+    did_work = await prompta._run_reprompts({"job": PromptJob("job", "Do work", max_reprompts=0)})
+
+    assert did_work is False
+    prompta.send_reply.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reprompt_limit_one_stops_after_one_followup(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    job = PromptJob("job", "Do work", max_reprompts=1)
+    _seed_reprompt_conversation(prompta, job.name, "conversation")
+    prompta.send_reply = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    prompta.scheduler.send_gap_remaining = MagicMock(return_value=0.0)  # type: ignore[method-assign]
+
+    assert await prompta._run_reprompts({job.name: job}) is True
+    prompta.send_reply.assert_awaited_once_with("conversation", "Continue")
+
+    _seed_reprompt_conversation(prompta, job.name, "conversation", reprompts=1)
+    prompta.send_reply.reset_mock()
+    assert await prompta._run_reprompts({job.name: job}) is False
+    prompta.send_reply.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reprompt_limit_n_allows_only_remaining_followups(tmp_path: Path) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            state_path=tmp_path / "state.json",
+        ),
+        "ws://unused",
+    )
+    job = PromptJob("job", "Do work", max_reprompts=3)
+    _seed_reprompt_conversation(prompta, job.name, "conversation", reprompts=2)
+    prompta.send_reply = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    prompta.scheduler.send_gap_remaining = MagicMock(return_value=0.0)  # type: ignore[method-assign]
+
+    assert await prompta._run_reprompts({job.name: job}) is True
+    prompta.send_reply.assert_awaited_once_with("conversation", "Continue")
+
+    _seed_reprompt_conversation(prompta, job.name, "conversation", reprompts=3)
+    prompta.send_reply.reset_mock()
+    assert await prompta._run_reprompts({job.name: job}) is False
+    prompta.send_reply.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reprompt_count_survives_restart(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    cache_path = tmp_path / "chats.sqlite3"
+    job = PromptJob("job", "Do work", max_reprompts=2)
+
+    first = Prompta(
+        PromptaConfig(
+            jobs_file=jobs_path,
+            state_path=state_path,
+            cache_path=cache_path,
+        ),
+        "ws://unused",
+    )
+    _seed_reprompt_conversation(first, job.name, "conversation", reprompts=1)
+    first.cache.close()
+
+    restarted = Prompta(
+        PromptaConfig(
+            jobs_file=jobs_path,
+            state_path=state_path,
+            cache_path=cache_path,
+        ),
+        "ws://unused",
+    )
+    restarted.send_reply = AsyncMock(return_value="conversation")  # type: ignore[method-assign]
+    restarted.scheduler.send_gap_remaining = MagicMock(return_value=0.0)  # type: ignore[method-assign]
+
+    assert await restarted._run_reprompts({job.name: job}) is True
+    restarted.send_reply.assert_awaited_once_with("conversation", "Continue")
+
+
 def test_named_jobs_round_trip(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     add_job(jobs_path, "flux", "Continue Flux", 1800)
@@ -882,15 +1027,24 @@ def test_named_jobs_round_trip(tmp_path: Path) -> None:
     add_job(jobs_path, "exact", "Run exactly", 1800, exact_interval=True)
     add_job(jobs_path, "daily", "Daily check", daily_at="07:00")
     add_job(jobs_path, "default", "Default interval")
+    add_job(jobs_path, "bounded", "Bounded work", max_reprompts=3)
     jobs = load_jobs(jobs_path)
-    assert set(jobs) == {"flux", "tv", "immediate", "exact", "daily", "default"}
+    assert set(jobs) == {"flux", "tv", "immediate", "exact", "daily", "default", "bounded"}
     assert jobs["flux"].interval_seconds == 1800
     assert jobs["immediate"].interval_seconds == 0
     assert jobs["exact"].exact_interval is True
     assert jobs["daily"].daily_at == "07:00"
     assert jobs["default"].interval_seconds == 2400
+    assert jobs["bounded"].max_reprompts == 3
     remove_job(jobs_path, "tv")
-    assert set(load_jobs(jobs_path)) == {"flux", "immediate", "exact", "daily", "default"}
+    assert set(load_jobs(jobs_path)) == {
+        "flux",
+        "immediate",
+        "exact",
+        "daily",
+        "default",
+        "bounded",
+    }
     clear_jobs(jobs_path)
     assert load_jobs(jobs_path) == {}
 

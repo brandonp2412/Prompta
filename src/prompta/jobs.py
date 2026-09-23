@@ -20,6 +20,21 @@ def _normalise_daily_at(value: str) -> str:
     return candidate
 
 
+def _normalise_max_reprompts(value: object) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        raise ValueError("max reprompts must be a non-negative integer")
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError("max reprompts must be a non-negative integer")
+        return int(value)
+    candidate = str(value).strip()
+    if not re.fullmatch(r"\d+", candidate):
+        raise ValueError("max reprompts must be a non-negative integer")
+    return int(candidate)
+
+
 def _next_daily_epoch(daily_at: str, now: float, *, include_now: bool = False) -> float:
     hour, minute = (int(part) for part in _normalise_daily_at(daily_at).split(":"))
     current = datetime.fromtimestamp(now)
@@ -39,6 +54,7 @@ class PromptJob:
     daily_at: str | None = None
     exact_interval: bool = False
     run_at_epoch: float | None = None
+    max_reprompts: int = 0
 
 
 def load_jobs(path: Path) -> dict[str, PromptJob]:
@@ -69,6 +85,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
         daily_at = None
         exact_interval = False
         run_at_epoch: float | None = None
+        max_reprompts = 0
         if isinstance(value, dict):
             exact_interval = value.get("exact_interval") is True
             if value.get("run_at_epoch") is not None:
@@ -81,9 +98,19 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
                     daily_at = _normalise_daily_at(str(value["daily_at"]))
                 except ValueError:
                     logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
+            try:
+                max_reprompts = _normalise_max_reprompts(value.get("max_reprompts"))
+            except ValueError:
+                logger.warning("Ignoring invalid max_reprompts for Prompta job=%s", name)
         if str(name).strip() and prompt.strip():
             jobs[str(name)] = PromptJob(
-                str(name), prompt, max(0.0, interval), daily_at, exact_interval, run_at_epoch
+                str(name),
+                prompt,
+                max(0.0, interval),
+                daily_at,
+                exact_interval,
+                run_at_epoch,
+                max_reprompts,
             )
     return jobs
 
@@ -99,6 +126,7 @@ def _write_jobs(path: Path, jobs: dict[str, PromptJob]) -> None:
                 **({"daily_at": job.daily_at} if job.daily_at is not None else {}),
                 **({"exact_interval": True} if job.exact_interval else {}),
                 **({"run_at_epoch": job.run_at_epoch} if job.run_at_epoch is not None else {}),
+                **({"max_reprompts": job.max_reprompts} if job.max_reprompts else {}),
             }
             for name, job in sorted(jobs.items())
         }
@@ -117,6 +145,7 @@ def add_job(
     daily_at: str | None = None,
     exact_interval: bool = False,
     run_at_epoch: float | None = None,
+    max_reprompts: int = 0,
 ) -> PromptJob:
     if not name.strip():
         raise ValueError("prompta job name is empty")
@@ -125,6 +154,7 @@ def add_job(
     jobs = load_jobs(path)
     normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
     normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
+    normalised_max_reprompts = _normalise_max_reprompts(max_reprompts)
     if normalised_run_at is not None and normalised_run_at <= 0:
         raise ValueError("run_at_epoch must be a positive Unix timestamp")
     job = PromptJob(
@@ -134,6 +164,7 @@ def add_job(
         normalised_daily_at,
         exact_interval,
         normalised_run_at,
+        normalised_max_reprompts,
     )
     jobs[name] = job
     _write_jobs(path, jobs)

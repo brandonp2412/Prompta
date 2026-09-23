@@ -166,6 +166,7 @@ class Prompta:
             conversation_complete=lambda conversation_id: (
                 self.cache.status(conversation_id) == "complete"
             ),
+            conversation_messages=lambda conversation_id: self.cache.messages(conversation_id),
         )
         self._once_requests = self.scheduler_execution.once_requests
         self._reply_requests = self.scheduler_execution.reply_requests
@@ -366,6 +367,9 @@ class Prompta:
             await asyncio.sleep(_IDLE_POLL_SECONDS)
         return self.cache.status(conversation_id) != "interrupted"
 
+    async def _run_reprompts(self, jobs: dict[str, PromptJob]) -> bool:
+        return await self.scheduler_execution.run_reprompts(jobs)
+
     async def _drain_once_requests(self) -> bool:
         return await self.scheduler_execution.drain_once_requests()
 
@@ -397,6 +401,7 @@ class Prompta:
             # must not starve unrelated scheduled jobs indefinitely.
             jobs = self.read_jobs()
             if jobs:
+                did_work = await self._run_reprompts(jobs) or did_work
                 now = time.time()
                 scheduled_jobs = list(jobs.values())
                 self._ensure_initial_schedules(scheduled_jobs, now)
@@ -882,6 +887,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run interval jobs without recurrence jitter",
     )
+    add_parser.add_argument(
+        "--max-reprompts",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Automatically send Continue up to N times while work remains",
+    )
     add_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     remove_parser = subparsers.add_parser("remove", aliases=["rm"], help="Remove a named job")
     remove_parser.add_argument("name")
@@ -1071,6 +1083,7 @@ def main() -> None:
             max(0.0, interval_minutes * 60.0),
             args.daily_at,
             args.exact_interval,
+            max_reprompts=args.max_reprompts,
         )
         if args.daily_at is not None:
             detail = f"daily at {_normalise_daily_at(args.daily_at)} local time"
@@ -1078,6 +1091,8 @@ def main() -> None:
             detail = f"every {_format_duration(interval_minutes * 60)}"
             if args.exact_interval:
                 detail += " exactly"
+        if args.max_reprompts:
+            detail += f" · max {args.max_reprompts} reprompt(s)"
         _print_notice("✓", f"Saved {args.name}", detail, tone="32")
         return
     if args.command in {"remove", "rm"}:
@@ -1104,6 +1119,9 @@ def main() -> None:
                 interval += " exactly"
             print(f"{_paint('Interval', '2')}  {interval}")
         print(f"{_paint('Next due', '2')}  {_format_next_due(prompta, job)}")
+        print(
+            f"{_paint('Reprompts', '2')}  {job.max_reprompts if job.max_reprompts else 'disabled'}"
+        )
         if state.get("status_message"):
             print(f"{_paint('Issue', '2')}     {_paint(str(state['status_message']), '31')}")
         print(f"{_paint('Prompt', '2')}    {job.prompt}")

@@ -15,6 +15,7 @@ from .cache import ActiveConversation
 from .conversation_actions import SendNotAcceptedError, SendVerificationError
 from .jobs import PromptJob, _next_daily_epoch, remove_job
 from .rate_limit import RateLimitBackoff, RateLimitError
+from .reprompt import REPROMPT_TEXT, reprompt_streak, unfinished_reply
 from .scheduler_runtime import SchedulerRuntime
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class SchedulerExecution:
         current_driver: Callable[[], Any],
         set_driver: Callable[[Any], None],
         conversation_complete: Callable[[str], bool] | None = None,
+        conversation_messages: Callable[[str], list[dict[str, Any]]] | None = None,
     ) -> None:
         self.scheduler = scheduler
         self.active = active
@@ -51,6 +53,7 @@ class SchedulerExecution:
         self.current_driver = current_driver
         self.set_driver = set_driver
         self.conversation_complete = conversation_complete or (lambda _conversation_id: False)
+        self.conversation_messages = conversation_messages or (lambda _conversation_id: [])
         self.once_requests: asyncio.Queue[tuple[str, list[str], asyncio.Future[str]]] = (
             asyncio.Queue()
         )
@@ -169,8 +172,15 @@ class SchedulerExecution:
                     "status_at": sent_at,
                 },
             )
-            remove_job(self.jobs_file, job.name)
-            logger.info("Prompta one-time job=%s completed and was removed", job.name)
+            if job.max_reprompts <= 0:
+                remove_job(self.jobs_file, job.name)
+                logger.info("Prompta one-time job=%s completed and was removed", job.name)
+            else:
+                logger.info(
+                    "Prompta one-time job=%s initial send completed; allowing up to %d reprompt(s)",
+                    job.name,
+                    job.max_reprompts,
+                )
             return True
         if job.daily_at is not None:
             next_due_at = _next_daily_epoch(job.daily_at, sent_at)
@@ -210,6 +220,77 @@ class SchedulerExecution:
                 max(0.0, next_delay - job.interval_seconds),
             )
         return True
+
+    async def run_reprompts(self, jobs: dict[str, PromptJob]) -> bool:
+        did_work = False
+        for job in jobs.values():
+            if job.max_reprompts <= 0:
+                continue
+            if self.scheduler.job_state(job.name).get("paused") is True:
+                continue
+
+            state = self.scheduler.job_state(job.name)
+            state_prompt_hash = str(state.get("prompt_sha256") or "")
+            if state_prompt_hash and state_prompt_hash != prompt_hash(job.prompt):
+                continue
+            conversation_id = str(state.get("last_conversation_id") or "").strip()
+            if not conversation_id or not self.conversation_complete(conversation_id):
+                continue
+
+            messages = self.conversation_messages(conversation_id)
+            count = reprompt_streak(messages)
+            at_limit = count >= job.max_reprompts
+            needs_more = unfinished_reply(messages)
+            if at_limit or not needs_more:
+                if job.run_at_epoch is not None:
+                    remove_job(self.jobs_file, job.name)
+                    logger.info(
+                        "Prompta one-time job=%s finished after %d/%d reprompt(s)",
+                        job.name,
+                        count,
+                        job.max_reprompts,
+                    )
+                continue
+
+            attempted_at = time.time()
+            if self.scheduler.global_backoff.remaining() > 0:
+                continue
+            if self.scheduler.send_gap_remaining(attempted_at) > 0:
+                continue
+
+            self.scheduler.update_scheduler_state({"last_attempt_at": attempted_at})
+            try:
+                await self.send_reply_callback(conversation_id, REPROMPT_TEXT)
+            except RateLimitError as exc:
+                self.scheduler.record_global_rate_limit(exc)
+                logger.warning(
+                    "Prompta reprompt rate limited conversation=%s job=%s",
+                    conversation_id,
+                    job.name,
+                )
+                continue
+            except Exception:
+                if (
+                    self.driver is not None
+                    and getattr(self.driver, "needs_browser_restart", False) is True
+                ):
+                    raise
+                logger.exception(
+                    "Prompta reprompt failed conversation=%s job=%s",
+                    conversation_id,
+                    job.name,
+                )
+                continue
+
+            logger.info(
+                "Prompta reprompted conversation=%s job=%s count=%d/%d",
+                conversation_id,
+                job.name,
+                count + 1,
+                job.max_reprompts,
+            )
+            did_work = True
+        return did_work
 
     async def drain_once_requests(self) -> bool:
         did_work = False

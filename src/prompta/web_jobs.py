@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .jobs import add_job, clear_jobs, load_jobs, remove_job
+from .jobs import _normalise_max_reprompts, add_job, clear_jobs, load_jobs, remove_job
 from .scheduler_runtime import SchedulerRuntime
 
 
@@ -66,6 +66,7 @@ class WebJobService:
                     "daily_at": job.daily_at,
                     "run_at_epoch": job.run_at_epoch,
                     "exact_interval": job.exact_interval,
+                    "max_reprompts": job.max_reprompts,
                     "paused": paused,
                     "status": status,
                     "next_due_at_epoch": next_due_at,
@@ -88,11 +89,23 @@ class WebJobService:
             if not prompt:
                 raise ValueError("Job prompt is required")
             display += [name, prompt]
+            try:
+                max_reprompts = _normalise_max_reprompts(payload.get("max_reprompts"))
+            except ValueError as exc:
+                raise ValueError("Max reprompts must be a non-negative integer") from exc
+            if max_reprompts:
+                display += ["--max-reprompts", str(max_reprompts)]
             daily_at = str(payload.get("daily_at") or "").strip()
             if daily_at:
                 if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at):
                     raise ValueError("Daily time must use HH:MM")
-                add_job(self.jobs_path, name, prompt, daily_at=daily_at)
+                add_job(
+                    self.jobs_path,
+                    name,
+                    prompt,
+                    daily_at=daily_at,
+                    max_reprompts=max_reprompts,
+                )
                 display += ["--daily-at", daily_at]
             else:
                 raw_interval_minutes = payload.get("interval_minutes")
@@ -103,6 +116,7 @@ class WebJobService:
                         name,
                         prompt,
                         exact_interval=exact_interval,
+                        max_reprompts=max_reprompts,
                     )
                 else:
                     if not isinstance(raw_interval_minutes, (str, int, float)) or isinstance(
@@ -121,6 +135,7 @@ class WebJobService:
                         prompt,
                         interval_minutes * 60.0,
                         exact_interval=exact_interval,
+                        max_reprompts=max_reprompts,
                     )
                     display += ["--interval-minutes", str(interval_minutes)]
                 if exact_interval:

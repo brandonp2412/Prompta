@@ -15,6 +15,7 @@
     daily_at?: string;
     interval_minutes?: number;
     exact_interval?: boolean;
+    max_reprompts?: number;
   };
 
   const mobile = new MediaQuery("(max-width: 600px)");
@@ -30,6 +31,7 @@
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
+  let maxReprompts = $state("0");
   let visibility = $state<Record<JobVisibilityGroup, boolean>>({
     active: true,
     done: true,
@@ -51,6 +53,7 @@
     interval = "40";
     dailyAt = "09:00";
     exact = false;
+    maxReprompts = "0";
   }
 
   function scheduleText(job: Job) {
@@ -67,7 +70,11 @@
         ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}`
         : `${minutes} minute${minutes === 1 ? "" : "s"}`;
 
-    return `every ${value}${job.exact_interval ? " · exact" : ""}`;
+    const reprompts = Number(job.max_reprompts || 0);
+    const followUps = reprompts
+      ? ` · max ${reprompts} follow-up${reprompts === 1 ? "" : "s"}`
+      : "";
+    return `every ${value}${job.exact_interval ? " · exact" : ""}${followUps}`;
   }
 
   async function load() {
@@ -115,6 +122,7 @@
           daily_at: daily ? dailyAt : "",
           interval_minutes: daily ? null : Number(interval),
           exact_interval: !daily && exact,
+          max_reprompts: Number(maxReprompts),
         },
         `Saved ${name.trim()}`,
       )
@@ -131,6 +139,7 @@
     dailyAt = job.daily_at || "09:00";
     interval = String(job.interval_minutes || 40);
     exact = Boolean(job.exact_interval);
+    maxReprompts = String(job.max_reprompts || 0);
   }
 
   export async function show() {
@@ -286,6 +295,10 @@
             <input bind:value={dailyAt} type="time" />
           </label>
         {/if}
+        <label>
+          <span>Max follow-ups</span>
+          <input bind:value={maxReprompts} type="number" min="0" step="1" />
+        </label>
       </div>
 
       {#if schedule === "interval"}

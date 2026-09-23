@@ -2703,6 +2703,7 @@ def test_jobs_control_add_and_replace_use_shared_backend_primitives(tmp_path: Pa
                     "prompt": "Keep working on Kite",
                     "interval_minutes": 30,
                     "exact_interval": True,
+                    "max_reprompts": 3,
                 },
             )
             replaced = server._run_job_cli(
@@ -2717,9 +2718,19 @@ def test_jobs_control_add_and_replace_use_shared_backend_primitives(tmp_path: Pa
         server.server_close()
 
     persisted = load_jobs(jobs_path)["kite-roadmap"]
+    added_job = next(job for job in added["jobs"] if job["name"] == "kite-roadmap")
+    assert added_job["max_reprompts"] == 3
+    assert added["command"][:6] == [
+        "prompta",
+        "add",
+        "kite-roadmap",
+        "Keep working on Kite",
+        "--max-reprompts",
+        "3",
+    ]
     assert persisted.prompt == "Finish Kite"
     assert persisted.interval_seconds == 45 * 60
-    assert added["command"][:4] == ["prompta", "add", "kite-roadmap", "Keep working on Kite"]
+    assert persisted.max_reprompts == 0
     assert replaced["command"][:4] == ["prompta", "replace", "kite-roadmap", "Finish Kite"]
     assert start.call_count == 2
 
@@ -2878,6 +2889,7 @@ def test_scheduled_jobs_reads_cli_job_file_and_state(tmp_path: Path) -> None:
             "daily_at": "09:30",
             "run_at_epoch": None,
             "exact_interval": False,
+            "max_reprompts": 0,
             "paused": True,
             "status": "paused",
             "next_due_at_epoch": 1234.0,
