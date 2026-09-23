@@ -4,8 +4,9 @@ import json
 from typing import Any
 
 from .chatgpt_dom import (
-    MARKDOWN_SELECTOR,
+    LEGACY_RICH_TEXT_SELECTOR,
     MESSAGE_DISCOVERY_SCRIPT,
+    PROSE_BLOCK_SELECTOR,
     STOP_BUTTON_SELECTOR,
     STREAMING_SELECTOR,
 )
@@ -15,7 +16,8 @@ CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
   const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
 __MESSAGE_DISCOVERY__
-  const markdownSelector=__MARKDOWN_SELECTOR__;
+  const proseBlockSelector=__PROSE_BLOCK_SELECTOR__;
+  const legacyRichTextSelector=__LEGACY_RICH_TEXT_SELECTOR__;
   const stopSelector=__STOP_SELECTOR__;
   const streamingSelector=__STREAMING_SELECTOR__;
   const messageText=root=>{
@@ -67,9 +69,56 @@ __MESSAGE_DISCOVERY__
     };
     return walk(root).replace(/\\n{3,}/g,'\\n\\n').trim();
   };
-  const toolSelector='[data-tool-call-id],[data-tool-name]';
+  const toolDataSelector='[data-tool-call-id],[data-tool-name]';
+  const toolTriggerSelector='button[aria-label="Open tool call list"],button[aria-label="Close tool call list"],[role="button"][aria-label="Open tool call list"],[role="button"][aria-label="Close tool call list"]';
+  const legacyToolRowSelector='span[class~="group/tool-message"]';
   const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\\w-]+)$/i;
   const cleanToolName=value=>{const text=(value||'').replace(/\\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
+  const toolRows=agent=>{
+    if(!agent)return [];
+    const dataRows=[...agent.querySelectorAll(toolDataSelector)].filter(node=>
+      !node.parentElement?.closest(toolDataSelector)
+    );
+    const triggerRows=[...agent.querySelectorAll(toolTriggerSelector)].map(marker=>{
+      const dataRow=marker.closest(toolDataSelector);
+      if(dataRow&&agent.contains(dataRow))return dataRow;
+      const control=marker.closest('button,[role="button"]')||marker;
+      return control.parentElement&&agent.contains(control.parentElement)?control.parentElement:control;
+    });
+    const semantic=[...new Set([...dataRows,...triggerRows])]
+      .filter(node=>node&&visible(node))
+      .filter((node,index,rows)=>!rows.some((other,otherIndex)=>
+        otherIndex!==index&&other.contains(node)
+      ));
+    const legacy=[...agent.querySelectorAll(legacyToolRowSelector)]
+      .filter(node=>visible(node))
+      .filter(node=>!semantic.some(row=>row===node||row.contains(node)||node.contains(row)));
+    return [...semantic,...legacy].sort((left,right)=>left===right?0:(
+      left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
+    ));
+  };
+  const proseRows=(agent,rows=toolRows(agent))=>{
+    if(!agent)return [];
+    const scope=authorNode(agent,'assistant')||agent;
+    const isInsideTool=node=>rows.some(row=>row===node||row.contains(node));
+    const semantic=[...scope.querySelectorAll(proseBlockSelector)]
+      .filter(visible)
+      .filter(node=>!isInsideTool(node))
+      .filter((node,index,nodes)=>!nodes.some((other,otherIndex)=>
+        otherIndex!==index&&other.contains(node)
+      ));
+    if(semantic.length)return semantic;
+    const legacy=[...scope.querySelectorAll(legacyRichTextSelector)]
+      .filter(visible)
+      .filter(node=>!isInsideTool(node));
+    if(legacy.length)return legacy;
+    const structural=[...scope.children]
+      .filter(visible)
+      .filter(node=>!rows.some(row=>row===node||row.contains(node)||node.contains(row)))
+      .filter(node=>normalise(messageText(node)));
+    if(structural.length)return structural;
+    return !rows.length&&normalise(messageText(scope))?[scope]:[];
+  };
   const reactMessages=agent=>{
     const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet();
     const add=messages=>{
@@ -326,33 +375,28 @@ __MESSAGE_DISCOVERY__
   const toolBlocks=agent=>{
     const structuredBlocks=reactToolBlocks(agent);
     if(structuredBlocks.length)return structuredBlocks;
-    const currentRows=[...agent.querySelectorAll('span[class~="group/tool-message"]')];
-    const currentBlocks=currentRows.map(node=>{
+    return toolRows(agent).map(node=>{
+      const marker=node.matches(toolDataSelector+','+toolTriggerSelector)
+        ?node
+        :node.querySelector(toolDataSelector+','+toolTriggerSelector);
       const lines=(node.innerText||node.textContent||'').split(/\\n+/)
         .map(line=>line.trim())
         .filter(Boolean);
-      const name=lines.map(cleanToolName).find(line=>!/^Called tool$/i.test(line))||'';
-      const body=name?'':'Called tool';
-      return '```tool:'+(name||'tool')+'\\n'+body+'\\n```';
-    });
-    const legacyBlocks=[...new Set([
-      ...agent.querySelectorAll(toolSelector)
-    ])].filter(node=>!node.closest('span[class~="group/tool-message"]')&&!node.querySelector(toolSelector)).map(node=>{
       const name=[
         node.getAttribute('data-tool-name'),
-        node.getAttribute('aria-label'),
-        node.getAttribute('title')
-      ].map(cleanToolName).find(Boolean)||'';
-      const detail=(node.innerText||node.textContent||'').split(/\\n+/)
-        .map(line=>line.trim())
-        .filter(line=>line&&cleanToolName(line))
+        marker?.getAttribute?.('data-tool-name'),
+        node.getAttribute('title'),
+        marker?.getAttribute?.('title'),
+        ...lines
+      ].map(cleanToolName).find(line=>line&&!/^Called tool$/i.test(line))||'';
+      const detail=lines
+        .map(cleanToolName)
+        .filter(line=>line&&normalise(line)!==normalise(name))
         .join('\\n').trim().slice(0,16000);
-      const body=normalise(detail)===normalise(name)?'':detail;
+      const body=detail||(!name?'Called tool':'');
       if(!body&&!name)return '';
-      const label=name||'tool';
-      return '```tool:'+label+'\\n'+body+'\\n```';
+      return '```tool:'+(name||'tool')+'\\n'+body+'\\n```';
     }).filter(Boolean);
-    return [...legacyBlocks,...currentBlocks];
   };
   const collapseStreamingTextParts=parts=>{
     const collapsed=[];
@@ -480,7 +524,7 @@ __MESSAGE_DISCOVERY__
   const entries=entryNodes.map(e=>{
     const role=messageRole(e);
     const rich=role==='assistant'
-      ? [...e.querySelectorAll(markdownSelector)].map(markdownText).filter(Boolean).join('\\n\\n').trim()
+      ? proseRows(e).map(markdownText).filter(Boolean).join('\\n\\n').trim()
       : '';
     return {
       node:e,
@@ -505,7 +549,7 @@ __MESSAGE_DISCOVERY__
   ])]
     .filter(visible)
     .filter(turn=>!explicitUserTurns.has(turn))
-    .filter(turn=>authorNode(turn,'assistant')||turn.querySelector(markdownSelector));
+    .filter(turn=>authorNode(turn,'assistant')||proseRows(turn).length);
   const semanticAssistantSet=new Set(semanticAssistantTurns);
   // Legacy fallback: class/tag turn wrappers are consulted only for layouts
   // that do not expose an author node or stable conversation-turn marker.
@@ -513,7 +557,7 @@ __MESSAGE_DISCOVERY__
     .filter(visible)
     .filter(turn=>!semanticAssistantSet.has(turn))
     .filter(turn=>!authorNode(turn,'user'))
-    .filter(turn=>authorNode(turn,'assistant')||turn.querySelector(markdownSelector));
+    .filter(turn=>authorNode(turn,'assistant')||proseRows(turn).length);
   const candidates=[...new Set([
     ...semanticAssistantTurns,
     ...legacyAssistantTurns
@@ -521,25 +565,20 @@ __MESSAGE_DISCOVERY__
   for(const [agentIndex,agent] of candidates.entries()){
     const reactOrdered=reactOrderedContent(agent);
     const reactHasVisibleText=reactHasVisibleAssistantText(agent);
-    const markdownNodes=[...agent.querySelectorAll(markdownSelector)].filter(visible);
+    const rows=toolRows(agent);
+    const prose=proseRows(agent,rows);
     const tools=toolBlocks(agent);
-    const currentToolRows=[...agent.querySelectorAll('span[class~=\"group/tool-message\"]')];
-    const legacyToolRows=[...new Set([
-      ...agent.querySelectorAll(toolSelector)
-    ])].filter(node=>!node.closest('span[class~=\"group/tool-message\"]')&&!node.querySelector(toolSelector));
-    const toolRows=currentToolRows.length?currentToolRows:legacyToolRows;
-    const markdown=markdownNodes.filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)));
-    const richText=markdown.map(markdownText).filter(Boolean);
-    const richPlain=markdown.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
+    const richText=prose.map(markdownText).filter(Boolean);
+    const richPlain=prose.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
     const orderedNodes=[
-      ...markdown.map(node=>({node,kind:'markdown'})),
-      ...toolRows.map(node=>({node,kind:'tool'}))
+      ...prose.map(node=>({node,kind:'prose'})),
+      ...rows.map(node=>({node,kind:'tool'}))
     ].sort((left,right)=>left.node===right.node?0:(
       left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
     ));
     let orderedToolIndex=0;
     const orderedParts=orderedNodes.map(entry=>{
-      if(entry.kind==='markdown')return markdownText(entry.node);
+      if(entry.kind==='prose')return markdownText(entry.node);
       const block=tools[orderedToolIndex]||'';
       orderedToolIndex+=1;
       return block;
@@ -691,10 +730,8 @@ __MESSAGE_DISCOVERY__
     &&(event.content_type==='text'||event.content_type==='multimodal_text')
   ));
   if(latestAgent&&!sourceHasAssistantText){
-    const toolRows=[...latestAgent.querySelectorAll('span[class~="group/tool-message"],'+toolSelector)];
-    const visibleProse=[...latestAgent.querySelectorAll(markdownSelector)]
-      .filter(visible)
-      .filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)))
+    const rows=toolRows(latestAgent);
+    const visibleProse=proseRows(latestAgent,rows)
       .map(markdownText)
       .filter(Boolean)
       .join('\\n\\n')
@@ -740,7 +777,8 @@ __MESSAGE_DISCOVERY__
 
 CONVERSATION_SNAPSHOT_SCRIPT = (
     CONVERSATION_SNAPSHOT_SCRIPT.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
-    .replace("__MARKDOWN_SELECTOR__", json.dumps(MARKDOWN_SELECTOR))
+    .replace("__PROSE_BLOCK_SELECTOR__", json.dumps(PROSE_BLOCK_SELECTOR))
+    .replace("__LEGACY_RICH_TEXT_SELECTOR__", json.dumps(LEGACY_RICH_TEXT_SELECTOR))
     .replace("__STOP_SELECTOR__", json.dumps(STOP_BUTTON_SELECTOR))
     .replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
 )

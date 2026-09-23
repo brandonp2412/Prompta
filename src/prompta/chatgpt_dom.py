@@ -51,7 +51,24 @@ LEGACY_TURN_SELECTORS = (
 )
 TURN_SELECTORS = SEMANTIC_TURN_SELECTORS + LEGACY_TURN_SELECTORS
 
-MARKDOWN_SELECTORS = (
+PROSE_BLOCK_SELECTORS = (
+    "p",
+    "pre",
+    "blockquote",
+    "ul",
+    "ol",
+    "table",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+)
+
+# Styling-class selectors are legacy-only. Primary rich-text discovery uses
+# semantic HTML blocks and author/turn structure.
+LEGACY_RICH_TEXT_SELECTORS = (
     ".markdown",
     ".markdown-new-styling",
     '[class*="markdown"]',
@@ -76,7 +93,8 @@ STOP_BUTTON_SELECTOR = css_union(STOP_BUTTON_SELECTORS)
 SEMANTIC_TURN_SELECTOR = css_union(SEMANTIC_TURN_SELECTORS)
 LEGACY_TURN_SELECTOR = css_union(LEGACY_TURN_SELECTORS)
 TURN_SELECTOR = css_union(TURN_SELECTORS)
-MARKDOWN_SELECTOR = css_union(MARKDOWN_SELECTORS)
+PROSE_BLOCK_SELECTOR = css_union(PROSE_BLOCK_SELECTORS)
+LEGACY_RICH_TEXT_SELECTOR = css_union(LEGACY_RICH_TEXT_SELECTORS)
 STREAMING_SELECTOR = css_union(STREAMING_SELECTORS)
 RATE_LIMIT_SELECTOR = css_union(RATE_LIMIT_SELECTORS)
 

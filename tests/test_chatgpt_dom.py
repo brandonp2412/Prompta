@@ -7,8 +7,9 @@ import pytest
 from prompta.chatgpt_dom import (
     COMPOSER_SELECTORS,
     FILE_INPUT_SELECTORS,
+    LEGACY_RICH_TEXT_SELECTORS,
     LEGACY_TURN_SELECTORS,
-    MARKDOWN_SELECTORS,
+    PROSE_BLOCK_SELECTORS,
     SEMANTIC_TURN_SELECTORS,
     SEND_BUTTON_SELECTORS,
     STOP_BUTTON_SELECTORS,
@@ -46,7 +47,9 @@ def test_selector_contract_separates_semantic_turns_from_legacy_fallbacks() -> N
     assert TURN_SELECTORS == SEMANTIC_TURN_SELECTORS + LEGACY_TURN_SELECTORS
     assert "[data-message-id]" not in TURN_SELECTORS
     assert "[data-message-uuid]" not in TURN_SELECTORS
-    assert '[class*="markdown"]' in MARKDOWN_SELECTORS
+    assert PROSE_BLOCK_SELECTORS[:4] == ("p", "pre", "blockquote", "ul")
+    assert ".markdown" in LEGACY_RICH_TEXT_SELECTORS
+    assert '[class*="markdown"]' in LEGACY_RICH_TEXT_SELECTORS
 
 
 def test_snapshot_does_not_treat_explicit_user_turns_as_assistant_fallbacks() -> None:
@@ -176,6 +179,39 @@ def test_snapshot_keeps_legacy_turn_selector_as_fallback_only() -> None:
 
     assert snapshot["messages"][-1]["role"] == "assistant"
     assert snapshot["messages"][-1]["content"] == "Legacy answer"
+
+
+@pytest.mark.parametrize(
+    ("prose_class", "tool_class"),
+    [
+        ("opaque-rich-a91", "opaque-tool-b17"),
+        ("rewritten-copy-z42", "rewritten-call-q08"),
+    ],
+)
+def test_snapshot_preserves_prose_tool_order_across_class_name_churn(
+    prose_class: str,
+    tool_class: str,
+) -> None:
+    snapshot = _snapshot_from_html(
+        f"""
+        <main>
+          <section data-testid="conversation-turn-a1">
+            <div data-message-author-role="assistant" data-message-id="a1">
+              <div class="{prose_class}"><p>Before <strong>tool</strong>.</p></div>
+              <div class="{tool_class}">
+                <button aria-label="Open tool call list">Tool</button>
+                <span>Glass Serena</span>
+              </div>
+              <div class="{prose_class}"><p>After <code>tool</code>.</p></div>
+            </div>
+          </section>
+        </main>
+        """
+    )
+
+    content = snapshot["messages"][-1]["content"]
+    assert content.index("Before **tool**.") < content.index("Glass Serena")
+    assert content.index("Glass Serena") < content.index("After ")
 
 
 def test_snapshot_script_parses_as_javascript(tmp_path) -> None:

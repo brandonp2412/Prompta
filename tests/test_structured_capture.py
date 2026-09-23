@@ -109,10 +109,10 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
     assert (
         "const content=(reactOrdered||fallbackContent).trim();" not in CONVERSATION_SNAPSHOT_SCRIPT
     )
-    assert "const markdownNodes=[...agent.querySelectorAll(" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert (
-        "const markdown=markdownNodes.filter(node=>!toolRows.some(toolRow=>toolRow.contains(node)));"
-        in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const rows=toolRows(agent);" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const prose=proseRows(agent,rows);" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const semantic=[...scope.querySelectorAll(proseBlockSelector)]" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
     )
 
 
