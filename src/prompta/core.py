@@ -62,6 +62,7 @@ from .rate_limit import (
 from .rate_limit import (
     parse_retry_after as parse_retry_after,
 )
+from .resource_pressure import ResourceAdmission
 from .scheduler_execution import SchedulerExecution
 from .scheduler_runtime import SchedulerRuntime
 
@@ -106,6 +107,7 @@ class Prompta:
         browser_url: str,
         *,
         driver_factory: DriverFactory | None = None,
+        resource_admission: Callable[[], tuple[bool, str]] | None = None,
     ) -> None:
         self.config = config
         self.browser = BrowserSession(browser_url, driver_factory)
@@ -175,6 +177,7 @@ class Prompta:
             conversation_complete=lambda conversation_id: (
                 self.cache.status(conversation_id) == "complete"
             ),
+            resource_admission=resource_admission,
         )
         self._once_requests = self.scheduler_execution.once_requests
         self._reply_requests = self.scheduler_execution.reply_requests
@@ -1023,6 +1026,7 @@ async def _run(args: argparse.Namespace) -> None:
             ),
             "",
             driver_factory=driver_factory,
+            resource_admission=ResourceAdmission() if args.command == "run" else None,
         )
         if args.command == "run":
             # Publish the control socket before browser/cache recovery. The daemon lock is
