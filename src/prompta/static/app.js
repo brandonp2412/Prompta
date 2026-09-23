@@ -38,15 +38,15 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/esm-env/false.js
+//#region node_modules/esm-env/false.js
 var init_false = __esmMin((() => {}));
 //#endregion
-//#region ../../prompta/node_modules/esm-env/index.js
+//#region node_modules/esm-env/index.js
 var init_esm_env = __esmMin((() => {
 	init_false();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
+//#region node_modules/svelte/src/internal/shared/utils.js
 /** @param {Function} fn */
 function run(fn) {
 	return fn();
@@ -153,7 +153,7 @@ var init_warnings = __esmMin((() => {
 	init_esm_env();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
+//#region node_modules/svelte/src/internal/client/dom/hydration.js
 /** @param {boolean} value */
 function set_hydrating(value) {
 	hydrating = value;
@@ -226,7 +226,7 @@ var init_hydration = __esmMin((() => {
 	hydrating = false;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -249,7 +249,7 @@ var init_errors$1 = __esmMin((() => {
 	init_esm_env();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
+//#region node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -338,7 +338,7 @@ var init_errors = __esmMin((() => {
 	init_errors$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
+//#region node_modules/svelte/src/internal/flags/index.js
 function enable_legacy_mode_flag() {
 	legacy_mode_flag = true;
 }
@@ -348,7 +348,7 @@ var init_flags = __esmMin((() => {
 	legacy_mode_flag = false;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/clone.js
+//#region node_modules/svelte/src/internal/shared/clone.js
 var init_clone = __esmMin((() => {
 	init_utils$3();
 }));
@@ -364,7 +364,7 @@ var init_dev = __esmMin((() => {
 	init_errors$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
+//#region node_modules/svelte/src/internal/client/context.js
 /** @param {ComponentContext | null} context */
 function set_component_context(context) {
 	component_context = context;
@@ -432,7 +432,7 @@ var init_context = __esmMin((() => {
 	component_context = null;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
+//#region node_modules/svelte/src/internal/client/dom/task.js
 function run_micro_tasks() {
 	var tasks = micro_tasks;
 	micro_tasks = [];
@@ -463,7 +463,7 @@ var init_task = __esmMin((() => {
 	micro_tasks = [];
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
+//#region node_modules/svelte/src/internal/client/reactivity/status.js
 /**
 * @param {Signal} signal
 * @param {number} status
@@ -485,7 +485,7 @@ var init_status = __esmMin((() => {
 	STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region node_modules/svelte/src/internal/client/reactivity/utils.js
 /**
 * @param {Effect} effect
 * @param {Set<Effect>} dirty_effects
@@ -501,14 +501,14 @@ var init_utils$2 = __esmMin((() => {
 	init_status();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/debug.js
+//#region node_modules/svelte/src/internal/client/dev/debug.js
 var init_debug = __esmMin((() => {
 	init_constants$1();
 	init_clone();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -538,7 +538,7 @@ var init_misc$1 = __esmMin((() => {
 	listening_to_form_reset = false;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -582,7 +582,7 @@ var init_shared$1 = __esmMin((() => {
 	init_misc$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
+//#region node_modules/svelte/src/internal/client/reactivity/async.js
 /**
 * @param {Blocker[]} blockers
 * @param {Array<() => any>} sync
@@ -901,7 +901,7 @@ var init_deriveds = __esmMin((() => {
 	OBSOLETE = Symbol("obsolete");
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region node_modules/svelte/src/internal/client/reactivity/batch.js
 /**
 * Synchronously flush any pending updates.
 * Returns void if no callback is provided, otherwise returns the result of calling the callback.
@@ -1815,7 +1815,7 @@ var init_sources = __esmMin((() => {
 	count_deps = 0;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/proxy.js
+//#region node_modules/svelte/src/internal/client/proxy.js
 /**
 * @template T
 * @param {T} value
@@ -2007,7 +2007,7 @@ var init_equality = __esmMin((() => {
 	init_proxy();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
+//#region node_modules/svelte/src/internal/client/dom/operations.js
 /**
 * Initialize these lazily to avoid issues when using the runtime in a server context
 * where these globals are not available while avoiding a separate server entry point
@@ -2204,7 +2204,7 @@ var init_operations$1 = __esmMin((() => {
 	init_constants();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/error-handling.js
+//#region node_modules/svelte/src/internal/client/error-handling.js
 /**
 * @param {unknown} error
 */
@@ -2246,7 +2246,7 @@ var init_error_handling = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region node_modules/svelte/src/internal/client/reactivity/effects.js
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
 */
@@ -2667,7 +2667,7 @@ var init_effects = __esmMin((() => {
 	init_status();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
+//#region node_modules/svelte/src/internal/client/legacy.js
 var captured_signals;
 var init_legacy$1 = __esmMin((() => {
 	init_sources();
@@ -2675,7 +2675,7 @@ var init_legacy$1 = __esmMin((() => {
 	captured_signals = null;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
+//#region node_modules/svelte/src/internal/client/runtime.js
 /** @param {boolean} value */
 function set_is_destroying_effect(value) {
 	is_destroying_effect = value;
@@ -3074,14 +3074,14 @@ var init_runtime = __esmMin((() => {
 	update_version = read_version;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/attachments/index.js
+//#region node_modules/svelte/src/attachments/index.js
 var init_attachments$1 = __esmMin((() => {
 	init_client();
 	init_index_client$1();
 	init_effects();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/utils.js
+//#region node_modules/svelte/src/utils.js
 /**
 * Returns `true` if `name` is a passive event
 * @param {string} name
@@ -3132,21 +3132,21 @@ var init_utils$1 = __esmMin((() => {
 	[...STATE_CREATION_RUNES];
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/assign.js
+//#region node_modules/svelte/src/internal/client/dev/assign.js
 var init_assign = __esmMin((() => {
 	init_constants$1();
 	init_utils$1();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/elements.js
+//#region node_modules/svelte/src/internal/client/dev/elements.js
 var init_elements = __esmMin((() => {
 	init_constants$1();
 	init_hydration();
 	init_context();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * @param {string} event_name
 * @param {EventTarget} dom
@@ -3317,7 +3317,7 @@ var init_events$1 = __esmMin((() => {
 	last_propagated_event_clear_scheduled = false;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region node_modules/svelte/src/internal/client/dom/reconciler.js
 /** @param {string} html */
 function create_trusted_html(html) {
 	return policy?.createHTML(html) ?? html;
@@ -3340,7 +3340,7 @@ createHTML: (html) => {
 	} });
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
+//#region node_modules/svelte/src/internal/client/dom/template.js
 /**
 * @param {TemplateNode} start
 * @param {TemplateNode | null} end
@@ -3492,7 +3492,7 @@ var init_template = __esmMin((() => {
 	init_constants$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
+//#region node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3573,7 +3573,7 @@ var init_create_subscriber = __esmMin((() => {
 	init_task();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /**
 * @param {TemplateNode} node
 * @param {BoundaryProps} props
@@ -3957,7 +3957,7 @@ var init_boundary = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/render.js
+//#region node_modules/svelte/src/internal/client/render.js
 /**
 * @param {Element} text
 * @param {string} value
@@ -4077,7 +4077,7 @@ var init_render = __esmMin((() => {
 	mounted_components = /* @__PURE__ */ new WeakMap();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/hmr.js
+//#region node_modules/svelte/src/internal/client/dev/hmr.js
 var init_hmr = __esmMin((() => {
 	init_constants$1();
 	init_hydration();
@@ -4087,7 +4087,7 @@ var init_hmr = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/ownership.js
+//#region node_modules/svelte/src/internal/client/dev/ownership.js
 var init_ownership = __esmMin((() => {
 	init_utils$3();
 	init_constants$1();
@@ -4095,13 +4095,13 @@ var init_ownership = __esmMin((() => {
 	init_utils$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/legacy.js
+//#region node_modules/svelte/src/internal/client/dev/legacy.js
 var init_legacy = __esmMin((() => {
 	init_errors();
 	init_context();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/inspect.js
+//#region node_modules/svelte/src/internal/client/dev/inspect.js
 var init_inspect = __esmMin((() => {
 	init_clone();
 	init_effects();
@@ -4109,7 +4109,7 @@ var init_inspect = __esmMin((() => {
 	init_dev();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/async.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/async.js
 var init_async = __esmMin((() => {
 	init_async$1();
 	init_runtime();
@@ -4117,12 +4117,12 @@ var init_async = __esmMin((() => {
 	init_template();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/validation.js
+//#region node_modules/svelte/src/internal/client/dev/validation.js
 var init_validation = __esmMin((() => {
 	init_errors();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
 var BranchManager;
 var init_branches = __esmMin((() => {
 	init_batch();
@@ -4272,7 +4272,7 @@ var init_branches = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/await.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/await.js
 var init_await = __esmMin((() => {
 	init_utils$3();
 	init_effects();
@@ -4285,7 +4285,7 @@ var init_await = __esmMin((() => {
 	init_async$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
 /**
 * @param {TemplateNode} node
 * @param {(branch: (fn: (anchor: Node) => void, key?: number | false) => void) => void} fn
@@ -4336,7 +4336,7 @@ var init_if = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/key.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/key.js
 var init_key = __esmMin((() => {
 	init_context();
 	init_effects();
@@ -4344,14 +4344,14 @@ var init_key = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/css-props.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/css-props.js
 var init_css_props = __esmMin((() => {
 	init_effects();
 	init_hydration();
 	init_operations$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
 /**
 * @param {any} _
 * @param {number} i
@@ -4781,7 +4781,7 @@ var init_each = __esmMin((() => {
 	init_tracing();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/html.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/html.js
 var init_html = __esmMin((() => {
 	init_effects();
 	init_hydration();
@@ -4793,20 +4793,20 @@ var init_html = __esmMin((() => {
 	init_constants$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/slot.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/slot.js
 var init_slot = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
 	init_template();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/validate.js
+//#region node_modules/svelte/src/internal/shared/validate.js
 var init_validate$1 = __esmMin((() => {
 	init_utils$1();
 	init_errors$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/snippet.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/snippet.js
 /**
 * @template {(node: TemplateNode, ...args: any[]) => void} SnippetFn
 * @param {TemplateNode} node
@@ -4835,7 +4835,7 @@ var init_snippet = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-component.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-component.js
 var init_svelte_component = __esmMin((() => {
 	init_constants$1();
 	init_effects();
@@ -4843,17 +4843,17 @@ var init_svelte_component = __esmMin((() => {
 	init_branches();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/timing.js
+//#region node_modules/svelte/src/internal/client/timing.js
 var init_timing = __esmMin((() => {
 	init_utils$3();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/loop.js
+//#region node_modules/svelte/src/internal/client/loop.js
 var init_loop = __esmMin((() => {
 	init_timing();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/transitions.js
+//#region node_modules/svelte/src/internal/client/dom/elements/transitions.js
 var init_transitions = __esmMin((() => {
 	init_utils$3();
 	init_effects();
@@ -4865,7 +4865,7 @@ var init_transitions = __esmMin((() => {
 	init_shared$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-element.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-element.js
 var init_svelte_element = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
@@ -4880,7 +4880,7 @@ var init_svelte_element = __esmMin((() => {
 	init_transitions();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /**
 * @param {string} hash
 * @param {(anchor: Node) => void} render_fn
@@ -4931,20 +4931,20 @@ var init_svelte_head = __esmMin((() => {
 	init_constants$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/css.js
+//#region node_modules/svelte/src/internal/client/dom/css.js
 var init_css = __esmMin((() => {
 	init_effects();
 	init_operations$1();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/actions.js
+//#region node_modules/svelte/src/internal/client/dom/elements/actions.js
 var init_actions = __esmMin((() => {
 	init_effects();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attachments.js
+//#region node_modules/svelte/src/internal/client/dom/elements/attachments.js
 /**
 * @param {Element} node
 * @param {() => (node: Element) => void} get_fn
@@ -4970,7 +4970,7 @@ var init_attachments = __esmMin((() => {
 	init_effects();
 }));
 //#endregion
-//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
+//#region node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4986,7 +4986,7 @@ function clsx$1() {
 }
 var init_clsx = __esmMin((() => {}));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
+//#region node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -5110,7 +5110,7 @@ var init_attributes$1 = __esmMin((() => {
 	whitespace = [..." 	\n\r\f\xA0\v﻿"];
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -5142,7 +5142,7 @@ var init_class = __esmMin((() => {
 	init_hydration();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/style.js
+//#region node_modules/svelte/src/internal/client/dom/elements/style.js
 /**
 * @param {Element & ElementCSSInlineStyle} dom
 * @param {Record<string, any>} prev
@@ -5187,7 +5187,7 @@ var init_style = __esmMin((() => {
 	init_hydration();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -5336,7 +5336,7 @@ var init_select$1 = __esmMin((() => {
 	init_flags();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /**
 * The value/checked attribute in the template actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -5446,7 +5446,7 @@ var init_attributes = __esmMin((() => {
 	setters_cache = /* @__PURE__ */ new Map();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/customizable-select.js
+//#region node_modules/svelte/src/internal/client/dom/elements/customizable-select.js
 var init_customizable_select = __esmMin((() => {
 	init_hydration();
 	init_operations$1();
@@ -5454,12 +5454,12 @@ var init_customizable_select = __esmMin((() => {
 	init_attachments();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/document.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/document.js
 var init_document = __esmMin((() => {
 	init_shared$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /**
 * @param {HTMLInputElement} input
 * @param {() => unknown} get
@@ -5549,30 +5549,30 @@ var init_input = __esmMin((() => {
 	init_flags();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/media.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/media.js
 var init_media = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/navigator.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/navigator.js
 var init_navigator = __esmMin((() => {
 	init_shared$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/props.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/props.js
 var init_props$1 = __esmMin((() => {
 	init_effects();
 	init_utils$3();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/size.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/size.js
 var init_size = __esmMin((() => {
 	init_effects();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 var init_this = __esmMin((() => {
 	init_constants$1();
 	init_context();
@@ -5580,26 +5580,26 @@ var init_this = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/universal.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/universal.js
 var init_universal = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/window.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/window.js
 var init_window = __esmMin((() => {
 	init_effects();
 	init_shared$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/legacy/event-modifiers.js
+//#region node_modules/svelte/src/internal/client/dom/legacy/event-modifiers.js
 var init_event_modifiers = __esmMin((() => {
 	init_utils$3();
 	init_effects();
 	init_events$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
+//#region node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
 /**
 * Legacy-mode only: Call `onMount` callbacks and set up `beforeUpdate`/`afterUpdate` effects
 * @param {boolean} [immutable]
@@ -5657,26 +5657,26 @@ var init_lifecycle = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/legacy/misc.js
+//#region node_modules/svelte/src/internal/client/dom/legacy/misc.js
 var init_misc = __esmMin((() => {
 	init_sources();
 	init_runtime();
 	init_utils$3();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/store/utils.js
+//#region node_modules/svelte/src/store/utils.js
 var init_utils = __esmMin((() => {
 	init_runtime();
 	init_utils$3();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/store/shared/index.js
+//#region node_modules/svelte/src/store/shared/index.js
 var init_shared = __esmMin((() => {
 	init_utils$3();
 	init_utils();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
+//#region node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Returns a tuple that indicates whether `fn()` reads a prop that is a store binding.
 * Used to prevent `binding_property_non_reactive` validation false positives and
@@ -5705,7 +5705,7 @@ var init_store = __esmMin((() => {
 	is_store_binding = false;
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
+//#region node_modules/svelte/src/internal/client/reactivity/props.js
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
 * It is used whenever the compiler sees that the component writes to the prop, or when it has a default prop_value.
@@ -5811,7 +5811,7 @@ var init_props = __esmMin((() => {
 	init_effects();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/validate.js
+//#region node_modules/svelte/src/internal/client/validate.js
 var init_validate = __esmMin((() => {
 	init_context();
 	init_effects();
@@ -5841,14 +5841,14 @@ var init_custom_element = __esmMin((() => {
 	if (typeof HTMLElement === "function");
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dev/console-log.js
+//#region node_modules/svelte/src/internal/client/dev/console-log.js
 var init_console_log = __esmMin((() => {
 	init_constants$1();
 	init_clone();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/index.js
+//#region node_modules/svelte/src/internal/client/index.js
 var init_client = __esmMin((() => {
 	init_attachments$1();
 	init_constants();
@@ -5922,13 +5922,13 @@ var init_client = __esmMin((() => {
 	init_console_log();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/hydratable.js
+//#region node_modules/svelte/src/internal/client/hydratable.js
 var init_hydratable = __esmMin((() => {
 	init_hydration();
 	init_errors();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/index-client.js
+//#region node_modules/svelte/src/index-client.js
 var init_index_client$1 = __esmMin((() => {
 	init_runtime();
 	init_utils$3();
@@ -5942,10 +5942,10 @@ var init_index_client$1 = __esmMin((() => {
 	init_snippet();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
+//#region node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/date.js
+//#region node_modules/svelte/src/reactivity/date.js
 var init_date = __esmMin((() => {
 	init_client();
 	init_sources();
@@ -5953,21 +5953,21 @@ var init_date = __esmMin((() => {
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/set.js
+//#region node_modules/svelte/src/reactivity/set.js
 var init_set = __esmMin((() => {
 	init_sources();
 	init_tracing();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/map.js
+//#region node_modules/svelte/src/reactivity/map.js
 var init_map = __esmMin((() => {
 	init_sources();
 	init_tracing();
 	init_runtime();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/url-search-params.js
+//#region node_modules/svelte/src/reactivity/url-search-params.js
 var init_url_search_params = __esmMin((() => {
 	init_sources();
 	init_tracing();
@@ -5975,7 +5975,7 @@ var init_url_search_params = __esmMin((() => {
 	init_url();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/url.js
+//#region node_modules/svelte/src/reactivity/url.js
 var init_url = __esmMin((() => {
 	init_sources();
 	init_tracing();
@@ -5983,12 +5983,12 @@ var init_url = __esmMin((() => {
 	init_url_search_params();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/events/index.js
+//#region node_modules/svelte/src/events/index.js
 var init_events = __esmMin((() => {
 	init_events$1();
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/reactive-value.js
+//#region node_modules/svelte/src/reactivity/reactive-value.js
 var ReactiveValue;
 var init_reactive_value = __esmMin((() => {
 	init_create_subscriber();
@@ -6011,7 +6011,7 @@ var init_reactive_value = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/media-query.js
+//#region node_modules/svelte/src/reactivity/media-query.js
 var parenthesis_regex, non_parenthesized_keywords, MediaQuery;
 var init_media_query = __esmMin((() => {
 	init_events();
@@ -6039,7 +6039,7 @@ var init_media_query = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/index-client.js
+//#region node_modules/svelte/src/reactivity/index-client.js
 var init_index_client = __esmMin((() => {
 	init_date();
 	init_set();
@@ -6832,6 +6832,18 @@ function replaceChatGptRichMarkers(value, renderUrl = (label) => label) {
 	}
 	return output;
 }
+function queueEtaText(seconds) {
+	const value = Number(seconds);
+	if (!Number.isFinite(value) || value <= 0) return "<1m";
+	const minutes = Math.max(1, Math.ceil(value / 60));
+	if (minutes < 60) return String(minutes) + "m";
+	const hours = Math.floor(minutes / 60);
+	const remainingMinutes = minutes % 60;
+	if (hours < 24) return remainingMinutes ? hours + "h " + remainingMinutes + "m" : hours + "h";
+	const days = Math.floor(hours / 24);
+	const remainingHours = hours % 24;
+	return remainingHours ? days + "d " + remainingHours + "h" : days + "d";
+}
 function retryDelayText(seconds) {
 	const value = Number(seconds);
 	if (!Number.isFinite(value) || value <= 0) return "soon";
@@ -6840,7 +6852,7 @@ function retryDelayText(seconds) {
 	if (minutes < 60) return `${minutes}m`;
 	return `${Math.ceil(minutes / 60)}h`;
 }
-function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1e3, queuePosition = 0) {
+function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1e3, queuePosition = 0, queueEtaAtEpoch = 0) {
 	const normalized = textValue(status, "queued").trim().toLowerCase();
 	if (["failed", "dead_lettered"].includes(normalized)) return null;
 	if (!hasSendId) return {
@@ -6849,10 +6861,18 @@ function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEp
 	};
 	if (normalized === "queued") {
 		const position = Number(queuePosition);
-		if (Number.isFinite(position) && position > 0) return {
-			label: "queued · #" + Math.floor(position),
-			statusText: "Queued in Prompta · #" + Math.floor(position)
-		};
+		if (Number.isFinite(position) && position > 0) {
+			const queueLabel = "queued · #" + Math.floor(position);
+			const statusLabel = "Queued in Prompta · #" + Math.floor(position);
+			const etaAt = Number(queueEtaAtEpoch);
+			const now = Number(nowEpoch);
+			const etaRemaining = Number.isFinite(etaAt) && etaAt > 0 && Number.isFinite(now) ? Math.max(0, etaAt - now) : 0;
+			const eta = etaRemaining > 0 ? " · ETA ~" + queueEtaText(etaRemaining) : "";
+			return {
+				label: queueLabel + eta,
+				statusText: statusLabel + eta
+			};
+		}
 		return {
 			label: "queued",
 			statusText: "Queued in Prompta…"
@@ -7484,7 +7504,7 @@ async function copyText(value) {
 }
 var init_clipboard = __esmMin((() => {}));
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/bash.js
+//#region node_modules/highlight.js/es/languages/bash.js
 init_clipboard();
 /** @type LanguageFn */
 function bash(hljs) {
@@ -7842,7 +7862,7 @@ function bash(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/cpp.js
+//#region node_modules/highlight.js/es/languages/cpp.js
 /** @type LanguageFn */
 function cpp(hljs) {
 	const regex = hljs.regex;
@@ -8344,7 +8364,7 @@ function cpp(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/dart.js
+//#region node_modules/highlight.js/es/languages/dart.js
 /** @type LanguageFn */
 function dart(hljs) {
 	const regex = hljs.regex;
@@ -8579,7 +8599,7 @@ function dart(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/javascript.js
+//#region node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE$2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS$2 = [
 	"as",
@@ -9149,7 +9169,7 @@ function javascript$1(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/json.js
+//#region node_modules/highlight.js/es/languages/json.js
 var EXTENDED_NUMBER_MODE = {
 	scope: "number",
 	match: "([-+]?)(\\b0[xX][a-fA-F0-9]+|(\\b\\d+(\\.\\d*)?|\\.\\d+)([eE][-+]?\\d+)?)|NaN|[-+]?Infinity",
@@ -9193,7 +9213,7 @@ function json(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/markdown.js
+//#region node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
 	const regex = hljs.regex;
 	const INLINE_HTML = {
@@ -9383,7 +9403,7 @@ function markdown(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/python.js
+//#region node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
 	const regex = hljs.regex;
 	const IDENT_RE = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -9744,7 +9764,7 @@ function python(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/sql.js
+//#region node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
 	const regex = hljs.regex;
 	const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -10367,7 +10387,7 @@ function sql(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/typescript.js
+//#region node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
 	"as",
@@ -11039,7 +11059,7 @@ function typescript(hljs) {
 	return tsLanguage;
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/xml.js
+//#region node_modules/highlight.js/es/languages/xml.js
 /** @type LanguageFn */
 function xml(hljs) {
 	const regex = hljs.regex;
@@ -11209,7 +11229,7 @@ function xml(hljs) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/highlight.js/es/languages/yaml.js
+//#region node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
 	const LITERALS = "true false yes no null";
 	const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -13200,7 +13220,7 @@ var core_default = (/* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exp
 	highlight.default = highlight;
 })))())).default;
 //#endregion
-//#region ../../prompta/node_modules/lowlight/lib/index.js
+//#region node_modules/lowlight/lib/index.js
 /**
 * @import {ElementContent, Element, RootData, Root} from 'hast'
 * @import {Emitter, HLJSOptions as HljsOptions, HighlightResult, LanguageFn} from 'highlight.js'
@@ -13602,7 +13622,7 @@ var HastEmitter = class {
 	}
 };
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v18.0.14 - a markdown parser
 * Copyright (c) 2018-2026, MarkedJS. (MIT License)
@@ -16824,7 +16844,7 @@ function LogsPanel($$anchor, $$props) {
 	return pop($$exports);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/legacy.js
+//#region node_modules/svelte/src/internal/flags/legacy.js
 init_flags();
 enable_legacy_mode_flag();
 //#endregion
@@ -18242,7 +18262,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 	const remaining = pending.filter((item) => {
 		if (!item.observedInCache) return true;
 		if (item.responseObservedInCache) return false;
-		return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition));
+		return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt));
 	});
 	if (remaining.length) state.pendingReplies.set(conversationId, remaining);
 	else state.pendingReplies.delete(conversationId);
@@ -18257,7 +18277,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 			updated_at: item.updatedAt,
 			pending_delete_key: item.clientId || item.sendId || ""
 		});
-		const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition);
+		const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt);
 		if (activity) messages.push({
 			message_key: `pending-activity-${item.clientId || item.sendId}`,
 			role: "assistant",
@@ -18372,7 +18392,7 @@ function renderConversation(chat) {
 	appViewState.shareDisabled = false;
 	updatePinButton();
 	syncSendButton();
-	const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition)).find(Boolean);
+	const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt)).find(Boolean);
 	if (pendingActivity) appViewState.composerStatus = pendingActivity.statusText;
 	else if (!state.sending) appViewState.composerStatus = chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.";
 }
@@ -18445,6 +18465,7 @@ function renderNewChat() {
 		pending?.retryAt || 0,
 		pending?.retryAttempt || 0,
 		pending?.queuePosition || 0,
+		pending?.queueEtaAt || 0,
 		imageAttachments(pending).map((attachment) => [
 			attachment.id || "",
 			attachment.name || "",
@@ -18464,7 +18485,7 @@ function renderNewChat() {
 				updated_at: pending.updatedAt,
 				pending_delete_key: pending.clientId || pending.sendId || ""
 			}];
-			const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition);
+			const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt);
 			if (activity) messages.push({
 				message_key: `pending-activity-${pending.clientId || pending.sendId}`,
 				role: "assistant",
@@ -18499,7 +18520,7 @@ function renderNewChat() {
 		appViewState.shareDisabled = true;
 		updatePinButton();
 		appViewState.composerPlaceholder = "Start a new chat…";
-		const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition) : null;
+		const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt) : null;
 		setComposerStatus(pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
 	}
 	updateComposerActionButton();
@@ -18609,6 +18630,7 @@ async function hydratePendingSends() {
 				retryAt: Number(job.retry_at || 0),
 				retryAttempt: Number(job.retry_attempt || 0),
 				queuePosition: Number(job.queue_position || 0),
+				queueEtaAt: Number(job.queue_eta_at || 0),
 				attachmentNames: Array.isArray(job.attachment_names) ? job.attachment_names.map((value) => String(value)) : []
 			};
 			if (job.operation === "reply" && conversationId) {
@@ -18832,7 +18854,8 @@ function updatePendingReply(conversationId, sendId, updates) {
 		item.retryAfterSeconds || 0,
 		item.retryAt || 0,
 		item.retryAttempt || 0,
-		item.queuePosition || 0
+		item.queuePosition || 0,
+		item.queueEtaAt || 0
 	]);
 	Object.assign(item, updates);
 	const changed = JSON.stringify([
@@ -18841,7 +18864,8 @@ function updatePendingReply(conversationId, sendId, updates) {
 		item.retryAfterSeconds || 0,
 		item.retryAt || 0,
 		item.retryAttempt || 0,
-		item.queuePosition || 0
+		item.queuePosition || 0,
+		item.queueEtaAt || 0
 	]) !== previous;
 	if (changed) item.updatedAt = Date.now() / 1e3;
 	return changed;
@@ -18976,11 +19000,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
 			const nextRetryAt = Number(job.retry_at || 0);
 			const nextRetryAttempt = Number(job.retry_attempt || 0);
 			const nextQueuePosition = Number(job.queue_position || 0);
+			const nextQueueEtaAt = Number(job.queue_eta_at || 0);
 			if (nextConversationId) {
 				completionNotifications.markActive(nextConversationId);
 				promotePendingConversationPin(pendingNewSend, nextConversationId);
 			}
-			const changed = pendingNewSend.status !== status || pendingNewSend.error !== nextError || pendingNewSend.conversationId !== nextConversationId || pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || pendingNewSend.retryAt !== nextRetryAt || pendingNewSend.retryAttempt !== nextRetryAttempt || pendingNewSend.queuePosition !== nextQueuePosition;
+			const changed = pendingNewSend.status !== status || pendingNewSend.error !== nextError || pendingNewSend.conversationId !== nextConversationId || pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds || pendingNewSend.retryAt !== nextRetryAt || pendingNewSend.retryAttempt !== nextRetryAttempt || pendingNewSend.queuePosition !== nextQueuePosition || pendingNewSend.queueEtaAt !== nextQueueEtaAt;
 			Object.assign(pendingNewSend, {
 				status,
 				error: nextError,
@@ -18988,7 +19013,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
 				retryAfterSeconds: nextRetryAfterSeconds,
 				retryAt: nextRetryAt,
 				retryAttempt: nextRetryAttempt,
-				queuePosition: nextQueuePosition
+				queuePosition: nextQueuePosition,
+				queueEtaAt: nextQueueEtaAt
 			});
 			if (changed) pendingNewSend.updatedAt = Date.now() / 1e3;
 			if (status === "succeeded") {
@@ -19041,7 +19067,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
 			retryAfterSeconds: Number(job.retry_after_seconds || 0),
 			retryAt: Number(job.retry_at || 0),
 			retryAttempt: Number(job.retry_attempt || 0),
-			queuePosition: Number(job.queue_position || 0)
+			queuePosition: Number(job.queue_position || 0),
+			queueEtaAt: Number(job.queue_eta_at || 0)
 		})) renderSidebar();
 		if (state.selectedId === conversationId) await loadSelectedChat();
 		if (status === "succeeded") {
@@ -19273,10 +19300,10 @@ async function copySelectedChatUrl() {
 }
 function refreshDisplayedTimes() {
 	appViewState.clockTick = Date.now();
-	if (state.composingNew && ["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "")) {
+	if (state.composingNew && (["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "") || state.pendingNewSend?.status === "queued" && Number(state.pendingNewSend?.queueEtaAt || 0) > 0)) {
 		state.newChatFingerprint = "";
 		renderNewChat();
-	} else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status || ""))) {
+	} else if (state.selectedId && (state.pendingReplies.get(state.selectedId) || []).some((item) => ["rate_limited", "retrying"].includes(item.status || "") || item.status === "queued" && Number(item.queueEtaAt || 0) > 0)) {
 		state.selectedFingerprint = "";
 		loadSelectedChat();
 	}

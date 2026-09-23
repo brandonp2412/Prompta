@@ -776,6 +776,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         item.retryAt,
         undefined,
         item.queuePosition,
+        item.queueEtaAt,
       ),
     );
   });
@@ -805,6 +806,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       item.retryAt,
       undefined,
       item.queuePosition,
+      item.queueEtaAt,
     );
 
     if (activity) {
@@ -980,6 +982,7 @@ function renderConversation(chat) {
         item.retryAt,
         undefined,
         item.queuePosition,
+        item.queueEtaAt,
       ),
     )
     .find(Boolean);
@@ -1071,6 +1074,7 @@ function renderNewChat() {
     pending?.retryAt || 0,
     pending?.retryAttempt || 0,
     pending?.queuePosition || 0,
+    pending?.queueEtaAt || 0,
     imageAttachments(pending).map((attachment) => [
       attachment.id || "",
       attachment.name || "",
@@ -1101,6 +1105,7 @@ function renderNewChat() {
         pending.retryAt,
         undefined,
         pending.queuePosition,
+        pending.queueEtaAt,
       );
 
       if (activity) {
@@ -1153,6 +1158,7 @@ function renderNewChat() {
           pending.retryAt,
           undefined,
           pending.queuePosition,
+          pending.queueEtaAt,
         )
       : null;
     setComposerStatus(
@@ -1310,6 +1316,7 @@ async function hydratePendingSends() {
         retryAt: Number(job.retry_at || 0),
         retryAttempt: Number(job.retry_attempt || 0),
         queuePosition: Number(job.queue_position || 0),
+        queueEtaAt: Number(job.queue_eta_at || 0),
         attachmentNames: Array.isArray(job.attachment_names)
           ? job.attachment_names.map((value) => String(value))
           : [],
@@ -1694,6 +1701,7 @@ function updatePendingReply(conversationId, sendId, updates) {
     item.retryAt || 0,
     item.retryAttempt || 0,
     item.queuePosition || 0,
+    item.queueEtaAt || 0,
   ]);
   Object.assign(item, updates);
 
@@ -1705,6 +1713,7 @@ function updatePendingReply(conversationId, sendId, updates) {
       item.retryAt || 0,
       item.retryAttempt || 0,
       item.queuePosition || 0,
+      item.queueEtaAt || 0,
     ]) !== previous;
 
   if (changed) item.updatedAt = Date.now() / 1000;
@@ -1918,6 +1927,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       const nextRetryAt = Number(job.retry_at || 0);
       const nextRetryAttempt = Number(job.retry_attempt || 0);
       const nextQueuePosition = Number(job.queue_position || 0);
+      const nextQueueEtaAt = Number(job.queue_eta_at || 0);
 
       if (nextConversationId) {
         completionNotifications.markActive(nextConversationId);
@@ -1931,7 +1941,8 @@ async function watchSend(sendId, creatingNew, conversationId) {
         pendingNewSend.retryAfterSeconds !== nextRetryAfterSeconds ||
         pendingNewSend.retryAt !== nextRetryAt ||
         pendingNewSend.retryAttempt !== nextRetryAttempt ||
-        pendingNewSend.queuePosition !== nextQueuePosition;
+        pendingNewSend.queuePosition !== nextQueuePosition ||
+        pendingNewSend.queueEtaAt !== nextQueueEtaAt;
       Object.assign(pendingNewSend, {
         status,
         error: nextError,
@@ -1940,6 +1951,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         retryAt: nextRetryAt,
         retryAttempt: nextRetryAttempt,
         queuePosition: nextQueuePosition,
+        queueEtaAt: nextQueueEtaAt,
       });
 
       if (changed) pendingNewSend.updatedAt = Date.now() / 1000;
@@ -2013,6 +2025,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
       retryAt: Number(job.retry_at || 0),
       retryAttempt: Number(job.retry_attempt || 0),
       queuePosition: Number(job.queue_position || 0),
+      queueEtaAt: Number(job.queue_eta_at || 0),
     });
 
     if (changed) renderSidebar();
@@ -2354,14 +2367,18 @@ function refreshDisplayedTimes() {
 
   if (
     state.composingNew &&
-    ["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "")
+    (["rate_limited", "retrying"].includes(state.pendingNewSend?.status || "") ||
+      (state.pendingNewSend?.status === "queued" &&
+        Number(state.pendingNewSend?.queueEtaAt || 0) > 0))
   ) {
     state.newChatFingerprint = "";
     renderNewChat();
   } else if (
     state.selectedId &&
-    (state.pendingReplies.get(state.selectedId) || []).some((item) =>
-      ["rate_limited", "retrying"].includes(item.status || ""),
+    (state.pendingReplies.get(state.selectedId) || []).some(
+      (item) =>
+        ["rate_limited", "retrying"].includes(item.status || "") ||
+        (item.status === "queued" && Number(item.queueEtaAt || 0) > 0),
     )
   ) {
     state.selectedFingerprint = "";

@@ -232,6 +232,21 @@ class PromptaUIServer(ThreadingHTTPServer):
             return f"retry in {minutes}m"
         return f"retry in {math.ceil(minutes / 60)}h"
 
+    @staticmethod
+    def _queue_eta_label(job: dict[str, Any]) -> str:
+        queue_eta_at = float(job.get("queue_eta_at") or 0.0)
+        remaining = max(0.0, queue_eta_at - time.time())
+        if remaining <= 0:
+            return ""
+        minutes = max(1, math.ceil(remaining / 60))
+        if minutes < 60:
+            return f"ETA ~{minutes}m"
+        hours, remaining_minutes = divmod(minutes, 60)
+        if hours < 24:
+            return f"ETA ~{hours}h {remaining_minutes}m" if remaining_minutes else f"ETA ~{hours}h"
+        days, remaining_hours = divmod(hours, 24)
+        return f"ETA ~{days}d {remaining_hours}h" if remaining_hours else f"ETA ~{days}d"
+
     @classmethod
     def _send_conversation_detail(cls, job: dict[str, Any]) -> dict[str, Any]:
         summary = cls._send_conversation_summary(job)
@@ -258,6 +273,9 @@ class PromptaUIServer(ThreadingHTTPServer):
             queue_position = int(job.get("queue_position") or 0)
             if send_status == "queued":
                 activity_label = f"queued · #{queue_position}" if queue_position > 0 else "queued"
+                queue_eta = cls._queue_eta_label(job)
+                if queue_eta:
+                    activity_label = f"{activity_label} · {queue_eta}"
             elif send_status == "retrying":
                 activity_label = "retrying"
             elif send_status == "rate_limited":

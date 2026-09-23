@@ -1480,6 +1480,8 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     receipts = {job["message"]: job for job in registry.list_conversation_receipts()}
     assert receipts["second"]["queue_position"] == 1
     assert receipts["third"]["queue_position"] == 2
+    assert "queue_eta_at" not in receipts["second"]
+    assert "queue_eta_at" not in receipts["third"]
 
     release_first.set()
     deadline = time.monotonic() + 1.0
@@ -1500,6 +1502,44 @@ def test_send_job_registry_processes_sends_in_fifo_order() -> None:
     assert first_result is not None and first_result["status"] == "succeeded"
     assert second_result is not None and second_result["status"] == "succeeded"
     assert third_result is not None and third_result["status"] == "succeeded"
+
+
+def test_send_job_registry_estimates_queued_eta_from_active_rate_limit() -> None:
+    first_started = Event()
+    release_first = Event()
+
+    def sender(operation: str, message: str, conversation_id: str, attachments: list[str]) -> str:
+        del operation, conversation_id, attachments
+        if message == "first":
+            first_started.set()
+            assert release_first.wait(timeout=1.0)
+        return f"chat-{message}"
+
+    registry = SendJobRegistry(sender)
+    first = registry.submit(operation="once", message="first")
+    assert first_started.wait(timeout=1.0)
+    second = registry.submit(operation="once", message="second")
+    third = registry.submit(operation="once", message="third")
+
+    now = time.time()
+    with registry._lock:
+        registry._jobs[first["send_id"]].update(
+            status="rate_limited",
+            retry_at=now + 120,
+            retry_after_seconds=300,
+            retry_attempt=1,
+        )
+        second_job = registry._job_with_queue_position_locked(registry._jobs[second["send_id"]])
+        third_job = registry._job_with_queue_position_locked(registry._jobs[third["send_id"]])
+
+    assert second_job["queue_position"] == 2
+    assert third_job["queue_position"] == 3
+    assert second_job["queue_eta_seconds"] == pytest.approx(420, abs=2)
+    assert third_job["queue_eta_seconds"] == pytest.approx(720, abs=2)
+    assert second_job["queue_eta_at"] == pytest.approx(now + 420, abs=2)
+    assert third_job["queue_eta_at"] == pytest.approx(now + 720, abs=2)
+
+    release_first.set()
 
 
 def test_send_job_registry_deferred_head_does_not_block_runnable_jobs(tmp_path: Path) -> None:

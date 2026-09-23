@@ -240,6 +240,7 @@ export type PendingReply = {
   retryAt?: number;
   retryAttempt?: number;
   queuePosition?: number;
+  queueEtaAt?: number;
   observedInCache?: boolean;
   responseObservedInCache?: boolean;
   createdAt?: number;
@@ -369,6 +370,26 @@ export function replaceChatGptRichMarkers(
   return output;
 }
 
+function queueEtaText(seconds: unknown): string {
+  const value = Number(seconds);
+
+  if (!Number.isFinite(value) || value <= 0) return "<1m";
+
+  const minutes = Math.max(1, Math.ceil(value / 60));
+
+  if (minutes < 60) return String(minutes) + "m";
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours < 24) return remainingMinutes ? hours + "h " + remainingMinutes + "m" : hours + "h";
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+
+  return remainingHours ? days + "d " + remainingHours + "h" : days + "d";
+}
+
 function retryDelayText(seconds: unknown): string {
   const value = Number(seconds);
 
@@ -392,6 +413,7 @@ export function pendingSendActivity(
   retryAtEpoch: unknown = 0,
   nowEpoch: unknown = Date.now() / 1000,
   queuePosition: unknown = 0,
+  queueEtaAtEpoch: unknown = 0,
 ): PendingSendActivity | null {
   const normalized = textValue(status, "queued").trim().toLowerCase();
 
@@ -403,9 +425,17 @@ export function pendingSendActivity(
     const position = Number(queuePosition);
 
     if (Number.isFinite(position) && position > 0) {
+      const queueLabel = "queued · #" + Math.floor(position);
+      const statusLabel = "Queued in Prompta · #" + Math.floor(position);
+      const etaAt = Number(queueEtaAtEpoch);
+      const now = Number(nowEpoch);
+      const etaRemaining =
+        Number.isFinite(etaAt) && etaAt > 0 && Number.isFinite(now) ? Math.max(0, etaAt - now) : 0;
+      const eta = etaRemaining > 0 ? " · ETA ~" + queueEtaText(etaRemaining) : "";
+
       return {
-        label: "queued · #" + Math.floor(position),
-        statusText: "Queued in Prompta · #" + Math.floor(position),
+        label: queueLabel + eta,
+        statusText: statusLabel + eta,
       };
     }
 

@@ -14,6 +14,7 @@ from typing import Any
 
 from .control_server import ControlDeferredError, ControlUnavailableError
 from .rate_limit import (
+    DEFAULT_RETRY_AFTER,
     RateLimitBackoff,
     RateLimitError,
     is_rate_limited_text,
@@ -621,6 +622,21 @@ class SendJobRegistry:
                 break
         if position > 0:
             result["queue_position"] = position
+
+            now = time.time()
+            for candidate in self._jobs.values():
+                if str(candidate.get("status") or "") != "rate_limited":
+                    continue
+                retry_at = float(candidate.get("retry_at") or 0.0)
+                remaining = max(0.0, retry_at - now)
+                if remaining <= 0:
+                    continue
+                observed_backoff = float(candidate.get("retry_after_seconds") or 0.0)
+                slot_backoff = max(float(DEFAULT_RETRY_AFTER), observed_backoff)
+                queue_eta_seconds = remaining + max(0, position - 1) * slot_backoff
+                result["queue_eta_seconds"] = max(1, math.ceil(queue_eta_seconds))
+                result["queue_eta_at"] = now + queue_eta_seconds
+                break
         return result
 
     def submit(
