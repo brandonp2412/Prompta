@@ -2777,6 +2777,63 @@ def test_jobs_cli_named_actions_map_to_prompta_cli(
     )
 
 
+def test_jobs_cli_add_without_interval_uses_cli_default(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    try:
+        with (
+            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
+            patch("prompta.web._start_local_scheduler_service", return_value=True),
+            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
+        ):
+            server._run_job_cli("add", {"name": "nox", "prompt": "fix nox"})
+    finally:
+        server.server_close()
+
+    command = run_cli.call_args.args[0]
+    assert command[:6] == [
+        sys.executable,
+        "-m",
+        "prompta.core",
+        "add",
+        "nox",
+        "fix nox",
+    ]
+    assert "--interval-minutes" not in command
+    assert command[-2:] == ["--jobs-file", str(jobs_path)]
+
+
+def test_jobs_cli_pause_without_name_maps_to_pause_all(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    jobs_path = tmp_path / "jobs.json"
+    state_path = tmp_path / "state.json"
+    server = PromptaUIServer(("127.0.0.1", 0), store, state_path, jobs_path)
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    try:
+        with (
+            patch("prompta.web.subprocess.run", return_value=completed) as run_cli,
+            patch("prompta.web._start_local_scheduler_service", return_value=True),
+            patch.object(server, "scheduled_jobs", return_value={"jobs": [], "server": "nox"}),
+        ):
+            server._run_job_cli("pause", {})
+    finally:
+        server.server_close()
+
+    assert run_cli.call_args.args[0] == [
+        sys.executable,
+        "-m",
+        "prompta.core",
+        "pause",
+        "--jobs-file",
+        str(jobs_path),
+        "--state",
+        str(state_path),
+    ]
+
+
 def test_run_job_cli_rejects_boolean_interval(tmp_path: Path) -> None:
     server = PromptaUIServer(
         ("127.0.0.1", 0),

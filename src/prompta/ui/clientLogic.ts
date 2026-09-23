@@ -265,6 +265,14 @@ export type ScheduleSlashCommand =
   | { error: string }
   | { intervalMinutes: number; prompt: string };
 
+export type JobSlashCommand =
+  | null
+  | { error: string }
+  | { action: "add"; name: string; prompt: string; intervalMinutes?: number }
+  | { action: "remove" | "resume" | "show"; name: string }
+  | { action: "pause"; name?: string }
+  | { action: "list" | "clear" };
+
 export type AtSlashCommand =
   | null
   | { error: string }
@@ -917,6 +925,158 @@ export function matchingPendingReplyMessageIndex(
   if (bestIndex >= 0) return bestIndex;
 
   return delayedCandidates[0] ?? -1;
+}
+
+const LEGACY_INTERVAL_TOKEN =
+  /^\d+(?:\.\d+)?(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?$/i;
+
+function namedJobCommand(action: "remove" | "resume" | "show", args: string): JobSlashCommand {
+  if (!args || /\s/.test(args)) return { error: "Use /" + action + " <name>." };
+
+  return { action, name: args };
+}
+
+export function parseJobSlashCommand(message: string): JobSlashCommand {
+  const match = message.trim().match(/^\/([a-z-]+)(?:\s+([\s\S]*))?$/i);
+
+  if (!match) return null;
+
+  const command = match[1].toLowerCase();
+  const args = String(match[2] || "").trim();
+
+  if (command === "add") {
+    const separator = args.search(/\s/);
+
+    if (separator < 1) {
+      return {
+        error:
+          "Use /add <name> [interval] <prompt>, or /add <interval> <prompt> for an unnamed schedule.",
+      };
+    }
+
+    const name = args.slice(0, separator);
+    const tail = args.slice(separator).trim();
+
+    if (LEGACY_INTERVAL_TOKEN.test(name)) return null;
+
+    if (!tail) return { error: "Job prompt is required." };
+
+    if (/^\d/.test(tail)) {
+      const interval = parseScheduleSlashCommand("/add " + tail);
+
+      if (interval && "error" in interval) return interval;
+
+      if (interval) {
+        return {
+          action: "add",
+          name,
+          prompt: interval.prompt,
+          intervalMinutes: interval.intervalMinutes,
+        };
+      }
+    }
+
+    return { action: "add", name, prompt: tail };
+  }
+
+  if (["rm", "remove"].includes(command)) return namedJobCommand("remove", args);
+
+  if (command === "resume") return namedJobCommand("resume", args);
+
+  if (command === "show") return namedJobCommand("show", args);
+
+  if (command === "pause" || command === "pause-all") {
+    if (command === "pause-all" && args) return { error: "Use /pause-all without a job name." };
+
+    if (args && /\s/.test(args))
+      return { error: "Use /pause <name>, or /pause with no name for all jobs." };
+
+    return args ? { action: "pause", name: args } : { action: "pause" };
+  }
+
+  if (["ls", "list", "jobs"].includes(command)) {
+    return args ? { error: "Use /" + command + " without arguments." } : { action: "list" };
+  }
+
+  if (["clear", "cls"].includes(command)) {
+    return args ? { error: "Use /" + command + " without arguments." } : { action: "clear" };
+  }
+
+  return null;
+}
+
+function jobText(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function jobScheduleText(job: Record<string, unknown>): string {
+  const dailyAt = jobText(job.daily_at).trim();
+
+  if (dailyAt) return "daily at " + dailyAt;
+
+  const intervalMinutes = Number(job.interval_minutes);
+
+  return Number.isFinite(intervalMinutes) && intervalMinutes > 0
+    ? "every " + formatScheduleInterval(intervalMinutes)
+    : "";
+}
+
+export function jobSlashFeedback(command: JobSlashCommand, result: unknown): string {
+  if (!command || "error" in command) return "";
+
+  const payload = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+  const jobs = Array.isArray(payload.jobs)
+    ? payload.jobs.filter((job): job is Record<string, unknown> =>
+        Boolean(job && typeof job === "object"),
+      )
+    : [];
+
+  if (command.action === "list") {
+    if (!jobs.length) return "No configured jobs.";
+
+    return (
+      jobs.length +
+      " job" +
+      (jobs.length === 1 ? "" : "s") +
+      " · " +
+      jobs
+        .map((job) => {
+          const name = jobText(job.name, "unnamed");
+          const status = job.paused === true ? "paused" : jobText(job.status, "pending");
+
+          return name + " (" + status + ")";
+        })
+        .join(", ")
+    );
+  }
+
+  if (command.action === "show") {
+    const job = jobs.find((candidate) => candidate.name === command.name);
+
+    if (!job) return "No job named " + command.name + ".";
+
+    const status = job.paused === true ? "paused" : jobText(job.status, "pending");
+    const schedule = jobScheduleText(job);
+    const prompt = jobText(job.prompt).trim();
+
+    return [command.name, status, schedule, prompt].filter(Boolean).join(" · ");
+  }
+
+  if (command.action === "add") {
+    const job = jobs.find((candidate) => candidate.name === command.name);
+    const schedule = job ? jobScheduleText(job) : "";
+
+    return ["Saved " + command.name, schedule].filter(Boolean).join(" · ");
+  }
+
+  if (command.action === "remove") return "Removed " + command.name + ".";
+
+  if (command.action === "resume") return "Resumed " + command.name + ".";
+
+  if (command.action === "pause")
+    return command.name ? "Paused " + command.name + "." : "Paused all jobs.";
+
+  return "Cleared all jobs.";
 }
 
 export function parseScheduleSlashCommand(message: string): ScheduleSlashCommand {

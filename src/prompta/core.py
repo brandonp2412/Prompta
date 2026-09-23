@@ -893,11 +893,14 @@ def _parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     clear_parser = subparsers.add_parser("clear", aliases=["cls"], help="Remove all jobs")
     clear_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-    for command, help_text in (("pause", "Pause a named job"), ("resume", "Resume a named job")):
-        job_parser = subparsers.add_parser(command, help=help_text)
-        job_parser.add_argument("name")
-        job_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-        job_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    pause_parser = subparsers.add_parser("pause", help="Pause one named job or all jobs")
+    pause_parser.add_argument("name", nargs="?")
+    pause_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    pause_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    resume_parser = subparsers.add_parser("resume", help="Resume a named job")
+    resume_parser.add_argument("name")
+    resume_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    resume_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     once_parser = subparsers.add_parser(
         "once", help="Send one prompt immediately without creating a repeating job"
     )
@@ -1114,6 +1117,16 @@ def main() -> None:
         return
     if args.command in {"pause", "resume"}:
         jobs = load_jobs(args.jobs_file)
+        if args.command == "pause" and args.name is None:
+            for name in jobs:
+                set_job_paused(args.jobs_file, args.state, name, True)
+            count = len(jobs)
+            _print_notice(
+                "Ⅱ",
+                f"Paused {count} job{'s' if count != 1 else ''}",
+                tone="33",
+            )
+            return
         if args.name not in jobs:
             raise SystemExit(f"No Prompta job named {args.name!r}")
         paused = args.command == "pause"
