@@ -251,10 +251,10 @@
   onhashchange={appActions.onHashChange}
   onpagehide={appActions.onPageHide}
   onpageshow={appActions.onPageShow}
-  onpointerdown={handleSidebarPointerDown}
-  onpointermove={handleSidebarPointerMove}
-  onpointerup={handleSidebarPointerUp}
-  onpointercancel={handleSidebarPointerCancel}
+  onpointerdowncapture={handleSidebarPointerDown}
+  onpointermovecapture={handleSidebarPointerMove}
+  onpointerupcapture={handleSidebarPointerUp}
+  onpointercancelcapture={handleSidebarPointerCancel}
 />
 
 <div {@attach fitVisualViewport()} class="app-shell">

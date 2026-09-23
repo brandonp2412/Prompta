@@ -26,8 +26,9 @@ describe("mobile sidebar drag", () => {
     expect(sidebarDragPosition(false, 320, 0, 400)).toEqual({ x: 0, progress: 1 });
   });
 
-  test("tracks an open sidebar while dragging it closed", () => {
+  test("tracks an open sidebar 1:1 with leftward movement from any start point", () => {
     expect(sidebarDragPosition(true, 320, 300, 140)).toEqual({ x: -160, progress: 0.5 });
+    expect(sidebarDragPosition(true, 320, 200, 80)).toEqual({ x: -120, progress: 0.625 });
     expect(sidebarDragPosition(true, 320, 300, -40)).toEqual({ x: -320, progress: 0 });
   });
 

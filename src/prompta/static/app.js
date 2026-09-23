@@ -17089,10 +17089,10 @@ function App($$anchor, $$props) {
 	event("pageshow", $window, function(...$$args) {
 		appActions.onPageShow?.apply(this, $$args);
 	});
-	event("pointerdown", $window, handleSidebarPointerDown);
-	event("pointermove", $window, handleSidebarPointerMove);
-	event("pointerup", $window, handleSidebarPointerUp);
-	event("pointercancel", $window, handleSidebarPointerCancel);
+	event("pointerdown", $window, handleSidebarPointerDown, true);
+	event("pointermove", $window, handleSidebarPointerMove, true);
+	event("pointerup", $window, handleSidebarPointerUp, true);
+	event("pointercancel", $window, handleSidebarPointerCancel, true);
 	var div = first_child(fragment);
 	var aside = child(div);
 	let styles;
