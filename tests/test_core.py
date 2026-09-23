@@ -2330,6 +2330,51 @@ async def test_poll_active_conversation_interrupts_when_reloaded_connection_fail
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversations_fails_fast_when_webdriver_is_poisoned(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    for index in range(2):
+        conversation_id = f"conversation-{index}"
+        context_id = f"context-{index}"
+        prompta.cache.start(
+            conversation_id,
+            context_id=context_id,
+            job_name="",
+            prompt="Do exactly one thing",
+        )
+        prompta._active_conversations[context_id] = ActiveConversation(
+            conversation_id=conversation_id,
+            context_id=context_id,
+            job_name="",
+            prompt="Do exactly one thing",
+        )
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.needs_browser_restart = False
+
+    async def poison_first_context(_context: str) -> dict[str, Any]:
+        driver.needs_browser_restart = True
+        raise RuntimeError("execute Chromium script: timed out; browser restart required")
+
+    driver.conversation_activity = AsyncMock(side_effect=poison_first_context)
+    prompta.driver = cast(Any, driver)
+
+    with pytest.raises(RuntimeError, match="recycle browser"):
+        await prompta._poll_active_conversations()
+
+    assert driver.conversation_activity.await_count == 1
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversations_reconnects_before_cache_capture(tmp_path: Path) -> None:
     prompta = Prompta(
         PromptaConfig(

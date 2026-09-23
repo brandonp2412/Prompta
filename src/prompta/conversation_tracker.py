@@ -64,6 +64,13 @@ class ConversationTracker:
         self.active: dict[str, ActiveConversation] = {}
         self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
 
+    @staticmethod
+    def _raise_if_browser_restart_required(driver: Any, exc: Exception) -> None:
+        if driver is not None and getattr(driver, "needs_browser_restart", False) is True:
+            raise RuntimeError(
+                "Browser session was lost; restarting Prompta to recycle browser"
+            ) from exc
+
     async def recover_completed_final_from_backend(
         self,
         driver: Any,
@@ -76,7 +83,8 @@ class ConversationTracker:
                 conversation_id,
                 context=context,
             )
-        except Exception:
+        except Exception as exc:
+            self._raise_if_browser_restart_required(driver, exc)
             logger.exception(
                 "Prompta backend final-text recovery failed conversation=%s",
                 conversation_id,
@@ -230,7 +238,8 @@ class ConversationTracker:
                     if backend_recovered:
                         try:
                             await driver.close_context(context)
-                        except Exception:
+                        except Exception as exc:
+                            self._raise_if_browser_restart_required(driver, exc)
                             logger.debug(
                                 "Could not close backend-recovered Prompta tab",
                                 exc_info=True,
@@ -259,7 +268,8 @@ class ConversationTracker:
                     "Prompta reattached live conversation=%s after restart",
                     conversation_id,
                 )
-            except Exception:
+            except Exception as exc:
+                self._raise_if_browser_restart_required(driver, exc)
                 logger.exception(
                     "Prompta could not reattach conversation=%s after restart",
                     conversation_id,
@@ -267,7 +277,8 @@ class ConversationTracker:
                 if context:
                     try:
                         await driver.close_context(context)
-                    except Exception:
+                    except Exception as exc:
+                        self._raise_if_browser_restart_required(driver, exc)
                         logger.debug(
                             "Could not close failed Prompta recovery tab",
                             exc_info=True,
@@ -380,7 +391,8 @@ class ConversationTracker:
             return
         try:
             driver = await self.ensure_driver()
-        except Exception:
+        except Exception as exc:
+            self._raise_if_browser_restart_required(self.current_driver(), exc)
             logger.exception("Prompta cache capture could not reconnect browser session")
             return
         if driver is None:
@@ -437,7 +449,8 @@ class ConversationTracker:
                                     active.conversation_id,
                                 )
                                 continue
-                            except Exception:
+                            except Exception as exc:
+                                self._raise_if_browser_restart_required(driver, exc)
                                 logger.exception(
                                     "Prompta recovery reload failed conversation=%s",
                                     active.conversation_id,
@@ -445,7 +458,8 @@ class ConversationTracker:
                         self.cache.mark_interrupted(active.conversation_id)
                         try:
                             await driver.close_context(context)
-                        except Exception:
+                        except Exception as exc:
+                            self._raise_if_browser_restart_required(driver, exc)
                             logger.debug(
                                 "Could not close persistently interrupted Prompta tab",
                                 exc_info=True,
@@ -472,7 +486,8 @@ class ConversationTracker:
                 snapshot["activity"] = dict(activity)
                 if streaming_hint:
                     snapshot["streaming"] = True
-            except Exception:
+            except Exception as exc:
+                self._raise_if_browser_restart_required(driver, exc)
                 logger.exception(
                     "Prompta cache capture failed conversation=%s", active.conversation_id
                 )
@@ -543,7 +558,8 @@ class ConversationTracker:
                 if active.delivery_retry_attempts < DELIVERY_RETRY_MAX_ATTEMPTS:
                     try:
                         retried = await driver.click_delivery_retry(context, timeout=3.0)
-                    except Exception:
+                    except Exception as exc:
+                        self._raise_if_browser_restart_required(driver, exc)
                         logger.exception(
                             "Prompta could not retry failed ChatGPT delivery conversation=%s",
                             active.conversation_id,
@@ -586,7 +602,8 @@ class ConversationTracker:
                             timeout=10.0,
                             context=context,
                         )
-                    except Exception:
+                    except Exception as exc:
+                        self._raise_if_browser_restart_required(driver, exc)
                         logger.exception(
                             "Prompta delivery-failure recovery reload failed conversation=%s",
                             active.conversation_id,
@@ -605,7 +622,8 @@ class ConversationTracker:
                 self.cache.mark_interrupted(active.conversation_id)
                 try:
                     await driver.close_context(context)
-                except Exception:
+                except Exception as exc:
+                    self._raise_if_browser_restart_required(driver, exc)
                     logger.debug("Could not close failed Prompta tab", exc_info=True)
                 self.active.pop(context, None)
                 logger.warning(
@@ -650,7 +668,8 @@ class ConversationTracker:
                 ):
                     try:
                         await driver.close_context(context)
-                    except Exception:
+                    except Exception as exc:
+                        self._raise_if_browser_restart_required(driver, exc)
                         logger.debug(
                             "Could not close backend-recovered Prompta tab",
                             exc_info=True,
@@ -678,7 +697,8 @@ class ConversationTracker:
                             timeout=10.0,
                             context=context,
                         )
-                    except Exception:
+                    except Exception as exc:
+                        self._raise_if_browser_restart_required(driver, exc)
                         logger.exception(
                             "Prompta missing-final-text recovery reload failed conversation=%s",
                             active.conversation_id,
@@ -701,7 +721,8 @@ class ConversationTracker:
                 self.cache.mark_interrupted(active.conversation_id)
                 try:
                     await driver.close_context(context)
-                except Exception:
+                except Exception as exc:
+                    self._raise_if_browser_restart_required(driver, exc)
                     logger.debug(
                         "Could not close Prompta tab missing final text",
                         exc_info=True,
@@ -739,7 +760,8 @@ class ConversationTracker:
             if close_driver is not None:
                 try:
                     await close_driver.close_context(context)
-                except Exception:
+                except Exception as exc:
+                    self._raise_if_browser_restart_required(close_driver, exc)
                     logger.debug("Could not close retained Prompta tab", exc_info=True)
             self.active.pop(context, None)
             logger.info(
