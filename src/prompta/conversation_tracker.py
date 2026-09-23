@@ -37,17 +37,6 @@ FINAL_TEXT_RECOVERY_MAX_ATTEMPTS = 1
 FINAL_TEXT_FAILURE_TIMEOUT_SECONDS = 2 * 60.0
 
 
-def _structured_tool_turn_missing_final_text(snapshot: dict[str, Any]) -> bool:
-    events = snapshot.get("source_events")
-    if not isinstance(events, list) or not events:
-        return False
-    parts = message_parts_from_source_events(events)
-    has_tool_call = any(
-        isinstance(part, dict) and str(part.get("kind") or "") == "tool_call" for part in parts
-    )
-    return has_tool_call and not has_completed_final_text(parts)
-
-
 class ConversationTracker:
     def __init__(
         self,
@@ -73,7 +62,7 @@ class ConversationTracker:
                 "Browser session was lost; restarting Prompta to recycle browser"
             ) from exc
 
-    async def recover_completed_final_from_backend(
+    async def recover_final_text(
         self,
         driver: Any,
         conversation_id: str,
@@ -107,11 +96,11 @@ class ConversationTracker:
             )
             return False
 
-        cached_messages = self.cache.messages(conversation_id)
+        messages = self.cache.messages(conversation_id)
         assistant = next(
             (
                 message
-                for message in reversed(cached_messages)
+                for message in reversed(messages)
                 if str(message.get("role") or "") == "assistant"
             ),
             None,
@@ -122,18 +111,13 @@ class ConversationTracker:
         if not message_key:
             return False
 
-        existing_events = self.cache.source_events_for_message(
-            conversation_id,
-            message_key,
-        )
+        events = self.cache.source_events_for_message(conversation_id, message_key)
         final_id = str(final_event.get("id") or "")
-        source_events = [
-            event
-            for event in existing_events
-            if not final_id or str(event.get("id") or "") != final_id
+        events = [
+            event for event in events if not final_id or str(event.get("id") or "") != final_id
         ]
-        source_events.append(final_event)
-        if not has_completed_final_text(message_parts_from_source_events(source_events)):
+        events.append(final_event)
+        if not has_completed_final_text(message_parts_from_source_events(events)):
             return False
 
         metadata = self.cache.metadata(conversation_id)
@@ -148,7 +132,7 @@ class ConversationTracker:
                     "ordinal": int(assistant.get("ordinal") or 0),
                 }
             ],
-            "source_events": source_events,
+            "source_events": events,
             "streaming": False,
             "activity": {
                 "streaming": False,
@@ -243,7 +227,7 @@ class ConversationTracker:
                             break
                         await asyncio.sleep(0.5)
                 if not messages:
-                    backend_recovered = await self.recover_completed_final_from_backend(
+                    backend_recovered = await self.recover_final_text(
                         driver,
                         conversation_id,
                         context=context,
@@ -445,8 +429,7 @@ class ConversationTracker:
                 # A transient connection banner means the current page stream is no longer
                 # trustworthy. ChatGPT can leave stale streaming/end_turn markers behind when
                 # that happens, so transient recovery must take precedence over streaming hints.
-                persistent_transient = transient_hint
-                if persistent_transient:
+                if transient_hint:
                     now_epoch = time.time()
                     if active.transient_since_epoch <= 0:
                         recovered_at = active.recovered_cache_updated_at
@@ -690,24 +673,30 @@ class ConversationTracker:
                 active.idle_polls = 0
                 active.settled_at = 0.0
 
-            fallback_completion = (
+            fallback_complete = (
                 completion_hint and "turn_ended" in activity and activity.get("turn_ended") is None
             )
-            missing_final_text = fallback_completion and _structured_tool_turn_missing_final_text(
-                snapshot
+            events = snapshot.get("source_events")
+            parts = message_parts_from_source_events(events) if isinstance(events, list) else []
+            has_tool_call = any(
+                isinstance(part, dict) and str(part.get("kind") or "") == "tool_call"
+                for part in parts
+            )
+            missing_final_text = (
+                fallback_complete and has_tool_call and not has_completed_final_text(parts)
             )
             if not missing_final_text:
                 active.final_text_missing_since_epoch = 0.0
                 active.final_text_recovery_attempts = 0
 
-            completion_polls = FALLBACK_COMPLETION_POLLS if fallback_completion else 3
-            if active.idle_polls < completion_polls:
+            required_polls = FALLBACK_COMPLETION_POLLS if fallback_complete else 3
+            if active.idle_polls < required_polls:
                 continue
             if not completion_hint and active.idle_polls < 30:
                 continue
 
             if missing_final_text:
-                if await self.recover_completed_final_from_backend(
+                if await self.recover_final_text(
                     driver,
                     active.conversation_id,
                     context=context,
