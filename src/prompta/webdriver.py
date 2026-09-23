@@ -1021,14 +1021,15 @@ class WebDriverBase:
           };
           const messages=[...document.querySelectorAll(messageSelector)];
           const users=messages.filter(e=>e.getAttribute('data-message-author-role')==='user');
-          const rateLimitNodes=[...document.querySelectorAll(rateLimitSelector)].filter(visible);
-          let rateLimitText=rateLimitNodes.map(e=>e.innerText||e.textContent||'').filter(Boolean).join('\n');
           const rateLimitPattern=/(?:too many requests|temporarily limited access|requests too quickly|rate limit)/i;
-          if(!rateLimitText&&rateLimitPattern.test(document.body?.innerText||'')){
-            rateLimitText=(document.body?.innerText||'').split('\n').filter(line=>rateLimitPattern.test(line)).join('\n');
-          }
+          const rateLimitNodes=[...document.querySelectorAll(rateLimitSelector)]
+            .filter(node=>visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
           const rateLimitModal=[...document.querySelectorAll('dialog,[role="dialog"],[data-testid*="rate-limit" i]')]
             .find(node=>visible(node)&&rateLimitPattern.test(node.innerText||node.textContent||''));
+          const rateLimitText=[...new Set([
+            ...rateLimitNodes.map(node=>node.innerText||node.textContent||''),
+            rateLimitModal?.innerText||rateLimitModal?.textContent||''
+          ].map(text=>text.trim()).filter(Boolean))].join('\n');
           if(rateLimitModal){
             const acknowledge=[...rateLimitModal.querySelectorAll('button')].find(button=>{
               const label=(button.innerText||button.textContent||button.getAttribute('aria-label')||'').trim();

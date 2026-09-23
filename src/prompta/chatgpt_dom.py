@@ -62,8 +62,6 @@ RATE_LIMIT_SELECTORS = (
     '[data-testid="conversation-fetch-error-toaster"]',
     '[data-testid*="rate-limit" i]',
     '[role="alert"]',
-    '[aria-live="assertive"]',
-    '[aria-live="polite"]',
 )
 
 
