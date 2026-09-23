@@ -825,12 +825,14 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
-    driver.high_effort_slider_value = AsyncMock(return_value="2")
+    driver.select_effort_model = AsyncMock()
+    driver.high_effort_slider_value = AsyncMock(return_value="4")
+    driver.high_effort_slider_max_value = AsyncMock(return_value="4")
     driver._perform_actions = AsyncMock()
     prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
-            {"text": "Medium", "x": 10.0, "y": 20.0},
-            {"text": "High", "x": 10.0, "y": 20.0},
+            {"text": "Medium", "label": "GPT-6 Astra Medium", "x": 10.0, "y": 20.0},
+            {"text": "Max", "label": "GPT-6 Astra Max", "x": 10.0, "y": 20.0},
         ]
     )
     prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]
@@ -840,6 +842,7 @@ async def test_high_effort_is_selected_and_verified(tmp_path: Path) -> None:
 
     await prompta._ensure_high_effort(driver)
 
+    driver.select_effort_model.assert_awaited_once_with("GPT-6 Astra")
     assert prompta._pointer_click.await_count == 2
     driver._perform_actions.assert_awaited_once()
 
@@ -849,13 +852,15 @@ async def test_high_effort_rechecks_stale_viewport_coordinates(tmp_path: Path) -
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
     driver = MagicMock()
     driver.context = "context-1"
-    driver.high_effort_slider_value = AsyncMock(return_value="2")
+    driver.select_effort_model = AsyncMock()
+    driver.high_effort_slider_value = AsyncMock(return_value="4")
+    driver.high_effort_slider_max_value = AsyncMock(return_value="4")
     driver._perform_actions = AsyncMock()
     prompta._effort_trigger_info = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
-            {"text": "Medium", "x": 10.0, "y": 700.0},
-            {"text": "Medium", "x": 10.0, "y": 20.0},
-            {"text": "High", "x": 10.0, "y": 20.0},
+            {"text": "Medium", "label": "GPT-6 Astra Medium", "x": 10.0, "y": 700.0},
+            {"text": "Medium", "label": "GPT-6 Astra Medium", "x": 10.0, "y": 20.0},
+            {"text": "Max", "label": "GPT-6 Astra Max", "x": 10.0, "y": 20.0},
         ]
     )
     prompta._high_effort_slider_point = AsyncMock(  # type: ignore[method-assign]

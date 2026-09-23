@@ -226,26 +226,49 @@ async def test_hidden_file_input_is_supported_as_non_semantic_fallback(
 @pytest.mark.asyncio
 async def test_effort_trigger_uses_button_role(live_driver) -> None:
     driver, page = live_driver
-    await page.set_content('<button aria-haspopup="menu">Medium</button>')
+    await page.set_content('<button aria-haspopup="menu">GPT-6 Astra Max</button>')
 
     trigger = await driver.effort_trigger_info(timeout=0.2)
 
-    assert trigger["text"] == "Medium"
+    assert trigger["text"] == "Max"
+    assert trigger["label"] == "GPT-6 Astra Max"
     assert trigger["x"] > 0
     assert trigger["y"] > 0
 
 
 @pytest.mark.asyncio
-async def test_high_effort_slider_uses_slider_role(live_driver) -> None:
+async def test_select_effort_model_uses_accessible_menu_items(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
-        '<input type="range" min="0" max="3" value="1" aria-valuemin="0" aria-valuemax="3">'
+        '<div role="menuitem" aria-label="Select model" '
+        "onclick=\"document.getElementById('astra').hidden=false\">Select model</div>"
+        '<div id="astra" role="menuitemradio" aria-label="GPT-6 Astra" hidden '
+        "onclick=\"this.dataset.clicked='true'\">GPT-6 Astra</div>"
     )
 
+    await driver.select_effort_model()
+
+    assert await page.locator("#astra").get_attribute("data-clicked") == "true"
+
+
+@pytest.mark.asyncio
+async def test_high_effort_slider_targets_maximum(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        "<div data-model-reasoning-effort-slider>"
+        '<input role="slider" type="range" min="0" max="4" value="1" '
+        'aria-valuemin="0" aria-valuemax="4" aria-valuenow="1">'
+        "</div>"
+    )
+
+    slider = page.locator('[data-model-reasoning-effort-slider] [role="slider"]')
+    box = await slider.bounding_box()
     point = await driver.high_effort_slider_point()
 
-    assert point["x"] > 0
+    assert box is not None
+    assert point["x"] > box["x"] + box["width"] * 0.75
     assert point["y"] > 0
+    assert await driver.high_effort_slider_max_value() == "4"
 
 
 @pytest.mark.asyncio

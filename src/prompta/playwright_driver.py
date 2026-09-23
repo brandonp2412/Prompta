@@ -61,7 +61,7 @@ _ATTACH_RE = re.compile(
 )
 _RETRY_RE = re.compile(r"^(?:try again|retry|regenerate(?: response)?)$", re.IGNORECASE)
 _DISMISS_RE = re.compile(r"^(?:got it|ok|okay|dismiss|close)$", re.IGNORECASE)
-_EFFORT_RE = re.compile(r"\b(extra\s+high|instant|medium|high)\b", re.IGNORECASE)
+_EFFORT_RE = re.compile(r"\b(max|extra\s+high|instant|medium|high)\b", re.IGNORECASE)
 
 
 class ChromeDebuggerUnavailableError(RuntimeError):
@@ -958,9 +958,11 @@ class PlaywrightDriver(BrowserDriverBase):
                     box = await button.bounding_box()
                     if box is None:
                         continue
+                    normalized_label = re.sub(r"\s+", " ", label).strip()
                     selected = re.sub(r"\s+", " ", match.group(1)).strip().title()
                     return {
                         "text": selected,
+                        "label": normalized_label,
                         "x": box["x"] + box["width"] / 2,
                         "y": box["y"] + box["height"] / 2,
                     }
@@ -969,22 +971,62 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT thinking-effort control did not become available")
 
+    async def select_effort_model(self, model_name: str = "GPT-6 Astra") -> None:
+        page = self._page()
+        deadline = asyncio.get_running_loop().time() + 2.0
+        selector: Locator | None = None
+        while asyncio.get_running_loop().time() < deadline:
+            selector = await self._first_usable(
+                [page.get_by_role("menuitem", name="Select model", exact=True)],
+                enabled=True,
+            )
+            if selector is not None:
+                break
+            await asyncio.sleep(0.05)
+        if selector is None:
+            raise RuntimeError("ChatGPT model selector did not open")
+        try:
+            await selector.click()
+        except PlaywrightError as exc:
+            raise RuntimeError("ChatGPT model selector could not be opened") from exc
+
+        deadline = asyncio.get_running_loop().time() + 2.0
+        option: Locator | None = None
+        while asyncio.get_running_loop().time() < deadline:
+            option = await self._first_usable(
+                [page.get_by_role("menuitemradio", name=model_name, exact=True)],
+                enabled=True,
+            )
+            if option is not None:
+                break
+            await asyncio.sleep(0.05)
+        if option is None:
+            raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
+        try:
+            await option.click()
+        except PlaywrightError as exc:
+            raise RuntimeError(f"ChatGPT model {model_name!r} could not be selected") from exc
+
     async def high_effort_slider_point(self) -> dict[str, float]:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
-            slider = await self._first_usable([page.get_by_role("slider")], enabled=True)
+            slider = await self._first_usable(
+                [
+                    page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
+                    page.get_by_role("slider", include_hidden=True),
+                ],
+                enabled=True,
+            )
             if slider is None:
                 await asyncio.sleep(0.1)
                 continue
             try:
                 min_value = float(await slider.get_attribute("aria-valuemin") or 0)
                 max_value = float(await slider.get_attribute("aria-valuemax") or 3)
-                target = 2.0
+                target = max_value
                 if max_value <= min_value:
-                    raise RuntimeError("ChatGPT High effort is unavailable: invalid-range")
-                if target < min_value or target > max_value:
-                    raise RuntimeError("ChatGPT High effort is unavailable: high-out-of-range")
+                    raise RuntimeError("ChatGPT maximum effort is unavailable: invalid-range")
                 box = await slider.bounding_box()
                 if box is None:
                     await asyncio.sleep(0.1)
@@ -999,11 +1041,34 @@ class PlaywrightDriver(BrowserDriverBase):
         raise RuntimeError("ChatGPT thinking-effort slider did not open")
 
     async def high_effort_slider_value(self) -> str:
-        slider = await self._first_usable([self._page().get_by_role("slider")], enabled=True)
+        page = self._page()
+        slider = await self._first_usable(
+            [
+                page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
+                page.get_by_role("slider", include_hidden=True),
+            ],
+            enabled=True,
+        )
         if slider is None:
             return ""
         try:
             return str(await slider.get_attribute("aria-valuenow") or "")
+        except PlaywrightError:
+            return ""
+
+    async def high_effort_slider_max_value(self) -> str:
+        page = self._page()
+        slider = await self._first_usable(
+            [
+                page.locator('[data-model-reasoning-effort-slider] [role="slider"]'),
+                page.get_by_role("slider", include_hidden=True),
+            ],
+            enabled=True,
+        )
+        if slider is None:
+            return ""
+        try:
+            return str(await slider.get_attribute("aria-valuemax") or "")
         except PlaywrightError:
             return ""
 
