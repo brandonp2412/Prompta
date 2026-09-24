@@ -2801,6 +2801,105 @@ async def test_poll_active_conversation_waits_for_assistant_after_latest_user(
 
 
 @pytest.mark.asyncio
+async def test_poll_active_conversation_ignores_stale_snapshot_before_latest_cached_user(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-stale-reply"
+    context_id = "context-stale-reply"
+    first_turn = [
+        {"id": "user-1", "role": "user", "content": "First request", "status": "complete"},
+        {
+            "id": "assistant-1",
+            "role": "assistant",
+            "content": "First answer",
+            "status": "complete",
+        },
+    ]
+    waiting_snapshot = {
+        "title": "Existing chat",
+        "messages": [
+            *first_turn,
+            {"id": "user-2", "role": "user", "content": "Follow-up", "status": "complete"},
+        ],
+        "streaming": False,
+    }
+    stale_snapshot = {
+        "title": "Existing chat",
+        "messages": first_turn,
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="First request",
+    )
+    prompta.cache.write_snapshot(conversation_id, waiting_snapshot)
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="",
+        prompt="First request",
+        last_digest=prompta.cache.digest(stale_snapshot),
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+            "turn_ended": True,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=stale_snapshot)
+    prompta.driver = cast(Any, driver)
+
+    for _ in range(6):
+        await prompta._poll_active_conversations()
+
+    assert active.idle_polls == 0
+    assert active.settled_at == 0.0
+    assert prompta.cache.status(conversation_id) == "active"
+    assert [message["role"] for message in prompta.cache.messages(conversation_id)] == [
+        "user",
+        "assistant",
+        "user",
+    ]
+
+    completed_snapshot = {
+        **waiting_snapshot,
+        "messages": [
+            *waiting_snapshot["messages"],
+            {
+                "id": "assistant-2",
+                "role": "assistant",
+                "content": "Follow-up answer",
+                "status": "complete",
+            },
+        ],
+    }
+    driver.conversation_snapshot.return_value = completed_snapshot
+
+    for _ in range(4):
+        await prompta._poll_active_conversations()
+
+    assert active.settled_at > 0.0
+    assert prompta.cache.status(conversation_id) == "complete"
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversation_debounces_copy_action_when_react_end_turn_unknown(
     tmp_path: Path,
 ) -> None:

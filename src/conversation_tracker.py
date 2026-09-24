@@ -722,9 +722,32 @@ class ConversationTracker:
             messages = snapshot.get("messages")
             if not isinstance(messages, list):
                 messages = []
+
+            durable_messages = self.cache.messages(active.conversation_id)
+            latest_durable = durable_messages[-1] if durable_messages else None
+            waiting_for_latest_assistant = (
+                isinstance(latest_durable, dict)
+                and str(latest_durable.get("role") or "") == "user"
+                and bool(str(latest_durable.get("content") or "").strip())
+            )
+            snapshot_has_latest_user = True
+            if waiting_for_latest_assistant:
+                latest_user_key = str(latest_durable.get("message_key") or "")
+                latest_user_text = str(latest_durable.get("content") or "").strip()
+                snapshot_has_latest_user = any(
+                    isinstance(message, dict)
+                    and str(message.get("role") or "") == "user"
+                    and (
+                        (latest_user_key and str(message.get("id") or "") == latest_user_key)
+                        or str(message.get("content") or "").strip() == latest_user_text
+                    )
+                    for message in messages
+                )
+
             last_message = messages[-1] if messages else None
             has_assistant = (
-                isinstance(last_message, dict)
+                snapshot_has_latest_user
+                and isinstance(last_message, dict)
                 and str(last_message.get("role") or "") == "assistant"
                 and bool(str(last_message.get("content") or "").strip())
             )
