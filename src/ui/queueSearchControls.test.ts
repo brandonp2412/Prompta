@@ -44,6 +44,6 @@ describe("queue and search controls", () => {
     expect(messagesSource).toContain("message.pending_bump_key");
     expect(messagesSource).toContain('aria-label="Send queued message next"');
     expect(messagesSource).toContain("conversationState.onBump");
-    expect(messagesSource).toContain(">Send next</button>");
+    expect(messagesSource).toContain("<span>Send next</span>");
   });
 });

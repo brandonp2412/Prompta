@@ -1278,6 +1278,9 @@ textarea:focus-visible {
 }
 
 .pending-message-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-height: 50px;
   padding: 12px 14px;
   border: 1px solid var(--border);
@@ -1289,11 +1292,23 @@ textarea:focus-visible {
   text-align: left;
 }
 
+.pending-message-action svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .pending-message-action.danger {
   color: var(--danger);
 }
 
 .pending-message-action.cancel {
+  justify-content: center;
   margin-top: 2px;
   text-align: center;
 }

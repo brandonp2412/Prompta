@@ -122,10 +122,10 @@ describe("pending message long press", () => {
     expect(conversationMessagesSource).toContain(
       "{@attach dialogVisibility(() => actionsOpen, () => true, closeActions)}",
     );
-    expect(conversationMessagesSource).toContain(">Send next</button>");
-    expect(conversationMessagesSource).toContain(">Edit message</button>");
-    expect(conversationMessagesSource).toContain("Delete message");
-    expect(conversationMessagesSource).toContain(">Cancel</button>");
+    expect(conversationMessagesSource).toContain("<span>Send next</span>");
+    expect(conversationMessagesSource).toContain("<span>Edit message</span>");
+    expect(conversationMessagesSource).toContain("<span>Delete message</span>");
+    expect(conversationMessagesSource).toContain("<span>Cancel</span>");
   });
 });
 

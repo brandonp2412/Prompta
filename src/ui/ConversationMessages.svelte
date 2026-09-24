@@ -307,12 +307,30 @@
   <div class="pending-message-actions-shell">
     <div id="pendingMessageActionsTitle" class="pending-message-actions-title">Pending message</div>
     {#if actionsCanBump}
-      <button type="button" class="pending-message-action" onclick={bumpPending}>Send next</button>
+      <button type="button" class="pending-message-action" onclick={bumpPending}>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 19V5m-6 6 6-6 6 6"></path>
+        </svg>
+        <span>Send next</span>
+      </button>
     {/if}
-    <button type="button" class="pending-message-action" onclick={editPending}>Edit message</button>
-    <button type="button" class="pending-message-action danger" onclick={deletePending}>
-      Delete message
+    <button type="button" class="pending-message-action" onclick={editPending}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Zm10.6-13.4 3 3"></path>
+      </svg>
+      <span>Edit message</span>
     </button>
-    <button type="button" class="pending-message-action cancel" onclick={closeActions}>Cancel</button>
+    <button type="button" class="pending-message-action danger" onclick={deletePending}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path>
+      </svg>
+      <span>Delete message</span>
+    </button>
+    <button type="button" class="pending-message-action cancel" onclick={closeActions}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 6l12 12M18 6 6 18"></path>
+      </svg>
+      <span>Cancel</span>
+    </button>
   </div>
 </dialog>

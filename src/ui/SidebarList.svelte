@@ -225,9 +225,23 @@
   <div class="pending-message-actions-shell">
     <div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div>
     <button type="button" class="pending-message-action" onclick={togglePinFromActions}>
-      {actionsChatPinned ? "Unpin chat" : "Pin chat"}
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path>
+      </svg>
+      <span>{actionsChatPinned ? "Unpin chat" : "Pin chat"}</span>
     </button>
-    <button type="button" class="pending-message-action" onclick={markAllReadFromActions}>Read all</button>
-    <button type="button" class="pending-message-action cancel" onclick={closeActions}>Cancel</button>
+    <button type="button" class="pending-message-action" onclick={markAllReadFromActions}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="m8 12 2.7 2.7L16 9.5"></path>
+      </svg>
+      <span>Read all</span>
+    </button>
+    <button type="button" class="pending-message-action cancel" onclick={closeActions}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 6l12 12M18 6 6 18"></path>
+      </svg>
+      <span>Cancel</span>
+    </button>
   </div>
 </dialog>
