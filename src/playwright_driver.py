@@ -331,15 +331,28 @@ class PlaywrightDriver(BrowserDriverBase):
         return None
 
     async def _composer(self, page: Page) -> Locator | None:
-        semantic = [
-            page.get_by_role("textbox", name=_COMPOSER_NAME_RE),
-            page.get_by_label(_COMPOSER_NAME_RE),
-            page.get_by_placeholder(_COMPOSER_NAME_RE),
-            page.get_by_role("textbox"),
-        ]
-        found = await self._first_usable(semantic)
-        if found is not None:
-            return found
+        main = page.get_by_role("main")
+
+        # The chat composer is normally in the main landmark. Prefer its public
+        # accessible name, then any textbox there, before looking at the
+        # whole page (which can also contain search and dialog textboxes).
+        def named(scope: Page | Locator) -> list[Locator]:
+            return [
+                scope.get_by_role("textbox", name=_COMPOSER_NAME_RE),
+                scope.get_by_label(_COMPOSER_NAME_RE),
+                scope.get_by_placeholder(_COMPOSER_NAME_RE),
+            ]
+
+        for candidates in (named(main), [main.get_by_role("textbox")], named(page)):
+            found = await self._first_usable(candidates)
+            if found is not None:
+                return found
+        # An unnamed page-wide textbox is only safe when it is unique.
+        textboxes = page.get_by_role("textbox")
+        if await textboxes.count() == 1:
+            found = await self._first_usable([textboxes])
+            if found is not None:
+                return found
         return await self._first_usable([page.locator(selector) for selector in COMPOSER_SELECTORS])
 
     async def _semantic_button(
@@ -350,7 +363,12 @@ class PlaywrightDriver(BrowserDriverBase):
         fallback_test_ids: tuple[str, ...] = (),
         fallback_selectors: tuple[str, ...] = (),
     ) -> Locator | None:
-        semantic = await self._first_usable([page.get_by_role("button", name=name)])
+        semantic = await self._first_usable(
+            [
+                page.get_by_role("main").get_by_role("button", name=name),
+                page.get_by_role("button", name=name),
+            ]
+        )
         if semantic is not None:
             return semantic
         for test_id in fallback_test_ids:

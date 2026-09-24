@@ -69,6 +69,44 @@ async def test_composer_prefers_semantic_textbox_and_fill(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_composer_prefers_main_textbox_over_sidebar_and_dialog(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <aside><input role="textbox" aria-label="Message search"></aside>
+        <main><section><div role="textbox" contenteditable="true"></div></section></main>
+        <div role="dialog"><textarea aria-label="Other details"></textarea></div>
+        """
+    )
+
+    await driver.type_message("hello from main")
+
+    assert await page.get_by_role("main").get_by_role("textbox").inner_text() == "hello from main"
+    assert await page.get_by_role("textbox", name="Message search").input_value() == ""
+
+
+@pytest.mark.asyncio
+async def test_send_prefers_main_accessible_button_over_same_named_toolbar_action(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <header><button aria-label="Send prompt" onclick="window.wrong=true"></button></header>
+        <main>
+          <textarea aria-label="Message ChatGPT">hello</textarea>
+          <button aria-label="Send prompt" onclick="window.sent=true"></button>
+        </main>
+        """
+    )
+
+    await driver.click_send_button(timeout=0.2)
+
+    assert await page.evaluate("Boolean(window.sent)") is True
+    assert await page.evaluate("Boolean(window.wrong)") is False
+
+
+@pytest.mark.asyncio
 async def test_send_prefers_button_accessible_name(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
