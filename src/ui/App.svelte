@@ -412,6 +412,7 @@
   <main class="main-panel">
     <header class="topbar">
       <button
+        {@attach focusOnRequest(() => sidebarState.openerFocusRequest)}
         class="icon-button mobile-only"
         id="openSidebar"
         aria-label="Open sidebar"

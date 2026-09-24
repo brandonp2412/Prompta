@@ -1,6 +1,6 @@
 let motionEnd = () => {};
 
-export const sidebarState = $state({ open: false, moving: false });
+export const sidebarState = $state({ open: false, moving: false, openerFocusRequest: 0 });
 
 export type SidebarListModel = {
   emptyState: "none" | "search" | "filter" | "empty";
@@ -53,9 +53,13 @@ export function openSidebar() {
   sidebarState.open = true;
 }
 
-export function closeSidebar(_restoreFocus = false) {
+export function closeSidebar(restoreFocus = false) {
+  const shouldRestoreFocus = restoreFocus && sidebarState.open;
+
   sidebarState.moving = sidebarState.open;
   sidebarState.open = false;
+
+  if (shouldRestoreFocus) sidebarState.openerFocusRequest += 1;
 }
 
 export function finishSidebarMotion() {
