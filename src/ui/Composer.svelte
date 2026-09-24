@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { MediaQuery } from "svelte/reactivity";
-
   import AttachmentPicker from "./AttachmentPicker.svelte";
   import { appActions } from "./appActions.svelte";
   import { appViewState, requestComposerFocus } from "./appViewState.svelte";
@@ -14,7 +12,6 @@
     { command: "/at ", name: "/at", description: "Run a prompt at a date and time", id: "slashCommandAt" },
   ] as const;
 
-  const mobileInput = new MediaQuery("(max-width: 780px), (pointer: coarse)");
   let slashDismissed = $state(false);
 
   const visibleCommands = $derived.by(() => {
@@ -82,16 +79,6 @@
         appViewState.activeSlashCommand = "";
         return;
       }
-    }
-
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !event.isComposing &&
-      !mobileInput.current
-    ) {
-      event.preventDefault();
-      appActions.onSubmit();
     }
   }
 </script>

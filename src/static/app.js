@@ -7396,7 +7396,6 @@ var init_clientLogic = __esmMin((() => {
 //#endregion
 //#region src/ui/Composer.svelte
 init_client();
-init_index_client();
 init_appActions_svelte();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
@@ -7436,7 +7435,6 @@ function Composer($$anchor, $$props) {
 			id: "slashCommandAt"
 		}
 	];
-	const mobileInput = new MediaQuery("(max-width: 780px), (pointer: coarse)");
 	let slashDismissed = /* @__PURE__ */ state$1(false);
 	const visibleCommands = /* @__PURE__ */ user_derived(() => {
 		const value = appViewState.composerValue;
@@ -7484,10 +7482,6 @@ function Composer($$anchor, $$props) {
 				appViewState.activeSlashCommand = "";
 				return;
 			}
-		}
-		if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !mobileInput.current) {
-			event.preventDefault();
-			appActions.onSubmit();
 		}
 	}
 	var footer = root_6$4();
