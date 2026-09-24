@@ -678,6 +678,50 @@ def test_read_only_store_recovers_transient_dom_prose_when_parts_are_tool_only(
     assert content.index("Glass Serena · serena_repl") < content.index("Visible follow-up")
 
 
+def test_read_only_store_prefers_rich_tools_over_transient_thinking_placeholder(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-rich-tools-over-thinking"
+    fence = chr(96) * 3
+    invocation, result = _source_events()[1:3]
+    cache.start(
+        conversation_id,
+        context_id="context-rich-tools-over-thinking",
+        job_name="",
+        prompt="Inspect this",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Structured",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Inspect this"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": f"Thinking\n\n{fence}tool:tool\nCalled tool\n{fence}",
+                },
+            ],
+            "source_events": [invocation, result],
+        },
+        complete=True,
+    )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert assistant["parts_renderable"] is True
+    assert [part["kind"] for part in assistant["parts"]] == ["tool_call"]
+    assert "Glass Serena · serena_repl" in assistant["content"]
+    assert "Called tool" not in assistant["content"]
+    assert "Thinking" not in assistant["content"]
+
+
 def test_active_conversation_uses_structured_order_for_completed_assistant_turn(
     tmp_path: Path,
 ) -> None:

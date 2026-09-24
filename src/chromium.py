@@ -403,13 +403,23 @@ def ordered_assistant_content_from_messages(messages: list[dict[str, Any]]) -> s
 
 
 def preserves_non_tool_text(source: str, candidate: str) -> bool:
-    """Return whether candidate keeps all visible non-tool assistant text."""
+    """Return whether candidate keeps all meaningful non-tool assistant text."""
 
-    source_text = re.sub(r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(source or ""))).strip()
+    def meaningful_text(content: str) -> str:
+        prose = _TOOL_BLOCK_RE.sub("", str(content or ""))
+        blocks = [
+            re.sub(r"\s+", " ", block).strip()
+            for block in re.split(r"\n[ \t]*\n+", prose)
+            if block.strip()
+        ]
+        return " ".join(
+            block for block in blocks if block not in {"Thinking", "**Tool activity**"}
+        ).strip()
+
+    source_text = meaningful_text(source)
     if not source_text:
         return True
-    candidate_text = re.sub(r"\s+", " ", _TOOL_BLOCK_RE.sub("", str(candidate or ""))).strip()
-    return source_text in candidate_text
+    return source_text in meaningful_text(candidate)
 
 
 def finalize_completed_assistant_content(content: str) -> str:
