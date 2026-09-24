@@ -4,6 +4,7 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -78,13 +79,19 @@ def test_delivery_worker_sends_directly_through_browser_sender(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_delivery_success_releases_page_but_keeps_durable_active_handoff(
+async def test_delivery_success_preserves_page_for_conversation_worker_handoff(
     tmp_path: Path,
 ) -> None:
     cache_path = tmp_path / "chats.sqlite3"
+    fake_driver = SimpleNamespace(
+        is_connected=True,
+        handoff_context=AsyncMock(),
+        close=AsyncMock(),
+    )
     sender = BrowserDeliverySender(
         tmp_path / "runtime.sqlite3",
         cache_path=cache_path,
+        driver_factory=cast(Any, lambda: fake_driver),
     )
 
     async def fake_send_once(
@@ -95,6 +102,7 @@ async def test_delivery_success_releases_page_but_keeps_durable_active_handoff(
         attachments: list[str] | None = None,
     ) -> str:
         del attachments
+        await actions.ensure_driver()
         conversation_id = "chat-handoff"
         context_id = "prompta-delivery:send-tab"
         actions.cache.start(
@@ -114,6 +122,12 @@ async def test_delivery_success_releases_page_but_keeps_durable_active_handoff(
     with patch.object(ConversationActions, "send_once", fake_send_once):
         assert await sender._send_browser("once", "handoff", "", []) == "chat-handoff"
 
+    fake_driver.handoff_context.assert_awaited_once_with(
+        "prompta-delivery:send-tab",
+        ownership_prefix="prompta-conversation:",
+    )
+    fake_driver.close.assert_awaited_once()
+
     cache = ChatCache(cache_path)
     try:
         row = cache.connection.execute(
@@ -122,7 +136,7 @@ async def test_delivery_success_releases_page_but_keeps_durable_active_handoff(
         ).fetchone()
         assert row is not None
         assert row["status"] == "active"
-        assert row["browser_context_id"] == ""
+        assert row["browser_context_id"] == "prompta-delivery:send-tab"
     finally:
         cache.close()
 

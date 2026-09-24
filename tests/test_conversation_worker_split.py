@@ -21,6 +21,8 @@ class FakeTrackingDriver:
         self.needs_browser_restart = False
         self.closed_contexts: list[str] = []
         self.closed = False
+        self.handoff_context_id: str | None = None
+        self.new_tab_calls = 0
 
     async def connect(self) -> None:
         self.is_connected = True
@@ -32,7 +34,11 @@ class FakeTrackingDriver:
         del context
         return False
 
+    async def find_context_for_path(self, _expected_path: str) -> str | None:
+        return self.handoff_context_id
+
     async def new_tab(self, _url: str = "https://chatgpt.com/") -> str:
+        self.new_tab_calls += 1
         return self.context_id
 
     async def eval(self, _script: str, *, context: str | None = None) -> str:
@@ -215,6 +221,43 @@ async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
         assert _browser_context_id(worker.cache, conversation_id) == (
             "prompta-conversation:recovered"
         )
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_worker_claims_delivery_handoff_before_reloading(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    cache_path = tmp_path / "chats.sqlite3"
+    conversation_id = "chat-live-handoff"
+
+    delivery_cache = ChatCache(cache_path)
+    delivery_cache.start(
+        conversation_id,
+        context_id="prompta-delivery:send-tab",
+        job_name="",
+        prompt="Do the work",
+    )
+    delivery_cache.close()
+
+    driver = FakeTrackingDriver("prompta-conversation:claimed", conversation_id)
+    driver.handoff_context_id = driver.context_id
+    worker = ConversationWorker(
+        state_path,
+        cache_path=cache_path,
+        driver_factory=cast(Any, lambda: driver),
+        recovery_message_timeout_seconds=0.01,
+    )
+    try:
+        assert await worker.run_once() is True
+        assert driver.new_tab_calls == 0
+        assert list(worker.tracker.active) == ["prompta-conversation:claimed"]
+        assert _browser_context_id(worker.cache, conversation_id) == (
+            "prompta-conversation:claimed"
+        )
+        assert worker.cache.status(conversation_id) == "active"
     finally:
         await worker.close()
 

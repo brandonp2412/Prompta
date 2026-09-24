@@ -296,8 +296,17 @@ class ConversationTracker:
             target_url = str(row.get("url") or f"https://chatgpt.com/c/{conversation_id}")
             context = ""
             try:
-                context = await driver.new_tab(target_url)
                 expected_path = urlsplit(target_url).path.rstrip("/")
+                find_context_for_path = getattr(driver, "find_context_for_path", None)
+                if callable(find_context_for_path):
+                    context = await find_context_for_path(expected_path) or ""
+                if context:
+                    logger.info(
+                        "Prompta claimed live delivery handoff conversation=%s",
+                        conversation_id,
+                    )
+                else:
+                    context = await driver.new_tab(target_url)
                 await self.ensure_route(driver, expected_path, context=context)
                 snapshot: dict[str, Any] = {}
                 messages: list[Any] = []

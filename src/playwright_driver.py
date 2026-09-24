@@ -48,6 +48,7 @@ from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
+_HANDOFF_PAGE_OWNER_ID = "handoff"
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
@@ -247,7 +248,10 @@ class PlaywrightDriver(BrowserDriverBase):
                 # Legacy ownership markers cannot prove that another live process
                 # does not still own the page, so fail safe and leave them alone.
                 continue
-            if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
+            if owner_id not in {
+                self.page_owner_id,
+                _HANDOFF_PAGE_OWNER_ID,
+            } and owned_window_owner_alive(owner_id):
                 continue
             try:
                 await page.close()
@@ -529,10 +533,24 @@ class PlaywrightDriver(BrowserDriverBase):
             context_id = self._page_contexts.get(page)
             if context_id:
                 return context_id
-            if not await self._is_owned_page(page):
+            owner_id = await self._owned_page_owner_id(page)
+            if owner_id == _HANDOFF_PAGE_OWNER_ID:
+                await self._mark_owned(page)
+            elif owner_id != self.page_owner_id:
                 continue
             return self._register_page(page, owned=True)
         return None
+
+    async def handoff_context(self, context: str, *, ownership_prefix: str) -> None:
+        page = self._page(context)
+        await page.evaluate(
+            load_browser_script("set_window_name.js"),
+            new_owned_window_marker(
+                prefix=ownership_prefix,
+                owner_id=_HANDOFF_PAGE_OWNER_ID,
+            ),
+        )
+        self._owned_contexts.discard(context)
 
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         browser_context = self._browser_context

@@ -540,6 +540,49 @@ async def test_find_context_for_path_only_adopts_prompta_owned_pages(live_driver
 
 
 @pytest.mark.asyncio
+async def test_handoff_context_keeps_page_open_for_tracker_claim(
+    live_driver,
+    tmp_path: Path,
+) -> None:
+    driver, _page = live_driver
+    context = driver._browser_context
+    assert context is not None
+
+    async def fulfill(route):
+        await route.fulfill(status=200, content_type="text/html", body="<main>chat</main>")
+
+    await context.route("https://chatgpt.com/**", fulfill)
+    delivery_context = await driver.new_tab("https://chatgpt.com/c/handoff")
+    delivery_page = driver._pages[delivery_context]
+
+    await driver.handoff_context(
+        delivery_context,
+        ownership_prefix="prompta-conversation:",
+    )
+
+    assert delivery_context not in driver._owned_contexts
+    assert not delivery_page.is_closed()
+    marker = await delivery_page.evaluate("window.name")
+    assert marker.startswith("prompta-conversation:")
+    assert ":handoff:" in marker
+
+    tracker = PlaywrightDriver(
+        profile=tmp_path / "tracker-profile",
+        ownership_prefix="prompta-conversation:",
+    )
+    tracker._browser = driver._browser
+    tracker._browser_context = context
+    tracker._connected = True
+
+    claimed_context = await tracker.find_context_for_path("/c/handoff")
+
+    assert claimed_context
+    assert tracker._pages[claimed_context] is delivery_page
+    claimed_marker = await delivery_page.evaluate("window.name")
+    assert f":{tracker.page_owner_id}:" in claimed_marker
+
+
+@pytest.mark.asyncio
 async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_driver) -> None:
     driver, page = live_driver
     context = driver._browser_context
@@ -547,6 +590,8 @@ async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_d
 
     stale_orphan = await context.new_page()
     await stale_orphan.evaluate("window.name='prompta:1:99999999-dead:stale'")
+    stale_handoff = await context.new_page()
+    await stale_handoff.evaluate("window.name='prompta:1:handoff:stale'")
     recent_orphan = await context.new_page()
     await recent_orphan.evaluate(
         "(stamp) => { window.name = 'prompta:' + stamp + ':99999999-dead:recent'; }",
@@ -566,8 +611,9 @@ async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_d
             interval_seconds=1,
         )
 
-    assert closed == 1
+    assert closed == 2
     assert stale_orphan.is_closed()
+    assert stale_handoff.is_closed()
     assert not recent_orphan.is_closed()
     assert not live_peer.is_closed()
     assert not unrelated.is_closed()

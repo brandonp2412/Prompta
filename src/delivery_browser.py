@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import os
 import time
@@ -17,8 +18,11 @@ from .rate_limit import RateLimitError
 from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import DeliveryBackendUnavailableError
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
+_CONVERSATION_WINDOW_PREFIX = "prompta-conversation:"
 
 
 class BrowserDeliverySender:
@@ -185,13 +189,28 @@ class BrowserDeliverySender:
                     raise DeliveryBackendUnavailableError(str(exc)) from exc
                 raise
         finally:
-            for context, tracked in list(active.items()):
-                cache.release_browser_context(
-                    tracked.conversation_id,
-                    context_id=context,
-                )
-            active.clear()
             driver = browser.driver
+            for context, tracked in list(active.items()):
+                handed_off = False
+                if driver is not None:
+                    try:
+                        await driver.handoff_context(
+                            context,
+                            ownership_prefix=_CONVERSATION_WINDOW_PREFIX,
+                        )
+                        handed_off = True
+                    except Exception:
+                        logger.warning(
+                            "Prompta could not preserve sent conversation=%s for tracker handoff",
+                            tracked.conversation_id,
+                            exc_info=True,
+                        )
+                if not handed_off:
+                    cache.release_browser_context(
+                        tracked.conversation_id,
+                        context_id=context,
+                    )
+            active.clear()
             if driver is not None:
                 await driver.close()
             cache.close()
