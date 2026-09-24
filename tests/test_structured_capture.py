@@ -824,8 +824,8 @@ def test_read_only_store_recovers_dom_prose_when_only_final_text_survived(
 
     observations = [
         (99.0, ["Visible intro"]),
-        (102.0, ["Visible intro", "Visible follow-up"]),
-        (104.0, ["Visible intro", "Visible follow-up", "Finished"]),
+        (102.0, ["Visible follow-up"]),
+        (104.0, ["Finished"]),
     ]
     with cache.connection:
         for index, (observed_at, parts) in enumerate(observations, start=1):

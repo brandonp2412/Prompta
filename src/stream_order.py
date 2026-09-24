@@ -221,21 +221,34 @@ def compact_prose_observation(content: str) -> str:
 def observed_prose_blocks(
     observations: list[tuple[float, str]],
 ) -> list[tuple[float, str]]:
-    """Return final cumulative prose blocks paired with their first-seen time."""
+    """Return every logical prose block paired with its first-seen time."""
 
-    if not observations:
-        return []
-    latest_content = observations[-1][1]
-    blocks = _collapsed_observation_blocks(latest_content)
-    result: list[tuple[float, str]] = []
-    for block in blocks:
-        if _is_transient_activity(block):
-            continue
-        first_seen = _observed_at(block, observations)
-        if first_seen is None:
-            first_seen = observations[-1][0]
-        result.append((first_seen, block.content.strip()))
-    return result
+    observed_blocks: list[tuple[float, _Block]] = []
+    for observed_at, content in observations:
+        for block in _collapsed_observation_blocks(content):
+            if _is_transient_activity(block):
+                continue
+            matching_index = next(
+                (
+                    index
+                    for index, (_, existing) in enumerate(observed_blocks)
+                    if _prose_matches(existing, block)
+                ),
+                None,
+            )
+            if matching_index is None:
+                observed_blocks.append((observed_at, block))
+                continue
+
+            first_seen, existing = observed_blocks[matching_index]
+            if len(block.normalized) >= len(existing.normalized):
+                observed_blocks[matching_index] = (first_seen, block)
+
+    return [
+        (first_seen, block.content.strip())
+        for first_seen, block in observed_blocks
+        if block.content.strip()
+    ]
 
 
 def _observed_at(block: _Block, observations: list[tuple[float, str]]) -> float | None:

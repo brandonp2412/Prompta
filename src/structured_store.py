@@ -626,30 +626,35 @@ def promote_structured_capture(
     incoming_events: list[dict[str, Any]],
     observed_at: float,
 ) -> None:
-    """Carry structured tool/prose capture from a live DOM key to its durable message id."""
+    """Carry structured capture and its live prose history to the durable message id."""
     inherited_events: list[dict[str, Any]] = []
+    dom_prose_history: list[tuple[Any, ...]] = []
     latest_dom_prose: dict[str, Any] | None = None
     latest_dom_observed_at = float("-inf")
     for row in connection.execute(
         """
-        SELECT raw_json, observed_at
+        SELECT event_key, ordinal, event_type, role, recipient, content_type,
+               text, reasoning_title, source_created_at, end_turn, model_slug,
+               raw_json, observed_at
         FROM source_events
         WHERE conversation_id = ? AND message_key = ?
-        ORDER BY ordinal, observed_at, rowid
+        ORDER BY observed_at, rowid
         """,
         (conversation_id, transient_message_key),
     ).fetchall():
         try:
-            event = json.loads(str(row[0] or "{}"))
+            event = json.loads(str(row[11] or "{}"))
         except json.JSONDecodeError:
             continue
         if not isinstance(event, dict):
             continue
         if str(event.get("id") or "").endswith(":dom-prose"):
-            observed = float(row[1] or 0.0)
-            if _meaningful_dom_prose(event) and observed >= latest_dom_observed_at:
-                latest_dom_prose = event
-                latest_dom_observed_at = observed
+            observed = float(row[12] or 0.0)
+            if _meaningful_dom_prose(event):
+                dom_prose_history.append(tuple(row))
+                if observed >= latest_dom_observed_at:
+                    latest_dom_prose = event
+                    latest_dom_observed_at = observed
             continue
         inherited_events.append(event)
 
@@ -688,6 +693,23 @@ def promote_structured_capture(
                 """,
                 (durable_message_key, conversation_id, transient_message_key),
             )
+
+    if dom_prose_history:
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO source_events (
+                conversation_id, message_key, event_key, ordinal, event_type,
+                role, recipient, content_type, text, reasoning_title,
+                source_created_at, end_turn, model_slug, raw_json, observed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [(conversation_id, durable_message_key, *row) for row in dom_prose_history],
+        )
+        _canonicalize_source_event_order(
+            connection,
+            conversation_id=conversation_id,
+            message_key=durable_message_key,
+        )
 
     for table in ("source_events", "message_parts", "tool_calls"):
         connection.execute(

@@ -672,6 +672,27 @@ def test_snapshot_handoff_retains_latest_meaningful_dom_prose(
         },
     )
 
+    middle_dom_prose = {
+        **dom_prose,
+        "parts": ["Visible middle"],
+    }
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": transient_key,
+                    "role": "assistant",
+                    "content": f"Visible middle\n\n{fence}tool:tool\nCalled tool\n{fence}",
+                },
+            ],
+            "source_events": [invocation, result, middle_dom_prose],
+        },
+    )
+
     interruption = {
         **dom_prose,
         "id": "a1:dom-prose",
@@ -705,14 +726,15 @@ def test_snapshot_handoff_retains_latest_meaningful_dom_prose(
     ).fetchall()
     durable_dom_rows = cache.connection.execute(
         """
-        SELECT COUNT(*)
+        SELECT raw_json
         FROM source_events
         WHERE conversation_id = ?
           AND message_key = ?
           AND event_key LIKE '%:dom-prose:%'
+        ORDER BY observed_at, rowid
         """,
         (conversation_id, "a1"),
-    ).fetchone()[0]
+    ).fetchall()
     transient_rows = cache.connection.execute(
         """
         SELECT COUNT(*)
@@ -724,11 +746,15 @@ def test_snapshot_handoff_retains_latest_meaningful_dom_prose(
     cache.close()
 
     assert any(
-        row["kind"] == "assistant_text" and "Visible progress" in row["content"]
+        row["kind"] == "assistant_text" and "Visible middle" in row["content"]
         for row in durable_parts
     )
     assert any(row["kind"] == "tool_call" for row in durable_parts)
-    assert durable_dom_rows >= 1
+    durable_dom_text = [
+        "\n\n".join(json.loads(str(row["raw_json"]))["parts"]) for row in durable_dom_rows
+    ]
+    assert "Visible progress" in durable_dom_text
+    assert "Visible middle" in durable_dom_text
     assert transient_rows == 0
 
 

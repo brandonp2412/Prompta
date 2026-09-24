@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from prompta.stream_order import (
     has_stream_order_inversion,
+    observed_prose_blocks,
     recover_stream_order_from_observations,
     stabilize_streaming_content,
 )
@@ -70,6 +71,33 @@ def test_streaming_content_appends_growth_after_already_visible_tool() -> None:
     content = stabilize_streaming_content(previous, incoming)
 
     assert content == f"{intro}\n\n{tool}\n\nNew streamed text."
+
+
+def test_observed_prose_blocks_preserve_disappearing_progress_updates() -> None:
+    observations = [
+        (10.0, "Inspecting the failing chat"),
+        (20.0, "I found the persistence gap"),
+        (30.0, "Fixed and deployed."),
+    ]
+
+    assert observed_prose_blocks(observations) == [
+        (10.0, "Inspecting the failing chat"),
+        (20.0, "I found the persistence gap"),
+        (30.0, "Fixed and deployed."),
+    ]
+
+
+def test_observed_prose_blocks_coalesce_streaming_growth_across_observations() -> None:
+    observations = [
+        (10.0, "Inspecting"),
+        (11.0, "Inspecting the failing chat"),
+        (20.0, "Inspecting the failing chat\n\nI found the persistence gap"),
+    ]
+
+    assert observed_prose_blocks(observations) == [
+        (10.0, "Inspecting the failing chat"),
+        (20.0, "I found the persistence gap"),
+    ]
 
 
 def test_observation_history_repairs_tool_first_stream_order() -> None:
