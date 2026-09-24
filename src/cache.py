@@ -167,6 +167,7 @@ class ActiveConversation:
     final_text_missing_since_epoch: float = 0.0
     final_text_recovery_attempts: int = 0
     structured_tool_blocks: tuple[str, ...] = ()
+    extraction_diagnostic_fingerprint: str = ""
 
 
 class ChatCache:

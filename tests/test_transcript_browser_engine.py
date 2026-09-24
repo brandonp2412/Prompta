@@ -109,6 +109,12 @@ def test_snapshot_and_live_react_paths_share_source_event_semantics() -> None:
     assert live["messages"][0]["reasoning_title"] == "Checking"
     assert live["messages"][1]["connector_name"] == "Glass Serena"
     assert live["messages"][2]["attachments"] == [{"name": "result.txt"}]
+    diagnostics = snapshot["extraction_diagnostics"]
+    assert diagnostics["message_provenance"] == ["react-private-properties"]
+    assert diagnostics["source_event_provenance"] == ["react-private-properties"]
+    assert diagnostics["fallback_used"] is True
+    assert "transcript-gap" in diagnostics["fallback_reasons"]
+    assert diagnostics["unreconciled_expected_content"] == []
 
 
 def test_snapshot_and_live_scripts_embed_the_same_transcript_engine_once() -> None:

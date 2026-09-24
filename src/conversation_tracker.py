@@ -82,8 +82,94 @@ class ConversationTracker:
         *,
         complete: bool = False,
     ) -> None:
-        self.cache.write_snapshot(conversation_id, snapshot, complete=complete)
-        self.tool_diff_capture.observe_snapshot(conversation_id, snapshot)
+        persisted_snapshot = dict(snapshot)
+        persisted_snapshot.pop("extraction_diagnostics", None)
+        self.cache.write_snapshot(conversation_id, persisted_snapshot, complete=complete)
+        self.tool_diff_capture.observe_snapshot(conversation_id, persisted_snapshot)
+
+    def _observe_extraction_diagnostics(
+        self,
+        active: ActiveConversation,
+        snapshot: dict[str, Any],
+        activity: dict[str, Any] | None = None,
+    ) -> None:
+        diagnostics = snapshot.get("extraction_diagnostics")
+        if not isinstance(diagnostics, dict):
+            return
+
+        activity_fallback = (activity or {}).get("react_fallback")
+        fallback_used = bool(diagnostics.get("fallback_used")) or (
+            isinstance(activity_fallback, dict) and bool(activity_fallback.get("used"))
+        )
+        unreconciled = tuple(
+            str(value)
+            for value in diagnostics.get("unreconciled_expected_content") or []
+            if str(value)
+        )
+        if not fallback_used and not unreconciled:
+            active.extraction_diagnostic_fingerprint = ""
+            return
+
+        message_provenance = tuple(
+            str(value) for value in diagnostics.get("message_provenance") or [] if str(value)
+        )
+        source_event_provenance = tuple(
+            str(value) for value in diagnostics.get("source_event_provenance") or [] if str(value)
+        )
+        fallback_reasons = [
+            str(value) for value in diagnostics.get("fallback_reasons") or [] if str(value)
+        ]
+        fallback_errors: list[str] = []
+        fallback_summary = snapshot.get("react_fallback")
+        attempts = fallback_summary.get("attempts") if isinstance(fallback_summary, dict) else []
+        if isinstance(attempts, list):
+            for attempt in attempts:
+                if not isinstance(attempt, dict) or not attempt.get("used"):
+                    continue
+                reason = str(attempt.get("reason") or "")
+                if reason and reason not in fallback_reasons:
+                    fallback_reasons.append(reason)
+                error = str(attempt.get("error") or "")
+                if error:
+                    fallback_errors.append(error)
+        if isinstance(activity_fallback, dict) and activity_fallback.get("used"):
+            reason = str(activity_fallback.get("reason") or "")
+            if reason and reason not in fallback_reasons:
+                fallback_reasons.append(reason)
+            error = str(activity_fallback.get("error") or "")
+            if error:
+                fallback_errors.append(error)
+
+        reasons = tuple(fallback_reasons)
+        errors = tuple(dict.fromkeys(fallback_errors))
+        fingerprint = repr(
+            (message_provenance, source_event_provenance, reasons, unreconciled, errors)
+        )
+        if fingerprint == active.extraction_diagnostic_fingerprint:
+            return
+        active.extraction_diagnostic_fingerprint = fingerprint
+
+        if unreconciled or errors:
+            logger.warning(
+                "Prompta transcript extraction diagnostics conversation=%s "
+                "message_provenance=%s source_event_provenance=%s fallback_reasons=%s "
+                "unreconciled=%s errors=%s",
+                active.conversation_id,
+                message_provenance,
+                source_event_provenance,
+                reasons,
+                unreconciled,
+                errors,
+            )
+            return
+        logger.debug(
+            "Prompta transcript extraction fallback conversation=%s "
+            "message_provenance=%s source_event_provenance=%s reasons=%s",
+            active.conversation_id,
+            message_provenance,
+            source_event_provenance,
+            reasons,
+        )
 
     async def recover_completed_final_from_backend(
         self,
@@ -288,6 +374,7 @@ class ConversationTracker:
                     last_live_snapshot_at=time.monotonic(),
                     recovered_cache_updated_at=float(row.get("updated_at") or 0.0),
                 )
+                self._observe_extraction_diagnostics(self.active[context], snapshot)
                 recovered += 1
                 logger.info(
                     "Prompta reattached live conversation=%s after restart",
@@ -561,6 +648,7 @@ class ConversationTracker:
                 snapshot["activity"] = dict(activity)
                 if streaming_hint:
                     snapshot["streaming"] = True
+                self._observe_extraction_diagnostics(active, snapshot, activity)
             except BrowsingContextUnavailableError:
                 if self.cache.status(active.conversation_id) == "active":
                     self.cache.mark_interrupted(active.conversation_id)

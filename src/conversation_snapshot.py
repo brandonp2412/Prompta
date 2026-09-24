@@ -366,6 +366,8 @@ __TRANSCRIPT_BROWSER_ENGINE__
     if(finalText)parts.push(finalText);
     return collapseStreamingTextParts(parts).join('\\n\\n').trim();
   };
+  const extractionProvenance=new Set();
+  const unreconciledExpectedContent=[];
   const roleNodes=authorNodes();
   const userNodes=authorNodes('user');
   const assistantNodes=authorNodes('assistant');
@@ -410,6 +412,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
     }
   }
   entries.splice(0,entries.length,...dedupedEntries);
+  if(entries.length)extractionProvenance.add('dom-role');
   const explicitUserTurns=new Set(userNodes.map(turnRoot).filter(Boolean));
   const semanticAssistantTurns=[...new Set([
     ...assistantNodes.map(turnRoot).filter(Boolean),
@@ -431,6 +434,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
     ...legacyAssistantTurns
   ])];
   for(const [agentIndex,agent] of candidates.entries()){
+    const candidateProvenance=semanticAssistantSet.has(agent)?'dom-semantic-turn':'dom-legacy-turn';
     const rows=toolRows(agent);
     const prose=proseRows(agent,rows);
     const richText=prose.map(markdownText).filter(Boolean);
@@ -489,11 +493,10 @@ __TRANSCRIPT_BROWSER_ENGINE__
       const visibleText=normalise(text);
       return !visibleText||reactVisible.includes(visibleText);
     });
-    const content=((reactOrdered&&reactHasVisibleText&&reactKeepsVisibleText)
-      ?reactOrdered
-      :fallbackContent
-    ).trim();
+    const usesReactContent=Boolean(reactOrdered&&reactHasVisibleText&&reactKeepsVisibleText);
+    const content=(usesReactContent?reactOrdered:fallbackContent).trim();
     if(!content)continue;
+    extractionProvenance.add(usesReactContent?'react-private-properties':candidateProvenance);
     const nested=authorNode(agent,'assistant');
     const id=turnMessageId(agent,'assistant');
     if(id.startsWith('request-placeholder-'))continue;
@@ -535,6 +538,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
     ?reactMessages(pageReactRoot,'transcript-gap')
     :[];
   if(!entries.length&&pageReactMessages.length){
+    extractionProvenance.add('react-private-properties');
     for(const message of pageReactMessages){
       const role=String(message?.author?.role||message?.role||'');
       const recipient=String(message?.recipient||'');
@@ -580,6 +584,8 @@ __TRANSCRIPT_BROWSER_ENGINE__
   if(latestTurnUserIndex>=0){
     latestTurnReactMessages=latestTurnReactMessages.slice(latestTurnUserIndex+1);
   }
+  const sourceEventProvenance=new Set();
+  if(latestTurnReactMessages.length)sourceEventProvenance.add('react-private-properties');
   let sourceEvents=latestTurnReactMessages.filter(message=>{
     const role=String(message?.author?.role||message?.role||'');
     const recipient=String(message?.recipient||'');
@@ -629,6 +635,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
       const syntheticEndTurn=typeof turnEnded==='boolean'
         ?turnEnded
         :(!(stop||streamActive)?true:null);
+      sourceEventProvenance.add('dom-visible-prose');
       sourceEvents=[...sourceEvents,{
         id:(visibleMessageId||latestAssistantMessage?.id||'__prompta_visible_assistant__')+':dom-prose',
         parent_id:'',
@@ -654,13 +661,34 @@ __TRANSCRIPT_BROWSER_ENGINE__
       }];
     }
   }
+  const sourceHasStructuredToolEvent=sourceEvents.some(event=>(
+    event.role==='tool'||event.recipient==='api_tool.call_tool'
+  ));
+  if(latestHasToolDom&&!sourceHasStructuredToolEvent){
+    unreconciledExpectedContent.push('structured-tool-source-events');
+  }
+  if(candidates.length&&!messages.some(message=>message.role==='assistant')){
+    unreconciledExpectedContent.push('visible-assistant-message');
+  }
+  const fallbackSummary=promptaTranscriptEngine.reactFallbackSummary();
+  const fallbackReasons=[...new Set(fallbackSummary.attempts
+    .filter(attempt=>attempt.used)
+    .map(attempt=>attempt.reason)
+    .filter(Boolean))];
   return {
     path:location.pathname,
     title:document.title||'',
     messages,
     source_events:sourceEvents,
     streaming:stop||streamActive||turnEnded===false,
-    react_fallback:promptaTranscriptEngine.reactFallbackSummary()
+    react_fallback:fallbackSummary,
+    extraction_diagnostics:{
+      message_provenance:[...extractionProvenance],
+      source_event_provenance:[...sourceEventProvenance],
+      fallback_used:Boolean(fallbackSummary.used),
+      fallback_reasons:fallbackReasons,
+      unreconciled_expected_content:unreconciledExpectedContent
+    }
   };
 })())"""
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from prompta import conversation_worker as conversation_worker_module
-from prompta.cache import ChatCache
+from prompta.cache import ActiveConversation, ChatCache
 from prompta.conversation_worker import ConversationWorker
 
 
@@ -94,6 +95,65 @@ def test_conversation_worker_uses_separate_browser_ownership_scope(tmp_path: Pat
     try:
         driver = worker._new_driver()
         assert driver.ownership_prefix == "prompta-conversation:"
+    finally:
+        worker.cache.close()
+
+
+def test_conversation_worker_deduplicates_extraction_diagnostics(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    worker = ConversationWorker(
+        tmp_path / "runtime.sqlite3",
+        cache_path=tmp_path / "chats.sqlite3",
+    )
+    active = ActiveConversation(
+        conversation_id="chat-diagnostics",
+        context_id="prompta-conversation:diagnostics",
+        job_name="",
+        prompt="Inspect extraction",
+    )
+    snapshot = {
+        "extraction_diagnostics": {
+            "message_provenance": ["dom-role"],
+            "source_event_provenance": ["react-private-properties"],
+            "fallback_used": True,
+            "fallback_reasons": ["source-events"],
+            "unreconciled_expected_content": [],
+        },
+        "react_fallback": {
+            "attempts": [
+                {
+                    "used": True,
+                    "reason": "source-events",
+                    "error": "",
+                }
+            ]
+        },
+    }
+
+    try:
+        with caplog.at_level(logging.DEBUG, logger="prompta.conversation_tracker"):
+            worker.tracker._observe_extraction_diagnostics(active, snapshot)
+            worker.tracker._observe_extraction_diagnostics(active, snapshot)
+
+        fallback_records = [
+            record
+            for record in caplog.records
+            if "transcript extraction fallback" in record.getMessage()
+        ]
+        assert len(fallback_records) == 1
+        assert "source-events" in fallback_records[0].getMessage()
+
+        snapshot["extraction_diagnostics"]["unreconciled_expected_content"] = [
+            "structured-tool-source-events"
+        ]
+        with caplog.at_level(logging.WARNING, logger="prompta.conversation_tracker"):
+            worker.tracker._observe_extraction_diagnostics(active, snapshot)
+
+        assert any(
+            "unreconciled=('structured-tool-source-events',)" in record.getMessage()
+            for record in caplog.records
+        )
     finally:
         worker.cache.close()
 

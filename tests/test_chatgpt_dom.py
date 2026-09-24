@@ -66,10 +66,10 @@ def test_snapshot_has_explicit_page_level_react_fallback_adapter() -> None:
     assert "reactFallback.inspect(root,{allow:true,reason" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "!entries.length&&pageReactRoot" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "reactMessages(pageReactRoot,'transcript-gap')" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert (
-        "react_fallback:promptaTranscriptEngine.reactFallbackSummary()"
-        in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const fallbackSummary=promptaTranscriptEngine.reactFallbackSummary();" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
     )
+    assert "react_fallback:fallbackSummary" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
 def test_react_fallback_orders_messages_by_parent_chain_before_timestamps() -> None:
@@ -206,6 +206,10 @@ def test_snapshot_discovers_semantic_and_structural_turns_without_styling_classe
     assert contents[2] == "Question two"
     assert contents[3].endswith("Answer two")
     assert snapshot["react_fallback"]["used"] is False
+    diagnostics = snapshot["extraction_diagnostics"]
+    assert "dom-role" in diagnostics["message_provenance"]
+    assert diagnostics["fallback_used"] is False
+    assert diagnostics["unreconciled_expected_content"] == []
 
 
 def test_snapshot_preserves_role_nodes_visibility_and_streaming_semantics() -> None:
@@ -282,6 +286,9 @@ def test_snapshot_preserves_prose_tool_order_across_class_name_churn(
     content = snapshot["messages"][-1]["content"]
     assert content.index("Before **tool**.") < content.index("Glass Serena")
     assert content.index("Glass Serena") < content.index("After ")
+    assert snapshot["extraction_diagnostics"]["unreconciled_expected_content"] == [
+        "structured-tool-source-events"
+    ]
 
 
 def test_snapshot_script_parses_as_javascript(tmp_path) -> None:
