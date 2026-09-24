@@ -459,13 +459,24 @@ __REACT_FALLBACK_ADAPTER__
   }).filter(message=>message.role&&message.content&&!(
     message.role==='assistant'&&message.id.startsWith('request-placeholder-')
   ));
-  const seenRoleKeys=new Set();
-  for(let index=entries.length-1;index>=0;index-=1){
-    const message=entries[index];
+  const dedupedEntries=[];
+  const seenRoleKeys=new Map();
+  for(const message of entries){
     const key=message.role+'|'+(message.id||normalise(message.content));
-    if(seenRoleKeys.has(key))entries.splice(index,1);
-    else seenRoleKeys.add(key);
+    const existingIndex=seenRoleKeys.get(key);
+    if(existingIndex===undefined){
+      seenRoleKeys.set(key,dedupedEntries.length);
+      dedupedEntries.push(message);
+      continue;
+    }
+    const existing=dedupedEntries[existingIndex];
+    const existingVisible=visible(turnRoot(existing.node)||existing.node);
+    const messageVisible=visible(turnRoot(message.node)||message.node);
+    if(messageVisible||!existingVisible){
+      dedupedEntries[existingIndex]=message;
+    }
   }
+  entries.splice(0,entries.length,...dedupedEntries);
   const explicitUserTurns=new Set(userNodes.map(turnRoot).filter(Boolean));
   const semanticAssistantTurns=[...new Set([
     ...assistantNodes.map(turnRoot).filter(Boolean),
