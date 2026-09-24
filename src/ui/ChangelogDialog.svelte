@@ -72,6 +72,7 @@
   class="changelog-dialog"
   id="changelogDialog"
   aria-labelledby="changelogDialogTitle"
+  aria-describedby="changelogDialogStatus"
   data-presentation={presentation}
   onclick={(event) => {
     if (event.target === event.currentTarget && presentation !== "stack") close();
@@ -81,7 +82,7 @@
     <header class="changelog-dialog-header">
       <div>
         <h2 id="changelogDialogTitle">Changelog</h2>
-        <p id="changelogDialogStatus">{status}</p>
+        <p id="changelogDialogStatus" role="status" aria-live="polite" aria-atomic="true">{status}</p>
       </div>
       <button
         type="button"
@@ -93,7 +94,11 @@
         ×
       </button>
     </header>
-    <ol class="changelog-list" id="changelogList">
+    <ol
+      class="changelog-list"
+      id="changelogList"
+      aria-busy={status.startsWith("Loading") || loadingMore}
+    >
       {#if failed}
         <li class="changelog-empty">Could not load changelog.</li>
       {:else if changes.length}

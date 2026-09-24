@@ -6260,7 +6260,7 @@ var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span clas
 var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
 var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_5$6 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_6$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_6$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle" aria-describedby="changelogDialogStatus"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus" role="status" aria-live="polite" aria-atomic="true"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
 	const CHANGELOG_PAGE_SIZE = 100;
@@ -6388,10 +6388,11 @@ function ChangelogDialog($$anchor, $$props) {
 	reset(div);
 	reset(dialog);
 	attach(dialog, () => dialogVisibility(() => get(open), () => get(presentation) === "modal", close));
-	template_effect(() => {
+	template_effect(($0) => {
 		set_attribute(dialog, "data-presentation", get(presentation));
 		set_text(text, get(status));
-	});
+		set_attribute(ol, "aria-busy", $0);
+	}, [() => get(status).startsWith("Loading") || get(loadingMore)]);
 	delegated("click", dialog, (event) => {
 		if (event.target === event.currentTarget && get(presentation) !== "stack") close();
 	});
