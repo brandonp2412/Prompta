@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 
+from prompta import conversation_worker as conversation_worker_module
 from prompta.cache import ChatCache
 from prompta.conversation_worker import ConversationWorker
 
@@ -149,6 +152,33 @@ async def test_conversation_worker_restart_reclaims_durable_active_handoff(
         assert second.cache.status(conversation_id) == "active"
     finally:
         await second.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_worker_keeps_watchdog_alive_during_long_async_poll(
+    tmp_path: Path,
+) -> None:
+    worker = ConversationWorker(
+        tmp_path / "runtime.sqlite3",
+        cache_path=tmp_path / "chats.sqlite3",
+    )
+
+    async def slow_poll() -> bool:
+        await asyncio.sleep(0.04)
+        raise RuntimeError("stop after heartbeat")
+
+    try:
+        with (
+            patch.object(worker, "run_once", new=slow_poll),
+            patch.object(conversation_worker_module, "_WATCHDOG_HEARTBEAT_SECONDS", 0.01),
+            patch.object(conversation_worker_module, "notify_watchdog") as notify,
+            pytest.raises(RuntimeError, match="stop after heartbeat"),
+        ):
+            await worker.run_forever()
+
+        assert notify.call_count >= 3
+    finally:
+        await worker.close()
 
 
 def test_reply_busy_is_derived_from_durable_cache_not_local_tracker(tmp_path: Path) -> None:

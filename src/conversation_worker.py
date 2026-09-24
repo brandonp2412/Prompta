@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import os
+from contextlib import suppress
 from pathlib import Path
 
 from .browser_session import BrowserSession, DriverFactory
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 _CONVERSATION_WINDOW_PREFIX = "prompta-conversation:"
 _DEFAULT_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 12.0
 _DEFAULT_POLL_SECONDS = 1.0
+_WATCHDOG_HEARTBEAT_SECONDS = 30.0
 
 
 class ConversationWorker:
@@ -129,21 +131,32 @@ class ConversationWorker:
             return False
         return recovered > 0 or bool(self.tracker.active)
 
+    async def _watchdog_heartbeat(self) -> None:
+        while True:
+            await asyncio.sleep(_WATCHDOG_HEARTBEAT_SECONDS)
+            notify_watchdog()
+
     async def run_forever(self) -> None:
         logger.info(
             "Prompta conversation worker tracking %s via durable SQLite handoff",
             self.cache_path,
         )
         health = ServiceHealthStore(self.runtime.state_path)
-        while True:
-            health.begin_activity("conversation_worker", "poll")
-            notify_watchdog()
-            try:
-                did_work = await self.run_once()
-            finally:
-                health.end_activity("conversation_worker", "poll")
+        watchdog_task = asyncio.create_task(self._watchdog_heartbeat())
+        try:
+            while True:
+                health.begin_activity("conversation_worker", "poll")
                 notify_watchdog()
-            await asyncio.sleep(0.25 if did_work else _DEFAULT_POLL_SECONDS)
+                try:
+                    did_work = await self.run_once()
+                finally:
+                    health.end_activity("conversation_worker", "poll")
+                    notify_watchdog()
+                await asyncio.sleep(0.25 if did_work else _DEFAULT_POLL_SECONDS)
+        finally:
+            watchdog_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await watchdog_task
 
     async def close(self) -> None:
         for context, active in list(self.tracker.active.items()):
