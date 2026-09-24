@@ -18080,6 +18080,7 @@ function App($$anchor, $$props) {
 		delegated("click", button_2, () => {
 			appViewState.searchValue = "";
 			appActions.onSearch("");
+			requestSearchFocus();
 		});
 		append($$anchor, button_2);
 	};

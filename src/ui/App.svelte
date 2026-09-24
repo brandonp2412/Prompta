@@ -338,6 +338,7 @@
             onclick={() => {
               appViewState.searchValue = "";
               appActions.onSearch("");
+              requestSearchFocus();
             }}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">

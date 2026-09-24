@@ -16,6 +16,7 @@ describe("queue and search controls", () => {
     expect(appSource).toContain('aria-label="Clear search"');
     expect(appSource).toContain('appViewState.searchValue = "";');
     expect(appSource).toContain('appActions.onSearch("");');
+    expect(appSource).toContain("requestSearchFocus();");
     expect(appSource).toContain("<kbd>/</kbd>");
   });
 
