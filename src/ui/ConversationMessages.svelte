@@ -6,6 +6,7 @@
   import { formatClockTime12Hour, messageAgeText, messageTimestampMillis } from "./clientLogic";
   import MarkdownContent from "./MarkdownContent.svelte";
   import { conversationState } from "./conversationState.svelte";
+  import ChatProgress from "./ChatProgress.svelte";
   import {
     messageDisplayContent,
     pendingLongPressMoved,
@@ -15,6 +16,14 @@
   type Message = Record<string, any>;
 
   const coarsePointer = new MediaQuery("(pointer: coarse)");
+  const latestPendingActivityKey = $derived.by(() => {
+    for (let index = conversationState.messages.length - 1; index >= 0; index -= 1) {
+      const message = conversationState.messages[index];
+      if (message?.pending_activity) return String(message.message_key || "");
+    }
+
+    return "";
+  });
   let actionsKey = $state("");
   let actionsCanBump = $state(false);
   let actionsOpen = $state(false);
@@ -279,8 +288,13 @@
         {#if streaming(message)}
           <div class="streaming-indicator">
             <span class="streaming-dots"><i></i><i></i><i></i></span>
-            {message.pending_activity_label || "writing"}
+            {#if !(message.pending_activity && String(message.message_key || "") === latestPendingActivityKey)}
+              {message.pending_activity_label || "writing"}
+            {/if}
           </div>
+          {#if message.pending_activity && String(message.message_key || "") === latestPendingActivityKey}
+            <ChatProgress />
+          {/if}
         {/if}
 
         <time

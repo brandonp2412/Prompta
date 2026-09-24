@@ -1065,6 +1065,21 @@ textarea:focus-visible {
   display: none;
 }
 
+.message.assistant.pending-activity .chat-progress {
+  margin: 0;
+  padding: 0 0 0 2px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.message.assistant.pending-activity .chat-progress strong {
+  font-weight: 500;
+}
+
 .message-label {
   margin-bottom: 8px;
   display: flex;

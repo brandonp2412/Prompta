@@ -6275,8 +6275,8 @@ var init_uiControllers = __esmMin((() => {
 //#region src/ui/ChangelogDialog.svelte
 init_client();
 init_uiControllers();
-var root$9 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
-var root_1$8 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
+var root$10 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
+var root_1$9 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
 var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
 var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
@@ -6360,7 +6360,7 @@ function ChangelogDialog($$anchor, $$props) {
 	var ol = sibling(header, 2);
 	var node = child(ol);
 	var consequent = ($$anchor) => {
-		append($$anchor, root$9());
+		append($$anchor, root$10());
 	};
 	var consequent_3 = ($$anchor) => {
 		var fragment = root_4$6();
@@ -6371,7 +6371,7 @@ function ChangelogDialog($$anchor, $$props) {
 			var text_1 = only_child(span, true);
 			var node_2 = sibling(span, 2);
 			var consequent_1 = ($$anchor) => {
-				var span_1 = root_1$8();
+				var span_1 = root_1$9();
 				var text_2 = only_child(span_1);
 				template_effect(() => set_text(text_2, `#${get(change).hash ?? ""}`));
 				append($$anchor, span_1);
@@ -6463,8 +6463,8 @@ function mergeAttachments(current, incoming, max = 5) {
 init_client();
 init_browserAttachments_svelte();
 init_uiControllers();
-var root$8 = /* @__PURE__ */ from_html(`<span class="attachment-chip" role="listitem"><span> </span> <button type="button">×</button></span>`);
-var root_1$7 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
+var root$9 = /* @__PURE__ */ from_html(`<span class="attachment-chip" role="listitem"><span> </span> <button type="button">×</button></span>`);
+var root_1$8 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
 var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips" role="list" aria-label="Attached files"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" multiple="" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" multiple="" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
 function AttachmentPicker($$anchor, $$props) {
 	push($$props, true);
@@ -6598,7 +6598,7 @@ function AttachmentPicker($$anchor, $$props) {
 	var div = first_child(fragment);
 	var div_1 = child(div);
 	each(div_1, 23, () => get(files), (file) => file.name + file.size + file.lastModified, ($$anchor, file, index) => {
-		var span = root$8();
+		var span = root$9();
 		var span_1 = child(span);
 		var text = only_child(span_1, true);
 		var button = sibling(span_1, 2);
@@ -6624,7 +6624,7 @@ function AttachmentPicker($$anchor, $$props) {
 	attach(button_1, () => focusOnRequest(() => get(pickerFocusRequest)));
 	var node_1 = sibling(button_1, 2);
 	var consequent = ($$anchor) => {
-		var div_3 = root_1$7();
+		var div_3 = root_1$8();
 		var button_2 = child(div_3);
 		attach(button_2, () => focusOnRequest(() => menuItemFocusRequests[0]));
 		var button_3 = sibling(button_2, 2);
@@ -7445,8 +7445,8 @@ init_appActions_svelte();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_clientLogic();
-var root$7 = /* @__PURE__ */ from_html(`<button type="button" class="composer-jump-latest-button" aria-label="Jump to latest message" title="Jump to latest message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14m-6-6 6 6 6-6"></path></svg> <span>Latest</span></button>`);
-var root_1$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
+var root$8 = /* @__PURE__ */ from_html(`<button type="button" class="composer-jump-latest-button" aria-label="Jump to latest message" title="Jump to latest message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14m-6-6 6 6 6-6"></path></svg> <span>Latest</span></button>`);
+var root_1$7 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
 var root_2$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
 var root_3$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
 var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
@@ -7532,7 +7532,7 @@ function Composer($$anchor, $$props) {
 	var footer = root_6$4();
 	var node = child(footer);
 	var consequent = ($$anchor) => {
-		var button = root$7();
+		var button = root$8();
 		delegated("click", button, function(...$$args) {
 			scrollConversationToBottom?.apply(this, $$args);
 		});
@@ -7553,7 +7553,7 @@ function Composer($$anchor, $$props) {
 			var consequent_1 = ($$anchor) => {
 				var div = root_2$5();
 				each(div, 21, () => get(visibleCommands), (item) => item.command, ($$anchor, item) => {
-					var button_1 = root_1$6();
+					var button_1 = root_1$7();
 					var strong = child(button_1);
 					var text = only_child(strong, true);
 					var text_1 = only_child(sibling(strong), true);
@@ -15915,8 +15915,8 @@ init_client();
 init_index_client$1();
 init_browserAttachments_svelte();
 init_diffPreview();
-var root$6 = /* @__PURE__ */ from_html(`<span><!></span>`);
-var root_1$5 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
+var root$7 = /* @__PURE__ */ from_html(`<span><!></span>`);
+var root_1$6 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
 var root_2$4 = /* @__PURE__ */ from_html(`<em><!></em>`);
 var root_3$4 = /* @__PURE__ */ from_html(`<del><!></del>`);
 var root_4$4 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
@@ -15973,7 +15973,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, text$2);
 			};
 			var consequent_1 = ($$anchor) => {
-				var span = root$6();
+				var span = root$7();
 				var node_3 = child(span);
 				highlightNodes(node_3, () => get(node).children);
 				reset(span);
@@ -16020,7 +16020,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, text_2);
 			};
 			var consequent_5 = ($$anchor) => {
-				var strong = root_1$5();
+				var strong = root_1$6();
 				var node_7 = child(strong);
 				{
 					let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16726,6 +16726,78 @@ var init_conversationState_svelte = __esmMin((() => {
 	conversationState = new ConversationState();
 }));
 //#endregion
+//#region src/ui/chatProgress.ts
+init_conversationState_svelte();
+function chatProgressLabel(progress, now = Date.now() / 1e3) {
+	let label = {
+		queued: "Queued",
+		running: "Sending to ChatGPT",
+		confirmed: "Confirmed received · waiting for response",
+		succeeded: "Confirmed received · waiting for response",
+		responding: "Responding",
+		recovering: "Recovering connection",
+		retrying: "Waiting to retry delivery",
+		rate_limited: "Waiting for account cooldown",
+		complete: "Complete",
+		completed: "Complete",
+		interrupted: "Interrupted",
+		failed: "Delivery failed",
+		dead_lettered: "Delivery needs attention"
+	}[progress.phase] || "Waiting for status";
+	if (progress.phase === "queued" && Number(progress.queue_position) > 0) label += ` · #${progress.queue_position}`;
+	if (["retrying", "rate_limited"].includes(progress.phase) && Number(progress.retry_at) > 0) {
+		const seconds = Math.max(0, Number(progress.retry_at) - now);
+		label += seconds > 0 ? ` · next retry in ${Math.ceil(seconds / 60)}m` : " · retry due";
+	}
+	return label;
+}
+//#endregion
+//#region src/ui/ChatProgress.svelte
+init_client();
+init_appViewState_svelte();
+init_clientLogic();
+var root$6 = /* @__PURE__ */ from_html(`<span>Last message activity <time> </time></span>`);
+var root_1$5 = /* @__PURE__ */ from_html(`<div class="chat-progress" role="status" aria-live="polite" aria-atomic="true"><strong> </strong> <!></div>`);
+function ChatProgress($$anchor, $$props) {
+	push($$props, true);
+	const progress = /* @__PURE__ */ user_derived(() => conversationState.progress);
+	var fragment = comment();
+	var node = first_child(fragment);
+	var consequent_1 = ($$anchor) => {
+		var div = root_1$5();
+		var strong = child(div);
+		var text = only_child(strong, true);
+		var node_1 = sibling(strong, 2);
+		var consequent = ($$anchor) => {
+			var span = root$6();
+			var time = sibling(child(span));
+			var text_1 = only_child(time, true);
+			reset(span);
+			template_effect(($0, $1, $2) => {
+				set_attribute(time, "datetime", $0);
+				set_attribute(time, "title", $1);
+				set_text(text_1, $2);
+			}, [
+				() => (/* @__PURE__ */ new Date(get(progress).last_activity_at * 1e3)).toISOString(),
+				() => (/* @__PURE__ */ new Date(get(progress).last_activity_at * 1e3)).toLocaleString(),
+				() => formatClockTime12Hour(/* @__PURE__ */ new Date(get(progress).last_activity_at * 1e3))
+			]);
+			append($$anchor, span);
+		};
+		if_block(node_1, ($$render) => {
+			if (get(progress).last_activity_at) $$render(consequent);
+		});
+		reset(div);
+		template_effect(($0) => set_text(text, $0), [() => chatProgressLabel(get(progress), appViewState.clockTick / 1e3)]);
+		append($$anchor, div);
+	};
+	if_block(node, ($$render) => {
+		if (get(progress)) $$render(consequent_1);
+	});
+	append($$anchor, fragment);
+	pop();
+}
+//#endregion
 //#region src/ui/conversationLogic.ts
 function imageAttachments(message) {
 	return (Array.isArray(message?.attachments) ? message.attachments : []).filter((attachment) => attachment && typeof attachment === "object" && String(attachment.type || "").startsWith("image/") && (Boolean(attachment.id) || String(attachment.src || "").startsWith("data:image/")));
@@ -16799,7 +16871,7 @@ var root_2$3 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img 
 var root_3$3 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
 var root_4$3 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-button bump-pending-button" aria-label="Send queued message next" title="Send queued message next"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></button>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<div class="pending-message-controls" aria-label="Queued message actions"><button type="button" class="pending-message-button edit-pending-button" aria-label="Edit queued message" title="Edit queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Zm10.6-13.4 3 3"></path></svg></button> <!> <button type="button" class="pending-message-button delete-pending-button" aria-label="Delete queued message" title="Delete queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path></svg></button></div>`);
-var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
+var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> <!></div> <!>`, 1);
 var root_7$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
 var root_9$2 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg> <span>Send next</span></button>`);
@@ -16807,6 +16879,13 @@ var root_10$1 = /* @__PURE__ */ from_html(`<div role="presentation"><!> <!></div
 function ConversationMessages($$anchor, $$props) {
 	push($$props, true);
 	const coarsePointer = new MediaQuery("(pointer: coarse)");
+	const latestPendingActivityKey = /* @__PURE__ */ user_derived(() => {
+		for (let index = conversationState.messages.length - 1; index >= 0; index -= 1) {
+			const message = conversationState.messages[index];
+			if (message?.pending_activity) return String(message.message_key || "");
+		}
+		return "";
+	});
 	let actionsKey = /* @__PURE__ */ state$1("");
 	let actionsCanBump = /* @__PURE__ */ state$1(false);
 	let actionsOpen = /* @__PURE__ */ state$1(false);
@@ -17020,29 +17099,46 @@ function ConversationMessages($$anchor, $$props) {
 			if (get(message).pending_delete_key) $$render(consequent_6);
 		});
 		var node_9 = sibling(node_7, 2);
-		var consequent_7 = ($$anchor) => {
-			var div_7 = root_6$2();
-			var text_2 = sibling(child(div_7));
+		var consequent_9 = ($$anchor) => {
+			var fragment_3 = root_6$2();
+			var div_7 = first_child(fragment_3);
+			var node_10 = sibling(child(div_7), 2);
+			var consequent_7 = ($$anchor) => {
+				var text_2 = text();
+				template_effect(() => set_text(text_2, get(message).pending_activity_label || "writing"));
+				append($$anchor, text_2);
+			};
+			var d = /* @__PURE__ */ user_derived(() => !(get(message).pending_activity && String(get(message).message_key || "") === get(latestPendingActivityKey)));
+			if_block(node_10, ($$render) => {
+				if (get(d)) $$render(consequent_7);
+			});
 			reset(div_7);
-			template_effect(() => set_text(text_2, ` ${(get(message).pending_activity_label || "writing") ?? ""}`));
-			append($$anchor, div_7);
+			var node_11 = sibling(div_7, 2);
+			var consequent_8 = ($$anchor) => {
+				ChatProgress($$anchor, {});
+			};
+			var d_1 = /* @__PURE__ */ user_derived(() => get(message).pending_activity && String(get(message).message_key || "") === get(latestPendingActivityKey));
+			if_block(node_11, ($$render) => {
+				if (get(d_1)) $$render(consequent_8);
+			});
+			append($$anchor, fragment_3);
 		};
-		var d = /* @__PURE__ */ user_derived(() => streaming(get(message)));
+		var d_2 = /* @__PURE__ */ user_derived(() => streaming(get(message)));
 		if_block(node_9, ($$render) => {
-			if (get(d)) $$render(consequent_7);
+			if (get(d_2)) $$render(consequent_9);
 		});
 		var time = sibling(node_9, 2);
 		var span_1 = child(time);
 		var text_3 = only_child(span_1, true);
-		var node_10 = sibling(span_1, 2);
-		var consequent_8 = ($$anchor) => {
+		var node_12 = sibling(span_1, 2);
+		var consequent_10 = ($$anchor) => {
 			var span_2 = root_7$2();
 			var text_4 = only_child(span_2);
 			template_effect(() => set_text(text_4, `· ${value.age ?? ""}`));
 			append($$anchor, span_2);
 		};
-		if_block(node_10, ($$render) => {
-			if (value.age) $$render(consequent_8);
+		if_block(node_12, ($$render) => {
+			if (value.age) $$render(consequent_10);
 		});
 		reset(time);
 		reset(div_2);
@@ -17079,16 +17175,16 @@ function ConversationMessages($$anchor, $$props) {
 	reset(div);
 	var dialog = sibling(div, 2);
 	var div_8 = child(dialog);
-	var node_11 = sibling(child(div_8), 2);
-	var consequent_9 = ($$anchor) => {
+	var node_13 = sibling(child(div_8), 2);
+	var consequent_11 = ($$anchor) => {
 		var button_4 = root_9$2();
 		delegated("click", button_4, bumpPending);
 		append($$anchor, button_4);
 	};
-	if_block(node_11, ($$render) => {
-		if (get(actionsCanBump)) $$render(consequent_9);
+	if_block(node_13, ($$render) => {
+		if (get(actionsCanBump)) $$render(consequent_11);
 	});
-	var button_5 = sibling(node_11, 2);
+	var button_5 = sibling(node_13, 2);
 	var button_6 = sibling(button_5, 2);
 	var button_7 = sibling(button_6, 2);
 	reset(div_8);
