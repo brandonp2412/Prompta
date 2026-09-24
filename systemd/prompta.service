@@ -1,5 +1,5 @@
 [Unit]
-Description=Prompta periodic fresh-chat prompt sender
+Description=Prompta browser/control backend
 After=network-online.target
 Wants=network-online.target
 

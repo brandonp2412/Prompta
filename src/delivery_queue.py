@@ -135,6 +135,74 @@ class DeliveryQueueStore:
         finally:
             connection.close()
 
+    def get(self, send_id: str) -> dict[str, Any] | None:
+        connection = self.connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM send_jobs WHERE send_id = ?",
+                (send_id,),
+            ).fetchone()
+            return self.record_from_row(row) if row is not None else None
+        finally:
+            connection.close()
+
+    def enqueue_idempotent(self, record: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        """Insert a delivery exactly once without changing an existing receipt."""
+        send_id = str(record["send_id"])
+        client_id = str(record.get("client_id") or "")
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM send_jobs WHERE send_id = ?",
+                (send_id,),
+            ).fetchone()
+            if row is None and client_id:
+                row = connection.execute(
+                    "SELECT * FROM send_jobs WHERE client_id = ?",
+                    (client_id,),
+                ).fetchone()
+            if row is not None:
+                connection.commit()
+                return self.record_from_row(row), False
+
+            now = time.time()
+            connection.execute(
+                """
+                INSERT INTO send_jobs (
+                    send_id, operation, message, conversation_id, attachments_json,
+                    client_id, status, error, created_at, updated_at, retry_at,
+                    retry_attempt, last_error, finished_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    send_id,
+                    str(record["operation"]),
+                    str(record["message"]),
+                    str(record.get("conversation_id") or ""),
+                    json.dumps(record.get("attachments", [])),
+                    client_id,
+                    str(record.get("status") or "queued"),
+                    str(record.get("error") or ""),
+                    float(record.get("created_at") or now),
+                    float(record.get("updated_at") or now),
+                    float(record.get("retry_at") or 0.0),
+                    max(0, int(record.get("retry_attempt") or 0)),
+                    str(record.get("last_error") or ""),
+                    float(record.get("finished_at") or 0.0),
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM send_jobs WHERE send_id = ?",
+                (send_id,),
+            ).fetchone()
+            connection.commit()
+            if row is None:
+                raise sqlite3.DatabaseError("delivery enqueue did not persist a row")
+            return self.record_from_row(row), True
+        finally:
+            connection.close()
+
     def upsert(self, record: dict[str, Any]) -> None:
         connection = self.connect()
         try:

@@ -484,37 +484,22 @@ class Prompta:
         return int(await result)
 
     async def run(self, *, once: bool = False) -> None:
+        """Run browser/control and conversation maintenance only.
+
+        Scheduled occurrence evaluation is owned by prompta-scheduler.service and
+        durable delivery consumption is owned by prompta-delivery-worker.service.
+        """
         while True:
             unattended = self.scheduler.unattended_mode()
             if unattended and self._active_conversations:
                 self._detach_active_conversations_for_unattended()
 
-            # UI sends are latency-sensitive. Drain them before browser/cache
-            # maintenance so a slow active-conversation poll cannot starve new
-            # messages for minutes.
+            # The control socket is the transitional browser backend used by the
+            # dedicated delivery worker. This process must not consume durable
+            # delivery rows or evaluate schedules.
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
             did_work = await self._drain_sync_requests() or did_work
-
-            # Dispatch due scheduled work before cache maintenance. A stale
-            # recovered browser tab can block or poison browser calls, but it
-            # must not starve unrelated scheduled jobs indefinitely.
-            jobs = self.read_jobs()
-            if jobs:
-                now = time.time()
-                scheduled_jobs = list(jobs.values())
-                self._ensure_initial_schedules(scheduled_jobs, now)
-                for job in scheduled_jobs:
-                    if await self._enqueue_scheduled_job(job, now=now):
-                        did_work = True
-
-            delivered_scheduled = await self._drain_scheduled_deliveries()
-            did_work = delivered_scheduled or did_work
-            if once and (jobs or delivered_scheduled):
-                if not unattended:
-                    for active in list(self._active_conversations.values()):
-                        await self.wait_for_cached_response(active.conversation_id)
-                return
 
             await self._run_browser_maintenance(
                 "orphan browser cleanup",
@@ -537,14 +522,9 @@ class Prompta:
                     "Browser session was lost; restarting Prompta to recycle browser"
                 )
 
-            if not jobs:
-                await self._release_driver_if_idle()
-                if once:
-                    return
-                await asyncio.sleep(_IDLE_POLL_SECONDS)
-                continue
-
             await self._release_driver_if_idle()
+            if once:
+                return
             await asyncio.sleep(_IDLE_POLL_SECONDS if did_work else 1.0)
 
     async def close(self) -> None:
@@ -833,7 +813,9 @@ async def _stop_via_control(state_path: Path, conversation_id: str) -> str:
     try:
         reader, writer = await asyncio.open_unix_connection(str(path))
     except OSError as exc:
-        raise RuntimeError(f"Prompta scheduler control socket is unavailable: {path}") from exc
+        raise RuntimeError(
+            f"Prompta browser backend control socket is unavailable: {path}"
+        ) from exc
     try:
         writer.write(
             (

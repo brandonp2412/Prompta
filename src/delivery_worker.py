@@ -28,7 +28,7 @@ def _control_sender(
     attachments: list[str],
 ) -> str:
     if not _daemon_is_running(state_path):
-        raise ControlUnavailableError("Prompta scheduler control socket is unavailable")
+        raise ControlUnavailableError("Prompta browser backend control socket is unavailable")
     if operation == "once":
         return asyncio.run(_send_once_via_control(state_path, message, attachments))
     return asyncio.run(

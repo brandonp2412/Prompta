@@ -2387,6 +2387,19 @@ def test_start_local_scheduler_service_handles_systemctl_timeout() -> None:
         assert _start_local_scheduler_service() is False
 
 
+def test_start_local_scheduler_service_starts_dedicated_scheduler_unit() -> None:
+    completed = subprocess.CompletedProcess(["systemctl"], 0, stdout="", stderr="")
+    with patch("prompta.web.subprocess.run", return_value=completed) as start:
+        assert _start_local_scheduler_service() is True
+
+    assert start.call_args.args[0] == [
+        "systemctl",
+        "--user",
+        "start",
+        "prompta-scheduler.service",
+    ]
+
+
 def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.json"
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")

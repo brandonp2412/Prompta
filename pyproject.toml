@@ -18,6 +18,7 @@ dependencies = [
 prompta = "prompta.core:main"
 prompta-ui = "prompta.web:main"
 prompta-delivery-worker = "prompta.delivery_worker:main"
+prompta-scheduler = "prompta.scheduler_service:main"
 
 [tool.setuptools]
 packages = ["prompta"]

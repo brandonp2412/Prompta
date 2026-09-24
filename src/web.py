@@ -477,12 +477,14 @@ class PromptaUIServer(ThreadingHTTPServer):
 
     def _stop(self, conversation_id: str) -> str:
         if not _daemon_is_running(self.state_path):
-            raise RuntimeError("Prompta scheduler is not running; cannot stop an active chat")
+            raise RuntimeError("Prompta browser backend is not running; cannot stop an active chat")
         return asyncio.run(_stop_via_control(self.state_path, conversation_id))
 
     def _sync(self, conversation_id: str) -> int:
         if not _daemon_is_running(self.state_path):
-            raise RuntimeError("Prompta scheduler is not running; cannot inspect chat activity")
+            raise RuntimeError(
+                "Prompta browser backend is not running; cannot inspect chat activity"
+            )
         return asyncio.run(_sync_via_control(self.state_path, conversation_id))
 
 
@@ -1109,11 +1111,11 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
 
 def _start_local_scheduler_service() -> bool:
-    """Ask systemd to own the local browser worker when the service is available."""
+    """Ask systemd to start the durable schedule producer."""
 
     try:
         started = subprocess.run(
-            ["systemctl", "--user", "start", "prompta.service"],
+            ["systemctl", "--user", "start", "prompta-scheduler.service"],
             check=False,
             capture_output=True,
             text=True,

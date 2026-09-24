@@ -3321,39 +3321,24 @@ async def test_run_checks_deferred_recovery_before_scheduler_work(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_run_dispatches_due_job_before_active_poll_can_poison_browser(
+async def test_browser_backend_run_never_evaluates_or_consumes_scheduled_work(
     tmp_path: Path,
 ) -> None:
     prompta = Prompta(
         PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=tmp_path / "runtime.sqlite3"),
         "ws://unused",
     )
-    job = PromptJob("due", "Do work", interval_seconds=0, exact_interval=True)
     driver = MagicMock()
     driver.needs_browser_restart = False
     prompta.driver = cast(Any, driver)
     order: list[str] = []
 
-    async def enqueue_job(*_args: Any, **_kwargs: Any) -> bool:
-        order.append("job")
-        return True
-
-    async def drain_delivery() -> bool:
-        order.append("delivery")
-        return True
-
     async def poison_on_poll() -> None:
         order.append("poll")
         driver.needs_browser_restart = True
 
-    prompta.read_jobs = MagicMock(return_value={"due": job})  # type: ignore[method-assign]
-    prompta._ensure_initial_schedules = MagicMock()  # type: ignore[method-assign]
-    prompta._enqueue_scheduled_job = AsyncMock(  # type: ignore[method-assign]
-        side_effect=enqueue_job
-    )
-    prompta._drain_scheduled_deliveries = AsyncMock(  # type: ignore[method-assign]
-        side_effect=drain_delivery
-    )
+    prompta._enqueue_scheduled_job = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    prompta._drain_scheduled_deliveries = AsyncMock(return_value=True)  # type: ignore[method-assign]
     prompta._retry_cached_recovery_if_due = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._poll_active_conversations = AsyncMock(side_effect=poison_on_poll)  # type: ignore[method-assign]
     prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
@@ -3363,9 +3348,9 @@ async def test_run_dispatches_due_job_before_active_poll_can_poison_browser(
     with pytest.raises(RuntimeError, match="recycle browser"):
         await prompta.run()
 
-    assert order == ["job", "delivery", "poll"]
-    prompta._enqueue_scheduled_job.assert_awaited_once()  # type: ignore[attr-defined]
-    prompta._drain_scheduled_deliveries.assert_awaited_once()  # type: ignore[attr-defined]
+    assert order == ["poll"]
+    prompta._enqueue_scheduled_job.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta._drain_scheduled_deliveries.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 
@@ -3467,33 +3452,23 @@ async def test_close_skips_webdriver_flush_when_session_needs_restart(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_scheduler_once_waits_for_started_conversation_cache(tmp_path: Path) -> None:
+async def test_browser_backend_once_does_not_consume_scheduler_delivery(tmp_path: Path) -> None:
     prompta = Prompta(
         PromptaConfig(jobs_file=tmp_path / "jobs.json", state_path=tmp_path / "runtime.sqlite3"),
         "ws://unused",
     )
-    job = PromptJob("e2e", "Do one thing", interval_seconds=0, exact_interval=True)
-    prompta.read_jobs = MagicMock(return_value={"e2e": job})  # type: ignore[method-assign]
-    prompta._ensure_initial_schedules = MagicMock()  # type: ignore[method-assign]
-
-    async def start_conversation(*args: Any, **kwargs: Any) -> bool:
-        prompta._active_conversations["context-1"] = ActiveConversation(
-            conversation_id="conversation-123",
-            context_id="context-1",
-            job_name="e2e",
-            prompt=job.prompt,
-        )
-        return True
-
-    prompta._enqueue_scheduled_job = AsyncMock(  # type: ignore[method-assign]
-        side_effect=start_conversation
-    )
-    prompta._drain_scheduled_deliveries = AsyncMock(return_value=False)  # type: ignore[method-assign]
-    prompta.wait_for_cached_response = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    prompta._enqueue_scheduled_job = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    prompta._drain_scheduled_deliveries = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    prompta._retry_cached_recovery_if_due = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._poll_active_conversations = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    prompta._drain_sync_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     await prompta.run(once=True)
 
-    prompta.wait_for_cached_response.assert_awaited_once_with("conversation-123")  # type: ignore[attr-defined]
+    prompta._enqueue_scheduled_job.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta._drain_scheduled_deliveries.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 
