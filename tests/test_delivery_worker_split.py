@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from prompta.cache import ChatCache
+from prompta.cache import ActiveConversation, ChatCache
 from prompta.control_server import ControlDeferredError
 from prompta.conversation_actions import ConversationActions
 from prompta.delivery_browser import BrowserDeliverySender
@@ -43,6 +43,56 @@ def test_delivery_worker_sends_directly_through_browser_sender(tmp_path: Path) -
 
     assert result == "chat-browser"
     browser_send.assert_awaited_once_with("once", "Hello", "", [])
+
+
+@pytest.mark.asyncio
+async def test_delivery_success_releases_page_but_keeps_durable_active_handoff(
+    tmp_path: Path,
+) -> None:
+    cache_path = tmp_path / "chats.sqlite3"
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        cache_path=cache_path,
+    )
+
+    async def fake_send_once(
+        actions: ConversationActions,
+        prompt: str,
+        *,
+        job_name: str = "",
+        attachments: list[str] | None = None,
+    ) -> str:
+        del attachments
+        conversation_id = "chat-handoff"
+        context_id = "prompta-delivery:send-tab"
+        actions.cache.start(
+            conversation_id,
+            context_id=context_id,
+            job_name=job_name,
+            prompt=prompt,
+        )
+        actions.active[context_id] = ActiveConversation(
+            conversation_id=conversation_id,
+            context_id=context_id,
+            job_name=job_name,
+            prompt=prompt,
+        )
+        return conversation_id
+
+    with patch.object(ConversationActions, "send_once", fake_send_once):
+        assert await sender._send_browser("once", "handoff", "", []) == "chat-handoff"
+
+    cache = ChatCache(cache_path)
+    try:
+        row = cache.connection.execute(
+            "SELECT status, browser_context_id FROM conversations WHERE id = ?",
+            ("chat-handoff",),
+        ).fetchone()
+        assert row is not None
+        assert row["status"] == "active"
+        assert row["browser_context_id"] == ""
+    finally:
+        cache.close()
 
 
 @pytest.mark.asyncio

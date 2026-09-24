@@ -188,6 +188,12 @@ class BrowserDeliverySender:
                     raise DeliveryBackendUnavailableError(str(exc)) from exc
                 raise
         finally:
+            for context, tracked in list(active.items()):
+                cache.release_browser_context(
+                    tracked.conversation_id,
+                    context_id=context,
+                )
+            active.clear()
             driver = browser.driver
             if driver is not None:
                 await driver.close()

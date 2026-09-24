@@ -669,6 +669,15 @@ class ChatCache:
         ).fetchone()
         return str(row["status"]) if row is not None else None
 
+    def browser_context_id(self, conversation_id: str) -> str | None:
+        row = self.connection.execute(
+            "SELECT browser_context_id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["browser_context_id"])
+
     def mark_double_checked(self, conversation_id: str, *, checked: bool = True) -> bool:
         with self.connection:
             cursor = self.connection.execute(
@@ -714,6 +723,20 @@ class ChatCache:
                 },
             )
         return dict(row)
+
+    def release_browser_context(self, conversation_id: str, *, context_id: str) -> bool:
+        """Release page ownership without changing durable conversation activity."""
+
+        cursor = self.connection.execute(
+            """
+            UPDATE conversations
+            SET browser_context_id = ''
+            WHERE id = ? AND browser_context_id = ?
+            """,
+            (conversation_id, context_id),
+        )
+        self.connection.commit()
+        return cursor.rowcount > 0
 
     @staticmethod
     def digest(snapshot: dict[str, Any]) -> str:
@@ -773,6 +796,16 @@ class ChatCache:
             },
         )
         self.connection.commit()
+
+    def mark_active_unattended(self) -> int:
+        """Detach every durable active conversation without reading its result."""
+
+        rows = self.connection.execute(
+            "SELECT id FROM conversations WHERE status = 'active'"
+        ).fetchall()
+        for row in rows:
+            self.mark_unattended(str(row["id"]))
+        return len(rows)
 
     def mark_interrupted(self, conversation_id: str) -> None:
         now = time.time()

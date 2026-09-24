@@ -1628,9 +1628,9 @@ async def test_busy_reply_does_not_block_other_scheduler_requests(tmp_path: Path
         ),
         "ws://unused",
     )
-    prompta._active_conversations["busy-context"] = ActiveConversation(
-        conversation_id="busy-chat",
-        context_id="busy-context",
+    prompta.cache.start(
+        "busy-chat",
+        context_id="prompta-conversation:busy-context",
         job_name="",
         prompt="Earlier prompt",
     )
@@ -1658,9 +1658,9 @@ async def test_ui_control_reply_defers_busy_target_before_delivery(tmp_path: Pat
         ),
         "ws://unused",
     )
-    prompta._active_conversations["busy-context"] = ActiveConversation(
-        conversation_id="busy-chat",
-        context_id="busy-context",
+    prompta.cache.start(
+        "busy-chat",
+        context_id="prompta-conversation:busy-context",
         job_name="",
         prompt="Earlier prompt",
     )
@@ -1743,24 +1743,18 @@ async def test_scheduler_prioritises_ui_send_before_active_poll(tmp_path: Path) 
         order.append("sync")
         return False
 
-    async def retry_recovery() -> bool:
-        order.append("recovery")
-        return False
-
-    async def poll_active() -> None:
-        order.append("poll")
-
     test_prompta = cast(Any, prompta)
     test_prompta._drain_reply_requests = drain_reply
     test_prompta._drain_once_requests = drain_once
     test_prompta._drain_sync_requests = drain_sync
-    test_prompta._retry_cached_recovery_if_due = retry_recovery
-    test_prompta._poll_active_conversations = poll_active
-    test_prompta.read_jobs = lambda: {}
+    test_prompta._retry_cached_recovery_if_due = AsyncMock(return_value=True)
+    test_prompta._poll_active_conversations = AsyncMock()
 
     await prompta.run(once=True)
 
-    assert order == ["reply", "once", "sync", "recovery", "poll"]
+    assert order == ["reply", "once", "sync"]
+    test_prompta._retry_cached_recovery_if_due.assert_not_awaited()
+    test_prompta._poll_active_conversations.assert_not_awaited()
     prompta.cache.close()
 
 
@@ -3285,15 +3279,16 @@ async def test_run_does_not_abort_just_because_driver_disconnected(tmp_path: Pat
     )
     driver = MagicMock()
     driver.is_connected = False
+    driver.needs_browser_restart = False
     prompta.driver = cast(Any, driver)
     prompta._poll_active_conversations = AsyncMock()  # type: ignore[method-assign]
     prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
-    prompta.read_jobs = MagicMock(return_value={})  # type: ignore[method-assign]
+    prompta._drain_sync_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     await prompta.run(once=True)
 
-    prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta._poll_active_conversations.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 
@@ -3311,12 +3306,11 @@ async def test_run_checks_deferred_recovery_before_scheduler_work(tmp_path: Path
     prompta._drain_sync_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
-    prompta.read_jobs = MagicMock(return_value={})  # type: ignore[method-assign]
 
     await prompta.run(once=True)
 
-    prompta._retry_cached_recovery_if_due.assert_awaited_once()  # type: ignore[attr-defined]
-    prompta._poll_active_conversations.assert_awaited_once()  # type: ignore[attr-defined]
+    prompta._retry_cached_recovery_if_due.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta._poll_active_conversations.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 
@@ -3331,26 +3325,20 @@ async def test_browser_backend_run_never_evaluates_or_consumes_scheduled_work(
     driver = MagicMock()
     driver.needs_browser_restart = False
     prompta.driver = cast(Any, driver)
-    order: list[str] = []
-
-    async def poison_on_poll() -> None:
-        order.append("poll")
-        driver.needs_browser_restart = True
-
     prompta._enqueue_scheduled_job = AsyncMock(return_value=True)  # type: ignore[method-assign]
     prompta._drain_scheduled_deliveries = AsyncMock(return_value=True)  # type: ignore[method-assign]
     prompta._retry_cached_recovery_if_due = AsyncMock(return_value=False)  # type: ignore[method-assign]
-    prompta._poll_active_conversations = AsyncMock(side_effect=poison_on_poll)  # type: ignore[method-assign]
+    prompta._poll_active_conversations = AsyncMock()  # type: ignore[method-assign]
     prompta._drain_reply_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._drain_once_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
     prompta._drain_sync_requests = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="recycle browser"):
-        await prompta.run()
+    await prompta.run(once=True)
 
-    assert order == ["poll"]
     prompta._enqueue_scheduled_job.assert_not_awaited()  # type: ignore[attr-defined]
     prompta._drain_scheduled_deliveries.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta._retry_cached_recovery_if_due.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta._poll_active_conversations.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 
 

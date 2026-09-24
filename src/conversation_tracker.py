@@ -411,6 +411,32 @@ class ConversationTracker:
         if driver is None:
             return
         for context, active in list(self.active.items()):
+            durable_status = self.cache.status(active.conversation_id)
+            durable_context = self.cache.browser_context_id(active.conversation_id)
+            superseded_by_new_activity = (
+                active.settled_at > 0 and durable_status == "active" and durable_context != context
+            )
+            externally_detached = active.settled_at <= 0 and durable_status != "active"
+            if superseded_by_new_activity or externally_detached:
+                try:
+                    await driver.close_context(context)
+                except BrowsingContextUnavailableError:
+                    pass
+                except Exception as exc:
+                    self._raise_if_browser_restart_required(driver, exc)
+                    logger.debug("Could not close superseded Prompta tracking tab", exc_info=True)
+                self.cache.release_browser_context(
+                    active.conversation_id,
+                    context_id=context,
+                )
+                self.active.pop(context, None)
+                if superseded_by_new_activity:
+                    logger.info(
+                        "Prompta released retained tracking tab for conversation=%s after new durable activity",
+                        active.conversation_id,
+                    )
+                continue
+
             last_activity_at = self.cache.last_message_activity_at(active.conversation_id)
             stale_for = time.time() - last_activity_at if last_activity_at > 0 else 0.0
             if (
@@ -809,6 +835,10 @@ class ConversationTracker:
                 except Exception as exc:
                     self._raise_if_browser_restart_required(close_driver, exc)
                     logger.debug("Could not close retained Prompta tab", exc_info=True)
+            self.cache.release_browser_context(
+                active.conversation_id,
+                context_id=context,
+            )
             self.active.pop(context, None)
             logger.info(
                 "Prompta closed retained conversation tab=%s after %.0fs",

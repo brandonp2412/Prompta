@@ -4,7 +4,10 @@ from pathlib import Path
 def test_ui_stays_available_when_workers_restart() -> None:
     unit = Path("systemd/prompta-ui.service").read_text()
 
-    assert "Wants=prompta.service prompta-delivery-worker.service prompta-scheduler.service" in unit
+    assert (
+        "Wants=prompta.service prompta-delivery-worker.service prompta-scheduler.service prompta-conversation-worker.service"
+        in unit
+    )
     assert "Requires=prompta.service" not in unit
     assert "PartOf=prompta.service" not in unit
     assert "Requires=prompta-scheduler.service" not in unit
@@ -16,6 +19,19 @@ def test_delivery_worker_is_independently_restartable() -> None:
     assert "ExecStart=%h/prompta/.venv/bin/prompta-delivery-worker" in unit
     assert "Restart=always" in unit
     assert "Wants=prompta-browser.service" in unit
+    assert "prompta.service" not in unit
+    assert "PartOf=prompta-ui.service" not in unit
+    assert "Requires=prompta-ui.service" not in unit
+
+
+def test_conversation_worker_is_independently_restartable() -> None:
+    unit = Path("systemd/prompta-conversation-worker.service").read_text()
+
+    assert "ExecStart=%h/prompta/.venv/bin/prompta-conversation-worker" in unit
+    assert "Restart=always" in unit
+    assert "Wants=prompta-browser.service" in unit
+    assert "prompta-delivery-worker.service" not in unit
+    assert "prompta-scheduler.service" not in unit
     assert "prompta.service" not in unit
     assert "PartOf=prompta-ui.service" not in unit
     assert "Requires=prompta-ui.service" not in unit

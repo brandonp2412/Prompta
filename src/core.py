@@ -181,6 +181,9 @@ class Prompta:
             conversation_complete=lambda conversation_id: (
                 self.cache.status(conversation_id) == "complete"
             ),
+            conversation_busy=lambda conversation_id: (
+                self.cache.status(conversation_id) == "active"
+            ),
             resource_admission=resource_admission,
         )
         self._once_requests = self.scheduler_execution.once_requests
@@ -471,6 +474,28 @@ class Prompta:
         # driver avoids unnecessary session churn and preserves the authenticated profile.
         return
 
+    async def _handoff_active_conversations(self) -> int:
+        """Release control-process pages after durable send/sync registration."""
+
+        driver = self.driver
+        handed_off = 0
+        for context, active in list(self._active_conversations.items()):
+            self.cache.release_browser_context(
+                active.conversation_id,
+                context_id=context,
+            )
+            if driver is not None:
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.debug(
+                        "Could not close control-process tab during conversation-worker handoff",
+                        exc_info=True,
+                    )
+            self._active_conversations.pop(context, None)
+            handed_off += 1
+        return handed_off
+
     async def _cleanup_browser_orphans(self) -> int:
         driver = self.driver
         if driver is None or not driver.is_connected:
@@ -484,39 +509,24 @@ class Prompta:
         return int(await result)
 
     async def run(self, *, once: bool = False) -> None:
-        """Run browser/control and conversation maintenance only.
+        """Run transitional control operations without owning conversation tracking.
 
-        Scheduled occurrence evaluation is owned by prompta-scheduler.service and
-        durable delivery consumption is owned by prompta-delivery-worker.service.
+        Scheduled occurrence evaluation is owned by prompta-scheduler.service,
+        durable delivery consumption by prompta-delivery-worker.service, and
+        active-conversation recovery/polling by prompta-conversation-worker.service.
         """
+
         while True:
-            unattended = self.scheduler.unattended_mode()
-            if unattended and self._active_conversations:
+            if self.scheduler.unattended_mode() and self._active_conversations:
                 self._detach_active_conversations_for_unattended()
 
-            # The control socket remains transitional for non-delivery browser
-            # actions. Durable delivery is consumed directly by the delivery worker;
-            # this process must not consume delivery rows or evaluate schedules.
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
             did_work = await self._drain_sync_requests() or did_work
 
-            await self._run_browser_maintenance(
-                "orphan browser cleanup",
-                self._cleanup_browser_orphans(),
-            )
-            if not unattended:
-                did_work = (
-                    await self._run_browser_maintenance(
-                        "cached recovery",
-                        self._retry_cached_recovery_if_due(),
-                    )
-                    or did_work
-                )
-                await self._run_browser_maintenance(
-                    "active conversation polling",
-                    self._poll_active_conversations(),
-                )
+            handed_off = await self._handoff_active_conversations()
+            did_work = handed_off > 0 or did_work
+
             if self.driver is not None and self.driver.needs_browser_restart is True:
                 raise RuntimeError(
                     "Browser session was lost; restarting Prompta to recycle browser"
@@ -1083,13 +1093,9 @@ async def _run(args: argparse.Namespace) -> None:
             resource_admission=ResourceAdmission() if args.command == "run" else None,
         )
         if args.command == "run":
-            # Publish the control socket before browser/cache recovery. The daemon lock is
-            # already held at this point, so UI sends otherwise see a running scheduler
-            # but can race a potentially slow recovery and fail before the socket exists.
+            # Publish only the transitional control socket here. Durable conversation
+            # recovery is owned by prompta-conversation-worker.service.
             control_server, control_path = await _start_control_server(prompta, args.state)
-            recovered = await prompta.recover_cached_conversations()
-            if recovered:
-                logger.info("Prompta recovered %d live conversation(s) after restart", recovered)
 
         if args.command == "once":
             conversation_id = await prompta.send_once(args.prompt)

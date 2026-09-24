@@ -1,6 +1,6 @@
 [Unit]
 Description=Prompta Nox conversation UI
-Wants=prompta.service prompta-delivery-worker.service prompta-scheduler.service
+Wants=prompta.service prompta-delivery-worker.service prompta-scheduler.service prompta-conversation-worker.service
 After=network-online.target prompta.service
 
 [Service]

@@ -1,0 +1,26 @@
+[Unit]
+Description=Prompta active conversation tracking worker
+Wants=prompta-browser.service
+After=network-online.target prompta-browser.service
+
+[Service]
+Slice=prompta.slice
+Type=simple
+WorkingDirectory=%h/prompta
+Environment=PYTHONUNBUFFERED=1
+Environment=UV_NO_PROGRESS=1
+Environment=PROMPTA_CHROME_DEBUGGER_ADDRESS=127.0.0.1:9222
+Environment=PROMPTA_FLARESOLVERR_URL=http://127.0.0.1:8191
+ExecStart=%h/prompta/.venv/bin/prompta-conversation-worker
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/prompta %h/.config/prompta
+MemoryHigh=512M
+MemoryMax=1G
+
+[Install]
+WantedBy=default.target

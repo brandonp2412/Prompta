@@ -51,6 +51,7 @@ class SchedulerExecution:
         current_driver: Callable[[], Any],
         set_driver: Callable[[Any], None],
         conversation_complete: Callable[[str], bool] | None = None,
+        conversation_busy: Callable[[str], bool] | None = None,
         resource_admission: Callable[[], tuple[bool, str]] | None = None,
     ) -> None:
         self.scheduler = scheduler
@@ -63,6 +64,7 @@ class SchedulerExecution:
         self.current_driver = current_driver
         self.set_driver = set_driver
         self.conversation_complete = conversation_complete or (lambda _conversation_id: False)
+        self.conversation_busy = conversation_busy
         self.resource_admission = resource_admission or (lambda: (True, ""))
         self._resource_pressure_reason = ""
         self._resource_pressure_logged_at = 0.0
@@ -369,6 +371,8 @@ class SchedulerExecution:
     def reply_target_is_busy(self, conversation_id: str) -> bool:
         if self.scheduler.unattended_mode() or self.conversation_complete(conversation_id):
             return False
+        if self.conversation_busy is not None:
+            return self.conversation_busy(conversation_id)
         return any(
             active.conversation_id == conversation_id and active.settled_at <= 0
             for active in self.active.values()
