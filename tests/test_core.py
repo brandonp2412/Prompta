@@ -40,6 +40,7 @@ from prompta.core import (
 )
 from prompta.scheduler_execution import _MAX_ACTIVE_BROWSER_CONVERSATIONS
 from prompta.scheduler_runtime import SchedulerRuntime
+from prompta.send_outcome import SendOutcomeUnknownError
 from prompta.webdriver import BrowsingContextUnavailableError
 
 
@@ -198,19 +199,43 @@ async def test_scheduled_send_requires_high_effort(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_once_falls_back_to_send_button_when_enter_does_not_submit(
+async def test_send_once_does_not_issue_second_mutation_when_enter_does_not_submit(
     tmp_path: Path,
 ) -> None:
     prompt = "PROMPTA TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
-    fake = FakeDriver(prompt, enter_submits=False)
+    prompta.actions.send_timeout_seconds = 0.1
+    fake = FakeDriver(prompt, enter_submits=False, committed=False, capture_status=0)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(SendNotAcceptedError, match="remained in the composer"):
+        await prompta.send_once(prompt)
+
+    assert fake.send_button_clicked is False
+    assert fake.sent is False
+
+
+@pytest.mark.asyncio
+async def test_send_once_reconciles_ambiguous_dispatch_without_replaying(tmp_path: Path) -> None:
+    prompt = "PROMPTA AMBIGUOUS SEND"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class AmbiguousDriver(FakeDriver):
+        async def click_send(self) -> None:
+            self.sent = True
+            self.typed = ""
+            raise SendOutcomeUnknownError("socket closed during Enter dispatch")
+
+    fake = AmbiguousDriver(prompt)
     prompta.driver = cast(Any, fake)
     prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
 
     conversation_id = await prompta.send_once(prompt)
 
     assert conversation_id == "new-chat"
-    assert fake.send_button_clicked is True
+    assert fake.sent is True
+    assert fake.send_button_clicked is False
 
 
 @pytest.mark.asyncio
@@ -523,30 +548,20 @@ async def test_send_reply_allows_attachment_only_message(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_send_reply_falls_back_to_send_button_when_enter_does_not_submit(
+async def test_send_reply_does_not_issue_second_mutation_when_enter_does_not_submit(
     tmp_path: Path,
 ) -> None:
     prompt = "Continue from the UI"
     conversation_id = "existing-chat"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.actions.send_timeout_seconds = 0.1
 
     class ReplyFakeDriver(FakeDriver):
         async def eval(self, expression: str) -> str:
             assert expression == "location.pathname"
             return f"/c/{conversation_id}"
 
-        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
-            assert context == "context-new"
-            return {
-                "title": "Existing chat",
-                "path": f"/c/{conversation_id}",
-                "streaming": True,
-                "messages": [
-                    {"id": "u1", "role": "user", "content": prompt},
-                ],
-            }
-
-    fake = ReplyFakeDriver(prompt, enter_submits=False)
+    fake = ReplyFakeDriver(prompt, enter_submits=False, committed=False, capture_status=0)
     prompta.driver = cast(Any, fake)
     prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
     prompta.cache.start(
@@ -556,10 +571,11 @@ async def test_send_reply_falls_back_to_send_button_when_enter_does_not_submit(
         prompt="Original prompt",
     )
 
-    result = await prompta.send_reply(conversation_id, prompt)
+    with pytest.raises(SendOutcomeUnknownError, match="could not prove the reply"):
+        await prompta.send_reply(conversation_id, prompt)
 
-    assert result == conversation_id
-    assert fake.send_button_clicked is True
+    assert fake.send_button_clicked is False
+    assert fake.sent is False
     await prompta.close()
 
 

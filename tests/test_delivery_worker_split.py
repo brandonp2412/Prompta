@@ -16,6 +16,7 @@ from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.rate_limit import RateLimitError
 from prompta.send_jobs import DeliveryBackendUnavailableError, SendJobRegistry
+from prompta.send_outcome import SendOutcomeUnknownError
 
 
 def test_registry_startup_does_not_overwrite_a_concurrent_delivery_claim(tmp_path: Path) -> None:
@@ -156,6 +157,79 @@ async def test_pre_send_browser_failure_remains_retryable(tmp_path: Path) -> Non
     ):
         with pytest.raises(DeliveryBackendUnavailableError, match="temporarily unavailable"):
             await sender._send_browser("once", "Hello", "", [])
+
+
+@pytest.mark.asyncio
+async def test_post_dispatch_failure_is_classified_as_outcome_unknown(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    fake_driver = SimpleNamespace(close=AsyncMock())
+
+    async def fail_after_dispatch(actions: ConversationActions, prompt: str, **_kwargs: Any) -> str:
+        del prompt
+        await actions.ensure_driver()
+        assert actions.before_send_attempt is not None
+        actions.before_send_attempt()
+        raise RuntimeError("local cache write failed after dispatch")
+
+    with (
+        patch(
+            "prompta.delivery_browser.BrowserSession.ensure_driver",
+            AsyncMock(return_value=fake_driver),
+        ),
+        patch.object(ConversationActions, "send_once", fail_after_dispatch),
+    ):
+        with pytest.raises(SendOutcomeUnknownError, match="failed after dispatch"):
+            await sender._send_browser("once", "Hello", "", [])
+
+
+def test_outcome_unknown_delivery_is_never_reclaimed_after_restart(tmp_path: Path) -> None:
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    attempts: list[str] = []
+
+    def ambiguous_sender(
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+    ) -> str:
+        del operation, message, conversation_id, attachments
+        attempts.append("attempt")
+        raise SendOutcomeUnknownError("transport died after submit")
+
+    first = SendJobRegistry(ambiguous_sender, queue_path=queue_path)
+    try:
+        submitted = first.submit(
+            operation="once", message="Do not duplicate", client_id="unknown-1"
+        )
+        assert _wait_for(
+            lambda: (first.get(submitted["send_id"]) or {}).get("status") == "outcome_unknown"
+        )
+        assert attempts == ["attempt"]
+    finally:
+        first.close()
+
+    restarted_calls: list[str] = []
+
+    def should_not_run(
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+    ) -> str:
+        del operation, message, conversation_id, attachments
+        restarted_calls.append("unexpected")
+        return "chat-duplicate"
+
+    second = SendJobRegistry(should_not_run, queue_path=queue_path)
+    try:
+        time.sleep(0.15)
+        restored = second.get(submitted["send_id"])
+        assert restored is not None
+        assert restored["status"] == "outcome_unknown"
+        assert restarted_calls == []
+        assert DeliveryQueueStore(queue_path).claim_next("other-worker") is None
+    finally:
+        second.close()
 
 
 def test_delivery_worker_persists_account_rate_limit_across_restart(tmp_path: Path) -> None:

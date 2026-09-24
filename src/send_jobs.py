@@ -20,6 +20,7 @@ from .rate_limit import (
     is_rate_limited_text,
     parse_retry_after,
 )
+from .send_outcome import SendOutcomeUnknownError
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ _SUCCEEDED_RECEIPT_LIMIT = 1000
 _DELIVERY_LEASE_SECONDS = 90.0
 _DELIVERY_LEASE_RENEW_SECONDS = 30.0
 _WAITING_QUEUE_STATUSES = {"queued", "retrying", "rate_limited"}
+_TERMINAL_DELIVERY_STATUSES = {"cancelled", "dead_lettered", "outcome_unknown", "succeeded"}
 _LEGACY_PRE_SEND_OUTAGE_ERRORS = (
     "Prompta scheduler is running but its control socket is unavailable:",
 )
@@ -373,7 +375,7 @@ class SendJobRegistry:
                         expired_attachments.extend(
                             value for value in raw_attachments if isinstance(value, str)
                         )
-            if status in {"cancelled", "dead_lettered", "succeeded"}:
+            if status in _TERMINAL_DELIVERY_STATUSES:
                 retained_attachments = {
                     value
                     for recoverable in self._recoverable.values()
@@ -484,7 +486,7 @@ class SendJobRegistry:
                 retry_attempt = 0
                 last_error = ""
                 finished_at = 0.0
-            if status in {"cancelled", "dead_lettered", "succeeded"}:
+            if status in _TERMINAL_DELIVERY_STATUSES:
                 record = {
                     "send_id": send_id,
                     "operation": operation,
@@ -509,7 +511,7 @@ class SendJobRegistry:
                     "client_id": client_id,
                     "status": status,
                     "conversation_id": conversation_id,
-                    "error": last_error if status == "dead_lettered" else "",
+                    "error": last_error if status in {"dead_lettered", "outcome_unknown"} else "",
                     "created_at": created_at,
                     "updated_at": finished_at or created_at,
                     "attachment_count": len(attachments),
@@ -791,7 +793,7 @@ class SendJobRegistry:
                 durable_terminal_send_ids = {
                     key
                     for key, value in self._recoverable.items()
-                    if value.get("status") in {"cancelled", "succeeded", "dead_lettered"}
+                    if value.get("status") in _TERMINAL_DELIVERY_STATUSES
                 }
             self._jobs = {
                 key: value
@@ -890,6 +892,7 @@ class SendJobRegistry:
                 "rate_limited",
                 "failed",
                 "dead_lettered",
+                "outcome_unknown",
             }:
                 return False
             status = str(job.get("status") or "")
@@ -1196,6 +1199,41 @@ class SendJobRegistry:
                         if lease_worker is not None:
                             lease_worker.join(timeout=1.0)
                 except Exception as exc:
+                    if isinstance(exc, SendOutcomeUnknownError):
+                        current = self.get(send_id) or {}
+                        finished_at = time.time()
+                        logger.error(
+                            "Prompta delivery outcome unknown send_id=%s operation=%s conversation=%s "
+                            "stage=%s; automatic resend disabled: %s",
+                            send_id,
+                            operation,
+                            conversation_id or "new",
+                            exc.stage,
+                            exc,
+                        )
+                        self._update(
+                            send_id,
+                            status="outcome_unknown",
+                            error=str(exc),
+                            retry_at=0.0,
+                            retry_after_seconds=0,
+                            retry_attempt=generic_attempt,
+                        )
+                        self._remember_recoverable(
+                            send_id=send_id,
+                            operation=operation,
+                            message=message,
+                            conversation_id=conversation_id,
+                            attachments=attachments,
+                            client_id=client_id,
+                            created_at=float(current.get("created_at") or finished_at),
+                            status="outcome_unknown",
+                            retry_attempt=generic_attempt,
+                            last_error=str(exc),
+                            finished_at=finished_at,
+                        )
+                        return
+
                     if isinstance(exc, ControlDeferredError):
                         current = self.get(send_id) or {}
                         delay = exc.retry_after
@@ -1443,5 +1481,6 @@ class SendJobRegistry:
                 "retrying",
                 "rate_limited",
                 "dead_lettered",
+                "outcome_unknown",
             }:
                 self._cleanup_attachments(attachments)

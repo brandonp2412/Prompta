@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-_TERMINAL_STATUSES = {"cancelled", "dead_lettered", "succeeded"}
+_TERMINAL_STATUSES = {"cancelled", "dead_lettered", "outcome_unknown", "succeeded"}
 _RETRY_STATUSES = {"rate_limited", "retrying"}
 
 

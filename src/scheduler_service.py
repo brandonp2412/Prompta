@@ -15,7 +15,7 @@ from .service_health import ServiceHealthStore, notify_watchdog
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL_DELIVERY_STATES = {"succeeded", "dead_lettered", "cancelled"}
+_TERMINAL_DELIVERY_STATES = {"succeeded", "dead_lettered", "cancelled", "outcome_unknown"}
 _PENDING_DELIVERY_STATES = {"queued", "running", "retrying", "rate_limited"}
 
 

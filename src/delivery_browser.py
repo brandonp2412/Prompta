@@ -12,11 +12,12 @@ from typing import Any
 from .browser_session import BrowserSession
 from .cache import ActiveConversation, ChatCache
 from .control_server import ControlDeferredError
-from .conversation_actions import ConversationActions
+from .conversation_actions import ConversationActions, SendNotAcceptedError
 from .playwright_driver import PlaywrightDriver
 from .rate_limit import RateLimitError
 from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import DeliveryBackendUnavailableError
+from .send_outcome import SendOutcomeUnknownError
 
 logger = logging.getLogger(__name__)
 
@@ -182,12 +183,20 @@ class BrowserDeliverySender:
                     message,
                     attachments=attachments,
                 )
-            except (RateLimitError, ControlDeferredError):
+            except (
+                RateLimitError,
+                ControlDeferredError,
+                SendNotAcceptedError,
+                SendOutcomeUnknownError,
+            ):
                 raise
             except Exception as exc:
                 if not send_attempted:
                     raise DeliveryBackendUnavailableError(str(exc)) from exc
-                raise
+                raise SendOutcomeUnknownError(
+                    "Prompta failed after dispatch and cannot prove whether the send completed",
+                    stage="post_dispatch",
+                ) from exc
         finally:
             driver = browser.driver
             for context, tracked in list(active.items()):

@@ -11,6 +11,7 @@ from .browser_script_loader import load_browser_script
 from .cache import ActiveConversation, ChatCache
 from .control_server import ControlDeferredError
 from .rate_limit import RateLimitError, is_rate_limited_text
+from .send_outcome import SendOutcomeUnknownError
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ _SEND_CONFIRM_POLL_SECONDS = 0.2
 _SYNC_OBSERVE_SECONDS = 15.0
 
 
-class SendVerificationError(RuntimeError):
+class SendVerificationError(SendOutcomeUnknownError):
     pass
 
 
@@ -107,21 +108,32 @@ class ConversationActions:
             typed = await driver.dom_state()
             if self.normalise(str(typed.get("composer_text") or "")) != self.normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
-            if self.before_send_attempt is not None:
-                self.before_send_attempt()
-            if attachments:
-                await driver.click_send_button()
+            dispatch_error: SendOutcomeUnknownError | None = None
+            try:
+                if attachments:
+                    await driver.click_send_button()
+                else:
+                    await driver.click_send()
+            except SendOutcomeUnknownError as exc:
+                if self.before_send_attempt is not None:
+                    self.before_send_attempt()
+                dispatch_error = exc
+                logger.warning(
+                    "Prompta send outcome became ambiguous during dispatch; reconciling read-only before any retry"
+                )
             else:
-                await driver.click_send()
-                await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+                if self.before_send_attempt is not None:
+                    self.before_send_attempt()
+
+            post_submit: dict[str, Any] = {}
+            try:
                 post_submit = await driver.dom_state()
-                if self.normalise(str(post_submit.get("composer_text") or "")) == self.normalise(
-                    prompt
-                ):
-                    logger.warning(
-                        "Prompta Enter submit left the prompt in the composer; retrying with the send button"
+            except Exception:
+                if dispatch_error is None:
+                    dispatch_error = SendOutcomeUnknownError(
+                        "Prompta could not inspect the composer after dispatch; send outcome is unknown",
+                        stage="post_dispatch_confirmation",
                     )
-                    await driver.click_send_button(timeout=5.0)
 
             provisional_conversation_id = ""
             provisional_confirmed = False
@@ -134,12 +146,18 @@ class ConversationActions:
                 confirmation_timeout = max(confirmation_timeout, 120.0)
             deadline = asyncio.get_running_loop().time() + confirmation_timeout
             while asyncio.get_running_loop().time() < deadline:
-                state = await driver.dom_state()
+                try:
+                    state = await driver.dom_state()
+                    probe = await driver.page_send_probe()
+                    path = str(await driver.eval(load_browser_script("location_pathname.js")) or "")
+                except Exception as exc:
+                    raise SendOutcomeUnknownError(
+                        "Prompta lost read-only confirmation after dispatch; send outcome is unknown",
+                        stage="send_confirmation",
+                    ) from exc
                 rate_limit_text = str(state.get("rate_limit_text") or "")
                 if is_rate_limited_text(rate_limit_text):
                     raise RateLimitError.from_text(rate_limit_text)
-                probe = await driver.page_send_probe()
-                path = str(await driver.eval(load_browser_script("location_pathname.js")) or "")
                 last_state = state
                 last_probe = probe
                 last_path = path
@@ -153,10 +171,18 @@ class ConversationActions:
                 last_send_confirmed = send_confirmed
                 if status == 429:
                     raise RateLimitError("prompta send rate limited")
+                if status >= 500:
+                    raise SendOutcomeUnknownError(
+                        f"prompta send returned HTTP {status} after dispatch; outcome is unknown",
+                        stage="send_response",
+                    )
                 if status >= 400:
-                    raise RuntimeError(f"prompta send failed with HTTP {status}")
+                    raise SendNotAcceptedError(f"prompta send failed with HTTP {status}")
                 if capture.get("fetch_error"):
-                    raise RuntimeError(f"prompta send failed: {capture['fetch_error']}")
+                    raise SendOutcomeUnknownError(
+                        f"prompta send transport failed after dispatch: {capture['fetch_error']}",
+                        stage="send_transport",
+                    )
 
                 route_confirmed = path.startswith("/c/") and path != baseline_path
                 dom_confirmed = user_text == self.normalise(prompt) and not self.normalise(
@@ -251,7 +277,7 @@ class ConversationActions:
                 raise SendNotAcceptedError(
                     "ChatGPT did not accept the prompt; it remained in the composer after submit"
                 )
-            raise SendVerificationError(
+            detail = (
                 "prompta could not prove the prompt was sent in a new conversation "
                 f"(composer_empty={not bool(final_composer)}, "
                 f"last_user_matches={final_user_text == self.normalise(prompt)}, "
@@ -259,6 +285,11 @@ class ConversationActions:
                 f"probe_status={int(last_probe.get('response_status') or 0)}, "
                 f"path={last_path or '/'})"
             )
+            if dispatch_error is not None:
+                raise SendOutcomeUnknownError(
+                    detail, stage=dispatch_error.stage
+                ) from dispatch_error
+            raise SendVerificationError(detail, stage="send_confirmation")
         finally:
             if capture is not None:
                 driver.clear_send_capture(capture)
@@ -515,39 +546,54 @@ class ConversationActions:
             typed = await driver.dom_state()
             if self.normalise(str(typed.get("composer_text") or "")) != self.normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the requested reply")
-            if self.before_send_attempt is not None:
-                self.before_send_attempt()
-            if attachments:
-                await driver.click_send_button()
+            dispatch_error: SendOutcomeUnknownError | None = None
+            try:
+                if attachments:
+                    await driver.click_send_button()
+                else:
+                    await driver.click_send()
+            except SendOutcomeUnknownError as exc:
+                if self.before_send_attempt is not None:
+                    self.before_send_attempt()
+                dispatch_error = exc
+                logger.warning(
+                    "Prompta reply outcome became ambiguous during dispatch; reconciling read-only before any retry"
+                )
             else:
-                await driver.click_send()
-                await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
-                post_submit = await driver.dom_state()
-                if self.normalise(str(post_submit.get("composer_text") or "")) == self.normalise(
-                    prompt
-                ):
-                    logger.warning(
-                        "Prompta Enter reply left the prompt in the composer; retrying with the send button"
-                    )
-                    await driver.click_send_button(timeout=5.0)
+                if self.before_send_attempt is not None:
+                    self.before_send_attempt()
 
             confirmation_timeout = max(1.0, self.send_timeout_seconds)
             if attachments:
                 confirmation_timeout = max(confirmation_timeout, 120.0)
             deadline = asyncio.get_running_loop().time() + confirmation_timeout
             while asyncio.get_running_loop().time() < deadline:
-                state = await driver.dom_state()
+                try:
+                    state = await driver.dom_state()
+                    probe = await driver.page_send_probe()
+                except Exception as exc:
+                    raise SendOutcomeUnknownError(
+                        "Prompta lost read-only reply confirmation after dispatch; send outcome is unknown",
+                        stage="send_confirmation",
+                    ) from exc
                 rate_limit_text = str(state.get("rate_limit_text") or "")
                 if is_rate_limited_text(rate_limit_text):
                     raise RateLimitError.from_text(rate_limit_text)
-                probe = await driver.page_send_probe()
                 status = int(probe.get("response_status") or capture.get("status") or 0)
                 if status == 429:
                     raise RateLimitError("prompta send rate limited")
+                if status >= 500:
+                    raise SendOutcomeUnknownError(
+                        f"prompta send returned HTTP {status} after dispatch; outcome is unknown",
+                        stage="send_response",
+                    )
                 if status >= 400:
-                    raise RuntimeError(f"prompta send failed with HTTP {status}")
+                    raise SendNotAcceptedError(f"prompta send failed with HTTP {status}")
                 if capture.get("fetch_error"):
-                    raise RuntimeError(f"prompta send failed: {capture['fetch_error']}")
+                    raise SendOutcomeUnknownError(
+                        f"prompta send transport failed after dispatch: {capture['fetch_error']}",
+                        stage="send_transport",
+                    )
 
                 send_confirmed = (
                     bool(probe.get("committed"))
@@ -586,9 +632,12 @@ class ConversationActions:
                     return conversation_id
                 await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
 
-            raise SendVerificationError(
-                "prompta could not prove the reply was sent to the selected conversation"
-            )
+            detail = "prompta could not prove the reply was sent to the selected conversation"
+            if dispatch_error is not None:
+                raise SendOutcomeUnknownError(
+                    detail, stage=dispatch_error.stage
+                ) from dispatch_error
+            raise SendVerificationError(detail, stage="send_confirmation")
         finally:
             if capture is not None:
                 driver.clear_send_capture(capture)

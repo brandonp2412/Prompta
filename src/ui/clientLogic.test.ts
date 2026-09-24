@@ -896,6 +896,7 @@ describe("pending send activity", () => {
     });
     expect(pendingSendActivity("failed", true)).toBeNull();
     expect(pendingSendActivity("dead_lettered", true)).toBeNull();
+    expect(pendingSendActivity("outcome_unknown", true)).toBeNull();
   });
 });
 

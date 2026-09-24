@@ -43,6 +43,7 @@ from .chatgpt_dom import (
     FILE_INPUT_SELECTORS,
     MESSAGE_ROLE_SELECTOR,
 )
+from .send_outcome import SendOutcomeUnknownError
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -771,7 +772,12 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def click_send(self) -> None:
         composer = await self._focus_composer()
-        await composer.press("Enter")
+        try:
+            await composer.press("Enter")
+        except Exception as exc:
+            raise SendOutcomeUnknownError(
+                "ChatGPT send mutation failed while pressing Enter; the prompt may have been submitted"
+            ) from exc
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
         page = self._page()
@@ -789,7 +795,12 @@ class PlaywrightDriver(BrowserDriverBase):
                     except PlaywrightError:
                         button = None
             if button is not None:
-                await button.click()
+                try:
+                    await button.click()
+                except Exception as exc:
+                    raise SendOutcomeUnknownError(
+                        "ChatGPT send-button mutation failed; the prompt may have been submitted"
+                    ) from exc
                 return
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT send button did not become enabled")

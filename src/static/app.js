@@ -6626,7 +6626,11 @@ function pendingConversationStatus(existingStatus, pendingStatus) {
 	const current = String(existingStatus || "").trim();
 	const pending = String(pendingStatus || "").trim();
 	if (!pending) return current;
-	if (["failed", "dead_lettered"].includes(pending)) return pending;
+	if ([
+		"failed",
+		"dead_lettered",
+		"outcome_unknown"
+	].includes(pending)) return pending;
 	if (current === "active") return current;
 	return "pending";
 }
@@ -6775,7 +6779,11 @@ function retryDelayText(seconds) {
 }
 function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1e3, queuePosition = 0, queueEtaAtEpoch = 0, waitForResponse = true) {
 	const normalized = textValue(status, "queued").trim().toLowerCase();
-	if (["failed", "dead_lettered"].includes(normalized)) return null;
+	if ([
+		"failed",
+		"dead_lettered",
+		"outcome_unknown"
+	].includes(normalized)) return null;
 	if (!hasSendId) return {
 		label: "sending",
 		statusText: "Sending…"
@@ -6919,7 +6927,11 @@ function missingPendingConversationSummaries(chats, pendingReplies, query = "") 
 		const latest = replies[replies.length - 1];
 		const message = textValue(latest.message).trim();
 		const title = message.slice(0, 72) || "New chat";
-		const status = ["failed", "dead_lettered"].includes(textValue(latest.status)) ? textValue(latest.status) : "active";
+		const status = [
+			"failed",
+			"dead_lettered",
+			"outcome_unknown"
+		].includes(textValue(latest.status)) ? textValue(latest.status) : "active";
 		if (needle && ![
 			title,
 			message,
@@ -19495,6 +19507,7 @@ function syncSendButton() {
 	const waitingNew = state.composingNew && state.pendingNewSend && ![
 		"failed",
 		"dead_lettered",
+		"outcome_unknown",
 		"succeeded"
 	].includes(state.pendingNewSend.status);
 	const hasTarget = state.composingNew || Boolean(state.selectedId);
@@ -19746,16 +19759,25 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 			pending_activity: true,
 			pending_activity_label: activity.label
 		});
-		else if (["failed", "dead_lettered"].includes(item.status || "")) messages.push({
-			message_key: `pending-error-${item.clientId || item.sendId}`,
-			role: "assistant",
-			content: `Send failed: ${item.error || "Unknown Prompta send error"}`,
-			status: "complete",
-			updated_at: item.updatedAt,
-			send_error: true,
-			retry_scope: "reply",
-			retry_key: item.clientId || item.sendId || ""
-		});
+		else if ([
+			"failed",
+			"dead_lettered",
+			"outcome_unknown"
+		].includes(item.status || "")) {
+			const outcomeUnknown = item.status === "outcome_unknown";
+			messages.push({
+				message_key: `pending-error-${item.clientId || item.sendId}`,
+				role: "assistant",
+				content: outcomeUnknown ? `Send outcome is unknown. Prompta will not resend automatically: ${item.error || "No confirmation was available."}` : `Send failed: ${item.error || "Unknown Prompta send error"}`,
+				status: "complete",
+				updated_at: item.updatedAt,
+				send_error: true,
+				...outcomeUnknown ? {} : {
+					retry_scope: "reply",
+					retry_key: item.clientId || item.sendId || ""
+				}
+			});
+		}
 		return messages;
 	});
 }
@@ -19948,6 +19970,7 @@ function renderNewChat() {
 	const waiting = pending && ![
 		"failed",
 		"dead_lettered",
+		"outcome_unknown",
 		"succeeded"
 	].includes(pending.status);
 	const fingerprint = JSON.stringify([
@@ -19991,16 +20014,25 @@ function renderNewChat() {
 				pending_activity: true,
 				pending_activity_label: activity.label
 			});
-			else if (["failed", "dead_lettered"].includes(pending.status)) messages.push({
-				message_key: `pending-error-${pending.clientId || pending.sendId}`,
-				role: "assistant",
-				content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
-				status: "complete",
-				updated_at: pending.updatedAt,
-				send_error: true,
-				retry_scope: "new",
-				retry_key: pending.clientId || pending.sendId
-			});
+			else if ([
+				"failed",
+				"dead_lettered",
+				"outcome_unknown"
+			].includes(pending.status)) {
+				const outcomeUnknown = pending.status === "outcome_unknown";
+				messages.push({
+					message_key: `pending-error-${pending.clientId || pending.sendId}`,
+					role: "assistant",
+					content: outcomeUnknown ? `Send outcome is unknown. Prompta will not resend automatically: ${pending.error || "No confirmation was available."}` : `Send failed: ${pending.error || "Unknown Prompta send error"}`,
+					status: "complete",
+					updated_at: pending.updatedAt,
+					send_error: true,
+					...outcomeUnknown ? {} : {
+						retry_scope: "new",
+						retry_key: pending.clientId || pending.sendId
+					}
+				});
+			}
 			const viewportSnapshot = conversationRenderer.captureConversationViewport();
 			showConversation(true);
 			conversationRenderer.renderMessageNodes(messages, true);
@@ -20017,7 +20049,11 @@ function renderNewChat() {
 		updatePinButton();
 		appViewState.composerPlaceholder = "Start a new chat…";
 		const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt, pending.waitForResponse !== false) : null;
-		setComposerStatus(pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
+		setComposerStatus(pending ? [
+			"failed",
+			"dead_lettered",
+			"outcome_unknown"
+		].includes(pending.status) ? pending.status === "outcome_unknown" ? "Send outcome is unknown. Prompta will not resend automatically." : pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
 	}
 	updateComposerActionButton();
 	if (enteringNewChat) {
@@ -20126,7 +20162,8 @@ async function hydratePendingSends() {
 			if (!sendId || [
 				"succeeded",
 				"failed",
-				"dead_lettered"
+				"dead_lettered",
+				"outcome_unknown"
 			].includes(status)) continue;
 			const conversationId = String(job.conversation_id || "");
 			const pending = {
@@ -20443,7 +20480,11 @@ async function deletePendingSend(deleteKey) {
 	} else if (conversationId) pending = (state.pendingReplies.get(conversationId) || []).find((item) => item.clientId === deleteKey || item.sendId === deleteKey) || null;
 	if (!pending) return;
 	const sendId = String(pending.sendId || "");
-	const canDiscardLocally = !sendId && ["failed", "dead_lettered"].includes(String(pending.status || ""));
+	const canDiscardLocally = !sendId && [
+		"failed",
+		"dead_lettered",
+		"outcome_unknown"
+	].includes(String(pending.status || ""));
 	if (!sendId && !canDiscardLocally) {
 		setComposerStatus("Message is still entering the queue. Try deleting again.");
 		return;
@@ -20608,7 +20649,11 @@ async function watchSend(sendId, creatingNew, conversationId) {
 				await loadSelectedChat();
 				return;
 			}
-			if (["failed", "dead_lettered"].includes(status)) {
+			if ([
+				"failed",
+				"dead_lettered",
+				"outcome_unknown"
+			].includes(status)) {
 				if (state.composingNew) renderNewChat();
 				renderSidebar();
 				return;
@@ -20638,8 +20683,12 @@ async function watchSend(sendId, creatingNew, conversationId) {
 			await loadChats();
 			return;
 		}
-		if (["failed", "dead_lettered"].includes(status)) {
-			setComposerStatus(status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
+		if ([
+			"failed",
+			"dead_lettered",
+			"outcome_unknown"
+		].includes(status)) {
+			setComposerStatus(status === "outcome_unknown" ? "Send outcome is unknown. Prompta will not resend automatically." : status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat.");
 			return;
 		}
 	}
@@ -21074,6 +21123,7 @@ var init_app = __esmMin((() => {
 		"failed",
 		"broken",
 		"dead_lettered",
+		"outcome_unknown",
 		"live",
 		"journal",
 		"new",

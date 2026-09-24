@@ -114,7 +114,7 @@ export function pendingConversationStatus(
   const pending = String(pendingStatus || "").trim();
 
   if (!pending) return current;
-  if (["failed", "dead_lettered"].includes(pending)) return pending;
+  if (["failed", "dead_lettered", "outcome_unknown"].includes(pending)) return pending;
   if (current === "active") return current;
 
   return "pending";
@@ -526,7 +526,7 @@ export function pendingSendActivity(
 ): PendingSendActivity | null {
   const normalized = textValue(status, "queued").trim().toLowerCase();
 
-  if (["failed", "dead_lettered"].includes(normalized)) return null;
+  if (["failed", "dead_lettered", "outcome_unknown"].includes(normalized)) return null;
 
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
 
@@ -738,7 +738,7 @@ export function missingPendingConversationSummaries(
     const latest = replies[replies.length - 1];
     const message = textValue(latest.message).trim();
     const title = message.slice(0, 72) || "New chat";
-    const status = ["failed", "dead_lettered"].includes(textValue(latest.status))
+    const status = ["failed", "dead_lettered", "outcome_unknown"].includes(textValue(latest.status))
       ? textValue(latest.status)
       : "active";
 

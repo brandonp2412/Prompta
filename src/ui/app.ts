@@ -551,7 +551,9 @@ function syncSendButton() {
   const waitingNew =
     state.composingNew &&
     state.pendingNewSend &&
-    !["failed", "dead_lettered", "succeeded"].includes(state.pendingNewSend.status);
+    !["failed", "dead_lettered", "outcome_unknown", "succeeded"].includes(
+      state.pendingNewSend.status,
+    );
   const hasTarget = state.composingNew || Boolean(state.selectedId);
   const hasContent = composerHasContent(appViewState.composerValue, attachmentPicker.count());
   const canCompose = state.mode === "chats" && !appViewState.composerDisabled && hasTarget;
@@ -704,6 +706,7 @@ const iconStatusClasses = new Set([
   "failed",
   "broken",
   "dead_lettered",
+  "outcome_unknown",
   "live",
   "journal",
   "new",
@@ -1018,16 +1021,23 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         pending_activity: true,
         pending_activity_label: activity.label,
       });
-    } else if (["failed", "dead_lettered"].includes(item.status || "")) {
+    } else if (["failed", "dead_lettered", "outcome_unknown"].includes(item.status || "")) {
+      const outcomeUnknown = item.status === "outcome_unknown";
       messages.push({
         message_key: `pending-error-${item.clientId || item.sendId}`,
         role: "assistant",
-        content: `Send failed: ${item.error || "Unknown Prompta send error"}`,
+        content: outcomeUnknown
+          ? `Send outcome is unknown. Prompta will not resend automatically: ${item.error || "No confirmation was available."}`
+          : `Send failed: ${item.error || "Unknown Prompta send error"}`,
         status: "complete",
         updated_at: item.updatedAt,
         send_error: true,
-        retry_scope: "reply",
-        retry_key: item.clientId || item.sendId || "",
+        ...(outcomeUnknown
+          ? {}
+          : {
+              retry_scope: "reply",
+              retry_key: item.clientId || item.sendId || "",
+            }),
       });
     }
 
@@ -1342,7 +1352,9 @@ function renderNewChat() {
         queue_position: pending.queuePosition,
       }
     : null;
-  const waiting = pending && !["failed", "dead_lettered", "succeeded"].includes(pending.status);
+  const waiting =
+    pending &&
+    !["failed", "dead_lettered", "outcome_unknown", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
     pending?.sendId || "",
     pending?.message || "",
@@ -1400,16 +1412,23 @@ function renderNewChat() {
           pending_activity: true,
           pending_activity_label: activity.label,
         });
-      } else if (["failed", "dead_lettered"].includes(pending.status)) {
+      } else if (["failed", "dead_lettered", "outcome_unknown"].includes(pending.status)) {
+        const outcomeUnknown = pending.status === "outcome_unknown";
         messages.push({
           message_key: `pending-error-${pending.clientId || pending.sendId}`,
           role: "assistant",
-          content: `Send failed: ${pending.error || "Unknown Prompta send error"}`,
+          content: outcomeUnknown
+            ? `Send outcome is unknown. Prompta will not resend automatically: ${pending.error || "No confirmation was available."}`
+            : `Send failed: ${pending.error || "Unknown Prompta send error"}`,
           status: "complete",
           updated_at: pending.updatedAt,
           send_error: true,
-          retry_scope: "new",
-          retry_key: pending.clientId || pending.sendId,
+          ...(outcomeUnknown
+            ? {}
+            : {
+                retry_scope: "new",
+                retry_key: pending.clientId || pending.sendId,
+              }),
         });
       }
 
@@ -1446,10 +1465,12 @@ function renderNewChat() {
       : null;
     setComposerStatus(
       pending
-        ? ["failed", "dead_lettered"].includes(pending.status)
-          ? pending.status === "dead_lettered"
-            ? "Send exhausted its retry budget. Retry to enqueue it again."
-            : "Send failed. The error is shown in the chat."
+        ? ["failed", "dead_lettered", "outcome_unknown"].includes(pending.status)
+          ? pending.status === "outcome_unknown"
+            ? "Send outcome is unknown. Prompta will not resend automatically."
+            : pending.status === "dead_lettered"
+              ? "Send exhausted its retry budget. Retry to enqueue it again."
+              : "Send failed. The error is shown in the chat."
           : activity?.statusText || "Sent. Waiting for the cached response…"
         : "",
     );
@@ -1609,7 +1630,8 @@ async function hydratePendingSends() {
       const status = String(job.status || "queued");
       const sendId = String(job.send_id || "");
 
-      if (!sendId || ["succeeded", "failed", "dead_lettered"].includes(status)) continue;
+      if (!sendId || ["succeeded", "failed", "dead_lettered", "outcome_unknown"].includes(status))
+        continue;
 
       const conversationId = String(job.conversation_id || "");
       const pending: UiPendingSend = {
@@ -2156,7 +2178,8 @@ async function deletePendingSend(deleteKey: string) {
   const sendId = String(pending.sendId || "");
 
   const canDiscardLocally =
-    !sendId && ["failed", "dead_lettered"].includes(String(pending.status || ""));
+    !sendId &&
+    ["failed", "dead_lettered", "outcome_unknown"].includes(String(pending.status || ""));
 
   if (!sendId && !canDiscardLocally) {
     setComposerStatus("Message is still entering the queue. Try deleting again.");
@@ -2413,7 +2436,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         return;
       }
 
-      if (["failed", "dead_lettered"].includes(status)) {
+      if (["failed", "dead_lettered", "outcome_unknown"].includes(status)) {
         if (state.composingNew) renderNewChat();
 
         renderSidebar();
@@ -2460,11 +2483,13 @@ async function watchSend(sendId, creatingNew, conversationId) {
       return;
     }
 
-    if (["failed", "dead_lettered"].includes(status)) {
+    if (["failed", "dead_lettered", "outcome_unknown"].includes(status)) {
       setComposerStatus(
-        status === "dead_lettered"
-          ? "Send exhausted its retry budget. Retry to enqueue it again."
-          : "Send failed. The error is shown in the chat.",
+        status === "outcome_unknown"
+          ? "Send outcome is unknown. Prompta will not resend automatically."
+          : status === "dead_lettered"
+            ? "Send exhausted its retry budget. Retry to enqueue it again."
+            : "Send failed. The error is shown in the chat.",
       );
 
       return;
