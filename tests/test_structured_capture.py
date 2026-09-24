@@ -667,7 +667,12 @@ def test_read_only_store_recovers_transient_dom_prose_when_parts_are_tool_only(
     assert chat is not None
     assistant = chat["messages"][-1]
     content = assistant["content"]
-    assert assistant["parts_renderable"] is False
+    assert assistant["parts_renderable"] is True
+    assert [part["kind"] for part in assistant["parts"]] == [
+        "assistant_text",
+        "tool_call",
+        "assistant_text",
+    ]
     assert "Connection interrupted" not in content
     assert content.index("Visible intro") < content.index("Glass Serena · serena_repl")
     assert content.index("Glass Serena · serena_repl") < content.index("Visible follow-up")

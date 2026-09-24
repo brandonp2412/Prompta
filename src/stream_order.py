@@ -218,6 +218,26 @@ def compact_prose_observation(content: str) -> str:
     ).strip()
 
 
+def observed_prose_blocks(
+    observations: list[tuple[float, str]],
+) -> list[tuple[float, str]]:
+    """Return final cumulative prose blocks paired with their first-seen time."""
+
+    if not observations:
+        return []
+    latest_content = observations[-1][1]
+    blocks = _collapsed_observation_blocks(latest_content)
+    result: list[tuple[float, str]] = []
+    for block in blocks:
+        if _is_transient_activity(block):
+            continue
+        first_seen = _observed_at(block, observations)
+        if first_seen is None:
+            first_seen = observations[-1][0]
+        result.append((first_seen, block.content.strip()))
+    return result
+
+
 def _observed_at(block: _Block, observations: list[tuple[float, str]]) -> float | None:
     if block.is_tool:
         if not block.created_at:

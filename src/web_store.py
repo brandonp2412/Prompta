@@ -13,6 +13,7 @@ from .preview import compact_sidebar_preview
 from .stream_order import (
     compact_prose_observation,
     has_stream_order_inversion,
+    observed_prose_blocks,
     recover_stream_order_from_observations,
     stabilize_streaming_content,
 )
@@ -60,6 +61,66 @@ def _attach_transient_dom_prose_observations(
         existing = observations_by_message.setdefault(best_key, [])
         existing.extend(observations)
         existing.sort(key=lambda item: item[0])
+
+
+def _merge_tool_parts_with_dom_prose(
+    parts: list[dict[str, Any]],
+    observations: list[tuple[float, str]],
+    *,
+    message_key: str,
+) -> list[dict[str, Any]] | None:
+    """Recover renderable prose/tool interleaving when only tool parts survived."""
+
+    has_tool = any(str(part.get("kind") or "") == "tool_call" for part in parts)
+    has_text = any(
+        str(part.get("kind") or "") in {"assistant_text", "final_text", "reasoning"}
+        and bool(str(part.get("content") or "").strip())
+        for part in parts
+    )
+    if not has_tool or has_text:
+        return None
+
+    prose_blocks = observed_prose_blocks(observations)
+    if not prose_blocks:
+        return None
+
+    timeline: list[tuple[float, int, int, dict[str, Any]]] = []
+    for index, part in enumerate(parts):
+        timestamp = part.get("source_created_at")
+        try:
+            sort_time = float(timestamp) if timestamp is not None else float("inf")
+        except (TypeError, ValueError):
+            sort_time = float("inf")
+        timeline.append((sort_time, 1, index, dict(part)))
+
+    for index, (observed_at, content) in enumerate(prose_blocks):
+        timeline.append(
+            (
+                observed_at,
+                0,
+                index,
+                {
+                    "message_key": message_key,
+                    "part_key": f"recovered-dom-prose-{index}",
+                    "ordinal": 0,
+                    "kind": "assistant_text",
+                    "title": "",
+                    "content": content,
+                    "source_created_at": observed_at,
+                    "source_event_key": "",
+                    "tool_call_key": "",
+                    "end_turn": None,
+                    "metadata": {"recovered_from": "dom-prose"},
+                },
+            )
+        )
+
+    timeline.sort(key=lambda item: (item[0], item[1], item[2]))
+    merged: list[dict[str, Any]] = []
+    for ordinal, (_, _, _, part) in enumerate(timeline):
+        part["ordinal"] = ordinal
+        merged.append(part)
+    return merged
 
 
 class ReadOnlyChatStore:
@@ -545,6 +606,19 @@ class ReadOnlyChatStore:
                 for observed_at, prose in dom_prose_by_message.get(message_key, [])
                 if (cleaned := compact_prose_observation(strip_delivery_timeout_noise(prose)))
             ]
+            use_structured_content = historical or str(message.get("status") or "") == "complete"
+            if use_structured_content and str(message.get("role") or "") == "assistant":
+                recovered_parts = _merge_tool_parts_with_dom_prose(
+                    structured_parts,
+                    dom_observations,
+                    message_key=message_key,
+                )
+                if recovered_parts is not None:
+                    structured_parts = recovered_parts
+                    message["parts"] = structured_parts
+                    message["content"] = rendered_content_from_parts(structured_parts)
+                    message["parts_renderable"] = True
+
             if str(message.get("role") or "") == "assistant" and dom_observations:
                 latest_dom_prose = dom_observations[-1][1]
                 current_content = str(message.get("content") or "")
@@ -563,7 +637,6 @@ class ReadOnlyChatStore:
                         )
                     message["content"] = recovered_content
 
-            use_structured_content = historical or str(message.get("status") or "") == "complete"
             if use_structured_content and structured_parts:
                 structured_content = rendered_content_from_parts(structured_parts)
                 canonical_content = str(message.get("content") or "")
