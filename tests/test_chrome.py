@@ -266,6 +266,16 @@ async def test_ensure_chat_surface_selects_chat_radio(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ensure_chat_surface_accepts_composer_without_mode_radio(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        '<textarea aria-label="Chat with ChatGPT" placeholder="Ask ChatGPT"></textarea>'
+    )
+
+    await driver.ensure_chat_surface(timeout=0.2)
+
+
+@pytest.mark.asyncio
 async def test_effort_trigger_accepts_thinking_effort_button(live_driver) -> None:
     driver, page = live_driver
     await page.set_content('<button aria-haspopup="menu">Thinking effort</button>')

@@ -11,7 +11,6 @@ from .cache import ChatCache
 from .conversation_tracker import ConversationTracker
 from .persistence import DEFAULT_RUNTIME_PATH
 from .playwright_driver import PlaywrightDriver
-from .rate_limit import RateLimitError
 from .scheduler_runtime import SchedulerRuntime
 from .service_health import ServiceHealthStore, notify_watchdog
 
@@ -106,10 +105,9 @@ class ConversationWorker:
                 limited = await driver.dismiss_history_rate_limit(context=context) or limited
             except Exception:
                 logger.debug("Could not inspect ChatGPT history rate-limit modal", exc_info=True)
-        if limited:
-            self.runtime.record_global_rate_limit(
-                RateLimitError("ChatGPT conversation history returned Too many requests")
-            )
+        # Conversation-history throttling may prevent transcript reads, but it
+        # does not imply that sending prompts is rate limited. Keep the pause local
+        # to the conversation worker instead of blocking the delivery worker.
         return limited
 
     async def run_once(self) -> bool:

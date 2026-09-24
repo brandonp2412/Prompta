@@ -161,35 +161,14 @@ def test_delivery_worker_defers_reply_when_cache_says_conversation_is_active(
 
 
 @pytest.mark.asyncio
-async def test_history_rate_limit_modal_defers_before_chat_preference_checks(
-    tmp_path: Path,
-) -> None:
-    cache = ChatCache(tmp_path / "chats.sqlite3")
+async def test_history_rate_limit_modal_is_dismissed_without_send_backoff() -> None:
     driver = SimpleNamespace(
-        new_tab=AsyncMock(return_value="tab-1"),
         dismiss_history_rate_limit=AsyncMock(return_value=True),
-        close_context=AsyncMock(),
     )
-    ensure_high_effort = AsyncMock()
-    actions = ConversationActions(
-        cache,
-        {},
-        20.0,
-        ensure_driver=AsyncMock(return_value=driver),
-        ensure_high_effort=ensure_high_effort,
-        ensure_route=AsyncMock(),
-        enrich_completed_tool_calls=AsyncMock(),
-        wait_for_cached_response=AsyncMock(return_value=False),
-        unattended_mode=lambda: False,
-    )
-    try:
-        with pytest.raises(RateLimitError, match="Too many requests"):
-            await actions.send_once("Hello")
-    finally:
-        cache.close()
+
+    await ConversationActions._raise_if_history_rate_limited(driver)
 
     driver.dismiss_history_rate_limit.assert_awaited_once()
-    ensure_high_effort.assert_not_awaited()
 
 
 def _wait_for(predicate, timeout: float = 3.0) -> bool:

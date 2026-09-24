@@ -56,8 +56,11 @@ class ConversationActions:
     @staticmethod
     async def _raise_if_history_rate_limited(driver: Any) -> None:
         dismiss = getattr(driver, "dismiss_history_rate_limit", None)
-        if dismiss is not None and await dismiss():
-            raise RateLimitError("ChatGPT conversation history returned Too many requests")
+        if dismiss is not None:
+            # Conversation-history throttling is independent of prompt delivery.
+            # Dismiss the modal so it cannot obstruct the composer, but do not turn
+            # it into an account-wide send backoff.
+            await dismiss()
 
     async def send_once(
         self,

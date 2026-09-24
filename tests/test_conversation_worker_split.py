@@ -179,7 +179,7 @@ def test_reply_busy_is_derived_from_durable_cache_not_local_tracker(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_conversation_worker_dismisses_modal_and_enters_shared_cooldown(
+async def test_conversation_worker_dismisses_modal_without_shared_send_cooldown(
     tmp_path: Path,
 ) -> None:
     state_path = tmp_path / "runtime.sqlite3"
@@ -192,8 +192,7 @@ async def test_conversation_worker_dismisses_modal_and_enters_shared_cooldown(
     try:
         assert await worker.run_once() is False
         status = worker.runtime.account_admission_status()
-        assert status["blocked"] is True
-        assert status["kind"] == "rate_limit"
-        assert "Too many requests" in status["reason"]
+        assert status["blocked"] is False
+        assert status["kind"] == ""
     finally:
         await worker.close()

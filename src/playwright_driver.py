@@ -1018,6 +1018,11 @@ class PlaywrightDriver(BrowserDriverBase):
                 enabled=True,
             )
             if chat is None:
+                # ChatGPT no longer always exposes explicit Chat/Work mode radios.
+                # A usable composer is sufficient evidence that the page is on the
+                # normal chat surface; preserve radio selection when the control exists.
+                if await self._composer(page) is not None:
+                    return
                 await asyncio.sleep(0.1)
                 continue
             try:
