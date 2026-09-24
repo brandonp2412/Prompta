@@ -24,3 +24,11 @@ test("labeled action clusters expose group semantics", () => {
     '<div class="topbar-actions" role="group" aria-label="Prompta actions">',
   );
 });
+
+test("version update notice keeps visible text in its accessible name", () => {
+  expect(appSource).toContain('"Update available. Tap to update Prompta"');
+  expect(appSource).toContain('"Updating Prompta…"');
+  expect(appSource).toContain(
+    '>{appViewState.updateApplying ? "Updating Prompta…" : "Update available"}</button>',
+  );
+});

@@ -11,3 +11,13 @@ test("plain Enter stays a textarea newline and submit remains explicit", () => {
     'event.key === "Tab" || (event.key === "Enter" && !event.isComposing)',
   );
 });
+
+test("slash autocomplete keeps native textarea semantics", () => {
+  expect(composerSource).not.toContain('role="combobox"');
+  expect(composerSource).not.toContain("aria-expanded={slashOpen}");
+  expect(composerSource).toContain('aria-controls={slashOpen ? "slashMenu" : undefined}');
+  expect(composerSource).toContain('aria-autocomplete="list"');
+  expect(composerSource).toContain(
+    "aria-activedescendant={slashOpen && activeCommand ? activeCommand.id : undefined}",
+  );
+});

@@ -118,11 +118,9 @@
         rows="1"
         placeholder={appViewState.composerPlaceholder}
         aria-label="Message Prompta"
-        role="combobox"
-        aria-controls="slashMenu"
+        aria-controls={slashOpen ? "slashMenu" : undefined}
         aria-autocomplete="list"
         aria-haspopup="listbox"
-        aria-expanded={slashOpen}
         aria-activedescendant={slashOpen && activeCommand ? activeCommand.id : undefined}
         disabled={appViewState.composerDisabled}
         oninput={handleInput}

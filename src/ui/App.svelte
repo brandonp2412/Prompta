@@ -519,12 +519,12 @@
   class="version-update-notice"
   id="versionUpdateNotice"
   aria-label={appViewState.updateApplying
-    ? "Updating Prompta"
-    : "New Prompta version available. Tap to update"}
+    ? "Updating Prompta…"
+    : "Update available. Tap to update Prompta"}
   aria-live="polite"
   hidden={!appViewState.updateAvailable}
   disabled={appViewState.updateApplying}
   onclick={appActions.onApplyUpdate}
->{appViewState.updateApplying ? "Updating…" : "Update available"}</button>
+>{appViewState.updateApplying ? "Updating Prompta…" : "Update available"}</button>
 
 <ChangelogDialog />

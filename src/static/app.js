@@ -7434,7 +7434,7 @@ init_clientLogic();
 var root$7 = /* @__PURE__ */ from_html(`<button type="button" class="composer-jump-latest-button" aria-label="Jump to latest message" title="Jump to latest message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14m-6-6 6 6 6-6"></path></svg> <span>Latest</span></button>`);
 var root_1$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
 var root_2$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
-var root_3$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
+var root_3$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
 var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
 var root_5$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
 var root_6$4 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><!> <form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
@@ -7562,7 +7562,7 @@ function Composer($$anchor, $$props) {
 			});
 			template_effect(() => {
 				set_attribute(textarea, "placeholder", appViewState.composerPlaceholder);
-				set_attribute(textarea, "aria-expanded", get(slashOpen));
+				set_attribute(textarea, "aria-controls", get(slashOpen) ? "slashMenu" : void 0);
 				set_attribute(textarea, "aria-activedescendant", get(slashOpen) && get(activeCommand) ? get(activeCommand).id : void 0);
 				textarea.disabled = appViewState.composerDisabled;
 			});
@@ -18431,10 +18431,10 @@ function App($$anchor, $$props) {
 		set_attribute(article, "hidden", !appViewState.conversationVisible);
 		set_attribute(div_16, "hidden", !appViewState.actionToast);
 		set_text(text_6, appViewState.actionToast);
-		set_attribute(button_8, "aria-label", appViewState.updateApplying ? "Updating Prompta" : "New Prompta version available. Tap to update");
+		set_attribute(button_8, "aria-label", appViewState.updateApplying ? "Updating Prompta…" : "Update available. Tap to update Prompta");
 		set_attribute(button_8, "hidden", !appViewState.updateAvailable);
 		button_8.disabled = appViewState.updateApplying;
-		set_text(text_7, appViewState.updateApplying ? "Updating…" : "Update available");
+		set_text(text_7, appViewState.updateApplying ? "Updating Prompta…" : "Update available");
 	}, [() => sidebarDrag.active ? String(sidebarDrag.progress) : void 0]);
 	event("transitionend", aside, handleSidebarTransitionEnd);
 	delegated("click", button, () => closeSidebar());
