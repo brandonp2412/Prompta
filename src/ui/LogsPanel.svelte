@@ -4,7 +4,7 @@
   import { registerLogsPanel } from "./uiControllers";
 
   const visible = $derived(appViewState.mode === "logs");
-  let serverTitle = $state("Prompta · prompta.service");
+  let serverTitle = $state("Prompta · prompta-ui.service");
   let meta = $state("Waiting for synced journal");
   let output = $state("Loading logs…");
   let fingerprint = $state("");
@@ -52,7 +52,7 @@
   }
 
   export function setServerTitle(display: string) {
-    serverTitle = `${display || ""} · prompta.service`;
+    serverTitle = `${display || ""} · prompta-ui.service`;
   }
 
   registerLogsPanel({ load, setServerTitle });

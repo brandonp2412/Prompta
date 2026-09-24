@@ -130,7 +130,7 @@ class ReadOnlyChatStore:
         self,
         path: Path = DEFAULT_CACHE_PATH,
         log_path: Path | None = None,
-        journal_unit: str = "prompta.service",
+        journal_unit: str = "prompta-ui.service",
     ) -> None:
         self.path = path.expanduser()
         self.log_path = (

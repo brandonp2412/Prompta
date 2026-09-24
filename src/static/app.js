@@ -16952,7 +16952,7 @@ var root$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsV
 function LogsPanel($$anchor, $$props) {
 	push($$props, true);
 	const visible = /* @__PURE__ */ user_derived(() => appViewState.mode === "logs");
-	let serverTitle = /* @__PURE__ */ state$1("Prompta · prompta.service");
+	let serverTitle = /* @__PURE__ */ state$1("Prompta · prompta-ui.service");
 	let meta = /* @__PURE__ */ state$1("Waiting for synced journal");
 	let output = /* @__PURE__ */ state$1("Loading logs…");
 	let fingerprint = /* @__PURE__ */ state$1("");
@@ -16986,7 +16986,7 @@ function LogsPanel($$anchor, $$props) {
 		}
 	}
 	function setServerTitle(display) {
-		set(serverTitle, `${display || ""} · prompta.service`);
+		set(serverTitle, `${display || ""} · prompta-ui.service`);
 	}
 	registerLogsPanel({
 		load,
@@ -19045,7 +19045,7 @@ function showMode(mode) {
 		cancelChatSwitch();
 		state.selectedMetaFingerprint = "";
 		const display = displayServerName(state.serverName || location.hostname);
-		setConversationHeading(display + " Prompta logs", "journalctl · prompta.service · " + display);
+		setConversationHeading(display + " Prompta logs", "journalctl · prompta-ui.service · " + display);
 		setStatusIcon("journal", display + " journal");
 		appViewState.composerDisabled = true;
 		appViewState.shareDisabled = true;

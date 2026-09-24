@@ -1,6 +1,10 @@
 from pathlib import Path
 
 
+def test_legacy_monolith_unit_is_removed() -> None:
+    assert not Path("systemd/prompta.service").exists()
+
+
 def test_ui_is_not_coupled_to_workers_or_legacy_monolith() -> None:
     unit = Path("systemd/prompta-ui.service").read_text()
 

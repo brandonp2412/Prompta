@@ -1196,7 +1196,10 @@ function showMode(mode) {
     cancelChatSwitch();
     state.selectedMetaFingerprint = "";
     const display = displayServerName(state.serverName || location.hostname);
-    setConversationHeading(display + " Prompta logs", "journalctl · prompta.service · " + display);
+    setConversationHeading(
+      display + " Prompta logs",
+      "journalctl · prompta-ui.service · " + display,
+    );
     setStatusIcon("journal", display + " journal");
     appViewState.composerDisabled = true;
     appViewState.shareDisabled = true;

@@ -158,11 +158,10 @@ uv run prompta-ui
 ```
 
 Open `http://127.0.0.1:8765`. The UI reads the SQLite database using
-`mode=ro` plus `PRAGMA query_only=ON`. The browser reads SQLite-backed API state directly,
-then an SSE stream tells the client when the SQLite cache or send state changed, so
-active chats update without page polling or reload flicker. Sending a message uses the
-scheduler control socket and reuses a retained live tab when one exists; an expired
-historical chat is opened only for an explicit send.
+`mode=ro` plus `PRAGMA query_only=ON`. Browser-visible state is SQLite-backed and
+SSE only announces durable changes; the UI does not own a scheduler loop, a delivery
+worker, or a browser session. User sends are inserted into the durable delivery queue
+for `prompta-delivery-worker.service`.
 
 The UI is installable as a PWA with a service worker and the `Prompta · Nox` manifest. While the UI/PWA is running,
 browser notification permission lets an active-to-complete transition produce a
@@ -177,42 +176,46 @@ system notification. Recurring jobs can be created directly from the composer:
 
 Intervals accept seconds, minutes, hours, and days from 6 seconds through 30 days.
 Repeating an equivalent command reuses the existing schedule. Use `/list` in the
-composer to open the scheduled-jobs manager. Its add, edit,
-pause, resume, remove, and clear actions map to the corresponding Prompta CLI
-commands. `/every` and `/jobs` remain accepted as compatibility aliases.
+composer to open the scheduled-jobs manager. Its add, edit, pause, resume, remove,
+and clear actions update durable scheduler state. `/every` and `/jobs` remain
+accepted as compatibility aliases.
 
 Features also include client-first optimistic sends with SSE reconciliation, replies
 to existing chats, history grouped by recency, full-text search across cached
 prompts/messages, safe Markdown and code rendering, responsive mobile layout, deep
 links to cached chats, and dark/light appearance following the browser preference.
 
-Prompta runs only on Nox: the browser worker, scheduler control socket, SQLite
-conversation cache, logs, and UI on port 8765 all live there. If the backend is
-unavailable, the UI starts `prompta.service` and fails the send if it does not become
-ready.
+## Service architecture
 
-Install `systemd/prompta.service`, `systemd/prompta-browser.service`, and
-`systemd/prompta-ui.service` under `~/.config/systemd/user/`. The browser unit uses the
-dedicated Prompta profile and clears only its saved tab-session files before startup,
-so Chromium cannot restore stale automation tabs after a restart. The UI unit wants the local worker but remains available across worker restarts and uses
-`--preserve-active` so a UI-only restart cannot mark worker-owned live conversations
-interrupted. Remove legacy `prompta-cache-sync.timer` and `prompta-cache-sync.service` when upgrading.
+Prompta on Nox is a split `systemd --user` stack:
 
-## Service
+- `prompta-ui.service`: HTTP/SSE plus durable producers/observers only.
+- `prompta-scheduler.service`: evaluates schedules and enqueues idempotent delivery intents.
+- `prompta-delivery-worker.service`: owns ChatGPT send interaction, delivery leases, retries,
+  and account-wide send backoff.
+- `prompta-conversation-worker.service`: owns active-conversation recovery, polling,
+  transcript enrichment, and final cache persistence.
+- `prompta-browser.service`: owns only the dedicated Brave process.
+- `prompta.target`: starts the five independently restartable services.
+
+Cross-process work and health coordination are persisted in SQLite. `prompta.service`
+is obsolete and must remain disabled/absent from the deployed stack. See
+`docs/service-architecture.md` for ownership and recovery procedures.
+
+Install the split units under `~/.config/systemd/user/`, reload systemd, enable
+`prompta.target`, and remove any stale `prompta.service` unit left by older installs.
 
 ```bash
-systemctl --user status prompta
-systemctl --user restart prompta
-systemctl --user stop prompta
-systemctl --user start prompta
-journalctl --user -u prompta -f
-
-# Web UI
-systemctl --user status prompta-ui
+systemctl --user status prompta.target
+systemctl --user status prompta-ui prompta-scheduler prompta-delivery-worker \
+  prompta-conversation-worker prompta-browser
+systemctl --user restart prompta-delivery-worker
+journalctl --user -u prompta-delivery-worker -f
 ```
 
-The unit files are `systemd/prompta.service`, `systemd/prompta-browser.service`, and
-`systemd/prompta-ui.service`.
+A UI-only restart does not stop workers or mark worker-owned live conversations
+interrupted. Worker restarts recover from SQLite leases/state instead of process-local
+queues.
 
 ## Development
 

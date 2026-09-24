@@ -33,7 +33,6 @@ _DELIVERY_LEASE_RENEW_SECONDS = 30.0
 _WAITING_QUEUE_STATUSES = {"queued", "retrying", "rate_limited"}
 _LEGACY_PRE_SEND_OUTAGE_ERRORS = (
     "Prompta scheduler is running but its control socket is unavailable:",
-    "Prompta backend is unavailable after starting prompta.service",
 )
 
 

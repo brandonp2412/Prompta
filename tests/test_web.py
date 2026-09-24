@@ -2599,7 +2599,7 @@ def test_read_only_store_falls_back_to_prompta_journal(tmp_path: Path) -> None:
     assert payload["updated_at"] == datetime.fromisoformat("2026-09-21T08:47:51+1200").timestamp()
     journal.assert_called_once()
     argv = journal.call_args.args[0]
-    assert argv[:5] == ["journalctl", "--user", "-u", "prompta.service", "-n"]
+    assert argv[:5] == ["journalctl", "--user", "-u", "prompta-ui.service", "-n"]
     assert journal.call_args.kwargs["timeout"] == 2.0
 
 
