@@ -17,6 +17,38 @@ from prompta.rate_limit import RateLimitError
 from prompta.send_jobs import DeliveryBackendUnavailableError, SendJobRegistry
 
 
+def test_registry_startup_does_not_overwrite_a_concurrent_delivery_claim(tmp_path: Path) -> None:
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    queue = DeliveryQueueStore(queue_path)
+    queue.upsert(
+        {
+            "send_id": "send-1",
+            "operation": "once",
+            "message": "hello",
+            "client_id": "client-1",
+            "status": "queued",
+            "created_at": time.time(),
+        }
+    )
+    read_records = DeliveryQueueStore.records
+
+    def claim_after_snapshot(store: DeliveryQueueStore) -> list[dict[str, object]]:
+        snapshot = read_records(store)
+        assert queue.claim_next("worker-a", lease_seconds=90) is not None
+        return snapshot
+
+    with patch.object(DeliveryQueueStore, "records", claim_after_snapshot):
+        registry = SendJobRegistry(None, queue_path=queue_path, consume=False)
+    try:
+        current = queue.get("send-1")
+        assert current is not None
+        assert current["status"] == "running"
+        assert current["lease_owner"] == "worker-a"
+        assert queue.claim_next("worker-b") is None
+    finally:
+        registry.close()
+
+
 def test_delivery_worker_has_no_monolith_control_send_path() -> None:
     source = Path("src/delivery_worker.py").read_text()
 

@@ -293,6 +293,24 @@ class DeliveryQueueStore:
         finally:
             connection.close()
 
+    def requeue_legacy_outage(self, send_id: str, expected_error: str) -> bool:
+        """Requeue only the unchanged legacy failure; never overwrite a newer receipt."""
+        connection = self.connect()
+        try:
+            updated = connection.execute(
+                """
+                UPDATE send_jobs
+                SET status = 'queued', error = '', last_error = '', retry_at = 0,
+                    retry_attempt = 0, finished_at = 0, updated_at = ?
+                WHERE send_id = ? AND status = 'dead_lettered' AND last_error = ?
+                """,
+                (time.time(), send_id, expected_error),
+            )
+            connection.commit()
+            return updated.rowcount == 1
+        finally:
+            connection.close()
+
     def upsert(self, record: dict[str, Any]) -> None:
         connection = self.connect()
         try:

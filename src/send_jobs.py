@@ -475,6 +475,10 @@ class SendJobRegistry:
                     "Requeueing legacy Prompta UI send blocked before delivery send_id=%s",
                     send_id,
                 )
+                if self._delivery_queue is None or not self._delivery_queue.requeue_legacy_outage(
+                    send_id, last_error
+                ):
+                    continue
                 status = "queued"
                 retry_at = 0.0
                 retry_attempt = 0
@@ -517,7 +521,6 @@ class SendJobRegistry:
                 }
                 if client_id:
                     self._client_jobs[client_id] = send_id
-                self._upsert_database_record(record)
                 continue
             if status not in {"queued", "running", "rate_limited", "retrying"}:
                 status = "queued"
@@ -567,7 +570,6 @@ class SendJobRegistry:
             }
             if client_id:
                 self._client_jobs[client_id] = send_id
-            self._upsert_database_record(record)
             if restored_status == "rate_limited":
                 max_retry_at = max(max_retry_at, retry_at)
                 max_attempt = max(max_attempt, retry_attempt)
