@@ -61,6 +61,18 @@ def test_react_fallback_orders_messages_by_parent_chain_before_timestamps() -> N
     assert "indegree[index]+=1;" in REACT_FALLBACK_ADAPTER_SCRIPT
 
 
+def test_snapshot_anchors_each_dom_prose_block_to_surrounding_tool_calls() -> None:
+    assert "const precedingToolCount=rows.filter" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const beforeTime=Number(toolCallEvents[precedingToolCount-1]?.create_time);" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "const afterTime=Number(toolCallEvents[precedingToolCount]?.create_time);" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert "parts:[entry.text]" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "preceding_tool_count:precedingToolCount" in CONVERSATION_SNAPSHOT_SCRIPT
+
+
 def test_snapshot_keeps_javascript_newline_escapes_literal() -> None:
     assert "parts.join('\\n')" in CONVERSATION_SNAPSHOT_SCRIPT
     assert ".join('\\n\\n').trim()" in CONVERSATION_SNAPSHOT_SCRIPT

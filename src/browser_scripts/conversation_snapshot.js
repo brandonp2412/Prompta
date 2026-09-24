@@ -617,40 +617,62 @@ JSON.stringify((()=>{
   ));
   if(latestAgent&&!sourceHasAssistantText){
     const rows=toolRows(latestAgent);
-    const visibleProse=proseRows(latestAgent,rows)
-      .map(markdownText)
-      .filter(Boolean)
-      .join('\n\n')
-      .trim();
-    if(visibleProse){
+    const prose=proseRows(latestAgent,rows)
+      .map((node,index)=>({node,index,text:markdownText(node)}))
+      .filter(entry=>Boolean(entry.text));
+    if(prose.length){
       const latestAssistantMessage=[...messages].reverse().find(message=>message.role==='assistant');
       const syntheticEndTurn=typeof turnEnded==='boolean'
         ?turnEnded
         :(!(stop||streamActive)?true:null);
+      const toolCallEvents=sourceEvents.filter(event=>(
+        event.role==='assistant'&&event.recipient==='api_tool.call_tool'
+      ));
+      const domProseEvents=prose.map(entry=>{
+        const precedingToolCount=rows.filter(row=>(
+          row!==entry.node
+          &&Boolean(row.compareDocumentPosition(entry.node)&Node.DOCUMENT_POSITION_FOLLOWING)
+        )).length;
+        const beforeTime=Number(toolCallEvents[precedingToolCount-1]?.create_time);
+        const afterTime=Number(toolCallEvents[precedingToolCount]?.create_time);
+        let createTime=null;
+        if(Number.isFinite(beforeTime)&&Number.isFinite(afterTime)&&afterTime>beforeTime){
+          createTime=beforeTime+((afterTime-beforeTime)/2);
+        }else if(Number.isFinite(beforeTime)){
+          createTime=beforeTime+0.000001;
+        }else if(Number.isFinite(afterTime)){
+          createTime=afterTime-0.000001;
+        }
+        return {
+          id:(visibleMessageId||latestAssistantMessage?.id||'__prompta_visible_assistant__')
+            +':dom-prose:'+entry.index+':dom-prose',
+          parent_id:'',
+          create_time:createTime,
+          update_time:null,
+          end_turn:syntheticEndTurn,
+          status:'',
+          role:'assistant',
+          recipient:'all',
+          content_type:'text',
+          text:'',
+          parts:[entry.text],
+          connector_tool_payload:'',
+          reasoning_title:'',
+          reasoning_titles:[],
+          invoked_resource:null,
+          connector_name:'',
+          model_slug:'',
+          request_id:'',
+          attachments:[],
+          citations:[],
+          content_references:[{
+            type:'prompta_dom_order',
+            preceding_tool_count:precedingToolCount
+          }]
+        };
+      });
       sourceEventProvenance.add('dom-visible-prose');
-      sourceEvents=[...sourceEvents,{
-        id:(visibleMessageId||latestAssistantMessage?.id||'__prompta_visible_assistant__')+':dom-prose',
-        parent_id:'',
-        create_time:null,
-        update_time:null,
-        end_turn:syntheticEndTurn,
-        status:'',
-        role:'assistant',
-        recipient:'all',
-        content_type:'text',
-        text:'',
-        parts:[visibleProse],
-        connector_tool_payload:'',
-        reasoning_title:'',
-        reasoning_titles:[],
-        invoked_resource:null,
-        connector_name:'',
-        model_slug:'',
-        request_id:'',
-        attachments:[],
-        citations:[],
-        content_references:[]
-      }];
+      sourceEvents=[...sourceEvents,...domProseEvents];
     }
   }
   const sourceHasStructuredToolEvent=sourceEvents.some(event=>(

@@ -93,7 +93,7 @@ def test_browser_source_capture_excludes_unfiltered_react_internals() -> None:
     )
     assert "const sourceHasAssistantText=sourceEvents.some(event=>(" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "':dom-prose'" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "parts:[visibleProse]" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "parts:[entry.text]" in CONVERSATION_SNAPSHOT_SCRIPT
 
 
 def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_content() -> None:
