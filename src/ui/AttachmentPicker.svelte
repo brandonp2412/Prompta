@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
+  import { MAX_ATTACHMENTS, mergeAttachments } from "./attachmentLogic";
+
   import { clickOnRequest, clickOutside, focusOnRequest } from "./browserAttachments.svelte";
   import { registerAttachmentPicker } from "./uiControllers";
 
@@ -31,28 +33,14 @@
   }
 
   function add(nextFiles: File[]) {
-    const next = [...files];
-
-    for (const file of nextFiles) {
-      if (next.length >= 5) break;
-
-      if (
-        !next.some(
-          (item) =>
-            item.name === file.name &&
-            item.size === file.size &&
-            item.lastModified === file.lastModified,
-        )
-      ) {
-        next.push(file);
-      }
-    }
-
-    files = next;
+    const merged = mergeAttachments(files, nextFiles);
+    files = merged.files;
     notifyChange();
 
-    if (nextFiles.length && next.length >= 5) {
-      options?.setStatus("Prompta supports up to 5 attachments per message.");
+    if (merged.omitted > 0) {
+      options?.setStatus(
+        `Prompta supports up to ${MAX_ATTACHMENTS} attachments per message.`,
+      );
     }
   }
 
@@ -197,6 +185,7 @@
     {@attach clickOnRequest(() => fileClickRequest)}
     id="fileUploadInput"
     type="file"
+    multiple
     hidden
     onchange={read}
   />
@@ -205,6 +194,7 @@
     id="photoUploadInput"
     type="file"
     accept="image/*"
+    multiple
     hidden
     onchange={read}
   />

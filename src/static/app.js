@@ -6408,6 +6408,25 @@ function ChangelogDialog($$anchor, $$props) {
 	return pop($$exports);
 }
 delegate(["click"]);
+function sameAttachment(left, right) {
+	return left.name === right.name && left.size === right.size && left.lastModified === right.lastModified;
+}
+function mergeAttachments(current, incoming, max = 5) {
+	const files = [...current];
+	let omitted = 0;
+	for (const file of incoming) {
+		if (files.some((item) => sameAttachment(item, file))) continue;
+		if (files.length >= max) {
+			omitted += 1;
+			continue;
+		}
+		files.push(file);
+	}
+	return {
+		files,
+		omitted
+	};
+}
 //#endregion
 //#region src/ui/AttachmentPicker.svelte
 init_client();
@@ -6415,7 +6434,7 @@ init_browserAttachments_svelte();
 init_uiControllers();
 var root$7 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
 var root_1$7 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" tabindex="-1" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
-var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
+var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" multiple="" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" multiple="" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
 function AttachmentPicker($$anchor, $$props) {
 	push($$props, true);
 	let files = /* @__PURE__ */ state$1([]);
@@ -6433,14 +6452,10 @@ function AttachmentPicker($$anchor, $$props) {
 		return value.length > length ? value.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : value;
 	}
 	function add(nextFiles) {
-		const next = [...get(files)];
-		for (const file of nextFiles) {
-			if (next.length >= 5) break;
-			if (!next.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) next.push(file);
-		}
-		set(files, next);
+		const merged = mergeAttachments(get(files), nextFiles);
+		set(files, merged.files);
 		notifyChange();
-		if (nextFiles.length && next.length >= 5) options?.setStatus("Prompta supports up to 5 attachments per message.");
+		if (merged.omitted > 0) options?.setStatus(`Prompta supports up to 5 attachments per message.`);
 	}
 	function select(kind) {
 		set(menuOpen, false);
