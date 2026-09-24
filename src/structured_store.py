@@ -15,7 +15,8 @@ from .ui_noise import strip_assistant_ui_noise
 
 
 def _meaningful_dom_prose(event: dict[str, Any]) -> bool:
-    if not str(event.get("id") or "").endswith(":dom-prose"):
+    event_id = str(event.get("id") or "")
+    if event_id.startswith("request-placeholder-") or not event_id.endswith(":dom-prose"):
         return False
     parts = event.get("parts")
     if not isinstance(parts, list):
@@ -43,6 +44,9 @@ def _latest_logical_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _retain_across_partial_refresh(event: dict[str, Any]) -> bool:
+    if str(event.get("id") or "").startswith("request-placeholder-"):
+        return False
+
     role = str(event.get("role") or "")
     recipient = str(event.get("recipient") or "")
     content_type = str(event.get("content_type") or "")

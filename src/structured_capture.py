@@ -369,7 +369,12 @@ def _visible_text(event: dict[str, Any]) -> str:
 
 
 def message_parts_from_source_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    indexed = [(index, event) for index, event in enumerate(events) if isinstance(event, dict)]
+    indexed = [
+        (index, event)
+        for index, event in enumerate(events)
+        if isinstance(event, dict)
+        and not str(event.get("id") or "").startswith("request-placeholder-")
+    ]
     source_text_indices = {
         index
         for index, event in indexed

@@ -1165,6 +1165,37 @@ def test_structured_parts_ignore_dom_prose_when_timestamped_text_exists() -> Non
     assert combined.count("Finished") == 1
 
 
+def test_structured_parts_drop_request_placeholder_dom_prose_after_final() -> None:
+    events = [
+        {
+            "id": "request-placeholder-request-chat-1-0:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Thinking"],
+            "text": "",
+            "create_time": None,
+            "end_turn": None,
+        },
+        {
+            "id": "assistant-final:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["PROMPTA_E2E_EXACT"],
+            "text": "",
+            "create_time": None,
+            "end_turn": True,
+        },
+    ]
+
+    parts = message_parts_from_source_events(events)
+
+    assert [(part["kind"], part["content"]) for part in parts] == [
+        ("final_text", "PROMPTA_E2E_EXACT"),
+    ]
+
+
 def test_cache_persists_structured_events_parts_tools_and_message_versions(
     tmp_path: Path,
 ) -> None:
