@@ -426,7 +426,8 @@
         <div class="heading-title">{appViewState.headingTitle}</div>
         <div class="heading-meta">{appViewState.headingMeta}</div>
       </div>
-      <div class="topbar-actions" aria-label="Prompta actions">
+      {#if appViewState.mode === "chats"}
+        <div class="topbar-actions" aria-label="Prompta actions">
         <button
           class={["icon-button", { active: appViewState.pinActive }]}
           id="pinChatButton"
@@ -464,6 +465,7 @@
           >
         </span>
       </div>
+      {/if}
     </header>
 
     <section
