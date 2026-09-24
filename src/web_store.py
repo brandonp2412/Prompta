@@ -487,6 +487,7 @@ class ReadOnlyChatStore:
                                end_turn, metadata_json
                         FROM message_parts
                         WHERE conversation_id = ?
+                          AND source_event_key NOT LIKE 'request-placeholder-%'
                         ORDER BY message_key, ordinal
                         """,
                         (conversation_id,),

@@ -424,6 +424,75 @@ def test_read_only_store_trusts_completed_structured_final_over_corrupt_cached_c
     assert summary["preview"] == "Finished"
 
 
+def test_read_only_store_ignores_stale_request_placeholder_parts(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-placeholder-part"
+    cache.start(
+        conversation_id,
+        context_id="context-placeholder-part",
+        job_name="",
+        prompt="Reply exactly",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Exact reply",
+            "path": f"/c/{conversation_id}",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Reply exactly"},
+                {
+                    "id": "a1",
+                    "role": "assistant",
+                    "content": "Thinking\n\nPROMPTA_E2E_EXACT",
+                },
+            ],
+        },
+        complete=True,
+    )
+    with cache.connection:
+        cache.connection.executemany(
+            """
+            INSERT INTO message_parts (
+                conversation_id, message_key, part_key, ordinal, kind, content,
+                source_event_key, end_turn
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    conversation_id,
+                    "a1",
+                    "placeholder-part",
+                    0,
+                    "assistant_text",
+                    "Thinking",
+                    "request-placeholder-request-chat-1-0:dom-prose",
+                    None,
+                ),
+                (
+                    conversation_id,
+                    "a1",
+                    "final-part",
+                    1,
+                    "final_text",
+                    "PROMPTA_E2E_EXACT",
+                    "a1:dom-prose:0:dom-prose",
+                    1,
+                ),
+            ],
+        )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert [part["content"] for part in assistant["parts"]] == ["PROMPTA_E2E_EXACT"]
+    assert assistant["content"] == "PROMPTA_E2E_EXACT"
+    assert assistant["parts_renderable"] is True
+
+
 def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale(
     tmp_path: Path,
 ) -> None:
