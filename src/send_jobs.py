@@ -125,6 +125,11 @@ class SendJobRegistry:
             )
             self._worker.start()
 
+    def consumer_alive(self) -> bool:
+        if not self._consume:
+            return True
+        return self._worker is not None and self._worker.is_alive()
+
     def _connect_database(self) -> sqlite3.Connection | None:
         if self._delivery_queue is None:
             return None

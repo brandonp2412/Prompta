@@ -135,6 +135,77 @@ class DeliveryQueueStore:
         finally:
             connection.close()
 
+    def health_metrics(self, *, now: float | None = None) -> dict[str, Any]:
+        current = time.time() if now is None else float(now)
+        connection = self.connect()
+        try:
+            ready = connection.execute(
+                """
+                SELECT MIN(created_at) AS oldest_ready_at
+                FROM send_jobs
+                WHERE status = 'queued'
+                   OR (
+                       status IN ('retrying', 'rate_limited')
+                       AND retry_at <= ?
+                   )
+                   OR (
+                       status = 'running'
+                       AND lease_expires_at <= ?
+                   )
+                """,
+                (current, current),
+            ).fetchone()
+            lease = connection.execute(
+                """
+                SELECT send_id, lease_owner, lease_acquired_at, lease_expires_at
+                FROM send_jobs
+                WHERE status = 'running'
+                  AND lease_owner <> ''
+                  AND lease_expires_at > ?
+                ORDER BY lease_acquired_at
+                LIMIT 1
+                """,
+                (current,),
+            ).fetchone()
+            success = connection.execute(
+                """
+                SELECT send_id, conversation_id, finished_at
+                FROM send_jobs
+                WHERE status = 'succeeded'
+                  AND finished_at > 0
+                ORDER BY finished_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+
+        oldest_ready_at = float(ready["oldest_ready_at"] or 0.0) if ready is not None else 0.0
+        lease_acquired_at = float(lease["lease_acquired_at"] or 0.0) if lease is not None else 0.0
+        last_success_at = float(success["finished_at"] or 0.0) if success is not None else 0.0
+        return {
+            "oldest_ready_at": oldest_ready_at,
+            "oldest_ready_age_seconds": (
+                max(0.0, current - oldest_ready_at) if oldest_ready_at > 0 else None
+            ),
+            "current_lease_send_id": str(lease["send_id"] or "") if lease is not None else "",
+            "current_lease_owner": str(lease["lease_owner"] or "") if lease is not None else "",
+            "current_lease_acquired_at": lease_acquired_at,
+            "current_lease_expires_at": (
+                float(lease["lease_expires_at"] or 0.0) if lease is not None else 0.0
+            ),
+            "current_lease_age_seconds": (
+                max(0.0, current - lease_acquired_at) if lease_acquired_at > 0 else None
+            ),
+            "last_successful_delivery_at": last_success_at,
+            "last_successful_delivery_send_id": (
+                str(success["send_id"] or "") if success is not None else ""
+            ),
+            "last_successful_delivery_conversation_id": (
+                str(success["conversation_id"] or "") if success is not None else ""
+            ),
+        }
+
     def get(self, send_id: str) -> dict[str, Any] | None:
         connection = self.connect()
         try:

@@ -13,6 +13,7 @@ from .persistence import DEFAULT_RUNTIME_PATH
 from .playwright_driver import PlaywrightDriver
 from .rate_limit import RateLimitError
 from .scheduler_runtime import SchedulerRuntime
+from .service_health import ServiceHealthStore, notify_watchdog
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +136,15 @@ class ConversationWorker:
             "Prompta conversation worker tracking %s via durable SQLite handoff",
             self.cache_path,
         )
+        health = ServiceHealthStore(self.runtime.state_path)
         while True:
-            did_work = await self.run_once()
+            health.begin_activity("conversation_worker", "poll")
+            notify_watchdog()
+            try:
+                did_work = await self.run_once()
+            finally:
+                health.end_activity("conversation_worker", "poll")
+                notify_watchdog()
             await asyncio.sleep(0.25 if did_work else _DEFAULT_POLL_SECONDS)
 
     async def close(self) -> None:

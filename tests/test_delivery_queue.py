@@ -54,6 +54,36 @@ def test_expired_delivery_lease_is_reclaimable_and_renewal_extends_it(tmp_path: 
     assert reclaimed["lease_owner"] == "worker-b"
 
 
+def test_health_metrics_cover_ready_lease_and_last_success(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+
+    ready = store.health_metrics(now=20.0)
+    assert ready["oldest_ready_at"] == 10.0
+    assert ready["oldest_ready_age_seconds"] == 10.0
+    assert ready["current_lease_age_seconds"] is None
+    assert ready["last_successful_delivery_at"] == 0.0
+
+    claimed = store.claim_next("worker-a", now=20.0, lease_seconds=90.0)
+    assert claimed is not None
+    leased = store.health_metrics(now=25.0)
+    assert leased["current_lease_send_id"] == "send-1"
+    assert leased["current_lease_age_seconds"] == 5.0
+    assert leased["oldest_ready_age_seconds"] is None
+
+    assert store.complete_claim(
+        "send-1",
+        "worker-a",
+        conversation_id="chat-1",
+        now=30.0,
+    )
+    completed = store.health_metrics(now=31.0)
+    assert completed["current_lease_age_seconds"] is None
+    assert completed["last_successful_delivery_at"] == 30.0
+    assert completed["last_successful_delivery_send_id"] == "send-1"
+    assert completed["last_successful_delivery_conversation_id"] == "chat-1"
+
+
 def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())

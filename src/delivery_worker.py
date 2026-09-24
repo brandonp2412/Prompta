@@ -14,10 +14,12 @@ from .rate_limit import RateLimitError
 from .resource_pressure import ResourceAdmission
 from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import SendJobRegistry
+from .service_health import ServiceHealthStore, notify_watchdog
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
+_MAX_WATCHDOG_LEASE_AGE_SECONDS = 300.0
 
 
 def _reconcile_completed_previews(
@@ -87,6 +89,7 @@ def run(
     previews = ImagePreviewStore(state_dir)
     queue = DeliveryQueueStore(queue_path)
     runtime = SchedulerRuntime(state_path, state_path)
+    health = ServiceHealthStore(state_path)
     admission = DeliveryAdmission(runtime)
     sender = BrowserDeliverySender(
         state_path,
@@ -111,9 +114,16 @@ def run(
         "Prompta delivery worker consuming %s with direct browser delivery",
         queue_path,
     )
+    health.beat("delivery_worker")
+    notify_watchdog()
     try:
         while True:
             _reconcile_completed_previews(queue, previews)
+            health.beat("delivery_worker")
+            lease_age = queue.health_metrics().get("current_lease_age_seconds")
+            lease_healthy = lease_age is None or float(lease_age) <= _MAX_WATCHDOG_LEASE_AGE_SECONDS
+            if registry.consumer_alive() and lease_healthy:
+                notify_watchdog()
             time.sleep(1.0)
     except KeyboardInterrupt:
         pass

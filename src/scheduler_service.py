@@ -11,6 +11,7 @@ from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, _next_daily_epoch, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
 from .scheduler_runtime import SchedulerRuntime
+from .service_health import ServiceHealthStore, notify_watchdog
 
 logger = logging.getLogger(__name__)
 
@@ -304,8 +305,11 @@ class DurableSchedulerProducer:
         return work
 
     def run_forever(self, *, poll_seconds: float = 1.0) -> None:
+        health = ServiceHealthStore(self.runtime.state_path)
         while True:
             did_work = self.tick()
+            health.beat("scheduler")
+            notify_watchdog()
             time.sleep(0.1 if did_work else max(0.1, poll_seconds))
 
 

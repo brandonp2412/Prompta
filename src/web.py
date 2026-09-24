@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import mimetypes
+import os
 import socket
 import subprocess
 import time
@@ -27,11 +28,13 @@ from .core import (
     _stop_via_control,
     _sync_via_control,
 )
+from .delivery_queue import DeliveryQueueStore
 from .image_previews import ImagePreviewStore
 from .pinned_chats import PinnedChatStore
 from .read_state import ConversationReadState
 from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import SendJobRegistry as SendJobRegistry
+from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
 
@@ -128,6 +131,9 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.pinned_chats = PinnedChatStore(self.state_path.parent)
         self.read_state = ConversationReadState(self.state_path.parent)
         self.scheduler_runtime = SchedulerRuntime(self.state_path, self.jobs_path)
+        self.service_health_store = ServiceHealthStore(self.state_path)
+        self.delivery_queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
+        self._last_health_beat = 0.0
         self.job_service = WebJobService(
             self.jobs_path,
             self.state_path,
@@ -139,6 +145,77 @@ class PromptaUIServer(ThreadingHTTPServer):
             queue_path=self.state_path.parent / "ui-send-jobs.sqlite3",
             consume=False,
         )
+        self.service_health_store.beat("ui")
+
+    def service_actions(self) -> None:
+        super().service_actions()
+        now = time.time()
+        if now - self._last_health_beat < 5.0:
+            return
+        self.service_health_store.beat("ui", now=now)
+        notify_watchdog()
+        self._last_health_beat = now
+
+    def liveness_status(self) -> dict[str, Any]:
+        now = time.time()
+        debugger_address = os.environ.get(
+            "PROMPTA_CHROME_DEBUGGER_ADDRESS",
+            "127.0.0.1:9222",
+        )
+        browser_reachable, page_count = browser_page_count(debugger_address)
+        if browser_reachable:
+            self.service_health_store.beat("browser", now=now)
+
+        services = self.service_health_store.snapshot(now=now)
+        queue = self.delivery_queue.health_metrics(now=now)
+        scheduler = services["scheduler"]
+        delivery = services["delivery_worker"]
+        conversation = services["conversation_worker"]
+        browser = services["browser"]
+        ui = services["ui"]
+        return {
+            "services": services,
+            "ui": {
+                "heartbeat_at": ui["heartbeat_at"],
+                "heartbeat_age_seconds": ui["heartbeat_age_seconds"],
+                "stale": ui["stale"],
+            },
+            "scheduler": {
+                "last_tick_at": scheduler["heartbeat_at"],
+                "last_tick_age_seconds": scheduler["heartbeat_age_seconds"],
+                "stale": scheduler["stale"],
+            },
+            "delivery_worker": {
+                "heartbeat_at": delivery["heartbeat_at"],
+                "heartbeat_age_seconds": delivery["heartbeat_age_seconds"],
+                "stale": delivery["stale"],
+                "current_lease_age_seconds": queue["current_lease_age_seconds"],
+                "current_lease_send_id": queue["current_lease_send_id"],
+                "oldest_ready_delivery_age_seconds": queue["oldest_ready_age_seconds"],
+                "last_successful_delivery_at": queue["last_successful_delivery_at"],
+                "last_successful_delivery_send_id": queue["last_successful_delivery_send_id"],
+                "last_successful_delivery_conversation_id": queue[
+                    "last_successful_delivery_conversation_id"
+                ],
+            },
+            "conversation_worker": {
+                "heartbeat_at": conversation["heartbeat_at"],
+                "heartbeat_age_seconds": conversation["heartbeat_age_seconds"],
+                "stale": conversation["stale"],
+                "current_poll_age_seconds": (
+                    conversation["activity_age_seconds"]
+                    if conversation["activity"] == "poll"
+                    else None
+                ),
+            },
+            "browser": {
+                "reachable": browser_reachable,
+                "page_count": page_count,
+                "heartbeat_at": browser["heartbeat_at"],
+                "heartbeat_age_seconds": browser["heartbeat_age_seconds"],
+                "stale": browser["stale"],
+            },
+        }
 
     @property
     def _image_previews(self) -> dict[str, dict[str, Any]]:
@@ -746,6 +823,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                     "online": server.host_online(force=True),
                     "head": _UI_HEAD,
                     "admission": server.admission_status(),
+                    "liveness": server.liveness_status(),
                     **server.unattended_mode(),
                 }
             )

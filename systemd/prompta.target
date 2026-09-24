@@ -1,0 +1,7 @@
+[Unit]
+Description=Prompta independently restartable service stack
+Wants=prompta-browser.service prompta-scheduler.service prompta-delivery-worker.service prompta-conversation-worker.service prompta-ui.service
+After=network-online.target
+
+[Install]
+WantedBy=default.target

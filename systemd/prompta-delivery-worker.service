@@ -1,7 +1,9 @@
 [Unit]
 Description=Prompta durable delivery worker
-Wants=prompta-browser.service
+Wants=network-online.target prompta-browser.service
 After=network-online.target prompta-browser.service
+StartLimitIntervalSec=180
+StartLimitBurst=5
 
 [Service]
 Slice=prompta.slice
@@ -14,6 +16,8 @@ Environment=PROMPTA_FLARESOLVERR_URL=http://127.0.0.1:8191
 ExecStart=%h/prompta/.venv/bin/prompta-delivery-worker
 Restart=always
 RestartSec=3
+WatchdogSec=45s
+NotifyAccess=main
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -21,6 +25,7 @@ ProtectHome=read-only
 ReadWritePaths=%h/.local/state/prompta %h/.config/prompta
 MemoryHigh=512M
 MemoryMax=1G
+TasksMax=512
 
 [Install]
-WantedBy=default.target
+WantedBy=prompta.target

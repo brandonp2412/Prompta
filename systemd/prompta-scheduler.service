@@ -1,6 +1,9 @@
 [Unit]
 Description=Prompta durable scheduler producer
+Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Slice=prompta.slice
@@ -11,6 +14,8 @@ Environment=UV_NO_PROGRESS=1
 ExecStart=%h/prompta/.venv/bin/prompta-scheduler
 Restart=always
 RestartSec=3
+WatchdogSec=30s
+NotifyAccess=main
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -18,6 +23,7 @@ ProtectHome=read-only
 ReadWritePaths=%h/.local/state/prompta %h/.config/prompta
 MemoryHigh=256M
 MemoryMax=512M
+TasksMax=128
 
 [Install]
-WantedBy=default.target
+WantedBy=prompta.target
