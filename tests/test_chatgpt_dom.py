@@ -102,16 +102,24 @@ def _snapshot_from_html(html: str) -> dict:
     return json.loads(raw)
 
 
-def _react_fallback_from_html(html: str, setup_script: str = "") -> dict:
+def _react_fallback_from_html(
+    html: str,
+    setup_script: str = "",
+    *,
+    options: dict[str, int] | None = None,
+) -> dict:
     executable = shutil.which("chromium") or shutil.which("brave")
     if executable is None:
         pytest.skip("A Chromium-compatible browser is unavailable")
     from playwright.sync_api import sync_playwright
 
+    extra_options = json.dumps(options or {})
     expression = (
         "JSON.stringify((()=>{"
         + REACT_FALLBACK_ADAPTER_SCRIPT
-        + "return reactFallback.inspect(document.body,{allow:true,reason:'transcript-gap'});})())"
+        + "const options={allow:true,reason:'transcript-gap',..."
+        + extra_options
+        + "};return reactFallback.inspect(document.body,options);})())"
     )
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=executable, headless=True)
@@ -172,6 +180,38 @@ def test_react_fallback_introspection_failure_returns_structured_error() -> None
     assert result["messages"] == []
     assert result["error"] == "private shape changed"
     assert result["provenance"] == "react-private-properties"
+
+
+def test_react_fallback_stops_at_explicit_scan_budget() -> None:
+    result = _react_fallback_from_html(
+        "<main><div id='first'></div><div id='late'></div></main>",
+        """() => {
+          const late=document.querySelector('#late');
+          late['__reactFiber$late-message']={
+            memoizedProps:{
+              messages:[{
+                id:'assistant-late',
+                author:{role:'assistant'},
+                content:{content_type:'text',parts:['Too late for bounded scan']},
+                create_time:1
+              }]
+            }
+          };
+        }""",
+        options={"maxNodes": 2, "maxMillis": 2000},
+    )
+
+    assert result["truncated"] is True
+    assert result["scanned_nodes"] == 2
+    assert result["messages"] == []
+    assert result["error"] == "React fallback introspection budget exhausted"
+
+
+def test_shared_transcript_engine_has_one_total_react_fallback_time_budget() -> None:
+    assert "const fallbackDeadline=performance.now()+2500;" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "const maxMillis=Math.max(1,fallbackDeadline-performance.now());" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
 
 
 def test_snapshot_discovers_semantic_and_structural_turns_without_styling_classes() -> None:

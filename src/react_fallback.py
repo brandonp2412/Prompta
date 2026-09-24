@@ -17,6 +17,9 @@ class ReactFallbackResult(TypedDict):
     reason: str
     property_names: list[str]
     messages: list[dict[str, Any]]
+    truncated: bool
+    scanned_nodes: int
+    scanned_objects: int
     error: str
 
 
@@ -33,7 +36,7 @@ REACT_FALLBACK_ADAPTER_SCRIPT = r"""
       'activity-end-state',
       'chromium-tool-enrichment'
     ]);
-    const inspect=(root,{allow=false,reason='',maxDepth=7,maxKeys=240}={})=>{
+    const inspect=(root,{allow=false,reason='',maxDepth=7,maxKeys=240,maxNodes=1200,maxObjects=12000,maxMillis=2000}={})=>{
       const result={
         allowed:Boolean(allow)&&allowedReasons.has(reason),
         used:false,
@@ -42,6 +45,9 @@ REACT_FALLBACK_ADAPTER_SCRIPT = r"""
         reason:String(reason||''),
         property_names:[],
         messages:[],
+        truncated:false,
+        scanned_nodes:0,
+        scanned_objects:0,
         error:''
       };
       if(!result.allowed)return result;
@@ -49,6 +55,12 @@ REACT_FALLBACK_ADAPTER_SCRIPT = r"""
       result.used=true;
       try{
         const found=[],seenObjects=new WeakSet(),seenArrays=new WeakSet(),propertyNames=new Set();
+        const deadline=performance.now()+Math.max(1,Number(maxMillis)||1);
+        const nodeLimit=Math.max(1,Number(maxNodes)||1);
+        const objectLimit=Math.max(1,Number(maxObjects)||1);
+        const budgetExhausted=()=>performance.now()>=deadline
+          ||result.scanned_nodes>=nodeLimit
+          ||result.scanned_objects>=objectLimit;
         const add=messages=>{
           if(!Array.isArray(messages)||seenArrays.has(messages))return;
           seenArrays.add(messages);
@@ -59,11 +71,14 @@ REACT_FALLBACK_ADAPTER_SCRIPT = r"""
         const walk=(value,depth)=>{
           if(!value||depth>maxDepth||(typeof value!=='object'&&typeof value!=='function'))return;
           if(seenObjects.has(value))return;
+          if(budgetExhausted()){result.truncated=true;return;}
           seenObjects.add(value);
+          result.scanned_objects+=1;
           if(Array.isArray(value)){if(depth<=Math.max(0,maxDepth-2))add(value);return;}
           let keys=[];
           try{keys=Object.keys(value);}catch{return;}
           for(const key of keys.slice(0,maxKeys)){
+            if(performance.now()>=deadline){result.truncated=true;break;}
             if(['ref','_owner','return','child','sibling','stateNode','alternate'].includes(key))continue;
             let next;
             try{next=value[key];}catch{continue;}
@@ -74,6 +89,8 @@ REACT_FALLBACK_ADAPTER_SCRIPT = r"""
           }
         };
         for(const node of [root,...root.querySelectorAll('*')]){
+          if(budgetExhausted()){result.truncated=true;break;}
+          result.scanned_nodes+=1;
           let keys=[];
           try{
             keys=Object.getOwnPropertyNames(node).filter(name=>prefixes.some(prefix=>name.startsWith(prefix)));
@@ -141,6 +158,9 @@ REACT_FALLBACK_ADAPTER_SCRIPT = r"""
         result.property_names=[...propertyNames];
         result.messages=ordered.map(index=>unique[index]);
         result.available=Boolean(result.property_names.length);
+        if(result.truncated&&!result.error){
+          result.error='React fallback introspection budget exhausted';
+        }
       }catch(error){
         result.error=String(error?.message||error||'React fallback introspection failed');
       }

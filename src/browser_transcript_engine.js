@@ -2,6 +2,7 @@ __MESSAGE_DISCOVERY__
 __REACT_FALLBACK_ADAPTER__
 const promptaTranscriptEngine=(()=>{
   const fallbackUses=[];
+  const fallbackDeadline=performance.now()+2500;
   const fallbackAttempt=result=>({
     allowed:result.allowed,
     used:result.used,
@@ -9,10 +10,14 @@ const promptaTranscriptEngine=(()=>{
     provenance:result.provenance,
     reason:result.reason,
     property_names:result.property_names,
+    truncated:result.truncated,
+    scanned_nodes:result.scanned_nodes,
+    scanned_objects:result.scanned_objects,
     error:result.error
   });
   const inspectReact=(root,reason,{maxDepth=7,maxKeys=240}={})=>{
-    const result=reactFallback.inspect(root,{allow:true,reason,maxDepth,maxKeys});
+    const maxMillis=Math.max(1,fallbackDeadline-performance.now());
+    const result=reactFallback.inspect(root,{allow:true,reason,maxDepth,maxKeys,maxMillis});
     fallbackUses.push(fallbackAttempt(result));
     return result;
   };
