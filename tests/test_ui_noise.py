@@ -14,6 +14,12 @@ def test_network_error_banner_is_assistant_ui_noise() -> None:
     assert is_assistant_ui_noise(NETWORK_ERROR.replace(". Please", ".\nPlease"))
 
 
+def test_chatgpt_accessibility_heading_is_assistant_ui_noise() -> None:
+    assert is_assistant_ui_noise("ChatGPT said:")
+    assert is_assistant_ui_noise("#### ChatGPT said:")
+    assert strip_assistant_ui_noise("#### ChatGPT said:") == ""
+
+
 def test_strip_assistant_ui_noise_removes_network_error_between_transcript_text() -> None:
     content = f"Before tool\n\n{LINKED_NETWORK_ERROR}\n\nAfter tool"
 

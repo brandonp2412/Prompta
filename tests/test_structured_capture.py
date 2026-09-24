@@ -588,6 +588,116 @@ def test_read_only_store_recovers_completed_turn_order_from_dom_observations(
     assert content.index("Test MCP · second") < content.index("Legacy uncaptured text")
 
 
+def test_persist_structured_capture_collapses_repeated_logical_event_observations(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    conversation_id = "conversation-repeated-observations"
+    message_key = "a1"
+    cache.start(
+        conversation_id,
+        context_id="context-repeated-observations",
+        job_name="",
+        prompt="Inspect this",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Repeated observations",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Inspect this"},
+                {"id": message_key, "role": "assistant", "content": "Working"},
+            ],
+        },
+    )
+    wrapper = {
+        "id": "tool-wrapper-1",
+        "role": "tool",
+        "recipient": "all",
+        "content_type": "code",
+        "text": json.dumps(
+            {
+                "type": "mcpToolCall",
+                "appContext": {
+                    "appName": "Glass Serena",
+                    "actionName": "serena_repl",
+                },
+                "arguments": {"expression": "1 + 1"},
+                "status": "completed",
+                "result": {"value": 2},
+            }
+        ),
+    }
+    events = [
+        {
+            "id": f"{message_key}:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["First visible version"],
+            "text": "",
+        },
+        wrapper,
+        {
+            "id": f"{message_key}:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["Second visible version"],
+            "text": "",
+        },
+        {
+            **wrapper,
+            "text": wrapper["text"].replace('"status": "completed"', '"status": "running"'),
+        },
+        {
+            "id": f"{message_key}:dom-prose",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["#### ChatGPT said:"],
+            "text": "",
+        },
+    ]
+
+    with cache.connection:
+        persist_structured_capture(
+            cache.connection,
+            conversation_id=conversation_id,
+            message_key=message_key,
+            source_events=events,
+            observed_at=100.0,
+        )
+
+    parts = cache.connection.execute(
+        """
+        SELECT kind, content
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id, message_key),
+    ).fetchall()
+    tools = cache.connection.execute(
+        """
+        SELECT status
+        FROM tool_calls
+        WHERE conversation_id = ? AND message_key = ?
+        """,
+        (conversation_id, message_key),
+    ).fetchall()
+    cache.close()
+
+    assert len(parts) == 2
+    assert sum(str(row["kind"]) == "assistant_text" for row in parts) == 1
+    assistant_part = next(row for row in parts if str(row["kind"]) == "assistant_text")
+    assert assistant_part["content"] == "Second visible version"
+    assert "ChatGPT said" not in str(assistant_part["content"])
+    assert len(tools) == 1
+    assert tools[0]["status"] == "running"
+
+
 def test_read_only_store_recovers_transient_dom_prose_when_parts_are_tool_only(
     tmp_path: Path,
 ) -> None:

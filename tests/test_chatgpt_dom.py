@@ -279,6 +279,40 @@ def test_snapshot_preserves_role_nodes_visibility_and_streaming_semantics() -> N
     )
 
 
+def test_snapshot_ignores_chatgpt_accessibility_heading_as_assistant_content() -> None:
+    snapshot = _snapshot_from_html(
+        """
+        <main>
+          <section data-testid="conversation-turn-u1">
+            <div data-message-author-role="user" data-message-id="u1">Question one</div>
+          </section>
+          <section data-testid="conversation-turn-a1">
+            <div data-message-author-role="assistant" data-message-id="a1">
+              <h4>ChatGPT said:</h4>
+            </div>
+          </section>
+          <section data-testid="conversation-turn-u2">
+            <div data-message-author-role="user" data-message-id="u2">Question two</div>
+          </section>
+          <section data-testid="conversation-turn-a2">
+            <div data-message-author-role="assistant" data-message-id="a2">
+              <h4>ChatGPT said:</h4>
+              <p>Actual answer</p>
+            </div>
+          </section>
+        </main>
+        """
+    )
+
+    assert [(message["role"], message["id"]) for message in snapshot["messages"]] == [
+        ("user", "u1"),
+        ("user", "u2"),
+        ("assistant", "a2"),
+    ]
+    assert snapshot["messages"][-1]["content"] == "Actual answer"
+    assert "ChatGPT said" not in snapshot["messages"][-1]["content"]
+
+
 def test_snapshot_keeps_legacy_turn_selector_as_fallback_only() -> None:
     snapshot = _snapshot_from_html(
         """

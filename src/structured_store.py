@@ -24,6 +24,24 @@ def _meaningful_dom_prose(event: dict[str, Any]) -> bool:
     return bool(strip_assistant_ui_noise(prose))
 
 
+def _latest_logical_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse repeated observations of one logical ChatGPT event for derivation."""
+
+    order: list[str] = []
+    latest: dict[str, dict[str, Any]] = {}
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            continue
+        event_id = str(event.get("id") or "").strip()
+        identity = event_id or stable_event_key(event, index)
+        if identity not in latest:
+            order.append(identity)
+        if event_id.endswith(":dom-prose") and not _meaningful_dom_prose(event):
+            continue
+        latest[identity] = event
+    return [latest[identity] for identity in order if identity in latest]
+
+
 def migrate_structured_capture(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
@@ -416,7 +434,8 @@ def persist_structured_capture(
             and content_type in {"text", "multimodal_text"}
         ):
             identity = str(event.get("id") or "").strip() or stable_event_key(event, index)
-            incoming_text_identities.add(identity)
+            if not identity.endswith(":dom-prose") or _meaningful_dom_prose(event):
+                incoming_text_identities.add(identity)
 
     derived_events = list(events)
     derived_events.extend(
@@ -424,8 +443,8 @@ def persist_structured_capture(
         for identity, retained in retained_text_events.items()
         if identity not in incoming_text_identities
     )
-    parts = message_parts_from_source_events(derived_events)
-    calls = tool_calls_from_source_events(events)
+    parts = message_parts_from_source_events(_latest_logical_events(derived_events))
+    calls = tool_calls_from_source_events(_latest_logical_events(events))
 
     connection.execute(
         "DELETE FROM message_parts WHERE conversation_id = ? AND message_key = ?",

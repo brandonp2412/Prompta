@@ -35,7 +35,11 @@ __TRANSCRIPT_BROWSER_ENGINE__
       const tag=node.tagName.toLowerCase();
       const children=()=>[...node.childNodes].map(walk).join('');
       if(tag==='br')return '\\n';
-      if(/^h[1-6]$/.test(tag))return '#'.repeat(Number(tag[1]))+' '+children().trim()+'\\n\\n';
+      if(/^h[1-6]$/.test(tag)){
+        const heading=children().trim();
+        if(assistantUiNoise.test(normalise(heading)))return '';
+        return '#'.repeat(Number(tag[1]))+' '+heading+'\\n\\n';
+      }
       if(tag==='p')return children().trim()+'\\n\\n';
       if(tag==='strong'||tag==='b')return '**'+children()+'**';
       if(tag==='em'||tag==='i')return '*'+children()+'*';
@@ -284,7 +288,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
     return collapsed;
   };
   const networkErrorNoise=/a network error occurred\\.?\\s*please check your connection and try again\\.?\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?/i;
-  const assistantUiNoise=/^(?:connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer\\.?)?|waiting for (?:the )?complete answer\\.?|message delivery timed out\\.?\\s*please try again\\.?|a network error occurred\\.?(?:\\s*please check your connection and try again\\.?(?:\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?)?)?)$/i;
+  const assistantUiNoise=/^(?:(?:#{1,6}\\s*)?chatgpt said:?|connection interrupted\\.?(?:\\s*waiting for (?:the )?complete answer\\.?)?|waiting for (?:the )?complete answer\\.?|message delivery timed out\\.?\\s*please try again\\.?|a network error occurred\\.?(?:\\s*please check your connection and try again\\.?(?:\\s*if this issue persists please contact us through our help center at help\\.openai\\.com\\.?)?)?)$/i;
   const cleanAssistantText=text=>String(text||'').replace(networkErrorNoise,'').split(/\\n+/)
     .map(line=>line.trim())
     .filter(line=>line&&!assistantUiNoise.test(line))
@@ -446,6 +450,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
     const activityLines=[...new Set(rawVisible.split(/\\n+/).map(line=>line.trim()).filter(line=>(
       line
       && !uiNoise.test(line)
+      && !assistantUiNoise.test(line)
       && !richPlain.some(text=>text===line||text.includes(line)||line.includes(text))
       && !domTools.some(block=>block.includes(line))
     )))].slice(0,200);
@@ -477,7 +482,7 @@ __TRANSCRIPT_BROWSER_ENGINE__
       ? '**Tool activity**\\n\\n'+activityLines.join('\\n')
       : '';
     const cleanVisible=rawVisible.split(/\\n+/).map(line=>line.trim())
-      .filter(line=>line&&!uiNoise.test(line)&&!/^cot-v5-/i.test(line))
+      .filter(line=>line&&!uiNoise.test(line)&&!assistantUiNoise.test(line)&&!/^cot-v5-/i.test(line))
       .join('\\n').trim();
     const fallbackContent=(orderedParts.length||activity
       ? collapseStreamingTextParts([

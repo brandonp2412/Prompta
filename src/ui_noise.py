@@ -17,6 +17,7 @@ _NETWORK_ERROR_RE = re.compile(
 )
 _ASSISTANT_UI_NOISE_RE = re.compile(
     r"(?:"
+    r"(?:#{1,6}\s*)?chatgpt said:?|"
     r"connection interrupted\.?(?:\s*waiting for (?:the )?complete answer\.?)?|"
     r"waiting for (?:the )?complete answer\.?|"
     r"message delivery timed out\.?\s*please try again\.?|"
