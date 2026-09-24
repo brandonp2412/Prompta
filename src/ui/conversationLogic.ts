@@ -46,11 +46,13 @@ export function pendingLongPressMoved(
   return Math.max(Math.abs(currentX - startX), Math.abs(currentY - startY)) > tolerance;
 }
 
+const LIVE_GENERIC_TOOL_PLACEHOLDER =
+  /```(?:tool|tool-call|function|function-call):\s*tool[^\n]*\n\s*Called tool\s*\n```/gi;
+
 export function messageDisplayContent(message: Record<string, any> | null | undefined) {
   const fallback = String(message?.content || "");
 
-  if (message?.role !== "assistant" || message?.parts_renderable !== true) return fallback;
-  if (!Array.isArray(message.parts)) return fallback;
+  if (message?.role !== "assistant") return fallback;
 
   const toolDiffs = new Map<string, unknown>();
   if (Array.isArray(message.tool_calls)) {
@@ -59,6 +61,39 @@ export function messageDisplayContent(message: Record<string, any> | null | unde
       if (callKey && call?.code_diff) toolDiffs.set(callKey, call.code_diff);
     }
   }
+
+  const liveToolParts = Array.isArray(message.parts)
+    ? message.parts
+        .map((part: any, index: number) => ({
+          content: String(part?.content || "").trim(),
+          index,
+          kind: String(part?.kind || ""),
+          ordinal: Number.isFinite(Number(part?.ordinal)) ? Number(part.ordinal) : index,
+          toolCallKey: String(part?.tool_call_key || ""),
+        }))
+        .filter(
+          (part: { content: string; kind: string }) =>
+            part.kind === "tool_call" && Boolean(part.content),
+        )
+        .sort(
+          (left: { ordinal: number; index: number }, right: { ordinal: number; index: number }) =>
+            left.ordinal - right.ordinal || left.index - right.index,
+        )
+    : [];
+
+  let liveToolIndex = 0;
+  const enrichedFallback = fallback.replace(LIVE_GENERIC_TOOL_PLACEHOLDER, (placeholder) => {
+    const part = liveToolParts[liveToolIndex];
+    if (!part) return placeholder;
+    liveToolIndex += 1;
+
+    return part.toolCallKey && toolDiffs.has(part.toolCallKey)
+      ? injectToolCodeDiff(part.content, toolDiffs.get(part.toolCallKey))
+      : part.content;
+  });
+
+  if (message?.parts_renderable !== true) return enrichedFallback;
+  if (!Array.isArray(message.parts)) return enrichedFallback;
 
   const ordered = message.parts
     .map((part: any, index: number) => {
@@ -80,12 +115,12 @@ export function messageDisplayContent(message: Record<string, any> | null | unde
         left.ordinal - right.ordinal || left.index - right.index,
     );
 
-  if (!ordered.length) return fallback;
+  if (!ordered.length) return enrichedFallback;
 
   const rendered = ordered
     .map((part: { content: string }) => part.content)
     .join("\n\n")
     .trim();
 
-  return rendered || fallback;
+  return rendered || enrichedFallback;
 }

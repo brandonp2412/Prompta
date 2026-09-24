@@ -77,6 +77,61 @@ describe("canonical assistant transcript rendering", () => {
     );
   });
 
+  test("enriches live generic tool placeholders without disturbing prose order", () => {
+    const fence = String.fromCharCode(96, 96, 96);
+    const placeholder = [fence + "tool:tool", "Called tool", fence].join("\n");
+    const first = [
+      fence + "tool:Glass Serena · serena_repl",
+      JSON.stringify({ summary: "Inspecting code", status: "completed" }),
+      fence,
+    ].join("\n");
+    const second = [
+      fence + "tool:Nox Python MCP · execute_python",
+      JSON.stringify({ summary: "Checking runtime", status: "completed" }),
+      fence,
+    ].join("\n");
+    const content = messageDisplayContent({
+      role: "assistant",
+      content: ["Before", placeholder, "Between", placeholder, "After"].join("\n\n"),
+      parts_renderable: false,
+      parts: [
+        { ordinal: 1, kind: "tool_call", content: second },
+        { ordinal: 0, kind: "tool_call", content: first },
+        { ordinal: 2, kind: "assistant_text", content: "Grouped live prose" },
+      ],
+    });
+
+    expect(content.indexOf("Before")).toBeLessThan(content.indexOf("Glass Serena · serena_repl"));
+    expect(content.indexOf("Glass Serena · serena_repl")).toBeLessThan(content.indexOf("Between"));
+    expect(content.indexOf("Between")).toBeLessThan(
+      content.indexOf("Nox Python MCP · execute_python"),
+    );
+    expect(content.indexOf("Nox Python MCP · execute_python")).toBeLessThan(
+      content.indexOf("After"),
+    );
+    expect(content).not.toContain("Called tool");
+    expect(content).not.toContain("Grouped live prose");
+  });
+
+  test("keeps unmatched live placeholders and does not append future structured tools", () => {
+    const fence = String.fromCharCode(96, 96, 96);
+    const placeholder = [fence + "tool:tool", "Called tool", fence].join("\n");
+    const first = [fence + "tool:Glass · execute_python", "{}", fence].join("\n");
+    const future = [fence + "tool:Nox · execute_python", "{}", fence].join("\n");
+    const content = messageDisplayContent({
+      role: "assistant",
+      content: ["Before", placeholder, "After"].join("\n\n"),
+      parts_renderable: false,
+      parts: [
+        { ordinal: 0, kind: "tool_call", content: first },
+        { ordinal: 1, kind: "tool_call", content: future },
+      ],
+    });
+
+    expect(content).toContain("Glass · execute_python");
+    expect(content).not.toContain("Nox · execute_python");
+  });
+
   test("falls back to cached content when canonical parts are absent or not trusted", () => {
     const legacy = "Legacy cached transcript";
 
