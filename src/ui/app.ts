@@ -55,7 +55,7 @@ import {
 } from "./sidebarState.svelte";
 import { createConversationRenderer } from "./conversationRenderer";
 import { imageAttachments, pendingImageAttachments } from "./conversationLogic";
-import { getAttachmentPicker, getJobsDialog, getLogsPanel } from "./uiControllers";
+import { getAttachmentPicker, getLogsPanel } from "./uiControllers";
 import { createDeploymentMonitor } from "./deploymentMonitor";
 import { createLiveUpdates } from "./liveUpdates";
 import { createCompletionNotifications } from "./completionNotifications";
@@ -408,8 +408,6 @@ sidebarListActions.onPrefetch = (chatId) => {
 sidebarListActions.onLoadMore = () => {
   void loadOlderChats();
 };
-
-const jobsDialog = getJobsDialog();
 
 const conversationRenderer = createConversationRenderer({
   onRetry: retryFailedSend,
@@ -1197,9 +1195,11 @@ function renderConversation(chat) {
 }
 
 function showMode(mode) {
-  state.mode = mode === "logs" ? "logs" : "chats";
-  appViewState.mode = state.mode === "logs" ? "logs" : "chats";
+  state.mode = mode === "logs" ? "logs" : mode === "prompta" ? "prompta" : "chats";
+  appViewState.mode =
+    state.mode === "logs" ? "logs" : state.mode === "prompta" ? "prompta" : "chats";
   const logsMode = state.mode === "logs";
+  const promptaMode = state.mode === "prompta";
 
   if (logsMode) {
     cancelChatSwitch();
@@ -1213,6 +1213,21 @@ function showMode(mode) {
     appViewState.composerDisabled = true;
     appViewState.shareDisabled = true;
     appViewState.composerStatus = "Switch back to chats to send a message.";
+    updateComposerActionButton();
+
+    return;
+  }
+
+  if (promptaMode) {
+    cancelChatSwitch();
+    state.selectedMetaFingerprint = "";
+    setConversationHeading("Prompta", "Machine Gun Mode · scheduled jobs");
+    setStatusIcon("local", "Prompta controls");
+    appViewState.composerDisabled = true;
+    appViewState.shareDisabled = true;
+    appViewState.pinDisabled = true;
+    appViewState.pinActive = false;
+    appViewState.composerStatus = "";
     updateComposerActionButton();
 
     return;
@@ -2477,7 +2492,7 @@ async function sendSelectedMessage() {
   }
 
   if (["/list", "/jobs"].includes(message.toLowerCase())) {
-    await jobsDialog.open(true);
+    showMode("prompta");
 
     return;
   }
@@ -2737,6 +2752,7 @@ async function copySelectedChatUrl() {
 
 appActions.onPin = toggleSelectedPin;
 appActions.onShare = () => void copySelectedChatUrl();
+appActions.onPromptaPage = () => showMode("prompta");
 appActions.onUnattendedMode = () => void toggleUnattendedMode();
 
 appActions.onSubmit = () => {

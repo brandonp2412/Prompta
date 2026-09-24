@@ -1,5 +1,5 @@
 export type ComposerAction = "send" | "stop";
-export type ViewMode = "chats" | "logs";
+export type ViewMode = "chats" | "logs" | "prompta";
 export type SidebarFilterKey = "unread" | "active" | "broken";
 
 export const appViewState = $state({

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { JOBS_PAGE_SIZE, jobPromptIsExpandable, paginateJobs } from "./jobs";
 
-const jobsDialogSource = readFileSync(new URL("./JobsDialog.svelte", import.meta.url), "utf8");
+const jobsPageSource = readFileSync(new URL("./JobsPage.svelte", import.meta.url), "utf8");
 
 describe("scheduled job prompt presentation", () => {
   test("keeps short prompts directly visible", () => {
@@ -39,24 +39,24 @@ describe("scheduled job prompt presentation", () => {
   });
 
   test("renders accessible pagination controls", () => {
-    expect(jobsDialogSource).toContain('aria-label="Scheduled jobs pages"');
-    expect(jobsDialogSource).toContain("Page {pagination.page} of {pagination.pageCount}");
-    expect(jobsDialogSource).toContain("{#each pagination.items as job (job.name)}");
+    expect(jobsPageSource).toContain('aria-label="Scheduled jobs pages"');
+    expect(jobsPageSource).toContain("Page {pagination.page} of {pagination.pageCount}");
+    expect(jobsPageSource).toContain("{#each pagination.items as job (job.name)}");
   });
 
-  test("keeps mobile Jobs navigation on the stack presentation", () => {
-    expect(jobsDialogSource).toContain('presentation = mobile.current ? "stack" : "modal";');
-    expect(jobsDialogSource).toContain("data-presentation={presentation}");
-    expect(jobsDialogSource).toContain('() => presentation === "modal"');
+  test("renders jobs as an inline page", () => {
+    expect(jobsPageSource).toContain('class="jobs-page"');
+    expect(jobsPageSource).toContain('aria-labelledby="jobsPageTitle"');
+    expect(jobsPageSource).not.toContain("<dialog");
   });
 
   test("confirms destructive single-job removal and locks row actions while saving", () => {
-    expect(jobsDialogSource).toContain("confirm(`Remove scheduled job “${job.name}”?`)");
-    expect(jobsDialogSource).toContain("onclick={() => void remove(job)}");
-    expect(jobsDialogSource.match(/class="job-action"\s+disabled=\{saving\}/g)?.length).toBe(3);
+    expect(jobsPageSource).toContain("confirm(`Remove scheduled job “${job.name}”?`)");
+    expect(jobsPageSource).toContain("onclick={() => void remove(job)}");
+    expect(jobsPageSource.match(/class="job-action"\s+disabled=\{saving\}/g)?.length).toBe(3);
   });
 
   test("makes edit cancellation explicit", () => {
-    expect(jobsDialogSource).toContain('{editing ? "Cancel edit" : "Reset"}');
+    expect(jobsPageSource).toContain('{editing ? "Cancel edit" : "Reset"}');
   });
 });

@@ -843,13 +843,18 @@ def test_static_bundle_contains_historical_activity_refresh() -> None:
     assert "/probe" in bundle
 
 
-def test_machine_gun_mode_control_lives_in_sidebar_source() -> None:
-    source = (Path(__file__).parents[1] / "src" / "ui" / "App.svelte").read_text()
-    sidebar, main = source.split('<main class="main-panel">', maxsplit=1)
+def test_prompta_sidebar_brand_opens_page_with_machine_gun_mode_and_jobs() -> None:
+    root = Path(__file__).parents[1] / "src" / "ui"
+    app = (root / "App.svelte").read_text()
+    page = (root / "PromptaPage.svelte").read_text()
+    sidebar, main = app.split('<main class="main-panel">', maxsplit=1)
 
-    assert "Machine Gun Mode" in sidebar
-    assert 'id="machineGunModeButton"' in sidebar
-    assert 'id="unattendedModeButton"' not in main
+    assert 'aria-label="Open Prompta"' in sidebar
+    assert "Machine Gun Mode" not in sidebar
+    assert "jobsSidebarButton" not in sidebar
+    assert "<PromptaPage />" in main
+    assert 'id="machineGunModeButton"' in page
+    assert "<JobsPage />" in page
 
 
 def test_probe_conversation_reads_only_cached_state(tmp_path: Path) -> None:

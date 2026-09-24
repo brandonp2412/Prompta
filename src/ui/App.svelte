@@ -3,7 +3,7 @@
   import ChangelogDialog from "./ChangelogDialog.svelte";
   import Composer from "./Composer.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
-  import JobsDialog from "./JobsDialog.svelte";
+  import PromptaPage from "./PromptaPage.svelte";
   import LogsPanel from "./LogsPanel.svelte";
   import SidebarList from "./SidebarList.svelte";
   import { appActions } from "./appActions.svelte";
@@ -20,7 +20,7 @@
     reportElementWidth,
     scrollToTopOnRequest,
   } from "./browserAttachments.svelte";
-  import { getAttachmentPicker, getChangelogDialog, getJobsDialog } from "./uiControllers";
+  import { getAttachmentPicker, getChangelogDialog } from "./uiControllers";
   import {
     closeSidebar,
     finishSidebarMotion,
@@ -242,7 +242,6 @@
     }
 
     getAttachmentPicker().closeMenu();
-    getJobsDialog().close();
     getChangelogDialog().close();
     requestSearchBlur();
     closeSidebar(true);
@@ -291,11 +290,22 @@
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
         </button>
-        <div class="brand-mark" aria-hidden="true">P</div>
-        <div class="brand-copy">
-          <strong>Prompta</strong>
-          <span id="serverLabel">{serverLabel}</span>
-        </div>
+        <button
+          type="button"
+          class={["brand-home-button", { active: appViewState.mode === "prompta" }]}
+          aria-label="Open Prompta"
+          aria-current={appViewState.mode === "prompta" ? "page" : undefined}
+          onclick={() => {
+            appActions.onPromptaPage();
+            closeSidebar();
+          }}
+        >
+          <span class="brand-mark" aria-hidden="true">P</span>
+          <span class="brand-copy">
+            <strong>Prompta</strong>
+            <span id="serverLabel">{serverLabel}</span>
+          </span>
+        </button>
         <div
           class={["live-orb", { live: appViewState.live }]}
           id="globalLiveOrb"
@@ -341,45 +351,7 @@
     </div>
 
     <div {@attach scrollToTopOnRequest(() => appViewState.sidebarTopRequest)} class="sidebar-scroll">
-      <button
-        type="button"
-        class={["sidebar-action", "sidebar-machine-gun-action", { active: appViewState.unattended }]}
-        id="machineGunModeButton"
-        aria-label={appViewState.unattended ? "Disable Machine Gun Mode" : "Enable Machine Gun Mode"}
-        title={
-          appViewState.unattended
-            ? "Machine Gun Mode on · no result polling · " +
-              appViewState.unattendedSendGapSeconds +
-              "s send gap"
-            : "Machine Gun Mode · keep dispatching all jobs without reading results"
-        }
-        aria-pressed={appViewState.unattended}
-        disabled={appViewState.unattendedUpdating}
-        onclick={appActions.onUnattendedMode}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M2.5 8.5h9.25M2.5 11h9.25M2.5 13.5h9.25M2.5 7v8"></path>
-          <circle cx="15" cy="11" r="3.5"></circle>
-          <circle cx="15" cy="11" r="1"></circle>
-          <path d="M18.5 9.5H21l1 1.5-1 1.5h-2.5M14 14.4 12.5 19h5L16 14.4"></path>
-        </svg>
-        <span>Machine Gun Mode</span>
-        <span class="sidebar-action-state">{appViewState.unattended ? "ON" : "OFF"}</span>
-      </button>
       <div class="sidebar-toolbar">
-        <button
-          type="button"
-          class="sidebar-action sidebar-jobs-action"
-          id="jobsSidebarButton"
-          onclick={() => void getJobsDialog().open()}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"
-            ><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path><path
-              d="M8 12h3M8 16h3M14 12h2M14 16h2"
-            ></path></svg
-          >
-          <span>Jobs</span>
-        </button>
         <div class="sidebar-toolbar-right">
           <div class="sidebar-filters" aria-label="Conversation filters">
             {#each sidebarFilterOptions as filter (filter.key)}
@@ -499,7 +471,7 @@
       class={["conversation-viewport", { "chat-switching": appViewState.chatSwitching }]}
       id="conversationViewport"
       aria-busy={appViewState.chatSwitching ? "true" : undefined}
-      hidden={appViewState.mode === "logs"}
+      hidden={appViewState.mode !== "chats"}
     >
       <div class="empty-state" id="emptyState" hidden={!appViewState.emptyVisible}>
         <div class="empty-logo">P</div>
@@ -515,6 +487,10 @@
         <ConversationMessages />
       </article>
     </section>
+
+    {#if appViewState.mode === "prompta"}
+      <PromptaPage />
+    {/if}
 
     <LogsPanel />
 
@@ -545,5 +521,4 @@
   onclick={appActions.onApplyUpdate}
 >{appViewState.updateApplying ? "Updating…" : "Update available"}</button>
 
-<JobsDialog />
 <ChangelogDialog />

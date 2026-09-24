@@ -1,10 +1,6 @@
 <script lang="ts">
-  import { MediaQuery } from "svelte/reactivity";
-
-  import { dialogVisibility } from "./browserAttachments.svelte";
   import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest } from "./clientLogic";
   import { jobPromptIsExpandable, paginateJobs } from "./jobs";
-  import { registerJobsDialog } from "./uiControllers";
 
   type Job = {
     name: string;
@@ -18,9 +14,6 @@
     source_revision?: string;
   };
 
-  const mobile = new MediaQuery("(max-width: 600px)");
-  let dialogOpen = $state(false);
-  let presentation = $state<"modal" | "stack">("modal");
   let jobs = $state.raw<Job[]>([]);
   let page = $state(1);
   let status = $state("");
@@ -134,47 +127,22 @@
     }
   }
 
-  export async function show() {
+  $effect(() => {
     reset();
-    presentation = mobile.current ? "stack" : "modal";
-    dialogOpen = true;
-    await load();
-  }
-
-  export function close() {
-    dialogOpen = false;
-  }
-
-  registerJobsDialog({ open: show, close });
+    void load();
+  });
 </script>
 
-<dialog
-  {@attach dialogVisibility(() => dialogOpen, () => presentation === "modal", close)}
-  class="jobs-dialog"
-  id="jobsDialog"
-  aria-labelledby="jobsDialogTitle"
-  data-presentation={presentation}
-  onclick={(event) => {
-    if (event.target === event.currentTarget && presentation !== "stack") close();
-  }}
->
-  <div class="jobs-dialog-shell">
-    <header class="jobs-dialog-header">
+<section class="jobs-page" aria-labelledby="jobsPageTitle">
+  <div class="jobs-page-shell">
+    <header class="jobs-page-header">
       <div class="chat-heading">
-        <div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div>
+        <div class="heading-title" id="jobsPageTitle">Scheduled jobs</div>
         <div class="heading-meta">Create and manage scheduled prompts.</div>
       </div>
-      <button
-        type="button"
-        class="jobs-icon-button"
-        aria-label="Close scheduled jobs"
-        onclick={close}
-      >
-        ×
-      </button>
     </header>
 
-    <div class="jobs-dialog-status" role="status">{status}</div>
+    <div class="jobs-page-status" role="status">{status}</div>
 
     <div class="jobs-list">
       {#if !jobs.length}<div class="jobs-empty">No scheduled jobs.</div>{/if}
@@ -316,7 +284,7 @@
       </div>
     </form>
 
-    <div class="jobs-dialog-footer">
+    <div class="jobs-page-footer">
       <button
         type="button"
         class="jobs-danger-button"
@@ -331,4 +299,4 @@
       </button>
     </div>
   </div>
-</dialog>
+</section>
