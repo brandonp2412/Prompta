@@ -187,7 +187,7 @@ class BrowserDriverBase:
                 const parts=Array.isArray(content?.parts)
                   ?content.parts.filter(part=>typeof part==='string'&&part.trim())
                   :[];
-                const text=parts.length?parts.join('\n'):String(content?.text||'');
+                const text=parts.length?parts.join(String.fromCharCode(10)):String(content?.text||'');
                 if(!text.trim())continue;
                 const metadata=message?.metadata||{{}};
                 finalEvent={{
