@@ -258,6 +258,161 @@ class ChatCache:
                 source.replace(Path(f"{quarantine}{suffix}"))
         return quarantine
 
+    def _ensure_sidebar_search_index(self) -> None:
+        """Maintain a trigram FTS index for sidebar substring search."""
+
+        try:
+            self.connection.executescript(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS conversation_search USING fts5(
+                    conversation_id UNINDEXED,
+                    source_type UNINDEXED,
+                    source_key UNINDEXED,
+                    content,
+                    tokenize='trigram'
+                );
+
+                CREATE TRIGGER IF NOT EXISTS conversation_search_conversation_insert
+                AFTER INSERT ON conversations
+                BEGIN
+                    INSERT INTO conversation_search(
+                        conversation_id, source_type, source_key, content
+                    ) VALUES (
+                        NEW.id,
+                        'conversation',
+                        '',
+                        NEW.title || char(10) || NEW.job_name || char(10) || NEW.prompt
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS conversation_search_conversation_update
+                AFTER UPDATE OF title, job_name, prompt ON conversations
+                BEGIN
+                    DELETE FROM conversation_search
+                    WHERE conversation_id = OLD.id
+                      AND source_type = 'conversation';
+                    INSERT INTO conversation_search(
+                        conversation_id, source_type, source_key, content
+                    ) VALUES (
+                        NEW.id,
+                        'conversation',
+                        '',
+                        NEW.title || char(10) || NEW.job_name || char(10) || NEW.prompt
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS conversation_search_conversation_delete
+                AFTER DELETE ON conversations
+                BEGIN
+                    DELETE FROM conversation_search
+                    WHERE conversation_id = OLD.id;
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS conversation_search_message_insert
+                AFTER INSERT ON messages
+                WHEN NEW.status = 'complete'
+                 AND NEW.message_key NOT LIKE 'request-placeholder-%'
+                BEGIN
+                    INSERT INTO conversation_search(
+                        conversation_id, source_type, source_key, content
+                    ) VALUES (
+                        NEW.conversation_id,
+                        'message',
+                        NEW.message_key,
+                        NEW.content
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS conversation_search_message_update
+                AFTER UPDATE OF conversation_id, message_key, content, status ON messages
+                WHEN OLD.conversation_id != NEW.conversation_id
+                  OR OLD.message_key != NEW.message_key
+                  OR OLD.content != NEW.content
+                  OR OLD.status != NEW.status
+                BEGIN
+                    DELETE FROM conversation_search
+                    WHERE conversation_id = OLD.conversation_id
+                      AND source_type = 'message'
+                      AND source_key = OLD.message_key;
+                    INSERT INTO conversation_search(
+                        conversation_id, source_type, source_key, content
+                    )
+                    SELECT
+                        NEW.conversation_id,
+                        'message',
+                        NEW.message_key,
+                        NEW.content
+                    WHERE NEW.status = 'complete'
+                      AND NEW.message_key NOT LIKE 'request-placeholder-%';
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS conversation_search_message_delete
+                AFTER DELETE ON messages
+                BEGIN
+                    DELETE FROM conversation_search
+                    WHERE conversation_id = OLD.conversation_id
+                      AND source_type = 'message'
+                      AND source_key = OLD.message_key;
+                END;
+                """
+            )
+        except sqlite3.OperationalError as error:
+            detail = str(error).lower()
+            if "fts5" in detail or "trigram" in detail or "tokenizer" in detail:
+                logger.warning("Sidebar search index unavailable: %s", error)
+                return
+            raise
+
+        expected = int(
+            self.connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM conversations)
+                    + (
+                        SELECT COUNT(*)
+                        FROM messages
+                        WHERE status = 'complete'
+                          AND message_key NOT LIKE 'request-placeholder-%'
+                    )
+                """
+            ).fetchone()[0]
+        )
+        actual = int(
+            self.connection.execute("SELECT COUNT(*) FROM conversation_search").fetchone()[0]
+        )
+        if actual == expected:
+            return
+
+        self.connection.execute("DELETE FROM conversation_search")
+        self.connection.execute(
+            """
+            INSERT INTO conversation_search(
+                conversation_id, source_type, source_key, content
+            )
+            SELECT
+                id,
+                'conversation',
+                '',
+                title || char(10) || job_name || char(10) || prompt
+            FROM conversations
+            """
+        )
+        self.connection.execute(
+            """
+            INSERT INTO conversation_search(
+                conversation_id, source_type, source_key, content
+            )
+            SELECT
+                conversation_id,
+                'message',
+                message_key,
+                content
+            FROM messages
+            WHERE status = 'complete'
+              AND message_key NOT LIKE 'request-placeholder-%'
+            """
+        )
+
     def _migrate(self) -> None:
         self.connection.executescript(
             """
@@ -349,6 +504,19 @@ class ChatCache:
             )
         self.connection.execute(
             """
+            CREATE INDEX IF NOT EXISTS conversations_created_idx
+            ON conversations(created_at DESC, id)
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS messages_incomplete_search_idx
+            ON messages(conversation_id)
+            WHERE status <> 'complete'
+            """
+        )
+        self.connection.execute(
+            """
             DELETE FROM messages
             WHERE message_key LIKE 'request-placeholder-%'
             """
@@ -384,6 +552,7 @@ class ChatCache:
             (_SEEDED_PROMPT_KEY, _SEEDED_PROMPT_KEY),
         )
         self._remove_superseded_transient_assistants()
+        self._ensure_sidebar_search_index()
         for row in self.connection.execute(
             "SELECT id FROM conversations WHERE preview = ''"
         ).fetchall():

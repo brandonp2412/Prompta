@@ -166,6 +166,7 @@ class ReadOnlyChatStore:
         )[:100]
         where = ""
         parameters: list[Any] = []
+        needle = ""
         if search:
             where = """
                 WHERE c.title COLLATE NOCASE LIKE ? ESCAPE '!'
@@ -198,6 +199,26 @@ class ReadOnlyChatStore:
                         "SELECT name FROM sqlite_master WHERE type = 'table'"
                     ).fetchall()
                 }
+                if search and len(search) >= 3 and "conversation_search" in tables:
+                    fts_phrase = '"' + search.replace('"', '""') + '"'
+                    where = """
+                        WHERE c.id IN (
+                            SELECT conversation_id
+                            FROM conversation_search
+                            WHERE conversation_search MATCH ?
+                            UNION
+                            SELECT conversation_id
+                            FROM messages
+                            WHERE status <> 'complete'
+                              AND message_key NOT LIKE 'request-placeholder-%'
+                              AND content COLLATE NOCASE LIKE ? ESCAPE '!'
+                        )
+                    """
+                    parameters = [
+                        fts_phrase,
+                        needle,
+                        max(1, min(limit, 500)),
+                    ]
                 columns = {
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(conversations)").fetchall()

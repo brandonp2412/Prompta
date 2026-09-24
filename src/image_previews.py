@@ -48,6 +48,9 @@ class ImagePreviewStore:
                         REFERENCES image_preview_records(client_id)
                         ON DELETE CASCADE
                 );
+
+                CREATE INDEX IF NOT EXISTS image_preview_records_created_idx
+                    ON image_preview_records(created_at, client_id);
                 """
             )
             connection.execute("PRAGMA foreign_keys=ON")

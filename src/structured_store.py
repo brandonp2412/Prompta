@@ -50,6 +50,12 @@ def migrate_structured_capture(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS source_events_message_ordinal_idx
             ON source_events(conversation_id, message_key, ordinal);
 
+        CREATE INDEX IF NOT EXISTS source_events_message_observed_idx
+            ON source_events(conversation_id, message_key, observed_at);
+
+        CREATE INDEX IF NOT EXISTS source_events_conversation_source_created_idx
+            ON source_events(conversation_id, source_created_at DESC);
+
         CREATE TABLE IF NOT EXISTS message_parts (
             conversation_id TEXT NOT NULL,
             message_key TEXT NOT NULL,

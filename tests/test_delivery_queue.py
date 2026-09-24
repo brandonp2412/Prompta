@@ -84,6 +84,18 @@ def test_health_metrics_cover_ready_lease_and_last_success(tmp_path: Path) -> No
     assert completed["last_successful_delivery_conversation_id"] == "chat-1"
 
 
+def test_delivery_queue_creates_health_lookup_indexes(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    connection = store.connect()
+    indexes = {
+        str(row["name"]) for row in connection.execute("PRAGMA index_list(send_jobs)").fetchall()
+    }
+    connection.close()
+
+    assert "send_jobs_running_lease" in indexes
+    assert "send_jobs_succeeded_finished" in indexes
+
+
 def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())

@@ -72,6 +72,53 @@ def test_cache_migration_adds_double_checked_to_existing_database(tmp_path: Path
     assert row["double_checked"] == 0
 
 
+def test_cache_creates_indexes_for_sidebar_and_structured_event_queries(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+
+    conversation_indexes = {
+        str(row["name"])
+        for row in cache.connection.execute("PRAGMA index_list(conversations)").fetchall()
+    }
+    source_event_indexes = {
+        str(row["name"])
+        for row in cache.connection.execute("PRAGMA index_list(source_events)").fetchall()
+    }
+    message_indexes = {
+        str(row["name"])
+        for row in cache.connection.execute("PRAGMA index_list(messages)").fetchall()
+    }
+    assert "conversations_created_idx" in conversation_indexes
+    assert "messages_incomplete_search_idx" in message_indexes
+    assert "source_events_message_observed_idx" in source_event_indexes
+    assert "source_events_conversation_source_created_idx" in source_event_indexes
+
+    sidebar_plan = cache.connection.execute(
+        """
+        EXPLAIN QUERY PLAN
+        SELECT id
+        FROM conversations
+        ORDER BY created_at DESC, id
+        LIMIT 20
+        """
+    ).fetchall()
+    assert any("conversations_created_idx" in str(row["detail"]) for row in sidebar_plan)
+
+    source_plan = cache.connection.execute(
+        """
+        EXPLAIN QUERY PLAN
+        SELECT MAX(source_created_at)
+        FROM source_events
+        WHERE conversation_id = ?
+        """,
+        ("chat-1",),
+    ).fetchall()
+    cache.close()
+
+    assert any(
+        "source_events_conversation_source_created_idx" in str(row["detail"]) for row in source_plan
+    )
+
+
 def test_completed_snapshot_trusts_end_turn_final_text_over_corrupt_dom_merge(
     tmp_path: Path,
 ) -> None:

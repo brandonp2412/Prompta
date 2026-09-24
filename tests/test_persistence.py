@@ -105,6 +105,17 @@ def test_legacy_scheduler_state_json_is_imported_into_sqlite_in_place(tmp_path: 
     assert is_sqlite_file(state_path)
 
 
+def test_scheduler_runtime_creates_job_status_index(tmp_path: Path) -> None:
+    path = tmp_path / "runtime.sqlite3"
+    SchedulerRuntime(path, path)
+    with sqlite3.connect(path) as connection:
+        indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list(delivery_intents)").fetchall()
+        }
+
+    assert "delivery_intents_job_status" in indexes
+
+
 def test_legacy_pins_json_is_imported_then_removed(tmp_path: Path) -> None:
     legacy = tmp_path / "ui-pinned-chats.json"
     legacy.write_text(json.dumps({"ids": ["chat-a", "chat-b"]}))
@@ -152,6 +163,17 @@ def test_legacy_image_preview_json_is_imported_then_removed(tmp_path: Path) -> N
     assert store.image_preview(preview_id) == (b"preview", "image/png")
     assert is_sqlite_file(store.path)
     assert not legacy.exists()
+
+
+def test_image_preview_store_creates_created_at_index(tmp_path: Path) -> None:
+    store = ImagePreviewStore(tmp_path)
+    with sqlite3.connect(store.path) as connection:
+        indexes = {
+            row[1]
+            for row in connection.execute("PRAGMA index_list(image_preview_records)").fetchall()
+        }
+
+    assert "image_preview_records_created_idx" in indexes
 
 
 def test_image_preview_sqlite_migrates_flat_file_and_adds_relative_path(tmp_path: Path) -> None:

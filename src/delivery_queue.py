@@ -84,6 +84,20 @@ class DeliveryQueueStore:
                     ON send_jobs(status, retry_at, lease_expires_at, sequence)
                 """
             )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS send_jobs_running_lease
+                    ON send_jobs(lease_acquired_at, lease_expires_at)
+                    WHERE status = 'running' AND lease_owner <> ''
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS send_jobs_succeeded_finished
+                    ON send_jobs(finished_at DESC)
+                    WHERE status = 'succeeded' AND finished_at > 0
+                """
+            )
             connection.commit()
         finally:
             connection.close()

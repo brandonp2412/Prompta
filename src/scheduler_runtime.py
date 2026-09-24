@@ -129,6 +129,10 @@ class SchedulerRuntime:
             "CREATE INDEX IF NOT EXISTS delivery_intents_pending "
             "ON delivery_intents(status, available_at, id)"
         )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS delivery_intents_job_status "
+            "ON delivery_intents(job_name, status, id)"
+        )
         existing = int(connection.execute("SELECT COUNT(*) FROM scheduler_state").fetchone()[0])
         if existing == 0:
             for _legacy_path, payload in legacy_payloads:

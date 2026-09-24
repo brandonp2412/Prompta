@@ -2209,6 +2209,90 @@ def test_read_only_store_searches_message_content(tmp_path: Path) -> None:
     assert store.conversations(query="_") == []
 
 
+def test_sidebar_search_index_tracks_completed_and_streaming_messages(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-search-index",
+        context_id="context-search",
+        job_name="",
+        prompt="Ordinary request",
+    )
+    with cache.connection:
+        cache.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at, activity_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "chat-search-index",
+                "assistant-search",
+                1,
+                "assistant",
+                "Contains uniquefoobar in the answer.",
+                "complete",
+                1.0,
+                1.0,
+                1.0,
+            ),
+        )
+
+    store = ReadOnlyChatStore(path)
+    assert [chat["id"] for chat in store.conversations(query="uniquefoobar")] == [
+        "chat-search-index"
+    ]
+    plan = cache.connection.execute(
+        """
+        EXPLAIN QUERY PLAN
+        SELECT conversation_id
+        FROM conversation_search
+        WHERE conversation_search MATCH ?
+        """,
+        ('"uniquefoobar"',),
+    ).fetchall()
+    assert any("VIRTUAL TABLE INDEX" in str(row["detail"]).upper() for row in plan)
+
+    with cache.connection:
+        cache.connection.execute(
+            """
+            UPDATE messages
+            SET content = ?
+            WHERE conversation_id = ? AND message_key = ?
+            """,
+            ("Contains reindexed-answer now.", "chat-search-index", "assistant-search"),
+        )
+        cache.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at, activity_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "chat-search-index",
+                "assistant-live",
+                2,
+                "assistant",
+                "Streaming live-only-phrase",
+                "streaming",
+                2.0,
+                2.0,
+                2.0,
+            ),
+        )
+    cache.close()
+
+    assert store.conversations(query="uniquefoobar") == []
+    assert [chat["id"] for chat in store.conversations(query="reindexed-answer")] == [
+        "chat-search-index"
+    ]
+    assert [chat["id"] for chat in store.conversations(query="live-only-phrase")] == [
+        "chat-search-index"
+    ]
+
+
 def test_read_only_store_does_not_create_missing_database(tmp_path: Path) -> None:
     path = tmp_path / "missing.sqlite3"
     store = ReadOnlyChatStore(path)
