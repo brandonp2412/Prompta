@@ -8,6 +8,7 @@ from typing import Any
 from prompta.cache import ChatCache
 from prompta.git_diff import GitDiffService, GitSnapshot
 from prompta.tool_diff_capture import ToolDiffCapture
+from prompta.web_store import ReadOnlyChatStore
 
 
 def git(repo: Path, *args: str) -> str:
@@ -313,6 +314,124 @@ def test_concurrent_calls_keep_unrelated_worktrees_isolated(tmp_path: Path) -> N
     assert rows[1]["repository_root"] == str(worktree_b.resolve())
     assert rows[0]["worktree_path"] == str(worktree_a.resolve())
     assert rows[1]["worktree_path"] == str(worktree_b.resolve())
+
+
+def test_diff_preview_end_to_end_isolates_tool_change_from_preexisting_dirty_state(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    tracked_dirty = repo / "preexisting-dirty.txt"
+    tracked_dirty.write_text("clean baseline\n", encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "add dirty baseline")
+    tracked_dirty.write_text("dirty before tool\n", encoding="utf-8")
+    untracked_dirty = repo / "preexisting-untracked.txt"
+    untracked_dirty.write_text("also dirty before tool\n", encoding="utf-8")
+
+    database = tmp_path / "chats.sqlite3"
+    cache = ChatCache(database)
+    capture = ToolDiffCapture(cache)
+    conversation_id = "end-to-end-diff"
+    start(cache, conversation_id)
+
+    mutating_running_events = tool_events(
+        "Glass",
+        "execute_python",
+        {"cwd": str(repo), "code": "mutate()"},
+        call_id="mutating-call",
+        completed=False,
+    )
+    persist_and_observe(
+        cache,
+        capture,
+        conversation_id,
+        snapshot(mutating_running_events),
+    )
+
+    (repo / "changed.txt").write_text("changed by tool\n", encoding="utf-8")
+    (repo / "tool-created.txt").write_text("created by tool\n", encoding="utf-8")
+
+    mutating_completed_events = tool_events(
+        "Glass",
+        "execute_python",
+        {"cwd": str(repo), "code": "mutate()"},
+        call_id="mutating-call",
+        completed=True,
+    )
+    persist_and_observe(
+        cache,
+        capture,
+        conversation_id,
+        snapshot(mutating_completed_events),
+    )
+
+    read_only_running_events = [
+        *mutating_completed_events,
+        *tool_events(
+            "Glass",
+            "execute_python",
+            {"cwd": str(repo), "code": "print('read only')"},
+            call_id="read-only-call",
+            completed=False,
+        ),
+    ]
+    persist_and_observe(
+        cache,
+        capture,
+        conversation_id,
+        snapshot(read_only_running_events),
+    )
+    read_only_completed_events = [
+        *mutating_completed_events,
+        *tool_events(
+            "Glass",
+            "execute_python",
+            {"cwd": str(repo), "code": "print('read only')"},
+            call_id="read-only-call",
+            completed=True,
+        ),
+    ]
+    persist_and_observe(
+        cache,
+        capture,
+        conversation_id,
+        snapshot(read_only_completed_events, complete=True),
+    )
+
+    diff_rows = cache.connection.execute(
+        """
+        SELECT call_key, patch_text, changed_file_count, additions, deletions
+        FROM tool_call_diffs
+        WHERE conversation_id = ?
+        ORDER BY call_key
+        """,
+        (conversation_id,),
+    ).fetchall()
+    cache.close()
+
+    assert len(diff_rows) == 1
+    assert diff_rows[0]["call_key"] == "tool-mutating-call"
+    assert diff_rows[0]["changed_file_count"] == 2
+    assert diff_rows[0]["additions"] == 2
+    assert diff_rows[0]["deletions"] == 1
+    patch = str(diff_rows[0]["patch_text"])
+    assert "changed.txt" in patch
+    assert "tool-created.txt" in patch
+    assert "preexisting-dirty.txt" not in patch
+    assert "preexisting-untracked.txt" not in patch
+
+    chat = ReadOnlyChatStore(database).conversation(conversation_id)
+    assert chat is not None
+    calls = [
+        call
+        for message in chat["messages"]
+        for call in message.get("tool_calls", [])
+        if isinstance(call, dict)
+    ]
+    calls_by_key = {str(call["call_key"]): call for call in calls}
+    assert set(calls_by_key) == {"tool-mutating-call", "tool-read-only-call"}
+    assert calls_by_key["tool-mutating-call"]["code_diff"]["patch_text"] == patch
+    assert "code_diff" not in calls_by_key["tool-read-only-call"]
 
 
 def test_capture_failures_are_best_effort(tmp_path: Path) -> None:
