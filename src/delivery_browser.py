@@ -178,7 +178,7 @@ class BrowserDeliverySender:
                     message,
                     attachments=attachments,
                 )
-            except RateLimitError:
+            except (RateLimitError, ControlDeferredError):
                 raise
             except Exception as exc:
                 if not send_attempted:

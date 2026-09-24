@@ -175,6 +175,9 @@ class SendJobRegistry:
             "retry_at": retry_at,
             "retry_after_seconds": max(0, math.ceil(remaining)),
             "retry_attempt": max(0, int(record.get("retry_attempt") or 0)),
+            "infrastructure_retry_attempt": max(
+                0, int(record.get("infrastructure_retry_attempt") or 0)
+            ),
             "lease_owner": str(record.get("lease_owner") or ""),
             "lease_expires_at": float(record.get("lease_expires_at") or 0.0),
         }
@@ -191,6 +194,7 @@ class SendJobRegistry:
                 record.get("error"),
                 record.get("retry_at"),
                 record.get("retry_attempt"),
+                record.get("infrastructure_retry_attempt"),
                 record.get("updated_at"),
                 record.get("lease_owner"),
                 record.get("lease_expires_at"),
@@ -568,23 +572,6 @@ class SendJobRegistry:
                 max_retry_at = max(max_retry_at, retry_at)
                 max_attempt = max(max_attempt, retry_attempt)
             restored.append(record)
-
-        # Recovery preserves FIFO ordering. Only the queue head owns retry
-        # timing; later jobs wait as plain queued work until it completes.
-        if restored:
-            for record in restored[1:]:
-                if record["status"] not in {"queued", "rate_limited", "retrying"}:
-                    continue
-                record["status"] = "queued"
-                record["retry_at"] = 0.0
-                job = self._jobs.get(record["send_id"])
-                if job is not None:
-                    job.update(
-                        status="queued",
-                        retry_at=0.0,
-                        retry_after_seconds=0,
-                    )
-                self._upsert_database_record(record)
 
         if self._recoverable:
             with self._recovery_lock:
@@ -1034,6 +1021,7 @@ class SendJobRegistry:
                     "conversation_id",
                     "retry_at",
                     "retry_attempt",
+                    "infrastructure_retry_attempt",
                 )
                 if key in updates
             }
@@ -1103,7 +1091,7 @@ class SendJobRegistry:
             current = self.get(send_id) or {}
             durable_queue = self._queue_path is not None
             generic_attempt = max(0, int(current.get("retry_attempt") or 0))
-            infrastructure_attempt = 0
+            infrastructure_attempt = max(0, int(current.get("infrastructure_retry_attempt") or 0))
             local_retry_at = float(current.get("retry_at") or 0.0)
             if (
                 not durable_queue
@@ -1270,6 +1258,7 @@ class SendJobRegistry:
                             retry_at=retry_at,
                             retry_after_seconds=max(1, math.ceil(delay)),
                             retry_attempt=generic_attempt,
+                            infrastructure_retry_attempt=infrastructure_attempt,
                         )
                         self._remember_recoverable(
                             send_id=send_id,

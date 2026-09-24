@@ -329,3 +329,80 @@ def test_consumer_started_before_enqueue_claims_later_sqlite_work(tmp_path: Path
     finally:
         producer.close()
         consumer.close()
+
+
+def test_infrastructure_retry_backoff_survives_reclaim_and_worker_restart(
+    tmp_path: Path,
+) -> None:
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    calls = 0
+
+    def unavailable(*_args: object) -> str:
+        nonlocal calls
+        calls += 1
+        raise DeliveryBackendUnavailableError("browser unavailable before send")
+
+    first = SendJobRegistry(unavailable, queue_path=queue_path)
+    try:
+        submitted = first.submit(operation="once", message="Please post")
+        assert _wait_for(
+            lambda: (first.get(submitted["send_id"]) or {}).get("infrastructure_retry_attempt") == 1
+        )
+        record = first.get(submitted["send_id"])
+        assert record is not None
+        assert record["retry_attempt"] == 0
+        assert record["retry_after_seconds"] <= 2
+    finally:
+        first.close()
+
+    second = SendJobRegistry(unavailable, queue_path=queue_path)
+    try:
+        record = second.get(submitted["send_id"])
+        assert record is not None
+        assert record["status"] == "retrying"
+        assert record["infrastructure_retry_attempt"] == 1
+        assert record["retry_at"] > time.time()
+        assert calls == 1
+
+        connection = DeliveryQueueStore(queue_path).connect()
+        try:
+            connection.execute(
+                "UPDATE send_jobs SET retry_at = ? WHERE send_id = ?",
+                (time.time() - 1, submitted["send_id"]),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        second._work_event.set()
+        assert _wait_for(
+            lambda: (
+                (second.get(submitted["send_id"]) or {}).get("infrastructure_retry_attempt") == 2
+            )
+        )
+        record = second.get(submitted["send_id"])
+        assert record is not None
+        assert record["retry_at"] - time.time() > 2.5
+        assert record["retry_attempt"] == 0
+        assert calls == 2
+    finally:
+        second.close()
+
+
+@pytest.mark.asyncio
+async def test_pre_send_draft_deferral_keeps_its_retry_delay(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    with (
+        patch.object(
+            ConversationActions,
+            "send_reply",
+            AsyncMock(
+                side_effect=ControlDeferredError(
+                    "ChatGPT composer already contains unsent text", retry_after=60
+                )
+            ),
+        ),
+        pytest.raises(ControlDeferredError) as deferred,
+    ):
+        await sender._send_browser("reply", "Queued reply", "chat-1", [])
+
+    assert deferred.value.retry_after == 60

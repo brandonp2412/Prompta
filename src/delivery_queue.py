@@ -46,6 +46,7 @@ class DeliveryQueueStore:
                     updated_at REAL NOT NULL,
                     retry_at REAL NOT NULL DEFAULT 0,
                     retry_attempt INTEGER NOT NULL DEFAULT 0,
+                    infrastructure_retry_attempt INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT NOT NULL DEFAULT '',
                     finished_at REAL NOT NULL DEFAULT 0,
                     lease_owner TEXT NOT NULL DEFAULT '',
@@ -59,6 +60,7 @@ class DeliveryQueueStore:
                 for row in connection.execute("PRAGMA table_info(send_jobs)").fetchall()
             }
             migrations = {
+                "infrastructure_retry_attempt": "INTEGER NOT NULL DEFAULT 0",
                 "lease_owner": "TEXT NOT NULL DEFAULT ''",
                 "lease_acquired_at": "REAL NOT NULL DEFAULT 0",
                 "lease_expires_at": "REAL NOT NULL DEFAULT 0",
@@ -123,6 +125,9 @@ class DeliveryQueueStore:
             "error": str(row["error"] or "") if "error" in keys else "",
             "retry_at": float(row["retry_at"] or 0.0),
             "retry_attempt": max(0, int(row["retry_attempt"] or 0)),
+            "infrastructure_retry_attempt": max(0, int(row["infrastructure_retry_attempt"] or 0))
+            if "infrastructure_retry_attempt" in keys
+            else 0,
             "created_at": float(row["created_at"] or 0.0),
             "updated_at": float(row["updated_at"] or 0.0) if "updated_at" in keys else 0.0,
             "lease_owner": str(row["lease_owner"] or "") if "lease_owner" in keys else "",

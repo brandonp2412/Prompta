@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from .browser_script_loader import load_browser_script
 from .cache import ActiveConversation, ChatCache
+from .control_server import ControlDeferredError
 from .rate_limit import RateLimitError, is_rate_limited_text
 
 logger = logging.getLogger(__name__)
@@ -496,7 +497,10 @@ class ConversationActions:
                 prompt_text and not attachments and composer_text == prompt_text
             )
             if composer_text and not resume_queued_draft:
-                raise RuntimeError("ChatGPT composer already contains unsent text")
+                raise ControlDeferredError(
+                    "ChatGPT composer already contains unsent text; clear the draft to send the queued reply",
+                    retry_after=60.0,
+                )
             if resume_queued_draft:
                 logger.warning(
                     "Prompta found the queued reply already in the composer; resuming its send"
