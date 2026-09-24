@@ -15,6 +15,8 @@ def test_delivery_worker_is_independently_restartable() -> None:
 
     assert "ExecStart=%h/prompta/.venv/bin/prompta-delivery-worker" in unit
     assert "Restart=always" in unit
+    assert "Wants=prompta-browser.service" in unit
+    assert "prompta.service" not in unit
     assert "PartOf=prompta-ui.service" not in unit
     assert "Requires=prompta-ui.service" not in unit
 

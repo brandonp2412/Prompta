@@ -1,37 +1,145 @@
+from __future__ import annotations
+
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from prompta.control_server import ControlUnavailableError
+from prompta.cache import ChatCache
+from prompta.control_server import ControlDeferredError
+from prompta.conversation_actions import ConversationActions
+from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
-from prompta.delivery_worker import _control_sender
-from prompta.send_jobs import SendJobRegistry
+from prompta.rate_limit import RateLimitError
+from prompta.send_jobs import DeliveryBackendUnavailableError, SendJobRegistry
 
 
-def test_delivery_worker_classifies_missing_backend_as_control_outage(tmp_path: Path) -> None:
-    with (
-        patch("prompta.delivery_worker._daemon_is_running", return_value=False),
-        pytest.raises(ControlUnavailableError, match="control socket is unavailable"),
+def test_delivery_worker_has_no_monolith_control_send_path() -> None:
+    source = Path("src/delivery_worker.py").read_text()
+
+    assert "_send_once_via_control" not in source
+    assert "_send_reply_via_control" not in source
+    assert "_daemon_is_running" not in source
+
+
+def test_delivery_worker_uses_separate_browser_ownership_scope(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    driver = sender._new_driver()
+
+    assert driver.ownership_prefix == "prompta-delivery:"
+
+
+def test_delivery_worker_sends_directly_through_browser_sender(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    with patch.object(
+        sender,
+        "_send_browser",
+        AsyncMock(return_value="chat-browser"),
+    ) as browser_send:
+        result = sender("once", "Hello", "", [])
+
+    assert result == "chat-browser"
+    browser_send.assert_awaited_once_with("once", "Hello", "", [])
+
+
+@pytest.mark.asyncio
+async def test_pre_send_browser_failure_remains_retryable(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    driver = SimpleNamespace(
+        new_tab=AsyncMock(return_value="tab-1"),
+        dismiss_history_rate_limit=AsyncMock(return_value=False),
+        wait_for_composer=AsyncMock(side_effect=RuntimeError("browser temporarily unavailable")),
+        close_context=AsyncMock(),
+    )
+
+    with patch(
+        "prompta.delivery_browser.BrowserSession.ensure_driver", AsyncMock(return_value=driver)
     ):
-        _control_sender(tmp_path / "runtime.sqlite3", "once", "Hello", "", [])
+        with pytest.raises(DeliveryBackendUnavailableError, match="temporarily unavailable"):
+            await sender._send_browser("once", "Hello", "", [])
 
 
-def test_delivery_worker_uses_control_socket_when_backend_is_running(tmp_path: Path) -> None:
+def test_delivery_worker_persists_account_rate_limit_across_restart(tmp_path: Path) -> None:
     state_path = tmp_path / "runtime.sqlite3"
-    with (
-        patch("prompta.delivery_worker._daemon_is_running", return_value=True),
-        patch(
-            "prompta.delivery_worker._send_once_via_control",
-            AsyncMock(return_value="chat-control"),
-        ) as control,
+    sender = BrowserDeliverySender(state_path)
+    with patch.object(
+        sender,
+        "_send_browser",
+        AsyncMock(side_effect=RateLimitError("Too many requests", retry_after=7)),
     ):
-        result = _control_sender(state_path, "once", "Hello", "", [])
+        with pytest.raises(RateLimitError, match="Too many requests"):
+            sender("once", "Hello", "", [])
 
-    assert result == "chat-control"
-    control.assert_awaited_once_with(state_path, "Hello", [])
+    restarted = BrowserDeliverySender(state_path)
+    with patch.object(
+        restarted, "_send_browser", AsyncMock(return_value="should-not-send")
+    ) as send:
+        with pytest.raises(RateLimitError, match="backoff is active"):
+            restarted("once", "Second", "", [])
+    send.assert_not_awaited()
+
+
+def test_delivery_worker_respects_persisted_global_send_gap(tmp_path: Path) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    sender = BrowserDeliverySender(state_path)
+    sender.runtime.update_scheduler_state({"last_attempt_at": time.time()})
+
+    with patch.object(sender, "_send_browser", AsyncMock(return_value="should-not-send")) as send:
+        with pytest.raises(ControlDeferredError, match="global send gap"):
+            sender("once", "Second", "", [])
+    send.assert_not_awaited()
+
+
+def test_delivery_worker_defers_reply_when_cache_says_conversation_is_active(
+    tmp_path: Path,
+) -> None:
+    cache_path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(cache_path)
+    try:
+        cache.start("chat-active", context_id="old-tab", job_name="", prompt="first")
+    finally:
+        cache.close()
+
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", cache_path=cache_path)
+    with patch.object(sender, "_send_browser", AsyncMock(return_value="should-not-send")) as send:
+        with pytest.raises(ControlDeferredError, match="still active"):
+            sender("reply", "Follow up", "chat-active", [])
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_history_rate_limit_modal_defers_before_chat_preference_checks(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    driver = SimpleNamespace(
+        new_tab=AsyncMock(return_value="tab-1"),
+        dismiss_history_rate_limit=AsyncMock(return_value=True),
+        close_context=AsyncMock(),
+    )
+    ensure_high_effort = AsyncMock()
+    actions = ConversationActions(
+        cache,
+        {},
+        20.0,
+        ensure_driver=AsyncMock(return_value=driver),
+        ensure_high_effort=ensure_high_effort,
+        ensure_route=AsyncMock(),
+        enrich_completed_tool_calls=AsyncMock(),
+        wait_for_cached_response=AsyncMock(return_value=False),
+        unattended_mode=lambda: False,
+    )
+    try:
+        with pytest.raises(RateLimitError, match="Too many requests"):
+            await actions.send_once("Hello")
+    finally:
+        cache.close()
+
+    driver.dismiss_history_rate_limit.assert_awaited_once()
+    ensure_high_effort.assert_not_awaited()
 
 
 def _wait_for(predicate, timeout: float = 3.0) -> bool:

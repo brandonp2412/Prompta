@@ -29,7 +29,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from .browser_ownership import new_owned_window_marker, owned_window_started_at
+from .browser_ownership import OWNED_WINDOW_PREFIX, new_owned_window_marker, owned_window_started_at
 from .chatgpt_dom import (
     COMPOSER_SELECTORS,
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
@@ -84,6 +84,7 @@ class PlaywrightDriver(BrowserDriverBase):
         auth_timeout_seconds: float = 30.0,
         debugger_address: str | None = None,
         flaresolverr_url: str | None = None,
+        ownership_prefix: str = OWNED_WINDOW_PREFIX,
         **_legacy: Any,
     ) -> None:
         super().__init__("")
@@ -93,6 +94,7 @@ class PlaywrightDriver(BrowserDriverBase):
         self.auth_timeout_seconds = max(0.1, auth_timeout_seconds)
         self.debugger_address = debugger_address.strip() if debugger_address else None
         self.flaresolverr_url = flaresolverr_url.rstrip("/") if flaresolverr_url else None
+        self.ownership_prefix = ownership_prefix
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._browser_context: BrowserContext | None = None
@@ -180,12 +182,12 @@ class PlaywrightDriver(BrowserDriverBase):
             name = await page.evaluate("window.name")
         except PlaywrightError:
             return None
-        return owned_window_started_at(name)
+        return owned_window_started_at(name, prefix=self.ownership_prefix)
 
     async def _mark_owned(self, page: Page) -> None:
         await page.evaluate(
             "(value) => { window.name = value; }",
-            new_owned_window_marker(),
+            new_owned_window_marker(prefix=self.ownership_prefix),
         )
 
     async def _is_owned_page(self, page: Page) -> bool:
@@ -971,6 +973,9 @@ class PlaywrightDriver(BrowserDriverBase):
         except PlaywrightError:
             return False
         return True
+
+    async def dismiss_history_rate_limit(self) -> bool:
+        return await self._dismiss_history_rate_limit()
 
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()

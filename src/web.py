@@ -136,7 +136,6 @@ class PromptaUIServer(ThreadingHTTPServer):
         )
         self.send_jobs = SendJobRegistry(
             None,
-            recovery_path=self.state_path.parent / "ui-send-retries.json",
             queue_path=self.state_path.parent / "ui-send-jobs.sqlite3",
             consume=False,
         )

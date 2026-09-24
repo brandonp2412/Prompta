@@ -36,6 +36,7 @@ class ConversationActions:
         enrich_completed_tool_calls: Callable[..., Any],
         wait_for_cached_response: Callable[..., Any],
         unattended_mode: Callable[[], bool],
+        before_send_attempt: Callable[[], None] | None = None,
     ) -> None:
         self.cache = cache
         self.active = active
@@ -46,10 +47,17 @@ class ConversationActions:
         self.enrich_completed_tool_calls = enrich_completed_tool_calls
         self.wait_for_cached_response_callback = wait_for_cached_response
         self.unattended_mode = unattended_mode
+        self.before_send_attempt = before_send_attempt
 
     @staticmethod
     def normalise(text: str) -> str:
         return " ".join(text.split()).strip()
+
+    @staticmethod
+    async def _raise_if_history_rate_limited(driver: Any) -> None:
+        dismiss = getattr(driver, "dismiss_history_rate_limit", None)
+        if dismiss is not None and await dismiss():
+            raise RateLimitError("ChatGPT conversation history returned Too many requests")
 
     async def send_once(
         self,
@@ -66,7 +74,9 @@ class ConversationActions:
         probe_armed = False
         succeeded = False
         try:
+            await self._raise_if_history_rate_limited(driver)
             await driver.wait_for_composer()
+            await self._raise_if_history_rate_limited(driver)
             await self.ensure_high_effort(driver)
             if attachments:
                 await driver.attach_files(attachments)
@@ -90,6 +100,8 @@ class ConversationActions:
             typed = await driver.dom_state()
             if self.normalise(str(typed.get("composer_text") or "")) != self.normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the configured prompt")
+            if self.before_send_attempt is not None:
+                self.before_send_attempt()
             if attachments:
                 await driver.click_send_button()
             else:
@@ -439,6 +451,7 @@ class ConversationActions:
         try:
 
             async def prepare_conversation_route() -> None:
+                await self._raise_if_history_rate_limited(driver)
                 try:
                     await driver.wait_for_composer()
                 except RuntimeError as exc:
@@ -452,6 +465,7 @@ class ConversationActions:
                     await driver.wait_for_composer()
                 await self.ensure_route(driver, expected_path)
                 await driver.wait_for_composer()
+                await self._raise_if_history_rate_limited(driver)
 
             try:
                 await prepare_conversation_route()
@@ -491,6 +505,8 @@ class ConversationActions:
             typed = await driver.dom_state()
             if self.normalise(str(typed.get("composer_text") or "")) != self.normalise(prompt):
                 raise RuntimeError("ChatGPT composer did not contain the requested reply")
+            if self.before_send_attempt is not None:
+                self.before_send_attempt()
             if attachments:
                 await driver.click_send_button()
             else:

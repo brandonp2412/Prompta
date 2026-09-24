@@ -494,9 +494,9 @@ class Prompta:
             if unattended and self._active_conversations:
                 self._detach_active_conversations_for_unattended()
 
-            # The control socket is the transitional browser backend used by the
-            # dedicated delivery worker. This process must not consume durable
-            # delivery rows or evaluate schedules.
+            # The control socket remains transitional for non-delivery browser
+            # actions. Durable delivery is consumed directly by the delivery worker;
+            # this process must not consume delivery rows or evaluate schedules.
             did_work = await self._drain_reply_requests()
             did_work = await self._drain_once_requests() or did_work
             did_work = await self._drain_sync_requests() or did_work

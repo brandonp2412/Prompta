@@ -45,6 +45,10 @@ class DeliveryLeaseLost(RuntimeError):
     """Raised when another process owns or has cancelled a claimed delivery."""
 
 
+class DeliveryBackendUnavailableError(RuntimeError):
+    """A pre-send browser failure that is safe to retry without exhausting delivery attempts."""
+
+
 class SendJobRegistry:
     """Durable delivery queue producer/observer with an optional worker consumer."""
 
@@ -1208,7 +1212,7 @@ class SendJobRegistry:
                         self._sleep(delay)
                         continue
 
-                    if isinstance(exc, ControlUnavailableError):
+                    if isinstance(exc, (ControlUnavailableError, DeliveryBackendUnavailableError)):
                         infrastructure_attempt += 1
                         current = self.get(send_id) or {}
                         delay = min(
