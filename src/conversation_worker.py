@@ -121,11 +121,11 @@ class ConversationWorker:
             return False
 
         driver = await self.browser.ensure_driver()
-        await driver.cleanup_orphan_pages()
         if await self._dismiss_history_rate_limits(driver):
             return False
 
         recovered = await self.tracker.recover_cached_conversations()
+        await driver.cleanup_orphan_pages()
         await self.tracker.poll_active_conversations()
         if await self._dismiss_history_rate_limits(driver):
             return False

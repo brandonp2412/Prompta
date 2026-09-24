@@ -23,18 +23,21 @@ class FakeTrackingDriver:
         self.closed = False
         self.handoff_context_id: str | None = None
         self.new_tab_calls = 0
+        self.events: list[str] = []
 
     async def connect(self) -> None:
         self.is_connected = True
 
     async def cleanup_orphan_pages(self) -> int:
+        self.events.append("cleanup")
         return 0
 
     async def dismiss_history_rate_limit(self, *, context: str | None = None) -> bool:
         del context
         return False
 
-    async def find_context_for_path(self, _expected_path: str) -> str | None:
+    async def find_context_for_path(self, expected_path: str) -> str | None:
+        self.events.append(f"find:{expected_path}")
         return self.handoff_context_id
 
     async def new_tab(self, _url: str = "https://chatgpt.com/") -> str:
@@ -226,6 +229,90 @@ async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
 
 
 @pytest.mark.asyncio
+async def test_recovery_claims_live_handoffs_before_opening_reload_tabs(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    cache_path = tmp_path / "chats.sqlite3"
+    old_id = "chat-old-recovery"
+    handoff_id = "chat-live-handoff-priority"
+
+    class HandoffPriorityDriver(FakeTrackingDriver):
+        async def find_context_for_path(self, expected_path: str) -> str | None:
+            self.events.append(f"find:{expected_path}")
+            if expected_path == f"/c/{handoff_id}":
+                return self.context_id
+            return None
+
+        async def new_tab(self, _url: str = "https://chatgpt.com/") -> str:
+            self.events.append(f"new:{_url}")
+            raise RuntimeError("old recovery intentionally unavailable")
+
+    driver = HandoffPriorityDriver("prompta-conversation:claimed", handoff_id)
+    worker = ConversationWorker(
+        state_path,
+        cache_path=cache_path,
+        driver_factory=cast(Any, lambda: driver),
+        recovery_message_timeout_seconds=0.01,
+    )
+    try:
+        worker.cache.start(
+            old_id,
+            context_id="old-context",
+            job_name="",
+            prompt="Old recovery",
+        )
+        worker.cache.start(
+            handoff_id,
+            context_id="prompta-delivery:send-tab",
+            job_name="",
+            prompt="Do the work",
+        )
+        rows = [
+            {
+                "id": old_id,
+                "job_name": "",
+                "prompt": "Old recovery",
+                "url": f"https://chatgpt.com/c/{old_id}",
+                "status": "active",
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "completed_at": None,
+            },
+            {
+                "id": handoff_id,
+                "job_name": "",
+                "prompt": "Do the work",
+                "url": f"https://chatgpt.com/c/{handoff_id}",
+                "status": "active",
+                "created_at": 1.0,
+                "updated_at": 1.0,
+                "completed_at": None,
+            },
+        ]
+        with (
+            patch.object(
+                worker.cache,
+                "recoverable_conversations",
+                return_value=rows,
+            ),
+            patch.object(
+                worker.cache,
+                "stale_active_conversation_ids",
+                return_value=[],
+            ),
+        ):
+            assert await worker.tracker.recover_cached_conversations(limit=2) == 1
+
+        assert driver.events.index(f"find:/c/{handoff_id}") < driver.events.index(
+            f"new:https://chatgpt.com/c/{old_id}"
+        )
+        assert handoff_id in {active.conversation_id for active in worker.tracker.active.values()}
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
 async def test_conversation_worker_claims_delivery_handoff_before_reloading(
     tmp_path: Path,
 ) -> None:
@@ -253,6 +340,7 @@ async def test_conversation_worker_claims_delivery_handoff_before_reloading(
     try:
         assert await worker.run_once() is True
         assert driver.new_tab_calls == 0
+        assert driver.events.index(f"find:/c/{conversation_id}") < driver.events.index("cleanup")
         assert list(worker.tracker.active) == ["prompta-conversation:claimed"]
         assert _browser_context_id(worker.cache, conversation_id) == (
             "prompta-conversation:claimed"

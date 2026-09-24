@@ -290,16 +290,35 @@ class ConversationTracker:
             return 0
 
         driver = await self.ensure_driver()
+        claimed_contexts: dict[str, str] = {}
+        find_context_for_path = getattr(driver, "find_context_for_path", None)
+        if callable(find_context_for_path):
+            for row in recoverable:
+                conversation_id = str(row.get("id") or "")
+                target_url = str(row.get("url") or f"https://chatgpt.com/c/{conversation_id}")
+                expected_path = urlsplit(target_url).path.rstrip("/")
+                try:
+                    context = await find_context_for_path(expected_path) or ""
+                except Exception as exc:
+                    self._raise_if_browser_restart_required(driver, exc)
+                    logger.debug(
+                        "Could not inspect live handoff conversation=%s",
+                        conversation_id,
+                        exc_info=True,
+                    )
+                    continue
+                if context:
+                    claimed_contexts[conversation_id] = context
+            if claimed_contexts:
+                recoverable.sort(key=lambda row: str(row.get("id") or "") not in claimed_contexts)
+
         recovered = 0
         for row in recoverable:
             conversation_id = str(row.get("id") or "")
             target_url = str(row.get("url") or f"https://chatgpt.com/c/{conversation_id}")
-            context = ""
+            context = claimed_contexts.pop(conversation_id, "")
             try:
                 expected_path = urlsplit(target_url).path.rstrip("/")
-                find_context_for_path = getattr(driver, "find_context_for_path", None)
-                if callable(find_context_for_path):
-                    context = await find_context_for_path(expected_path) or ""
                 if context:
                     logger.info(
                         "Prompta claimed live delivery handoff conversation=%s",
