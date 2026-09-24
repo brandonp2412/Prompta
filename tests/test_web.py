@@ -10,7 +10,7 @@ from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 from threading import Event, Lock, Thread
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -224,16 +224,13 @@ def test_wait_for_local_scheduler_tolerates_restart_gap(tmp_path: Path) -> None:
     assert sleep.call_count == 2
 
 
-def test_ui_send_classifies_missing_backend_as_control_outage(tmp_path: Path) -> None:
+def test_ui_send_registry_is_producer_only(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
-        with (
-            patch("prompta.web._wait_for_local_scheduler", return_value=False),
-            patch("prompta.web._start_local_scheduler_service", return_value=False),
-            pytest.raises(ControlUnavailableError, match="backend is unavailable"),
-        ):
-            server._send("once", "Hello", "", [])
+        assert server.send_jobs._worker is None
+        queued = server.send_jobs.submit(operation="once", message="Hello", client_id="ui-producer")
+        assert queued["status"] == "queued"
     finally:
         server.server_close()
 
@@ -707,75 +704,21 @@ def test_ui_server_prefers_durable_chat_over_send_receipt(tmp_path: Path) -> Non
     assert chat["title"] == "Kite roadmap work"
 
 
-def test_local_ui_rejects_send_when_backend_cannot_start(tmp_path: Path) -> None:
+def test_local_ui_enqueues_without_touching_control_socket(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
-        with (
-            patch("prompta.web._wait_for_local_scheduler", return_value=False),
-            patch("prompta.web._start_local_scheduler_service", return_value=False),
-            pytest.raises(RuntimeError, match="Prompta backend is unavailable"),
-        ):
-            server._send("once", "Hello", "")
+        with patch("prompta.web._wait_for_local_scheduler") as wait:
+            queued = server.send_jobs.submit(
+                operation="once",
+                message="Hello",
+                client_id="producer-only",
+            )
     finally:
         server.server_close()
 
-
-def test_local_ui_starts_backend_before_send(tmp_path: Path) -> None:
-    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
-    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
-    try:
-        with (
-            patch("prompta.web._wait_for_local_scheduler", side_effect=[False, True]) as wait,
-            patch("prompta.web._start_local_scheduler_service", return_value=True) as start,
-            patch(
-                "prompta.web._send_once_via_control",
-                AsyncMock(return_value="chat-control"),
-            ) as control,
-        ):
-            result = server._send("once", "Hello", "")
-    finally:
-        server.server_close()
-
-    assert result == "chat-control"
-    assert wait.call_count == 2
-    start.assert_called_once_with()
-    control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
-
-
-def test_local_ui_rejects_send_when_started_backend_never_becomes_ready(
-    tmp_path: Path,
-) -> None:
-    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
-    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
-    try:
-        with (
-            patch("prompta.web._wait_for_local_scheduler", return_value=False),
-            patch("prompta.web._start_local_scheduler_service", return_value=True),
-            pytest.raises(RuntimeError, match="Prompta backend is unavailable"),
-        ):
-            server._send("once", "Hello", "")
-    finally:
-        server.server_close()
-
-
-def test_local_ui_uses_control_socket_when_backend_is_running(tmp_path: Path) -> None:
-    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
-    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
-    try:
-        with (
-            patch("prompta.web._wait_for_local_scheduler", return_value=True),
-            patch(
-                "prompta.web._send_once_via_control",
-                AsyncMock(return_value="chat-control"),
-            ) as control,
-        ):
-            result = server._send("once", "Hello", "")
-    finally:
-        server.server_close()
-
-    assert result == "chat-control"
-    control.assert_awaited_once_with(tmp_path / "state.json", "Hello", [])
+    assert queued["status"] == "queued"
+    wait.assert_not_called()
 
 
 def test_static_bundle_contains_historical_activity_probe() -> None:

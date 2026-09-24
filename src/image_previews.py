@@ -247,6 +247,55 @@ class ImagePreviewStore:
                     ],
                 )
 
+    def _write_record_locked(self, client_id: str) -> None:
+        record = self.records.get(client_id)
+        if not isinstance(record, dict):
+            return
+        images = record.get("images")
+        with self._connect() as connection:
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute(
+                "DELETE FROM image_preview_images WHERE client_id = ?",
+                (client_id,),
+            )
+            connection.execute(
+                "DELETE FROM image_preview_records WHERE client_id = ?",
+                (client_id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO image_preview_records(
+                    client_id, conversation_id, message, created_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    str(record.get("conversation_id") or ""),
+                    str(record.get("message") or ""),
+                    float(record.get("created_at") or time.time()),
+                ),
+            )
+            if isinstance(images, list):
+                connection.executemany(
+                    """
+                    INSERT INTO image_preview_images(
+                        client_id, position, preview_id, name, media_type, relative_path
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            client_id,
+                            position,
+                            str(image.get("id") or ""),
+                            safe_basename(image.get("name"), default="image"),
+                            str(image.get("type") or "image/*"),
+                            str(image.get("path") or ""),
+                        )
+                        for position, image in enumerate(images)
+                        if isinstance(image, dict) and image.get("id")
+                    ],
+                )
+
     def replace_staged(
         self,
         client_id: str,
@@ -256,6 +305,7 @@ class ImagePreviewStore:
         if not client_id or not images:
             return
         with self.lock:
+            self.records = self._load_database()
             previous = self.records.get(client_id)
             if isinstance(previous, dict) and not previous.get("conversation_id"):
                 for image in previous.get("images", []):
@@ -275,23 +325,39 @@ class ImagePreviewStore:
                 "created_at": time.time(),
                 "images": images,
             }
-            self._write_locked()
+            self._write_record_locked(client_id)
 
     def bind(self, client_id: str, conversation_id: str, message: str) -> None:
+        if not client_id or not conversation_id:
+            return
         with self.lock:
-            record = self.records.get(client_id)
-            if not isinstance(record, dict):
-                return
-            record["conversation_id"] = conversation_id
-            if message:
-                record["message"] = message
-            self._write_locked()
+            with self._connect() as connection:
+                if message:
+                    connection.execute(
+                        """
+                        UPDATE image_preview_records
+                        SET conversation_id = ?, message = ?
+                        WHERE client_id = ?
+                        """,
+                        (conversation_id, message, client_id),
+                    )
+                else:
+                    connection.execute(
+                        """
+                        UPDATE image_preview_records
+                        SET conversation_id = ?
+                        WHERE client_id = ?
+                        """,
+                        (conversation_id, client_id),
+                    )
+            self.records = self._load_database()
 
     def enrich(self, chat: dict[str, Any], conversation_id: str) -> None:
         messages = chat.get("messages")
         if not isinstance(messages, list):
             return
         with self.lock:
+            self.records = self._load_database()
             records = [
                 dict(record)
                 for record in self.records.values()
@@ -336,6 +402,7 @@ class ImagePreviewStore:
         media_type = "application/octet-stream"
         target: Path | None = None
         with self.lock:
+            self.records = self._load_database()
             for record in self.records.values():
                 if not isinstance(record, dict):
                     continue

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
+from typing import Any, cast
 
 import prompta.jobs as jobs_module
 import prompta.scheduler_runtime as scheduler_module
@@ -205,6 +207,43 @@ def test_image_preview_sqlite_migrates_flat_file_and_adds_relative_path(tmp_path
     connection.close()
     assert row is not None
     assert row[0] == image["path"]
+
+
+def test_image_preview_binding_is_visible_across_store_instances(tmp_path: Path) -> None:
+    writer = ImagePreviewStore(tmp_path)
+    reader = ImagePreviewStore(tmp_path)
+    preview_id = "c" * 32
+    preview_dir = tmp_path / "ui-image-previews" / ("d" * 64)
+    preview_dir.mkdir(parents=True)
+    preview_path = preview_dir / "shot.png"
+    preview_path.write_bytes(b"preview")
+
+    writer.replace_staged(
+        "client-cross-process",
+        "Look",
+        [
+            {
+                "id": preview_id,
+                "name": "shot.png",
+                "type": "image/png",
+                "path": str(preview_path.relative_to(tmp_path / "ui-image-previews")),
+            }
+        ],
+    )
+    reader.bind("client-cross-process", "chat-cross-process", "Look")
+
+    chat = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Look",
+                "created_at": time.time(),
+            }
+        ]
+    }
+    writer.enrich(chat, "chat-cross-process")
+
+    assert cast(Any, chat)["messages"][0]["attachments"][0]["id"] == preview_id
 
 
 def test_runtime_database_imports_separate_legacy_job_and_state_files(

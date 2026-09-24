@@ -96,6 +96,7 @@ class DeliveryQueueStore:
             attachments = []
         keys = set(row.keys())
         record = {
+            "sequence": int(row["sequence"]) if "sequence" in keys else 0,
             "send_id": str(row["send_id"]),
             "operation": str(row["operation"]),
             "message": str(row["message"]),
@@ -105,9 +106,11 @@ class DeliveryQueueStore:
             else [],
             "client_id": str(row["client_id"] or ""),
             "status": str(row["status"]),
+            "error": str(row["error"] or "") if "error" in keys else "",
             "retry_at": float(row["retry_at"] or 0.0),
             "retry_attempt": max(0, int(row["retry_attempt"] or 0)),
             "created_at": float(row["created_at"] or 0.0),
+            "updated_at": float(row["updated_at"] or 0.0) if "updated_at" in keys else 0.0,
             "lease_owner": str(row["lease_owner"] or "") if "lease_owner" in keys else "",
             "lease_acquired_at": (
                 float(row["lease_acquired_at"] or 0.0) if "lease_acquired_at" in keys else 0.0

@@ -41,8 +41,12 @@ def _is_legacy_pre_send_outage(error: str) -> bool:
     return any(message.startswith(prefix) for prefix in _LEGACY_PRE_SEND_OUTAGE_ERRORS)
 
 
+class DeliveryLeaseLost(RuntimeError):
+    """Raised when another process owns or has cancelled a claimed delivery."""
+
+
 class SendJobRegistry:
-    """Run UI sends off-request and expose their status for polling."""
+    """Durable delivery queue producer/observer with an optional worker consumer."""
 
     @staticmethod
     def _cleanup_attachments(attachments: list[str]) -> None:
@@ -61,20 +65,25 @@ class SendJobRegistry:
 
     def __init__(
         self,
-        sender: Callable[[str, str, str, list[str]], str],
+        sender: Callable[[str, str, str, list[str]], str] | None,
         *,
         sleeper: Callable[[float], None] = time.sleep,
         recovery_path: Path | None = None,
         queue_path: Path | None = None,
         on_success: Callable[[str, str, str], None] | None = None,
+        consume: bool = True,
     ) -> None:
+        if consume and sender is None:
+            raise ValueError("delivery consumer requires a sender")
         self._sender = sender
+        self._consume = consume
         self._sleep = sleeper
         self._on_success = on_success
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
         self._work_event = threading.Event()
+        self._stop_event = threading.Event()
         self._fallback_tasks: list[tuple[str, str, str, str, list[str], str]] = []
         self._rate_limit_lock = threading.Lock()
         self._rate_limit_backoff = RateLimitBackoff()
@@ -86,18 +95,21 @@ class SendJobRegistry:
         self._delivery_queue = (
             DeliveryQueueStore(self._queue_path) if self._queue_path is not None else None
         )
-        self._worker_id = f"ui-worker:{uuid.uuid4().hex}"
+        self._worker_id = f"delivery-worker:{uuid.uuid4().hex}"
+        self._database_signature: tuple[tuple[Any, ...], ...] = ()
         self._recovery_lock = threading.Lock()
         self._recoverable: dict[str, dict[str, Any]] = {}
         self._cancelled: set[str] = set()
         self._initialize_database()
         self._restore_recoverable()
-        self._worker = threading.Thread(
-            target=self._worker_loop,
-            name="prompta-ui-send-worker",
-            daemon=True,
-        )
-        self._worker.start()
+        self._worker: threading.Thread | None = None
+        if self._consume:
+            self._worker = threading.Thread(
+                target=self._worker_loop,
+                name="prompta-delivery-worker",
+                daemon=True,
+            )
+            self._worker.start()
 
     def _connect_database(self) -> sqlite3.Connection | None:
         if self._delivery_queue is None:
@@ -117,6 +129,71 @@ class SendJobRegistry:
             return []
         return self._delivery_queue.records()
 
+    @staticmethod
+    def _job_from_record(record: dict[str, Any]) -> dict[str, Any]:
+        retry_at = float(record.get("retry_at") or 0.0)
+        status = str(record.get("status") or "queued")
+        remaining = (
+            max(0.0, retry_at - time.time()) if status in {"retrying", "rate_limited"} else 0.0
+        )
+        attachments = [
+            str(value) for value in record.get("attachments", []) if isinstance(value, str)
+        ]
+        return {
+            "send_id": str(record.get("send_id") or ""),
+            "operation": str(record.get("operation") or ""),
+            "message": str(record.get("message") or ""),
+            "client_id": str(record.get("client_id") or ""),
+            "status": status,
+            "conversation_id": str(record.get("conversation_id") or ""),
+            "error": str(record.get("error") or record.get("last_error") or ""),
+            "created_at": float(record.get("created_at") or time.time()),
+            "updated_at": float(
+                record.get("updated_at") or record.get("created_at") or time.time()
+            ),
+            "attachment_count": len(attachments),
+            "attachment_names": [Path(value).name for value in attachments],
+            "_attachments": attachments,
+            "retry_at": retry_at,
+            "retry_after_seconds": max(0, math.ceil(remaining)),
+            "retry_attempt": max(0, int(record.get("retry_attempt") or 0)),
+            "lease_owner": str(record.get("lease_owner") or ""),
+            "lease_expires_at": float(record.get("lease_expires_at") or 0.0),
+        }
+
+    def _refresh_from_database_locked(self) -> None:
+        if self._delivery_queue is None:
+            return
+        records = self._database_records()
+        signature = tuple(
+            (
+                record.get("send_id"),
+                record.get("status"),
+                record.get("conversation_id"),
+                record.get("error"),
+                record.get("retry_at"),
+                record.get("retry_attempt"),
+                record.get("updated_at"),
+                record.get("lease_owner"),
+                record.get("lease_expires_at"),
+            )
+            for record in records
+        )
+        if signature == self._database_signature:
+            return
+        self._database_signature = signature
+        self._jobs = {
+            str(record["send_id"]): self._job_from_record(record)
+            for record in records
+            if record.get("send_id")
+        }
+        self._client_jobs = {
+            str(record.get("client_id")): str(record["send_id"])
+            for record in records
+            if record.get("send_id") and record.get("client_id")
+        }
+        self._revision += 1
+
     def _upsert_database_record(self, record: dict[str, Any]) -> None:
         if self._delivery_queue is not None:
             self._delivery_queue.upsert(record)
@@ -130,7 +207,7 @@ class SendJobRegistry:
             self._delivery_queue.bump(send_id)
 
     def _worker_loop(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
             task = self._next_database_task()
             if task is None:
                 self._work_event.wait(timeout=1.0)
@@ -138,8 +215,17 @@ class SendJobRegistry:
                 continue
             try:
                 self._run(*task)
+            except DeliveryLeaseLost:
+                logger.info("Prompta delivery lease ended before completion")
             except Exception:
-                logger.exception("Prompta UI send worker failed")
+                logger.exception("Prompta delivery worker failed")
+
+    def close(self) -> None:
+        self._stop_event.set()
+        self._work_event.set()
+        worker = self._worker
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=2.0)
 
     def _next_database_task(
         self,
@@ -153,6 +239,11 @@ class SendJobRegistry:
         )
         if record is None:
             return None
+        with self._lock:
+            self._jobs[str(record["send_id"])] = self._job_from_record(record)
+            client_id = str(record.get("client_id") or "")
+            if client_id:
+                self._client_jobs[client_id] = str(record["send_id"])
         return (
             record["send_id"],
             record["operation"],
@@ -668,6 +759,7 @@ class SendJobRegistry:
             "_attachments": attachment_paths,
         }
         with self._lock:
+            self._refresh_from_database_locked()
             cutoff = now - 3600.0
             with self._recovery_lock:
                 durable_terminal_send_ids = {
@@ -755,6 +847,7 @@ class SendJobRegistry:
 
     def get(self, send_id: str) -> dict[str, Any] | None:
         with self._lock:
+            self._refresh_from_database_locked()
             job = self._jobs.get(send_id)
             return self._job_with_queue_position_locked(job) if job is not None else None
 
@@ -762,6 +855,7 @@ class SendJobRegistry:
         """Cancel a pending send and remove its durable queue record."""
         attachments: list[str] = []
         with self._lock:
+            self._refresh_from_database_locked()
             job = self._jobs.get(send_id)
             if job is None or str(job.get("status") or "") not in {
                 "queued",
@@ -773,11 +867,7 @@ class SendJobRegistry:
             }:
                 return False
             status = str(job.get("status") or "")
-            with self._recovery_lock:
-                recoverable = self._recoverable.get(send_id) or {}
-            attachments = [
-                value for value in recoverable.get("attachments", []) if isinstance(value, str)
-            ]
+            attachments = [value for value in job.get("_attachments", []) if isinstance(value, str)]
             if status == "running":
                 # The browser sender cannot be interrupted safely, but prevent
                 # the result from being surfaced or retried after it returns.
@@ -810,6 +900,7 @@ class SendJobRegistry:
     def bump_to_front(self, send_id: str) -> dict[str, Any] | None:
         """Move a pending send ahead of the other queued sends."""
         with self._lock:
+            self._refresh_from_database_locked()
             job = self._jobs.get(send_id)
             if job is None or str(job.get("status") or "") not in {
                 "queued",
@@ -850,6 +941,7 @@ class SendJobRegistry:
 
     def list_pending(self) -> list[dict[str, Any]]:
         with self._lock:
+            self._refresh_from_database_locked()
             return [
                 self._job_with_queue_position_locked(job)
                 for job in self._jobs.values()
@@ -863,6 +955,7 @@ class SendJobRegistry:
     ) -> list[dict[str, Any]]:
         now = time.time()
         with self._lock:
+            self._refresh_from_database_locked()
             result = []
             for job in self._jobs.values():
                 status = str(job.get("status") or "")
@@ -886,6 +979,7 @@ class SendJobRegistry:
     @property
     def revision(self) -> int:
         with self._lock:
+            self._refresh_from_database_locked()
             return self._revision
 
     def _update(self, send_id: str, **updates: Any) -> None:
@@ -916,12 +1010,22 @@ class SendJobRegistry:
                             assignments += (
                                 ", lease_owner = '', lease_acquired_at = 0, lease_expires_at = 0"
                             )
-                        values.extend([time.time(), send_id])
-                        connection.execute(
-                            f"UPDATE send_jobs SET {assignments}, updated_at = ? WHERE send_id = ?",
+                        update_time = time.time()
+                        values.extend([update_time, send_id])
+                        where = "send_id = ?"
+                        if self._consume:
+                            where += (
+                                " AND status = 'running' AND lease_owner = ?"
+                                " AND lease_expires_at > ?"
+                            )
+                            values.extend([self._worker_id, update_time])
+                        updated = connection.execute(
+                            f"UPDATE send_jobs SET {assignments}, updated_at = ? WHERE {where}",
                             values,
                         )
                         connection.commit()
+                        if self._consume and updated.rowcount != 1:
+                            raise DeliveryLeaseLost(send_id)
                     finally:
                         connection.close()
             self._revision += 1
@@ -936,7 +1040,7 @@ class SendJobRegistry:
                 lease_seconds=_DELIVERY_LEASE_SECONDS,
             ):
                 logger.warning(
-                    "Prompta UI send worker lost delivery lease send_id=%s owner=%s",
+                    "Prompta delivery worker lost delivery lease send_id=%s owner=%s",
                     send_id,
                     self._worker_id,
                 )
@@ -961,11 +1065,7 @@ class SendJobRegistry:
                 return
             current = self.get(send_id) or {}
             durable_queue = self._queue_path is not None
-            generic_attempt = (
-                max(0, int(current.get("retry_attempt") or 0))
-                if str(current.get("status") or "") == "retrying"
-                else 0
-            )
+            generic_attempt = max(0, int(current.get("retry_attempt") or 0))
             infrastructure_attempt = 0
             local_retry_at = float(current.get("retry_at") or 0.0)
             if (
@@ -1041,6 +1141,16 @@ class SendJobRegistry:
                                 if isinstance(value, str)
                             ]
 
+                sender = self._sender
+                if sender is None:
+                    raise RuntimeError("delivery consumer has no sender")
+                if self._delivery_queue is not None and not self._delivery_queue.renew_lease(
+                    send_id,
+                    self._worker_id,
+                    lease_seconds=_DELIVERY_LEASE_SECONDS,
+                ):
+                    raise DeliveryLeaseLost(send_id)
+
                 lease_stop = threading.Event()
                 lease_worker: threading.Thread | None = None
                 if self._delivery_queue is not None:
@@ -1053,7 +1163,7 @@ class SendJobRegistry:
                     lease_worker.start()
                 try:
                     try:
-                        result = self._sender(operation, message, conversation_id, attachments)
+                        result = sender(operation, message, conversation_id, attachments)
                     finally:
                         lease_stop.set()
                         if lease_worker is not None:
@@ -1064,7 +1174,7 @@ class SendJobRegistry:
                         delay = exc.retry_after
                         retry_at = time.time() + delay
                         logger.info(
-                            "Prompta UI send deferred send_id=%s operation=%s conversation=%s "
+                            "Prompta delivery deferred send_id=%s operation=%s conversation=%s "
                             "retrying_in=%.1fs: %s",
                             send_id,
                             operation,
@@ -1107,7 +1217,7 @@ class SendJobRegistry:
                         )
                         retry_at = time.time() + delay
                         logger.warning(
-                            "Prompta UI backend unavailable send_id=%s operation=%s "
+                            "Prompta delivery backend unavailable send_id=%s operation=%s "
                             "conversation=%s retry=%d backing_off=%.1fs: %s",
                             send_id,
                             operation,
@@ -1153,7 +1263,7 @@ class SendJobRegistry:
                             )
                             retry_at = time.time() + delay
                             logger.warning(
-                                "Prompta UI send failed send_id=%s operation=%s conversation=%s "
+                                "Prompta delivery failed send_id=%s operation=%s conversation=%s "
                                 "attempt=%d/%d backing_off=%.1fs: %s",
                                 send_id,
                                 operation,
@@ -1190,11 +1300,19 @@ class SendJobRegistry:
                             continue
 
                         logger.exception(
-                            "Prompta UI send moved to dead letter queue send_id=%s operation=%s conversation=%s attempts=%d",
+                            "Prompta delivery moved to dead letter queue send_id=%s operation=%s conversation=%s attempts=%d",
                             send_id,
                             operation,
                             conversation_id or "new",
                             generic_attempt,
+                        )
+                        self._update(
+                            send_id,
+                            status="dead_lettered",
+                            error=str(exc),
+                            retry_at=0.0,
+                            retry_after_seconds=0,
+                            retry_attempt=generic_attempt,
                         )
                         self._remember_recoverable(
                             send_id=send_id,
@@ -1208,20 +1326,12 @@ class SendJobRegistry:
                             retry_attempt=generic_attempt,
                             last_error=str(exc),
                         )
-                        self._update(
-                            send_id,
-                            status="dead_lettered",
-                            error=str(exc),
-                            retry_at=0.0,
-                            retry_after_seconds=0,
-                            retry_attempt=generic_attempt,
-                        )
                         return
 
                     delay, attempt = self._record_rate_limit(rate_limit)
                     retry_at = time.time() + delay
                     logger.warning(
-                        "Prompta UI send rate limited send_id=%s operation=%s conversation=%s "
+                        "Prompta delivery rate limited send_id=%s operation=%s conversation=%s "
                         "attempt=%d retry_after=%ds backing_off=%.1fs",
                         send_id,
                         operation,
@@ -1266,20 +1376,7 @@ class SendJobRegistry:
                     self._jobs.pop(send_id, None)
                     return
                 current = self.get(send_id) or {}
-                if client_id:
-                    self._remember_recoverable(
-                        send_id=send_id,
-                        operation=operation,
-                        message=message,
-                        conversation_id=result,
-                        attachments=[],
-                        client_id=client_id,
-                        created_at=float(current.get("created_at") or time.time()),
-                        status="succeeded",
-                        finished_at=time.time(),
-                    )
-                else:
-                    self._forget_recoverable(send_id)
+                finished_at = time.time()
                 self._update(
                     send_id,
                     status="succeeded",
@@ -1287,6 +1384,17 @@ class SendJobRegistry:
                     error="",
                     retry_at=0.0,
                     retry_after_seconds=0,
+                )
+                self._remember_recoverable(
+                    send_id=send_id,
+                    operation=operation,
+                    message=message,
+                    conversation_id=result,
+                    attachments=[],
+                    client_id=client_id,
+                    created_at=float(current.get("created_at") or time.time()),
+                    status="succeeded",
+                    finished_at=finished_at,
                 )
                 if self._on_success is not None and client_id:
                     try:

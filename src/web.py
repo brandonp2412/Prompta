@@ -10,7 +10,6 @@ import math
 import mimetypes
 import socket
 import subprocess
-import threading
 import time
 from html import escape as html_escape
 from http import HTTPStatus
@@ -21,13 +20,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .attachment_store import AttachmentStore
 from .cache import DEFAULT_CACHE_PATH, ChatCache
-from .control_server import ControlUnavailableError
 from .core import (
     DEFAULT_JOBS_PATH,
     DEFAULT_STATE_PATH,
     _daemon_is_running,
-    _send_once_via_control,
-    _send_reply_via_control,
     _stop_via_control,
     _sync_via_control,
 )
@@ -127,7 +123,6 @@ class PromptaUIServer(ThreadingHTTPServer):
         self.jobs_path = jobs_path.expanduser()
         local_host = socket.gethostname().strip() or "localhost"
         self.host_name = local_host.split(".", 1)[0]
-        self._local_send_lock = threading.Lock()
         self.image_previews = ImagePreviewStore(self.state_path.parent)
         self.attachments = AttachmentStore(self.state_path.parent, self.image_previews)
         self.pinned_chats = PinnedChatStore(self.state_path.parent)
@@ -140,10 +135,10 @@ class PromptaUIServer(ThreadingHTTPServer):
             start_scheduler=lambda: _start_local_scheduler_service(),
         )
         self.send_jobs = SendJobRegistry(
-            self._send,
+            None,
             recovery_path=self.state_path.parent / "ui-send-retries.json",
             queue_path=self.state_path.parent / "ui-send-jobs.sqlite3",
-            on_success=self._bind_image_previews,
+            consume=False,
         )
 
     @property
@@ -489,36 +484,6 @@ class PromptaUIServer(ThreadingHTTPServer):
         if not _daemon_is_running(self.state_path):
             raise RuntimeError("Prompta scheduler is not running; cannot inspect chat activity")
         return asyncio.run(_sync_via_control(self.state_path, conversation_id))
-
-    def _send(
-        self,
-        operation: str,
-        message: str,
-        conversation_id: str,
-        attachments: list[str] | None = None,
-    ) -> str:
-        attachment_paths = list(attachments or [])
-        with self._local_send_lock:
-            scheduler_running = _wait_for_local_scheduler(self.state_path)
-            if not scheduler_running and _start_local_scheduler_service():
-                scheduler_running = _wait_for_local_scheduler(self.state_path)
-            if not scheduler_running:
-                raise ControlUnavailableError(
-                    "Prompta backend is unavailable after starting prompta.service"
-                )
-            if operation == "once":
-                return asyncio.run(
-                    _send_once_via_control(self.state_path, message, attachment_paths)
-                )
-            return asyncio.run(
-                _send_reply_via_control(
-                    self.state_path,
-                    conversation_id,
-                    message,
-                    attachment_paths,
-                    defer_if_busy=True,
-                )
-            )
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):
@@ -1218,7 +1183,7 @@ def serve(
     )
     logger.info("Prompta UI listening on http://%s:%d", host, port)
     logger.info("Reading cache %s in SQLite query-only mode", cache_path.expanduser())
-    logger.info("Sending replies through the local prompta.service control socket")
+    logger.info("Enqueuing replies for prompta-delivery-worker.service")
     logger.info("Reading logs from %s", store.log_path)
     try:
         server.serve_forever(poll_interval=0.25)
