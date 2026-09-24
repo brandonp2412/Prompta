@@ -69,6 +69,43 @@ def _seed_chat(path: Path) -> None:
         cache.close()
 
 
+def _seed_tool_preview_chat(path: Path) -> None:
+    cache = ChatCache(path)
+    try:
+        cache.start(
+            "chat-tool",
+            context_id="context-tool",
+            job_name="",
+            prompt="Tool preview gesture",
+        )
+        cache.write_snapshot(
+            "chat-tool",
+            {
+                "title": "Tool preview gesture",
+                "streaming": False,
+                "messages": [
+                    {
+                        "id": "u-tool",
+                        "role": "user",
+                        "content": "Show a tool call",
+                    },
+                    {
+                        "id": "a-tool",
+                        "role": "assistant",
+                        "content": (
+                            "Before tool\n\n"
+                            "~~~tool-call: shell\n"
+                            '{"command":"' + ("very-long-command-" * 40) + '"}\n'
+                            "~~~"
+                        ),
+                    },
+                ],
+            },
+        )
+    finally:
+        cache.close()
+
+
 def test_mobile_long_press_opens_pending_message_bottom_sheet(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -149,6 +186,87 @@ def test_mobile_long_press_opens_pending_message_bottom_sheet(
                     ]
                 finally:
                     cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        if thread.is_alive():
+            thread.join(timeout=2)
+
+
+def test_mobile_sidebar_swipe_opens_from_expanded_tool_preview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = shutil.which("chromium") or shutil.which("brave")
+    if executable is None:
+        pytest.skip("A Chromium-compatible browser is unavailable")
+
+    from playwright.sync_api import sync_playwright
+
+    static_root = _build_current_ui(tmp_path)
+    monkeypatch.setattr(web, "_STATIC_ROOT", static_root)
+
+    cache_path = tmp_path / "chats.sqlite3"
+    _seed_tool_preview_chat(cache_path)
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        ReadOnlyChatStore(cache_path),
+        tmp_path / "state.json",
+    )
+
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            try:
+                context = browser.new_context(
+                    viewport={"width": 390, "height": 844},
+                    has_touch=True,
+                    is_mobile=True,
+                )
+                page = context.new_page()
+                page.goto(
+                    f"http://127.0.0.1:{server.server_port}/#/chat-tool",
+                    wait_until="domcontentloaded",
+                )
+
+                tool = page.locator(".tool-call-block")
+                tool.wait_for(state="visible", timeout=10_000)
+                tool.locator("summary").click()
+                body = tool.locator("pre")
+                body.wait_for(state="visible", timeout=10_000)
+                box = body.bounding_box()
+                assert box is not None
+
+                cdp = context.new_cdp_session(page)
+                start_x = box["x"] + min(80, box["width"] / 4)
+                y = box["y"] + min(30, box["height"] / 2)
+                cdp.send(
+                    "Input.dispatchTouchEvent",
+                    {
+                        "type": "touchStart",
+                        "touchPoints": [{"x": start_x, "y": y}],
+                    },
+                )
+                try:
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {
+                            "type": "touchMove",
+                            "touchPoints": [{"x": start_x + 190, "y": y + 2}],
+                        },
+                    )
+                    page.wait_for_timeout(50)
+                finally:
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+
+                page.wait_for_function(
+                    "() => document.querySelector('#sidebar')?.classList.contains('is-open')",
+                    timeout=1_000,
+                )
             finally:
                 browser.close()
     finally:
