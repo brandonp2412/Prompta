@@ -96,6 +96,16 @@
     closeActions();
     appActions.onMarkAllRead();
   }
+
+  function clearSearch() {
+    appViewState.searchValue = "";
+    appActions.onSearch("");
+    appViewState.searchFocusRequest += 1;
+  }
+
+  function clearFilters() {
+    appActions.onClearSidebarFilters();
+  }
 </script>
 
 <svelte:window
@@ -107,9 +117,11 @@
 {#if sidebarListState.model.groups.length === 0}
   <div class="list-empty">
     {#if sidebarListState.model.emptyState === "search"}
-      No cached chats match your search.
+      <span>No cached chats match your search.</span>
+      <button type="button" class="list-empty-action" onclick={clearSearch}>Clear search</button>
     {:else if sidebarListState.model.emptyState === "filter"}
-      No conversations match these filters.
+      <span>No conversations match these filters.</span>
+      <button type="button" class="list-empty-action" onclick={clearFilters}>Clear filters</button>
     {:else}
       No cached conversations yet.<br />Prompta runs will appear here live.
     {/if}

@@ -41,7 +41,12 @@ import {
 } from "./clientLogic";
 import { RecentChatCache } from "./recentChatCache";
 import { OfflineOutbox } from "./offlineOutbox";
-import { appViewState, requestComposerFocus, requestSidebarTop } from "./appViewState.svelte";
+import {
+  appViewState,
+  requestComposerFocus,
+  requestSidebarTop,
+  type SidebarFilterKey,
+} from "./appViewState.svelte";
 import { copyText } from "./clipboard";
 import { finePointer } from "./browserState.svelte";
 import { appActions } from "./appActions.svelte";
@@ -1898,6 +1903,14 @@ appActions.onSearch = (value) => {
 
 appActions.onSidebarFilter = (filter) => {
   appViewState.sidebarFilters[filter] = !appViewState.sidebarFilters[filter];
+  state.sidebarFingerprint = "";
+  renderSidebar(true);
+};
+
+appActions.onClearSidebarFilters = () => {
+  for (const filter of Object.keys(appViewState.sidebarFilters) as SidebarFilterKey[]) {
+    appViewState.sidebarFilters[filter] = false;
+  }
   state.sidebarFingerprint = "";
   renderSidebar(true);
 };
