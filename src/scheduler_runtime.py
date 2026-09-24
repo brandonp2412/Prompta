@@ -87,6 +87,23 @@ class SchedulerRuntime:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS account_state (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO account_state(key, value_json)
+            SELECT 'rate_limit_backoff', value_json
+            FROM scheduler_state
+            WHERE scope = 'scheduler' AND name = '' AND key = 'rate_limit_backoff'
+            ON CONFLICT(key) DO NOTHING
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS delivery_intents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 idempotency_key TEXT NOT NULL UNIQUE,
@@ -127,6 +144,7 @@ class SchedulerRuntime:
 
         for legacy_path, _payload in legacy_payloads:
             remove_legacy_json(legacy_path)
+        connection.commit()
         return connection
 
     @staticmethod
@@ -265,6 +283,109 @@ class SchedulerRuntime:
                     for key, value in updates.items()
                 ],
             )
+
+    def account_state(self) -> dict[str, Any]:
+        try:
+            with self._connect_state() as connection:
+                rows = connection.execute("SELECT key, value_json FROM account_state").fetchall()
+        except (OSError, sqlite3.DatabaseError):
+            return {}
+        result: dict[str, Any] = {}
+        for row in rows:
+            try:
+                result[str(row["key"])] = json.loads(str(row["value_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return result
+
+    def update_account_state(self, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+        with self._connect_state() as connection:
+            connection.executemany(
+                """
+                INSERT INTO account_state(key, value_json)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json
+                """,
+                [
+                    (str(key), json.dumps(value, ensure_ascii=False))
+                    for key, value in updates.items()
+                ],
+            )
+
+    def _durable_global_backoff(self) -> RateLimitBackoff:
+        backoff = RateLimitBackoff()
+        snapshot = self.account_state().get("rate_limit_backoff")
+        if isinstance(snapshot, dict):
+            backoff.restore(snapshot)
+        return backoff
+
+    def global_backoff_remaining(self) -> float:
+        backoff = self._durable_global_backoff()
+        remaining = backoff.remaining()
+        if remaining <= 0:
+            state = self.account_state()
+            if state.get("rate_limit_reason"):
+                self.update_account_state({"rate_limit_reason": ""})
+        return remaining
+
+    def global_backoff_status(self) -> tuple[float, int]:
+        backoff = self._durable_global_backoff()
+        return backoff.remaining(), backoff.attempts
+
+    def clear_global_rate_limit(self) -> None:
+        self.global_backoff.reset()
+        snapshot = self.global_backoff.snapshot()
+        self.update_account_state(
+            {
+                "rate_limit_backoff": snapshot,
+                "rate_limit_reason": "",
+                "rate_limit_updated_at": time.time(),
+            }
+        )
+        self.update_scheduler_state({"rate_limit_backoff": snapshot})
+
+    def set_resource_admission(self, allowed: bool, reason: str = "") -> None:
+        self.update_account_state(
+            {
+                "resource_blocked": not allowed,
+                "resource_reason": "" if allowed else str(reason),
+                "resource_updated_at": time.time(),
+            }
+        )
+
+    def account_admission_status(self) -> dict[str, Any]:
+        state = self.account_state()
+        backoff = RateLimitBackoff()
+        snapshot = state.get("rate_limit_backoff")
+        if isinstance(snapshot, dict):
+            backoff.restore(snapshot)
+        remaining = backoff.remaining()
+        if remaining > 0:
+            reason = str(state.get("rate_limit_reason") or "ChatGPT account throttling is active")
+            return {
+                "blocked": True,
+                "kind": "rate_limit",
+                "reason": reason,
+                "retry_after_seconds": max(1, int(remaining + 0.999)),
+                "retry_at_epoch": time.time() + remaining,
+            }
+        if bool(state.get("resource_blocked")):
+            return {
+                "blocked": True,
+                "kind": "resource_pressure",
+                "reason": str(state.get("resource_reason") or "Host resource pressure"),
+                "retry_after_seconds": 0,
+                "retry_at_epoch": 0.0,
+            }
+        return {
+            "blocked": False,
+            "kind": "",
+            "reason": "",
+            "retry_after_seconds": 0,
+            "retry_at_epoch": 0.0,
+        }
 
     @staticmethod
     def _write_job_updates(
@@ -497,15 +618,46 @@ class SchedulerRuntime:
         self.update_job_state(name, {"rate_limit_backoff": backoff.snapshot()})
 
     def persist_global_backoff(self) -> None:
-        self.update_scheduler_state({"rate_limit_backoff": self.global_backoff.snapshot()})
+        snapshot = self.global_backoff.snapshot()
+        self.update_account_state({"rate_limit_backoff": snapshot})
+        self.update_scheduler_state({"rate_limit_backoff": snapshot})
 
     def record_global_rate_limit(self, exc: RateLimitError) -> float:
-        remaining = self.global_backoff.remaining()
-        if remaining > 0:
-            return remaining
-        delay = self.global_backoff.record(float(exc.retry_after))
-        self.persist_global_backoff()
-        return delay
+        wall_time = time.time()
+        with self._connect_state() as connection:
+            connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT value_json FROM account_state WHERE key = 'rate_limit_backoff'"
+            ).fetchone()
+            backoff = RateLimitBackoff()
+            if row is not None:
+                try:
+                    snapshot = json.loads(str(row["value_json"]))
+                except (TypeError, json.JSONDecodeError):
+                    snapshot = {}
+                if isinstance(snapshot, dict):
+                    backoff.restore(snapshot, wall_time=wall_time)
+            remaining = backoff.remaining()
+            if remaining <= 0:
+                remaining = backoff.record(float(exc.retry_after))
+            snapshot = backoff.snapshot(wall_time=wall_time)
+            updates = {
+                "rate_limit_backoff": snapshot,
+                "rate_limit_reason": str(exc),
+                "rate_limit_updated_at": wall_time,
+            }
+            connection.executemany(
+                """
+                INSERT INTO account_state(key, value_json)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json
+                """,
+                [(key, json.dumps(value, ensure_ascii=False)) for key, value in updates.items()],
+            )
+        self.global_backoff.restore(snapshot)
+        self.update_scheduler_state({"rate_limit_backoff": snapshot})
+        return remaining
 
     def unattended_mode(self) -> bool:
         return self.scheduler_state().get("unattended_mode") is True

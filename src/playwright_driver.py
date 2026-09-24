@@ -29,7 +29,14 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from .browser_ownership import OWNED_WINDOW_PREFIX, new_owned_window_marker, owned_window_started_at
+from .browser_ownership import (
+    OWNED_WINDOW_PREFIX,
+    new_owned_window_marker,
+    new_page_owner_id,
+    owned_window_owner_alive,
+    owned_window_owner_id,
+    owned_window_started_at,
+)
 from .chatgpt_dom import (
     COMPOSER_SELECTORS,
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
@@ -95,6 +102,7 @@ class PlaywrightDriver(BrowserDriverBase):
         self.debugger_address = debugger_address.strip() if debugger_address else None
         self.flaresolverr_url = flaresolverr_url.rstrip("/") if flaresolverr_url else None
         self.ownership_prefix = ownership_prefix
+        self.page_owner_id = new_page_owner_id()
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._browser_context: BrowserContext | None = None
@@ -104,6 +112,7 @@ class PlaywrightDriver(BrowserDriverBase):
         self._attached = bool(self.debugger_address)
         self._connected = False
         self._next_orphan_cleanup_at = 0.0
+        self._history_rate_limit_seen = False
 
     @property
     def is_connected(self) -> bool:
@@ -184,22 +193,32 @@ class PlaywrightDriver(BrowserDriverBase):
             return None
         return owned_window_started_at(name, prefix=self.ownership_prefix)
 
+    async def _owned_page_owner_id(self, page: Page) -> str | None:
+        if page.is_closed():
+            return None
+        try:
+            name = await page.evaluate("window.name")
+        except PlaywrightError:
+            return None
+        return owned_window_owner_id(name, prefix=self.ownership_prefix)
+
     async def _mark_owned(self, page: Page) -> None:
         await page.evaluate(
             "(value) => { window.name = value; }",
-            new_owned_window_marker(prefix=self.ownership_prefix),
+            new_owned_window_marker(
+                prefix=self.ownership_prefix,
+                owner_id=self.page_owner_id,
+            ),
         )
 
     async def _is_owned_page(self, page: Page) -> bool:
-        return await self._owned_page_started_at(page) is not None
+        return await self._owned_page_owner_id(page) == self.page_owner_id
 
     async def _cleanup_stale_owned_pages(self, browser_context: BrowserContext) -> None:
-        for page in list(browser_context.pages):
-            if await self._is_owned_page(page):
-                try:
-                    await page.close()
-                except PlaywrightError:
-                    pass
+        await self.cleanup_orphan_pages(
+            minimum_age_seconds=60.0,
+            interval_seconds=1.0,
+        )
 
     async def cleanup_orphan_pages(
         self,
@@ -224,6 +243,13 @@ class PlaywrightDriver(BrowserDriverBase):
                 continue
             started_at = await self._owned_page_started_at(page)
             if started_at is None or started_at > cutoff:
+                continue
+            owner_id = await self._owned_page_owner_id(page)
+            if owner_id is None:
+                # Legacy ownership markers cannot prove that another live process
+                # does not still own the page, so fail safe and leave them alone.
+                continue
+            if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
                 continue
             try:
                 await page.close()
@@ -962,6 +988,7 @@ class PlaywrightDriver(BrowserDriverBase):
         )
         if history_rate_limit is None:
             return False
+        self._history_rate_limit_seen = True
         dismiss = await self._first_usable(
             [history_rate_limit.get_by_role("button", name=_DISMISS_RE)]
         )
@@ -974,8 +1001,12 @@ class PlaywrightDriver(BrowserDriverBase):
             return False
         return True
 
-    async def dismiss_history_rate_limit(self) -> bool:
-        return await self._dismiss_history_rate_limit()
+    async def dismiss_history_rate_limit(self, *, context: str | None = None) -> bool:
+        page = self._pages.get(context) if context else None
+        dismissed = await self._dismiss_history_rate_limit(page)
+        seen = self._history_rate_limit_seen
+        self._history_rate_limit_seen = False
+        return dismissed or seen
 
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()

@@ -241,6 +241,8 @@ async def test_ensure_chat_surface_dismisses_history_rate_limit_modal(live_drive
     await driver.ensure_chat_surface(timeout=0.5)
 
     assert await page.get_by_role("dialog").count() == 0
+    assert await driver.dismiss_history_rate_limit() is True
+    assert await driver.dismiss_history_rate_limit() is False
 
 
 @pytest.mark.asyncio
@@ -405,7 +407,10 @@ async def test_find_context_for_path_only_adopts_prompta_owned_pages(live_driver
 
     owned_page = await context.new_page()
     await owned_page.goto("https://chatgpt.com/c/owned")
-    await owned_page.evaluate("window.name='prompta:1:test'")
+    await owned_page.evaluate(
+        "(value) => { window.name = value; }",
+        f"prompta:1:{driver.page_owner_id}:test",
+    )
 
     context_id = await driver.find_context_for_path("/c/owned")
 
@@ -420,23 +425,30 @@ async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_d
     assert context is not None
 
     stale_orphan = await context.new_page()
-    await stale_orphan.evaluate("window.name='prompta:1:stale'")
+    await stale_orphan.evaluate("window.name='prompta:1:99999999-dead:stale'")
     recent_orphan = await context.new_page()
     await recent_orphan.evaluate(
-        "(stamp) => { window.name = 'prompta:' + stamp + ':recent'; }",
+        "(stamp) => { window.name = 'prompta:' + stamp + ':99999999-dead:recent'; }",
         int(time.time()),
     )
+    live_peer = await context.new_page()
+    await live_peer.evaluate("window.name='prompta:1:12345-live:peer'")
     unrelated = await context.new_page()
     await unrelated.evaluate("window.name='user-owned'")
 
-    closed = await driver.cleanup_orphan_pages(
-        minimum_age_seconds=60,
-        interval_seconds=1,
-    )
+    with patch(
+        "prompta.playwright_driver.owned_window_owner_alive",
+        side_effect=lambda owner: owner == "12345-live",
+    ):
+        closed = await driver.cleanup_orphan_pages(
+            minimum_age_seconds=60,
+            interval_seconds=1,
+        )
 
     assert closed == 1
     assert stale_orphan.is_closed()
     assert not recent_orphan.is_closed()
+    assert not live_peer.is_closed()
     assert not unrelated.is_closed()
     assert not page.is_closed()
 

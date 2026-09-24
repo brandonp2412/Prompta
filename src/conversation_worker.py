@@ -11,6 +11,7 @@ from .cache import ChatCache
 from .conversation_tracker import ConversationTracker
 from .persistence import DEFAULT_RUNTIME_PATH
 from .playwright_driver import PlaywrightDriver
+from .rate_limit import RateLimitError
 from .scheduler_runtime import SchedulerRuntime
 
 logger = logging.getLogger(__name__)
@@ -96,15 +97,37 @@ class ConversationWorker:
         detached += self.cache.mark_active_unattended()
         return detached
 
+    async def _dismiss_history_rate_limits(self, driver: PlaywrightDriver) -> bool:
+        limited = False
+        contexts: list[str | None] = [None, *list(self.tracker.active)]
+        for context in contexts:
+            try:
+                limited = await driver.dismiss_history_rate_limit(context=context) or limited
+            except Exception:
+                logger.debug("Could not inspect ChatGPT history rate-limit modal", exc_info=True)
+        if limited:
+            self.runtime.record_global_rate_limit(
+                RateLimitError("ChatGPT conversation history returned Too many requests")
+            )
+        return limited
+
     async def run_once(self) -> bool:
         if self.runtime.unattended_mode():
             detached = await self._detach_for_unattended_mode()
             return detached > 0
 
+        if self.runtime.global_backoff_remaining() > 0:
+            return False
+
         driver = await self.browser.ensure_driver()
         await driver.cleanup_orphan_pages()
+        if await self._dismiss_history_rate_limits(driver):
+            return False
+
         recovered = await self.tracker.recover_cached_conversations()
         await self.tracker.poll_active_conversations()
+        if await self._dismiss_history_rate_limits(driver):
+            return False
         return recovered > 0 or bool(self.tracker.active)
 
     async def run_forever(self) -> None:

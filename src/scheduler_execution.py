@@ -182,7 +182,7 @@ class SchedulerExecution:
         )
         if not machine_gun_mode and active_scheduled_jobs >= _MAX_ACTIVE_SCHEDULED_JOBS:
             return False
-        if self.scheduler.global_backoff.remaining() > 0:
+        if self.scheduler.global_backoff_remaining() > 0:
             return False
         if self.scheduler.send_gap_remaining(attempted_at) > 0:
             return False
@@ -338,7 +338,7 @@ class SchedulerExecution:
         while True:
             if not self.can_start_new_conversation():
                 return did_work
-            remaining = self.scheduler.global_backoff.remaining()
+            remaining = self.scheduler.global_backoff_remaining()
             attempted_at = time.time()
             if remaining <= 0 and self.scheduler.send_gap_remaining(attempted_at) > 0:
                 return did_work
@@ -382,7 +382,7 @@ class SchedulerExecution:
         did_work = False
         pending = self.reply_requests.qsize()
         for _ in range(pending):
-            remaining = self.scheduler.global_backoff.remaining()
+            remaining = self.scheduler.global_backoff_remaining()
             attempted_at = time.time()
             if remaining <= 0 and self.scheduler.send_gap_remaining(attempted_at) > 0:
                 return did_work

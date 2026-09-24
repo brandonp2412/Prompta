@@ -446,6 +446,9 @@ class PromptaUIServer(ThreadingHTTPServer):
     def pending_sends(self) -> list[dict[str, Any]]:
         return self.send_jobs.list_pending()
 
+    def admission_status(self) -> dict[str, Any]:
+        return self.scheduler_runtime.account_admission_status()
+
     def logs(self, *, limit: int = 500) -> dict[str, Any]:
         return self.store.logs(limit=limit)
 
@@ -742,6 +745,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                     "server": server.host_name,
                     "online": server.host_online(force=True),
                     "head": _UI_HEAD,
+                    "admission": server.admission_status(),
                     **server.unattended_mode(),
                 }
             )
@@ -795,7 +799,13 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json(cast(PromptaUIServer, self.server).scheduled_jobs())
             return
         if path == "/api/sends":
-            self._json({"jobs": cast(PromptaUIServer, self.server).pending_sends()})
+            server = cast(PromptaUIServer, self.server)
+            self._json(
+                {
+                    "jobs": server.pending_sends(),
+                    "admission": server.admission_status(),
+                }
+            )
             return
         preview_prefix = "/api/attachment-previews/"
         if path.startswith(preview_prefix):

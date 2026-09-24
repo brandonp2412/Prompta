@@ -166,6 +166,22 @@ class ResourceAdmission:
     ) -> None:
         self.limits = limits or ResourceLimits.from_env()
         self.proc_root = proc_root
+        self._blocked = False
+        self._reason = ""
+
+    def _active_limits(self) -> ResourceLimits:
+        if not self._blocked:
+            return self.limits
+        return ResourceLimits(
+            min_available_memory_fraction=min(
+                1.0, self.limits.min_available_memory_fraction + 0.05
+            ),
+            max_load_per_cpu=max(0.0, self.limits.max_load_per_cpu - 0.10),
+            max_cpu_psi_some_avg10=max(0.0, self.limits.max_cpu_psi_some_avg10 * 0.75),
+            max_memory_psi_some_avg10=max(0.0, self.limits.max_memory_psi_some_avg10 * 0.75),
+            max_memory_psi_full_avg10=max(0.0, self.limits.max_memory_psi_full_avg10 * 0.75),
+            min_swap_free_fraction=min(1.0, self.limits.min_swap_free_fraction + 0.05),
+        )
 
     def __call__(self) -> tuple[bool, str]:
         try:
@@ -177,12 +193,22 @@ class ResourceAdmission:
             load1 = os.getloadavg()[0]
             cpu_count = os.cpu_count() or 1
         except OSError:
+            if self._blocked:
+                return False, self._reason
             return True, ""
-        return evaluate_resource_admission(
+
+        allowed, reason = evaluate_resource_admission(
             meminfo_text=meminfo_text,
             memory_pressure_text=memory_pressure_text,
             cpu_pressure_text=cpu_pressure_text,
             load1=load1,
             cpu_count=cpu_count,
-            limits=self.limits,
+            limits=self._active_limits(),
         )
+        if allowed:
+            self._blocked = False
+            self._reason = ""
+            return True, ""
+        self._blocked = True
+        self._reason = reason
+        return False, reason

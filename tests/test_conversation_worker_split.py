@@ -24,6 +24,10 @@ class FakeTrackingDriver:
     async def cleanup_orphan_pages(self) -> int:
         return 0
 
+    async def dismiss_history_rate_limit(self, *, context: str | None = None) -> bool:
+        del context
+        return False
+
     async def new_tab(self, _url: str = "https://chatgpt.com/") -> str:
         return self.context_id
 
@@ -62,6 +66,12 @@ class FakeTrackingDriver:
     async def close(self) -> None:
         self.closed = True
         self.is_connected = False
+
+
+class FakeRateLimitedTrackingDriver(FakeTrackingDriver):
+    async def dismiss_history_rate_limit(self, *, context: str | None = None) -> bool:
+        del context
+        return True
 
 
 def _browser_context_id(cache: ChatCache, conversation_id: str) -> str:
@@ -166,3 +176,24 @@ def test_reply_busy_is_derived_from_durable_cache_not_local_tracker(tmp_path: Pa
         assert prompta._reply_target_is_busy("chat-active") is False
     finally:
         prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_worker_dismisses_modal_and_enters_shared_cooldown(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    driver = FakeRateLimitedTrackingDriver("prompta-conversation:modal", "chat-modal")
+    worker = ConversationWorker(
+        state_path,
+        cache_path=tmp_path / "chats.sqlite3",
+        driver_factory=cast(Any, lambda: driver),
+    )
+    try:
+        assert await worker.run_once() is False
+        status = worker.runtime.account_admission_status()
+        assert status["blocked"] is True
+        assert status["kind"] == "rate_limit"
+        assert "Too many requests" in status["reason"]
+    finally:
+        await worker.close()

@@ -69,7 +69,7 @@ class BrowserDeliverySender:
         )
 
     def _global_cooldown_remaining(self) -> float:
-        return self.runtime.global_backoff.remaining()
+        return self.runtime.global_backoff_remaining()
 
     def _record_send_attempt(self) -> None:
         self.runtime.update_scheduler_state({"last_attempt_at": time.time()})
@@ -121,9 +121,6 @@ class BrowserDeliverySender:
                 retry_after=max(1, math.ceil(delay)),
             ) from exc
 
-        if self.runtime.global_backoff.attempts:
-            self.runtime.global_backoff.reset()
-            self.runtime.persist_global_backoff()
         return result
 
     async def _send_browser(

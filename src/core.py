@@ -64,7 +64,6 @@ from .rate_limit import (
 from .rate_limit import (
     parse_retry_after as parse_retry_after,
 )
-from .resource_pressure import ResourceAdmission
 from .scheduler_execution import SchedulerExecution
 from .scheduler_runtime import SchedulerRuntime
 
@@ -1090,7 +1089,7 @@ async def _run(args: argparse.Namespace) -> None:
             ),
             "",
             driver_factory=driver_factory,
-            resource_admission=ResourceAdmission() if args.command == "run" else None,
+            resource_admission=None,
         )
         if args.command == "run":
             # Publish only the transitional control socket here. Durable conversation

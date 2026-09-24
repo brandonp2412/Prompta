@@ -77,6 +77,10 @@ class SendJobRegistry:
         queue_path: Path | None = None,
         on_success: Callable[[str, str, str], None] | None = None,
         consume: bool = True,
+        admission: Callable[[], tuple[bool, str]] | None = None,
+        rate_limit_remaining: Callable[[], tuple[float, int]] | None = None,
+        record_rate_limit: Callable[[RateLimitError], tuple[float, int]] | None = None,
+        clear_rate_limit: Callable[[], None] | None = None,
     ) -> None:
         if consume and sender is None:
             raise ValueError("delivery consumer requires a sender")
@@ -84,6 +88,11 @@ class SendJobRegistry:
         self._consume = consume
         self._sleep = sleeper
         self._on_success = on_success
+        self._admission = admission
+        self._external_rate_limit_remaining = rate_limit_remaining
+        self._external_record_rate_limit = record_rate_limit
+        self._external_clear_rate_limit = clear_rate_limit
+        self._admission_reason = ""
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -213,6 +222,18 @@ class SendJobRegistry:
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
+            if self._admission is not None:
+                allowed, reason = self._admission()
+                if not allowed:
+                    if reason != self._admission_reason:
+                        logger.warning("Prompta delivery admission blocked: %s", reason)
+                        self._admission_reason = reason
+                    self._work_event.wait(timeout=1.0)
+                    self._work_event.clear()
+                    continue
+                if self._admission_reason:
+                    logger.info("Prompta delivery admission recovered")
+                    self._admission_reason = ""
             task = self._next_database_task()
             if task is None:
                 self._work_event.wait(timeout=1.0)
@@ -596,10 +617,14 @@ class SendJobRegistry:
         return None
 
     def _rate_limit_remaining(self) -> tuple[float, int]:
+        if self._external_rate_limit_remaining is not None:
+            return self._external_rate_limit_remaining()
         with self._rate_limit_lock:
             return self._rate_limit_backoff.remaining(), self._rate_limit_backoff.attempts
 
     def _record_rate_limit(self, exc: RateLimitError) -> tuple[float, int]:
+        if self._external_record_rate_limit is not None:
+            return self._external_record_rate_limit(exc)
         with self._rate_limit_lock:
             remaining = self._rate_limit_backoff.remaining()
             if remaining > 0:
@@ -608,6 +633,9 @@ class SendJobRegistry:
             return delay, self._rate_limit_backoff.attempts
 
     def _reset_rate_limit_backoff(self) -> None:
+        if self._external_clear_rate_limit is not None:
+            self._external_clear_rate_limit()
+            return
         with self._rate_limit_lock:
             self._rate_limit_backoff.reset()
 

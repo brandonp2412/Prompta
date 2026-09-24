@@ -1,4 +1,10 @@
-from prompta.resource_pressure import ResourceLimits, evaluate_resource_admission
+from unittest.mock import patch
+
+from prompta.resource_pressure import (
+    ResourceAdmission,
+    ResourceLimits,
+    evaluate_resource_admission,
+)
 
 HEALTHY_MEMINFO = """MemTotal:       16000000 kB
 MemAvailable:   8000000 kB
@@ -130,3 +136,65 @@ SwapFree:        1000000 kB
 
     assert allowed is True
     assert reason == ""
+
+
+def _write_proc_pressure(
+    root,
+    *,
+    available_kb: int = 8_000_000,
+    memory_some: float = 0.2,
+) -> None:
+    (root / "pressure").mkdir(exist_ok=True)
+    (root / "meminfo").write_text(
+        f"""MemTotal:       16000000 kB
+MemAvailable:   {available_kb} kB
+SwapTotal:      24000000 kB
+SwapFree:       18000000 kB
+"""
+    )
+    (root / "pressure/memory").write_text(
+        f"""some avg10={memory_some:.2f} avg60=0.10 avg300=0.10 total=1000
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+"""
+    )
+    (root / "pressure/cpu").write_text(
+        """some avg10=0.10 avg60=0.10 avg300=0.10 total=1000
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+"""
+    )
+
+
+def test_resource_admission_ram_hysteresis_requires_recovery_margin(tmp_path) -> None:
+    _write_proc_pressure(tmp_path, available_kb=3_000_000)
+    admission = ResourceAdmission(proc_root=tmp_path)
+    with (
+        patch("prompta.resource_pressure.os.getloadavg", return_value=(1.0, 1.0, 1.0)),
+        patch("prompta.resource_pressure.os.cpu_count", return_value=8),
+    ):
+        allowed, _reason = admission()
+        assert allowed is False
+
+        _write_proc_pressure(tmp_path, available_kb=3_600_000)
+        allowed, _reason = admission()
+        assert allowed is False
+
+        _write_proc_pressure(tmp_path, available_kb=4_800_000)
+        assert admission() == (True, "")
+
+
+def test_resource_admission_psi_hysteresis_requires_recovery_margin(tmp_path) -> None:
+    _write_proc_pressure(tmp_path, memory_some=25.0)
+    admission = ResourceAdmission(proc_root=tmp_path)
+    with (
+        patch("prompta.resource_pressure.os.getloadavg", return_value=(1.0, 1.0, 1.0)),
+        patch("prompta.resource_pressure.os.cpu_count", return_value=8),
+    ):
+        allowed, _reason = admission()
+        assert allowed is False
+
+        _write_proc_pressure(tmp_path, memory_some=18.0)
+        allowed, _reason = admission()
+        assert allowed is False
+
+        _write_proc_pressure(tmp_path, memory_some=10.0)
+        assert admission() == (True, "")

@@ -10,6 +10,9 @@ from .delivery_browser import BrowserDeliverySender
 from .delivery_queue import DeliveryQueueStore
 from .image_previews import ImagePreviewStore
 from .persistence import DEFAULT_RUNTIME_PATH
+from .rate_limit import RateLimitError
+from .resource_pressure import ResourceAdmission
+from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import SendJobRegistry
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,39 @@ def _reconcile_completed_previews(
         )
 
 
+class DeliveryAdmission:
+    def __init__(
+        self,
+        runtime: SchedulerRuntime,
+        resource_admission: ResourceAdmission | None = None,
+    ) -> None:
+        self.runtime = runtime
+        self.resource_admission = resource_admission or ResourceAdmission()
+        self._last_resource_state: tuple[bool, str] | None = None
+
+    def __call__(self) -> tuple[bool, str]:
+        remaining, _attempts = self.runtime.global_backoff_status()
+        if remaining > 0:
+            status = self.runtime.account_admission_status()
+            return False, str(status.get("reason") or "ChatGPT account throttling is active")
+
+        allowed, reason = self.resource_admission()
+        state = (allowed, reason)
+        if state != self._last_resource_state:
+            self.runtime.set_resource_admission(allowed, reason)
+            self._last_resource_state = state
+        return allowed, reason
+
+
+def _record_durable_rate_limit(
+    runtime: SchedulerRuntime,
+    exc: RateLimitError,
+) -> tuple[float, int]:
+    delay = runtime.record_global_rate_limit(exc)
+    _remaining, attempts = runtime.global_backoff_status()
+    return delay, max(1, attempts)
+
+
 def run(
     state_path: Path = DEFAULT_STATE_PATH,
     *,
@@ -50,6 +86,8 @@ def run(
     queue_path = state_dir / "ui-send-jobs.sqlite3"
     previews = ImagePreviewStore(state_dir)
     queue = DeliveryQueueStore(queue_path)
+    runtime = SchedulerRuntime(state_path, state_path)
+    admission = DeliveryAdmission(runtime)
     sender = BrowserDeliverySender(
         state_path,
         cache_path=cache_path,
@@ -64,6 +102,10 @@ def run(
         queue_path=queue_path,
         on_success=previews.bind,
         consume=True,
+        admission=admission,
+        rate_limit_remaining=runtime.global_backoff_status,
+        record_rate_limit=lambda exc: _record_durable_rate_limit(runtime, exc),
+        clear_rate_limit=lambda: None,
     )
     logger.info(
         "Prompta delivery worker consuming %s with direct browser delivery",

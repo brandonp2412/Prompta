@@ -1326,7 +1326,10 @@ async def test_rate_limit_backoff_is_account_wide_persisted_and_exponential(tmp_
         await restarted._run_job(second_job, now=1000.0)
         assert restarted.send_once.await_count == 0
 
-        prompta._global_backoff.blocked_until = 0.0
+        durable_backoff = prompta.scheduler.account_state()["rate_limit_backoff"]
+        durable_backoff["blocked_until_epoch"] = time.time() - 1.0
+        prompta.scheduler.update_account_state({"rate_limit_backoff": durable_backoff})
+        prompta._global_backoff.restore(durable_backoff)
         prompta._update_scheduler_state({"last_attempt_at": 0.0})
         await prompta._run_job(first_job, now=1061.0)
         second = prompta._global_backoff.remaining()
