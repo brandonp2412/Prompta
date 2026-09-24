@@ -959,6 +959,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
         undefined,
         item.queuePosition,
         item.queueEtaAt,
+        item.waitForResponse !== false,
       ),
     );
   });
@@ -991,6 +992,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
       undefined,
       item.queuePosition,
       item.queueEtaAt,
+      item.waitForResponse !== false,
     );
 
     if (activity) {
@@ -1168,6 +1170,7 @@ function renderConversation(chat) {
         undefined,
         item.queuePosition,
         item.queueEtaAt,
+        item.waitForResponse !== false,
       ),
     )
     .find(Boolean);
@@ -1295,6 +1298,7 @@ function renderNewChat() {
         undefined,
         pending.queuePosition,
         pending.queueEtaAt,
+        pending.waitForResponse !== false,
       );
 
       if (activity) {
@@ -1348,6 +1352,7 @@ function renderNewChat() {
           undefined,
           pending.queuePosition,
           pending.queueEtaAt,
+          pending.waitForResponse !== false,
         )
       : null;
     setComposerStatus(
@@ -2269,6 +2274,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
         }
 
         const completedPending = pendingNewSend;
+        completedPending.waitForResponse = !appViewState.unattended;
         promotePendingConversationPin(completedPending, newId);
         completedPending.conversationId = newId;
         state.pendingNewId = newId;
@@ -2293,7 +2299,11 @@ async function watchSend(sendId, creatingNew, conversationId) {
         state.selectedId = newId;
         history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
         appViewState.composerPlaceholder = "Message Prompta…";
-        setComposerStatus("Sent. Waiting for the cached response…");
+        setComposerStatus(
+          completedPending.waitForResponse
+            ? "Sent. Waiting for the cached response…"
+            : "Sent. Machine Gun Mode will not read the result.",
+        );
         state.selectedUpdatedAt = null;
         await loadChats();
         await loadSelectedChat();
@@ -2329,6 +2339,11 @@ async function watchSend(sendId, creatingNew, conversationId) {
     });
 
     if (changed) renderSidebar();
+
+    if (status === "succeeded") {
+      const completedReply = pendingReply(conversationId, sendId);
+      if (completedReply) completedReply.waitForResponse = !appViewState.unattended;
+    }
 
     if (state.selectedId === conversationId) await loadSelectedChat();
 
@@ -2596,6 +2611,7 @@ async function sendSelectedMessage() {
       ];
       coalescedReply.status = result.status || "queued";
       coalescedReply.queuePosition = Number(result.queue_position || 0);
+      coalescedReply.queueEtaAt = Number(result.queue_eta_at || 0);
       coalescedReply.updatedAt = Date.now() / 1000;
       state.pendingReplies.set(
         conversationId || "",
@@ -2616,6 +2632,7 @@ async function sendSelectedMessage() {
     pending.sendId = result.send_id;
     pending.status = result.status || "queued";
     pending.queuePosition = Number(result.queue_position || 0);
+    pending.queueEtaAt = Number(result.queue_eta_at || 0);
     pending.updatedAt = Date.now() / 1000;
 
     if (attachments.length) attachmentPicker.clear();

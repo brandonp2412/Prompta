@@ -319,6 +319,7 @@ export type PendingReply = {
   retryAttempt?: number;
   queuePosition?: number;
   queueEtaAt?: number;
+  waitForResponse?: boolean;
   observedInCache?: boolean;
   responseObservedInCache?: boolean;
   createdAt?: number;
@@ -492,6 +493,7 @@ export function pendingSendActivity(
   nowEpoch: unknown = Date.now() / 1000,
   queuePosition: unknown = 0,
   queueEtaAtEpoch: unknown = 0,
+  waitForResponse = true,
 ): PendingSendActivity | null {
   const normalized = textValue(status, "queued").trim().toLowerCase();
 
@@ -559,6 +561,12 @@ export function pendingSendActivity(
       statusText: `${queueStatusPrefix}Rate limited — backing off; retrying automatically in ${delay}.`,
     };
   }
+
+  if (normalized === "running") {
+    return { label: "sending", statusText: "Sending to ChatGPT…" };
+  }
+
+  if (normalized === "succeeded" && !waitForResponse) return null;
 
   return { label: "waiting", statusText: "Waiting for ChatGPT…" };
 }

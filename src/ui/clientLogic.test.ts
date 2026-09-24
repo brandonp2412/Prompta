@@ -817,8 +817,8 @@ describe("pending send activity", () => {
       statusText: "Queued in Prompta · #20 · ETA ~2h 30m",
     });
     expect(pendingSendActivity("running", true)).toEqual({
-      label: "waiting",
-      statusText: "Waiting for ChatGPT…",
+      label: "sending",
+      statusText: "Sending to ChatGPT…",
     });
   });
 
@@ -845,11 +845,12 @@ describe("pending send activity", () => {
     });
   });
 
-  test("keeps waiting after send acceptance until a response is observed", () => {
+  test("keeps waiting after send acceptance only when result polling is enabled", () => {
     expect(pendingSendActivity("succeeded", true)).toEqual({
       label: "waiting",
       statusText: "Waiting for ChatGPT…",
     });
+    expect(pendingSendActivity("succeeded", true, 0, 0, undefined, 0, 0, false)).toBeNull();
   });
 
   test("shows transient retry backoff and stops on terminal queue failures", () => {

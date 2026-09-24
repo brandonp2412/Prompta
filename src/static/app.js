@@ -6854,7 +6854,7 @@ function retryDelayText(seconds) {
 	if (minutes < 60) return `${minutes}m`;
 	return `${Math.ceil(minutes / 60)}h`;
 }
-function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1e3, queuePosition = 0, queueEtaAtEpoch = 0) {
+function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEpoch = 0, nowEpoch = Date.now() / 1e3, queuePosition = 0, queueEtaAtEpoch = 0, waitForResponse = true) {
 	const normalized = textValue(status, "queued").trim().toLowerCase();
 	if (["failed", "dead_lettered"].includes(normalized)) return null;
 	if (!hasSendId) return {
@@ -6902,6 +6902,11 @@ function pendingSendActivity(status, hasSendId, retryAfterSeconds = 0, retryAtEp
 			statusText: `${queueStatusPrefix}Rate limited — backing off; retrying automatically in ${delay}.`
 		};
 	}
+	if (normalized === "running") return {
+		label: "sending",
+		statusText: "Sending to ChatGPT…"
+	};
+	if (normalized === "succeeded" && !waitForResponse) return null;
 	return {
 		label: "waiting",
 		statusText: "Waiting for ChatGPT…"
@@ -18897,7 +18902,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 	const remaining = pending.filter((item) => {
 		if (!item.observedInCache) return true;
 		if (item.responseObservedInCache) return false;
-		return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt));
+		return Boolean(pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt, item.waitForResponse !== false));
 	});
 	if (remaining.length) state.pendingReplies.set(conversationId, remaining);
 	else state.pendingReplies.delete(conversationId);
@@ -18913,7 +18918,7 @@ function pendingReplyMessages(conversationId, cachedMessages) {
 			pending_bump_key: Number(item.queuePosition || 0) > 1 ? item.clientId || item.sendId || "" : "",
 			pending_delete_key: item.clientId || item.sendId || ""
 		});
-		const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt);
+		const activity = pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt, item.waitForResponse !== false);
 		if (activity) messages.push({
 			message_key: `pending-activity-${item.clientId || item.sendId}`,
 			role: "assistant",
@@ -19029,7 +19034,7 @@ function renderConversation(chat) {
 	appViewState.shareDisabled = false;
 	updatePinButton();
 	syncSendButton();
-	const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt)).find(Boolean);
+	const pendingActivity = [...state.pendingReplies.get(chat.id) || []].reverse().map((item) => pendingSendActivity(item.status, Boolean(item.sendId), item.retryAfterSeconds, item.retryAt, void 0, item.queuePosition, item.queueEtaAt, item.waitForResponse !== false)).find(Boolean);
 	if (pendingActivity) appViewState.composerStatus = pendingActivity.statusText;
 	else if (!state.sending) appViewState.composerStatus = chat.status === "active" ? "Uses the existing live ChatGPT tab." : chat.status === "interrupted" ? "The last run was interrupted. Sending will reopen this chat." : "Sending will reopen this chat once if its retained tab has expired.";
 }
@@ -19125,7 +19130,7 @@ function renderNewChat() {
 				pending_bump_key: Number(pending.queuePosition || 0) > 1 ? pending.clientId || pending.sendId || "" : "",
 				pending_delete_key: pending.clientId || pending.sendId || ""
 			}];
-			const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt);
+			const activity = pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt, pending.waitForResponse !== false);
 			if (activity) messages.push({
 				message_key: `pending-activity-${pending.clientId || pending.sendId}`,
 				role: "assistant",
@@ -19160,7 +19165,7 @@ function renderNewChat() {
 		appViewState.shareDisabled = true;
 		updatePinButton();
 		appViewState.composerPlaceholder = "Start a new chat…";
-		const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt) : null;
+		const activity = pending ? pendingSendActivity(pending.status, Boolean(pending.sendId), pending.retryAfterSeconds, pending.retryAt, void 0, pending.queuePosition, pending.queueEtaAt, pending.waitForResponse !== false) : null;
 		setComposerStatus(pending ? ["failed", "dead_lettered"].includes(pending.status) ? pending.status === "dead_lettered" ? "Send exhausted its retry budget. Retry to enqueue it again." : "Send failed. The error is shown in the chat." : activity?.statusText || "Sent. Waiting for the cached response…" : "");
 	}
 	updateComposerActionButton();
@@ -19727,6 +19732,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 					return;
 				}
 				const completedPending = pendingNewSend;
+				completedPending.waitForResponse = !appViewState.unattended;
 				promotePendingConversationPin(completedPending, newId);
 				completedPending.conversationId = newId;
 				state.pendingNewId = newId;
@@ -19745,7 +19751,7 @@ async function watchSend(sendId, creatingNew, conversationId) {
 				state.selectedId = newId;
 				history.replaceState(null, "", `#/${encodeURIComponent(newId)}`);
 				appViewState.composerPlaceholder = "Message Prompta…";
-				setComposerStatus("Sent. Waiting for the cached response…");
+				setComposerStatus(completedPending.waitForResponse ? "Sent. Waiting for the cached response…" : "Sent. Machine Gun Mode will not read the result.");
 				state.selectedUpdatedAt = null;
 				await loadChats();
 				await loadSelectedChat();
@@ -19771,6 +19777,10 @@ async function watchSend(sendId, creatingNew, conversationId) {
 			queuePosition: Number(job.queue_position || 0),
 			queueEtaAt: Number(job.queue_eta_at || 0)
 		})) renderSidebar();
+		if (status === "succeeded") {
+			const completedReply = pendingReply(conversationId, sendId);
+			if (completedReply) completedReply.waitForResponse = !appViewState.unattended;
+		}
 		if (state.selectedId === conversationId) await loadSelectedChat();
 		if (status === "succeeded") {
 			setComposerStatus(appViewState.unattended ? "Sent. Machine Gun Mode will not read the result." : "Sent. Waiting for the cached response…");
@@ -19958,6 +19968,7 @@ async function sendSelectedMessage() {
 			coalescedReply.attachments = [...coalescedReply.attachments || [], ...pending.attachments || []];
 			coalescedReply.status = result.status || "queued";
 			coalescedReply.queuePosition = Number(result.queue_position || 0);
+			coalescedReply.queueEtaAt = Number(result.queue_eta_at || 0);
 			coalescedReply.updatedAt = Date.now() / 1e3;
 			state.pendingReplies.set(conversationId || "", (state.pendingReplies.get(conversationId || "") || []).filter((item) => item !== pending));
 			if (attachments.length) attachmentPicker.clear();
@@ -19969,6 +19980,7 @@ async function sendSelectedMessage() {
 		pending.sendId = result.send_id;
 		pending.status = result.status || "queued";
 		pending.queuePosition = Number(result.queue_position || 0);
+		pending.queueEtaAt = Number(result.queue_eta_at || 0);
 		pending.updatedAt = Date.now() / 1e3;
 		if (attachments.length) attachmentPicker.clear();
 		if (creatingNew) {
