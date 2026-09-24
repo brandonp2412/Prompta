@@ -1512,6 +1512,67 @@ def test_partial_structured_capture_preserves_known_assistant_text_parts(
     assert assistant["content"].endswith("Finished")
 
 
+def test_partial_structured_capture_preserves_known_tool_previews(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-partial-tools"
+    cache.start(
+        conversation_id,
+        context_id="context-partial-tools",
+        job_name="",
+        prompt="Inspect this",
+    )
+
+    first_intro, first_call, first_result, _ = _source_events("FIRST")
+    _, second_call, second_result, _ = _source_events("SECOND")
+    second_call = dict(second_call, id="call-2", create_time=103.0)
+    second_result = dict(second_result, id="result-2", create_time=104.0)
+
+    snapshot = {
+        "title": "Structured",
+        "path": f"/c/{conversation_id}",
+        "streaming": True,
+        "messages": [
+            {"id": "u1", "role": "user", "content": "Inspect this"},
+            {"id": "a1", "role": "assistant", "content": "Checking the stored conversation state"},
+        ],
+        "source_events": [
+            first_intro,
+            first_call,
+            first_result,
+            second_call,
+            second_result,
+        ],
+    }
+    cache.write_snapshot(conversation_id, snapshot)
+
+    snapshot["source_events"] = [second_call, second_result]
+    cache.write_snapshot(conversation_id, snapshot)
+
+    calls = cache.connection.execute(
+        """
+        SELECT source_event_key
+        FROM tool_calls
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id, "a1"),
+    ).fetchall()
+    parts = cache.connection.execute(
+        """
+        SELECT source_event_key
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ? AND kind = 'tool_call'
+        ORDER BY ordinal
+        """,
+        (conversation_id, "a1"),
+    ).fetchall()
+    cache.close()
+
+    assert [row["source_event_key"] for row in calls] == ["call-1", "call-2"]
+    assert [row["source_event_key"] for row in parts] == ["call-1", "call-2"]
+
+
 def test_cache_skips_structured_capture_when_transient_target_is_deleted(
     tmp_path: Path,
 ) -> None:

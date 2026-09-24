@@ -42,6 +42,21 @@ def _latest_logical_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [latest[identity] for identity in order if identity in latest]
 
 
+def _retain_across_partial_refresh(event: dict[str, Any]) -> bool:
+    role = str(event.get("role") or "")
+    recipient = str(event.get("recipient") or "")
+    content_type = str(event.get("content_type") or "")
+    if (
+        role == "assistant"
+        and recipient in {"", "all"}
+        and content_type in {"text", "multimodal_text"}
+    ):
+        return True
+    if source_event_type(event) in {"tool_call", "tool_result"}:
+        return True
+    return bool(tool_calls_from_source_events([event]))
+
+
 def migrate_structured_capture(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
@@ -399,16 +414,13 @@ def persist_structured_capture(
     if not events:
         return
 
-    retained_text_events: dict[str, dict[str, Any]] = {}
+    retained_events: dict[str, dict[str, Any]] = {}
     for row in connection.execute(
         """
         SELECT event_key, raw_json
         FROM source_events
         WHERE conversation_id = ?
           AND message_key = ?
-          AND role = 'assistant'
-          AND recipient IN ('', 'all')
-          AND content_type IN ('text', 'multimodal_text')
         ORDER BY observed_at, rowid
         """,
         (conversation_id, message_key),
@@ -418,33 +430,28 @@ def persist_structured_capture(
             retained = json.loads(str(row[1] or "{}"))
         except json.JSONDecodeError:
             continue
-        if not isinstance(retained, dict):
+        if not isinstance(retained, dict) or not _retain_across_partial_refresh(retained):
             continue
         identity = str(retained.get("id") or "").strip() or event_key
-        retained_text_events[identity] = retained
+        retained_events[identity] = retained
 
-    incoming_text_identities: set[str] = set()
+    incoming_identities: set[str] = set()
     for index, event in enumerate(events):
-        role = str(event.get("role") or "")
-        recipient = str(event.get("recipient") or "")
-        content_type = str(event.get("content_type") or "")
-        if (
-            role == "assistant"
-            and recipient in {"", "all"}
-            and content_type in {"text", "multimodal_text"}
-        ):
-            identity = str(event.get("id") or "").strip() or stable_event_key(event, index)
-            if not identity.endswith(":dom-prose") or _meaningful_dom_prose(event):
-                incoming_text_identities.add(identity)
+        if not _retain_across_partial_refresh(event):
+            continue
+        identity = str(event.get("id") or "").strip() or stable_event_key(event, index)
+        if not identity.endswith(":dom-prose") or _meaningful_dom_prose(event):
+            incoming_identities.add(identity)
 
     derived_events = list(events)
     derived_events.extend(
         retained
-        for identity, retained in retained_text_events.items()
-        if identity not in incoming_text_identities
+        for identity, retained in retained_events.items()
+        if identity not in incoming_identities
     )
-    parts = message_parts_from_source_events(_latest_logical_events(derived_events))
-    calls = tool_calls_from_source_events(_latest_logical_events(events))
+    logical_events = ordered_source_events(_latest_logical_events(derived_events))
+    parts = message_parts_from_source_events(logical_events)
+    calls = tool_calls_from_source_events(logical_events)
 
     connection.execute(
         "DELETE FROM message_parts WHERE conversation_id = ? AND message_key = ?",
