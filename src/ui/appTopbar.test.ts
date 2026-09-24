@@ -16,6 +16,16 @@ test("server presence exposes its state beyond the visual orb", () => {
   );
 });
 
+test("sidebar scrim stays out of the accessibility tree", () => {
+  const scrim = appSource.match(/<div\s+class=\{\["sidebar-scrim"[\s\S]*?<\/div>/)?.[0];
+
+  expect(scrim).toBeDefined();
+  expect(scrim).toContain('aria-hidden="true"');
+  expect(scrim).not.toContain('role="button"');
+  expect(scrim).not.toContain('tabindex="-1"');
+  expect(scrim).not.toContain('aria-label="Close sidebar"');
+});
+
 test("brand navigation keeps its visible text as the accessible name", () => {
   const brandButton = appSource.match(
     /<button\s+type="button"\s+class=\{\["brand-home-button"[\s\S]*?<\/button>/,

@@ -392,9 +392,7 @@
   <div
     class={["sidebar-scrim", { "is-open": sidebarState.open }]}
     id="sidebarScrim"
-    role="button"
-    tabindex="-1"
-    aria-label="Close sidebar"
+    aria-hidden="true"
     style:opacity={sidebarDrag.active ? String(sidebarDrag.progress) : undefined}
     style:transition={
       sidebarDrag.active
@@ -404,10 +402,7 @@
         : undefined
     }
     style:pointer-events={sidebarDrag.active ? "none" : undefined}
-    onclick={() => closeSidebar()}
-    onkeydown={(event) => {
-      if (event.key === "Enter" || event.key === " ") closeSidebar();
-    }}
+    onpointerup={() => closeSidebar()}
   ></div>
 
   <main class="main-panel">
