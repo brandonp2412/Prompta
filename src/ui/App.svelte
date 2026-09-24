@@ -309,6 +309,8 @@
         <div
           class={["live-orb", { live: appViewState.live }]}
           id="globalLiveOrb"
+          role="img"
+          aria-label={appViewState.liveTitle}
           title={appViewState.liveTitle}
         ></div>
       </div>
@@ -354,7 +356,7 @@
     <div {@attach scrollToTopOnRequest(() => appViewState.sidebarTopRequest)} class="sidebar-scroll">
       <div class="sidebar-toolbar">
         <div class="sidebar-toolbar-right">
-          <div class="sidebar-filters" aria-label="Conversation filters">
+          <div class="sidebar-filters" role="group" aria-label="Conversation filters">
             {#each sidebarFilterOptions as filter (filter.key)}
               <button
                 type="button"
@@ -429,7 +431,7 @@
         <div class="heading-meta">{appViewState.headingMeta}</div>
       </div>
       {#if appViewState.mode === "chats"}
-        <div class="topbar-actions" aria-label="Prompta actions">
+        <div class="topbar-actions" role="group" aria-label="Prompta actions">
         <button
           class={["icon-button", { active: appViewState.pinActive }]}
           id="pinChatButton"
