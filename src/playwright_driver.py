@@ -420,12 +420,11 @@ class PlaywrightDriver(BrowserDriverBase):
                 browser_context = self._browser_context
 
             page = await browser_context.new_page()
-            await self._mark_owned(page)
             self.context = self._register_page(page, owned=True)
             self._network_subscribed = True
             self._connected = True
 
-            await page.goto("https://chatgpt.com/", wait_until="domcontentloaded")
+            await self.navigate("https://chatgpt.com/", context=self.context)
 
             deadline = asyncio.get_running_loop().time() + self.auth_timeout_seconds
             last_error: Exception | None = None
@@ -482,6 +481,9 @@ class PlaywrightDriver(BrowserDriverBase):
         page = self._page(context)
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
+            context_id = self._page_contexts.get(page)
+            if context_id in self._owned_contexts:
+                await self._mark_owned(page)
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(f"Playwright navigation timed out for {url}") from exc
 
@@ -532,7 +534,6 @@ class PlaywrightDriver(BrowserDriverBase):
         if browser_context is None:
             raise RuntimeError("Playwright browser context is not connected")
         page = await browser_context.new_page()
-        await self._mark_owned(page)
         context_id = self._register_page(page, owned=True)
         self.context = context_id
         try:

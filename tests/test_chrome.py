@@ -367,7 +367,10 @@ async def test_new_tab_navigates_directly_without_clicking_new_chat_ui(live_driv
         await route.fulfill(
             status=200,
             content_type="text/html",
-            body='<a role="link" aria-label="New chat">New chat</a><main>fresh</main>',
+            body=(
+                "<script>window.name = ''</script>"
+                '<a role="link" aria-label="New chat">New chat</a><main>fresh</main>'
+            ),
         )
 
     await context.route("https://chatgpt.com/**", fulfill)
@@ -377,12 +380,13 @@ async def test_new_tab_navigates_directly_without_clicking_new_chat_ui(live_driv
     new_page = driver._pages[context_id]
     assert new_page.url == "https://chatgpt.com/"
     assert await new_page.get_by_text("fresh").count() == 1
+    assert (await new_page.evaluate("window.name")).startswith("prompta:")
 
 
 def test_connect_does_not_depend_on_new_chat_sidebar_click() -> None:
     source = inspect.getsource(PlaywrightDriver.connect)
 
-    assert 'page.goto("https://chatgpt.com/"' in source
+    assert 'self.navigate("https://chatgpt.com/"' in source
     assert "new_chat.click" not in source
 
 
