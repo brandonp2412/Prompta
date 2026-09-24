@@ -99,6 +99,45 @@ async def test_send_falls_back_to_stable_test_id(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_scopes_generic_submit_fallback_to_composer_form(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <form onsubmit="event.preventDefault(); window.wrong=true">
+          <button type="submit">Continue</button>
+        </form>
+        <form onsubmit="event.preventDefault(); window.sent=true">
+          <textarea aria-label="Message ChatGPT">hello</textarea>
+          <button type="submit">Go</button>
+        </form>
+        """
+    )
+
+    await driver.click_send_button(timeout=0.2)
+
+    assert await page.evaluate("Boolean(window.sent)") is True
+    assert await page.evaluate("Boolean(window.wrong)") is False
+
+
+@pytest.mark.asyncio
+async def test_send_does_not_use_unscoped_generic_submit(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT">hello</textarea>
+        <form onsubmit="event.preventDefault(); window.wrong=true">
+          <button type="submit">Continue</button>
+        </form>
+        """
+    )
+
+    with pytest.raises(RuntimeError, match="send button did not become enabled"):
+        await driver.click_send_button(timeout=0.2)
+
+    assert await page.evaluate("Boolean(window.wrong)") is False
+
+
+@pytest.mark.asyncio
 async def test_stop_prefers_button_accessible_name(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

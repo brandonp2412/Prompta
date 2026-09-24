@@ -753,13 +753,25 @@ class PlaywrightDriver(BrowserDriverBase):
     async def click_send_button(self, timeout: float = 120.0) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
+        scoped_submit_selector = 'button[type="submit"]'
+        global_fallbacks = tuple(
+            selector for selector in SEND_BUTTON_SELECTORS if selector != scoped_submit_selector
+        )
         while asyncio.get_running_loop().time() < deadline:
             button = await self._semantic_button(
                 page,
                 _SEND_RE,
                 fallback_test_ids=("send-button",),
-                fallback_selectors=SEND_BUTTON_SELECTORS,
+                fallback_selectors=global_fallbacks,
             )
+            if button is None:
+                composer = await self._composer(page)
+                if composer is not None:
+                    try:
+                        form = composer.locator("xpath=ancestor::form[1]")
+                        button = await self._first_usable([form.locator(scoped_submit_selector)])
+                    except PlaywrightError:
+                        button = None
             if button is not None:
                 await button.click()
                 return
