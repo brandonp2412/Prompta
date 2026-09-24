@@ -37,7 +37,9 @@ import {
   sidebarChatIsPending,
   sidebarChatIsSelected,
   sidebarChatMatchesFilters,
+  sidebarChatMatchesSearch,
   sidebarChatPreviewText,
+  sidebarSearchDelay,
   sidebarHealthNeedsRefresh,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
@@ -68,6 +70,32 @@ describe("chat list request URL", () => {
       "api/chats?include=pinned-chat&limit=50",
     );
     expect(chatListRequestUrl("Kite work", [], 900)).toBe("api/chats?q=Kite+work&limit=500");
+  });
+});
+
+describe("sidebar search performance helpers", () => {
+  test("uses a short debounce once trigram search can answer efficiently", () => {
+    expect(sidebarSearchDelay("")).toBe(0);
+    expect(sidebarSearchDelay("a")).toBe(180);
+    expect(sidebarSearchDelay("ab")).toBe(180);
+    expect(sidebarSearchDelay("abc")).toBe(70);
+    expect(sidebarSearchDelay(" transcript ")).toBe(70);
+  });
+
+  test("filters the current sidebar summaries while the server search catches up", () => {
+    const chat = {
+      title: "Transcript extraction",
+      preview: "Keep the SQLite cache fast",
+      prompt: "Improve Prompta",
+      job_name: "performance",
+    };
+
+    expect(sidebarChatMatchesSearch(chat, "transcript")).toBe(true);
+    expect(sidebarChatMatchesSearch(chat, "sqlite")).toBe(true);
+    expect(sidebarChatMatchesSearch(chat, "PROMPTA")).toBe(true);
+    expect(sidebarChatMatchesSearch(chat, "performance")).toBe(true);
+    expect(sidebarChatMatchesSearch(chat, "unrelated")).toBe(false);
+    expect(sidebarChatMatchesSearch(chat, "   ")).toBe(true);
   });
 });
 

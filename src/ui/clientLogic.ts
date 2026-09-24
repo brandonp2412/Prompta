@@ -50,6 +50,34 @@ export function sidebarChatCountSummary(
   return `${scope} · ${activeCount} active`;
 }
 
+export function sidebarSearchDelay(search: string): number {
+  const length = Array.from(search.trim()).length;
+
+  if (!length) return 0;
+
+  return length < 3 ? 180 : 70;
+}
+
+type SidebarSearchChat = {
+  title?: string | null;
+  preview?: string | null;
+  prompt?: string | null;
+  job_name?: string | null;
+};
+
+export function sidebarChatMatchesSearch(
+  chat: SidebarSearchChat | null | undefined,
+  search: string,
+): boolean {
+  const needle = search.trim().toLowerCase();
+
+  if (!needle) return true;
+
+  return [chat?.title, chat?.preview, chat?.prompt, chat?.job_name].some((value) =>
+    (value || "").toLowerCase().includes(needle),
+  );
+}
+
 export type SidebarOrderChat = {
   id: string;
   created_at?: unknown;

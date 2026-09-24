@@ -32,6 +32,13 @@ describe("sidebar selection rendering", () => {
     expect(selectChatSource).not.toContain("renderSidebar();");
   });
 
+  test("filters sidebar summaries immediately before the remote search settles", () => {
+    expect(appSource).toContain("searchScopeSettled = state.chatOrderScope === displaySearch");
+    expect(appSource).toContain("sidebarChatMatchesSearch(chat, displaySearch)");
+    expect(appSource).toContain("renderSidebar(true);");
+    expect(appSource).toContain("sidebarSearchDelay(search)");
+  });
+
   test("prefetches chat details and coalesces selection fetches", () => {
     const loadSelectedChatSource = functionSource(
       "loadSelectedChat",

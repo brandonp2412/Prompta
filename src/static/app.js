@@ -6708,6 +6708,21 @@ function chatListRequestUrl(search, pinnedIds, limit) {
 function sidebarChatCountSummary(chatCount, activeCount, search) {
 	return `${search.trim() ? `${chatCount} ${chatCount === 1 ? "result" : "results"}` : `${chatCount} cached`} · ${activeCount} active`;
 }
+function sidebarSearchDelay(search) {
+	const length = Array.from(search.trim()).length;
+	if (!length) return 0;
+	return length < 3 ? 180 : 70;
+}
+function sidebarChatMatchesSearch(chat, search) {
+	const needle = search.trim().toLowerCase();
+	if (!needle) return true;
+	return [
+		chat?.title,
+		chat?.preview,
+		chat?.prompt,
+		chat?.job_name
+	].some((value) => (value || "").toLowerCase().includes(needle));
+}
 function sidebarChatCreatedAt(chat) {
 	const createdAt = Number(chat?.created_at || 0);
 	return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
@@ -19232,7 +19247,9 @@ function reconcileOptimisticNew(chats) {
 	}
 }
 function sidebarChats() {
-	const chats = state.chats.map((chat) => {
+	const displaySearch = appViewState.searchValue.trim();
+	const searchScopeSettled = state.chatOrderScope === displaySearch;
+	let chats = state.chats.map((chat) => {
 		const pending = state.pendingReplies.get(chat.id) || [];
 		if (!pending.length) return chat;
 		const latest = pending[pending.length - 1];
@@ -19245,7 +19262,8 @@ function sidebarChats() {
 			_optimisticReply: true
 		};
 	});
-	chats.unshift(...missingPendingConversationSummaries(chats, state.pendingReplies, state.search));
+	if (displaySearch && !searchScopeSettled) chats = chats.filter((chat) => sidebarChatMatchesSearch(chat, displaySearch));
+	chats.unshift(...missingPendingConversationSummaries(chats, state.pendingReplies, displaySearch));
 	const pending = state.pendingNewSend;
 	if (!pending) return chats;
 	const matched = matchingOptimisticConversation(chats, pending);
@@ -19267,7 +19285,7 @@ function sidebarChats() {
 		last_user_at: pending.createdAt,
 		_optimisticNew: true
 	};
-	const needle = state.search.trim().toLowerCase();
+	const needle = displaySearch.toLowerCase();
 	if (needle && ![
 		optimistic.title,
 		optimistic.preview,
@@ -20691,14 +20709,18 @@ var init_app = __esmMin((() => {
 	HISTORICAL_ACTIVITY_PROBE_TTL_MS = 3e4;
 	appActions.onSearch = (value) => {
 		appViewState.searchValue = value;
+		const search = value.trim();
+		state.sidebarFingerprint = "";
+		renderSidebar(true);
 		clearTimeout(searchTimer);
 		searchTimer = setTimeout(() => {
-			state.search = value.trim();
+			if (state.search === search && state.chatOrderScope === search) return;
+			state.search = search;
 			state.chatListLimit = INITIAL_CHAT_LIST_LIMIT;
 			state.chatListHasMore = false;
 			state.sidebarFingerprint = "";
 			loadChats();
-		}, 140);
+		}, sidebarSearchDelay(search));
 	};
 	appActions.onSidebarFilter = (filter) => {
 		appViewState.sidebarFilters[filter] = !appViewState.sidebarFilters[filter];

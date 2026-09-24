@@ -23,6 +23,8 @@ import {
   sidebarChatCountSummary,
   sidebarChatLastUserAt,
   sidebarChatMatchesFilters,
+  sidebarChatMatchesSearch,
+  sidebarSearchDelay,
   sidebarHealthNeedsRefresh,
   sidebarSelectedConversationId,
   selectedConversationAfterChatRefresh,
@@ -735,7 +737,9 @@ function reconcileOptimisticNew(chats) {
 }
 
 function sidebarChats(): UiChat[] {
-  const chats: UiChat[] = state.chats.map((chat) => {
+  const displaySearch = appViewState.searchValue.trim();
+  const searchScopeSettled = state.chatOrderScope === displaySearch;
+  let chats: UiChat[] = state.chats.map((chat) => {
     const pending = state.pendingReplies.get(chat.id) || [];
 
     if (!pending.length) return chat;
@@ -754,7 +758,12 @@ function sidebarChats(): UiChat[] {
       _optimisticReply: true,
     };
   });
-  chats.unshift(...missingPendingConversationSummaries(chats, state.pendingReplies, state.search));
+
+  if (displaySearch && !searchScopeSettled) {
+    chats = chats.filter((chat) => sidebarChatMatchesSearch(chat, displaySearch));
+  }
+
+  chats.unshift(...missingPendingConversationSummaries(chats, state.pendingReplies, displaySearch));
 
   const pending = state.pendingNewSend;
 
@@ -783,7 +792,7 @@ function sidebarChats(): UiChat[] {
     last_user_at: pending.createdAt,
     _optimisticNew: true,
   };
-  const needle = state.search.trim().toLowerCase();
+  const needle = displaySearch.toLowerCase();
 
   if (
     needle &&
@@ -1857,14 +1866,19 @@ let searchTimer;
 
 appActions.onSearch = (value) => {
   appViewState.searchValue = value;
+  const search = value.trim();
+  state.sidebarFingerprint = "";
+  renderSidebar(true);
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    state.search = value.trim();
+    if (state.search === search && state.chatOrderScope === search) return;
+
+    state.search = search;
     state.chatListLimit = INITIAL_CHAT_LIST_LIMIT;
     state.chatListHasMore = false;
     state.sidebarFingerprint = "";
     void loadChats();
-  }, 140);
+  }, sidebarSearchDelay(search));
 };
 
 appActions.onSidebarFilter = (filter) => {
