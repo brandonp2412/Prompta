@@ -367,26 +367,6 @@ textarea:focus-visible {
   display: none;
 }
 
-.sidebar-mark-all-read {
-  height: 28px;
-  flex: 0 0 auto;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted-strong);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.sidebar-mark-all-read:hover,
-.sidebar-mark-all-read:focus-visible {
-  background: var(--panel-hover);
-  color: var(--text);
-}
-
 .chat-list {
   min-height: 0;
 }

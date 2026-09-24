@@ -1,6 +1,7 @@
 <script lang="ts">
   import { MediaQuery } from "svelte/reactivity";
 
+  import { appActions } from "./appActions.svelte";
   import { appViewState } from "./appViewState.svelte";
   import { dialogVisibility } from "./browserAttachments.svelte";
   import { formatRelativeTime } from "./clientLogic";
@@ -89,6 +90,11 @@
     const chatId = actionsChatId;
     closeActions();
     if (chatId) sidebarListActions.onPin(chatId);
+  }
+
+  function markAllReadFromActions() {
+    closeActions();
+    appActions.onMarkAllRead();
   }
 </script>
 
@@ -209,6 +215,7 @@
     <button type="button" class="pending-message-action" onclick={togglePinFromActions}>
       {actionsChatPinned ? "Unpin chat" : "Pin chat"}
     </button>
+    <button type="button" class="pending-message-action" onclick={markAllReadFromActions}>Read all</button>
     <button type="button" class="pending-message-action cancel" onclick={closeActions}>Cancel</button>
   </div>
 </dialog>

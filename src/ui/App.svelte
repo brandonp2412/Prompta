@@ -379,13 +379,6 @@
           <span>Jobs</span>
         </button>
         <div class="sidebar-toolbar-right">
-          <button
-            type="button"
-            class="sidebar-mark-all-read"
-            aria-label="Mark all chats as read"
-            title="Mark all chats as read"
-            onclick={appActions.onMarkAllRead}
-          >Read all</button>
           <div class="sidebar-filters" aria-label="Conversation filters">
             {#each sidebarFilterOptions as filter (filter.key)}
               <button
