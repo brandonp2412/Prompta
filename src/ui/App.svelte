@@ -65,6 +65,9 @@
     progress: 0,
     duration: 0,
   });
+  const sidebarHiddenFromAccessibility = $derived(
+    mobileSidebarMedia.current && !sidebarState.open && !sidebarDrag.active,
+  );
 
   function mobileSidebarEnabled() {
     return mobileSidebarMedia.current;
@@ -269,6 +272,8 @@
     {@attach reportElementWidth((width) => (sidebarWidth = width))}
     class={["sidebar", { "is-open": sidebarState.open }]}
     id="sidebar"
+    inert={sidebarHiddenFromAccessibility}
+    aria-hidden={sidebarHiddenFromAccessibility ? "true" : undefined}
     style:transform={sidebarDrag.active ? "translate3d(" + sidebarDrag.x + "px, 0, 0)" : undefined}
     style:transition={
       sidebarDrag.active

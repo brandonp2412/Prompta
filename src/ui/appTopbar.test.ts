@@ -16,6 +16,15 @@ test("server presence exposes its state beyond the visual orb", () => {
   );
 });
 
+test("closed mobile sidebar leaves the accessibility and focus trees", () => {
+  expect(appSource).toContain(
+    "mobileSidebarMedia.current && !sidebarState.open && !sidebarDrag.active",
+  );
+
+  expect(appSource).toContain("inert={sidebarHiddenFromAccessibility}");
+  expect(appSource).toContain('aria-hidden={sidebarHiddenFromAccessibility ? "true" : undefined}');
+});
+
 test("sidebar scrim stays out of the accessibility tree", () => {
   const scrim = appSource.match(/<div\s+class=\{\["sidebar-scrim"[\s\S]*?<\/div>/)?.[0];
 
