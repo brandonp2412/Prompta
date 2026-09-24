@@ -66,7 +66,10 @@ def test_snapshot_has_explicit_page_level_react_fallback_adapter() -> None:
     assert "reactFallback.inspect(root,{allow:true,reason" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "!entries.length&&pageReactRoot" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "reactMessages(pageReactRoot,'transcript-gap')" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "react_fallback:{" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert (
+        "react_fallback:promptaTranscriptEngine.reactFallbackSummary()"
+        in CONVERSATION_SNAPSHOT_SCRIPT
+    )
 
 
 def test_react_fallback_orders_messages_by_parent_chain_before_timestamps() -> None:

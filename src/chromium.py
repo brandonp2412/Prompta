@@ -14,8 +14,7 @@ from urllib.request import Request, urlopen
 import websockets
 
 from .browser_ownership import new_owned_window_marker
-from .chatgpt_dom import MESSAGE_DISCOVERY_SCRIPT
-from .react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
+from .transcript_browser_engine import TRANSCRIPT_BROWSER_ENGINE_SCRIPT
 from .ui_noise import is_assistant_ui_noise
 
 logger = logging.getLogger(__name__)
@@ -31,76 +30,19 @@ _TOOL_BLOCK_RE = re.compile(
     + r"[ \t]*\r?$",
     re.IGNORECASE | re.MULTILINE,
 )
-_REACT_TOOL_SCRIPT = r"""
-(()=>{
-__MESSAGE_DISCOVERY__
-__REACT_FALLBACK_ADAPTER__
-  const assistants=[...document.querySelectorAll(assistantSelector)];
-  const latestAssistant=assistants.at(-1);
-  const root=turnRoot(latestAssistant)
-    ||document.querySelector('main')
-    ||document.body;
-  if(!root)return {ready:false,messages:[]};
-  const fallback=reactFallback.inspect(root,{
-    allow:true,
-    reason:'chromium-tool-enrichment',
-    maxDepth:7,
-    maxKeys:240
-  });
-  const found=fallback.messages;
-  const seen=new Set(),messages=[];
-  const trimString=value=>typeof value==='string'?value.slice(0,20000):value;
-  for(const message of found){
-    const id=String(message?.id||'');
-    const dedupe=id||JSON.stringify([
-      message?.author?.role,
-      message?.recipient,
-      message?.content?.content_type,
-      message?.content?.text||''
-    ]);
-    if(seen.has(dedupe))continue;
-    seen.add(dedupe);
-    const metadata=message?.metadata||{};
-    const invoked=metadata?.invoked_resource||null;
-    const connectorName=metadata?.jit_plugin_data?.from_server?.body?.connector_name||null;
-    const content=message?.content||{};
-    messages.push({
-      id,
-      create_time:Number.isFinite(Number(message?.create_time))?Number(message.create_time):null,
-      end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null,
-      role:String(message?.author?.role||message?.role||''),
-      recipient:String(message?.recipient||''),
-      content_type:String(content?.content_type||content?.type||''),
-      text:trimString(content?.text||''),
-      parts:Array.isArray(content?.parts)
-        ?content.parts.slice(0,8).map(part=>trimString(part))
-        :[],
-      connector_tool_payload:trimString(metadata?.connector_tool_payload||''),
-      reasoning_title:trimString(metadata?.reasoning_title||metadata?.reasoning_titles?.at?.(-1)||''),
-      invoked_resource:invoked?{
-        app_name:trimString(invoked?.app_name||''),
-        resource_uri:trimString(invoked?.resource_uri||'')
-      }:null,
-      connector_name:trimString(connectorName||'')
-    });
-  }
-  messages.sort((left,right)=>{
-    const leftTime=Number.isFinite(Number(left.create_time))?Number(left.create_time):Number.POSITIVE_INFINITY;
-    const rightTime=Number.isFinite(Number(right.create_time))?Number(right.create_time):Number.POSITIVE_INFINITY;
-    return leftTime-rightTime;
-  });
-  return {
-    ready:Boolean(messages.length||document.querySelector(messageRoleSelector)||root),
-    href:location.href,
-    title:document.title||'',
-    messages,
-    react_fallback:fallback
-  };
+_REACT_TOOL_SCRIPT = (
+    "(()=>{\n"
+    + TRANSCRIPT_BROWSER_ENGINE_SCRIPT
+    + r"""
+  const root=promptaTranscriptEngine.latestAssistantRoot();
+  return promptaTranscriptEngine.reactSnapshot(
+    root,
+    'chromium-tool-enrichment',
+    {stringLimit:20000,partsLimit:8}
+  );
 })()
 """
-_REACT_TOOL_SCRIPT = _REACT_TOOL_SCRIPT.replace(
-    "__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT
-).replace("__REACT_FALLBACK_ADAPTER__", REACT_FALLBACK_ADAPTER_SCRIPT)
+)
 
 
 def _json_load(value: Any) -> Any:

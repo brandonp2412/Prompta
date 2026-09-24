@@ -5,19 +5,17 @@ from typing import Any
 
 from .chatgpt_dom import (
     LEGACY_RICH_TEXT_SELECTOR,
-    MESSAGE_DISCOVERY_SCRIPT,
     PROSE_BLOCK_SELECTOR,
     STOP_BUTTON_SELECTOR,
     STREAMING_SELECTOR,
 )
-from .react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
+from .transcript_browser_engine import TRANSCRIPT_BROWSER_ENGINE_SCRIPT
 
 CONVERSATION_SNAPSHOT_SCRIPT = """JSON.stringify((()=>{
   const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
   const normalise=value=>(value||'').replace(/\\s+/g,' ').trim();
   const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
-__MESSAGE_DISCOVERY__
-__REACT_FALLBACK_ADAPTER__
+__TRANSCRIPT_BROWSER_ENGINE__
   const proseBlockSelector=__PROSE_BLOCK_SELECTOR__;
   const legacyRichTextSelector=__LEGACY_RICH_TEXT_SELECTOR__;
   const stopSelector=__STOP_SELECTOR__;
@@ -121,74 +119,9 @@ __REACT_FALLBACK_ADAPTER__
     if(structural.length)return structural;
     return !rows.length&&normalise(messageText(scope))?[scope]:[];
   };
-  const reactFallbackUses=[];
-  const reactMessages=(root,reason)=>{
-    const result=reactFallback.inspect(root,{allow:true,reason,maxDepth:7,maxKeys:240});
-    reactFallbackUses.push({
-      allowed:result.allowed,
-      used:result.used,
-      available:result.available,
-      provenance:result.provenance,
-      reason:result.reason,
-      property_names:result.property_names,
-      error:result.error
-    });
-    return result.messages;
-  };
-  const reactHasVisibleAssistantText=(agent,messages)=>{
-    const visibleAgentText=normalise(agent?.innerText||agent?.textContent||'');
-    if(!visibleAgentText)return false;
-    return messages.some(message=>{
-      const role=String(message?.author?.role||message?.role||'');
-      const recipient=String(message?.recipient||'');
-      const content=message?.content||{};
-      const contentType=String(content?.content_type||content?.type||'');
-      if(role!=='assistant'||(recipient&&recipient!=='all')||(
-        contentType!=='text'&&contentType!=='multimodal_text'
-      ))return false;
-      const parts=Array.isArray(content?.parts)
-        ?content.parts.filter(part=>typeof part==='string'&&part.trim())
-        :[];
-      const sourceText=normalise(parts.length?parts.join(' '):String(content?.text||''));
-      return Boolean(sourceText&&visibleAgentText.includes(sourceText));
-    });
-  };
-  const safeJsonValue=value=>{try{return JSON.parse(JSON.stringify(value));}catch{return null;}};
-  const sanitiseSourceEvent=message=>{
-    const content=message?.content||{};
-    const metadata=message?.metadata||{};
-    const invoked=metadata?.invoked_resource||null;
-    const connectorName=metadata?.jit_plugin_data?.from_server?.body?.connector_name||null;
-    const reasoningTitles=Array.isArray(metadata?.reasoning_titles)
-      ?metadata.reasoning_titles.filter(value=>typeof value==='string')
-      :[];
-    return {
-      id:String(message?.id||''),
-      parent_id:String(message?.parent_id||''),
-      create_time:Number.isFinite(Number(message?.create_time))?Number(message.create_time):null,
-      update_time:Number.isFinite(Number(message?.update_time))?Number(message.update_time):null,
-      end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null,
-      status:String(message?.status||''),
-      role:String(message?.author?.role||message?.role||''),
-      recipient:String(message?.recipient||''),
-      content_type:String(content?.content_type||content?.type||''),
-      text:typeof content?.text==='string'?content.text:'',
-      parts:safeJsonValue(content?.parts||[]),
-      connector_tool_payload:typeof metadata?.connector_tool_payload==='string'?metadata.connector_tool_payload:'',
-      reasoning_title:String(metadata?.reasoning_title||reasoningTitles.at(-1)||''),
-      reasoning_titles:reasoningTitles,
-      invoked_resource:invoked?safeJsonValue({
-        app_name:invoked?.app_name||'',
-        resource_uri:invoked?.resource_uri||''
-      }):null,
-      connector_name:String(connectorName||''),
-      model_slug:String(metadata?.model_slug||metadata?.default_model_slug||''),
-      request_id:String(metadata?.request_id||metadata?.requestId||''),
-      attachments:safeJsonValue(metadata?.attachments??content?.attachments??[]),
-      citations:safeJsonValue(metadata?.citations??content?.citations??[]),
-      content_references:safeJsonValue(metadata?.content_references??content?.content_references??[])
-    };
-  };
+  const reactMessages=promptaTranscriptEngine.reactMessages;
+  const reactHasVisibleAssistantText=promptaTranscriptEngine.hasVisibleAssistantText;
+  const sanitiseSourceEvent=promptaTranscriptEngine.sanitiseSourceEvent;
   const reactToolBlocks=messages=>{
     if(!messages.length)return [];
     const parsedText=message=>{
@@ -727,17 +660,14 @@ __REACT_FALLBACK_ADAPTER__
     messages,
     source_events:sourceEvents,
     streaming:stop||streamActive||turnEnded===false,
-    react_fallback:{
-      provenance:'react-private-properties',
-      used:reactFallbackUses.some(result=>result.used),
-      attempts:reactFallbackUses
-    }
+    react_fallback:promptaTranscriptEngine.reactFallbackSummary()
   };
 })())"""
 
 CONVERSATION_SNAPSHOT_SCRIPT = (
-    CONVERSATION_SNAPSHOT_SCRIPT.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
-    .replace("__REACT_FALLBACK_ADAPTER__", REACT_FALLBACK_ADAPTER_SCRIPT)
+    CONVERSATION_SNAPSHOT_SCRIPT.replace(
+        "__TRANSCRIPT_BROWSER_ENGINE__", TRANSCRIPT_BROWSER_ENGINE_SCRIPT
+    )
     .replace("__PROSE_BLOCK_SELECTOR__", json.dumps(PROSE_BLOCK_SELECTOR))
     .replace("__LEGACY_RICH_TEXT_SELECTOR__", json.dumps(LEGACY_RICH_TEXT_SELECTOR))
     .replace("__STOP_SELECTOR__", json.dumps(STOP_BUTTON_SELECTOR))

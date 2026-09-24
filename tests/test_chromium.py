@@ -262,18 +262,20 @@ def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
 def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
     assert "const latestAssistant=assistants.at(-1)" in _REACT_TOOL_SCRIPT
     assert "create_time:Number.isFinite(Number(message?.create_time))" in _REACT_TOOL_SCRIPT
-    assert "reasoning_title:trimString(metadata?.reasoning_title" in _REACT_TOOL_SCRIPT
+    assert "reasoning_title:clipString(String(" in _REACT_TOOL_SCRIPT
+    assert "metadata?.reasoning_title||reasoningTitles.at(-1)" in _REACT_TOOL_SCRIPT
     assert (
         "end_turn:typeof message?.end_turn==='boolean'?message.end_turn:null" in _REACT_TOOL_SCRIPT
     )
-    assert "messages.sort((left,right)=>" in _REACT_TOOL_SCRIPT
+    assert "result.messages=ordered.map(index=>unique[index]);" in _REACT_TOOL_SCRIPT
     assert "const semanticTurnSelector=" in _REACT_TOOL_SCRIPT
     assert "const legacyTurnSelector=" in _REACT_TOOL_SCRIPT
     assert "const turnRoot=node=>semanticTurnRoot(node)" in _REACT_TOOL_SCRIPT
-    assert "const root=turnRoot(latestAssistant)" in _REACT_TOOL_SCRIPT
+    assert "return turnRoot(latestAssistant)" in _REACT_TOOL_SCRIPT
+    assert "const root=promptaTranscriptEngine.latestAssistantRoot();" in _REACT_TOOL_SCRIPT
     assert "reactFallback.inspect(root,{" in _REACT_TOOL_SCRIPT
-    assert "reason:'chromium-tool-enrichment'" in _REACT_TOOL_SCRIPT
-    assert "react_fallback:fallback" in _REACT_TOOL_SCRIPT
+    assert "'chromium-tool-enrichment'" in _REACT_TOOL_SCRIPT
+    assert "react_fallback:fallbackAttempt(fallback)" in _REACT_TOOL_SCRIPT
 
 
 def test_ordered_assistant_content_tolerates_missing_and_invalid_timestamps() -> None:

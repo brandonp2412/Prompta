@@ -6,13 +6,9 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
-from .chatgpt_dom import (
-    MESSAGE_DISCOVERY_SCRIPT,
-    STOP_BUTTON_SELECTORS,
-    STREAMING_SELECTOR,
-)
+from .chatgpt_dom import STOP_BUTTON_SELECTORS, STREAMING_SELECTOR
 from .conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT, parse_conversation_snapshot
-from .react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
+from .transcript_browser_engine import TRANSCRIPT_BROWSER_ENGINE_SCRIPT
 
 
 class BrowsingContextUnavailableError(RuntimeError):
@@ -233,8 +229,7 @@ class BrowserDriverBase:
 
     async def conversation_activity(self, context: str) -> dict[str, Any]:
         script = r"""JSON.stringify((()=>{
-__MESSAGE_DISCOVERY__
-__REACT_FALLBACK_ADAPTER__
+__TRANSCRIPT_BROWSER_ENGINE__
           const stopSelector=__STOP_SELECTOR__;
           const streamingSelector=__STREAMING_SELECTOR__;
           const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
@@ -249,12 +244,11 @@ __REACT_FALLBACK_ADAPTER__
           const reactTurnEnd=()=>{
             const root=turn||document.querySelector('main')||document.body;
             if(!root)return null;
-            activityReactFallback=reactFallback.inspect(root,{
-              allow:true,
-              reason:'activity-end-state',
-              maxDepth:7,
-              maxKeys:260
-            });
+            activityReactFallback=promptaTranscriptEngine.inspectReact(
+              root,
+              'activity-end-state',
+              {maxDepth:7,maxKeys:260}
+            );
             const found=activityReactFallback.messages;
             const assistantMessages=found.filter(message=>String(message?.author?.role||message?.role||'')==='assistant');
             const target=visibleMessageId
@@ -284,8 +278,7 @@ __REACT_FALLBACK_ADAPTER__
             react_fallback:activityReactFallback
           };
         })())"""
-        script = script.replace("__MESSAGE_DISCOVERY__", MESSAGE_DISCOVERY_SCRIPT)
-        script = script.replace("__REACT_FALLBACK_ADAPTER__", REACT_FALLBACK_ADAPTER_SCRIPT)
+        script = script.replace("__TRANSCRIPT_BROWSER_ENGINE__", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
         script = script.replace("__STOP_SELECTOR__", json.dumps(",".join(STOP_BUTTON_SELECTORS)))
         script = script.replace("__STREAMING_SELECTOR__", json.dumps(STREAMING_SELECTOR))
         raw = await self.eval(script, context=context)
