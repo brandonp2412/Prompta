@@ -70,6 +70,15 @@ describe("scheduled job prompt presentation", () => {
     expect(jobsPageSource.match(/class="job-action"[^>]*disabled=\{saving\}/g)?.length).toBe(3);
   });
 
+  test("gives scheduled-job form controls stable ids and names", () => {
+    expect(jobsPageSource).toContain('id="jobName" name="name"');
+    expect(jobsPageSource).toContain('id="jobPrompt" name="prompt"');
+    expect(jobsPageSource).toContain('id="jobSchedule" name="schedule"');
+    expect(jobsPageSource).toContain('id="jobInterval" name="interval"');
+    expect(jobsPageSource).toContain('id="jobDailyAt" name="dailyAt"');
+    expect(jobsPageSource).toContain('id="jobExact" name="exact"');
+  });
+
   test("makes edit cancellation explicit", () => {
     expect(jobsPageSource).toContain('{editing ? "Cancel edit" : "Reset"}');
   });

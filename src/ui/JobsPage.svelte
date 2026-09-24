@@ -278,16 +278,16 @@
       <h3>{editing ? `Edit ${editing}` : "Add job"}</h3>
       <label>
         <span>Name</span>
-        <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+        <input id="jobName" name="name" bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
       </label>
       <label>
         <span>Prompt</span>
-        <textarea bind:value={prompt} rows="3" required></textarea>
+        <textarea id="jobPrompt" name="prompt" bind:value={prompt} rows="3" required></textarea>
       </label>
       <div class="jobs-form-grid">
         <label>
           <span>Schedule</span>
-          <select bind:value={schedule}>
+          <select id="jobSchedule" name="schedule" bind:value={schedule}>
             <option value="interval">Interval</option>
             <option value="daily">Daily</option>
           </select>
@@ -295,19 +295,19 @@
         {#if schedule === "interval"}
           <label>
             <span>Every (minutes)</span>
-            <input bind:value={interval} type="number" min="0.1" step="0.1" />
+            <input id="jobInterval" name="interval" bind:value={interval} type="number" min="0.1" step="0.1" />
           </label>
         {:else}
           <label>
             <span>At</span>
-            <input bind:value={dailyAt} type="time" />
+            <input id="jobDailyAt" name="dailyAt" bind:value={dailyAt} type="time" />
           </label>
         {/if}
       </div>
 
       {#if schedule === "interval"}
         <label class="jobs-check">
-          <input bind:checked={exact} type="checkbox" />
+          <input id="jobExact" name="exact" bind:checked={exact} type="checkbox" />
           <span>Exact interval</span>
         </label>
       {/if}
