@@ -298,7 +298,12 @@ class ReadOnlyChatStore:
 
         return result
 
-    def conversation(self, conversation_id: str) -> dict[str, Any] | None:
+    def conversation(
+        self,
+        conversation_id: str,
+        *,
+        include_state_events: bool = True,
+    ) -> dict[str, Any] | None:
         try:
             with self._connect() as connection:
                 conversation = connection.execute(
@@ -428,7 +433,7 @@ class ReadOnlyChatStore:
                         """,
                         (conversation_id,),
                     ).fetchall()
-                    if "conversation_state_events" in tables
+                    if include_state_events and "conversation_state_events" in tables
                     else []
                 )
         except (FileNotFoundError, sqlite3.DatabaseError):

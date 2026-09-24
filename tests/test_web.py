@@ -293,6 +293,38 @@ def test_image_attachment_preview_persists_and_enriches_cached_message(tmp_path:
         server.server_close()
 
 
+def test_ui_conversation_detail_skips_internal_state_event_payloads(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "chat-heavy-state",
+        context_id="context-heavy-state",
+        job_name="",
+        prompt="Inspect this",
+    )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    try:
+        with patch(
+            "prompta.web_store.json.loads",
+            side_effect=AssertionError("state-event JSON must not be decoded for UI detail"),
+        ):
+            chat = server.conversation("chat-heavy-state")
+
+        assert chat is not None
+        assert "state_events" not in chat
+        assert chat["messages"][0]["content"] == "Inspect this"
+    finally:
+        server.server_close()
+
+
 def test_ui_conversation_detail_keeps_ordered_parts_but_drops_unused_structured_payload() -> None:
     original = {
         "id": "chat-heavy",

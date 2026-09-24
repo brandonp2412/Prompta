@@ -409,7 +409,7 @@ class PromptaUIServer(ThreadingHTTPServer):
         return {"chats": visible, "has_more": has_more}
 
     def conversation(self, conversation_id: str) -> dict[str, Any] | None:
-        chat = self.store.conversation(conversation_id)
+        chat = self.store.conversation(conversation_id, include_state_events=False)
         if chat is None:
             for job in self.send_jobs.list_conversation_receipts():
                 if self._send_conversation_id(job) == conversation_id:
@@ -420,14 +420,14 @@ class PromptaUIServer(ThreadingHTTPServer):
         return result
 
     def stop_conversation(self, conversation_id: str) -> str:
-        if self.store.conversation(conversation_id) is None:
+        if self.store.conversation(conversation_id, include_state_events=False) is None:
             raise KeyError(conversation_id)
         return self._stop(conversation_id)
 
     def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int, bool]:
         if self.scheduler_runtime.unattended_mode():
             raise RuntimeError("Machine Gun Mode disables ChatGPT result reads")
-        if self.store.conversation(conversation_id) is None:
+        if self.store.conversation(conversation_id, include_state_events=False) is None:
             raise KeyError(conversation_id)
         verified = True
         try:
@@ -1120,7 +1120,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
         conversation_id = unquote(path[len(prefix) : -len(suffix)]).strip("/")
         server = cast(PromptaUIServer, self.server)
-        if not conversation_id or server.store.conversation(conversation_id) is None:
+        if (
+            not conversation_id
+            or server.store.conversation(conversation_id, include_state_events=False) is None
+        ):
             self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
             return
 
