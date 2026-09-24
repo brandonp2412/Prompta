@@ -16,6 +16,17 @@ test("server presence exposes its state beyond the visual orb", () => {
   );
 });
 
+test("brand navigation keeps its visible text as the accessible name", () => {
+  const brandButton = appSource.match(
+    /<button\s+type="button"\s+class=\{\["brand-home-button"[\s\S]*?<\/button>/,
+  )?.[0];
+
+  expect(brandButton).toBeDefined();
+  expect(brandButton).not.toContain("aria-label=");
+  expect(brandButton).toContain("<strong>Prompta</strong>");
+  expect(brandButton).toContain('<span id="serverLabel">{serverLabel}</span>');
+});
+
 test("labeled action clusters expose group semantics", () => {
   expect(appSource).toContain(
     '<div class="sidebar-filters" role="group" aria-label="Conversation filters">',

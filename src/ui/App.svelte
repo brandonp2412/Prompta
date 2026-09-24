@@ -293,7 +293,6 @@
         <button
           type="button"
           class={["brand-home-button", { active: appViewState.mode === "prompta" }]}
-          aria-label="Open Prompta"
           aria-current={appViewState.mode === "prompta" ? "page" : undefined}
           onclick={() => {
             appActions.onPromptaPage();
