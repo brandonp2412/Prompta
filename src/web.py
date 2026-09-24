@@ -412,6 +412,11 @@ class PromptaUIServer(ThreadingHTTPServer):
         message = str(job.get("message") or "")
         created_at = float(job.get("created_at") or 0.0)
         updated_at = float(job.get("updated_at") or created_at)
+        summary["progress"] = {
+            "phase": str(job.get("status") or "queued"),
+            "retry_at": float(job.get("retry_at") or 0),
+            "queue_position": int(job.get("queue_position") or 0),
+        }
         summary["messages"] = [
             {
                 "message_key": f"pending-send-{str(job.get('send_id') or job.get('client_id') or 'new')}",

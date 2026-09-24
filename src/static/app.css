@@ -3497,3 +3497,6 @@ textarea:focus-visible {
     border-color: rgba(0, 0, 0, 0.16);
   }
 }
+
+.chat-progress { display: flex; flex-wrap: wrap; gap: .35rem 1rem; padding: .75rem 1rem; font-size: .8rem; opacity: .85; }
+.chat-progress strong { font-weight: 500; }

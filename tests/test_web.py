@@ -849,7 +849,8 @@ def test_prompta_sidebar_brand_opens_page_with_machine_gun_mode_and_jobs() -> No
     page = (root / "PromptaPage.svelte").read_text()
     sidebar, main = app.split('<main class="main-panel">', maxsplit=1)
 
-    assert 'aria-label="Open Prompta"' in sidebar
+    assert "<strong>Prompta</strong>" in sidebar
+    assert 'class="brand-mark" aria-hidden="true"' in sidebar
     assert "Machine Gun Mode" not in sidebar
     assert "jobsSidebarButton" not in sidebar
     assert "<PromptaPage />" in main
@@ -2628,7 +2629,7 @@ def test_schedule_every_persists_exact_interval_job(tmp_path: Path) -> None:
         jobs_path=jobs_path,
     )
     try:
-        with patch("prompta.web.subprocess.run", return_value=MagicMock(returncode=0)):
+        with patch.object(server.job_service, "start_scheduler", return_value=True):
             result = server.schedule_every("fix bugs", 30)
 
         saved = load_jobs(jobs_path)[result["name"]]
@@ -3490,3 +3491,38 @@ def test_read_only_store_hides_combined_connection_interruption_from_legacy_chat
     assert chat is not None
     assert chat["messages"][-1]["content"] == "Useful progress."
     assert sidebar_chat["preview"] == "Useful progress."
+
+
+def test_progress_survives_refresh_without_loading_state_history(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    _seed_cache(path)
+    cache = ChatCache(path)
+    cache.record_state("chat-1", {"streaming": True, "complete": False})
+    store = ReadOnlyChatStore(path)
+    chat = store.conversation("chat-1", include_state_events=False)
+    assert chat is not None
+    assert chat["progress"]["phase"] == "responding"
+    assert chat["progress"]["last_activity_at"] > 0
+    assert chat["state_events"] == []
+    cache.record_state("chat-1", {"streaming": True, "transient": True})
+    cache.close()
+    restored = ReadOnlyChatStore(path).conversation("chat-1", include_state_events=False)
+    assert restored is not None
+    assert restored["progress"]["phase"] == "recovering"
+    assert restored["progress"]["last_activity_at"] == chat["progress"]["last_activity_at"]
+
+
+def test_pending_progress_preserves_absolute_retry_deadline() -> None:
+    chat = PromptaUIServer._send_conversation_detail(
+        {
+            "send_id": "queued-test",
+            "status": "rate_limited",
+            "retry_at": 1800,
+            "queue_position": 3,
+        }
+    )
+    assert chat["progress"] == {
+        "phase": "rate_limited",
+        "retry_at": 1800,
+        "queue_position": 3,
+    }

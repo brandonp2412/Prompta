@@ -6275,13 +6275,13 @@ var init_uiControllers = __esmMin((() => {
 //#region src/ui/ChangelogDialog.svelte
 init_client();
 init_uiControllers();
-var root$9 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
-var root_1$8 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
+var root$10 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
+var root_1$9 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
 var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
 var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_5$6 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_6$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle" aria-describedby="changelogDialogStatus"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus" role="status" aria-live="polite" aria-atomic="true"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_6$6 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle" aria-describedby="changelogDialogStatus"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus" role="status" aria-live="polite" aria-atomic="true"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
 	const CHANGELOG_PAGE_SIZE = 100;
@@ -6348,7 +6348,7 @@ function ChangelogDialog($$anchor, $$props) {
 		show,
 		close
 	};
-	var dialog = root_6$5();
+	var dialog = root_6$6();
 	event("popstate", $window, handlePopState);
 	var div = child(dialog);
 	var header = child(div);
@@ -6360,7 +6360,7 @@ function ChangelogDialog($$anchor, $$props) {
 	var ol = sibling(header, 2);
 	var node = child(ol);
 	var consequent = ($$anchor) => {
-		append($$anchor, root$9());
+		append($$anchor, root$10());
 	};
 	var consequent_3 = ($$anchor) => {
 		var fragment = root_4$6();
@@ -6371,7 +6371,7 @@ function ChangelogDialog($$anchor, $$props) {
 			var text_1 = only_child(span, true);
 			var node_2 = sibling(span, 2);
 			var consequent_1 = ($$anchor) => {
-				var span_1 = root_1$8();
+				var span_1 = root_1$9();
 				var text_2 = only_child(span_1);
 				template_effect(() => set_text(text_2, `#${get(change).hash ?? ""}`));
 				append($$anchor, span_1);
@@ -6431,267 +6431,53 @@ function ChangelogDialog($$anchor, $$props) {
 	return pop($$exports);
 }
 delegate(["click"]);
-function attachmentMenuTargetIndex(key, currentIndex, itemCount) {
-	if (itemCount <= 0) return null;
-	if (key === "Home") return 0;
-	if (key === "End") return itemCount - 1;
-	if (key === "ArrowDown") return currentIndex < 0 ? 0 : (currentIndex + 1) % itemCount;
-	if (key === "ArrowUp") return currentIndex < 0 ? itemCount - 1 : (currentIndex - 1 + itemCount) % itemCount;
-	return null;
-}
-function sameAttachment(left, right) {
-	return left.name === right.name && left.size === right.size && left.lastModified === right.lastModified;
-}
-function mergeAttachments(current, incoming, max = 5) {
-	const files = [...current];
-	let omitted = 0;
-	for (const file of incoming) {
-		if (files.some((item) => sameAttachment(item, file))) continue;
-		if (files.length >= max) {
-			omitted += 1;
-			continue;
-		}
-		files.push(file);
-	}
-	return {
-		files,
-		omitted
-	};
-}
 //#endregion
-//#region src/ui/AttachmentPicker.svelte
-init_client();
-init_browserAttachments_svelte();
-init_uiControllers();
-var root$8 = /* @__PURE__ */ from_html(`<span class="attachment-chip" role="listitem"><span> </span> <button type="button">×</button></span>`);
-var root_1$7 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
-var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips" role="list" aria-label="Attached files"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" multiple="" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" multiple="" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
-function AttachmentPicker($$anchor, $$props) {
-	push($$props, true);
-	let files = /* @__PURE__ */ state$1([]);
-	let menuOpen = /* @__PURE__ */ state$1(false);
-	let menuItemFocusRequests = proxy([
-		0,
-		0,
-		0
-	]);
-	let disabled = /* @__PURE__ */ state$1(false);
-	let pickerFocusRequest = /* @__PURE__ */ state$1(0);
-	let fileClickRequest = /* @__PURE__ */ state$1(0);
-	let photoClickRequest = /* @__PURE__ */ state$1(0);
-	let cameraClickRequest = /* @__PURE__ */ state$1(0);
-	let options = null;
-	function notifyChange() {
-		options?.onChange();
-	}
-	function truncate(value, length = 28) {
-		return value.length > length ? value.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : value;
-	}
-	function add(nextFiles) {
-		const merged = mergeAttachments(get(files), nextFiles);
-		set(files, merged.files);
-		notifyChange();
-		if (merged.omitted > 0) options?.setStatus(`Prompta supports up to 5 attachments per message.`);
-	}
-	function requestMenuItemFocus(index) {
-		menuItemFocusRequests[index] += 1;
-	}
-	function openMenu(focus = "first") {
-		set(menuOpen, true);
-		requestMenuItemFocus(focus === "last" ? menuItemFocusRequests.length - 1 : 0);
-	}
-	function toggleMenu() {
-		if (get(menuOpen)) {
-			closeMenu(true);
-			return;
-		}
-		openMenu();
-	}
-	function handleMenuButtonKeydown(event) {
-		if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-		event.preventDefault();
-		openMenu(event.key === "ArrowUp" ? "last" : "first");
-	}
-	function handleMenuItemKeydown(event, currentIndex) {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			closeMenu(true);
-			return;
-		}
-		const nextIndex = attachmentMenuTargetIndex(event.key, currentIndex, menuItemFocusRequests.length);
-		if (nextIndex === null) return;
-		event.preventDefault();
-		requestMenuItemFocus(nextIndex);
-	}
-	function select(kind) {
-		set(menuOpen, false);
-		if (kind === "file") set(fileClickRequest, get(fileClickRequest) + 1);
-		else if (kind === "photo") set(photoClickRequest, get(photoClickRequest) + 1);
-		else set(cameraClickRequest, get(cameraClickRequest) + 1);
-	}
-	function read(event) {
-		const input = event.currentTarget;
-		const selected = Array.from(input.files || []);
-		input.value = "";
-		add(selected);
-	}
-	function payload(file) {
-		if (file.size > 26214400) throw new Error(file.name + " is larger than 25 MB");
-		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onerror = () => reject(reader.error || /* @__PURE__ */ new Error("Could not read " + file.name));
-			reader.onload = () => {
-				const result = typeof reader.result === "string" ? reader.result : "";
-				resolve({
-					name: file.name,
-					type: file.type || "application/octet-stream",
-					data: result.slice(result.indexOf(",") + 1)
-				});
-			};
-			reader.readAsDataURL(file);
-		});
-	}
-	function configure(next) {
-		options = next;
-	}
-	function clear() {
-		set(files, []);
-		notifyChange();
-	}
-	function closeMenu(restoreFocus = false) {
-		set(menuOpen, false);
-		if (restoreFocus) set(pickerFocusRequest, get(pickerFocusRequest) + 1);
-	}
-	function count() {
-		return get(files).length;
-	}
-	function snapshot() {
-		return [...get(files)];
-	}
-	function setDisabled(next) {
-		set(disabled, next, true);
-		if (next) set(menuOpen, false);
-	}
-	async function serialize() {
-		if (get(files).reduce((total, file) => total + file.size, 0) > 26214400) throw new Error("Attachments exceed the 25 MB Prompta upload limit");
-		return Promise.all(get(files).map(payload));
-	}
-	registerAttachmentPicker({
-		configure,
-		clear,
-		closeMenu,
-		count,
-		serialize,
-		setDisabled,
-		snapshot
-	});
-	var $$exports = {
-		configure,
-		clear,
-		closeMenu,
-		count,
-		snapshot,
-		setDisabled,
-		serialize
-	};
-	var fragment = root_2$6();
-	var div = first_child(fragment);
-	var div_1 = child(div);
-	each(div_1, 23, () => get(files), (file) => file.name + file.size + file.lastModified, ($$anchor, file, index) => {
-		var span = root$8();
-		var span_1 = child(span);
-		var text = only_child(span_1, true);
-		var button = sibling(span_1, 2);
-		reset(span);
-		template_effect(($0) => {
-			set_attribute(span, "data-dom-key", "attachment:" + get(index) + ":" + get(file).name);
-			set_attribute(span_1, "title", get(file).name);
-			set_text(text, $0);
-			set_attribute(button, "aria-label", "Remove " + get(file).name);
-			button.disabled = get(disabled);
-		}, [() => truncate(get(file).name)]);
-		delegated("click", button, () => {
-			set(files, get(files).filter((_, itemIndex) => itemIndex !== get(index)));
-			notifyChange();
-		});
-		append($$anchor, span);
-	});
-	reset(div_1);
-	snippet(sibling(div_1, 2), () => $$props.children);
-	reset(div);
-	var div_2 = sibling(div, 2);
-	var button_1 = child(div_2);
-	attach(button_1, () => focusOnRequest(() => get(pickerFocusRequest)));
-	var node_1 = sibling(button_1, 2);
-	var consequent = ($$anchor) => {
-		var div_3 = root_1$7();
-		var button_2 = child(div_3);
-		attach(button_2, () => focusOnRequest(() => menuItemFocusRequests[0]));
-		var button_3 = sibling(button_2, 2);
-		attach(button_3, () => focusOnRequest(() => menuItemFocusRequests[1]));
-		var button_4 = sibling(button_3, 2);
-		attach(button_4, () => focusOnRequest(() => menuItemFocusRequests[2]));
-		reset(div_3);
-		delegated("keydown", button_2, (event) => handleMenuItemKeydown(event, 0));
-		delegated("click", button_2, () => select("file"));
-		delegated("keydown", button_3, (event) => handleMenuItemKeydown(event, 1));
-		delegated("click", button_3, () => select("photo"));
-		delegated("keydown", button_4, (event) => handleMenuItemKeydown(event, 2));
-		delegated("click", button_4, () => select("camera"));
-		append($$anchor, div_3);
-	};
-	if_block(node_1, ($$render) => {
-		if (get(menuOpen)) $$render(consequent);
-	});
-	var input_1 = sibling(node_1, 2);
-	attach(input_1, () => clickOnRequest(() => get(fileClickRequest)));
-	var input_2 = sibling(input_1, 2);
-	attach(input_2, () => clickOnRequest(() => get(photoClickRequest)));
-	var input_3 = sibling(input_2, 2);
-	attach(input_3, () => clickOnRequest(() => get(cameraClickRequest)));
-	reset(div_2);
-	attach(div_2, () => clickOutside(() => set(menuOpen, false)));
-	template_effect(() => {
-		set_attribute(div_1, "hidden", get(files).length === 0);
-		set_attribute(button_1, "aria-expanded", get(menuOpen));
-		button_1.disabled = get(disabled);
-	});
-	delegated("keydown", button_1, handleMenuButtonKeydown);
-	delegated("click", button_1, toggleMenu);
-	delegated("change", input_1, read);
-	delegated("change", input_2, read);
-	delegated("change", input_3, read);
-	append($$anchor, fragment);
-	return pop($$exports);
-}
-delegate([
-	"click",
-	"keydown",
-	"change"
-]);
-//#endregion
-//#region src/ui/appActions.svelte.ts
-var appActions;
-var init_appActions_svelte = __esmMin((() => {
+//#region src/ui/conversationState.svelte.ts
+var ConversationState, conversationState;
+var init_conversationState_svelte = __esmMin((() => {
 	init_client();
-	appActions = proxy({
-		onSearch: (_value) => {},
-		onSidebarFilter: (_filter) => {},
-		onClearSidebarFilters: () => {},
-		onMarkAllRead: () => {},
-		onNewChat: () => {},
-		onPin: () => {},
-		onShare: () => {},
-		onPromptaPage: () => {},
-		onPromptaPageClose: () => {},
-		onUnattendedMode: () => {},
-		onSubmit: () => {},
-		onComposerInput: (_value) => {},
-		onApplyUpdate: () => {},
-		onHashChange: () => {},
-		onPageHide: () => {},
-		onPageShow: () => {}
-	});
+	ConversationState = class {
+		#progress = /* @__PURE__ */ state$1(null);
+		get progress() {
+			return get(this.#progress);
+		}
+		set progress(value) {
+			set(this.#progress, value);
+		}
+		#messages = /* @__PURE__ */ state$1([]);
+		get messages() {
+			return get(this.#messages);
+		}
+		set messages(value) {
+			set(this.#messages, value);
+		}
+		#allowStreaming = /* @__PURE__ */ state$1(false);
+		get allowStreaming() {
+			return get(this.#allowStreaming);
+		}
+		set allowStreaming(value) {
+			set(this.#allowStreaming, value, true);
+		}
+		#loading = /* @__PURE__ */ state$1(false);
+		get loading() {
+			return get(this.#loading);
+		}
+		set loading(value) {
+			set(this.#loading, value, true);
+		}
+		#deletingKeys = /* @__PURE__ */ state$1(/* @__PURE__ */ new Set());
+		get deletingKeys() {
+			return get(this.#deletingKeys);
+		}
+		set deletingKeys(value) {
+			set(this.#deletingKeys, value);
+		}
+		onRetry = () => {};
+		onBump = () => {};
+		onDelete = () => {};
+		onEdit = () => {};
+	};
+	conversationState = new ConversationState();
 }));
 //#endregion
 //#region src/ui/appViewState.svelte.ts
@@ -6761,6 +6547,33 @@ var init_appViewState_svelte = __esmMin((() => {
 		sidebarTopRequest: 0
 	});
 }));
+//#endregion
+//#region src/ui/chatProgress.ts
+init_conversationState_svelte();
+init_appViewState_svelte();
+function chatProgressLabel(progress, now = Date.now() / 1e3) {
+	let label = {
+		queued: "Queued",
+		running: "Sending to ChatGPT",
+		confirmed: "Confirmed received · waiting for response",
+		succeeded: "Confirmed received · waiting for response",
+		responding: "Responding",
+		recovering: "Recovering connection",
+		retrying: "Waiting to retry delivery",
+		rate_limited: "Waiting for account cooldown",
+		complete: "Complete",
+		completed: "Complete",
+		interrupted: "Interrupted",
+		failed: "Delivery failed",
+		dead_lettered: "Delivery needs attention"
+	}[progress.phase] || "Waiting for status";
+	if (progress.phase === "queued" && Number(progress.queue_position) > 0) label += ` · #${progress.queue_position}`;
+	if (["retrying", "rate_limited"].includes(progress.phase) && Number(progress.retry_at) > 0) {
+		const seconds = Math.max(0, Number(progress.retry_at) - now);
+		label += seconds > 0 ? ` · next retry in ${Math.ceil(seconds / 60)}m` : " · retry due";
+	}
+	return label;
+}
 //#endregion
 //#region src/ui/clientLogic.ts
 function chatListRequestUrl(search, pinnedIds, limit) {
@@ -7425,6 +7238,313 @@ var init_clientLogic = __esmMin((() => {
 	};
 }));
 //#endregion
+//#region src/ui/ChatProgress.svelte
+init_client();
+init_clientLogic();
+var root$9 = /* @__PURE__ */ from_html(`<span>Last message activity <time> </time></span>`);
+var root_1$8 = /* @__PURE__ */ from_html(`<div class="chat-progress" role="status" aria-live="polite" aria-atomic="true"><strong> </strong> <!></div>`);
+function ChatProgress($$anchor, $$props) {
+	push($$props, true);
+	const progress = /* @__PURE__ */ user_derived(() => conversationState.progress);
+	var fragment = comment();
+	var node = first_child(fragment);
+	var consequent_1 = ($$anchor) => {
+		var div = root_1$8();
+		var strong = child(div);
+		var text = only_child(strong, true);
+		var node_1 = sibling(strong, 2);
+		var consequent = ($$anchor) => {
+			var span = root$9();
+			var time = sibling(child(span));
+			var text_1 = only_child(time, true);
+			reset(span);
+			template_effect(($0, $1, $2) => {
+				set_attribute(time, "datetime", $0);
+				set_attribute(time, "title", $1);
+				set_text(text_1, $2);
+			}, [
+				() => (/* @__PURE__ */ new Date(get(progress).last_activity_at * 1e3)).toISOString(),
+				() => (/* @__PURE__ */ new Date(get(progress).last_activity_at * 1e3)).toLocaleString(),
+				() => formatClockTime12Hour(/* @__PURE__ */ new Date(get(progress).last_activity_at * 1e3))
+			]);
+			append($$anchor, span);
+		};
+		if_block(node_1, ($$render) => {
+			if (get(progress).last_activity_at) $$render(consequent);
+		});
+		reset(div);
+		template_effect(($0) => set_text(text, $0), [() => chatProgressLabel(get(progress), appViewState.clockTick / 1e3)]);
+		append($$anchor, div);
+	};
+	if_block(node, ($$render) => {
+		if (get(progress)) $$render(consequent_1);
+	});
+	append($$anchor, fragment);
+	pop();
+}
+function attachmentMenuTargetIndex(key, currentIndex, itemCount) {
+	if (itemCount <= 0) return null;
+	if (key === "Home") return 0;
+	if (key === "End") return itemCount - 1;
+	if (key === "ArrowDown") return currentIndex < 0 ? 0 : (currentIndex + 1) % itemCount;
+	if (key === "ArrowUp") return currentIndex < 0 ? itemCount - 1 : (currentIndex - 1 + itemCount) % itemCount;
+	return null;
+}
+function sameAttachment(left, right) {
+	return left.name === right.name && left.size === right.size && left.lastModified === right.lastModified;
+}
+function mergeAttachments(current, incoming, max = 5) {
+	const files = [...current];
+	let omitted = 0;
+	for (const file of incoming) {
+		if (files.some((item) => sameAttachment(item, file))) continue;
+		if (files.length >= max) {
+			omitted += 1;
+			continue;
+		}
+		files.push(file);
+	}
+	return {
+		files,
+		omitted
+	};
+}
+//#endregion
+//#region src/ui/AttachmentPicker.svelte
+init_client();
+init_browserAttachments_svelte();
+init_uiControllers();
+var root$8 = /* @__PURE__ */ from_html(`<span class="attachment-chip" role="listitem"><span> </span> <button type="button">×</button></span>`);
+var root_1$7 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
+var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips" role="list" aria-label="Attached files"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" multiple="" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" multiple="" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
+function AttachmentPicker($$anchor, $$props) {
+	push($$props, true);
+	let files = /* @__PURE__ */ state$1([]);
+	let menuOpen = /* @__PURE__ */ state$1(false);
+	let menuItemFocusRequests = proxy([
+		0,
+		0,
+		0
+	]);
+	let disabled = /* @__PURE__ */ state$1(false);
+	let pickerFocusRequest = /* @__PURE__ */ state$1(0);
+	let fileClickRequest = /* @__PURE__ */ state$1(0);
+	let photoClickRequest = /* @__PURE__ */ state$1(0);
+	let cameraClickRequest = /* @__PURE__ */ state$1(0);
+	let options = null;
+	function notifyChange() {
+		options?.onChange();
+	}
+	function truncate(value, length = 28) {
+		return value.length > length ? value.slice(0, Math.max(1, length - 1)).trimEnd() + "…" : value;
+	}
+	function add(nextFiles) {
+		const merged = mergeAttachments(get(files), nextFiles);
+		set(files, merged.files);
+		notifyChange();
+		if (merged.omitted > 0) options?.setStatus(`Prompta supports up to 5 attachments per message.`);
+	}
+	function requestMenuItemFocus(index) {
+		menuItemFocusRequests[index] += 1;
+	}
+	function openMenu(focus = "first") {
+		set(menuOpen, true);
+		requestMenuItemFocus(focus === "last" ? menuItemFocusRequests.length - 1 : 0);
+	}
+	function toggleMenu() {
+		if (get(menuOpen)) {
+			closeMenu(true);
+			return;
+		}
+		openMenu();
+	}
+	function handleMenuButtonKeydown(event) {
+		if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+		event.preventDefault();
+		openMenu(event.key === "ArrowUp" ? "last" : "first");
+	}
+	function handleMenuItemKeydown(event, currentIndex) {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			closeMenu(true);
+			return;
+		}
+		const nextIndex = attachmentMenuTargetIndex(event.key, currentIndex, menuItemFocusRequests.length);
+		if (nextIndex === null) return;
+		event.preventDefault();
+		requestMenuItemFocus(nextIndex);
+	}
+	function select(kind) {
+		set(menuOpen, false);
+		if (kind === "file") set(fileClickRequest, get(fileClickRequest) + 1);
+		else if (kind === "photo") set(photoClickRequest, get(photoClickRequest) + 1);
+		else set(cameraClickRequest, get(cameraClickRequest) + 1);
+	}
+	function read(event) {
+		const input = event.currentTarget;
+		const selected = Array.from(input.files || []);
+		input.value = "";
+		add(selected);
+	}
+	function payload(file) {
+		if (file.size > 26214400) throw new Error(file.name + " is larger than 25 MB");
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(reader.error || /* @__PURE__ */ new Error("Could not read " + file.name));
+			reader.onload = () => {
+				const result = typeof reader.result === "string" ? reader.result : "";
+				resolve({
+					name: file.name,
+					type: file.type || "application/octet-stream",
+					data: result.slice(result.indexOf(",") + 1)
+				});
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+	function configure(next) {
+		options = next;
+	}
+	function clear() {
+		set(files, []);
+		notifyChange();
+	}
+	function closeMenu(restoreFocus = false) {
+		set(menuOpen, false);
+		if (restoreFocus) set(pickerFocusRequest, get(pickerFocusRequest) + 1);
+	}
+	function count() {
+		return get(files).length;
+	}
+	function snapshot() {
+		return [...get(files)];
+	}
+	function setDisabled(next) {
+		set(disabled, next, true);
+		if (next) set(menuOpen, false);
+	}
+	async function serialize() {
+		if (get(files).reduce((total, file) => total + file.size, 0) > 26214400) throw new Error("Attachments exceed the 25 MB Prompta upload limit");
+		return Promise.all(get(files).map(payload));
+	}
+	registerAttachmentPicker({
+		configure,
+		clear,
+		closeMenu,
+		count,
+		serialize,
+		setDisabled,
+		snapshot
+	});
+	var $$exports = {
+		configure,
+		clear,
+		closeMenu,
+		count,
+		snapshot,
+		setDisabled,
+		serialize
+	};
+	var fragment = root_2$6();
+	var div = first_child(fragment);
+	var div_1 = child(div);
+	each(div_1, 23, () => get(files), (file) => file.name + file.size + file.lastModified, ($$anchor, file, index) => {
+		var span = root$8();
+		var span_1 = child(span);
+		var text = only_child(span_1, true);
+		var button = sibling(span_1, 2);
+		reset(span);
+		template_effect(($0) => {
+			set_attribute(span, "data-dom-key", "attachment:" + get(index) + ":" + get(file).name);
+			set_attribute(span_1, "title", get(file).name);
+			set_text(text, $0);
+			set_attribute(button, "aria-label", "Remove " + get(file).name);
+			button.disabled = get(disabled);
+		}, [() => truncate(get(file).name)]);
+		delegated("click", button, () => {
+			set(files, get(files).filter((_, itemIndex) => itemIndex !== get(index)));
+			notifyChange();
+		});
+		append($$anchor, span);
+	});
+	reset(div_1);
+	snippet(sibling(div_1, 2), () => $$props.children);
+	reset(div);
+	var div_2 = sibling(div, 2);
+	var button_1 = child(div_2);
+	attach(button_1, () => focusOnRequest(() => get(pickerFocusRequest)));
+	var node_1 = sibling(button_1, 2);
+	var consequent = ($$anchor) => {
+		var div_3 = root_1$7();
+		var button_2 = child(div_3);
+		attach(button_2, () => focusOnRequest(() => menuItemFocusRequests[0]));
+		var button_3 = sibling(button_2, 2);
+		attach(button_3, () => focusOnRequest(() => menuItemFocusRequests[1]));
+		var button_4 = sibling(button_3, 2);
+		attach(button_4, () => focusOnRequest(() => menuItemFocusRequests[2]));
+		reset(div_3);
+		delegated("keydown", button_2, (event) => handleMenuItemKeydown(event, 0));
+		delegated("click", button_2, () => select("file"));
+		delegated("keydown", button_3, (event) => handleMenuItemKeydown(event, 1));
+		delegated("click", button_3, () => select("photo"));
+		delegated("keydown", button_4, (event) => handleMenuItemKeydown(event, 2));
+		delegated("click", button_4, () => select("camera"));
+		append($$anchor, div_3);
+	};
+	if_block(node_1, ($$render) => {
+		if (get(menuOpen)) $$render(consequent);
+	});
+	var input_1 = sibling(node_1, 2);
+	attach(input_1, () => clickOnRequest(() => get(fileClickRequest)));
+	var input_2 = sibling(input_1, 2);
+	attach(input_2, () => clickOnRequest(() => get(photoClickRequest)));
+	var input_3 = sibling(input_2, 2);
+	attach(input_3, () => clickOnRequest(() => get(cameraClickRequest)));
+	reset(div_2);
+	attach(div_2, () => clickOutside(() => set(menuOpen, false)));
+	template_effect(() => {
+		set_attribute(div_1, "hidden", get(files).length === 0);
+		set_attribute(button_1, "aria-expanded", get(menuOpen));
+		button_1.disabled = get(disabled);
+	});
+	delegated("keydown", button_1, handleMenuButtonKeydown);
+	delegated("click", button_1, toggleMenu);
+	delegated("change", input_1, read);
+	delegated("change", input_2, read);
+	delegated("change", input_3, read);
+	append($$anchor, fragment);
+	return pop($$exports);
+}
+delegate([
+	"click",
+	"keydown",
+	"change"
+]);
+//#endregion
+//#region src/ui/appActions.svelte.ts
+var appActions;
+var init_appActions_svelte = __esmMin((() => {
+	init_client();
+	appActions = proxy({
+		onSearch: (_value) => {},
+		onSidebarFilter: (_filter) => {},
+		onClearSidebarFilters: () => {},
+		onMarkAllRead: () => {},
+		onNewChat: () => {},
+		onPin: () => {},
+		onShare: () => {},
+		onPromptaPage: () => {},
+		onPromptaPageClose: () => {},
+		onUnattendedMode: () => {},
+		onSubmit: () => {},
+		onComposerInput: (_value) => {},
+		onApplyUpdate: () => {},
+		onHashChange: () => {},
+		onPageHide: () => {},
+		onPageShow: () => {}
+	});
+}));
+//#endregion
 //#region src/ui/Composer.svelte
 init_client();
 init_appActions_svelte();
@@ -7437,7 +7557,7 @@ var root_2$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu"
 var root_3$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
 var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
 var root_5$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>`);
-var root_6$4 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><!> <form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
+var root_6$5 = /* @__PURE__ */ from_html(`<footer class="composer-footer" id="composerFooter"><!> <form class="composer-bar" id="messageForm"><!> <div class="composer-submit"><button type="button" class="icon-button composer-new-chat-button" id="newChatButton" aria-label="Start a new chat" title="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h8l4 2v-7"></path><path d="M18 3v6M15 6h6"></path></svg></button> <button type="submit" class="send-button" id="sendButton"><!></button></div></form> <div class="composer-status" id="composerStatus"> </div></footer>`);
 function Composer($$anchor, $$props) {
 	push($$props, true);
 	const commands = [
@@ -7515,7 +7635,7 @@ function Composer($$anchor, $$props) {
 			}
 		}
 	}
-	var footer = root_6$4();
+	var footer = root_6$5();
 	var node = child(footer);
 	var consequent = ($$anchor) => {
 		var button = root$7();
@@ -15907,7 +16027,7 @@ var root_2$4 = /* @__PURE__ */ from_html(`<em><!></em>`);
 var root_3$4 = /* @__PURE__ */ from_html(`<del><!></del>`);
 var root_4$4 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
 var root_5$4 = /* @__PURE__ */ from_html(`<br/>`);
-var root_6$3 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
+var root_6$4 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noreferrer noopener"><!></a>`);
 var root_7$3 = /* @__PURE__ */ from_html(`<p><!></p>`);
 var root_8$3 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
 var root_9$3 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
@@ -16048,7 +16168,7 @@ function MarkdownContent($$anchor, $$props) {
 				var fragment_9 = comment();
 				var node_10 = first_child(fragment_9);
 				var consequent_10 = ($$anchor) => {
-					var a = root_6$3();
+					var a = root_6$4();
 					var node_11 = child(a);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16664,47 +16784,6 @@ function MarkdownContent($$anchor, $$props) {
 }
 delegate(["click"]);
 //#endregion
-//#region src/ui/conversationState.svelte.ts
-var ConversationState, conversationState;
-var init_conversationState_svelte = __esmMin((() => {
-	init_client();
-	ConversationState = class {
-		#messages = /* @__PURE__ */ state$1([]);
-		get messages() {
-			return get(this.#messages);
-		}
-		set messages(value) {
-			set(this.#messages, value);
-		}
-		#allowStreaming = /* @__PURE__ */ state$1(false);
-		get allowStreaming() {
-			return get(this.#allowStreaming);
-		}
-		set allowStreaming(value) {
-			set(this.#allowStreaming, value, true);
-		}
-		#loading = /* @__PURE__ */ state$1(false);
-		get loading() {
-			return get(this.#loading);
-		}
-		set loading(value) {
-			set(this.#loading, value, true);
-		}
-		#deletingKeys = /* @__PURE__ */ state$1(/* @__PURE__ */ new Set());
-		get deletingKeys() {
-			return get(this.#deletingKeys);
-		}
-		set deletingKeys(value) {
-			set(this.#deletingKeys, value);
-		}
-		onRetry = () => {};
-		onBump = () => {};
-		onDelete = () => {};
-		onEdit = () => {};
-	};
-	conversationState = new ConversationState();
-}));
-//#endregion
 //#region src/ui/conversationLogic.ts
 function imageAttachments(message) {
 	return (Array.isArray(message?.attachments) ? message.attachments : []).filter((attachment) => attachment && typeof attachment === "object" && String(attachment.type || "").startsWith("image/") && (Boolean(attachment.id) || String(attachment.src || "").startsWith("data:image/")));
@@ -16778,7 +16857,7 @@ var root_2$3 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img 
 var root_3$3 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
 var root_4$3 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-button bump-pending-button" aria-label="Send queued message next" title="Send queued message next"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></button>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<div class="pending-message-controls" aria-label="Queued message actions"><button type="button" class="pending-message-button edit-pending-button" aria-label="Edit queued message" title="Edit queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Zm10.6-13.4 3 3"></path></svg></button> <!> <button type="button" class="pending-message-button delete-pending-button" aria-label="Delete queued message" title="Delete queued message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"></path></svg></button></div>`);
-var root_6$2 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
+var root_6$3 = /* @__PURE__ */ from_html(`<div class="streaming-indicator"><span class="streaming-dots"><i></i><i></i><i></i></span> </div>`);
 var root_7$2 = /* @__PURE__ */ from_html(`<span class="message-age"> </span>`);
 var root_8$2 = /* @__PURE__ */ from_html(`<section role="presentation"><div class="message-inner"><!> <!> <div class="message-content"><!></div> <!> <!> <!> <time class="message-timestamp"><span class="message-clock"> </span> <!></time></div></section>`);
 var root_9$2 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-action"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg> <span>Send next</span></button>`);
@@ -17000,7 +17079,7 @@ function ConversationMessages($$anchor, $$props) {
 		});
 		var node_9 = sibling(node_7, 2);
 		var consequent_7 = ($$anchor) => {
-			var div_7 = root_6$2();
+			var div_7 = root_6$3();
 			var text_2 = sibling(child(div_7));
 			reset(div_7);
 			template_effect(() => set_text(text_2, ` ${(get(message).pending_activity_label || "writing") ?? ""}`));
@@ -17115,7 +17194,7 @@ var root_2$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><s
 var root_3$2 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
 var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
 var root_5$2 = /* @__PURE__ */ from_html(`<article class="job-row"><div class="job-row-top"><div><div class="job-row-name"> </div> <div class="job-row-meta"> <!></div></div> <span class="job-status"> </span></div> <!> <div class="job-row-actions"><!> <button type="button" class="job-action"> </button> <button type="button" class="job-action">Remove</button></div></article>`);
-var root_6$1 = /* @__PURE__ */ from_html(`<nav class="jobs-pagination" aria-label="Scheduled jobs pages"><button type="button" class="jobs-secondary-button">Previous</button> <span class="jobs-pagination-status" aria-live="polite"> </span> <button type="button" class="jobs-secondary-button">Next</button></nav>`);
+var root_6$2 = /* @__PURE__ */ from_html(`<nav class="jobs-pagination" aria-label="Scheduled jobs pages"><button type="button" class="jobs-secondary-button">Previous</button> <span class="jobs-pagination-status" aria-live="polite"> </span> <button type="button" class="jobs-secondary-button">Next</button></nav>`);
 var root_7$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input id="jobInterval" name="interval" type="number" min="0.1" step="0.1"/></label>`);
 var root_8$1 = /* @__PURE__ */ from_html(`<label><span>At</span> <input id="jobDailyAt" name="dailyAt" type="time"/></label>`);
 var root_9$1 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input id="jobExact" name="exact" type="checkbox"/> <span>Exact interval</span></label>`);
@@ -17346,7 +17425,7 @@ function JobsPage($$anchor, $$props) {
 	reset(div_2);
 	var node_5 = sibling(div_2, 2);
 	var consequent_4 = ($$anchor) => {
-		var nav = root_6$1();
+		var nav = root_6$2();
 		var button_3 = child(nav);
 		var span_3 = sibling(button_3, 2);
 		var text_9 = only_child(span_3);
@@ -17791,7 +17870,7 @@ var root_2$1 = /* @__PURE__ */ from_html(`No cached conversations yet.<br/>Promp
 var root_3$1 = /* @__PURE__ */ from_html(`<div class="list-empty"><!></div>`);
 var root_4$1 = /* @__PURE__ */ from_html(`<span></span>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<span class="chat-broken-badge" title="No ChatGPT response for at least 40 minutes">Broken</span>`);
-var root_6 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-item-select"><div class="chat-item-top"><!> <span class="chat-title"> </span> <!></div> <div class="chat-preview"> </div> <div class="chat-meta"><span class="chat-job"> </span> <span class="chat-time"> </span></div></button> <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-.8 5 3.3 3.3v1.4H13v7.8l-1 1-1-1v-7.8H6.5v-1.4L9.8 8 9 3z"></path></svg></button></div>`);
 var root_7 = /* @__PURE__ */ from_html(`<section class="chat-group"><div class="chat-group-label"> </div> <!></section>`);
 var root_8 = /* @__PURE__ */ from_html(`<button type="button" class="sidebar-load-more"> </button>`);
 var root_9 = /* @__PURE__ */ from_html(`<!> <!> <dialog class="pending-message-actions" aria-labelledby="sidebarChatActionsTitle"><div class="pending-message-actions-shell"><div id="sidebarChatActionsTitle" class="pending-message-actions-title">Chat actions</div> <button type="button" class="pending-message-action"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg> <span> </span></button> <button type="button" class="pending-message-action"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.7 2.7L16 9.5"></path></svg> <span>Read all</span></button> <button type="button" class="pending-message-action cancel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"></path></svg> <span>Cancel</span></button></div></dialog>`, 1);
@@ -17913,7 +17992,7 @@ function SidebarList($$anchor, $$props) {
 			var div_1 = child(section);
 			var text = only_child(div_1, true);
 			each(sibling(div_1, 2), 17, () => get(group).chats, (chat) => chat.id, ($$anchor, chat) => {
-				var div_2 = root_6();
+				var div_2 = root_6$1();
 				var button_2 = child(div_2);
 				var div_3 = child(button_2);
 				var node_4 = child(div_3);
@@ -18073,7 +18152,8 @@ var root_1 = /* @__PURE__ */ from_html(`<button type="button" class="search-clea
 var root_2 = /* @__PURE__ */ from_html(`<kbd>/</kbd>`);
 var root_3 = /* @__PURE__ */ from_html(`<button type="button"> </button>`);
 var root_4 = /* @__PURE__ */ from_html(`<div class="topbar-actions" role="group" aria-label="Prompta actions"><button id="pinChatButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button> <button class="icon-button" id="shareChatButton" aria-label="Copy chat link" title="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg></button> <span id="syncLabel" role="img"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2Zm0 0v6c0 1.1 3.1 2 7 2s7-.9 7-2V6M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"></path></svg></span></div>`);
-var root_5 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <button type="button"><span class="brand-mark" aria-hidden="true">P</span> <span class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></span></button> <div id="globalLiveOrb" role="img"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="text" role="searchbox" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <!></label></div> <div class="sidebar-scroll"><div class="sidebar-toolbar"><div class="sidebar-toolbar-right"><div class="sidebar-filters" role="group" aria-label="Conversation filters"></div></div></div> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" aria-hidden="true"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <!></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!> <!></main></div> <div class="action-toast" role="status" aria-live="polite" aria-atomic="true"> </div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!>`, 1);
+var root_5 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_6 = /* @__PURE__ */ from_html(`<div class="app-shell"><aside id="sidebar"><div class="sidebar-top"><div class="brand-row"><button class="icon-button mobile-only" id="closeSidebar" aria-label="Close sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button> <button type="button"><span class="brand-mark" aria-hidden="true">P</span> <span class="brand-copy"><strong>Prompta</strong> <span id="serverLabel"> </span></span></button> <div id="globalLiveOrb" role="img"></div></div> <label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg> <input id="searchInput" type="text" role="searchbox" placeholder="Search cached chats" aria-label="Search cached chats" aria-keyshortcuts="/" autocomplete="off"/> <!></label></div> <div class="sidebar-scroll"><div class="sidebar-toolbar"><div class="sidebar-toolbar-right"><div class="sidebar-filters" role="group" aria-label="Conversation filters"></div></div></div> <nav class="chat-list" id="chatList" aria-label="Cached conversations"><!></nav></div> <div class="sidebar-footer"><div class="cache-summary"><span class="summary-dot"></span> <span id="cacheSummary"> </span></div> <button type="button" class="read-only-pill" id="headLabel" aria-haspopup="dialog" aria-controls="changelogDialog"> </button></div></aside> <div id="sidebarScrim" aria-hidden="true"></div> <main class="main-panel"><header class="topbar"><button class="icon-button mobile-only" id="openSidebar" aria-label="Open sidebar" aria-controls="sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button> <div class="chat-heading" id="chatHeading"><div class="heading-title"> </div> <div class="heading-meta"> </div></div> <!></header> <section id="conversationViewport"><div class="empty-state" id="emptyState"><div class="empty-logo">P</div> <h1>Your Prompta chats, locally.</h1> <p>Active runs and completed history stream from Prompta's SQLite cache.</p> <div class="empty-features"><span>Reply from here</span> <span>Live SSE updates</span> <span>SQLite source of truth</span></div></div> <article class="conversation" id="conversation"><!></article></section> <!> <!> <!></main></div> <div class="action-toast" role="status" aria-live="polite" aria-atomic="true"> </div> <button type="button" class="version-update-notice" id="versionUpdateNotice" aria-live="polite"> </button> <!>`, 1);
 function App($$anchor, $$props) {
 	push($$props, true);
 	const serverDisplay = /* @__PURE__ */ user_derived(() => appViewState.serverDisplay || $$props.serverName);
@@ -18232,7 +18312,7 @@ function App($$anchor, $$props) {
 		requestSearchBlur();
 		closeSidebar(true);
 	}
-	var fragment = root_5();
+	var fragment = root_6();
 	head("1ocnzw1", ($$anchor) => {
 		var meta = root();
 		template_effect(() => set_attribute(meta, "content", "Prompta " + get(serverDisplay)));
@@ -18386,11 +18466,20 @@ function App($$anchor, $$props) {
 	var node_5 = sibling(node_4, 2);
 	LogsPanel(node_5, {});
 	var node_6 = sibling(node_5, 2);
-	var consequent_3 = ($$anchor) => {
-		Composer($$anchor, {});
+	var consequent_4 = ($$anchor) => {
+		var fragment_2 = root_5();
+		var node_7 = first_child(fragment_2);
+		var consequent_3 = ($$anchor) => {
+			ChatProgress($$anchor, {});
+		};
+		if_block(node_7, ($$render) => {
+			if (appViewState.conversationVisible) $$render(consequent_3);
+		});
+		Composer(sibling(node_7, 2), {});
+		append($$anchor, fragment_2);
 	};
 	if_block(node_6, ($$render) => {
-		if (appViewState.mode === "chats") $$render(consequent_3);
+		if (appViewState.mode === "chats") $$render(consequent_4);
 	});
 	reset(main);
 	reset(div);
@@ -19737,6 +19826,13 @@ function renderConversation(chat) {
 	state.selectedChat = chat;
 	const messages = Array.isArray(chat.messages) ? chat.messages : [];
 	const visibleMessages = [...messages, ...pendingReplyMessages(chat.id, messages)];
+	const pendingProgress = (state.pendingReplies.get(chat.id) || []).at(-1);
+	conversationState.progress = pendingProgress ? {
+		phase: pendingProgress.status || "queued",
+		retry_at: pendingProgress.retryAt,
+		queue_position: pendingProgress.queuePosition,
+		last_activity_at: chat.progress?.last_activity_at
+	} : chat.progress || null;
 	state.selectedVisibleMessageCount = visibleMessages.length;
 	const allowStreaming = chat.status === "active";
 	const fingerprint = JSON.stringify([chat.status, visibleMessages.map((message) => [message.message_key, conversationRenderer.messageNodeFingerprint(message, allowStreaming)])]);
@@ -19836,6 +19932,11 @@ function renderNewChat() {
 	syncSidebarSelection();
 	syncComposerDraftTarget();
 	const pending = state.pendingNewSend;
+	conversationState.progress = pending ? {
+		phase: pending.status || "queued",
+		retry_at: pending.retryAt,
+		queue_position: pending.queuePosition
+	} : null;
 	const waiting = pending && ![
 		"failed",
 		"dead_lettered",
@@ -20818,6 +20919,7 @@ async function startApp() {
 }
 var clientScope, recentChatCache, offlineOutbox, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetches, queuedPrefetchSet, prefetchedChatRevisions, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
+	init_conversationState_svelte();
 	init_clientLogic();
 	init_recentChatCache();
 	init_offlineOutbox();

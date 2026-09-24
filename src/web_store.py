@@ -98,19 +98,15 @@ def _merge_tool_parts_with_dom_prose(
     """Recover prose/tool interleaving when intermediate text parts did not survive."""
 
     has_tool = any(str(part.get("kind") or "") == "tool_call" for part in parts)
-    has_intermediate_text = any(
-        str(part.get("kind") or "") in {"assistant_text", "reasoning"}
-        and bool(str(part.get("content") or "").strip())
-        for part in parts
-    )
-    if not has_tool or has_intermediate_text:
+    if not has_tool:
         return None
 
     prose_blocks = observed_prose_blocks(observations)
     final_texts = [
         str(part.get("content") or "").strip()
         for part in parts
-        if str(part.get("kind") or "") == "final_text" and str(part.get("content") or "").strip()
+        if str(part.get("kind") or "") in {"assistant_text", "reasoning", "final_text"}
+        and str(part.get("content") or "").strip()
     ]
     prose_blocks = [
         (observed_at, content)
@@ -571,6 +567,18 @@ class ReadOnlyChatStore:
                     if "message_versions" in tables
                     else []
                 )
+                latest_state = (
+                    connection.execute(
+                        """
+                        SELECT observed_at, streaming, transient, failed
+                        FROM conversation_state_events WHERE conversation_id = ?
+                        ORDER BY observed_at DESC, id DESC LIMIT 1
+                        """,
+                        (conversation_id,),
+                    ).fetchone()
+                    if "conversation_state_events" in tables
+                    else None
+                )
                 state_events = (
                     connection.execute(
                         """
@@ -588,6 +596,25 @@ class ReadOnlyChatStore:
         except (FileNotFoundError, sqlite3.DatabaseError):
             return None
         payload = dict(conversation)
+        status = str(payload.get("status") or "")
+        phase = "complete" if status == "complete" else status
+        if status == "active":
+            phase = "confirmed"
+            if latest_state and (latest_state["transient"] or latest_state["failed"]):
+                phase = "recovering"
+            elif latest_state and latest_state["streaming"]:
+                phase = "responding"
+        payload["progress"] = {
+            "phase": phase,
+            "last_activity_at": max(
+                (
+                    float(message["activity_at"] or message["created_at"] or 0)
+                    for message in messages
+                ),
+                default=0.0,
+            ),
+            "state_changed_at": float(latest_state["observed_at"]) if latest_state else None,
+        }
         payload["state_events"] = []
         for row in state_events:
             state_event = dict(row)
@@ -741,6 +768,10 @@ class ReadOnlyChatStore:
                     (
                         bool(dom_prose_by_message.get(message_key))
                         and has_completed_final_text(structured_parts)
+                        and all(
+                            _is_final_text_duplicate(prose, [structured_content])
+                            for _, prose in observed_prose_blocks(dom_observations)
+                        )
                     )
                     or preserves_non_tool_text(canonical_content, structured_content)
                 ):
@@ -775,6 +806,13 @@ class ReadOnlyChatStore:
                     message["content"] = recover_stream_order_from_observations(
                         content, observations
                     )
+            # The UI prefers parts whenever this flag is set. A later prose
+            # recovery must never be hidden by an incomplete structured view.
+            if message["parts_renderable"] and not preserves_non_tool_text(
+                str(message.get("content") or ""),
+                rendered_content_from_parts(structured_parts),
+            ):
+                message["parts_renderable"] = False
         if historical:
             for message in message_payloads:
                 message["status"] = "complete"

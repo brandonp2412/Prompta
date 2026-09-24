@@ -1653,3 +1653,88 @@ def test_persist_structured_capture_coalesces_duplicate_part_keys(tmp_path: Path
         ).fetchall()
 
     assert [tuple(row) for row in rows] == [("same-event", "latest", 1)]
+
+
+def test_partial_structured_prose_cannot_hide_middle_text_after_reconnect(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-final-text-only-prose"
+    durable_key = "a1"
+    cache.start(
+        conversation_id,
+        context_id="context-final-text-only-prose",
+        job_name="",
+        prompt="Inspect this",
+    )
+    intro, invocation, result, final = _source_events()
+    fence = chr(96) * 3
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Structured",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Inspect this"},
+                {
+                    "id": durable_key,
+                    "role": "assistant",
+                    "content": f"{fence}tool:tool\nCalled tool\n{fence}\n\nFinished",
+                },
+            ],
+            "source_events": [intro, invocation, result, final],
+        },
+    )
+
+    observations = [
+        (100.0, ["Checking the stored conversation state"]),
+        (102.0, ["Visible follow-up"]),
+        (104.0, ["Finished"]),
+    ]
+    with cache.connection:
+        for index, (observed_at, parts) in enumerate(observations, start=1):
+            event = {
+                "id": f"{durable_key}:dom-prose",
+                "parts": parts,
+            }
+            cache.connection.execute(
+                """
+                INSERT INTO source_events (
+                    conversation_id, message_key, event_key, ordinal,
+                    raw_json, observed_at, source_created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    durable_key,
+                    f"{durable_key}:dom-prose:{index}",
+                    10 + index,
+                    json.dumps(event),
+                    observed_at,
+                    None,
+                ),
+            )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    content = assistant["content"]
+    assert assistant["parts_renderable"] is True
+    assert content.count("Finished") == 1
+    assert content.index("Checking the stored conversation state") < content.index(
+        "Glass Serena · serena_repl"
+    )
+    assert content.index("Glass Serena · serena_repl") < content.index("Visible follow-up")
+    assert content.index("Visible follow-up") < content.index("Finished")
+
+    from prompta.web import PromptaUIServer
+
+    # SSE/reconnect and refresh both serialize this compact durable projection.
+    compact = PromptaUIServer._compact_conversation_detail(chat)
+    restored = ReadOnlyChatStore(path).conversation(conversation_id)
+    assert restored is not None
+    assert compact == PromptaUIServer._compact_conversation_detail(restored)
+    assert compact["messages"][-1]["content"] == content

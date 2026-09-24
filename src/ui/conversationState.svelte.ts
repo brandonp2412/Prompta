@@ -1,6 +1,7 @@
 type Message = Record<string, any>;
 
 export class ConversationState {
+  progress = $state.raw<import("./chatProgress").ChatProgress | null>(null);
   messages = $state.raw<Message[]>([]);
   allowStreaming = $state(false);
   loading = $state(false);

@@ -1,3 +1,4 @@
+import { conversationState } from "./conversationState.svelte";
 import {
   chatBrokenReferenceAt,
   chatIsBroken,
@@ -1135,6 +1136,15 @@ function renderConversation(chat) {
   state.selectedChat = chat;
   const messages = Array.isArray(chat.messages) ? chat.messages : [];
   const visibleMessages = [...messages, ...pendingReplyMessages(chat.id, messages)];
+  const pendingProgress = (state.pendingReplies.get(chat.id) || []).at(-1);
+  conversationState.progress = pendingProgress
+    ? {
+        phase: pendingProgress.status || "queued",
+        retry_at: pendingProgress.retryAt,
+        queue_position: pendingProgress.queuePosition,
+        last_activity_at: chat.progress?.last_activity_at,
+      }
+    : chat.progress || null;
   state.selectedVisibleMessageCount = visibleMessages.length;
   const allowStreaming = chat.status === "active";
   const fingerprint = JSON.stringify([
@@ -1285,6 +1295,13 @@ function renderNewChat() {
   syncSidebarSelection();
   syncComposerDraftTarget();
   const pending = state.pendingNewSend;
+  conversationState.progress = pending
+    ? {
+        phase: pending.status || "queued",
+        retry_at: pending.retryAt,
+        queue_position: pending.queuePosition,
+      }
+    : null;
   const waiting = pending && !["failed", "dead_lettered", "succeeded"].includes(pending.status);
   const fingerprint = JSON.stringify([
     pending?.sendId || "",
