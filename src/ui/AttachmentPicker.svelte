@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  import { MAX_ATTACHMENTS, mergeAttachments } from "./attachmentLogic";
+  import { attachmentMenuTargetIndex, MAX_ATTACHMENTS, mergeAttachments } from "./attachmentLogic";
 
   import { clickOnRequest, clickOutside, focusOnRequest } from "./browserAttachments.svelte";
   import { registerAttachmentPicker } from "./uiControllers";
@@ -15,6 +15,7 @@
 
   let files = $state.raw<File[]>([]);
   let menuOpen = $state(false);
+  let menuItemFocusRequests = $state([0, 0, 0]);
   let disabled = $state(false);
   let pickerFocusRequest = $state(0);
   let fileClickRequest = $state(0);
@@ -42,6 +43,48 @@
         `Prompta supports up to ${MAX_ATTACHMENTS} attachments per message.`,
       );
     }
+  }
+
+  function requestMenuItemFocus(index: number) {
+    menuItemFocusRequests[index] += 1;
+  }
+
+  function openMenu(focus: "first" | "last" = "first") {
+    menuOpen = true;
+    requestMenuItemFocus(focus === "last" ? menuItemFocusRequests.length - 1 : 0);
+  }
+
+  function toggleMenu() {
+    if (menuOpen) {
+      closeMenu(true);
+      return;
+    }
+
+    openMenu();
+  }
+
+  function handleMenuButtonKeydown(event: KeyboardEvent) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    openMenu(event.key === "ArrowUp" ? "last" : "first");
+  }
+
+  function handleMenuItemKeydown(event: KeyboardEvent, currentIndex: number) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu(true);
+      return;
+    }
+
+    const nextIndex = attachmentMenuTargetIndex(
+      event.key,
+      currentIndex,
+      menuItemFocusRequests.length,
+    );
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    requestMenuItemFocus(nextIndex);
   }
 
   function select(kind: "file" | "photo" | "camera") {
@@ -159,25 +202,35 @@
     aria-controls="attachmentMenu"
     aria-expanded={menuOpen}
     disabled={disabled}
-    onclick={() => (menuOpen = !menuOpen)}
+    onkeydown={handleMenuButtonKeydown}
+    onclick={toggleMenu}
   >
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
   </button>
 
   {#if menuOpen}
-    <div
-      class="attachment-menu"
-      id="attachmentMenu"
-      role="menu"
-      tabindex="-1"
-      aria-label="Add attachment"
-      onkeydown={(event) => {
-        if (event.key === "Escape") closeMenu(true);
-      }}
-    >
-      <button type="button" role="menuitem" onclick={() => select("file")}>Upload file</button>
-      <button type="button" role="menuitem" onclick={() => select("photo")}>Upload photo</button>
-      <button type="button" role="menuitem" onclick={() => select("camera")}>Take photo</button>
+    <div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment">
+      <button
+        {@attach focusOnRequest(() => menuItemFocusRequests[0])}
+        type="button"
+        role="menuitem"
+        onkeydown={(event) => handleMenuItemKeydown(event, 0)}
+        onclick={() => select("file")}
+      >Upload file</button>
+      <button
+        {@attach focusOnRequest(() => menuItemFocusRequests[1])}
+        type="button"
+        role="menuitem"
+        onkeydown={(event) => handleMenuItemKeydown(event, 1)}
+        onclick={() => select("photo")}
+      >Upload photo</button>
+      <button
+        {@attach focusOnRequest(() => menuItemFocusRequests[2])}
+        type="button"
+        role="menuitem"
+        onkeydown={(event) => handleMenuItemKeydown(event, 2)}
+        onclick={() => select("camera")}
+      >Take photo</button>
     </div>
   {/if}
 

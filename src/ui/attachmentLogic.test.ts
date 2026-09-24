@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { MAX_ATTACHMENTS, mergeAttachments } from "./attachmentLogic";
+import { attachmentMenuTargetIndex, MAX_ATTACHMENTS, mergeAttachments } from "./attachmentLogic";
 
 type FakeFile = {
   name: string;
@@ -11,6 +11,27 @@ type FakeFile = {
 function fakeFile(name: string, size = 1, lastModified = 1): FakeFile {
   return { name, size, lastModified };
 }
+
+describe("attachment menu keyboard navigation", () => {
+  test("moves through menu items and wraps at either end", () => {
+    expect(attachmentMenuTargetIndex("ArrowDown", 0, 3)).toBe(1);
+    expect(attachmentMenuTargetIndex("ArrowDown", 2, 3)).toBe(0);
+    expect(attachmentMenuTargetIndex("ArrowUp", 2, 3)).toBe(1);
+    expect(attachmentMenuTargetIndex("ArrowUp", 0, 3)).toBe(2);
+  });
+
+  test("supports Home and End and ignores unrelated keys", () => {
+    expect(attachmentMenuTargetIndex("Home", 1, 3)).toBe(0);
+    expect(attachmentMenuTargetIndex("End", 1, 3)).toBe(2);
+    expect(attachmentMenuTargetIndex("Enter", 1, 3)).toBeNull();
+    expect(attachmentMenuTargetIndex("ArrowDown", 0, 0)).toBeNull();
+  });
+
+  test("starts keyboard navigation at the expected edge when no item is focused", () => {
+    expect(attachmentMenuTargetIndex("ArrowDown", -1, 3)).toBe(0);
+    expect(attachmentMenuTargetIndex("ArrowUp", -1, 3)).toBe(2);
+  });
+});
 
 describe("attachment batching", () => {
   test("accepts a full batch up to the advertised attachment limit", () => {
