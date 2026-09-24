@@ -47,10 +47,6 @@ var init_esm_env = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/shared/utils.js
-/** @param {Function} fn */
-function run(fn) {
-	return fn();
-}
 /** @param {Array<() => void>} arr */
 function run_all(arr) {
 	for (var i = 0; i < arr.length; i++) arr[i]();
@@ -336,13 +332,7 @@ function svelte_boundary_reset_onerror() {
 var init_errors = __esmMin((() => {
 	init_esm_env();
 	init_errors$1();
-}));
-//#endregion
-//#region node_modules/svelte/src/internal/flags/index.js
-function enable_legacy_mode_flag() {
-	legacy_mode_flag = true;
-}
-var async_mode_flag, legacy_mode_flag;
+})), async_mode_flag, legacy_mode_flag;
 var init_flags = __esmMin((() => {
 	async_mode_flag = false;
 	legacy_mode_flag = false;
@@ -2358,15 +2348,6 @@ function create_user_effect(fn) {
 	return create_effect(4 | USER_EFFECT, fn);
 }
 /**
-* Internal representation of `$effect.pre(...)`
-* @param {() => void | (() => void)} fn
-* @returns {Effect}
-*/
-function user_pre_effect(fn) {
-	validate_effect("$effect.pre");
-	return create_effect(8 | USER_EFFECT, fn);
-}
-/**
 * An effect root whose children can transition out
 * @param {() => void} fn
 * @returns {(options?: { outro?: boolean }) => Promise<void>}
@@ -2999,46 +2980,6 @@ function untrack(fn) {
 		return fn();
 	} finally {
 		untracking = previous_untracking;
-	}
-}
-/**
-* Possibly traverse an object and read all its properties so that they're all reactive in case this is `$state`.
-* Does only check first level of an object for performance reasons (heuristic should be good for 99% of all cases).
-* @param {any} value
-* @returns {void}
-*/
-function deep_read_state(value) {
-	if (typeof value !== "object" || !value || value instanceof EventTarget) return;
-	if (STATE_SYMBOL in value) deep_read(value);
-	else if (!Array.isArray(value)) for (let key in value) {
-		const prop = value[key];
-		if (typeof prop === "object" && prop && STATE_SYMBOL in prop) deep_read(prop);
-	}
-}
-/**
-* Deeply traverse an object and read all its properties
-* so that they're all reactive in case this is `$state`
-* @param {any} value
-* @param {Set<any>} visited
-* @returns {void}
-*/
-function deep_read(value, visited = /* @__PURE__ */ new Set()) {
-	if (typeof value === "object" && value !== null && !(value instanceof EventTarget) && !visited.has(value)) {
-		visited.add(value);
-		if (value instanceof Date) value.getTime();
-		for (let key in value) try {
-			deep_read(value[key], visited);
-		} catch (e) {}
-		const proto = get_prototype_of(value);
-		if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== Date.prototype) {
-			const descriptors = get_descriptors(proto);
-			for (let key in descriptors) {
-				const get = descriptors[key].get;
-				if (get) try {
-					get.call(value);
-				} catch (e) {}
-			}
-		}
 	}
 }
 var is_updating_effect, is_destroying_effect, active_reaction, untracking, active_effect, current_sources, new_deps, skipped_deps, untracked_writes, write_version, read_version, update_version;
@@ -5600,55 +5541,6 @@ var init_event_modifiers = __esmMin((() => {
 }));
 //#endregion
 //#region node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
-/**
-* Legacy-mode only: Call `onMount` callbacks and set up `beforeUpdate`/`afterUpdate` effects
-* @param {boolean} [immutable]
-*/
-function init(immutable = false) {
-	const context = component_context;
-	const callbacks = context.l.u;
-	if (!callbacks) return;
-	let props = () => deep_read_state(context.s);
-	if (immutable) {
-		let version = 0;
-		let prev = {};
-		const d = /* @__PURE__ */ derived(() => {
-			let changed = false;
-			const props = context.s;
-			for (const key in props) if (props[key] !== prev[key]) {
-				prev[key] = props[key];
-				changed = true;
-			}
-			if (changed) version++;
-			return version;
-		});
-		props = () => get(d);
-	}
-	if (callbacks.b.length) user_pre_effect(() => {
-		observe_all(context, props);
-		run_all(callbacks.b);
-	});
-	user_effect(() => {
-		const fns = untrack(() => callbacks.m.map(run));
-		return () => {
-			for (const fn of fns) if (typeof fn === "function") fn();
-		};
-	});
-	if (callbacks.a.length) user_effect(() => {
-		observe_all(context, props);
-		run_all(callbacks.a);
-	});
-}
-/**
-* Invoke the getter of all signals associated with a component
-* so they can be registered to the effect this function is called in.
-* @param {ComponentContextLegacy} context
-* @param {(() => void)} props
-*/
-function observe_all(context, props) {
-	if (context.l.s) for (const signal of context.l.s) get(signal);
-	props();
-}
 var init_lifecycle = __esmMin((() => {
 	init_utils$3();
 	init_context();
@@ -6711,6 +6603,7 @@ var init_appActions_svelte = __esmMin((() => {
 		onPin: () => {},
 		onShare: () => {},
 		onPromptaPage: () => {},
+		onPromptaPageClose: () => {},
 		onUnattendedMode: () => {},
 		onSubmit: () => {},
 		onComposerInput: (_value) => {},
@@ -17086,10 +16979,6 @@ delegate([
 	"contextmenu",
 	"click"
 ]);
-//#endregion
-//#region node_modules/svelte/src/internal/flags/legacy.js
-init_flags();
-enable_legacy_mode_flag();
 function jobPromptIsExpandable(promptValue) {
 	const prompt = typeof promptValue === "string" ? promptValue.trim() : "";
 	return prompt.length > 220 || prompt.includes("\n");
@@ -17425,39 +17314,80 @@ function JobsPage($$anchor, $$props) {
 }
 delegate(["click"]);
 //#endregion
+//#region src/ui/stackNavigation.ts
+var STACK_PAGE_STATE_KEY = "__promptaStackPage";
+function historyStateRecord(state) {
+	return state !== null && typeof state === "object" && !Array.isArray(state) ? state : {};
+}
+function stackPageFromState(state) {
+	const page = historyStateRecord(state)[STACK_PAGE_STATE_KEY];
+	return page === "prompta" ? page : null;
+}
+function pushStackPage(page, historyApi = history, url = location.href) {
+	historyApi.pushState({
+		...historyStateRecord(historyApi.state),
+		[STACK_PAGE_STATE_KEY]: page
+	}, "", url);
+}
+function popStackPage(page, historyApi = history) {
+	if (stackPageFromState(historyApi.state) !== page) return false;
+	historyApi.back();
+	return true;
+}
+//#endregion
 //#region src/ui/PromptaPage.svelte
 init_client();
+init_index_client();
 init_appActions_svelte();
 init_appViewState_svelte();
-var root$3 = /* @__PURE__ */ from_html(`<section class="prompta-page" aria-labelledby="promptaPageTitle"><div class="prompta-page-shell"><section class="prompta-mode-card"><div class="prompta-section-heading"><div><h2 id="promptaPageTitle">Prompta</h2> <p>Runtime controls and scheduled jobs.</p></div> <span class="prompta-mode-state"> </span></div> <button type="button" id="machineGunModeButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 8.5h9.25M2.5 11h9.25M2.5 13.5h9.25M2.5 7v8"></path><circle cx="15" cy="11" r="3.5"></circle><circle cx="15" cy="11" r="1"></circle><path d="M18.5 9.5H21l1 1.5-1 1.5h-2.5M14 14.4 12.5 19h5L16 14.4"></path></svg> <span><strong>Machine Gun Mode</strong> <small> </small></span></button></section> <!></div></section>`);
+var root$3 = /* @__PURE__ */ from_html(`<section class="prompta-page" aria-labelledby="promptaPageTitle"><div class="prompta-page-shell"><header class="prompta-page-header"><button type="button" class="prompta-back-button" aria-label="Back to chats"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12H3m7.5-7.5L3 12l7.5 7.5"></path></svg></button> <div><h2 id="promptaPageTitle">Prompta</h2> <p>Runtime controls and scheduled jobs.</p></div></header> <section class="prompta-mode-section" aria-labelledby="machineGunModeTitle"><button type="button" id="machineGunModeButton"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 8.5h9.25M2.5 11h9.25M2.5 13.5h9.25M2.5 7v8"></path><circle cx="15" cy="11" r="3.5"></circle><circle cx="15" cy="11" r="1"></circle><path d="M18.5 9.5H21l1 1.5-1 1.5h-2.5M14 14.4 12.5 19h5L16 14.4"></path></svg> <span class="prompta-machine-gun-copy"><strong id="machineGunModeTitle">Machine Gun Mode</strong> <small> </small></span> <span class="prompta-mode-state"> </span></button></section> <!></div></section>`);
 function PromptaPage($$anchor, $$props) {
-	push($$props, false);
-	init();
+	push($$props, true);
+	const mobile = new MediaQuery("(max-width: 600px)");
+	let presentation = /* @__PURE__ */ state$1("page");
+	user_effect(() => {
+		set(presentation, mobile.current ? "stack" : "page", true);
+		if (get(presentation) === "stack" && stackPageFromState(history.state) !== "prompta") pushStackPage("prompta");
+	});
+	function close() {
+		if (get(presentation) === "stack" && popStackPage("prompta")) return;
+		appActions.onPromptaPageClose();
+	}
+	function handlePopState(event) {
+		if (get(presentation) !== "stack") return;
+		if (stackPageFromState(event.state) === "prompta") return;
+		appActions.onPromptaPageClose();
+	}
 	var section = root$3();
+	event("popstate", $window, handlePopState);
 	var div = child(section);
-	var section_1 = child(div);
-	var div_1 = child(section_1);
-	var text = only_child(sibling(child(div_1), 2), true);
-	reset(div_1);
-	var button = sibling(div_1, 2);
-	var span_1 = sibling(child(button), 2);
-	var text_1 = only_child(sibling(child(span_1), 2), true);
-	reset(span_1);
-	reset(button);
+	var header = child(div);
+	var button = child(header);
+	next(2);
+	reset(header);
+	var section_1 = sibling(header, 2);
+	var button_1 = child(section_1);
+	var span = sibling(child(button_1), 2);
+	var text = only_child(sibling(child(span), 2), true);
+	reset(span);
+	var text_1 = only_child(sibling(span, 2), true);
+	reset(button_1);
 	reset(section_1);
 	JobsPage(sibling(section_1, 2), {});
 	reset(div);
 	reset(section);
 	template_effect(() => {
-		set_text(text, appViewState.unattended ? "ON" : "OFF");
-		set_class(button, 1, clsx(["prompta-machine-gun", { active: appViewState.unattended }]));
-		set_attribute(button, "aria-label", appViewState.unattended ? "Disable Machine Gun Mode" : "Enable Machine Gun Mode");
-		set_attribute(button, "title", appViewState.unattended ? "Machine Gun Mode on · no result polling · " + appViewState.unattendedSendGapSeconds + "s send gap" : "Machine Gun Mode · keep dispatching all jobs without reading results");
-		set_attribute(button, "aria-pressed", appViewState.unattended);
-		button.disabled = appViewState.unattendedUpdating;
-		set_text(text_1, appViewState.unattended ? `Dispatching without result polling · ${appViewState.unattendedSendGapSeconds}s gap` : "Normal result polling");
+		set_attribute(section, "data-presentation", get(presentation));
+		set_class(button_1, 1, clsx(["prompta-machine-gun", { active: appViewState.unattended }]));
+		set_attribute(button_1, "aria-label", appViewState.unattended ? "Disable Machine Gun Mode" : "Enable Machine Gun Mode");
+		set_attribute(button_1, "title", appViewState.unattended ? "Machine Gun Mode on · no result polling · " + appViewState.unattendedSendGapSeconds + "s send gap" : "Machine Gun Mode · keep dispatching all jobs without reading results");
+		set_attribute(button_1, "aria-pressed", appViewState.unattended);
+		button_1.disabled = appViewState.unattendedUpdating;
+		set_text(text, appViewState.unattended ? "Dispatching without result polling · " + appViewState.unattendedSendGapSeconds + "s gap" : "Normal result polling");
+		set_text(text_1, appViewState.unattended ? "ON" : "OFF");
 	});
-	delegated("click", button, function(...$$args) {
+	delegated("click", button, close);
+	delegated("click", button_1, function(...$$args) {
 		appActions.onUnattendedMode?.apply(this, $$args);
 	});
 	append($$anchor, section);
@@ -20873,6 +20803,7 @@ var init_app = __esmMin((() => {
 	appActions.onPin = toggleSelectedPin;
 	appActions.onShare = () => void copySelectedChatUrl();
 	appActions.onPromptaPage = () => showMode("prompta");
+	appActions.onPromptaPageClose = () => showMode("chats");
 	appActions.onUnattendedMode = () => void toggleUnattendedMode();
 	appActions.onSubmit = () => {
 		if (appViewState.composerAction === "stop") stopSelectedChat();

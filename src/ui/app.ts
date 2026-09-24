@@ -2753,6 +2753,7 @@ async function copySelectedChatUrl() {
 appActions.onPin = toggleSelectedPin;
 appActions.onShare = () => void copySelectedChatUrl();
 appActions.onPromptaPage = () => showMode("prompta");
+appActions.onPromptaPageClose = () => showMode("chats");
 appActions.onUnattendedMode = () => void toggleUnattendedMode();
 
 appActions.onSubmit = () => {

@@ -8,6 +8,7 @@ export const appActions = $state({
   onPin: () => {},
   onShare: () => {},
   onPromptaPage: () => {},
+  onPromptaPageClose: () => {},
   onUnattendedMode: () => {},
   onSubmit: () => {},
   onComposerInput: (_value: string) => {},

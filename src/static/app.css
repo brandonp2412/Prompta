@@ -2588,52 +2588,21 @@ textarea:focus-visible {
 }
 
 .prompta-page-shell {
-  width: min(100%, 920px);
+  width: min(100%, 880px);
   margin: 0 auto;
-  padding: 24px 24px 88px;
-  display: grid;
-  gap: 24px;
+  padding: 18px 24px 72px;
 }
 
-.prompta-mode-card,
-.jobs-page {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: rgba(33, 33, 33, 0.72);
+.prompta-page-header {
+  display: none;
 }
 
-.prompta-mode-card {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-}
-
-.prompta-section-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.prompta-section-heading h2,
-.prompta-section-heading p {
-  margin: 0;
-}
-
-.prompta-section-heading h2 {
-  font-size: 16px;
-}
-
-.prompta-section-heading p {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
+.prompta-mode-section {
+  border-bottom: 1px solid var(--border);
 }
 
 .prompta-mode-state {
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--surface);
+  margin-left: auto;
   color: var(--muted-strong);
   font-size: 11px;
   font-weight: 700;
@@ -2642,13 +2611,14 @@ textarea:focus-visible {
 
 .prompta-machine-gun {
   width: 100%;
+  min-height: 58px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -2658,8 +2628,7 @@ textarea:focus-visible {
 .prompta-machine-gun:hover,
 .prompta-machine-gun:focus-visible,
 .prompta-machine-gun.active {
-  border-color: var(--border-strong);
-  background: var(--surface);
+  background: var(--panel-hover);
 }
 
 .prompta-machine-gun:disabled {
@@ -2668,8 +2637,8 @@ textarea:focus-visible {
 }
 
 .prompta-machine-gun svg {
-  width: 22px;
-  height: 22px;
+  width: 21px;
+  height: 21px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -2678,10 +2647,10 @@ textarea:focus-visible {
   stroke-linejoin: round;
 }
 
-.prompta-machine-gun > span {
+.prompta-machine-gun-copy {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 
 .prompta-machine-gun small {
@@ -2695,8 +2664,8 @@ textarea:focus-visible {
 
 .jobs-page-shell {
   display: grid;
-  gap: 16px;
-  padding: 20px;
+  gap: 10px;
+  padding: 14px 4px 0;
 }
 
 .jobs-page-header,
@@ -2711,6 +2680,7 @@ textarea:focus-visible {
 
 .jobs-page-header {
   justify-content: space-between;
+  padding-bottom: 2px;
 }
 
 .jobs-page-header h2,
@@ -2718,10 +2688,14 @@ textarea:focus-visible {
   margin: 0;
 }
 
+.jobs-page-header h2 {
+  font-size: 16px;
+}
+
 .jobs-page-header .heading-meta {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .jobs-secondary-button,
@@ -2754,14 +2728,18 @@ textarea:focus-visible {
 }
 
 .jobs-page-status {
-  min-height: 20px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.jobs-page-status:empty {
+  display: none;
 }
 
 .jobs-list {
   display: grid;
-  gap: 10px;
+  gap: 0;
+  border-top: 1px solid var(--border);
 }
 
 .jobs-pagination {
@@ -2779,20 +2757,16 @@ textarea:focus-visible {
 }
 
 .jobs-empty {
-  padding: 22px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 14px;
+  padding: 18px 0;
   color: var(--muted);
-  text-align: center;
+  text-align: left;
 }
 
 .job-row {
   display: grid;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel);
+  gap: 6px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
   content-visibility: auto;
   contain-intrinsic-size: auto 150px;
 }
@@ -2893,8 +2867,8 @@ textarea:focus-visible {
 
 .jobs-form {
   display: grid;
-  gap: 12px;
-  padding-top: 16px;
+  gap: 10px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 
@@ -2964,19 +2938,96 @@ textarea:focus-visible {
 }
 
 @media (max-width: 600px) {
-  .prompta-page-shell {
-    padding: 16px 12px calc(28px + env(safe-area-inset-bottom));
-    gap: 16px;
+  .prompta-page[data-presentation="stack"] {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 100vw;
+    height: 100dvh;
+    background: var(--bg);
+    overflow: hidden;
   }
 
-  .prompta-mode-card,
-  .jobs-page {
-    border-radius: 14px;
+  .prompta-page[data-presentation="stack"] .prompta-page-shell {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: none;
+  }
+
+  .prompta-page[data-presentation="stack"] .prompta-page-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-height: 64px;
+    margin: 0 -16px;
+    padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(18px);
+  }
+
+  .prompta-page-header h2,
+  .prompta-page-header p {
+    margin: 0;
+  }
+
+  .prompta-page-header h2 {
+    font-size: 16px;
+  }
+
+  .prompta-page-header p {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .prompta-back-button {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .prompta-back-button:hover,
+  .prompta-back-button:focus-visible {
+    background: var(--panel-hover);
+  }
+
+  .prompta-back-button svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .prompta-mode-section {
+    margin-top: 4px;
+  }
+
+  .prompta-machine-gun {
+    padding: 10px 0;
   }
 
   .jobs-page-shell {
-    padding: 16px;
+    padding: 12px 0 0;
   }
+
   .changelog-dialog[data-presentation="stack"] {
     position: fixed;
     inset: 0;
