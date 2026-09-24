@@ -22,7 +22,12 @@
   let meta = $state("Waiting for synced journal");
   let output = $state("Loading logs…");
   let fingerprint = $state("");
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let syncState = $state<"loading" | "live" | "retrying">("loading");
+  const syncLabel = $derived(
+    syncState === "live" ? "Live" : syncState === "retrying" ? "Retrying" : "Loading",
+  );
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeRequest: AbortController | undefined;
 
   function relativeTime(epochSeconds: unknown) {
     const value = Number(epochSeconds || 0);
@@ -55,23 +60,36 @@
   }
 
   export async function load() {
+    activeRequest?.abort();
+
+    const controller = new AbortController();
     const requestedService = selectedService;
+    activeRequest = controller;
 
     try {
       const params = new URLSearchParams({ limit: "800", service: requestedService });
-      const response = await fetch("api/logs?" + params, { cache: "no-store" });
+      const response = await fetch("api/logs?" + params, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!response.ok) throw new Error(response.status + " " + response.statusText);
       const payload = await response.json();
-      if (requestedService !== selectedService) return;
+      if (controller.signal.aborted || requestedService !== selectedService) return;
+
       render(payload);
+      syncState = "live";
     } catch (error) {
-      if (requestedService !== selectedService) return;
+      if (controller.signal.aborted || requestedService !== selectedService) return;
+
       meta = "Logs unavailable";
+      syncState = "retrying";
       console.error(error);
+    } finally {
+      if (activeRequest === controller) activeRequest = undefined;
     }
   }
 
-  async function selectService(event: Event) {
+  function selectService(event: Event) {
     const value = (event.currentTarget as HTMLSelectElement).value;
     if (!logServices.some((service) => service.key === value)) return;
 
@@ -79,7 +97,7 @@
     fingerprint = "";
     meta = "Loading logs…";
     output = "Loading logs…";
-    await load();
+    syncState = "loading";
   }
 
   export function setServerTitle(display: string) {
@@ -91,12 +109,24 @@
   $effect(() => {
     if (!visible) return;
 
-    void load();
-    timer = setInterval(() => void load(), 2000);
+    const watchedService = selectedService;
+    let cancelled = false;
+
+    const poll = async () => {
+      await load();
+      if (cancelled || !visible || selectedService !== watchedService) return;
+
+      refreshTimer = setTimeout(() => void poll(), 2000);
+    };
+
+    void poll();
 
     return () => {
-      if (timer) clearInterval(timer);
-      timer = undefined;
+      cancelled = true;
+      activeRequest?.abort();
+      activeRequest = undefined;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = undefined;
     };
   });
 </script>
@@ -119,7 +149,12 @@
             {/each}
           </select>
         </label>
-        <span class="logs-live"><i></i> live</span>
+        <span
+          class={["logs-live", { live: syncState === "live" }]}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        ><i></i>{syncLabel}</span>
       </div>
     </div>
     <pre class="log-output">{output}</pre>

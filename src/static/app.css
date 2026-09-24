@@ -944,6 +944,11 @@ textarea:focus-visible {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: currentColor;
+  box-shadow: none;
+}
+
+.logs-live.live i {
   background: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }

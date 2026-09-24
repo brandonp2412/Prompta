@@ -13,6 +13,19 @@ describe("split service logs", () => {
     expect(logsPanelSource).toContain(
       'new URLSearchParams({ limit: "800", service: requestedService })',
     );
-    expect(logsPanelSource).toContain("if (requestedService !== selectedService) return;");
+    expect(logsPanelSource).toContain(
+      "if (controller.signal.aborted || requestedService !== selectedService) return;",
+    );
+  });
+
+  test("serializes polling and reports fetch health instead of always claiming live", () => {
+    expect(logsPanelSource).toContain("activeRequest?.abort();");
+    expect(logsPanelSource).toContain("signal: controller.signal");
+    expect(logsPanelSource).toContain('syncState = "live";');
+    expect(logsPanelSource).toContain('syncState = "retrying";');
+    expect(logsPanelSource).toContain('role="status"');
+    expect(logsPanelSource).toContain('aria-live="polite"');
+    expect(logsPanelSource).toContain("refreshTimer = setTimeout(() => void poll(), 2000);");
+    expect(logsPanelSource).not.toContain("setInterval");
   });
 });

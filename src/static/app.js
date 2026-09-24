@@ -17401,7 +17401,7 @@ init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_uiControllers();
 var root$2 = /* @__PURE__ */ from_html(`<option> </option>`);
-var root_1$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div class="logs-heading"><strong> </strong><span> </span></div> <div class="logs-controls"><label class="logs-service-picker"><span>Service</span> <select aria-label="Log service"></select></label> <span class="logs-live"><i></i> live</span></div></div> <pre class="log-output"> </pre></div></section>`);
+var root_1$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div class="logs-heading"><strong> </strong><span> </span></div> <div class="logs-controls"><label class="logs-service-picker"><span>Service</span> <select aria-label="Log service"></select></label> <span role="status" aria-live="polite" aria-atomic="true"><i></i> </span></div></div> <pre class="log-output"> </pre></div></section>`);
 function LogsPanel($$anchor, $$props) {
 	push($$props, true);
 	const logServices = [
@@ -17439,7 +17439,10 @@ function LogsPanel($$anchor, $$props) {
 	let meta = /* @__PURE__ */ state$1("Waiting for synced journal");
 	let output = /* @__PURE__ */ state$1("Loading logs…");
 	let fingerprint = /* @__PURE__ */ state$1("");
-	let timer;
+	let syncState = /* @__PURE__ */ state$1("loading");
+	const syncLabel = /* @__PURE__ */ user_derived(() => get(syncState) === "live" ? "Live" : get(syncState) === "retrying" ? "Retrying" : "Loading");
+	let refreshTimer;
+	let activeRequest;
 	function relativeTime(epochSeconds) {
 		const value = Number(epochSeconds || 0);
 		if (!value) return "";
@@ -17459,31 +17462,41 @@ function LogsPanel($$anchor, $$props) {
 		set(meta, payload.exists ? payload.source === "journal" ? `${lines.length} lines · live journal` : `${lines.length} lines · synced ${relativeTime(payload.updated_at)}` : "Waiting for Prompta service logs", true);
 	}
 	async function load() {
+		activeRequest?.abort();
+		const controller = new AbortController();
 		const requestedService = get(selectedService);
+		activeRequest = controller;
 		try {
 			const params = new URLSearchParams({
 				limit: "800",
 				service: requestedService
 			});
-			const response = await fetch("api/logs?" + params, { cache: "no-store" });
+			const response = await fetch("api/logs?" + params, {
+				cache: "no-store",
+				signal: controller.signal
+			});
 			if (!response.ok) throw new Error(response.status + " " + response.statusText);
 			const payload = await response.json();
-			if (requestedService !== get(selectedService)) return;
+			if (controller.signal.aborted || requestedService !== get(selectedService)) return;
 			render(payload);
+			set(syncState, "live");
 		} catch (error) {
-			if (requestedService !== get(selectedService)) return;
+			if (controller.signal.aborted || requestedService !== get(selectedService)) return;
 			set(meta, "Logs unavailable");
+			set(syncState, "retrying");
 			console.error(error);
+		} finally {
+			if (activeRequest === controller) activeRequest = void 0;
 		}
 	}
-	async function selectService(event) {
+	function selectService(event) {
 		const value = event.currentTarget.value;
 		if (!logServices.some((service) => service.key === value)) return;
 		set(selectedService, value, true);
 		set(fingerprint, "");
 		set(meta, "Loading logs…");
 		set(output, "Loading logs…");
-		await load();
+		set(syncState, "loading");
 	}
 	function setServerTitle(display) {
 		set(serverDisplay, display || "Prompta", true);
@@ -17494,11 +17507,20 @@ function LogsPanel($$anchor, $$props) {
 	});
 	user_effect(() => {
 		if (!get(visible)) return;
-		load();
-		timer = setInterval(() => void load(), 2e3);
+		const watchedService = get(selectedService);
+		let cancelled = false;
+		const poll = async () => {
+			await load();
+			if (cancelled || !get(visible) || get(selectedService) !== watchedService) return;
+			refreshTimer = setTimeout(() => void poll(), 2e3);
+		};
+		poll();
 		return () => {
-			if (timer) clearInterval(timer);
-			timer = void 0;
+			cancelled = true;
+			activeRequest?.abort();
+			activeRequest = void 0;
+			if (refreshTimer) clearTimeout(refreshTimer);
+			refreshTimer = void 0;
 		};
 	});
 	var $$exports = {
@@ -17530,10 +17552,12 @@ function LogsPanel($$anchor, $$props) {
 	var select_value;
 	init_select(select);
 	reset(label);
-	next(2);
+	var span_1 = sibling(label, 2);
+	var text_3 = sibling(child(span_1), 1, true);
+	reset(span_1);
 	reset(div_3);
 	reset(div_1);
-	var text_3 = only_child(sibling(div_1, 2), true);
+	var text_4 = only_child(sibling(div_1, 2), true);
 	reset(div);
 	reset(section);
 	attach(section, () => stickToBottom(() => get(fingerprint)));
@@ -17542,7 +17566,9 @@ function LogsPanel($$anchor, $$props) {
 		set_text(text, get(serverTitle));
 		set_text(text_1, get(meta));
 		if (select_value !== (select_value = get(selectedService))) select.value = (select.__value = select_value) ?? "", select_option(select, select_value);
-		set_text(text_3, get(output));
+		set_class(span_1, 1, clsx(["logs-live", { live: get(syncState) === "live" }]));
+		set_text(text_3, get(syncLabel));
+		set_text(text_4, get(output));
 	});
 	delegated("change", select, selectService);
 	append($$anchor, section);
