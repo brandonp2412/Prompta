@@ -6624,9 +6624,11 @@ function sidebarChatIsPending(chat) {
 }
 function pendingConversationStatus(existingStatus, pendingStatus) {
 	const current = String(existingStatus || "").trim();
-	if (current) return current;
 	const pending = String(pendingStatus || "").trim();
-	return ["failed", "dead_lettered"].includes(pending) ? pending : "pending";
+	if (!pending) return current;
+	if (["failed", "dead_lettered"].includes(pending)) return pending;
+	if (current === "active") return current;
+	return "pending";
 }
 function positiveEpoch(value) {
 	const epoch = Number(value || 0);
@@ -19774,8 +19776,12 @@ function toggleSelectedPin() {
 }
 function renderConversationMeta(chat, visibleMessageCount) {
 	const title = chatTitle(chat);
-	const broken = chatIsBroken(chat);
-	const activityLabel = broken ? brokenChatLabel(chat) : chat.status === "active" ? "updating live" : chat.status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
+	const pendingReplies = state.pendingReplies.get(chat.id) || [];
+	const latestPending = pendingReplies[pendingReplies.length - 1];
+	const status = latestPending ? pendingConversationStatus(chat.status, latestPending.status) : chat.status;
+	const pendingActivity = latestPending ? pendingSendActivity(latestPending.status, Boolean(latestPending.sendId), latestPending.retryAfterSeconds, latestPending.retryAt, void 0, latestPending.queuePosition, latestPending.queueEtaAt, latestPending.waitForResponse !== false) : null;
+	const broken = !latestPending && chatIsBroken(chat);
+	const activityLabel = broken ? brokenChatLabel(chat) : status === "active" ? "updating live" : status === "pending" ? pendingActivity?.label || "pending" : status === "interrupted" ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}` : formatRelativeTime(chatActivityAt(chat));
 	const meta = [
 		chat.job_name || "one-shot",
 		`${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
@@ -19784,13 +19790,15 @@ function renderConversationMeta(chat, visibleMessageCount) {
 	const metaFingerprint = JSON.stringify([
 		title,
 		meta,
-		chat.status,
-		broken
+		status,
+		broken,
+		pendingActivity?.statusText || ""
 	]);
 	if (metaFingerprint === state.selectedMetaFingerprint) return;
 	state.selectedMetaFingerprint = metaFingerprint;
 	setConversationHeading(title, meta);
-	setStatusIcon(broken ? "broken" : chat.status === "active" ? "active" : chat.status === "interrupted" ? "interrupted" : "cached", broken ? "No ChatGPT response for at least 40 minutes" : chat.status === "active" ? "Syncing from SQLite" : chat.status === "interrupted" ? "Last run was interrupted" : "Cached in SQLite");
+	const pendingStatus = String(latestPending?.status || "").trim().toLowerCase();
+	setStatusIcon(broken ? "broken" : status === "active" ? "active" : status === "pending" ? iconStatusClasses.has(pendingStatus) ? pendingStatus : "pending" : status === "interrupted" ? "interrupted" : status === "failed" || status === "dead_lettered" ? status : "cached", broken ? "No ChatGPT response for at least 40 minutes" : status === "active" ? "Syncing from SQLite" : status === "pending" ? pendingActivity?.statusText || "Send pending" : status === "interrupted" ? "Last run was interrupted" : status === "failed" ? "Send failed" : status === "dead_lettered" ? "Send exhausted its retry budget" : "Cached in SQLite");
 }
 function rememberConversationViewport(conversationId) {
 	if (!conversationId || state.renderedConversationId !== conversationId) return;

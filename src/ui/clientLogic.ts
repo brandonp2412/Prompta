@@ -111,12 +111,13 @@ export function pendingConversationStatus(
   pendingStatus: string | null | undefined,
 ): string {
   const current = String(existingStatus || "").trim();
-
-  if (current) return current;
-
   const pending = String(pendingStatus || "").trim();
 
-  return ["failed", "dead_lettered"].includes(pending) ? pending : "pending";
+  if (!pending) return current;
+  if (["failed", "dead_lettered"].includes(pending)) return pending;
+  if (current === "active") return current;
+
+  return "pending";
 }
 
 export const BROKEN_CHAT_AFTER_SECONDS = 40 * 60;

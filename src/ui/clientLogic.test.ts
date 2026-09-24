@@ -425,10 +425,13 @@ describe("deterministic sidebar ordering", () => {
     expect(sidebarChatIsPending({ id: "done" })).toBe(false);
   });
 
-  test("pending sends do not make a conversation active before ChatGPT replies", () => {
-    expect(pendingConversationStatus("complete", "queued")).toBe("complete");
+  test("pending sends do not claim a conversation is complete before ChatGPT replies", () => {
+    expect(pendingConversationStatus("complete", "queued")).toBe("pending");
+    expect(pendingConversationStatus("complete", "succeeded")).toBe("pending");
     expect(pendingConversationStatus("", "queued")).toBe("pending");
     expect(pendingConversationStatus("", "running")).toBe("pending");
+    expect(pendingConversationStatus("active", "succeeded")).toBe("active");
+    expect(pendingConversationStatus("complete", "failed")).toBe("failed");
   });
 
   test("keeps the pending new chat selected after the server assigns its conversation id", () => {

@@ -1056,39 +1056,79 @@ function toggleSelectedPin() {
 
 function renderConversationMeta(chat, visibleMessageCount) {
   const title = chatTitle(chat);
-  const broken = chatIsBroken(chat);
+  const pendingReplies = state.pendingReplies.get(chat.id) || [];
+  const latestPending = pendingReplies[pendingReplies.length - 1];
+  const status = latestPending
+    ? pendingConversationStatus(chat.status, latestPending.status)
+    : chat.status;
+  const pendingActivity = latestPending
+    ? pendingSendActivity(
+        latestPending.status,
+        Boolean(latestPending.sendId),
+        latestPending.retryAfterSeconds,
+        latestPending.retryAt,
+        undefined,
+        latestPending.queuePosition,
+        latestPending.queueEtaAt,
+        latestPending.waitForResponse !== false,
+      )
+    : null;
+  const broken = !latestPending && chatIsBroken(chat);
   const activityLabel = broken
     ? brokenChatLabel(chat)
-    : chat.status === "active"
+    : status === "active"
       ? "updating live"
-      : chat.status === "interrupted"
-        ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}`
-        : formatRelativeTime(chatActivityAt(chat));
+      : status === "pending"
+        ? pendingActivity?.label || "pending"
+        : status === "interrupted"
+          ? `interrupted · ${formatRelativeTime(chatActivityAt(chat))}`
+          : formatRelativeTime(chatActivityAt(chat));
   const meta = [
     chat.job_name || "one-shot",
     `${visibleMessageCount} message${visibleMessageCount === 1 ? "" : "s"}`,
     activityLabel,
   ].join(" · ");
-  const metaFingerprint = JSON.stringify([title, meta, chat.status, broken]);
+  const metaFingerprint = JSON.stringify([
+    title,
+    meta,
+    status,
+    broken,
+    pendingActivity?.statusText || "",
+  ]);
 
   if (metaFingerprint === state.selectedMetaFingerprint) return;
 
   state.selectedMetaFingerprint = metaFingerprint;
   setConversationHeading(title, meta);
+  const pendingStatus = String(latestPending?.status || "")
+    .trim()
+    .toLowerCase();
   const syncStatus = broken
     ? "broken"
-    : chat.status === "active"
+    : status === "active"
       ? "active"
-      : chat.status === "interrupted"
-        ? "interrupted"
-        : "cached";
+      : status === "pending"
+        ? iconStatusClasses.has(pendingStatus)
+          ? pendingStatus
+          : "pending"
+        : status === "interrupted"
+          ? "interrupted"
+          : status === "failed" || status === "dead_lettered"
+            ? status
+            : "cached";
   const syncLabel = broken
     ? "No ChatGPT response for at least 40 minutes"
-    : chat.status === "active"
+    : status === "active"
       ? "Syncing from SQLite"
-      : chat.status === "interrupted"
-        ? "Last run was interrupted"
-        : "Cached in SQLite";
+      : status === "pending"
+        ? pendingActivity?.statusText || "Send pending"
+        : status === "interrupted"
+          ? "Last run was interrupted"
+          : status === "failed"
+            ? "Send failed"
+            : status === "dead_lettered"
+              ? "Send exhausted its retry budget"
+              : "Cached in SQLite";
   setStatusIcon(syncStatus, syncLabel);
 }
 
