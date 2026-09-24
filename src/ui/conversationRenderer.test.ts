@@ -111,6 +111,22 @@ describe("pending message long press", () => {
     expect(pendingLongPressMoved(10, 10, 19, 10)).toBe(true);
     expect(pendingLongPressMoved(10, 10, 10, 19)).toBe(true);
   });
+
+  test("keeps the mobile pending-message bottom sheet wired to the long press", () => {
+    expect(conversationMessagesSource).toContain(
+      "onpointerdown={(event) => startPendingLongPress(event, message)}",
+    );
+    expect(conversationMessagesSource).toMatch(
+      /pendingLongPressTimer = setTimeout\(\(\) => \{[\s\S]*?openActions\(message\);[\s\S]*?\}, 480\);/,
+    );
+    expect(conversationMessagesSource).toContain(
+      "{@attach dialogVisibility(() => actionsOpen, () => true, closeActions)}",
+    );
+    expect(conversationMessagesSource).toContain(">Send next</button>");
+    expect(conversationMessagesSource).toContain(">Edit message</button>");
+    expect(conversationMessagesSource).toContain("Delete message");
+    expect(conversationMessagesSource).toContain(">Cancel</button>");
+  });
 });
 
 describe("desktop pending message actions", () => {
