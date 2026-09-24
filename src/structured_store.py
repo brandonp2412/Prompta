@@ -523,6 +523,16 @@ def persist_structured_capture(
                 content, source_created_at, source_event_key, tool_call_key,
                 end_turn, metadata_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id, message_key, part_key) DO UPDATE SET
+                ordinal = excluded.ordinal,
+                kind = excluded.kind,
+                title = excluded.title,
+                content = excluded.content,
+                source_created_at = excluded.source_created_at,
+                source_event_key = excluded.source_event_key,
+                tool_call_key = excluded.tool_call_key,
+                end_turn = excluded.end_turn,
+                metadata_json = excluded.metadata_json
             """,
             (
                 conversation_id,

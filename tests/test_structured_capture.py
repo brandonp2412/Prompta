@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from prompta.cache import ChatCache
@@ -9,6 +10,7 @@ from prompta.structured_capture import (
     message_parts_from_source_events,
     tool_calls_from_source_events,
 )
+from prompta.structured_store import persist_structured_capture
 from prompta.web_store import ReadOnlyChatStore
 
 
@@ -1331,3 +1333,47 @@ def test_structured_capture_ignores_network_error_banner_between_tool_activity()
     assert "A network error occurred" not in combined
     assert "Checking the stored conversation state" in combined
     assert "Finished" in combined
+
+
+def test_persist_structured_capture_coalesces_duplicate_part_keys(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    ChatCache(path)
+    events = [
+        {
+            "id": "same-event",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["earlier"],
+            "text": "earlier",
+            "create_time": 1.0,
+            "end_turn": False,
+        },
+        {
+            "id": "same-event",
+            "role": "assistant",
+            "recipient": "all",
+            "content_type": "text",
+            "parts": ["latest"],
+            "text": "latest",
+            "create_time": 2.0,
+            "end_turn": True,
+        },
+    ]
+
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        persist_structured_capture(
+            connection,
+            conversation_id="conversation-duplicate-parts",
+            message_key="assistant-1",
+            source_events=events,
+            observed_at=3.0,
+        )
+        rows = connection.execute(
+            "SELECT part_key, content, end_turn FROM message_parts "
+            "WHERE conversation_id = ? AND message_key = ?",
+            ("conversation-duplicate-parts", "assistant-1"),
+        ).fetchall()
+
+    assert [tuple(row) for row in rows] == [("same-event", "latest", 1)]
