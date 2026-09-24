@@ -1,6 +1,7 @@
 import bash from "highlight.js/lib/languages/bash";
 import cpp from "highlight.js/lib/languages/cpp";
 import dart from "highlight.js/lib/languages/dart";
+import diff from "highlight.js/lib/languages/diff";
 import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
 import markdown from "highlight.js/lib/languages/markdown";
@@ -13,6 +14,7 @@ import type { RootContent } from "hast";
 import { createLowlight } from "lowlight";
 import { marked, type Token, type Tokens } from "marked";
 
+import { extractToolCodeDiff, type ToolCodeDiff } from "./diffPreview";
 import {
   formatClockTime12Hour,
   pythonToolCallCode,
@@ -29,6 +31,7 @@ lowlight.register({
   bash,
   cpp,
   dart,
+  diff,
   javascript,
   json,
   markdown,
@@ -43,6 +46,7 @@ lowlight.registerAlias({
   cpp: ["c", "cxx", "h", "hpp"],
   javascript: ["js", "jsx", "mjs", "cjs"],
   markdown: ["md"],
+  diff: ["patch"],
   python: ["py"],
   typescript: ["ts", "tsx"],
   xml: ["html", "svg"],
@@ -94,6 +98,7 @@ export type ToolPresentation = {
   connector: string;
   time: { text: string; iso: string } | null;
   hasMeta: boolean;
+  diff: ToolCodeDiff | null;
 };
 
 export type CodePresentation = {
@@ -264,21 +269,25 @@ export function codePresentation(token: Tokens.Code): CodePresentation | null {
   const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
   const inlineToolMatch = token.text.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
   const toolish = Boolean(toolMatch || inlineToolMatch);
+  const extracted = toolish
+    ? extractToolCodeDiff(token.text)
+    : { code: token.text, diff: null as ToolCodeDiff | null };
+  const toolCode = extracted.code.trim();
   const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
   const toolName = toolCallDisplayName(rawToolName);
-  const trimmedCode = token.text.trim();
-  const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
-  const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
+  const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(toolCode);
+  const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(toolCode);
 
   if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return null;
 
-  const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
+  const pythonCode = toolish ? pythonToolCallCode(rawToolName, toolCode) : "";
   const code =
-    pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : token.text);
+    pythonCode ||
+    (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : extracted.code);
   const highlightLanguage = pythonCode
     ? "python"
     : toolish
-      ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[")
+      ? toolCode.startsWith("{") || toolCode.startsWith("[")
         ? "json"
         : "plaintext"
       : language;
@@ -295,8 +304,8 @@ export function codePresentation(token: Tokens.Code): CodePresentation | null {
     };
   }
 
-  const summary = toolCallSummary(trimmedCode);
-  const timestamp = toolCallTimestampMillis(trimmedCode);
+  const summary = toolCallSummary(toolCode);
+  const timestamp = toolCallTimestampMillis(toolCode);
   const parts = toolName.split(/\s*·\s*/).filter(Boolean);
   const action = parts.length > 1 ? parts[parts.length - 1] : toolName;
   const connector = parts.length > 1 ? parts.slice(0, -1).join(" · ") : "";
@@ -322,6 +331,7 @@ export function codePresentation(token: Tokens.Code): CodePresentation | null {
               iso: new Date(timestamp).toISOString(),
             },
       hasMeta: Boolean(summary && action),
+      diff: extracted.diff,
     },
   };
 }

@@ -1,3 +1,5 @@
+import { injectToolCodeDiff } from "./diffPreview";
+
 export function canMorphPendingMessageNode(messageKey: unknown, role: string, sendError = false) {
   if (sendError) return false;
 
@@ -50,12 +52,28 @@ export function messageDisplayContent(message: Record<string, any> | null | unde
   if (message?.role !== "assistant" || message?.parts_renderable !== true) return fallback;
   if (!Array.isArray(message.parts)) return fallback;
 
+  const toolDiffs = new Map<string, unknown>();
+  if (Array.isArray(message.tool_calls)) {
+    for (const call of message.tool_calls) {
+      const callKey = String(call?.call_key || "");
+      if (callKey && call?.code_diff) toolDiffs.set(callKey, call.code_diff);
+    }
+  }
+
   const ordered = message.parts
-    .map((part: any, index: number) => ({
-      content: String(part?.content || "").trim(),
-      index,
-      ordinal: Number.isFinite(Number(part?.ordinal)) ? Number(part.ordinal) : index,
-    }))
+    .map((part: any, index: number) => {
+      const content = String(part?.content || "").trim();
+      const callKey = String(part?.tool_call_key || "");
+
+      return {
+        content:
+          String(part?.kind || "") === "tool_call" && callKey && toolDiffs.has(callKey)
+            ? injectToolCodeDiff(content, toolDiffs.get(callKey))
+            : content,
+        index,
+        ordinal: Number.isFinite(Number(part?.ordinal)) ? Number(part.ordinal) : index,
+      };
+    })
     .filter((part: { content: string }) => Boolean(part.content))
     .sort(
       (left: { ordinal: number; index: number }, right: { ordinal: number; index: number }) =>
