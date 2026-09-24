@@ -207,13 +207,20 @@
 
           <div class="job-row-actions">
             {#if !job.run_at_epoch}
-              <button type="button" class="job-action" disabled={saving} onclick={() => edit(job)}
-                >Edit</button
+              <button
+                type="button"
+                class="job-action"
+                aria-label={`Edit ${job.name}`}
+                disabled={saving}
+                onclick={() => edit(job)}
               >
+                Edit
+              </button>
             {/if}
             <button
               type="button"
               class="job-action"
+              aria-label={`${job.paused ? "Resume" : "Pause"} ${job.name}`}
               disabled={saving}
               onclick={() =>
                 void command(
@@ -226,6 +233,7 @@
             <button
               type="button"
               class="job-action"
+              aria-label={`Remove ${job.name}`}
               disabled={saving}
               onclick={() => requestRemove(job)}
             >

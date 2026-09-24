@@ -44,6 +44,14 @@ describe("scheduled job prompt presentation", () => {
     expect(jobsPageSource).toContain("{#each pagination.items as job (job.name)}");
   });
 
+  test("gives every row action a job-specific accessible name", () => {
+    expect(jobsPageSource).toContain("aria-label={`Edit ${job.name}`}");
+    expect(jobsPageSource).toContain(
+      'aria-label={`${job.paused ? "Resume" : "Pause"} ${job.name}`}',
+    );
+    expect(jobsPageSource).toContain("aria-label={`Remove ${job.name}`}");
+  });
+
   test("renders jobs as an inline page", () => {
     expect(jobsPageSource).toContain('class="jobs-page"');
     expect(jobsPageSource).toContain('aria-labelledby="jobsPageTitle"');
@@ -59,7 +67,7 @@ describe("scheduled job prompt presentation", () => {
       'if (await command({ action: "clear" }, "Cleared all scheduled jobs")) reset();',
     );
     expect(jobsPageSource).not.toContain("confirm(");
-    expect(jobsPageSource.match(/class="job-action"\s+disabled=\{saving\}/g)?.length).toBe(3);
+    expect(jobsPageSource.match(/class="job-action"[^>]*disabled=\{saving\}/g)?.length).toBe(3);
   });
 
   test("makes edit cancellation explicit", () => {
