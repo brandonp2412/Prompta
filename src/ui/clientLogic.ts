@@ -499,25 +499,21 @@ export function pendingSendActivity(
 
   if (!hasSendId) return { label: "sending", statusText: "Sending…" };
 
+  const position = Number(queuePosition);
+  const etaAt = Number(queueEtaAtEpoch);
+  const now = Number(nowEpoch);
+  const hasQueuePosition = Number.isFinite(position) && position > 0;
+  const etaRemaining =
+    Number.isFinite(etaAt) && etaAt > 0 && Number.isFinite(now) ? Math.max(0, etaAt - now) : 0;
+  const eta = etaRemaining > 0 ? " · ETA ~" + queueEtaText(etaRemaining) : "";
+  const queueLabel = hasQueuePosition ? " · #" + Math.floor(position) + eta : "";
+  const queueStatusPrefix = hasQueuePosition ? "Queued in Prompta" + queueLabel + ". " : "";
+
   if (normalized === "queued") {
-    const position = Number(queuePosition);
-
-    if (Number.isFinite(position) && position > 0) {
-      const queueLabel = "queued · #" + Math.floor(position);
-      const statusLabel = "Queued in Prompta · #" + Math.floor(position);
-      const etaAt = Number(queueEtaAtEpoch);
-      const now = Number(nowEpoch);
-      const etaRemaining =
-        Number.isFinite(etaAt) && etaAt > 0 && Number.isFinite(now) ? Math.max(0, etaAt - now) : 0;
-      const eta = etaRemaining > 0 ? " · ETA ~" + queueEtaText(etaRemaining) : "";
-
-      return {
-        label: queueLabel + eta,
-        statusText: statusLabel + eta,
-      };
-    }
-
-    return { label: "queued", statusText: "Queued in Prompta…" };
+    return {
+      label: "queued" + queueLabel,
+      statusText: hasQueuePosition ? "Queued in Prompta" + queueLabel : "Queued in Prompta…",
+    };
   }
 
   if (normalized === "retrying") {
@@ -529,14 +525,17 @@ export function pendingSendActivity(
         : Number(retryAfterSeconds);
 
     if (remaining <= 0) {
-      return { label: "retrying now", statusText: "Retry backoff elapsed; retrying now…" };
+      return {
+        label: "retrying now" + queueLabel,
+        statusText: queueStatusPrefix + "Retry backoff elapsed; retrying now…",
+      };
     }
 
     const delay = retryDelayText(remaining);
 
     return {
-      label: `retrying · ${delay}`,
-      statusText: `Send failed transiently — retrying automatically in ${delay}.`,
+      label: `retrying${queueLabel} · ${delay}`,
+      statusText: `${queueStatusPrefix}Send failed transiently — retrying automatically in ${delay}.`,
     };
   }
 
@@ -548,16 +547,16 @@ export function pendingSendActivity(
 
     if (hasDeadline && remaining <= 0) {
       return {
-        label: "rate limited · retrying now",
-        statusText: "Rate limited — backoff elapsed; retrying now…",
+        label: "rate limited" + queueLabel + " · retrying now",
+        statusText: queueStatusPrefix + "Rate limited — backoff elapsed; retrying now…",
       };
     }
 
     const delay = retryDelayText(remaining);
 
     return {
-      label: `rate limited · retry in ${delay}`,
-      statusText: `Rate limited — backing off; retrying automatically in ${delay}.`,
+      label: `rate limited${queueLabel} · retry in ${delay}`,
+      statusText: `${queueStatusPrefix}Rate limited — backing off; retrying automatically in ${delay}.`,
     };
   }
 

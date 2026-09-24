@@ -827,6 +827,11 @@ describe("pending send activity", () => {
       label: "rate limited · retry in 5m",
       statusText: "Rate limited — backing off; retrying automatically in 5m.",
     });
+    expect(pendingSendActivity("rate_limited", true, 300, 1_300, 1_000, 2, 1_900)).toEqual({
+      label: "rate limited · #2 · ETA ~15m · retry in 5m",
+      statusText:
+        "Queued in Prompta · #2 · ETA ~15m. Rate limited — backing off; retrying automatically in 5m.",
+    });
   });
 
   test("counts rate-limit backoff down from the absolute retry deadline", () => {
@@ -851,6 +856,11 @@ describe("pending send activity", () => {
     expect(pendingSendActivity("retrying", true, 4, 1_004, 1_000)).toEqual({
       label: "retrying · <1m",
       statusText: "Send failed transiently — retrying automatically in <1m.",
+    });
+    expect(pendingSendActivity("retrying", true, 120, 1_120, 1_000, 3, 1_900)).toEqual({
+      label: "retrying · #3 · ETA ~15m · 2m",
+      statusText:
+        "Queued in Prompta · #3 · ETA ~15m. Send failed transiently — retrying automatically in 2m.",
     });
     expect(pendingSendActivity("failed", true)).toBeNull();
     expect(pendingSendActivity("dead_lettered", true)).toBeNull();

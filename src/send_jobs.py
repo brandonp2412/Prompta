@@ -30,6 +30,7 @@ _DEAD_LETTER_LIMIT = 100
 _SUCCEEDED_RECEIPT_LIMIT = 1000
 _DELIVERY_LEASE_SECONDS = 90.0
 _DELIVERY_LEASE_RENEW_SECONDS = 30.0
+_WAITING_QUEUE_STATUSES = {"queued", "retrying", "rate_limited"}
 _LEGACY_PRE_SEND_OUTAGE_ERRORS = (
     "Prompta scheduler is running but its control socket is unavailable:",
     "Prompta backend is unavailable after starting prompta.service",
@@ -613,13 +614,13 @@ class SendJobRegistry:
     def _job_with_queue_position_locked(self, job: dict[str, Any]) -> dict[str, Any]:
         result = dict(job)
         result.pop("_attachments", None)
-        if str(job.get("status") or "") != "queued":
+        if str(job.get("status") or "") not in _WAITING_QUEUE_STATUSES:
             return result
 
         send_id = str(job.get("send_id") or "")
         position = 0
         for candidate in self._jobs.values():
-            if str(candidate.get("status") or "") in {"queued", "retrying", "rate_limited"}:
+            if str(candidate.get("status") or "") in _WAITING_QUEUE_STATUSES:
                 position += 1
             if str(candidate.get("send_id") or "") == send_id:
                 break
@@ -949,7 +950,7 @@ class SendJobRegistry:
             return [
                 self._job_with_queue_position_locked(job)
                 for job in self._jobs.values()
-                if str(job.get("status") or "") in {"queued", "running", "retrying", "rate_limited"}
+                if str(job.get("status") or "") in _WAITING_QUEUE_STATUSES | {"running"}
             ]
 
     def list_conversation_receipts(

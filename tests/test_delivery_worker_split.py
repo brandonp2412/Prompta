@@ -230,6 +230,61 @@ def test_producer_only_registry_observes_external_completion(tmp_path: Path) -> 
         producer.close()
 
 
+def test_producer_observer_keeps_queue_position_and_eta_for_waiting_retry_states(
+    tmp_path: Path,
+) -> None:
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    producer = SendJobRegistry(None, queue_path=queue_path, consume=False)
+    queue = DeliveryQueueStore(queue_path)
+    now = time.time()
+    try:
+        first = producer.submit(operation="once", message="first", client_id="client-1")
+        second = producer.submit(operation="once", message="second", client_id="client-2")
+        third = producer.submit(operation="once", message="third", client_id="client-3")
+
+        claimed_first = queue.claim_next("external-worker", now=now, lease_seconds=30.0)
+        assert claimed_first is not None
+        assert claimed_first["send_id"] == first["send_id"]
+        assert queue.retry_claim(
+            first["send_id"],
+            "external-worker",
+            retry_at=now + 120,
+            retry_attempt=1,
+            error="rate limited",
+            status="rate_limited",
+            now=now,
+        )
+
+        claimed_second = queue.claim_next("external-worker", now=now, lease_seconds=30.0)
+        assert claimed_second is not None
+        assert claimed_second["send_id"] == second["send_id"]
+        assert queue.retry_claim(
+            second["send_id"],
+            "external-worker",
+            retry_at=now + 30,
+            retry_attempt=1,
+            error="transient failure",
+            status="retrying",
+            now=now,
+        )
+
+        observed_first = producer.get(first["send_id"])
+        observed_second = producer.get(second["send_id"])
+        observed_third = producer.get(third["send_id"])
+
+        assert observed_first is not None
+        assert observed_second is not None
+        assert observed_third is not None
+        assert observed_first["queue_position"] == 1
+        assert observed_second["queue_position"] == 2
+        assert observed_third["queue_position"] == 3
+        assert observed_first["queue_eta_at"] == pytest.approx(now + 120, abs=2)
+        assert observed_second["queue_eta_at"] == pytest.approx(now + 420, abs=2)
+        assert observed_third["queue_eta_at"] == pytest.approx(now + 720, abs=2)
+    finally:
+        producer.close()
+
+
 def test_worker_rechecks_lease_before_external_send(tmp_path: Path) -> None:
     queue_path = tmp_path / "ui-send-jobs.sqlite3"
     delivered = threading.Event()
