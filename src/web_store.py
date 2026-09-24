@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import subprocess
 from datetime import datetime
@@ -18,6 +19,31 @@ from .stream_order import (
     stabilize_streaming_content,
 )
 from .structured_capture import has_completed_final_text, rendered_content_from_parts
+
+_RICH_URL_RE = re.compile(r"url([^]+)[^]+")
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalized_prose_for_match(content: str) -> str:
+    """Normalize rich-link and Markdown prose for duplicate detection only."""
+
+    text = _RICH_URL_RE.sub(lambda match: match.group(1), str(content or ""))
+    text = _MARKDOWN_LINK_RE.sub(lambda match: match.group(1), text)
+    for marker in ("*", "_", chr(96)):
+        text = text.replace(marker, "")
+    return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+def _is_final_text_duplicate(content: str, final_texts: list[str]) -> bool:
+    normalized = _normalized_prose_for_match(content)
+    if not normalized:
+        return False
+    return any(
+        normalized in _normalized_prose_for_match(final_text)
+        for final_text in final_texts
+        if final_text.strip()
+    )
 
 
 def _attach_transient_dom_prose_observations(
@@ -81,7 +107,7 @@ def _merge_tool_parts_with_dom_prose(
         return None
 
     prose_blocks = observed_prose_blocks(observations)
-    existing_text = [
+    final_texts = [
         str(part.get("content") or "").strip()
         for part in parts
         if str(part.get("kind") or "") == "final_text" and str(part.get("content") or "").strip()
@@ -89,10 +115,23 @@ def _merge_tool_parts_with_dom_prose(
     prose_blocks = [
         (observed_at, content)
         for observed_at, content in prose_blocks
-        if not any(preserves_non_tool_text(content, existing) for existing in existing_text)
+        if not _is_final_text_duplicate(content, final_texts)
+        and not any(preserves_non_tool_text(content, existing) for existing in final_texts)
     ]
     if not prose_blocks:
         return None
+
+    final_sort_times: list[float] = []
+    for part in parts:
+        if str(part.get("kind") or "") != "final_text":
+            continue
+        timestamp = part.get("source_created_at")
+        try:
+            if timestamp is not None:
+                final_sort_times.append(float(timestamp))
+        except (TypeError, ValueError):
+            continue
+    final_sort_time = min(final_sort_times) if final_sort_times else None
 
     timeline: list[tuple[float, int, int, dict[str, Any]]] = []
     for index, part in enumerate(parts):
@@ -104,9 +143,12 @@ def _merge_tool_parts_with_dom_prose(
         timeline.append((sort_time, 1, index, dict(part)))
 
     for index, (observed_at, content) in enumerate(prose_blocks):
+        recovered_sort_time = (
+            min(observed_at, final_sort_time) if final_sort_time is not None else observed_at
+        )
         timeline.append(
             (
-                observed_at,
+                recovered_sort_time,
                 0,
                 index,
                 {

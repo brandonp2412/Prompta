@@ -870,6 +870,92 @@ def test_read_only_store_recovers_dom_prose_when_only_final_text_survived(
     assert content.index("Visible follow-up") < content.index("Finished")
 
 
+def test_read_only_store_keeps_late_recovered_prose_before_final_text(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-late-dom-prose"
+    durable_key = "a1"
+    cache.start(
+        conversation_id,
+        context_id="context-late-dom-prose",
+        job_name="",
+        prompt="Inspect this",
+    )
+    invocation, result, final = _source_events()[1:4]
+    final = {
+        **final,
+        "parts": ["Finished with urlcommit 5973e26https://example.test/commit/5973e26."],
+    }
+    fence = chr(96) * 3
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Structured",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Inspect this"},
+                {
+                    "id": durable_key,
+                    "role": "assistant",
+                    "content": (f"{fence}tool:tool" + chr(10) + "Called tool" + chr(10) + fence),
+                },
+            ],
+            "source_events": [invocation, result, final],
+        },
+    )
+
+    late_observation = {
+        "id": f"{durable_key}:dom-prose",
+        "parts": [
+            "Finished with commit 5973e26.",
+            "I’ll inspect the affected conversation ordering.",
+            "The UI restart completed and validation passed.",
+        ],
+    }
+    with cache.connection:
+        cache.connection.execute(
+            """
+            INSERT INTO source_events (
+                conversation_id, message_key, event_key, ordinal,
+                raw_json, observed_at, source_created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                durable_key,
+                f"{durable_key}:dom-prose:late",
+                20,
+                json.dumps(late_observation),
+                110.0,
+                None,
+            ),
+        )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    parts = assistant["parts"]
+    content = assistant["content"]
+    assert assistant["parts_renderable"] is True
+    assert [part["kind"] for part in parts] == [
+        "tool_call",
+        "assistant_text",
+        "assistant_text",
+        "final_text",
+    ]
+    assert content.count("commit 5973e26") == 1
+    assert content.index("I’ll inspect the affected conversation ordering.") < content.index(
+        "The UI restart completed and validation passed."
+    )
+    assert content.index("The UI restart completed and validation passed.") < content.index(
+        "Finished with"
+    )
+
+
 def test_read_only_store_prefers_rich_tools_over_transient_thinking_placeholder(
     tmp_path: Path,
 ) -> None:
