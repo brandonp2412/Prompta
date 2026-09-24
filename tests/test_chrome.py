@@ -69,6 +69,24 @@ async def test_composer_prefers_semantic_textbox_and_fill(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_composer_ignores_message_search_label_outside_main(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <aside><input role="textbox" aria-label="Message search"></aside>
+        <main><textarea aria-label="Chat with ChatGPT"></textarea></main>
+        """
+    )
+
+    await driver.type_message("real composer")
+
+    assert (
+        await page.get_by_role("textbox", name="Chat with ChatGPT").input_value() == "real composer"
+    )
+    assert await page.get_by_role("textbox", name="Message search").input_value() == ""
+
+
+@pytest.mark.asyncio
 async def test_composer_prefers_main_textbox_over_sidebar_and_dialog(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -122,18 +140,19 @@ async def test_send_prefers_button_accessible_name(live_driver) -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_falls_back_to_stable_test_id(live_driver) -> None:
+async def test_send_ignores_test_id_on_unlabeled_button_outside_composer(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
         """
-        <textarea aria-label="Message ChatGPT">hello</textarea>
-        <button data-testid="send-button" onclick="window.sent=true">icon</button>
+        <main><textarea aria-label="Message ChatGPT">hello</textarea></main>
+        <button data-testid="send-button" onclick="window.wrong=true">icon</button>
         """
     )
 
-    await driver.click_send_button(timeout=0.2)
+    with pytest.raises(RuntimeError, match="send button did not become enabled"):
+        await driver.click_send_button(timeout=0.2)
 
-    assert await page.evaluate("window.sent") is True
+    assert await page.evaluate("Boolean(window.wrong)") is False
 
 
 @pytest.mark.asyncio
@@ -184,6 +203,17 @@ async def test_stop_prefers_button_accessible_name(live_driver) -> None:
 
     assert await driver.click_stop(driver.context, timeout=0.2) is True
     assert await page.evaluate("window.stopped") is True
+
+
+@pytest.mark.asyncio
+async def test_stop_ignores_unlabeled_test_id_button(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        '<button data-testid="stop-button" onclick="window.wrong=true">square</button>'
+    )
+
+    assert await driver.click_stop(driver.context, timeout=0.2) is False
+    assert await page.evaluate("Boolean(window.wrong)") is False
 
 
 @pytest.mark.asyncio
@@ -614,9 +644,11 @@ def test_semantic_locators_are_first_in_browser_controls() -> None:
     model_source = inspect.getsource(PlaywrightDriver.select_effort_model)
     power_source = inspect.getsource(PlaywrightDriver.effort_power_info)
 
-    assert composer_source.index("get_by_role") < composer_source.index("locator(selector)")
-    assert button_source.index("get_by_role") < button_source.index("get_by_test_id")
-    assert button_source.index("get_by_test_id") < button_source.index("locator(selector)")
+    assert 'get_by_role("textbox"' in composer_source
+    assert "locator(selector)" not in composer_source
+    assert 'get_by_role("button", name=name)' in button_source
+    assert "get_by_test_id" not in button_source
+    assert "locator(selector)" not in button_source
     assert 'get_by_role("button", name=' in effort_trigger_source
     assert 'get_by_role("menuitemradio").filter' in model_source
     assert 'get_by_role("slider", include_hidden=True)' in power_source

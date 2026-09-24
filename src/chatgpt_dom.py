@@ -2,32 +2,15 @@ from __future__ import annotations
 
 from .browser_script_loader import render_browser_script
 
-# Keep ChatGPT DOM knowledge in one place. Selectors are ordered from the most
-# semantic/stable contract to progressively broader structural fallbacks.
-COMPOSER_SELECTORS = (
-    'textarea[name="prompt-textarea"]',
-    "#prompt-textarea",
-    "[data-composer-surface] textarea",
-    'form[data-type="unified-composer"] textarea',
-    '[data-composer-surface] [contenteditable="true"][role="textbox"]',
-    'form[data-type="unified-composer"] [contenteditable="true"][role="textbox"]',
-    '[contenteditable="true"][role="textbox"]',
-    'div[role="textbox"].ProseMirror',
-    "textarea#mobile-composer-prompt",
-    'main textarea[aria-label*="Chat" i]',
-    'main textarea[placeholder*="Ask" i]',
-)
-
-SEND_BUTTON_SELECTORS = (
-    '[data-testid="send-button"]',
-    "#composer-submit-button",
-    'button[aria-label="Send prompt"]',
-    'button[aria-label*="send" i]',
-    'button[type="submit"]',
+# CSS is limited to DOM state and hidden file inputs. Playwright interactions use
+# accessible roles, names and visible text in playwright_driver.py.
+FILE_INPUT_SELECTORS = (
+    'form[data-type="unified-composer"] input[type="file"]',
+    '[data-composer-surface] input[type="file"]',
+    'input[type="file"]',
 )
 
 STOP_BUTTON_SELECTORS = (
-    '[data-testid="stop-button"]',
     'button[aria-label="Stop answering"]',
     'button[aria-label="Stop generating"]',
     'button[aria-label*="stop" i]',

@@ -39,12 +39,9 @@ from .browser_ownership import (
 )
 from .browser_script_loader import load_browser_script
 from .chatgpt_dom import (
-    COMPOSER_SELECTORS,
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
     FILE_INPUT_SELECTORS,
     MESSAGE_ROLE_SELECTOR,
-    SEND_BUTTON_SELECTORS,
-    STOP_BUTTON_SELECTORS,
 )
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 
@@ -57,7 +54,7 @@ _RATE_LIMIT_RE = re.compile(
 )
 _LOGIN_RE = re.compile(r"^(?:log ?in|sign ?in)$", re.IGNORECASE)
 _COMPOSER_NAME_RE = re.compile(
-    r"(?:message|ask|chatgpt|prompt|send a message)",
+    r"^(?:chat with chatgpt|message(?: chatgpt)?|ask(?: chatgpt| anything)?|prompt|send a message)$",
     re.IGNORECASE,
 )
 _SEND_RE = re.compile(r"^(?:send|send prompt)$", re.IGNORECASE)
@@ -353,15 +350,12 @@ class PlaywrightDriver(BrowserDriverBase):
             found = await self._first_usable([textboxes])
             if found is not None:
                 return found
-        return await self._first_usable([page.locator(selector) for selector in COMPOSER_SELECTORS])
+        return None
 
     async def _semantic_button(
         self,
         page: Page,
         name: re.Pattern[str],
-        *,
-        fallback_test_ids: tuple[str, ...] = (),
-        fallback_selectors: tuple[str, ...] = (),
     ) -> Locator | None:
         semantic = await self._first_usable(
             [
@@ -371,14 +365,6 @@ class PlaywrightDriver(BrowserDriverBase):
         )
         if semantic is not None:
             return semantic
-        for test_id in fallback_test_ids:
-            candidate = await self._first_usable([page.get_by_test_id(test_id)])
-            if candidate is not None:
-                return candidate
-        if fallback_selectors:
-            return await self._first_usable(
-                [page.locator(selector) for selector in fallback_selectors]
-            )
         return None
 
     def _page(self, context: str | None = None) -> Page:
@@ -771,23 +757,16 @@ class PlaywrightDriver(BrowserDriverBase):
     async def click_send_button(self, timeout: float = 120.0) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
-        scoped_submit_selector = 'button[type="submit"]'
-        global_fallbacks = tuple(
-            selector for selector in SEND_BUTTON_SELECTORS if selector != scoped_submit_selector
-        )
         while asyncio.get_running_loop().time() < deadline:
-            button = await self._semantic_button(
-                page,
-                _SEND_RE,
-                fallback_test_ids=("send-button",),
-                fallback_selectors=global_fallbacks,
-            )
+            button = await self._semantic_button(page, _SEND_RE)
             if button is None:
                 composer = await self._composer(page)
                 if composer is not None:
                     try:
                         form = composer.locator("xpath=ancestor::form[1]")
-                        button = await self._first_usable([form.locator(scoped_submit_selector)])
+                        # An unlabeled submit button has no user-facing name. Only
+                        # consider one belonging to this composer's own form.
+                        button = await self._first_usable([form.locator('button[type="submit"]')])
                     except PlaywrightError:
                         button = None
             if button is not None:
@@ -800,12 +779,7 @@ class PlaywrightDriver(BrowserDriverBase):
         page = self._page(context)
         deadline = asyncio.get_running_loop().time() + max(0.2, timeout)
         while asyncio.get_running_loop().time() < deadline:
-            button = await self._semantic_button(
-                page,
-                _STOP_RE,
-                fallback_test_ids=("stop-button",),
-                fallback_selectors=STOP_BUTTON_SELECTORS,
-            )
+            button = await self._semantic_button(page, _STOP_RE)
             if button is not None:
                 await button.click()
                 return True
@@ -843,11 +817,7 @@ class PlaywrightDriver(BrowserDriverBase):
             enabled=True,
         )
         if file_input is None:
-            attach = await self._semantic_button(
-                page,
-                _ATTACH_RE,
-                fallback_test_ids=("composer-plus-btn",),
-            )
+            attach = await self._semantic_button(page, _ATTACH_RE)
             if attach is not None:
                 await attach.click()
                 deadline = asyncio.get_running_loop().time() + 3.0

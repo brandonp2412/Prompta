@@ -5,13 +5,11 @@ import subprocess
 import pytest
 
 from prompta.chatgpt_dom import (
-    COMPOSER_SELECTORS,
     FILE_INPUT_SELECTORS,
     LEGACY_RICH_TEXT_SELECTORS,
     LEGACY_TURN_SELECTORS,
     PROSE_BLOCK_SELECTORS,
     SEMANTIC_TURN_SELECTORS,
-    SEND_BUTTON_SELECTORS,
     STOP_BUTTON_SELECTORS,
     TURN_SELECTORS,
 )
@@ -19,27 +17,10 @@ from prompta.conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT
 from prompta.react_fallback import REACT_FALLBACK_ADAPTER_SCRIPT
 
 
-def test_selector_contract_prioritizes_current_semantic_composer() -> None:
-    assert COMPOSER_SELECTORS[0] == 'textarea[name="prompt-textarea"]'
-    assert "[data-composer-surface] textarea" in COMPOSER_SELECTORS
-    assert 'form[data-type="unified-composer"] textarea' in COMPOSER_SELECTORS
-    assert 'main textarea[aria-label*="Chat" i]' in COMPOSER_SELECTORS
-    assert 'main textarea[placeholder*="Ask" i]' in COMPOSER_SELECTORS
-
-
-def test_selector_contract_keeps_semantic_action_and_attachment_fallbacks() -> None:
-    assert SEND_BUTTON_SELECTORS[:3] == (
-        '[data-testid="send-button"]',
-        "#composer-submit-button",
-        'button[aria-label="Send prompt"]',
-    )
-    assert 'button[type="submit"]' in SEND_BUTTON_SELECTORS
-    assert '[data-testid="stop-button"]' in STOP_BUTTON_SELECTORS
+def test_selector_contract_keeps_hidden_file_input_and_stop_state_signals() -> None:
+    assert FILE_INPUT_SELECTORS[-1] == 'input[type="file"]'
+    assert all("data-testid" not in selector for selector in STOP_BUTTON_SELECTORS)
     assert 'button[aria-label*="stop" i]' in STOP_BUTTON_SELECTORS
-    assert FILE_INPUT_SELECTORS[:2] == (
-        'form[data-type="unified-composer"] input[type="file"]',
-        '[data-composer-surface] input[type="file"]',
-    )
 
 
 def test_selector_contract_separates_semantic_turns_from_legacy_fallbacks() -> None:
