@@ -19456,7 +19456,7 @@ async function probeHistoricalActivity(conversationId) {
 	state.activityProbeAt.set(conversationId, now);
 	state.activityProbes.add(conversationId);
 	if (state.selectedId === conversationId) {
-		setComposerStatus("Checking whether ChatGPT is still running…");
+		setComposerStatus("Refreshing cached conversation state…");
 		syncSendButton();
 	}
 	try {
@@ -19469,8 +19469,8 @@ async function probeHistoricalActivity(conversationId) {
 		renderConversation(chat);
 		await loadChats();
 	} catch (error) {
-		if (state.selectedId === conversationId) setComposerStatus("Could not verify whether this interrupted chat is still running.");
-		console.warn("Could not probe historical chat activity", error);
+		if (state.selectedId === conversationId) setComposerStatus("Could not refresh the cached conversation state.");
+		console.warn("Could not refresh historical chat state", error);
 	} finally {
 		state.activityProbes.delete(conversationId);
 		if (state.selectedId === conversationId) syncSendButton();

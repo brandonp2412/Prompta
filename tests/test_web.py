@@ -721,9 +721,9 @@ def test_local_ui_enqueues_without_touching_control_socket(tmp_path: Path) -> No
     wait.assert_not_called()
 
 
-def test_static_bundle_contains_historical_activity_probe() -> None:
+def test_static_bundle_contains_historical_activity_refresh() -> None:
     bundle = (Path(__file__).parents[1] / "src" / "static" / "app.js").read_text()
-    assert "Checking whether ChatGPT is still running" in bundle
+    assert "Refreshing cached conversation state" in bundle
     assert "/probe" in bundle
 
 
@@ -736,52 +736,13 @@ def test_machine_gun_mode_control_lives_in_sidebar_source() -> None:
     assert 'id="unattendedModeButton"' not in main
 
 
-def test_unattended_mode_disables_live_conversation_probe(tmp_path: Path) -> None:
-    cache = ChatCache(tmp_path / "chats.sqlite3")
-    cache.start("chat-1", context_id="ctx", job_name="once", prompt="hello")
-    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
-    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
-    try:
-        mode = server.set_unattended_mode(True)
-        assert mode == {"unattended": True, "chat_polling": False, "send_gap_seconds": 10.0}
-        with pytest.raises(RuntimeError, match="Machine Gun Mode disables ChatGPT result reads"):
-            server.probe_conversation("chat-1")
-    finally:
-        server.server_close()
-        cache.close()
-
-
-def test_probe_conversation_uses_local_backend(tmp_path: Path) -> None:
+def test_probe_conversation_reads_only_cached_state(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
     store = ReadOnlyChatStore(path)
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
-        with patch.object(server, "_sync", return_value=2) as sync:
-            chat, message_count, verified = server.probe_conversation("chat-1")
-    finally:
-        server.server_close()
-
-    assert chat["id"] == "chat-1"
-    assert message_count == 2
-    assert verified is True
-    sync.assert_called_once_with("chat-1")
-
-
-def test_probe_conversation_returns_cached_chat_when_live_probe_is_inconclusive(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "chats.sqlite3"
-    _seed_cache(path)
-    store = ReadOnlyChatStore(path)
-    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
-    try:
-        with patch.object(
-            server,
-            "_sync",
-            side_effect=RuntimeError("ChatGPT conversation did not expose any messages"),
-        ):
-            chat, message_count, verified = server.probe_conversation("chat-1")
+        chat, message_count, verified = server.probe_conversation("chat-1")
     finally:
         server.server_close()
 
@@ -790,19 +751,21 @@ def test_probe_conversation_returns_cached_chat_when_live_probe_is_inconclusive(
     assert verified is False
 
 
-def test_probe_conversation_propagates_real_backend_failure(tmp_path: Path) -> None:
+def test_probe_conversation_remains_cache_only_in_machine_gun_mode(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
     store = ReadOnlyChatStore(path)
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
-        with (
-            patch.object(server, "_sync", side_effect=RuntimeError("browser crashed")),
-            pytest.raises(RuntimeError, match="browser crashed"),
-        ):
-            server.probe_conversation("chat-1")
+        mode = server.set_unattended_mode(True)
+        chat, message_count, verified = server.probe_conversation("chat-1")
     finally:
         server.server_close()
+
+    assert mode == {"unattended": True, "chat_polling": False, "send_gap_seconds": 10.0}
+    assert chat["id"] == "chat-1"
+    assert message_count == len(chat["messages"])
+    assert verified is False
 
 
 def test_stop_conversation_uses_local_backend(tmp_path: Path) -> None:

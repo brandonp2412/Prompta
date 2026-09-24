@@ -26,7 +26,6 @@ from .core import (
     DEFAULT_STATE_PATH,
     _daemon_is_running,
     _stop_via_control,
-    _sync_via_control,
 )
 from .delivery_queue import DeliveryQueueStore
 from .image_previews import ImagePreviewStore
@@ -503,25 +502,12 @@ class PromptaUIServer(ThreadingHTTPServer):
         return self._stop(conversation_id)
 
     def probe_conversation(self, conversation_id: str) -> tuple[dict[str, Any], int, bool]:
-        if self.scheduler_runtime.unattended_mode():
-            raise RuntimeError("Machine Gun Mode disables ChatGPT result reads")
-        if self.store.conversation(conversation_id, include_state_events=False) is None:
-            raise KeyError(conversation_id)
-        verified = True
-        try:
-            message_count = self._sync(conversation_id)
-        except RuntimeError as exc:
-            if str(exc) != "ChatGPT conversation did not expose any messages":
-                raise
-            verified = False
-            message_count = 0
         chat = self.conversation(conversation_id)
         if chat is None:
             raise KeyError(conversation_id)
-        if not verified:
-            messages = chat.get("messages")
-            message_count = len(messages) if isinstance(messages, list) else 0
-        return chat, message_count, verified
+        messages = chat.get("messages")
+        message_count = len(messages) if isinstance(messages, list) else 0
+        return chat, message_count, False
 
     def send_job(self, send_id: str) -> dict[str, Any] | None:
         job = self.send_jobs.get(send_id)
@@ -577,13 +563,6 @@ class PromptaUIServer(ThreadingHTTPServer):
         if not _daemon_is_running(self.state_path):
             raise RuntimeError("Prompta browser backend is not running; cannot stop an active chat")
         return asyncio.run(_stop_via_control(self.state_path, conversation_id))
-
-    def _sync(self, conversation_id: str) -> int:
-        if not _daemon_is_running(self.state_path):
-            raise RuntimeError(
-                "Prompta browser backend is not running; cannot inspect chat activity"
-            )
-        return asyncio.run(_sync_via_control(self.state_path, conversation_id))
 
 
 class PromptaUIHandler(BaseHTTPRequestHandler):

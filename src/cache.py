@@ -1554,7 +1554,7 @@ class ChatCache:
         activity_after: float | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Return conversations whose live capture should be reattached after restart."""
+        """Return conversations whose live capture should be reattached by the conversation worker."""
 
         activity_filter = ""
         parameters: list[float | int] = [interrupted_after]
@@ -1570,7 +1570,7 @@ class ChatCache:
                    c.created_at, c.updated_at, c.completed_at
             FROM conversations AS c
             WHERE (
-                    c.status = 'active'
+                    c.status IN ('active', 'unattended')
                     OR (
                         c.status = 'interrupted'
                         AND c.updated_at >= ?

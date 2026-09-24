@@ -1198,6 +1198,13 @@ def test_cache_lists_active_and_recent_interrupted_streaming_conversations(
         prompt="Keep working",
     )
     cache.start(
+        "unattended-chat",
+        context_id="context-unattended",
+        job_name="machine-gun",
+        prompt="Finish this after Machine Gun Mode is disabled",
+    )
+    cache.mark_unattended("unattended-chat")
+    cache.start(
         "interrupted-chat",
         context_id="context-interrupted",
         job_name="",
@@ -1241,7 +1248,11 @@ def test_cache_lists_active_and_recent_interrupted_streaming_conversations(
 
     rows = cache.recoverable_conversations(interrupted_after=time.time() - 60)
 
-    assert {row["id"] for row in rows} == {"active-chat", "interrupted-chat"}
+    assert {row["id"] for row in rows} == {
+        "active-chat",
+        "unattended-chat",
+        "interrupted-chat",
+    }
     cache.close()
 
 
