@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
+from .browser_script_loader import load_browser_script
 from .cache import ActiveConversation, ChatCache
 from .rate_limit import RateLimitError, is_rate_limited_text
 
@@ -85,7 +86,9 @@ class ConversationActions:
                 await driver.attach_files(attachments)
                 await driver.wait_for_composer()
             baseline = await driver.dom_state()
-            baseline_path = str(await driver.eval("location.pathname") or "")
+            baseline_path = str(
+                await driver.eval(load_browser_script("location_pathname.js")) or ""
+            )
             if self.normalise(str(baseline.get("composer_text") or "")):
                 logger.warning(
                     "Prompta found stale text in the dedicated new-chat composer; clearing it"
@@ -135,7 +138,7 @@ class ConversationActions:
                 if is_rate_limited_text(rate_limit_text):
                     raise RateLimitError.from_text(rate_limit_text)
                 probe = await driver.page_send_probe()
-                path = str(await driver.eval("location.pathname") or "")
+                path = str(await driver.eval(load_browser_script("location_pathname.js")) or "")
                 last_state = state
                 last_probe = probe
                 last_path = path

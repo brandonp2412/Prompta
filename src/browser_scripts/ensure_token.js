@@ -1,0 +1,1 @@
+(async()=>{try{const r=await fetch('/api/auth/session');const j=await r.json();return JSON.stringify({ok:r.ok,token:j.accessToken||j.access_token||''})}catch(e){return JSON.stringify({ok:false,token:''})}})()

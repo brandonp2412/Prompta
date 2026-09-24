@@ -37,6 +37,7 @@ from .browser_ownership import (
     owned_window_owner_id,
     owned_window_started_at,
 )
+from .browser_script_loader import load_browser_script
 from .chatgpt_dom import (
     COMPOSER_SELECTORS,
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
@@ -188,7 +189,7 @@ class PlaywrightDriver(BrowserDriverBase):
         if page.is_closed():
             return None
         try:
-            name = await page.evaluate("window.name")
+            name = await page.evaluate(load_browser_script("get_window_name.js"))
         except PlaywrightError:
             return None
         return owned_window_started_at(name, prefix=self.ownership_prefix)
@@ -197,14 +198,14 @@ class PlaywrightDriver(BrowserDriverBase):
         if page.is_closed():
             return None
         try:
-            name = await page.evaluate("window.name")
+            name = await page.evaluate(load_browser_script("get_window_name.js"))
         except PlaywrightError:
             return None
         return owned_window_owner_id(name, prefix=self.ownership_prefix)
 
     async def _mark_owned(self, page: Page) -> None:
         await page.evaluate(
-            "(value) => { window.name = value; }",
+            load_browser_script("set_window_name.js"),
             new_owned_window_marker(
                 prefix=self.ownership_prefix,
                 owner_id=self.page_owner_id,
@@ -642,7 +643,7 @@ class PlaywrightDriver(BrowserDriverBase):
             raise RuntimeError("FlareSolverr is not configured")
         page = self._page(context)
         url = page.url
-        user_agent = str(await page.evaluate("navigator.userAgent"))
+        user_agent = str(await page.evaluate(load_browser_script("get_user_agent.js")))
         logger.warning("Cloudflare challenge detected; requesting clearance from FlareSolverr")
         cookies = await asyncio.to_thread(self._request_flaresolverr, url, user_agent)
         if not cookies:
@@ -738,7 +739,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _composer_text(self, composer: Locator) -> str:
         try:
-            tag = (await composer.evaluate("el => el.tagName")).casefold()
+            tag = (await composer.evaluate(load_browser_script("element_tag_name.js"))).casefold()
             if tag in {"textarea", "input"}:
                 return await composer.input_value()
             return await composer.inner_text()
@@ -842,9 +843,7 @@ class PlaywrightDriver(BrowserDriverBase):
         deadline = asyncio.get_running_loop().time() + 120.0
         stable = 0
         while asyncio.get_running_loop().time() < deadline:
-            selected = await file_input.evaluate(
-                "input => Array.from(input.files || []).map(file => file.name)"
-            )
+            selected = await file_input.evaluate(load_browser_script("file_input_names.js"))
             selected_names = set(selected or [])
             visible_names = True
             for name in names:
@@ -891,16 +890,7 @@ class PlaywrightDriver(BrowserDriverBase):
                     or ""
                 )
                 last_user_text = str(
-                    await last_user.evaluate(
-                        """root => {
-                          const clone=root.cloneNode(true);
-                          clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-                          const text=(clone.textContent||'').trim();
-                          const suffix=['Show moreShow less','Show lessShow more'].find(v=>text.endsWith(v));
-                          return (suffix?text.slice(0,-suffix.length):text).trim();
-                        }"""
-                    )
-                    or ""
+                    await last_user.evaluate(load_browser_script("last_user_text.js")) or ""
                 )
         except PlaywrightError:
             pass
@@ -912,7 +902,7 @@ class PlaywrightDriver(BrowserDriverBase):
             try:
                 return bool(
                     await candidate.evaluate(
-                        "(el, selector) => el.matches(selector) || Boolean(el.closest(selector))",
+                        load_browser_script("matches_or_closest.js"),
                         CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
                     )
                 )
@@ -1285,10 +1275,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _click_viewport_point(self, context: str, x: float, y: float) -> None:
         page = self._page(context)
-        viewport = await page.evaluate(
-            "() => ({width: document.documentElement.clientWidth || innerWidth, "
-            "height: document.documentElement.clientHeight || innerHeight})"
-        )
+        viewport = await page.evaluate(load_browser_script("viewport_size.js"))
         width = float((viewport or {}).get("width") or 0)
         height = float((viewport or {}).get("height") or 0)
         if x < 0 or y < 0 or x >= width or y >= height:

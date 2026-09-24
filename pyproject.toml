@@ -27,7 +27,7 @@ package-dir = { prompta = "src" }
 include-package-data = false
 
 [tool.setuptools.package-data]
-prompta = ["static/*", "ui/*", "*.js"]
+prompta = ["static/*", "ui/*", "browser_scripts/*.js"]
 
 [tool.ruff]
 line-length = 100

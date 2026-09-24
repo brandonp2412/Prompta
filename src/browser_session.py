@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from .browser_script_loader import load_browser_script
 from .playwright_driver import PlaywrightDriver
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,13 @@ class BrowserSession:
 
         async def current_path() -> str:
             if context is None:
-                return str(await driver.eval("location.pathname") or "").rstrip("/")
-            return str(await driver.eval("location.pathname", context=context) or "").rstrip("/")
+                return str(
+                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                ).rstrip("/")
+            return str(
+                await driver.eval(load_browser_script("location_pathname.js"), context=context)
+                or ""
+            ).rstrip("/")
 
         path = await current_path()
         while path != expected and asyncio.get_running_loop().time() < deadline:

@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 import websockets
 
 from .browser_ownership import new_owned_window_marker
+from .browser_script_loader import load_browser_script, render_browser_script
 from .transcript_browser_engine import TRANSCRIPT_BROWSER_ENGINE_SCRIPT
 from .ui_noise import is_assistant_ui_noise
 
@@ -30,18 +31,9 @@ _TOOL_BLOCK_RE = re.compile(
     + r"[ \t]*\r?$",
     re.IGNORECASE | re.MULTILINE,
 )
-_REACT_TOOL_SCRIPT = (
-    "(()=>{\n"
-    + TRANSCRIPT_BROWSER_ENGINE_SCRIPT
-    + r"""
-  const root=promptaTranscriptEngine.latestAssistantRoot();
-  return promptaTranscriptEngine.reactSnapshot(
-    root,
-    'chromium-tool-enrichment',
-    {stringLimit:20000,partsLimit:8}
-  );
-})()
-"""
+_REACT_TOOL_SCRIPT = load_browser_script("react_tool_messages.js").replace(
+    "/*__TRANSCRIPT_BROWSER_ENGINE__*/",
+    TRANSCRIPT_BROWSER_ENGINE_SCRIPT,
 )
 
 
@@ -585,7 +577,9 @@ class ChromiumToolEnricher:
                 await call(
                     "Runtime.evaluate",
                     {
-                        "expression": f"window.name = {json.dumps(owned_marker)}",
+                        "expression": render_browser_script(
+                            "set_window_name_expression.js", window_name=owned_marker
+                        ),
                         "returnByValue": True,
                     },
                 )

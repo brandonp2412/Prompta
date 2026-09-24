@@ -1,5 +1,5 @@
-__MESSAGE_DISCOVERY__
-__REACT_FALLBACK_ADAPTER__
+/*__MESSAGE_DISCOVERY__*/
+/*__REACT_FALLBACK_ADAPTER__*/
 const promptaTranscriptEngine=(()=>{
   const fallbackUses=[];
   const fallbackDeadline=performance.now()+2500;
