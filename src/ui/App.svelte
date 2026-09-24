@@ -1,7 +1,6 @@
 <script lang="ts">
   import { MediaQuery } from "svelte/reactivity";
   import ChangelogDialog from "./ChangelogDialog.svelte";
-  import ChatProgress from "./ChatProgress.svelte";
   import Composer from "./Composer.svelte";
   import ConversationMessages from "./ConversationMessages.svelte";
   import PromptaPage from "./PromptaPage.svelte";
@@ -496,7 +495,6 @@
     <LogsPanel />
 
     {#if appViewState.mode === "chats"}
-      {#if appViewState.conversationVisible}<ChatProgress />{/if}
       <Composer />
     {/if}
   </main>
