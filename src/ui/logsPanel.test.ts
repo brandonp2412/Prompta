@@ -9,7 +9,7 @@ describe("split service logs", () => {
     expect(logsPanelSource).toContain("prompta-delivery-worker.service");
     expect(logsPanelSource).toContain("prompta-conversation-worker.service");
     expect(logsPanelSource).toContain("prompta-browser.service");
-    expect(logsPanelSource).toContain('aria-label="Log service"');
+    expect(logsPanelSource).toContain('id="logService" name="service" aria-label="Log service"');
     expect(logsPanelSource).toContain(
       'new URLSearchParams({ limit: "800", service: requestedService })',
     );

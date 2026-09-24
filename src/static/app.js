@@ -17529,7 +17529,7 @@ init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_uiControllers();
 var root$2 = /* @__PURE__ */ from_html(`<option> </option>`);
-var root_1$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div class="logs-heading"><strong> </strong><span> </span></div> <div class="logs-controls"><label class="logs-service-picker"><span>Service</span> <select aria-label="Log service"></select></label> <span role="status" aria-live="polite" aria-atomic="true"><i></i> </span></div></div> <pre class="log-output"> </pre></div></section>`);
+var root_1$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div class="logs-heading"><strong> </strong><span> </span></div> <div class="logs-controls"><label class="logs-service-picker"><span>Service</span> <select id="logService" name="service" aria-label="Log service"></select></label> <span role="status" aria-live="polite" aria-atomic="true"><i></i> </span></div></div> <pre class="log-output"> </pre></div></section>`);
 function LogsPanel($$anchor, $$props) {
 	push($$props, true);
 	const logServices = [

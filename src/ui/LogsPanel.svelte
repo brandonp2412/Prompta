@@ -143,7 +143,7 @@
       <div class="logs-controls">
         <label class="logs-service-picker">
           <span>Service</span>
-          <select aria-label="Log service" value={selectedService} onchange={selectService}>
+          <select id="logService" name="service" aria-label="Log service" value={selectedService} onchange={selectService}>
             {#each logServices as service (service.key)}
               <option value={service.key}>{service.label}</option>
             {/each}
