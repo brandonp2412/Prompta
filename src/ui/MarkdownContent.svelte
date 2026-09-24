@@ -5,6 +5,7 @@
 
   import { preserveConversationViewportPosition } from "./browserAttachments.svelte";
   import { copyText } from "./clipboard";
+  import { toolCodeDiffSummary, unifiedDiffPresentation } from "./diffPreview";
   import { codePresentation, highlightedCode, parseMarkdown, safeLinkHref } from "./markdown";
 
   let { source, streaming = false }: { source: unknown; streaming?: boolean } = $props();
@@ -198,6 +199,23 @@
                   {presentation.tool.name || presentation.label}
                 </span>
               {/if}
+              {#if presentation.tool.diff}
+                <span
+                  class="tool-diff-summary"
+                  title={toolCodeDiffSummary(presentation.tool.diff)}
+                  aria-label={toolCodeDiffSummary(presentation.tool.diff)}
+                >
+                  <span class="tool-diff-files">
+                    {presentation.tool.diff.changedFileCount}
+                    {presentation.tool.diff.changedFileCount === 1 ? "file" : "files"}
+                  </span>
+                  <span class="tool-diff-additions">+{presentation.tool.diff.additions}</span>
+                  <span class="tool-diff-deletions">−{presentation.tool.diff.deletions}</span>
+                  {#if presentation.tool.diff.truncated}
+                    <span class="tool-diff-partial">partial</span>
+                  {/if}
+                </span>
+              {/if}
               {#if presentation.tool.time}
                 <time class="tool-time" datetime={presentation.tool.time.iso}>
                   {presentation.tool.time.text}
@@ -210,6 +228,43 @@
                 {#if presentation.tool.connector}
                   <span class="tool-expanded-separator">|</span>
                   <span class="tool-expanded-connector">{presentation.tool.connector}</span>
+                {/if}
+              </div>
+            {/if}
+            {#if presentation.tool.diff && expandedTools.has(key)}
+              {const diffPresentation = unifiedDiffPresentation(presentation.tool.diff)}
+              <div class="tool-diff-panel" aria-label="Changed code preview">
+                <div class="tool-diff-panel-header">
+                  <span>{toolCodeDiffSummary(presentation.tool.diff)}</span>
+                  {#if presentation.tool.diff.truncated}
+                    <span class="tool-diff-truncated">truncated preview</span>
+                  {/if}
+                </div>
+                {#if diffPresentation.files.length}
+                  {#each diffPresentation.files as file, fileIndex (file.path + ":" + fileIndex)}
+                    <section class="tool-diff-file">
+                      <div class="tool-diff-file-header">{file.path}</div>
+                      {#if file.metadata}
+                        <pre class="tool-diff-metadata"><code class="language-diff">{#if diffPresentation.highlight}{@render highlightNodes(highlightedCode(file.metadata, "diff"))}{:else}{file.metadata}{/if}</code></pre>
+                      {/if}
+                      {#each file.hunks as hunk, hunkIndex (hunk.header + ":" + hunkIndex)}
+                        <div class="tool-diff-hunk">
+                          {#if hunk.header}
+                            <div class="tool-diff-hunk-header">{hunk.header}</div>
+                          {/if}
+                          {#if hunk.body}
+                            <pre><code class="language-diff">{#if diffPresentation.highlight}{@render highlightNodes(highlightedCode(hunk.body, "diff"))}{:else}{hunk.body}{/if}</code></pre>
+                          {/if}
+                        </div>
+                      {/each}
+                    </section>
+                  {/each}
+                {:else}
+                  <div class="tool-diff-empty">
+                    {presentation.tool.diff.truncated
+                      ? "Patch text omitted by preview limits."
+                      : "No patch text available."}
+                  </div>
                 {/if}
               </div>
             {/if}

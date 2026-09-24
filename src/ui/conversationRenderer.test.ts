@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
+import { TOOL_CODE_DIFF_FIELD } from "./diffPreview";
 import {
   canMorphPendingMessageNode,
   messageDisplayContent,
@@ -33,6 +34,47 @@ describe("canonical assistant transcript rendering", () => {
     expect(content.indexOf("First tool")).toBeLessThan(content.indexOf("Between tools"));
     expect(content.indexOf("Between tools")).toBeLessThan(content.indexOf("Second tool"));
     expect(content.indexOf("Second tool")).toBeLessThan(content.indexOf("Done"));
+  });
+
+  test("attaches a diff only to the canonical tool part with the matching call key", () => {
+    const fence = String.fromCharCode(96, 96, 96);
+    const first = [fence + "tool:Glass · execute_python", '{"status":"completed"}', fence].join(
+      "\n",
+    );
+    const second = [
+      fence + "tool:Glass Serena · serena_repl",
+      '{"status":"completed"}',
+      fence,
+    ].join("\n");
+    const content = messageDisplayContent({
+      role: "assistant",
+      content: first + "\n\n" + second,
+      parts_renderable: true,
+      parts: [
+        { ordinal: 0, kind: "tool_call", tool_call_key: "tool-1", content: first },
+        { ordinal: 1, kind: "tool_call", tool_call_key: "tool-2", content: second },
+      ],
+      tool_calls: [
+        {
+          call_key: "tool-2",
+          code_diff: {
+            patch_text: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new",
+            changed_file_count: 1,
+            additions: 1,
+            deletions: 1,
+            truncated: false,
+          },
+        },
+      ],
+    });
+
+    expect(content.split(TOOL_CODE_DIFF_FIELD)).toHaveLength(2);
+    expect(content.indexOf(TOOL_CODE_DIFF_FIELD)).toBeGreaterThan(
+      content.indexOf("Glass Serena · serena_repl"),
+    );
+    expect(content.slice(0, content.indexOf("Glass Serena · serena_repl"))).not.toContain(
+      TOOL_CODE_DIFF_FIELD,
+    );
   });
 
   test("falls back to cached content when canonical parts are absent or not trusted", () => {

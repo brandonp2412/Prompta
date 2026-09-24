@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { RootContent } from "hast";
 import type { Token, Tokens } from "marked";
 
+import { injectToolCodeDiff, TOOL_CODE_DIFF_FIELD } from "./diffPreview";
 import { codePresentation, highlightedCode, parseMarkdown, safeLinkHref } from "./markdown";
 
 function codeToken(tokens: Token[]) {
@@ -130,6 +131,44 @@ describe("tool-call markdown model", () => {
       connector: "Glass Serena",
       hasMeta: true,
     });
+  });
+
+  test("extracts code diff metadata without leaking it into visible tool JSON", () => {
+    const fence = String.fromCharCode(96, 96, 96);
+    const block = [
+      fence + "tool:Glass Serena · serena_repl",
+      JSON.stringify({ summary: "Edit source", status: "completed" }, null, 2),
+      fence,
+    ].join("\n");
+    const source = injectToolCodeDiff(block, {
+      patch_text: "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new",
+      changed_file_count: 1,
+      additions: 1,
+      deletions: 1,
+      truncated: false,
+    });
+    const token = codeToken(parseMarkdown(source));
+    const presentation = codePresentation(token!);
+
+    expect(presentation?.tool?.diff).toMatchObject({
+      changedFileCount: 1,
+      additions: 1,
+      deletions: 1,
+      truncated: false,
+    });
+    expect(presentation?.code).not.toContain(TOOL_CODE_DIFF_FIELD);
+    expect(JSON.parse(presentation?.code || "{}")).toEqual({
+      summary: "Edit source",
+      status: "completed",
+    });
+  });
+
+  test("highlights unified diffs through the existing Lowlight path", () => {
+    const nodes = highlightedCode("-old\n+new", "diff");
+
+    expect(collectText(nodes)).toBe("-old\n+new");
+    expect(collectClasses(nodes).some((name) => name === "hljs-deletion")).toBe(true);
+    expect(collectClasses(nodes).some((name) => name === "hljs-addition")).toBe(true);
   });
 
   test("keeps structured tool payloads as plain AST text until expanded", () => {

@@ -7529,8 +7529,158 @@ async function copyText(value) {
 }
 var init_clipboard = __esmMin((() => {}));
 //#endregion
+//#region src/ui/diffPreview.ts
+function nonNegativeInteger(value) {
+	const number = Number(value);
+	return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+function normalizeToolCodeDiff(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const raw = value;
+	const patchValue = raw.patch_text ?? raw.patchText;
+	const diff = {
+		patchText: typeof patchValue === "string" ? patchValue : "",
+		changedFileCount: nonNegativeInteger(raw.changed_file_count ?? raw.changedFileCount),
+		additions: nonNegativeInteger(raw.additions),
+		deletions: nonNegativeInteger(raw.deletions),
+		truncated: Boolean(raw.truncated)
+	};
+	if (!diff.patchText && !diff.changedFileCount && !diff.additions && !diff.deletions && !diff.truncated) return null;
+	return diff;
+}
+function toolCodeDiffSummary(diff) {
+	const noun = diff.changedFileCount === 1 ? "file" : "files";
+	return String(diff.changedFileCount) + " " + noun + " · +" + diff.additions + " −" + diff.deletions;
+}
+function toolFenceParts(content) {
+	const firstNewline = content.indexOf("\n");
+	if (firstNewline < 0) return null;
+	const opening = content.slice(0, firstNewline);
+	const fence = opening.match(/^ {0,3}(\x60{3}|~~~)(?:tool|tool-call|function|function-call)(?::.*)?$/i)?.[1];
+	if (!fence) return null;
+	const closing = "\n" + fence;
+	const closingAt = content.lastIndexOf(closing);
+	if (closingAt <= firstNewline) return null;
+	return {
+		opening,
+		body: content.slice(firstNewline + 1, closingAt),
+		closing: content.slice(closingAt)
+	};
+}
+function injectToolCodeDiff(content, value) {
+	const diff = normalizeToolCodeDiff(value);
+	if (!diff) return content;
+	const parts = toolFenceParts(content);
+	if (!parts) return content;
+	try {
+		const parsed = JSON.parse(parts.body);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return content;
+		return [
+			parts.opening,
+			JSON.stringify({
+				...parsed,
+				[TOOL_CODE_DIFF_FIELD]: diff
+			}, null, 2),
+			parts.closing.slice(1)
+		].join("\n");
+	} catch {
+		return content;
+	}
+}
+function extractToolCodeDiff(code) {
+	if (!code.includes("__prompta_code_diff")) return {
+		code,
+		diff: null
+	};
+	try {
+		const parsed = JSON.parse(code);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {
+			code,
+			diff: null
+		};
+		const payload = parsed;
+		const diff = normalizeToolCodeDiff(payload[TOOL_CODE_DIFF_FIELD]);
+		if (!diff) return {
+			code,
+			diff: null
+		};
+		const visible = { ...payload };
+		delete visible[TOOL_CODE_DIFF_FIELD];
+		return {
+			code: Object.keys(visible).length ? JSON.stringify(visible, null, 2) : "",
+			diff
+		};
+	} catch {
+		return {
+			code,
+			diff: null
+		};
+	}
+}
+function diffFilePath(line) {
+	const quoted = line.match(/^diff --git "(?:a\/)?(.+)" "(?:b\/)?(.+)"$/);
+	if (quoted) return quoted[2];
+	const marker = line.lastIndexOf(" b/");
+	if (marker >= 0) return line.slice(marker + 3).trim();
+	return line.slice(11).trim();
+}
+function unifiedDiffPresentation(diff) {
+	const files = [];
+	let file = null;
+	let hunk = null;
+	const flushFile = () => {
+		if (!file) return;
+		files.push({
+			path: file.path || "Patch",
+			metadata: file.metadata.join("\n"),
+			hunks: file.hunks.map((entry) => ({
+				header: entry.header,
+				body: entry.lines.join("\n")
+			}))
+		});
+	};
+	for (const line of diff.patchText.split("\n")) {
+		if (line.startsWith("diff --git ")) {
+			flushFile();
+			file = {
+				path: diffFilePath(line),
+				metadata: [],
+				hunks: []
+			};
+			hunk = null;
+			continue;
+		}
+		if (!file) file = {
+			path: "Patch",
+			metadata: [],
+			hunks: []
+		};
+		if (line.startsWith("@@")) {
+			hunk = {
+				header: line,
+				lines: []
+			};
+			file.hunks.push(hunk);
+			continue;
+		}
+		if (hunk) hunk.lines.push(line);
+		else file.metadata.push(line);
+	}
+	flushFile();
+	return {
+		files: files.filter((entry) => entry.metadata || entry.hunks.some((entryHunk) => entryHunk.header || entryHunk.body)),
+		highlight: diff.patchText.length <= DIFF_HIGHLIGHT_MAX_CHARS
+	};
+}
+var TOOL_CODE_DIFF_FIELD, DIFF_HIGHLIGHT_MAX_CHARS;
+var init_diffPreview = __esmMin((() => {
+	TOOL_CODE_DIFF_FIELD = "__prompta_code_diff";
+	DIFF_HIGHLIGHT_MAX_CHARS = 24576;
+}));
+//#endregion
 //#region node_modules/highlight.js/es/languages/bash.js
 init_clipboard();
+init_diffPreview();
 /** @type LanguageFn */
 function bash(hljs) {
 	const regex = hljs.regex;
@@ -8619,6 +8769,45 @@ function dart(hljs) {
 			{
 				className: "meta",
 				begin: "@[A-Za-z]+"
+			}
+		]
+	};
+}
+//#endregion
+//#region node_modules/highlight.js/es/languages/diff.js
+/** @type LanguageFn */
+function diff(hljs) {
+	const regex = hljs.regex;
+	return {
+		name: "Diff",
+		aliases: ["patch"],
+		contains: [
+			{
+				className: "meta",
+				relevance: 10,
+				match: regex.either(/^@@ +-\d+,\d+ +\+\d+,\d+ +@@/, /^@@ +-\d+ +\+\d+,\d+ +@@/, /^@@ +-\d+,\d+ +\+\d+ +@@/, /^@@ +-\d+ +\+\d+ +@@/, /^\*\*\* +\d+,\d+ +\*\*\*\*$/, /^--- +\d+,\d+ +----$/)
+			},
+			{
+				className: "comment",
+				variants: [{
+					begin: regex.either(/Index: /, /^index/, /={3,}/, /^-{3}/, /^\*{3} /, /^\+{3}/, /^diff --git/),
+					end: /$/
+				}, { match: /^\*{15}$/ }]
+			},
+			{
+				className: "addition",
+				begin: /^\+/,
+				end: /$/
+			},
+			{
+				className: "deletion",
+				begin: /^-/,
+				end: /$/
+			},
+			{
+				className: "addition",
+				begin: /^!/,
+				end: /$/
 			}
 		]
 	};
@@ -15353,6 +15542,7 @@ lowlight.register({
 	bash,
 	cpp,
 	dart,
+	diff,
 	javascript: javascript$1,
 	json,
 	markdown,
@@ -15381,6 +15571,7 @@ lowlight.registerAlias({
 		"cjs"
 	],
 	markdown: ["md"],
+	diff: ["patch"],
 	python: ["py"],
 	typescript: ["ts", "tsx"],
 	xml: ["html", "svg"],
@@ -15533,15 +15724,19 @@ function codePresentation(token) {
 	const toolMatch = rawLanguage.match(/^(?:tool|tool-call|function|function-call)(?::\s*(.+))?$/i);
 	const inlineToolMatch = token.text.match(/^\s*(?:tool|function|to)\s*[:=]\s*([\w.-]+)/i);
 	const toolish = Boolean(toolMatch || inlineToolMatch);
+	const extracted = toolish ? extractToolCodeDiff(token.text) : {
+		code: token.text,
+		diff: null
+	};
+	const toolCode = extracted.code.trim();
 	const rawToolName = toolMatch?.[1]?.trim() || inlineToolMatch?.[1] || "";
 	const toolName = toolCallDisplayName(rawToolName);
-	const trimmedCode = token.text.trim();
-	const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(trimmedCode);
-	const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(trimmedCode);
+	const genericToolInvocation = toolish && toolCallIsInvocationPlaceholder(toolCode);
+	const hasUsefulToolDetail = !toolish || toolCallHasUsefulDetail(toolCode);
 	if (toolish && !toolName && !hasUsefulToolDetail && !genericToolInvocation) return null;
-	const pythonCode = toolish ? pythonToolCallCode(rawToolName, trimmedCode) : "";
-	const code = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : token.text);
-	const highlightLanguage = pythonCode ? "python" : toolish ? trimmedCode.startsWith("{") || trimmedCode.startsWith("[") ? "json" : "plaintext" : language;
+	const pythonCode = toolish ? pythonToolCallCode(rawToolName, toolCode) : "";
+	const code = pythonCode || (toolish && (!hasUsefulToolDetail || genericToolInvocation) ? "" : extracted.code);
+	const highlightLanguage = pythonCode ? "python" : toolish ? toolCode.startsWith("{") || toolCode.startsWith("[") ? "json" : "plaintext" : language;
 	const label = pythonCode ? "python" : toolish ? "tool call" : rawLanguage || "code";
 	if (!toolish) return {
 		code,
@@ -15551,8 +15746,8 @@ function codePresentation(token) {
 		highlighted: highlightedCode(code, highlightLanguage),
 		tool: null
 	};
-	const summary = toolCallSummary(trimmedCode);
-	const timestamp = toolCallTimestampMillis(trimmedCode);
+	const summary = toolCallSummary(toolCode);
+	const timestamp = toolCallTimestampMillis(toolCode);
 	const parts = toolName.split(/\s*·\s*/).filter(Boolean);
 	const action = parts.length > 1 ? parts[parts.length - 1] : toolName;
 	const connector = parts.length > 1 ? parts.slice(0, -1).join(" · ") : "";
@@ -15574,7 +15769,8 @@ function codePresentation(token) {
 				text: formatClockTime12Hour(timestamp, true),
 				iso: new Date(timestamp).toISOString()
 			},
-			hasMeta: Boolean(summary && action)
+			hasMeta: Boolean(summary && action),
+			diff: extracted.diff
 		}
 	};
 }
@@ -15587,6 +15783,7 @@ function safeLinkHref(value) {
 init_client();
 init_index_client$1();
 init_browserAttachments_svelte();
+init_diffPreview();
 var root$5 = /* @__PURE__ */ from_html(`<span><!></span>`);
 var root_1$4 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
 var root_2$4 = /* @__PURE__ */ from_html(`<em><!></em>`);
@@ -15615,13 +15812,23 @@ var root_24 = /* @__PURE__ */ from_html(`<span class="tool-expanded-separator">|
 var root_25 = /* @__PURE__ */ from_html(`<span class="tool-inline-meta"><span class="tool-expanded-separator">|</span> <span class="tool-expanded-action"> </span> <!></span>`);
 var root_26 = /* @__PURE__ */ from_html(`<span class="tool-summary"> </span> <!>`, 1);
 var root_27 = /* @__PURE__ */ from_html(`<span> </span>`);
-var root_28 = /* @__PURE__ */ from_html(`<time class="tool-time"> </time>`);
-var root_29 = /* @__PURE__ */ from_html(`<div class="tool-expanded-meta"><span class="tool-expanded-action"> </span> <!></div>`);
-var root_30 = /* @__PURE__ */ from_html(`<pre><code><!></code></pre>`);
-var root_31 = /* @__PURE__ */ from_html(`<details><summary class="code-header"><!> <!></summary> <!> <!></details>`);
-var root_32 = /* @__PURE__ */ from_html(`<button type="button" class="copy-code"> </button>`);
-var root_33 = /* @__PURE__ */ from_html(`<div class="code-block"><div class="code-header"><span class="code-language"> </span> <!></div> <!></div>`);
-var root_34 = /* @__PURE__ */ from_html(`<p> </p>`);
+var root_28 = /* @__PURE__ */ from_html(`<span class="tool-diff-partial">partial</span>`);
+var root_29 = /* @__PURE__ */ from_html(`<span class="tool-diff-summary"><span class="tool-diff-files"> </span> <span class="tool-diff-additions"> </span> <span class="tool-diff-deletions"> </span> <!></span>`);
+var root_30 = /* @__PURE__ */ from_html(`<time class="tool-time"> </time>`);
+var root_31 = /* @__PURE__ */ from_html(`<div class="tool-expanded-meta"><span class="tool-expanded-action"> </span> <!></div>`);
+var root_32 = /* @__PURE__ */ from_html(`<span class="tool-diff-truncated">truncated preview</span>`);
+var root_33 = /* @__PURE__ */ from_html(`<pre class="tool-diff-metadata"><code class="language-diff"><!></code></pre>`);
+var root_34 = /* @__PURE__ */ from_html(`<div class="tool-diff-hunk-header"> </div>`);
+var root_35 = /* @__PURE__ */ from_html(`<pre><code class="language-diff"><!></code></pre>`);
+var root_36 = /* @__PURE__ */ from_html(`<div class="tool-diff-hunk"><!> <!></div>`);
+var root_37 = /* @__PURE__ */ from_html(`<section class="tool-diff-file"><div class="tool-diff-file-header"> </div> <!> <!></section>`);
+var root_38 = /* @__PURE__ */ from_html(`<div class="tool-diff-empty"> </div>`);
+var root_39 = /* @__PURE__ */ from_html(`<div class="tool-diff-panel" aria-label="Changed code preview"><div class="tool-diff-panel-header"><span> </span> <!></div> <!></div>`);
+var root_40 = /* @__PURE__ */ from_html(`<pre><code><!></code></pre>`);
+var root_41 = /* @__PURE__ */ from_html(`<details><summary class="code-header"><!> <!> <!></summary> <!> <!> <!></details>`);
+var root_42 = /* @__PURE__ */ from_html(`<button type="button" class="copy-code"> </button>`);
+var root_43 = /* @__PURE__ */ from_html(`<div class="code-block"><div class="code-header"><span class="code-language"> </span> <!></div> <!></div>`);
+var root_44 = /* @__PURE__ */ from_html(`<p> </p>`);
 function MarkdownContent($$anchor, $$props) {
 	push($$props, true);
 	const highlightNodes = ($$anchor, nodes = noop) => {
@@ -15967,16 +16174,16 @@ function MarkdownContent($$anchor, $$props) {
 				template_effect(() => set_class(div, 1, clsx(["table-scroll", { "table-scroll-wide": get(token).header.length >= 3 }])));
 				append($$anchor, div);
 			};
-			var consequent_39 = ($$anchor) => {
+			var consequent_49 = ($$anchor) => {
 				const presentation = codePresentation(get(token));
 				const key = tokenKey(get(token), get(index$1));
 				var fragment_17 = comment();
 				var node_30 = first_child(fragment_17);
-				var consequent_38 = ($$anchor) => {
+				var consequent_48 = ($$anchor) => {
 					var fragment_18 = comment();
 					var node_31 = first_child(fragment_18);
-					var consequent_35 = ($$anchor) => {
-						var details = root_31();
+					var consequent_45 = ($$anchor) => {
+						var details = root_41();
 						var summary = child(details);
 						var node_32 = child(summary);
 						var consequent_30 = ($$anchor) => {
@@ -16022,58 +16229,203 @@ function MarkdownContent($$anchor, $$props) {
 							else $$render(alternate_4, -1);
 						});
 						var node_35 = sibling(node_32, 2);
-						var consequent_31 = ($$anchor) => {
-							var time = root_28();
-							var text_10 = only_child(time, true);
+						var consequent_32 = ($$anchor) => {
+							var span_6 = root_29();
+							var span_7 = child(span_6);
+							var text_10 = only_child(span_7);
+							var span_8 = sibling(span_7, 2);
+							var text_11 = only_child(span_8);
+							var span_9 = sibling(span_8, 2);
+							var text_12 = only_child(span_9);
+							var node_36 = sibling(span_9, 2);
+							var consequent_31 = ($$anchor) => {
+								append($$anchor, root_28());
+							};
+							if_block(node_36, ($$render) => {
+								if (presentation.tool.diff.truncated) $$render(consequent_31);
+							});
+							reset(span_6);
+							template_effect(($0, $1) => {
+								set_attribute(span_6, "title", $0);
+								set_attribute(span_6, "aria-label", $1);
+								set_text(text_10, `${presentation.tool.diff.changedFileCount ?? ""}
+                    ${presentation.tool.diff.changedFileCount === 1 ? "file" : "files"}`);
+								set_text(text_11, `+${presentation.tool.diff.additions ?? ""}`);
+								set_text(text_12, `−${presentation.tool.diff.deletions ?? ""}`);
+							}, [() => toolCodeDiffSummary(presentation.tool.diff), () => toolCodeDiffSummary(presentation.tool.diff)]);
+							append($$anchor, span_6);
+						};
+						if_block(node_35, ($$render) => {
+							if (presentation.tool.diff) $$render(consequent_32);
+						});
+						var node_37 = sibling(node_35, 2);
+						var consequent_33 = ($$anchor) => {
+							var time = root_30();
+							var text_13 = only_child(time, true);
 							template_effect(() => {
 								set_attribute(time, "datetime", presentation.tool.time.iso);
-								set_text(text_10, presentation.tool.time.text);
+								set_text(text_13, presentation.tool.time.text);
 							});
 							append($$anchor, time);
 						};
-						if_block(node_35, ($$render) => {
-							if (presentation.tool.time) $$render(consequent_31);
+						if_block(node_37, ($$render) => {
+							if (presentation.tool.time) $$render(consequent_33);
 						});
 						reset(summary);
-						var node_36 = sibling(summary, 2);
-						var consequent_33 = ($$anchor) => {
-							var div_1 = root_29();
-							var span_6 = child(div_1);
-							var text_11 = only_child(span_6, true);
-							var node_37 = sibling(span_6, 2);
-							var consequent_32 = ($$anchor) => {
+						var node_38 = sibling(summary, 2);
+						var consequent_35 = ($$anchor) => {
+							var div_1 = root_31();
+							var span_11 = child(div_1);
+							var text_14 = only_child(span_11, true);
+							var node_39 = sibling(span_11, 2);
+							var consequent_34 = ($$anchor) => {
 								var fragment_21 = root_24();
-								var text_12 = only_child(sibling(first_child(fragment_21), 2), true);
-								template_effect(() => set_text(text_12, presentation.tool.connector));
+								var text_15 = only_child(sibling(first_child(fragment_21), 2), true);
+								template_effect(() => set_text(text_15, presentation.tool.connector));
 								append($$anchor, fragment_21);
 							};
-							if_block(node_37, ($$render) => {
-								if (presentation.tool.connector) $$render(consequent_32);
+							if_block(node_39, ($$render) => {
+								if (presentation.tool.connector) $$render(consequent_34);
 							});
 							reset(div_1);
-							template_effect(() => set_text(text_11, presentation.tool.action));
+							template_effect(() => set_text(text_14, presentation.tool.action));
 							append($$anchor, div_1);
 						};
-						if_block(node_36, ($$render) => {
-							if (presentation.tool.hasMeta) $$render(consequent_33);
+						if_block(node_38, ($$render) => {
+							if (presentation.tool.hasMeta) $$render(consequent_35);
 						});
-						var node_38 = sibling(node_36, 2);
-						var consequent_34 = ($$anchor) => {
-							var pre = root_30();
-							var code_2 = child(pre);
-							var node_39 = child(code_2);
+						var node_40 = sibling(node_38, 2);
+						var consequent_43 = ($$anchor) => {
+							const diffPresentation = unifiedDiffPresentation(presentation.tool.diff);
+							var div_2 = root_39();
+							var div_3 = child(div_2);
+							var span_13 = child(div_3);
+							var text_16 = only_child(span_13, true);
+							var node_41 = sibling(span_13, 2);
+							var consequent_36 = ($$anchor) => {
+								append($$anchor, root_32());
+							};
+							if_block(node_41, ($$render) => {
+								if (presentation.tool.diff.truncated) $$render(consequent_36);
+							});
+							reset(div_3);
+							var node_42 = sibling(div_3, 2);
+							var consequent_42 = ($$anchor) => {
+								var fragment_22 = comment();
+								each(first_child(fragment_22), 19, () => diffPresentation.files, (file, fileIndex) => file.path + ":" + fileIndex, ($$anchor, file) => {
+									var section = root_37();
+									var div_4 = child(section);
+									var text_17 = only_child(div_4, true);
+									var node_44 = sibling(div_4, 2);
+									var consequent_38 = ($$anchor) => {
+										var pre = root_33();
+										var code_2 = child(pre);
+										var node_45 = child(code_2);
+										var consequent_37 = ($$anchor) => {
+											{
+												let $0 = /* @__PURE__ */ user_derived(() => highlightedCode(get(file).metadata, "diff"));
+												highlightNodes($$anchor, () => get($0));
+											}
+										};
+										var alternate_5 = ($$anchor) => {
+											var text_18 = text();
+											template_effect(() => set_text(text_18, get(file).metadata));
+											append($$anchor, text_18);
+										};
+										if_block(node_45, ($$render) => {
+											if (diffPresentation.highlight) $$render(consequent_37);
+											else $$render(alternate_5, -1);
+										});
+										reset(code_2);
+										reset(pre);
+										append($$anchor, pre);
+									};
+									if_block(node_44, ($$render) => {
+										if (get(file).metadata) $$render(consequent_38);
+									});
+									each(sibling(node_44, 2), 19, () => get(file).hunks, (hunk, hunkIndex) => hunk.header + ":" + hunkIndex, ($$anchor, hunk) => {
+										var div_5 = root_36();
+										var node_47 = child(div_5);
+										var consequent_39 = ($$anchor) => {
+											var div_6 = root_34();
+											var text_19 = only_child(div_6, true);
+											template_effect(() => set_text(text_19, get(hunk).header));
+											append($$anchor, div_6);
+										};
+										if_block(node_47, ($$render) => {
+											if (get(hunk).header) $$render(consequent_39);
+										});
+										var node_48 = sibling(node_47, 2);
+										var consequent_41 = ($$anchor) => {
+											var pre_1 = root_35();
+											var code_3 = child(pre_1);
+											var node_49 = child(code_3);
+											var consequent_40 = ($$anchor) => {
+												{
+													let $0 = /* @__PURE__ */ user_derived(() => highlightedCode(get(hunk).body, "diff"));
+													highlightNodes($$anchor, () => get($0));
+												}
+											};
+											var alternate_6 = ($$anchor) => {
+												var text_20 = text();
+												template_effect(() => set_text(text_20, get(hunk).body));
+												append($$anchor, text_20);
+											};
+											if_block(node_49, ($$render) => {
+												if (diffPresentation.highlight) $$render(consequent_40);
+												else $$render(alternate_6, -1);
+											});
+											reset(code_3);
+											reset(pre_1);
+											append($$anchor, pre_1);
+										};
+										if_block(node_48, ($$render) => {
+											if (get(hunk).body) $$render(consequent_41);
+										});
+										reset(div_5);
+										append($$anchor, div_5);
+									});
+									reset(section);
+									template_effect(() => set_text(text_17, get(file).path));
+									append($$anchor, section);
+								});
+								append($$anchor, fragment_22);
+							};
+							var alternate_7 = ($$anchor) => {
+								var div_7 = root_38();
+								var text_21 = only_child(div_7, true);
+								template_effect(() => set_text(text_21, presentation.tool.diff.truncated ? "Patch text omitted by preview limits." : "No patch text available."));
+								append($$anchor, div_7);
+							};
+							if_block(node_42, ($$render) => {
+								if (diffPresentation.files.length) $$render(consequent_42);
+								else $$render(alternate_7, -1);
+							});
+							reset(div_2);
+							template_effect(($0) => set_text(text_16, $0), [() => toolCodeDiffSummary(presentation.tool.diff)]);
+							append($$anchor, div_2);
+						};
+						var d_2 = /* @__PURE__ */ user_derived(() => presentation.tool.diff && get(expandedTools).has(key));
+						if_block(node_40, ($$render) => {
+							if (get(d_2)) $$render(consequent_43);
+						});
+						var node_50 = sibling(node_40, 2);
+						var consequent_44 = ($$anchor) => {
+							var pre_2 = root_40();
+							var code_4 = child(pre_2);
+							var node_51 = child(code_4);
 							{
 								let $0 = /* @__PURE__ */ user_derived(() => presentation.highlight ? presentation.highlighted : highlightedCode(presentation.code, presentation.language));
-								highlightNodes(node_39, () => get($0));
+								highlightNodes(node_51, () => get($0));
 							}
-							reset(code_2);
-							reset(pre);
-							template_effect(() => set_class(code_2, 1, "language-" + presentation.language));
-							append($$anchor, pre);
+							reset(code_4);
+							reset(pre_2);
+							template_effect(() => set_class(code_4, 1, "language-" + presentation.language));
+							append($$anchor, pre_2);
 						};
-						var d_2 = /* @__PURE__ */ user_derived(() => presentation.code && get(expandedTools).has(key));
-						if_block(node_38, ($$render) => {
-							if (get(d_2)) $$render(consequent_34);
+						var d_3 = /* @__PURE__ */ user_derived(() => presentation.code && get(expandedTools).has(key));
+						if_block(node_50, ($$render) => {
+							if (get(d_3)) $$render(consequent_44);
 						});
 						reset(details);
 						template_effect(($0) => set_class(details, 1, $0), [() => clsx([
@@ -16087,62 +16439,62 @@ function MarkdownContent($$anchor, $$props) {
 						event("toggle", details, (event) => setToolOpen(key, event.currentTarget.open));
 						append($$anchor, details);
 					};
-					var alternate_5 = ($$anchor) => {
-						var div_2 = root_33();
-						var div_3 = child(div_2);
-						var span_8 = child(div_3);
-						var text_13 = only_child(span_8, true);
-						var node_40 = sibling(span_8, 2);
-						var consequent_36 = ($$anchor) => {
-							var button = root_32();
-							var text_14 = only_child(button, true);
-							template_effect(() => set_text(text_14, get(copiedKey) === key ? "copied" : "copy"));
+					var alternate_8 = ($$anchor) => {
+						var div_8 = root_43();
+						var div_9 = child(div_8);
+						var span_15 = child(div_9);
+						var text_22 = only_child(span_15, true);
+						var node_52 = sibling(span_15, 2);
+						var consequent_46 = ($$anchor) => {
+							var button = root_42();
+							var text_23 = only_child(button, true);
+							template_effect(() => set_text(text_23, get(copiedKey) === key ? "copied" : "copy"));
 							delegated("click", button, () => void copyCode(key, presentation.code));
 							append($$anchor, button);
 						};
-						if_block(node_40, ($$render) => {
-							if (presentation.code) $$render(consequent_36);
+						if_block(node_52, ($$render) => {
+							if (presentation.code) $$render(consequent_46);
 						});
-						reset(div_3);
-						var node_41 = sibling(div_3, 2);
-						var consequent_37 = ($$anchor) => {
-							var pre_1 = root_30();
-							var code_3 = child(pre_1);
-							var node_42 = child(code_3);
-							highlightNodes(node_42, () => presentation.highlighted);
-							reset(code_3);
-							reset(pre_1);
-							template_effect(() => set_class(code_3, 1, "language-" + presentation.language));
-							append($$anchor, pre_1);
+						reset(div_9);
+						var node_53 = sibling(div_9, 2);
+						var consequent_47 = ($$anchor) => {
+							var pre_3 = root_40();
+							var code_5 = child(pre_3);
+							var node_54 = child(code_5);
+							highlightNodes(node_54, () => presentation.highlighted);
+							reset(code_5);
+							reset(pre_3);
+							template_effect(() => set_class(code_5, 1, "language-" + presentation.language));
+							append($$anchor, pre_3);
 						};
-						if_block(node_41, ($$render) => {
-							if (presentation.code) $$render(consequent_37);
+						if_block(node_53, ($$render) => {
+							if (presentation.code) $$render(consequent_47);
 						});
-						reset(div_2);
-						template_effect(() => set_text(text_13, presentation.label));
-						append($$anchor, div_2);
+						reset(div_8);
+						template_effect(() => set_text(text_22, presentation.label));
+						append($$anchor, div_8);
 					};
 					if_block(node_31, ($$render) => {
-						if (presentation.tool) $$render(consequent_35);
-						else $$render(alternate_5, -1);
+						if (presentation.tool) $$render(consequent_45);
+						else $$render(alternate_8, -1);
 					});
 					append($$anchor, fragment_18);
 				};
 				if_block(node_30, ($$render) => {
-					if (presentation) $$render(consequent_38);
+					if (presentation) $$render(consequent_48);
 				});
 				append($$anchor, fragment_17);
 			};
-			var consequent_40 = ($$anchor) => {
-				var p_1 = root_34();
-				var text_15 = only_child(p_1, true);
-				template_effect(() => set_text(text_15, get(token).text));
+			var consequent_50 = ($$anchor) => {
+				var p_1 = root_44();
+				var text_24 = only_child(p_1, true);
+				template_effect(() => set_text(text_24, get(token).text));
 				append($$anchor, p_1);
 			};
-			var consequent_41 = ($$anchor) => {
+			var consequent_51 = ($$anchor) => {
 				var p_2 = root_7$3();
-				var node_43 = child(p_2);
-				inline(node_43, () => [get(token)]);
+				var node_55 = child(p_2);
+				inline(node_55, () => [get(token)]);
 				reset(p_2);
 				append($$anchor, p_2);
 			};
@@ -16153,9 +16505,9 @@ function MarkdownContent($$anchor, $$props) {
 				else if (get(token).type === "blockquote") $$render(consequent_22, 3);
 				else if (get(token).type === "list") $$render(consequent_26, 4);
 				else if (get(token).type === "table") $$render(consequent_27, 5);
-				else if (get(token).type === "code") $$render(consequent_39, 6);
-				else if (get(token).type === "html") $$render(consequent_40, 7);
-				else if (get(token).type === "text") $$render(consequent_41, 8);
+				else if (get(token).type === "code") $$render(consequent_49, 6);
+				else if (get(token).type === "html") $$render(consequent_50, 7);
+				else if (get(token).type === "text") $$render(consequent_51, 8);
 			});
 			append($$anchor, fragment_14);
 		});
@@ -16257,15 +16609,26 @@ function messageDisplayContent(message) {
 	const fallback = String(message?.content || "");
 	if (message?.role !== "assistant" || message?.parts_renderable !== true) return fallback;
 	if (!Array.isArray(message.parts)) return fallback;
-	const ordered = message.parts.map((part, index) => ({
-		content: String(part?.content || "").trim(),
-		index,
-		ordinal: Number.isFinite(Number(part?.ordinal)) ? Number(part.ordinal) : index
-	})).filter((part) => Boolean(part.content)).sort((left, right) => left.ordinal - right.ordinal || left.index - right.index);
+	const toolDiffs = /* @__PURE__ */ new Map();
+	if (Array.isArray(message.tool_calls)) for (const call of message.tool_calls) {
+		const callKey = String(call?.call_key || "");
+		if (callKey && call?.code_diff) toolDiffs.set(callKey, call.code_diff);
+	}
+	const ordered = message.parts.map((part, index) => {
+		const content = String(part?.content || "").trim();
+		const callKey = String(part?.tool_call_key || "");
+		return {
+			content: String(part?.kind || "") === "tool_call" && callKey && toolDiffs.has(callKey) ? injectToolCodeDiff(content, toolDiffs.get(callKey)) : content,
+			index,
+			ordinal: Number.isFinite(Number(part?.ordinal)) ? Number(part.ordinal) : index
+		};
+	}).filter((part) => Boolean(part.content)).sort((left, right) => left.ordinal - right.ordinal || left.index - right.index);
 	if (!ordered.length) return fallback;
 	return ordered.map((part) => part.content).join("\n\n").trim() || fallback;
 }
-var init_conversationLogic = __esmMin((() => {}));
+var init_conversationLogic = __esmMin((() => {
+	init_diffPreview();
+}));
 //#endregion
 //#region src/ui/ConversationMessages.svelte
 init_client();
