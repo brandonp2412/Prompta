@@ -131,9 +131,10 @@ class ConversationWorker:
             return False
         return recovered > 0 or bool(self.tracker.active)
 
-    async def _watchdog_heartbeat(self) -> None:
+    async def _watchdog_heartbeat(self, health: ServiceHealthStore) -> None:
         while True:
             await asyncio.sleep(_WATCHDOG_HEARTBEAT_SECONDS)
+            health.beat("conversation_worker")
             notify_watchdog()
 
     async def run_forever(self) -> None:
@@ -142,7 +143,7 @@ class ConversationWorker:
             self.cache_path,
         )
         health = ServiceHealthStore(self.runtime.state_path)
-        watchdog_task = asyncio.create_task(self._watchdog_heartbeat())
+        watchdog_task = asyncio.create_task(self._watchdog_heartbeat(health))
         try:
             while True:
                 health.begin_activity("conversation_worker", "poll")

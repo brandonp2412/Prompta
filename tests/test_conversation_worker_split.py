@@ -293,11 +293,19 @@ async def test_conversation_worker_keeps_watchdog_alive_during_long_async_poll(
             patch.object(worker, "run_once", new=slow_poll),
             patch.object(conversation_worker_module, "_WATCHDOG_HEARTBEAT_SECONDS", 0.01),
             patch.object(conversation_worker_module, "notify_watchdog") as notify,
+            patch.object(
+                conversation_worker_module.ServiceHealthStore,
+                "beat",
+                autospec=True,
+                return_value=True,
+            ) as beat,
             pytest.raises(RuntimeError, match="stop after heartbeat"),
         ):
             await worker.run_forever()
 
         assert notify.call_count >= 3
+        assert beat.call_count >= 2
+        assert all(call.args[1] == "conversation_worker" for call in beat.call_args_list)
     finally:
         await worker.close()
 
