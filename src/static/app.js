@@ -7592,13 +7592,32 @@ delegate([
 ]);
 //#endregion
 //#region src/ui/clipboard.ts
-async function copyText(value) {
+function legacyCopyText(value) {
+	if (typeof document === "undefined" || !document.body || typeof document.execCommand !== "function") return false;
+	const activeElement = document.activeElement;
+	const textarea = document.createElement("textarea");
+	textarea.value = value;
+	textarea.setAttribute("readonly", "");
+	textarea.style.position = "fixed";
+	textarea.style.opacity = "0";
+	textarea.style.pointerEvents = "none";
+	document.body.appendChild(textarea);
+	textarea.select();
 	try {
-		await navigator.clipboard.writeText(value);
-		return true;
+		return document.execCommand("copy");
 	} catch {
 		return false;
+	} finally {
+		textarea.remove();
+		activeElement?.focus?.({ preventScroll: true });
 	}
+}
+async function copyText(value) {
+	if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) try {
+		await navigator.clipboard.writeText(value);
+		return true;
+	} catch {}
+	return legacyCopyText(value);
 }
 var init_clipboard = __esmMin((() => {}));
 //#endregion
