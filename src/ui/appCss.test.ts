@@ -51,6 +51,13 @@ test("app stylesheet keeps balanced CSS blocks", async () => {
   expect(cssBraceDepth(css)).toBe(0);
 });
 
+test("sidebar conversation filter chips are left aligned", async () => {
+  const css = await Bun.file(new URL("../static/app.css", import.meta.url)).text();
+
+  expect(css).toMatch(/\.sidebar-filters \{[^}]*justify-content: flex-start;/s);
+  expect(css).toMatch(/\.sidebar-toolbar-right \{[^}]*justify-content: flex-start;/s);
+});
+
 test("offscreen rendering avoids variable-height conversation rows", async () => {
   const css = await Bun.file(new URL("../static/app.css", import.meta.url)).text();
 

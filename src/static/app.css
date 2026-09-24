@@ -233,7 +233,7 @@ textarea:focus-visible {
 .sidebar-filters {
   min-width: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -323,7 +323,7 @@ textarea:focus-visible {
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
