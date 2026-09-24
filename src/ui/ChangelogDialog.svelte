@@ -3,6 +3,7 @@
 
   import { dialogVisibility } from "./browserAttachments.svelte";
   import { changelogPage, type ChangelogEntry } from "./changelog";
+  import { popStackPage, pushStackPage, stackPageFromState } from "./stackNavigation";
   import { registerChangelogDialog } from "./uiControllers";
 
   const CHANGELOG_PAGE_SIZE = 100;
@@ -57,15 +58,31 @@
     presentation = mobile.current ? "stack" : "modal";
     currentLimit = CHANGELOG_PAGE_SIZE;
     open = true;
+
+    if (presentation === "stack" && stackPageFromState(history.state) !== "changelog") {
+      pushStackPage("changelog");
+    }
+
     await load(currentLimit, true);
   }
 
   export function close() {
+    if (presentation === "stack" && popStackPage("changelog")) return;
+
+    open = false;
+  }
+
+  function handlePopState(event: PopStateEvent) {
+    if (presentation !== "stack" || !open) return;
+    if (stackPageFromState(event.state) === "changelog") return;
+
     open = false;
   }
 
   registerChangelogDialog({ open: show, close });
 </script>
+
+<svelte:window onpopstate={handlePopState} />
 
 <dialog
   {@attach dialogVisibility(() => open, () => presentation === "modal", close)}
@@ -88,7 +105,7 @@
         type="button"
         class="changelog-close-button"
         id="closeChangelogDialog"
-        aria-label="Close changelog"
+        aria-label={presentation === "stack" ? "Back to chats" : "Close changelog"}
         onclick={close}
       >
         ×

@@ -6222,6 +6222,27 @@ function changelogPage(payload) {
 	};
 }
 //#endregion
+//#region src/ui/stackNavigation.ts
+var STACK_PAGE_STATE_KEY = "__promptaStackPage";
+function historyStateRecord(state) {
+	return state !== null && typeof state === "object" && !Array.isArray(state) ? state : {};
+}
+function stackPageFromState(state) {
+	const page = historyStateRecord(state)[STACK_PAGE_STATE_KEY];
+	return page === "prompta" || page === "changelog" ? page : null;
+}
+function pushStackPage(page, historyApi = history, url = location.href) {
+	historyApi.pushState({
+		...historyStateRecord(historyApi.state),
+		[STACK_PAGE_STATE_KEY]: page
+	}, "", url);
+}
+function popStackPage(page, historyApi = history) {
+	if (stackPageFromState(historyApi.state) !== page) return false;
+	historyApi.back();
+	return true;
+}
+//#endregion
 //#region src/ui/uiControllers.ts
 function registerAttachmentPicker(controller) {
 	attachmentPicker$1 = controller;
@@ -6260,7 +6281,7 @@ var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span clas
 var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
 var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_5$6 = /* @__PURE__ */ from_html(`<li class="changelog-empty"> </li>`);
-var root_6$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle" aria-describedby="changelogDialogStatus"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus" role="status" aria-live="polite" aria-atomic="true"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog" aria-label="Close changelog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
+var root_6$5 = /* @__PURE__ */ from_html(`<dialog class="changelog-dialog" id="changelogDialog" aria-labelledby="changelogDialogTitle" aria-describedby="changelogDialogStatus"><div class="changelog-dialog-shell"><header class="changelog-dialog-header"><div><h2 id="changelogDialogTitle">Changelog</h2> <p id="changelogDialogStatus" role="status" aria-live="polite" aria-atomic="true"> </p></div> <button type="button" class="changelog-close-button" id="closeChangelogDialog">×</button></header> <ol class="changelog-list" id="changelogList"><!></ol></div></dialog>`);
 function ChangelogDialog($$anchor, $$props) {
 	push($$props, true);
 	const CHANGELOG_PAGE_SIZE = 100;
@@ -6307,9 +6328,16 @@ function ChangelogDialog($$anchor, $$props) {
 		set(presentation, mobile.current ? "stack" : "modal", true);
 		set(currentLimit, CHANGELOG_PAGE_SIZE);
 		set(open, true);
+		if (get(presentation) === "stack" && stackPageFromState(history.state) !== "changelog") pushStackPage("changelog");
 		await load(get(currentLimit), true);
 	}
 	function close() {
+		if (get(presentation) === "stack" && popStackPage("changelog")) return;
+		set(open, false);
+	}
+	function handlePopState(event) {
+		if (get(presentation) !== "stack" || !get(open)) return;
+		if (stackPageFromState(event.state) === "changelog") return;
 		set(open, false);
 	}
 	registerChangelogDialog({
@@ -6321,6 +6349,7 @@ function ChangelogDialog($$anchor, $$props) {
 		close
 	};
 	var dialog = root_6$5();
+	event("popstate", $window, handlePopState);
 	var div = child(dialog);
 	var header = child(div);
 	var div_1 = child(header);
@@ -6391,6 +6420,7 @@ function ChangelogDialog($$anchor, $$props) {
 	template_effect(($0) => {
 		set_attribute(dialog, "data-presentation", get(presentation));
 		set_text(text, get(status));
+		set_attribute(button, "aria-label", get(presentation) === "stack" ? "Back to chats" : "Close changelog");
 		set_attribute(ol, "aria-busy", $0);
 	}, [() => get(status).startsWith("Loading") || get(loadingMore)]);
 	delegated("click", dialog, (event) => {
@@ -17441,27 +17471,6 @@ function JobsPage($$anchor, $$props) {
 	pop();
 }
 delegate(["click"]);
-//#endregion
-//#region src/ui/stackNavigation.ts
-var STACK_PAGE_STATE_KEY = "__promptaStackPage";
-function historyStateRecord(state) {
-	return state !== null && typeof state === "object" && !Array.isArray(state) ? state : {};
-}
-function stackPageFromState(state) {
-	const page = historyStateRecord(state)[STACK_PAGE_STATE_KEY];
-	return page === "prompta" ? page : null;
-}
-function pushStackPage(page, historyApi = history, url = location.href) {
-	historyApi.pushState({
-		...historyStateRecord(historyApi.state),
-		[STACK_PAGE_STATE_KEY]: page
-	}, "", url);
-}
-function popStackPage(page, historyApi = history) {
-	if (stackPageFromState(historyApi.state) !== page) return false;
-	historyApi.back();
-	return true;
-}
 //#endregion
 //#region src/ui/PromptaPage.svelte
 init_client();

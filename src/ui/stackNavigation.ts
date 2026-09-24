@@ -1,4 +1,4 @@
-export type StackPage = "prompta";
+export type StackPage = "prompta" | "changelog";
 
 const STACK_PAGE_STATE_KEY = "__promptaStackPage";
 
@@ -13,7 +13,7 @@ function historyStateRecord(state: unknown): Record<string, unknown> {
 export function stackPageFromState(state: unknown): StackPage | null {
   const page = historyStateRecord(state)[STACK_PAGE_STATE_KEY];
 
-  return page === "prompta" ? page : null;
+  return page === "prompta" || page === "changelog" ? page : null;
 }
 
 export function pushStackPage(
