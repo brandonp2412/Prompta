@@ -867,18 +867,20 @@ def test_probe_conversation_reads_only_cached_state(tmp_path: Path) -> None:
     assert verified is False
 
 
-def test_probe_conversation_remains_cache_only_in_machine_gun_mode(tmp_path: Path) -> None:
+def test_machine_gun_mode_off_keeps_historical_probe_browserless(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
     store = ReadOnlyChatStore(path)
     server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
     try:
-        mode = server.set_unattended_mode(True)
+        enabled = server.set_unattended_mode(True)
+        disabled = server.set_unattended_mode(False)
         chat, message_count, verified = server.probe_conversation("chat-1")
     finally:
         server.server_close()
 
-    assert mode == {"unattended": True, "chat_polling": False, "send_gap_seconds": 10.0}
+    assert enabled == {"unattended": True, "chat_polling": False, "send_gap_seconds": 10.0}
+    assert disabled == {"unattended": False, "chat_polling": True, "send_gap_seconds": 60.0}
     assert chat["id"] == "chat-1"
     assert message_count == len(chat["messages"])
     assert verified is False

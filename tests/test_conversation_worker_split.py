@@ -99,6 +99,67 @@ def test_conversation_worker_uses_separate_browser_ownership_scope(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    cache_path = tmp_path / "chats.sqlite3"
+    conversation_id = "chat-machine-gun-transition"
+
+    cache = ChatCache(cache_path)
+    cache.start(
+        conversation_id,
+        context_id="prompta-delivery:send-tab",
+        job_name="machine-gun-transition",
+        prompt="Keep working after Machine Gun Mode is disabled",
+    )
+    assert cache.release_browser_context(
+        conversation_id,
+        context_id="prompta-delivery:send-tab",
+    )
+    cache.close()
+
+    driver = FakeTrackingDriver("prompta-conversation:recovered", conversation_id)
+    driver_factory_calls = 0
+
+    def driver_factory() -> FakeTrackingDriver:
+        nonlocal driver_factory_calls
+        driver_factory_calls += 1
+        return driver
+
+    worker = ConversationWorker(
+        state_path,
+        cache_path=cache_path,
+        driver_factory=cast(Any, driver_factory),
+        recovery_message_timeout_seconds=0.01,
+    )
+    try:
+        worker.runtime.set_unattended_mode(True)
+        assert await worker.run_once() is True
+        assert worker.cache.status(conversation_id) == "unattended"
+        assert driver_factory_calls == 0
+        assert worker.tracker.active == {}
+
+        worker.runtime.set_unattended_mode(False)
+        with patch.object(
+            driver,
+            "conversation_activity",
+            wraps=driver.conversation_activity,
+        ) as activity:
+            assert await worker.run_once() is True
+            activity.assert_awaited()
+
+        assert driver_factory_calls == 1
+        assert worker.cache.status(conversation_id) == "active"
+        assert list(worker.tracker.active) == ["prompta-conversation:recovered"]
+        assert _browser_context_id(worker.cache, conversation_id) == (
+            "prompta-conversation:recovered"
+        )
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
 async def test_conversation_worker_restart_reclaims_durable_active_handoff(
     tmp_path: Path,
 ) -> None:
