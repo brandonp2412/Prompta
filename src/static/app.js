@@ -16624,7 +16624,7 @@ var root_6$1 = /* @__PURE__ */ from_html(`<nav class="jobs-pagination" aria-labe
 var root_7$1 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1"/></label>`);
 var root_8 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time"/></label>`);
 var root_9 = /* @__PURE__ */ from_html(`<label class="jobs-check"><input type="checkbox"/> <span>Exact interval</span></label>`);
-var root_10 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <!> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button">Reset</button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
+var root_10 = /* @__PURE__ */ from_html(`<dialog class="jobs-dialog" id="jobsDialog" aria-labelledby="jobsDialogTitle"><div class="jobs-dialog-shell"><header class="jobs-dialog-header"><div class="chat-heading"><div class="heading-title" id="jobsDialogTitle">Scheduled jobs</div> <div class="heading-meta">Create and manage scheduled prompts.</div></div> <button type="button" class="jobs-icon-button" aria-label="Close scheduled jobs">×</button></header> <div class="jobs-dialog-status" role="status"> </div> <div class="jobs-list"><!> <!></div> <!> <form class="jobs-form"><h3> </h3> <label><span>Name</span> <input autocomplete="off" required=""/></label> <label><span>Prompt</span> <textarea rows="3" required=""></textarea></label> <div class="jobs-form-grid"><label><span>Schedule</span> <select><option>Interval</option><option>Daily</option></select></label> <!></div> <!> <div class="jobs-form-actions"><button type="button" class="jobs-secondary-button"> </button> <button type="submit" class="jobs-primary-button">Save job</button></div></form> <div class="jobs-dialog-footer"><button type="button" class="jobs-danger-button">Clear all jobs</button></div></div></dialog>`);
 function JobsDialog($$anchor, $$props) {
 	push($$props, true);
 	const mobile = new MediaQuery("(max-width: 600px)");
@@ -16714,6 +16714,15 @@ function JobsDialog($$anchor, $$props) {
 		set(interval, String(job.interval_minutes || 40), true);
 		set(exact, Boolean(job.exact_interval), true);
 	}
+	async function remove(job) {
+		if (!confirm(`Remove scheduled job “${job.name}”?`)) return;
+		if (await command({
+			action: "remove",
+			name: job.name
+		}, `Removed ${job.name}`)) {
+			if (get(editing) === job.name) reset$1();
+		}
+	}
 	async function show() {
 		reset$1();
 		set(presentation, mobile.current ? "stack" : "modal", true);
@@ -16802,6 +16811,7 @@ function JobsDialog($$anchor, $$props) {
 		var node_4 = child(div_10);
 		var consequent_3 = ($$anchor) => {
 			var button_1 = root_4$2();
+			template_effect(() => button_1.disabled = get(saving));
 			delegated("click", button_1, () => edit(get(job)));
 			append($$anchor, button_1);
 		};
@@ -16817,16 +16827,15 @@ function JobsDialog($$anchor, $$props) {
 			set_text(text_1, get(job).name);
 			set_text(text_2, `${$0 ?? ""} `);
 			set_text(text_4, get(job).status || (get(job).paused ? "paused" : "pending"));
+			button_2.disabled = get(saving);
 			set_text(text_8, get(job).paused ? "Resume" : "Pause");
+			button_3.disabled = get(saving);
 		}, [() => scheduleText(get(job))]);
 		delegated("click", button_2, () => void command({
 			action: get(job).paused ? "resume" : "pause",
 			name: get(job).name
 		}, `${get(job).paused ? "Resumed" : "Paused"} ${get(job).name}`));
-		delegated("click", button_3, () => void command({
-			action: "remove",
-			name: get(job).name
-		}, `Removed ${get(job).name}`));
+		delegated("click", button_3, () => void remove(get(job)));
 		append($$anchor, article);
 	});
 	reset(div_2);
@@ -16908,6 +16917,7 @@ function JobsDialog($$anchor, $$props) {
 	});
 	var div_12 = sibling(node_7, 2);
 	var button_6 = child(div_12);
+	var text_11 = only_child(button_6, true);
 	var button_7 = sibling(button_6, 2);
 	reset(div_12);
 	reset(form);
@@ -16920,6 +16930,8 @@ function JobsDialog($$anchor, $$props) {
 		set_text(text, get(status));
 		set_text(text_10, get(editing) ? `Edit ${get(editing)}` : "Add job");
 		input.readOnly = $0;
+		button_6.disabled = get(saving);
+		set_text(text_11, get(editing) ? "Cancel edit" : "Reset");
 		button_7.disabled = get(saving);
 		button_8.disabled = !get(jobs).length || get(saving);
 	}, [() => Boolean(get(editing))]);

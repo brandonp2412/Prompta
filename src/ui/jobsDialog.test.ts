@@ -49,4 +49,14 @@ describe("scheduled job prompt presentation", () => {
     expect(jobsDialogSource).toContain("data-presentation={presentation}");
     expect(jobsDialogSource).toContain('() => presentation === "modal"');
   });
+
+  test("confirms destructive single-job removal and locks row actions while saving", () => {
+    expect(jobsDialogSource).toContain("confirm(`Remove scheduled job “${job.name}”?`)");
+    expect(jobsDialogSource).toContain("onclick={() => void remove(job)}");
+    expect(jobsDialogSource.match(/class="job-action"\s+disabled=\{saving\}/g)?.length).toBe(3);
+  });
+
+  test("makes edit cancellation explicit", () => {
+    expect(jobsDialogSource).toContain('{editing ? "Cancel edit" : "Reset"}');
+  });
 });

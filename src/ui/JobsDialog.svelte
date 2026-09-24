@@ -126,6 +126,14 @@
     exact = Boolean(job.exact_interval);
   }
 
+  async function remove(job: Job) {
+    if (!confirm(`Remove scheduled job “${job.name}”?`)) return;
+
+    if (await command({ action: "remove", name: job.name }, `Removed ${job.name}`)) {
+      if (editing === job.name) reset();
+    }
+  }
+
   export async function show() {
     reset();
     presentation = mobile.current ? "stack" : "modal";
@@ -203,11 +211,14 @@
 
           <div class="job-row-actions">
             {#if !job.run_at_epoch}
-              <button type="button" class="job-action" onclick={() => edit(job)}>Edit</button>
+              <button type="button" class="job-action" disabled={saving} onclick={() => edit(job)}
+                >Edit</button
+              >
             {/if}
             <button
               type="button"
               class="job-action"
+              disabled={saving}
               onclick={() =>
                 void command(
                   { action: job.paused ? "resume" : "pause", name: job.name },
@@ -219,8 +230,8 @@
             <button
               type="button"
               class="job-action"
-              onclick={() =>
-                void command({ action: "remove", name: job.name }, `Removed ${job.name}`)}
+              disabled={saving}
+              onclick={() => void remove(job)}
             >
               Remove
             </button>
@@ -298,7 +309,9 @@
       {/if}
 
       <div class="jobs-form-actions">
-        <button type="button" class="jobs-secondary-button" onclick={reset}>Reset</button>
+        <button type="button" class="jobs-secondary-button" disabled={saving} onclick={reset}>
+          {editing ? "Cancel edit" : "Reset"}
+        </button>
         <button type="submit" class="jobs-primary-button" disabled={saving}>Save job</button>
       </div>
     </form>
