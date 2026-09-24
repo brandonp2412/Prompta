@@ -357,9 +357,10 @@
         onclick={appActions.onUnattendedMode}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 10h13l2-2h4v3h-3.5L16 13H7l-3 2H2v-3l1-2Z"></path>
-          <path d="M8 10V7h3v3"></path>
-          <path d="m11 13-1 5h3l1-5"></path>
+          <path d="M2.5 8.5h9.25M2.5 11h9.25M2.5 13.5h9.25M2.5 7v8"></path>
+          <circle cx="15" cy="11" r="3.5"></circle>
+          <circle cx="15" cy="11" r="1"></circle>
+          <path d="M18.5 9.5H21l1 1.5-1 1.5h-2.5M14 14.4 12.5 19h5L16 14.4"></path>
         </svg>
         <span>Machine Gun Mode</span>
         <span class="sidebar-action-state">{appViewState.unattended ? "ON" : "OFF"}</span>
