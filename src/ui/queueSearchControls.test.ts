@@ -9,6 +9,9 @@ describe("queue and search controls", () => {
   test("replaces the slash shortcut with a clear button once search has text", () => {
     expect(appSource).toContain("{#if appViewState.searchValue}");
     expect(appSource).toContain('class="search-clear"');
+    expect(appSource).toContain('type="text"');
+    expect(appSource).toContain('role="searchbox"');
+    expect(appSource).not.toContain('type="search"');
     expect(appSource).toContain('aria-label="Clear search"');
     expect(appSource).toContain('appViewState.searchValue = "";');
     expect(appSource).toContain('appActions.onSearch("");');

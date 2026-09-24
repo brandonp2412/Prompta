@@ -311,7 +311,8 @@
           {@attach blurOnRequest(() => appViewState.searchBlurRequest)}
           bind:value={appViewState.searchValue}
           id="searchInput"
-          type="search"
+          type="text"
+          role="searchbox"
           placeholder="Search cached chats"
           aria-label="Search cached chats"
           aria-keyshortcuts="/"
