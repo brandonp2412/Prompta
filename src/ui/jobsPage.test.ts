@@ -47,12 +47,18 @@ describe("scheduled job prompt presentation", () => {
   test("renders jobs as an inline page", () => {
     expect(jobsPageSource).toContain('class="jobs-page"');
     expect(jobsPageSource).toContain('aria-labelledby="jobsPageTitle"');
-    expect(jobsPageSource).not.toContain("<dialog");
   });
 
-  test("confirms destructive single-job removal and locks row actions while saving", () => {
-    expect(jobsPageSource).toContain("confirm(`Remove scheduled job “${job.name}”?`)");
-    expect(jobsPageSource).toContain("onclick={() => void remove(job)}");
+  test("uses an in-app modal for destructive actions and locks row actions while saving", () => {
+    expect(jobsPageSource).toContain('class="jobs-confirm-dialog"');
+    expect(jobsPageSource).toContain('aria-labelledby="jobsConfirmTitle"');
+    expect(jobsPageSource).toContain("onclick={() => requestRemove(job)}");
+    expect(jobsPageSource).toContain("onclick={requestClear}");
+    expect(jobsPageSource).toContain("confirmDestructiveAction");
+    expect(jobsPageSource).toContain(
+      'if (await command({ action: "clear" }, "Cleared all scheduled jobs")) reset();',
+    );
+    expect(jobsPageSource).not.toContain("confirm(");
     expect(jobsPageSource.match(/class="job-action"\s+disabled=\{saving\}/g)?.length).toBe(3);
   });
 

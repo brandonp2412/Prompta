@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dialogVisibility } from "./browserAttachments.svelte";
   import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest } from "./clientLogic";
   import { jobPromptIsExpandable, paginateJobs } from "./jobs";
 
@@ -25,6 +26,11 @@
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
+  let confirmation = $state<
+    | { kind: "remove"; job: Job }
+    | { kind: "clear"; count: number }
+    | null
+  >(null);
   const pagination = $derived(paginateJobs(jobs, page));
 
   function reset() {
@@ -119,9 +125,31 @@
     exact = Boolean(job.exact_interval);
   }
 
-  async function remove(job: Job) {
-    if (!confirm(`Remove scheduled job “${job.name}”?`)) return;
+  function requestRemove(job: Job) {
+    confirmation = { kind: "remove", job };
+  }
 
+  function requestClear() {
+    if (!jobs.length) return;
+
+    confirmation = { kind: "clear", count: jobs.length };
+  }
+
+  function cancelConfirmation() {
+    confirmation = null;
+  }
+
+  async function confirmDestructiveAction() {
+    const pending = confirmation;
+    confirmation = null;
+    if (!pending) return;
+
+    if (pending.kind === "clear") {
+      if (await command({ action: "clear" }, "Cleared all scheduled jobs")) reset();
+      return;
+    }
+
+    const job = pending.job;
     if (await command({ action: "remove", name: job.name }, `Removed ${job.name}`)) {
       if (editing === job.name) reset();
     }
@@ -199,7 +227,7 @@
               type="button"
               class="job-action"
               disabled={saving}
-              onclick={() => void remove(job)}
+              onclick={() => requestRemove(job)}
             >
               Remove
             </button>
@@ -289,14 +317,51 @@
         type="button"
         class="jobs-danger-button"
         disabled={!jobs.length || saving}
-        onclick={() => {
-          if (confirm(`Clear all ${jobs.length} scheduled jobs?`)) {
-            void command({ action: "clear" }, "Cleared all scheduled jobs");
-          }
-        }}
+        onclick={requestClear}
       >
         Clear all jobs
       </button>
     </div>
   </div>
+
+  <dialog
+    {@attach dialogVisibility(() => Boolean(confirmation), () => true, cancelConfirmation)}
+    class="jobs-confirm-dialog"
+    aria-labelledby="jobsConfirmTitle"
+    aria-describedby="jobsConfirmDescription"
+    onclick={(event) => {
+      if (event.target === event.currentTarget) cancelConfirmation();
+    }}
+  >
+    <div class="jobs-confirm-shell">
+      <h3 id="jobsConfirmTitle">
+        {confirmation?.kind === "clear" ? "Clear scheduled jobs?" : "Remove scheduled job?"}
+      </h3>
+      <p id="jobsConfirmDescription">
+        {#if confirmation?.kind === "clear"}
+          This will remove all {confirmation.count} configured jobs. This cannot be undone.
+        {:else if confirmation?.kind === "remove"}
+          Remove “{confirmation.job.name}”? This cannot be undone.
+        {/if}
+      </p>
+      <div class="jobs-confirm-actions">
+        <button
+          type="button"
+          class="jobs-secondary-button"
+          disabled={saving}
+          onclick={cancelConfirmation}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="jobs-danger-button"
+          disabled={saving}
+          onclick={() => void confirmDestructiveAction()}
+        >
+          {confirmation?.kind === "clear" ? "Clear all jobs" : "Remove job"}
+        </button>
+      </div>
+    </div>
+  </dialog>
 </section>

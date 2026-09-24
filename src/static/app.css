@@ -2750,6 +2750,50 @@ textarea:focus-visible {
   color: #d65a5a;
 }
 
+.jobs-confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.42);
+}
+
+.jobs-confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(2px);
+}
+
+.jobs-confirm-shell {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.jobs-confirm-shell h3,
+.jobs-confirm-shell p {
+  margin: 0;
+}
+
+.jobs-confirm-shell h3 {
+  font-size: 16px;
+}
+
+.jobs-confirm-shell p {
+  color: var(--muted-strong);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.jobs-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .jobs-page-status {
   color: var(--muted);
   font-size: 12px;
