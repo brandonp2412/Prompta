@@ -3,8 +3,22 @@
   import { stickToBottom } from "./browserAttachments.svelte";
   import { registerLogsPanel } from "./uiControllers";
 
+  const logServices = [
+    { key: "ui", label: "UI", unit: "prompta-ui.service" },
+    { key: "scheduler", label: "Scheduler", unit: "prompta-scheduler.service" },
+    { key: "delivery", label: "Delivery worker", unit: "prompta-delivery-worker.service" },
+    { key: "conversation", label: "Conversation worker", unit: "prompta-conversation-worker.service" },
+    { key: "browser", label: "Browser", unit: "prompta-browser.service" },
+  ] as const;
+  type LogServiceKey = (typeof logServices)[number]["key"];
+
   const visible = $derived(appViewState.mode === "logs");
-  let serverTitle = $state("Prompta · prompta-ui.service");
+  let serverDisplay = $state("Prompta");
+  let selectedService = $state<LogServiceKey>("ui");
+  const selectedServiceOption = $derived(
+    logServices.find((service) => service.key === selectedService) ?? logServices[0],
+  );
+  const serverTitle = $derived(serverDisplay + " · " + selectedServiceOption.unit);
   let meta = $state("Waiting for synced journal");
   let output = $state("Loading logs…");
   let fingerprint = $state("");
@@ -41,18 +55,35 @@
   }
 
   export async function load() {
+    const requestedService = selectedService;
+
     try {
-      const response = await fetch("api/logs?limit=800", { cache: "no-store" });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      render(await response.json());
+      const params = new URLSearchParams({ limit: "800", service: requestedService });
+      const response = await fetch("api/logs?" + params, { cache: "no-store" });
+      if (!response.ok) throw new Error(response.status + " " + response.statusText);
+      const payload = await response.json();
+      if (requestedService !== selectedService) return;
+      render(payload);
     } catch (error) {
+      if (requestedService !== selectedService) return;
       meta = "Logs unavailable";
       console.error(error);
     }
   }
 
+  async function selectService(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    if (!logServices.some((service) => service.key === value)) return;
+
+    selectedService = value as LogServiceKey;
+    fingerprint = "";
+    meta = "Loading logs…";
+    output = "Loading logs…";
+    await load();
+  }
+
   export function setServerTitle(display: string) {
-    serverTitle = `${display || ""} · prompta-ui.service`;
+    serverDisplay = display || "Prompta";
   }
 
   registerLogsPanel({ load, setServerTitle });
@@ -78,8 +109,18 @@
 >
   <div class="logs-shell">
     <div class="logs-header">
-      <div><strong>{serverTitle}</strong><span>{meta}</span></div>
-      <span class="logs-live"><i></i> live</span>
+      <div class="logs-heading"><strong>{serverTitle}</strong><span>{meta}</span></div>
+      <div class="logs-controls">
+        <label class="logs-service-picker">
+          <span>Service</span>
+          <select aria-label="Log service" value={selectedService} onchange={selectService}>
+            {#each logServices as service (service.key)}
+              <option value={service.key}>{service.label}</option>
+            {/each}
+          </select>
+        </label>
+        <span class="logs-live"><i></i> live</span>
+      </div>
     </div>
     <pre class="log-output">{output}</pre>
   </div>

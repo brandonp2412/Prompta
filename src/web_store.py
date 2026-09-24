@@ -702,10 +702,17 @@ class ReadOnlyChatStore:
         payload["messages"] = message_payloads
         return payload
 
-    def logs(self, *, limit: int = 500) -> dict[str, Any]:
+    def logs(
+        self,
+        *,
+        limit: int = 500,
+        journal_unit: str | None = None,
+        include_file_fallback: bool = True,
+    ) -> dict[str, Any]:
         bounded_limit = max(1, min(limit, 2000))
+        selected_journal_unit = self.journal_unit if journal_unit is None else journal_unit.strip()
         file_payload: dict[str, Any] | None = None
-        if self.log_path.is_file():
+        if include_file_fallback and self.log_path.is_file():
             try:
                 text = self.log_path.read_text(errors="replace")
                 updated_at = self.log_path.stat().st_mtime
@@ -719,7 +726,7 @@ class ReadOnlyChatStore:
                     "source": "file",
                 }
 
-        if not self.journal_unit:
+        if not selected_journal_unit:
             return file_payload or {
                 "exists": False,
                 "lines": [],
@@ -733,7 +740,7 @@ class ReadOnlyChatStore:
                     "journalctl",
                     "--user",
                     "-u",
-                    self.journal_unit,
+                    selected_journal_unit,
                     "-n",
                     str(bounded_limit),
                     "--no-pager",

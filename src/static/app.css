@@ -919,10 +919,40 @@ textarea:focus-visible {
   backdrop-filter: blur(12px);
 }
 
-.logs-header > div {
+.logs-heading {
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+
+.logs-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logs-service-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logs-service-picker select {
+  height: 30px;
+  max-width: 210px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 0 28px 0 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.logs-service-picker select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline-offset: 2px;
 }
 
 .logs-header strong {
@@ -2289,6 +2319,25 @@ textarea:focus-visible {
 
   .logs-shell {
     padding: 16px 12px 72px;
+  }
+
+  .logs-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .logs-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .logs-service-picker {
+    min-width: 0;
+  }
+
+  .logs-service-picker select {
+    max-width: min(62vw, 210px);
   }
 
   .log-output {

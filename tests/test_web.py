@@ -2603,6 +2603,87 @@ def test_read_only_store_falls_back_to_prompta_journal(tmp_path: Path) -> None:
     assert journal.call_args.kwargs["timeout"] == 2.0
 
 
+def test_server_logs_reads_allowlisted_split_service_journal(tmp_path: Path) -> None:
+    logs = tmp_path / "prompta-nox.log"
+    logs.write_text("stale ui log\n")
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", logs)
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    completed = MagicMock(
+        returncode=0,
+        stdout="2026-09-24T16:30:00+1200 nox prompta-delivery-worker[1]: delivered\n",
+        stderr="",
+    )
+
+    try:
+        with patch("prompta.web.subprocess.run", return_value=completed) as journal:
+            payload = server.logs(limit=1, service="delivery")
+    finally:
+        server.server_close()
+
+    assert payload["service"] == "delivery"
+    assert payload["unit"] == "prompta-delivery-worker.service"
+    assert payload["source"] == "journal"
+    assert payload["lines"] == [
+        "2026-09-24T16:30:00+1200 nox prompta-delivery-worker[1]: delivered"
+    ]
+    argv = journal.call_args.args[0]
+    assert argv[:5] == [
+        "journalctl",
+        "--user",
+        "-u",
+        "prompta-delivery-worker.service",
+        "-n",
+    ]
+
+
+def test_server_logs_does_not_fall_back_to_ui_file_for_worker(tmp_path: Path) -> None:
+    logs = tmp_path / "prompta-nox.log"
+    logs.write_text("stale ui log\n")
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", logs)
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    completed = MagicMock(returncode=0, stdout="-- No entries --\n", stderr="")
+
+    try:
+        with patch("prompta.web.subprocess.run", return_value=completed):
+            payload = server.logs(service="conversation")
+    finally:
+        server.server_close()
+
+    assert payload == {
+        "service": "conversation",
+        "unit": "prompta-conversation-worker.service",
+        "exists": False,
+        "lines": [],
+        "updated_at": None,
+        "source": "none",
+    }
+
+
+def test_server_logs_rejects_unknown_service(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "chats.sqlite3")
+    server = PromptaUIServer(
+        ("127.0.0.1", 0),
+        store,
+        tmp_path / "state.json",
+        jobs_path=tmp_path / "jobs.json",
+    )
+    try:
+        with pytest.raises(ValueError, match="Unknown Prompta log service"):
+            server.logs(service="anything")
+    finally:
+        server.server_close()
+
+
 def test_read_only_store_treats_empty_journal_as_missing(tmp_path: Path) -> None:
     store = ReadOnlyChatStore(tmp_path / "chats.sqlite3", tmp_path / "missing.log")
     completed = MagicMock(returncode=0, stdout="-- No entries --\n", stderr="")

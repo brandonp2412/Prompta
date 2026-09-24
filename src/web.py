@@ -44,6 +44,13 @@ _DAEMON_STARTUP_CHECKS = 10
 _DAEMON_STARTUP_POLL_SECONDS = 0.1
 _DAEMON_RESTART_GRACE_CHECKS = 120
 _EVENT_HEARTBEAT_SECONDS = 5.0
+_LOG_SERVICE_UNITS = {
+    "ui": "prompta-ui.service",
+    "scheduler": "prompta-scheduler.service",
+    "delivery": "prompta-delivery-worker.service",
+    "conversation": "prompta-conversation-worker.service",
+    "browser": "prompta-browser.service",
+}
 
 
 def _git_short_head() -> str:
@@ -526,8 +533,20 @@ class PromptaUIServer(ThreadingHTTPServer):
     def admission_status(self) -> dict[str, Any]:
         return self.scheduler_runtime.account_admission_status()
 
-    def logs(self, *, limit: int = 500) -> dict[str, Any]:
-        return self.store.logs(limit=limit)
+    def logs(self, *, limit: int = 500, service: str = "ui") -> dict[str, Any]:
+        service_key = service.strip().lower()
+        journal_unit = _LOG_SERVICE_UNITS.get(service_key)
+        if journal_unit is None:
+            raise ValueError(f"Unknown Prompta log service: {service}")
+        return {
+            "service": service_key,
+            "unit": journal_unit,
+            **self.store.logs(
+                limit=limit,
+                journal_unit=journal_unit,
+                include_file_fallback=service_key == "ui",
+            ),
+        }
 
     def scheduled_jobs(self) -> dict[str, Any]:
         return self.job_service.scheduled_jobs()
@@ -871,7 +890,13 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 limit = int(query.get("limit", ["500"])[0])
             except ValueError:
                 limit = 500
-            self._json(cast(PromptaUIServer, self.server).logs(limit=limit))
+            service = query.get("service", ["ui"])[0]
+            try:
+                payload = cast(PromptaUIServer, self.server).logs(limit=limit, service=service)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(payload)
             return
         if path == "/api/jobs":
             self._json(cast(PromptaUIServer, self.server).scheduled_jobs())

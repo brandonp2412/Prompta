@@ -6263,7 +6263,7 @@ var init_uiControllers = __esmMin((() => {
 init_client();
 init_uiControllers();
 var root$8 = /* @__PURE__ */ from_html(`<li class="changelog-empty">Could not load changelog.</li>`);
-var root_1$7 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
+var root_1$8 = /* @__PURE__ */ from_html(`<span class="changelog-entry-hash"> </span>`);
 var root_2$7 = /* @__PURE__ */ from_html(`<li class="changelog-entry"><span class="changelog-entry-title"> </span> <!></li>`);
 var root_3$6 = /* @__PURE__ */ from_html(`<li class="changelog-load-more-row"><button type="button" class="changelog-load-more"> </button></li>`);
 var root_4$6 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
@@ -6350,7 +6350,7 @@ function ChangelogDialog($$anchor, $$props) {
 			var text_1 = only_child(span, true);
 			var node_2 = sibling(span, 2);
 			var consequent_1 = ($$anchor) => {
-				var span_1 = root_1$7();
+				var span_1 = root_1$8();
 				var text_2 = only_child(span_1);
 				template_effect(() => set_text(text_2, `#${get(change).hash ?? ""}`));
 				append($$anchor, span_1);
@@ -6414,7 +6414,7 @@ init_client();
 init_browserAttachments_svelte();
 init_uiControllers();
 var root$7 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
-var root_1$6 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" tabindex="-1" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
+var root_1$7 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" tabindex="-1" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
 var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
 function AttachmentPicker($$anchor, $$props) {
 	push($$props, true);
@@ -6542,7 +6542,7 @@ function AttachmentPicker($$anchor, $$props) {
 	attach(button_1, () => focusOnRequest(() => get(pickerFocusRequest)));
 	var node_1 = sibling(button_1, 2);
 	var consequent = ($$anchor) => {
-		var div_3 = root_1$6();
+		var div_3 = root_1$7();
 		var button_2 = child(div_3);
 		var button_3 = sibling(button_2, 2);
 		var button_4 = sibling(button_3, 2);
@@ -7329,7 +7329,7 @@ init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_clientLogic();
 var root$6 = /* @__PURE__ */ from_html(`<button type="button" class="composer-jump-latest-button" aria-label="Jump to latest message" title="Jump to latest message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14m-6-6 6 6 6-6"></path></svg> <span>Latest</span></button>`);
-var root_1$5 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
+var root_1$6 = /* @__PURE__ */ from_html(`<button type="button" role="option"><strong> </strong><span> </span></button>`);
 var root_2$5 = /* @__PURE__ */ from_html(`<div class="slash-menu" id="slashMenu" role="listbox" tabindex="-1" aria-label="Prompta commands"></div>`);
 var root_3$5 = /* @__PURE__ */ from_html(`<textarea id="messageInput" rows="1" aria-label="Message Prompta" role="combobox" aria-controls="slashMenu" aria-autocomplete="list" aria-haspopup="listbox"></textarea> <!>`, 1);
 var root_4$5 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"></rect></svg>`);
@@ -7441,7 +7441,7 @@ function Composer($$anchor, $$props) {
 			var consequent_1 = ($$anchor) => {
 				var div = root_2$5();
 				each(div, 21, () => get(visibleCommands), (item) => item.command, ($$anchor, item) => {
-					var button_1 = root_1$5();
+					var button_1 = root_1$6();
 					var strong = child(button_1);
 					var text = only_child(strong, true);
 					var text_1 = only_child(sibling(strong), true);
@@ -15588,7 +15588,7 @@ init_client();
 init_index_client$1();
 init_browserAttachments_svelte();
 var root$5 = /* @__PURE__ */ from_html(`<span><!></span>`);
-var root_1$4 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
+var root_1$5 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
 var root_2$4 = /* @__PURE__ */ from_html(`<em><!></em>`);
 var root_3$4 = /* @__PURE__ */ from_html(`<del><!></del>`);
 var root_4$4 = /* @__PURE__ */ from_html(`<code class="inline-code"> </code>`);
@@ -15682,7 +15682,7 @@ function MarkdownContent($$anchor, $$props) {
 				append($$anchor, text_2);
 			};
 			var consequent_5 = ($$anchor) => {
-				var strong = root_1$4();
+				var strong = root_1$5();
 				var node_7 = child(strong);
 				{
 					let $0 = /* @__PURE__ */ user_derived(() => childTokens(get(token)));
@@ -16276,7 +16276,7 @@ init_clientLogic();
 init_conversationState_svelte();
 init_conversationLogic();
 var root$4 = /* @__PURE__ */ from_html(`<div class="conversation-loading" data-message-key="__loading__" aria-live="polite" aria-label="Loading conversation"><div class="conversation-loading-row conversation-loading-user"></div> <div class="conversation-loading-row conversation-loading-assistant"></div> <div class="conversation-loading-row conversation-loading-assistant short"></div></div>`);
-var root_1$3 = /* @__PURE__ */ from_html(`<div class="message-label"><span class="assistant-avatar"> </span> </div>`);
+var root_1$4 = /* @__PURE__ */ from_html(`<div class="message-label"><span class="assistant-avatar"> </span> </div>`);
 var root_2$3 = /* @__PURE__ */ from_html(`<div class="message-attachments"><img class="message-image-preview" loading="lazy" decoding="async"/></div>`);
 var root_3$3 = /* @__PURE__ */ from_html(`<button type="button" class="retry-send-button">Retry</button>`);
 var root_4$3 = /* @__PURE__ */ from_html(`<button type="button" class="pending-message-button bump-pending-button" aria-label="Send queued message next" title="Send queued message next"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></button>`);
@@ -16413,7 +16413,7 @@ function ConversationMessages($$anchor, $$props) {
 		var div_2 = child(section);
 		var node_2 = child(div_2);
 		var consequent_1 = ($$anchor) => {
-			var div_3 = root_1$3();
+			var div_3 = root_1$4();
 			var span = child(div_3);
 			var text = only_child(span, true);
 			var text_1 = sibling(span);
@@ -16615,7 +16615,7 @@ init_browserAttachments_svelte();
 init_clientLogic();
 init_uiControllers();
 var root$3 = /* @__PURE__ */ from_html(`<div class="jobs-empty">No scheduled jobs.</div>`);
-var root_1$2 = /* @__PURE__ */ from_html(`· rev <span> </span>`, 1);
+var root_1$3 = /* @__PURE__ */ from_html(`· rev <span> </span>`, 1);
 var root_2$2 = /* @__PURE__ */ from_html(`<details class="job-prompt-details"><summary class="job-prompt-summary"><span class="job-prompt-preview" aria-hidden="true"> </span> <span class="job-prompt-toggle-label"><span class="job-prompt-show">Show full prompt</span> <span class="job-prompt-hide">Hide prompt</span></span></summary> <div class="job-row-prompt job-row-prompt-full"> </div></details>`);
 var root_3$2 = /* @__PURE__ */ from_html(`<div class="job-row-prompt"> </div>`);
 var root_4$2 = /* @__PURE__ */ from_html(`<button type="button" class="job-action">Edit</button>`);
@@ -16765,7 +16765,7 @@ function JobsDialog($$anchor, $$props) {
 		var text_2 = child(div_7);
 		var node_2 = sibling(text_2);
 		var consequent_1 = ($$anchor) => {
-			var fragment = root_1$2();
+			var fragment = root_1$3();
 			var span = sibling(first_child(fragment));
 			var text_3 = only_child(span, true);
 			template_effect(($0) => {
@@ -16960,11 +16960,42 @@ init_client();
 init_appViewState_svelte();
 init_browserAttachments_svelte();
 init_uiControllers();
-var root$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div><strong> </strong><span> </span></div> <span class="logs-live"><i></i> live</span></div> <pre class="log-output"> </pre></div></section>`);
+var root$2 = /* @__PURE__ */ from_html(`<option> </option>`);
+var root_1$2 = /* @__PURE__ */ from_html(`<section class="logs-viewport" id="logsViewport"><div class="logs-shell"><div class="logs-header"><div class="logs-heading"><strong> </strong><span> </span></div> <div class="logs-controls"><label class="logs-service-picker"><span>Service</span> <select aria-label="Log service"></select></label> <span class="logs-live"><i></i> live</span></div></div> <pre class="log-output"> </pre></div></section>`);
 function LogsPanel($$anchor, $$props) {
 	push($$props, true);
+	const logServices = [
+		{
+			key: "ui",
+			label: "UI",
+			unit: "prompta-ui.service"
+		},
+		{
+			key: "scheduler",
+			label: "Scheduler",
+			unit: "prompta-scheduler.service"
+		},
+		{
+			key: "delivery",
+			label: "Delivery worker",
+			unit: "prompta-delivery-worker.service"
+		},
+		{
+			key: "conversation",
+			label: "Conversation worker",
+			unit: "prompta-conversation-worker.service"
+		},
+		{
+			key: "browser",
+			label: "Browser",
+			unit: "prompta-browser.service"
+		}
+	];
 	const visible = /* @__PURE__ */ user_derived(() => appViewState.mode === "logs");
-	let serverTitle = /* @__PURE__ */ state$1("Prompta · prompta-ui.service");
+	let serverDisplay = /* @__PURE__ */ state$1("Prompta");
+	let selectedService = /* @__PURE__ */ state$1("ui");
+	const selectedServiceOption = /* @__PURE__ */ user_derived(() => logServices.find((service) => service.key === get(selectedService)) ?? logServices[0]);
+	const serverTitle = /* @__PURE__ */ user_derived(() => get(serverDisplay) + " · " + get(selectedServiceOption).unit);
 	let meta = /* @__PURE__ */ state$1("Waiting for synced journal");
 	let output = /* @__PURE__ */ state$1("Loading logs…");
 	let fingerprint = /* @__PURE__ */ state$1("");
@@ -16988,17 +17019,34 @@ function LogsPanel($$anchor, $$props) {
 		set(meta, payload.exists ? payload.source === "journal" ? `${lines.length} lines · live journal` : `${lines.length} lines · synced ${relativeTime(payload.updated_at)}` : "Waiting for Prompta service logs", true);
 	}
 	async function load() {
+		const requestedService = get(selectedService);
 		try {
-			const response = await fetch("api/logs?limit=800", { cache: "no-store" });
-			if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-			render(await response.json());
+			const params = new URLSearchParams({
+				limit: "800",
+				service: requestedService
+			});
+			const response = await fetch("api/logs?" + params, { cache: "no-store" });
+			if (!response.ok) throw new Error(response.status + " " + response.statusText);
+			const payload = await response.json();
+			if (requestedService !== get(selectedService)) return;
+			render(payload);
 		} catch (error) {
+			if (requestedService !== get(selectedService)) return;
 			set(meta, "Logs unavailable");
 			console.error(error);
 		}
 	}
+	async function selectService(event) {
+		const value = event.currentTarget.value;
+		if (!logServices.some((service) => service.key === value)) return;
+		set(selectedService, value, true);
+		set(fingerprint, "");
+		set(meta, "Loading logs…");
+		set(output, "Loading logs…");
+		await load();
+	}
 	function setServerTitle(display) {
-		set(serverTitle, `${display || ""} · prompta-ui.service`);
+		set(serverDisplay, display || "Prompta", true);
 	}
 	registerLogsPanel({
 		load,
@@ -17017,7 +17065,7 @@ function LogsPanel($$anchor, $$props) {
 		load,
 		setServerTitle
 	};
-	var section = root$2();
+	var section = root_1$2();
 	var div = child(section);
 	var div_1 = child(div);
 	var div_2 = child(div_1);
@@ -17025,9 +17073,27 @@ function LogsPanel($$anchor, $$props) {
 	var text = only_child(strong, true);
 	var text_1 = only_child(sibling(strong), true);
 	reset(div_2);
+	var div_3 = sibling(div_2, 2);
+	var label = child(div_3);
+	var select = sibling(child(label), 2);
+	each(select, 21, () => logServices, (service) => service.key, ($$anchor, service) => {
+		var option = root$2();
+		var text_2 = only_child(option, true);
+		var option_value = {};
+		template_effect(() => {
+			set_text(text_2, get(service).label);
+			if (option_value !== (option_value = get(service).key)) option.value = (option.__value = option_value) ?? "";
+		});
+		append($$anchor, option);
+	});
+	reset(select);
+	var select_value;
+	init_select(select);
+	reset(label);
 	next(2);
+	reset(div_3);
 	reset(div_1);
-	var text_2 = only_child(sibling(div_1, 2), true);
+	var text_3 = only_child(sibling(div_1, 2), true);
 	reset(div);
 	reset(section);
 	attach(section, () => stickToBottom(() => get(fingerprint)));
@@ -17035,11 +17101,14 @@ function LogsPanel($$anchor, $$props) {
 		set_attribute(section, "hidden", !get(visible));
 		set_text(text, get(serverTitle));
 		set_text(text_1, get(meta));
-		set_text(text_2, get(output));
+		if (select_value !== (select_value = get(selectedService))) select.value = (select.__value = select_value) ?? "", select_option(select, select_value);
+		set_text(text_3, get(output));
 	});
+	delegated("change", select, selectService);
 	append($$anchor, section);
 	return pop($$exports);
 }
+delegate(["change"]);
 //#endregion
 //#region src/ui/sidebarState.svelte.ts
 function configureSidebar(onMotionEnd) {
