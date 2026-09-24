@@ -168,13 +168,23 @@
 </script>
 
 <div class="composer-input-shell">
-  <div class="attachment-chips" id="attachmentChips" hidden={files.length === 0}>
+  <div
+    class="attachment-chips"
+    id="attachmentChips"
+    role="list"
+    aria-label="Attached files"
+    hidden={files.length === 0}
+  >
     {#each files as file, index (file.name + file.size + file.lastModified)}
-      <span class="attachment-chip" data-dom-key={"attachment:" + index + ":" + file.name}>
+      <span
+        class="attachment-chip"
+        role="listitem"
+        data-dom-key={"attachment:" + index + ":" + file.name}
+      >
         <span title={file.name}>{truncate(file.name)}</span>
         <button
           type="button"
-          aria-label="Remove attachment"
+          aria-label={"Remove " + file.name}
           disabled={disabled}
           onclick={() => {
             files = files.filter((_, itemIndex) => itemIndex !== index);

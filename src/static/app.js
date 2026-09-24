@@ -6463,9 +6463,9 @@ function mergeAttachments(current, incoming, max = 5) {
 init_client();
 init_browserAttachments_svelte();
 init_uiControllers();
-var root$8 = /* @__PURE__ */ from_html(`<span class="attachment-chip"><span> </span> <button type="button" aria-label="Remove attachment">×</button></span>`);
+var root$8 = /* @__PURE__ */ from_html(`<span class="attachment-chip" role="listitem"><span> </span> <button type="button">×</button></span>`);
 var root_1$7 = /* @__PURE__ */ from_html(`<div class="attachment-menu" id="attachmentMenu" role="menu" aria-label="Add attachment"><button type="button" role="menuitem">Upload file</button> <button type="button" role="menuitem">Upload photo</button> <button type="button" role="menuitem">Take photo</button></div>`);
-var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" multiple="" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" multiple="" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
+var root_2$6 = /* @__PURE__ */ from_html(`<div class="composer-input-shell"><div class="attachment-chips" id="attachmentChips" role="list" aria-label="Attached files"></div> <!></div> <div class="composer-tools"><button type="button" class="icon-button attachment-button" id="attachmentButton" aria-label="Add attachment" title="Add file or photo" aria-haspopup="menu" aria-controls="attachmentMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button> <!> <input id="fileUploadInput" type="file" multiple="" hidden=""/> <input id="photoUploadInput" type="file" accept="image/*" multiple="" hidden=""/> <input id="cameraUploadInput" type="file" accept="image/*" capture="environment" hidden=""/></div>`, 1);
 function AttachmentPicker($$anchor, $$props) {
 	push($$props, true);
 	let files = /* @__PURE__ */ state$1([]);
@@ -6607,6 +6607,7 @@ function AttachmentPicker($$anchor, $$props) {
 			set_attribute(span, "data-dom-key", "attachment:" + get(index) + ":" + get(file).name);
 			set_attribute(span_1, "title", get(file).name);
 			set_text(text, $0);
+			set_attribute(button, "aria-label", "Remove " + get(file).name);
 			button.disabled = get(disabled);
 		}, [() => truncate(get(file).name)]);
 		delegated("click", button, () => {

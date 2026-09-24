@@ -89,4 +89,13 @@ describe("attachment batching", () => {
     expect(cameraInput).toBeDefined();
     expect(cameraInput ?? "").not.toContain("multiple");
   });
+  test("labels attachment removal controls with the file name and list semantics", async () => {
+    const source = await Bun.file(new URL("./AttachmentPicker.svelte", import.meta.url)).text();
+
+    expect(source).toContain('role="list"');
+    expect(source).toContain('aria-label="Attached files"');
+    expect(source).toContain('role="listitem"');
+    expect(source).toContain('aria-label={"Remove " + file.name}');
+    expect(source).not.toContain('aria-label="Remove attachment"');
+  });
 });
