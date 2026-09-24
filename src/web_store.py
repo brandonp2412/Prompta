@@ -69,18 +69,28 @@ def _merge_tool_parts_with_dom_prose(
     *,
     message_key: str,
 ) -> list[dict[str, Any]] | None:
-    """Recover renderable prose/tool interleaving when only tool parts survived."""
+    """Recover prose/tool interleaving when intermediate text parts did not survive."""
 
     has_tool = any(str(part.get("kind") or "") == "tool_call" for part in parts)
-    has_text = any(
-        str(part.get("kind") or "") in {"assistant_text", "final_text", "reasoning"}
+    has_intermediate_text = any(
+        str(part.get("kind") or "") in {"assistant_text", "reasoning"}
         and bool(str(part.get("content") or "").strip())
         for part in parts
     )
-    if not has_tool or has_text:
+    if not has_tool or has_intermediate_text:
         return None
 
     prose_blocks = observed_prose_blocks(observations)
+    existing_text = [
+        str(part.get("content") or "").strip()
+        for part in parts
+        if str(part.get("kind") or "") == "final_text" and str(part.get("content") or "").strip()
+    ]
+    prose_blocks = [
+        (observed_at, content)
+        for observed_at, content in prose_blocks
+        if not any(preserves_non_tool_text(content, existing) for existing in existing_text)
+    ]
     if not prose_blocks:
         return None
 
