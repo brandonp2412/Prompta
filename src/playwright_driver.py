@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
 _HANDOFF_PAGE_OWNER_ID = "handoff"
+_HANDOFF_PAGE_MAX_AGE_SECONDS = 40 * 60
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
@@ -248,10 +249,10 @@ class PlaywrightDriver(BrowserDriverBase):
                 # Legacy ownership markers cannot prove that another live process
                 # does not still own the page, so fail safe and leave them alone.
                 continue
-            if owner_id not in {
-                self.page_owner_id,
-                _HANDOFF_PAGE_OWNER_ID,
-            } and owned_window_owner_alive(owner_id):
+            if owner_id == _HANDOFF_PAGE_OWNER_ID:
+                if started_at > time.time() - _HANDOFF_PAGE_MAX_AGE_SECONDS:
+                    continue
+            elif owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
                 continue
             try:
                 await page.close()

@@ -592,6 +592,11 @@ async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_d
     await stale_orphan.evaluate("window.name='prompta:1:99999999-dead:stale'")
     stale_handoff = await context.new_page()
     await stale_handoff.evaluate("window.name='prompta:1:handoff:stale'")
+    pending_handoff = await context.new_page()
+    await pending_handoff.evaluate(
+        "(stamp) => { window.name = 'prompta:' + stamp + ':handoff:pending'; }",
+        int(time.time()) - 120,
+    )
     recent_orphan = await context.new_page()
     await recent_orphan.evaluate(
         "(stamp) => { window.name = 'prompta:' + stamp + ':99999999-dead:recent'; }",
@@ -614,6 +619,7 @@ async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_d
     assert closed == 2
     assert stale_orphan.is_closed()
     assert stale_handoff.is_closed()
+    assert not pending_handoff.is_closed()
     assert not recent_orphan.is_closed()
     assert not live_peer.is_closed()
     assert not unrelated.is_closed()
