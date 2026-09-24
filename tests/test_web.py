@@ -2100,12 +2100,60 @@ def test_ui_server_orders_pinned_then_pending_then_created(tmp_path: Path) -> No
         "newer",
         "older",
     ]
-    assert page["has_more"] is True
+    assert page["has_more"] is False
     assert [chat["id"] for chat in page["chats"]] == [
         "pinned-old",
         "pending-new-pending-client",
         "newer",
+        "older",
     ]
+
+
+def test_pending_backlog_does_not_hide_recent_cached_chats(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    for conversation_id, created_at in (("newest", 30), ("middle", 20), ("oldest", 10)):
+        cache.start(
+            conversation_id,
+            context_id=f"context-{conversation_id}",
+            job_name="",
+            prompt=conversation_id,
+        )
+        with cache.connection:
+            cache.connection.execute(
+                "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+                (created_at, created_at, conversation_id),
+            )
+    cache.close()
+
+    store = ReadOnlyChatStore(path)
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    server.send_jobs.list_conversation_receipts = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            {
+                "send_id": f"send-{index}",
+                "operation": "once",
+                "message": f"Pending {index}",
+                "client_id": f"pending-{index}",
+                "status": "queued",
+                "conversation_id": "",
+                "created_at": float(index + 1),
+                "updated_at": float(index + 1),
+            }
+            for index in range(5)
+        ]
+    )
+    try:
+        page = server.conversation_page(limit=2)
+    finally:
+        server.server_close()
+
+    pending = [chat for chat in page["chats"] if chat.get("_pending_send")]
+    cached = [chat["id"] for chat in page["chats"] if not chat.get("_pending_send")]
+
+    assert len(pending) == 5
+    assert cached == ["newest", "middle"]
+    assert page["has_more"] is True
 
 
 def test_pinned_chat_is_included_outside_bounded_sidebar_limit(tmp_path: Path) -> None:

@@ -507,12 +507,19 @@ class PromptaUIServer(ThreadingHTTPServer):
                 str(chat.get("id") or ""),
             )
         )
-        unpinned_ids = [
+        pending_ids = {
             str(chat.get("id") or "")
             for chat in rows
-            if str(chat.get("id") or "") and str(chat.get("id") or "") not in pinned_ids
+            if str(chat.get("id") or "") and bool(chat.get("_pending_send"))
+        }
+        ordinary_unpinned_ids = [
+            str(chat.get("id") or "")
+            for chat in rows
+            if str(chat.get("id") or "")
+            and str(chat.get("id") or "") not in pinned_ids
+            and str(chat.get("id") or "") not in pending_ids
         ]
-        selected_ids = set(included_ids) | set(unpinned_ids[:bounded_limit])
+        selected_ids = set(included_ids) | pending_ids | set(ordinary_unpinned_ids[:bounded_limit])
         return [chat for chat in rows if str(chat.get("id") or "") in selected_ids]
 
     def conversation_page(
@@ -540,7 +547,7 @@ class PromptaUIServer(ThreadingHTTPServer):
 
         for chat in rows:
             chat_id = str(chat.get("id") or "")
-            if chat_id in pinned_ids:
+            if chat_id in pinned_ids or bool(chat.get("_pending_send")):
                 visible.append(chat)
                 continue
             if ordinary_count >= bounded_limit:
