@@ -1025,7 +1025,7 @@ def test_read_only_store_keeps_late_recovered_prose_before_final_text(
     )
 
 
-def test_read_only_store_reanchors_persisted_dom_prose_to_first_observed_position(
+def test_read_only_store_prefers_informative_dom_anchor_over_stale_zero_anchor(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "chats.sqlite3"
@@ -1116,12 +1116,129 @@ def test_read_only_store_reanchors_persisted_dom_prose_to_first_observed_positio
     assistant = chat["messages"][-1]
     assert assistant["parts_renderable"] is True
     assert [part["kind"] for part in assistant["parts"]] == [
-        "assistant_text",
         "tool_call",
+        "assistant_text",
     ]
-    assert assistant["content"].index("Starting the work") < assistant["content"].index(
-        "Test MCP · inspect"
+    assert assistant["content"].index("Test MCP · inspect") < assistant["content"].index(
+        "Starting the work"
     )
+
+
+def test_read_only_store_ignores_stale_zero_dom_anchor_after_tools(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-stale-zero-anchor"
+    message_key = "a1"
+    fence = chr(96) * 3
+    cache.start(
+        conversation_id,
+        context_id="context-stale-zero-anchor",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": message_key, "role": "assistant", "content": "Finished"},
+            ],
+        },
+        complete=True,
+    )
+
+    prose = [
+        ("First update", 5.0),
+        ("Second update", 25.0),
+        ("Third update", 35.0),
+    ]
+    with cache.connection:
+        cache.connection.execute(
+            "DELETE FROM message_parts WHERE conversation_id = ? AND message_key = ?",
+            (conversation_id, message_key),
+        )
+        cache.connection.executemany(
+            """
+            INSERT INTO message_parts (
+                conversation_id, message_key, part_key, ordinal, kind, content,
+                source_created_at, source_event_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    conversation_id,
+                    message_key,
+                    f"{message_key}:dom-prose:{index}:dom-prose",
+                    index,
+                    "assistant_text",
+                    content,
+                    9.999999,
+                    f"{message_key}:dom-prose:{index}:dom-prose",
+                )
+                for index, (content, _) in enumerate(prose)
+            ]
+            + [
+                (
+                    conversation_id,
+                    message_key,
+                    f"tool-{index}",
+                    10 + index,
+                    "tool_call",
+                    f"{fence}tool:Test MCP · tool-{index}\nCalled tool\n{fence}",
+                    float(index * 10),
+                    f"tool-{index}",
+                )
+                for index in range(1, 5)
+            ],
+        )
+        for index, (content, observed_at) in enumerate(prose):
+            event = {
+                "id": f"{message_key}:dom-prose:{index}:dom-prose",
+                "parts": [content],
+                "content_references": [
+                    {
+                        "type": "prompta_dom_order",
+                        "preceding_tool_count": 0,
+                    }
+                ],
+            }
+            cache.connection.execute(
+                """
+                INSERT INTO source_events (
+                    conversation_id, message_key, event_key, ordinal, raw_json,
+                    observed_at, source_created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    message_key,
+                    f"observation-{index}:dom-prose:source",
+                    index,
+                    json.dumps(event),
+                    observed_at,
+                    None,
+                ),
+            )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert assistant["parts_renderable"] is True
+    assert [(part["kind"], part["content"].splitlines()[0]) for part in assistant["parts"]] == [
+        ("assistant_text", "First update"),
+        ("tool_call", f"{fence}tool:Test MCP · tool-1"),
+        ("tool_call", f"{fence}tool:Test MCP · tool-2"),
+        ("assistant_text", "Second update"),
+        ("tool_call", f"{fence}tool:Test MCP · tool-3"),
+        ("assistant_text", "Third update"),
+        ("tool_call", f"{fence}tool:Test MCP · tool-4"),
+    ]
 
 
 def test_read_only_store_prefers_rich_tools_over_transient_thinking_placeholder(

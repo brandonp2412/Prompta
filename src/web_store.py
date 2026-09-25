@@ -157,13 +157,15 @@ def _merge_tool_parts_with_dom_prose(
         for part in parts
         if str(part.get("kind") or "") == "tool_call" and part.get("source_created_at") is not None
     )
-    first_anchor_by_prose: dict[str, int] = {}
-    for _, anchor_content, preceding_tool_count in sorted(
+    anchors_by_prose: dict[str, list[tuple[float, int]]] = {}
+    for anchor_observed_at, anchor_content, preceding_tool_count in sorted(
         dom_anchors or [], key=lambda item: item[0]
     ):
         normalized = _normalized_prose_for_match(anchor_content)
-        if normalized and normalized not in first_anchor_by_prose:
-            first_anchor_by_prose[normalized] = preceding_tool_count
+        if normalized:
+            anchors_by_prose.setdefault(normalized, []).append(
+                (anchor_observed_at, preceding_tool_count)
+            )
 
     timeline: list[tuple[float, int, int, dict[str, Any]]] = []
     for index, part in enumerate(parts):
@@ -185,16 +187,38 @@ def _merge_tool_parts_with_dom_prose(
             or existing.startswith(normalized)
             or normalized.startswith(existing)
         ]
-        recovered_sort_time = min([observed_at, *matching_dom_times])
-        matching_anchors = [
-            preceding_tool_count
-            for existing, preceding_tool_count in first_anchor_by_prose.items()
+        matching_anchors = sorted(
+            anchor
+            for existing, anchors in anchors_by_prose.items()
             if existing == normalized
             or existing.startswith(normalized)
             or normalized.startswith(existing)
-        ]
-        if matching_anchors and tool_sort_times:
-            preceding_tool_count = matching_anchors[0]
+            for anchor in anchors
+        )
+        positive_anchor = next(
+            (count for _, count in matching_anchors if count > 0),
+            None,
+        )
+        zero_anchor_time = next(
+            (anchor_time for anchor_time, count in matching_anchors if count == 0),
+            None,
+        )
+        trustworthy_zero_anchor = bool(
+            zero_anchor_time is not None
+            and (not tool_sort_times or zero_anchor_time <= tool_sort_times[0])
+        )
+        preceding_tool_count = (
+            positive_anchor
+            if positive_anchor is not None
+            else (0 if trustworthy_zero_anchor else None)
+        )
+        stale_zero_anchor = bool(
+            matching_anchors and positive_anchor is None and not trustworthy_zero_anchor
+        )
+        recovered_sort_time = (
+            observed_at if stale_zero_anchor else min([observed_at, *matching_dom_times])
+        )
+        if preceding_tool_count is not None and tool_sort_times:
             if preceding_tool_count <= 0:
                 recovered_sort_time = tool_sort_times[0] - 0.000001
             elif preceding_tool_count >= len(tool_sort_times):
