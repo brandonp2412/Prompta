@@ -539,7 +539,10 @@ class ConversationTracker:
             return
         active_items = list(self.active.items())
         active_items.sort(
-            key=lambda item: self.cache.latest_message_role(item[1].conversation_id) != "user"
+            key=lambda item: (
+                self.cache.latest_message_role(item[1].conversation_id) != "user",
+                -self.cache.last_message_activity_at(item[1].conversation_id),
+            )
         )
         for context, active in active_items:
             durable_status = self.cache.status(active.conversation_id)

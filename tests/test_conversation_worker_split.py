@@ -103,8 +103,10 @@ async def test_tracker_prioritizes_conversation_waiting_for_assistant(
 ) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
     background_id = "chat-background-stream"
+    older_waiting_id = "chat-older-waiting-reply"
     waiting_id = "chat-waiting-reply"
     background_context = "context-background"
+    older_waiting_context = "context-older-waiting"
     waiting_context = "context-waiting"
 
     cache.start(
@@ -120,6 +122,23 @@ async def test_tracker_prioritizes_conversation_waiting_for_assistant(
             "messages": [
                 {"id": "bg-u", "role": "user", "content": "Long background work"},
                 {"id": "bg-a", "role": "assistant", "content": "Still working"},
+            ],
+        },
+    )
+    cache.start(
+        older_waiting_id,
+        context_id=older_waiting_context,
+        job_name="",
+        prompt="Older request",
+    )
+    cache.write_snapshot(
+        older_waiting_id,
+        {
+            "streaming": True,
+            "messages": [
+                {"id": "old-u1", "role": "user", "content": "Older request"},
+                {"id": "old-a1", "role": "assistant", "content": "Older answer"},
+                {"id": "old-u2", "role": "user", "content": "Older follow up"},
             ],
         },
     )
@@ -176,6 +195,13 @@ async def test_tracker_prioritizes_conversation_waiting_for_assistant(
         prompt="Long background work",
         last_live_snapshot_at=10**12,
     )
+    tracker.active[older_waiting_context] = ActiveConversation(
+        conversation_id=older_waiting_id,
+        context_id=older_waiting_context,
+        job_name="",
+        prompt="Older request",
+        last_live_snapshot_at=10**12,
+    )
     tracker.active[waiting_context] = ActiveConversation(
         conversation_id=waiting_id,
         context_id=waiting_context,
@@ -185,7 +211,11 @@ async def test_tracker_prioritizes_conversation_waiting_for_assistant(
     )
     try:
         await tracker.poll_active_conversations()
-        assert driver.activity_order == [waiting_context, background_context]
+        assert driver.activity_order == [
+            waiting_context,
+            older_waiting_context,
+            background_context,
+        ]
     finally:
         cache.close()
 
