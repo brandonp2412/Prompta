@@ -6,8 +6,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-_TERMINAL_STATUSES = {"cancelled", "dead_lettered", "outcome_unknown", "succeeded"}
-_RETRY_STATUSES = {"rate_limited", "retrying"}
+from .delivery_state import (
+    RETRY_DELIVERY_STATUSES,
+    CompletionAction,
+    claimable_delivery,
+    completion_action,
+    owned_running_delivery,
+    renewable_delivery_lease,
+)
 
 
 class DeliveryQueueStore:
@@ -394,28 +400,28 @@ class DeliveryQueueStore:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
+            rows = connection.execute(
                 """
-                SELECT send_id
+                SELECT *
                 FROM send_jobs
-                WHERE status = 'queued'
-                   OR (
-                       status IN ('retrying', 'rate_limited')
-                       AND retry_at <= ?
-                   )
-                   OR (
-                       status = 'running'
-                       AND lease_expires_at <= ?
-                   )
+                WHERE status IN ('queued', 'retrying', 'rate_limited', 'running')
                 ORDER BY sequence
-                LIMIT 1
-                """,
-                (claim_time, claim_time),
-            ).fetchone()
-            if row is None:
+                """
+            ).fetchall()
+            records = (self.record_from_row(row) for row in rows)
+            record = next(
+                (
+                    candidate
+                    for candidate in records
+                    if claimable_delivery(candidate, now=claim_time)
+                ),
+                None,
+            )
+            if record is None:
                 connection.commit()
                 return None
-            send_id = str(row["send_id"])
+
+            send_id = str(record["send_id"])
             updated = connection.execute(
                 """
                 UPDATE send_jobs
@@ -425,27 +431,8 @@ class DeliveryQueueStore:
                     lease_expires_at = ?,
                     updated_at = ?
                 WHERE send_id = ?
-                  AND (
-                      status = 'queued'
-                      OR (
-                          status IN ('retrying', 'rate_limited')
-                          AND retry_at <= ?
-                      )
-                      OR (
-                          status = 'running'
-                          AND lease_expires_at <= ?
-                      )
-                  )
                 """,
-                (
-                    owner,
-                    claim_time,
-                    lease_expires_at,
-                    claim_time,
-                    send_id,
-                    claim_time,
-                    claim_time,
-                ),
+                (owner, claim_time, lease_expires_at, claim_time, send_id),
             )
             if updated.rowcount != 1:
                 connection.rollback()
@@ -471,17 +458,27 @@ class DeliveryQueueStore:
         lease_expires_at = renew_time + max(1.0, float(lease_seconds))
         connection = self.connect()
         try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM send_jobs WHERE send_id = ?",
+                (send_id,),
+            ).fetchone()
+            if row is None:
+                connection.commit()
+                return False
+            record = self.record_from_row(row)
+            if not renewable_delivery_lease(record, owner=owner, now=renew_time):
+                connection.commit()
+                return False
+
             updated = connection.execute(
                 """
                 UPDATE send_jobs
                 SET lease_expires_at = ?,
                     updated_at = ?
                 WHERE send_id = ?
-                  AND status = 'running'
-                  AND lease_owner = ?
-                  AND lease_expires_at > ?
                 """,
-                (lease_expires_at, renew_time, send_id, owner, renew_time),
+                (lease_expires_at, renew_time, send_id),
             )
             connection.commit()
             return updated.rowcount == 1
@@ -499,11 +496,24 @@ class DeliveryQueueStore:
         status: str = "retrying",
         now: float | None = None,
     ) -> bool:
-        if status not in _RETRY_STATUSES:
+        if status not in RETRY_DELIVERY_STATUSES:
             raise ValueError(f"unsupported retry status: {status}")
         update_time = time.time() if now is None else float(now)
         connection = self.connect()
         try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM send_jobs WHERE send_id = ?",
+                (send_id,),
+            ).fetchone()
+            if row is None:
+                connection.commit()
+                return False
+            record = self.record_from_row(row)
+            if not owned_running_delivery(record, owner=owner):
+                connection.commit()
+                return False
+
             updated = connection.execute(
                 """
                 UPDATE send_jobs
@@ -517,8 +527,6 @@ class DeliveryQueueStore:
                     lease_acquired_at = 0,
                     lease_expires_at = 0
                 WHERE send_id = ?
-                  AND status = 'running'
-                  AND lease_owner = ?
                 """,
                 (
                     status,
@@ -528,7 +536,6 @@ class DeliveryQueueStore:
                     max(0, int(retry_attempt)),
                     update_time,
                     send_id,
-                    owner,
                 ),
             )
             connection.commit()
@@ -549,27 +556,21 @@ class DeliveryQueueStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                """
-                SELECT status, lease_owner, conversation_id
-                FROM send_jobs
-                WHERE send_id = ?
-                """,
+                "SELECT * FROM send_jobs WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
             if row is None:
                 connection.commit()
                 return False
-            status = str(row["status"])
-            if status == "succeeded":
+            action = completion_action(self.record_from_row(row), owner=owner)
+            if action is CompletionAction.ACKNOWLEDGE:
                 connection.commit()
                 return True
-            if status in _TERMINAL_STATUSES or status != "running":
+            if action is CompletionAction.REJECT:
                 connection.commit()
                 return False
-            if str(row["lease_owner"] or "") != owner:
-                connection.commit()
-                return False
-            connection.execute(
+
+            updated = connection.execute(
                 """
                 UPDATE send_jobs
                 SET status = 'succeeded',
@@ -583,12 +584,10 @@ class DeliveryQueueStore:
                     lease_acquired_at = 0,
                     lease_expires_at = 0
                 WHERE send_id = ?
-                  AND status = 'running'
-                  AND lease_owner = ?
                 """,
-                (conversation_id, completed_at, completed_at, send_id, owner),
+                (conversation_id, completed_at, completed_at, send_id),
             )
             connection.commit()
-            return True
+            return updated.rowcount == 1
         finally:
             connection.close()

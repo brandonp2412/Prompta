@@ -13,6 +13,18 @@ from typing import Any
 
 from .control_server import ControlDeferredError, ControlUnavailableError
 from .delivery_queue import DeliveryQueueStore
+from .delivery_state import (
+    TERMINAL_DELIVERY_STATUSES,
+    WAITING_DELIVERY_STATUSES,
+    DeliveryTransition,
+    FailureKind,
+    coalesce_queued_reply,
+    decide_failure_transition,
+    existing_client_job,
+    expired_running_lease,
+    normalize_recovery_status,
+    should_cleanup_attachments,
+)
 from .rate_limit import (
     DEFAULT_RETRY_AFTER,
     RateLimitBackoff,
@@ -31,8 +43,6 @@ _DEAD_LETTER_LIMIT = 100
 _SUCCEEDED_RECEIPT_LIMIT = 1000
 _DELIVERY_LEASE_SECONDS = 90.0
 _DELIVERY_LEASE_RENEW_SECONDS = 30.0
-_WAITING_QUEUE_STATUSES = {"queued", "retrying", "rate_limited"}
-_TERMINAL_DELIVERY_STATUSES = {"cancelled", "dead_lettered", "outcome_unknown", "succeeded"}
 _LEGACY_PRE_SEND_OUTAGE_ERRORS = (
     "Prompta scheduler is running but its control socket is unavailable:",
 )
@@ -375,7 +385,7 @@ class SendJobRegistry:
                         expired_attachments.extend(
                             value for value in raw_attachments if isinstance(value, str)
                         )
-            if status in _TERMINAL_DELIVERY_STATUSES:
+            if status in TERMINAL_DELIVERY_STATUSES:
                 retained_attachments = {
                     value
                     for recoverable in self._recoverable.values()
@@ -464,10 +474,16 @@ class SendJobRegistry:
             if not send_id or operation not in {"once", "reply"}:
                 continue
             last_error = str(candidate.get("last_error") or "")
-            status = str(candidate.get("status") or "").strip()
-            if not status:
-                status = "rate_limited" if retry_at > 0 or retry_attempt > 0 else "queued"
-            if status == "running" and lease_expires_at <= now:
+            status = normalize_recovery_status(
+                str(candidate.get("status") or ""),
+                retry_at=retry_at,
+                retry_attempt=retry_attempt,
+            )
+            if expired_running_lease(
+                status,
+                lease_expires_at=lease_expires_at,
+                now=now,
+            ):
                 logger.info(
                     "Recovering expired Prompta delivery lease send_id=%s",
                     send_id,
@@ -486,7 +502,7 @@ class SendJobRegistry:
                 retry_attempt = 0
                 last_error = ""
                 finished_at = 0.0
-            if status in _TERMINAL_DELIVERY_STATUSES:
+            if status in TERMINAL_DELIVERY_STATUSES:
                 record = {
                     "send_id": send_id,
                     "operation": operation,
@@ -524,8 +540,6 @@ class SendJobRegistry:
                 if client_id:
                     self._client_jobs[client_id] = send_id
                 continue
-            if status not in {"queued", "running", "rate_limited", "retrying"}:
-                status = "queued"
             restored_status = status
             record = {
                 "send_id": send_id,
@@ -637,13 +651,13 @@ class SendJobRegistry:
     def _job_with_queue_position_locked(self, job: dict[str, Any]) -> dict[str, Any]:
         result = dict(job)
         result.pop("_attachments", None)
-        if str(job.get("status") or "") not in _WAITING_QUEUE_STATUSES:
+        if str(job.get("status") or "") not in WAITING_DELIVERY_STATUSES:
             return result
 
         send_id = str(job.get("send_id") or "")
         position = 0
         for candidate in self._jobs.values():
-            if str(candidate.get("status") or "") in _WAITING_QUEUE_STATUSES:
+            if str(candidate.get("status") or "") in WAITING_DELIVERY_STATUSES:
                 position += 1
             if str(candidate.get("send_id") or "") == send_id:
                 break
@@ -682,82 +696,71 @@ class SendJobRegistry:
         client_id: str,
         now: float,
     ) -> dict[str, Any] | None:
-        if not conversation_id:
+        decision = coalesce_queued_reply(
+            self._jobs.values(),
+            conversation_id=conversation_id,
+            message=message,
+            attachments=attachments,
+        )
+        if decision is None:
             return None
 
-        for existing in self._jobs.values():
-            if (
-                str(existing.get("operation") or "") != "reply"
-                or str(existing.get("conversation_id") or "") != conversation_id
-                or str(existing.get("status") or "") != "queued"
-            ):
-                continue
+        existing = self._jobs.get(decision.send_id)
+        if existing is None:
+            return None
 
-            send_id = str(existing.get("send_id") or "")
-            primary_client_id = str(existing.get("client_id") or "")
-            existing_message = str(existing.get("message") or "")
-            merged_message = "\n".join(value for value in (existing_message, message) if value)
-            raw_existing_attachments = existing.get("_attachments", [])
-            existing_attachments = (
-                [str(value) for value in raw_existing_attachments if isinstance(value, str)]
-                if isinstance(raw_existing_attachments, list)
-                else []
-            )
-            merged_attachments = [*existing_attachments, *attachments]
+        merged_attachments = list(decision.attachments)
+        existing.update(
+            message=decision.message,
+            updated_at=now,
+            attachment_count=len(merged_attachments),
+            attachment_names=[Path(value).name for value in merged_attachments],
+            _attachments=merged_attachments,
+        )
+        if client_id:
+            self._client_jobs[client_id] = decision.send_id
 
-            existing.update(
-                message=merged_message,
-                updated_at=now,
-                attachment_count=len(merged_attachments),
-                attachment_names=[Path(value).name for value in merged_attachments],
-                _attachments=merged_attachments,
-            )
-            if client_id:
-                self._client_jobs[client_id] = send_id
-
-            if self._queue_path is None:
-                for index, task in enumerate(self._fallback_tasks):
-                    if task[0] != send_id:
-                        continue
-                    self._fallback_tasks[index] = (
-                        send_id,
-                        "reply",
-                        merged_message,
-                        conversation_id,
-                        merged_attachments,
-                        primary_client_id,
-                    )
-                    break
-            elif self._recovery_path is None:
-                self._upsert_database_record(
-                    {
-                        "send_id": send_id,
-                        "operation": "reply",
-                        "message": merged_message,
-                        "conversation_id": conversation_id,
-                        "attachments": merged_attachments,
-                        "client_id": primary_client_id,
-                        "status": "queued",
-                        "created_at": float(existing.get("created_at") or now),
-                    }
+        if self._queue_path is None:
+            for index, task in enumerate(self._fallback_tasks):
+                if task[0] != decision.send_id:
+                    continue
+                self._fallback_tasks[index] = (
+                    decision.send_id,
+                    "reply",
+                    decision.message,
+                    conversation_id,
+                    merged_attachments,
+                    decision.primary_client_id,
                 )
-            else:
-                self._remember_recoverable(
-                    send_id=send_id,
-                    operation="reply",
-                    message=merged_message,
-                    conversation_id=conversation_id,
-                    attachments=merged_attachments,
-                    client_id=primary_client_id,
-                    created_at=float(existing.get("created_at") or now),
-                    status="queued",
-                )
+                break
+        elif self._recovery_path is None:
+            self._upsert_database_record(
+                {
+                    "send_id": decision.send_id,
+                    "operation": "reply",
+                    "message": decision.message,
+                    "conversation_id": conversation_id,
+                    "attachments": merged_attachments,
+                    "client_id": decision.primary_client_id,
+                    "status": "queued",
+                    "created_at": decision.created_at or now,
+                }
+            )
+        else:
+            self._remember_recoverable(
+                send_id=decision.send_id,
+                operation="reply",
+                message=decision.message,
+                conversation_id=conversation_id,
+                attachments=merged_attachments,
+                client_id=decision.primary_client_id,
+                created_at=decision.created_at or now,
+                status="queued",
+            )
 
-            self._revision += 1
-            self._work_event.set()
-            return self._job_with_queue_position_locked(existing)
-
-        return None
+        self._revision += 1
+        self._work_event.set()
+        return self._job_with_queue_position_locked(existing)
 
     def submit(
         self,
@@ -793,7 +796,7 @@ class SendJobRegistry:
                 durable_terminal_send_ids = {
                     key
                     for key, value in self._recoverable.items()
-                    if value.get("status") in _TERMINAL_DELIVERY_STATUSES
+                    if value.get("status") in TERMINAL_DELIVERY_STATUSES
                 }
             self._jobs = {
                 key: value
@@ -805,29 +808,32 @@ class SendJobRegistry:
             self._client_jobs = {
                 key: value for key, value in self._client_jobs.items() if value in live_send_ids
             }
-            if normalized_client_id:
-                existing_send_id = self._client_jobs.get(normalized_client_id)
-                existing = self._jobs.get(existing_send_id or "")
-                if existing is not None:
-                    self._cleanup_attachments(attachment_paths)
-                    if (
-                        self._on_success is not None
-                        and str(existing.get("status") or "") == "succeeded"
-                        and str(existing.get("conversation_id") or "")
-                    ):
-                        try:
-                            self._on_success(
-                                normalized_client_id,
-                                str(existing["conversation_id"]),
-                                message,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Could not bind idempotent Prompta image preview send_id=%s",
-                                existing_send_id,
-                                exc_info=True,
-                            )
-                    return self._job_with_queue_position_locked(existing)
+            existing = existing_client_job(
+                normalized_client_id,
+                self._client_jobs,
+                self._jobs,
+            )
+            if existing is not None:
+                existing_send_id = str(existing.get("send_id") or "")
+                self._cleanup_attachments(attachment_paths)
+                if (
+                    self._on_success is not None
+                    and str(existing.get("status") or "") == "succeeded"
+                    and str(existing.get("conversation_id") or "")
+                ):
+                    try:
+                        self._on_success(
+                            normalized_client_id,
+                            str(existing["conversation_id"]),
+                            message,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Could not bind idempotent Prompta image preview send_id=%s",
+                            existing_send_id,
+                            exc_info=True,
+                        )
+                return self._job_with_queue_position_locked(existing)
 
             if operation == "reply":
                 coalesced = self._coalesce_queued_reply_locked(
@@ -974,7 +980,7 @@ class SendJobRegistry:
             return [
                 self._job_with_queue_position_locked(job)
                 for job in self._jobs.values()
-                if str(job.get("status") or "") in _WAITING_QUEUE_STATUSES | {"running"}
+                if str(job.get("status") or "") in WAITING_DELIVERY_STATUSES | {"running"}
             ]
 
     def list_conversation_receipts(
@@ -1076,6 +1082,44 @@ class SendJobRegistry:
                 )
                 return
 
+    def _persist_failure_transition(
+        self,
+        *,
+        send_id: str,
+        operation: str,
+        message: str,
+        conversation_id: str,
+        attachments: list[str],
+        client_id: str,
+        transition: DeliveryTransition,
+        remember_last_error: bool = True,
+    ) -> None:
+        current = self.get(send_id) or {}
+        created_at = float(current.get("created_at") or time.time())
+        self._update(
+            send_id,
+            status=transition.status,
+            error=transition.error,
+            retry_at=transition.retry_at,
+            retry_after_seconds=transition.retry_after_seconds,
+            retry_attempt=transition.retry_attempt,
+            infrastructure_retry_attempt=transition.infrastructure_retry_attempt,
+        )
+        self._remember_recoverable(
+            send_id=send_id,
+            operation=operation,
+            message=message,
+            conversation_id=conversation_id,
+            attachments=attachments,
+            client_id=client_id,
+            created_at=created_at,
+            status=transition.status,
+            retry_at=transition.retry_at,
+            retry_attempt=transition.retry_attempt,
+            last_error=transition.error if remember_last_error else "",
+            finished_at=transition.finished_at,
+        )
+
     def _run(
         self,
         send_id: str,
@@ -1093,10 +1137,14 @@ class SendJobRegistry:
                 self._forget_recoverable(send_id)
                 self._jobs.pop(send_id, None)
                 return
+
             current = self.get(send_id) or {}
             durable_queue = self._queue_path is not None
             generic_attempt = max(0, int(current.get("retry_attempt") or 0))
-            infrastructure_attempt = max(0, int(current.get("infrastructure_retry_attempt") or 0))
+            infrastructure_attempt = max(
+                0,
+                int(current.get("infrastructure_retry_attempt") or 0),
+            )
             local_retry_at = float(current.get("retry_at") or 0.0)
             if (
                 not durable_queue
@@ -1104,30 +1152,31 @@ class SendJobRegistry:
                 and local_retry_at > time.time()
             ):
                 self._sleep(local_retry_at - time.time())
+
             while True:
                 remaining, attempt = self._rate_limit_remaining()
                 if remaining > 0:
-                    retry_at = time.time() + remaining
-                    self._update(
-                        send_id,
-                        status="rate_limited",
+                    transition = decide_failure_transition(
+                        kind=FailureKind.RATE_LIMITED,
+                        now=time.time(),
                         error="ChatGPT rate limited this account",
-                        retry_at=retry_at,
-                        retry_after_seconds=max(1, math.ceil(remaining)),
-                        retry_attempt=max(1, attempt),
+                        generic_attempt=generic_attempt,
+                        infrastructure_attempt=infrastructure_attempt,
+                        max_generic_attempts=_SEND_RETRY_MAX_ATTEMPTS,
+                        retry_base_seconds=_SEND_RETRY_BASE_SECONDS,
+                        retry_cap_seconds=_SEND_RETRY_CAP_SECONDS,
+                        delay_seconds=remaining,
+                        rate_limit_attempt=attempt,
                     )
-                    current = self.get(send_id) or {}
-                    self._remember_recoverable(
+                    self._persist_failure_transition(
                         send_id=send_id,
                         operation=operation,
                         message=message,
                         conversation_id=conversation_id,
                         attachments=attachments,
                         client_id=client_id,
-                        created_at=float(current.get("created_at") or time.time()),
-                        status="rate_limited",
-                        retry_at=retry_at,
-                        retry_attempt=max(1, attempt),
+                        transition=transition,
+                        remember_last_error=False,
                     )
                     if durable_queue:
                         return
@@ -1147,6 +1196,7 @@ class SendJobRegistry:
                     self._forget_recoverable(send_id)
                     self._jobs.pop(send_id, None)
                     return
+
                 current = self.get(send_id) or {}
                 self._remember_recoverable(
                     send_id=send_id,
@@ -1199,9 +1249,18 @@ class SendJobRegistry:
                         if lease_worker is not None:
                             lease_worker.join(timeout=1.0)
                 except Exception as exc:
+                    transition_now = time.time()
                     if isinstance(exc, SendOutcomeUnknownError):
-                        current = self.get(send_id) or {}
-                        finished_at = time.time()
+                        transition = decide_failure_transition(
+                            kind=FailureKind.OUTCOME_UNKNOWN,
+                            now=transition_now,
+                            error=str(exc),
+                            generic_attempt=generic_attempt,
+                            infrastructure_attempt=infrastructure_attempt,
+                            max_generic_attempts=_SEND_RETRY_MAX_ATTEMPTS,
+                            retry_base_seconds=_SEND_RETRY_BASE_SECONDS,
+                            retry_cap_seconds=_SEND_RETRY_CAP_SECONDS,
+                        )
                         logger.error(
                             "Prompta delivery outcome unknown send_id=%s operation=%s conversation=%s "
                             "stage=%s; automatic resend disabled: %s",
@@ -1211,76 +1270,65 @@ class SendJobRegistry:
                             exc.stage,
                             exc,
                         )
-                        self._update(
-                            send_id,
-                            status="outcome_unknown",
-                            error=str(exc),
-                            retry_at=0.0,
-                            retry_after_seconds=0,
-                            retry_attempt=generic_attempt,
-                        )
-                        self._remember_recoverable(
+                        self._persist_failure_transition(
                             send_id=send_id,
                             operation=operation,
                             message=message,
                             conversation_id=conversation_id,
                             attachments=attachments,
                             client_id=client_id,
-                            created_at=float(current.get("created_at") or finished_at),
-                            status="outcome_unknown",
-                            retry_attempt=generic_attempt,
-                            last_error=str(exc),
-                            finished_at=finished_at,
+                            transition=transition,
                         )
                         return
 
                     if isinstance(exc, ControlDeferredError):
-                        current = self.get(send_id) or {}
-                        delay = exc.retry_after
-                        retry_at = time.time() + delay
+                        transition = decide_failure_transition(
+                            kind=FailureKind.DEFERRED,
+                            now=transition_now,
+                            error=str(exc),
+                            generic_attempt=generic_attempt,
+                            infrastructure_attempt=infrastructure_attempt,
+                            max_generic_attempts=_SEND_RETRY_MAX_ATTEMPTS,
+                            retry_base_seconds=_SEND_RETRY_BASE_SECONDS,
+                            retry_cap_seconds=_SEND_RETRY_CAP_SECONDS,
+                            delay_seconds=exc.retry_after,
+                        )
                         logger.info(
                             "Prompta delivery deferred send_id=%s operation=%s conversation=%s "
                             "retrying_in=%.1fs: %s",
                             send_id,
                             operation,
                             conversation_id or "new",
-                            delay,
+                            exc.retry_after,
                             exc,
                         )
-                        self._update(
-                            send_id,
-                            status="retrying",
-                            error=str(exc),
-                            retry_at=retry_at,
-                            retry_after_seconds=max(1, math.ceil(delay)),
-                            retry_attempt=generic_attempt,
-                        )
-                        self._remember_recoverable(
+                        self._persist_failure_transition(
                             send_id=send_id,
                             operation=operation,
                             message=message,
                             conversation_id=conversation_id,
                             attachments=attachments,
                             client_id=client_id,
-                            created_at=float(current.get("created_at") or time.time()),
-                            status="retrying",
-                            retry_at=retry_at,
-                            retry_attempt=generic_attempt,
-                            last_error=str(exc),
+                            transition=transition,
                         )
                         if durable_queue:
                             return
-                        self._sleep(delay)
+                        self._sleep(exc.retry_after)
                         continue
 
                     if isinstance(exc, (ControlUnavailableError, DeliveryBackendUnavailableError)):
-                        infrastructure_attempt += 1
-                        current = self.get(send_id) or {}
-                        delay = min(
-                            _SEND_RETRY_CAP_SECONDS,
-                            _SEND_RETRY_BASE_SECONDS * (2 ** min(infrastructure_attempt - 1, 10)),
+                        transition = decide_failure_transition(
+                            kind=FailureKind.INFRASTRUCTURE,
+                            now=transition_now,
+                            error=str(exc),
+                            generic_attempt=generic_attempt,
+                            infrastructure_attempt=infrastructure_attempt,
+                            max_generic_attempts=_SEND_RETRY_MAX_ATTEMPTS,
+                            retry_base_seconds=_SEND_RETRY_BASE_SECONDS,
+                            retry_cap_seconds=_SEND_RETRY_CAP_SECONDS,
                         )
-                        retry_at = time.time() + delay
+                        infrastructure_attempt = transition.infrastructure_retry_attempt
+                        delay = max(0.0, transition.retry_at - transition_now)
                         logger.warning(
                             "Prompta delivery backend unavailable send_id=%s operation=%s "
                             "conversation=%s retry=%d backing_off=%.1fs: %s",
@@ -1291,27 +1339,14 @@ class SendJobRegistry:
                             delay,
                             exc,
                         )
-                        self._update(
-                            send_id,
-                            status="retrying",
-                            error=str(exc),
-                            retry_at=retry_at,
-                            retry_after_seconds=max(1, math.ceil(delay)),
-                            retry_attempt=generic_attempt,
-                            infrastructure_retry_attempt=infrastructure_attempt,
-                        )
-                        self._remember_recoverable(
+                        self._persist_failure_transition(
                             send_id=send_id,
                             operation=operation,
                             message=message,
                             conversation_id=conversation_id,
                             attachments=attachments,
                             client_id=client_id,
-                            created_at=float(current.get("created_at") or time.time()),
-                            status="retrying",
-                            retry_at=retry_at,
-                            retry_attempt=generic_attempt,
-                            last_error=str(exc),
+                            transition=transition,
                         )
                         if durable_queue:
                             return
@@ -1320,14 +1355,28 @@ class SendJobRegistry:
 
                     rate_limit = self._as_rate_limit_error(exc)
                     if rate_limit is None:
-                        generic_attempt += 1
-                        current = self.get(send_id) or {}
-                        if generic_attempt < _SEND_RETRY_MAX_ATTEMPTS:
-                            delay = min(
-                                _SEND_RETRY_CAP_SECONDS,
-                                _SEND_RETRY_BASE_SECONDS * (2 ** (generic_attempt - 1)),
+                        transition = decide_failure_transition(
+                            kind=FailureKind.GENERIC,
+                            now=transition_now,
+                            error=str(exc),
+                            generic_attempt=generic_attempt,
+                            infrastructure_attempt=infrastructure_attempt,
+                            max_generic_attempts=_SEND_RETRY_MAX_ATTEMPTS,
+                            retry_base_seconds=_SEND_RETRY_BASE_SECONDS,
+                            retry_cap_seconds=_SEND_RETRY_CAP_SECONDS,
+                        )
+                        generic_attempt = transition.retry_attempt
+                        if transition.status == "dead_lettered":
+                            logger.exception(
+                                "Prompta delivery moved to dead letter queue send_id=%s "
+                                "operation=%s conversation=%s attempts=%d",
+                                send_id,
+                                operation,
+                                conversation_id or "new",
+                                generic_attempt,
                             )
-                            retry_at = time.time() + delay
+                        else:
+                            delay = max(0.0, transition.retry_at - transition_now)
                             logger.warning(
                                 "Prompta delivery failed send_id=%s operation=%s conversation=%s "
                                 "attempt=%d/%d backing_off=%.1fs: %s",
@@ -1339,63 +1388,35 @@ class SendJobRegistry:
                                 delay,
                                 exc,
                             )
-                            self._update(
-                                send_id,
-                                status="retrying",
-                                error=str(exc),
-                                retry_at=retry_at,
-                                retry_after_seconds=max(1, math.ceil(delay)),
-                                retry_attempt=generic_attempt,
-                            )
-                            self._remember_recoverable(
-                                send_id=send_id,
-                                operation=operation,
-                                message=message,
-                                conversation_id=conversation_id,
-                                attachments=attachments,
-                                client_id=client_id,
-                                created_at=float(current.get("created_at") or time.time()),
-                                status="retrying",
-                                retry_at=retry_at,
-                                retry_attempt=generic_attempt,
-                                last_error=str(exc),
-                            )
-                            if durable_queue:
-                                return
-                            self._sleep(delay)
-                            continue
-
-                        logger.exception(
-                            "Prompta delivery moved to dead letter queue send_id=%s operation=%s conversation=%s attempts=%d",
-                            send_id,
-                            operation,
-                            conversation_id or "new",
-                            generic_attempt,
-                        )
-                        self._update(
-                            send_id,
-                            status="dead_lettered",
-                            error=str(exc),
-                            retry_at=0.0,
-                            retry_after_seconds=0,
-                            retry_attempt=generic_attempt,
-                        )
-                        self._remember_recoverable(
+                        self._persist_failure_transition(
                             send_id=send_id,
                             operation=operation,
                             message=message,
                             conversation_id=conversation_id,
                             attachments=attachments,
                             client_id=client_id,
-                            created_at=float(current.get("created_at") or time.time()),
-                            status="dead_lettered",
-                            retry_attempt=generic_attempt,
-                            last_error=str(exc),
+                            transition=transition,
                         )
-                        return
+                        if transition.terminal:
+                            return
+                        if durable_queue:
+                            return
+                        self._sleep(max(0.0, transition.retry_at - transition_now))
+                        continue
 
                     delay, attempt = self._record_rate_limit(rate_limit)
-                    retry_at = time.time() + delay
+                    transition = decide_failure_transition(
+                        kind=FailureKind.RATE_LIMITED,
+                        now=transition_now,
+                        error=str(rate_limit),
+                        generic_attempt=generic_attempt,
+                        infrastructure_attempt=infrastructure_attempt,
+                        max_generic_attempts=_SEND_RETRY_MAX_ATTEMPTS,
+                        retry_base_seconds=_SEND_RETRY_BASE_SECONDS,
+                        retry_cap_seconds=_SEND_RETRY_CAP_SECONDS,
+                        delay_seconds=delay,
+                        rate_limit_attempt=attempt,
+                    )
                     logger.warning(
                         "Prompta delivery rate limited send_id=%s operation=%s conversation=%s "
                         "attempt=%d retry_after=%ds backing_off=%.1fs",
@@ -1406,26 +1427,15 @@ class SendJobRegistry:
                         rate_limit.retry_after,
                         delay,
                     )
-                    self._update(
-                        send_id,
-                        status="rate_limited",
-                        error=str(rate_limit),
-                        retry_at=retry_at,
-                        retry_after_seconds=max(1, math.ceil(delay)),
-                        retry_attempt=attempt,
-                    )
-                    current = self.get(send_id) or {}
-                    self._remember_recoverable(
+                    self._persist_failure_transition(
                         send_id=send_id,
                         operation=operation,
                         message=message,
                         conversation_id=conversation_id,
                         attachments=attachments,
                         client_id=client_id,
-                        created_at=float(current.get("created_at") or time.time()),
-                        status="rate_limited",
-                        retry_at=retry_at,
-                        retry_attempt=attempt,
+                        transition=transition,
+                        remember_last_error=False,
                     )
                     if durable_queue:
                         return
@@ -1441,6 +1451,7 @@ class SendJobRegistry:
                     self._delete_database_record(send_id)
                     self._jobs.pop(send_id, None)
                     return
+
                 current = self.get(send_id) or {}
                 finished_at = time.time()
                 self._update(
@@ -1475,12 +1486,5 @@ class SendJobRegistry:
                 return
         finally:
             current = self.get(send_id) or {}
-            if str(current.get("status") or "") not in {
-                "queued",
-                "running",
-                "retrying",
-                "rate_limited",
-                "dead_lettered",
-                "outcome_unknown",
-            }:
+            if should_cleanup_attachments(str(current.get("status") or "")):
                 self._cleanup_attachments(attachments)
