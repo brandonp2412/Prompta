@@ -752,8 +752,8 @@ class ReadOnlyChatStore:
                     current_content,
                 ):
                     recovered_content = stabilize_streaming_content(
-                        latest_dom_prose,
                         current_content,
+                        latest_dom_prose,
                     )
                     if has_stream_order_inversion(recovered_content, dom_observations):
                         recovered_content = recover_stream_order_from_observations(

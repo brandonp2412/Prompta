@@ -1069,6 +1069,65 @@ def test_read_only_store_prefers_rich_tools_over_transient_thinking_placeholder(
     assert "Thinking" not in assistant["content"]
 
 
+def test_active_streaming_preserves_cached_prose_order_when_dom_reorders_it(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-active-streaming-prose-order"
+    canonical = chr(10).join(
+        ["First update", "", "Second update", "", "Third update", "", "Fourth update"]
+    )
+    reordered_dom = [
+        "First update",
+        "Third update",
+        "Fourth update",
+        "Second update",
+        "Fifth update",
+    ]
+    cache.start(
+        conversation_id,
+        context_id="context-active-streaming-prose-order",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {"id": "a1", "role": "assistant", "content": canonical},
+            ],
+            "source_events": [
+                {
+                    "id": "a1:dom-prose",
+                    "role": "assistant",
+                    "recipient": "all",
+                    "content_type": "text",
+                    "parts": reordered_dom,
+                    "text": "",
+                    "create_time": None,
+                    "end_turn": None,
+                }
+            ],
+        },
+    )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+    assert chat is not None
+    assert chat["status"] == "active"
+    assistant = chat["messages"][-1]
+    assert assistant["status"] == "streaming"
+    content = assistant["content"]
+    assert content.index("First update") < content.index("Second update")
+    assert content.index("Second update") < content.index("Third update")
+    assert content.index("Third update") < content.index("Fourth update")
+    assert content.index("Fourth update") < content.index("Fifth update")
+
+
 def test_active_conversation_uses_structured_order_for_completed_assistant_turn(
     tmp_path: Path,
 ) -> None:
