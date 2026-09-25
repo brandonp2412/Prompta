@@ -5,6 +5,7 @@ import fcntl
 import json
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,69 @@ class ControlDeferredError(RuntimeError):
     def __init__(self, message: str, *, retry_after: float = 2.0) -> None:
         super().__init__(message)
         self.retry_after = max(0.1, float(retry_after))
+
+
+@dataclass(frozen=True)
+class ControlRequest:
+    op: str
+    conversation_id: str = ""
+    prompt: str = ""
+    attachments: tuple[str, ...] = ()
+    defer_if_busy: bool = False
+
+
+def parse_control_request(payload: Any) -> ControlRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("invalid Prompta control request")
+
+    op = str(payload.get("op") or "")
+    if op in {"sync", "stop"}:
+        conversation_id = str(payload.get("conversation_id") or "")
+        if not conversation_id.strip():
+            raise ValueError("conversation id is empty")
+        return ControlRequest(op=op, conversation_id=conversation_id)
+
+    prompt = str(payload.get("prompt") or "")
+    raw_attachments = payload.get("attachments")
+    attachments = (
+        tuple(path for path in raw_attachments if isinstance(path, str) and path.strip())
+        if isinstance(raw_attachments, list)
+        else ()
+    )
+    if not prompt.strip() and not attachments:
+        raise ValueError("prompta prompt is empty")
+    if op == "once":
+        return ControlRequest(op=op, prompt=prompt, attachments=attachments)
+    if op == "reply":
+        conversation_id = str(payload.get("conversation_id") or "")
+        if not conversation_id.strip():
+            raise ValueError("conversation id is empty")
+        return ControlRequest(
+            op=op,
+            conversation_id=conversation_id,
+            prompt=prompt,
+            attachments=attachments,
+            defer_if_busy=bool(payload.get("defer_if_busy")),
+        )
+    raise ValueError("unsupported Prompta control request")
+
+
+def control_error_response(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, ControlDeferredError):
+        return {
+            "ok": False,
+            "error": str(exc),
+            "error_type": "deferred",
+            "retry_after": exc.retry_after,
+        }
+    if isinstance(exc, RateLimitError):
+        return {
+            "ok": False,
+            "error": str(exc),
+            "error_type": "rate_limit",
+            "retry_after": exc.retry_after,
+        }
+    return {"ok": False, "error": str(exc)}
 
 
 def _control_socket_path(state_path: Path) -> Path:
@@ -73,68 +137,32 @@ async def _handle_control_client(
 ) -> None:
     try:
         raw = await asyncio.wait_for(reader.readline(), timeout=10.0)
-        payload = json.loads(raw.decode("utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("invalid Prompta control request")
-        op = str(payload.get("op") or "")
-        if op == "sync":
-            conversation_id = str(payload.get("conversation_id") or "")
-            if not conversation_id.strip():
-                raise ValueError("conversation id is empty")
+        request = parse_control_request(json.loads(raw.decode("utf-8")))
+        if request.op == "sync":
             sync_future: asyncio.Future[int] = asyncio.get_running_loop().create_future()
-            await prompta._sync_requests.put((conversation_id, sync_future))
+            await prompta._sync_requests.put((request.conversation_id, sync_future))
             message_count = await sync_future
             response = {"ok": True, "message_count": message_count}
-        elif op == "stop":
-            conversation_id = str(payload.get("conversation_id") or "")
-            if not conversation_id.strip():
-                raise ValueError("conversation id is empty")
-            stopped_id = await prompta.stop_conversation(conversation_id)
+        elif request.op == "stop":
+            stopped_id = await prompta.stop_conversation(request.conversation_id)
             response = {"ok": True, "conversation_id": stopped_id}
         else:
-            prompt = str(payload.get("prompt") or "")
-            raw_attachments = payload.get("attachments")
-            attachments = (
-                [str(path) for path in raw_attachments if isinstance(path, str) and path.strip()]
-                if isinstance(raw_attachments, list)
-                else []
-            )
-            if not prompt.strip() and not attachments:
-                raise ValueError("prompta prompt is empty")
             future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-            if op == "once":
-                await prompta._once_requests.put((prompt, attachments, future))
-            elif op == "reply":
-                conversation_id = str(payload.get("conversation_id") or "")
-                if not conversation_id.strip():
-                    raise ValueError("conversation id is empty")
-                if bool(payload.get("defer_if_busy")) and prompta._reply_target_is_busy(
-                    conversation_id
-                ):
+            attachments = list(request.attachments)
+            if request.op == "once":
+                await prompta._once_requests.put((request.prompt, attachments, future))
+            else:
+                if request.defer_if_busy and prompta._reply_target_is_busy(request.conversation_id):
                     raise ControlDeferredError(
                         "Conversation is still active; reply was deferred before delivery"
                     )
-                await prompta._reply_requests.put((conversation_id, prompt, attachments, future))
-            else:
-                raise ValueError("unsupported Prompta control request")
+                await prompta._reply_requests.put(
+                    (request.conversation_id, request.prompt, attachments, future)
+                )
             conversation_id = await future
             response = {"ok": True, "conversation_id": conversation_id}
-    except ControlDeferredError as exc:
-        response = {
-            "ok": False,
-            "error": str(exc),
-            "error_type": "deferred",
-            "retry_after": exc.retry_after,
-        }
-    except RateLimitError as exc:
-        response = {
-            "ok": False,
-            "error": str(exc),
-            "error_type": "rate_limit",
-            "retry_after": exc.retry_after,
-        }
     except Exception as exc:
-        response = {"ok": False, "error": str(exc)}
+        response = control_error_response(exc)
     try:
         writer.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
         await writer.drain()

@@ -5,6 +5,7 @@ import os
 import socket
 import sqlite3
 import time
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -19,6 +20,33 @@ SERVICE_STALE_AFTER_SECONDS = {
     "conversation_worker": 120.0,
     "browser": 30.0,
 }
+
+
+def build_service_health_snapshot(
+    rows: Iterable[Any],
+    *,
+    now: float,
+    stale_after_seconds: Mapping[str, float] = SERVICE_STALE_AFTER_SECONDS,
+) -> dict[str, dict[str, Any]]:
+    stored = {str(row["service"]): row for row in rows}
+    services: dict[str, dict[str, Any]] = {}
+    for service, stale_after in stale_after_seconds.items():
+        row = stored.get(service)
+        heartbeat_at = float(row["heartbeat_at"] or 0.0) if row is not None else 0.0
+        activity = str(row["activity"] or "") if row is not None else ""
+        activity_started_at = float(row["activity_started_at"] or 0.0) if row is not None else 0.0
+        heartbeat_age = max(0.0, now - heartbeat_at) if heartbeat_at > 0 else None
+        activity_age = max(0.0, now - activity_started_at) if activity_started_at > 0 else None
+        services[service] = {
+            "heartbeat_at": heartbeat_at,
+            "heartbeat_age_seconds": heartbeat_age,
+            "stale_after_seconds": stale_after,
+            "stale": heartbeat_age is None or heartbeat_age > stale_after,
+            "activity": activity,
+            "activity_started_at": activity_started_at,
+            "activity_age_seconds": activity_age,
+        }
+    return services
 
 
 class ServiceHealthStore:
@@ -129,29 +157,7 @@ class ServiceHealthStore:
         except (OSError, sqlite3.DatabaseError):
             rows = []
 
-        stored = {str(row["service"]): row for row in rows}
-        services: dict[str, dict[str, Any]] = {}
-        for service, stale_after in SERVICE_STALE_AFTER_SECONDS.items():
-            row = stored.get(service)
-            heartbeat_at = float(row["heartbeat_at"] or 0.0) if row is not None else 0.0
-            activity = str(row["activity"] or "") if row is not None else ""
-            activity_started_at = (
-                float(row["activity_started_at"] or 0.0) if row is not None else 0.0
-            )
-            heartbeat_age = max(0.0, current - heartbeat_at) if heartbeat_at > 0 else None
-            activity_age = (
-                max(0.0, current - activity_started_at) if activity_started_at > 0 else None
-            )
-            services[service] = {
-                "heartbeat_at": heartbeat_at,
-                "heartbeat_age_seconds": heartbeat_age,
-                "stale_after_seconds": stale_after,
-                "stale": heartbeat_age is None or heartbeat_age > stale_after,
-                "activity": activity,
-                "activity_started_at": activity_started_at,
-                "activity_age_seconds": activity_age,
-            }
-        return services
+        return build_service_health_snapshot(rows, now=current)
 
 
 def systemd_notify(message: str) -> bool:

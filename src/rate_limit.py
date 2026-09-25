@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 DEFAULT_RETRY_AFTER = 5 * 60
@@ -54,11 +55,101 @@ def is_rate_limited_text(text: str) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class RateLimitState:
+    attempts: int = 0
+    blocked_until: float = 0.0
+    last_limited_at: float = 0.0
+
+
+def remaining_rate_limit_backoff(state: RateLimitState, *, now: float) -> float:
+    return max(0.0, state.blocked_until - now)
+
+
+def snapshot_rate_limit_backoff(
+    state: RateLimitState,
+    *,
+    now: float,
+    wall_time: float,
+) -> dict[str, float | int]:
+    remaining = remaining_rate_limit_backoff(state, now=now)
+    limited_age = max(0.0, now - state.last_limited_at) if state.attempts else 0.0
+    return {
+        "attempts": state.attempts,
+        "blocked_until_epoch": wall_time + remaining,
+        "last_limited_at_epoch": wall_time - limited_age,
+    }
+
+
+def restore_rate_limit_backoff(
+    snapshot: dict[str, Any],
+    *,
+    now: float,
+    wall_time: float,
+) -> RateLimitState:
+    attempts = max(0, int(snapshot.get("attempts") or 0))
+    blocked_until_epoch = float(snapshot.get("blocked_until_epoch") or 0.0)
+    last_limited_epoch = float(snapshot.get("last_limited_at_epoch") or 0.0)
+    remaining = max(0.0, blocked_until_epoch - wall_time)
+    limited_age = max(0.0, wall_time - last_limited_epoch) if last_limited_epoch else 0.0
+    if not attempts or (remaining <= 0 and limited_age >= _RATE_LIMIT_RESET_SECONDS):
+        return RateLimitState()
+    return RateLimitState(
+        attempts=attempts,
+        blocked_until=now + remaining,
+        last_limited_at=now - limited_age,
+    )
+
+
+def transition_rate_limit_backoff(
+    state: RateLimitState,
+    retry_after: float,
+    *,
+    now: float,
+    jitter_fraction: float,
+) -> tuple[RateLimitState, float]:
+    if (
+        state.attempts
+        and state.last_limited_at
+        and now - state.last_limited_at >= _RATE_LIMIT_RESET_SECONDS
+    ):
+        state = RateLimitState()
+
+    attempts = state.attempts + 1
+    exponential = min(
+        _RATE_LIMIT_BACKOFF_CAP_SECONDS,
+        float(DEFAULT_RETRY_AFTER) * (2 ** min(attempts - 1, 20)),
+    )
+    explicit_retry_after = max(0.0, float(retry_after))
+    floor = explicit_retry_after if explicit_retry_after > 0 else exponential
+    jitter_cap = min(_RATE_LIMIT_JITTER_CAP_SECONDS, floor * _RATE_LIMIT_JITTER_FRACTION)
+    jitter = max(0.0, min(1.0, float(jitter_fraction))) * jitter_cap
+    blocked_until = max(state.blocked_until, now + floor + jitter)
+    next_state = RateLimitState(
+        attempts=attempts,
+        blocked_until=blocked_until,
+        last_limited_at=now,
+    )
+    return next_state, remaining_rate_limit_backoff(next_state, now=now)
+
+
 class RateLimitBackoff:
     def __init__(self) -> None:
         self.attempts = 0
         self.blocked_until = 0.0
         self.last_limited_at = 0.0
+
+    def _state(self) -> RateLimitState:
+        return RateLimitState(
+            attempts=self.attempts,
+            blocked_until=self.blocked_until,
+            last_limited_at=self.last_limited_at,
+        )
+
+    def _apply(self, state: RateLimitState) -> None:
+        self.attempts = state.attempts
+        self.blocked_until = state.blocked_until
+        self.last_limited_at = state.last_limited_at
 
     def snapshot(
         self,
@@ -68,13 +159,7 @@ class RateLimitBackoff:
     ) -> dict[str, float | int]:
         now = time.monotonic() if now is None else now
         wall_time = time.time() if wall_time is None else wall_time
-        remaining = self.remaining(now=now)
-        limited_age = max(0.0, now - self.last_limited_at) if self.attempts else 0.0
-        return {
-            "attempts": self.attempts,
-            "blocked_until_epoch": wall_time + remaining,
-            "last_limited_at_epoch": wall_time - limited_age,
-        }
+        return snapshot_rate_limit_backoff(self._state(), now=now, wall_time=wall_time)
 
     def restore(
         self,
@@ -85,44 +170,22 @@ class RateLimitBackoff:
     ) -> None:
         now = time.monotonic() if now is None else now
         wall_time = time.time() if wall_time is None else wall_time
-        attempts = max(0, int(snapshot.get("attempts") or 0))
-        blocked_until_epoch = float(snapshot.get("blocked_until_epoch") or 0.0)
-        last_limited_epoch = float(snapshot.get("last_limited_at_epoch") or 0.0)
-        remaining = max(0.0, blocked_until_epoch - wall_time)
-        limited_age = max(0.0, wall_time - last_limited_epoch) if last_limited_epoch else 0.0
-        if not attempts or (remaining <= 0 and limited_age >= _RATE_LIMIT_RESET_SECONDS):
-            self.reset()
-            return
-        self.attempts = attempts
-        self.blocked_until = now + remaining
-        self.last_limited_at = now - limited_age
+        self._apply(restore_rate_limit_backoff(snapshot, now=now, wall_time=wall_time))
 
     def record(self, retry_after: float = 0.0, *, now: float | None = None) -> float:
         now = time.monotonic() if now is None else now
-        if (
-            self.attempts
-            and self.last_limited_at
-            and now - self.last_limited_at >= _RATE_LIMIT_RESET_SECONDS
-        ):
-            self.reset()
-        self.attempts += 1
-        exponential = min(
-            _RATE_LIMIT_BACKOFF_CAP_SECONDS,
-            float(DEFAULT_RETRY_AFTER) * (2 ** min(self.attempts - 1, 20)),
+        state, delay = transition_rate_limit_backoff(
+            self._state(),
+            retry_after,
+            now=now,
+            jitter_fraction=random.uniform(0.0, 1.0),
         )
-        explicit_retry_after = max(0.0, float(retry_after))
-        floor = explicit_retry_after if explicit_retry_after > 0 else exponential
-        jitter_cap = min(_RATE_LIMIT_JITTER_CAP_SECONDS, floor * _RATE_LIMIT_JITTER_FRACTION)
-        delay = floor + random.uniform(0.0, jitter_cap)
-        self.last_limited_at = now
-        self.blocked_until = max(self.blocked_until, now + delay)
-        return max(0.0, self.blocked_until - now)
+        self._apply(state)
+        return delay
 
     def remaining(self, *, now: float | None = None) -> float:
         now = time.monotonic() if now is None else now
-        return max(0.0, self.blocked_until - now)
+        return remaining_rate_limit_backoff(self._state(), now=now)
 
     def reset(self) -> None:
-        self.attempts = 0
-        self.blocked_until = 0.0
-        self.last_limited_at = 0.0
+        self._apply(RateLimitState())

@@ -45,6 +45,23 @@ class ResourceLimits:
         )
 
 
+def resource_limits_for_admission(
+    limits: ResourceLimits,
+    *,
+    blocked: bool,
+) -> ResourceLimits:
+    if not blocked:
+        return limits
+    return ResourceLimits(
+        min_available_memory_fraction=min(1.0, limits.min_available_memory_fraction + 0.05),
+        max_load_per_cpu=max(0.0, limits.max_load_per_cpu - 0.10),
+        max_cpu_psi_some_avg10=max(0.0, limits.max_cpu_psi_some_avg10 * 0.75),
+        max_memory_psi_some_avg10=max(0.0, limits.max_memory_psi_some_avg10 * 0.75),
+        max_memory_psi_full_avg10=max(0.0, limits.max_memory_psi_full_avg10 * 0.75),
+        min_swap_free_fraction=min(1.0, limits.min_swap_free_fraction + 0.05),
+    )
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None:
@@ -169,20 +186,6 @@ class ResourceAdmission:
         self._blocked = False
         self._reason = ""
 
-    def _active_limits(self) -> ResourceLimits:
-        if not self._blocked:
-            return self.limits
-        return ResourceLimits(
-            min_available_memory_fraction=min(
-                1.0, self.limits.min_available_memory_fraction + 0.05
-            ),
-            max_load_per_cpu=max(0.0, self.limits.max_load_per_cpu - 0.10),
-            max_cpu_psi_some_avg10=max(0.0, self.limits.max_cpu_psi_some_avg10 * 0.75),
-            max_memory_psi_some_avg10=max(0.0, self.limits.max_memory_psi_some_avg10 * 0.75),
-            max_memory_psi_full_avg10=max(0.0, self.limits.max_memory_psi_full_avg10 * 0.75),
-            min_swap_free_fraction=min(1.0, self.limits.min_swap_free_fraction + 0.05),
-        )
-
     def __call__(self) -> tuple[bool, str]:
         try:
             meminfo_text = (self.proc_root / "meminfo").read_text()
@@ -203,7 +206,7 @@ class ResourceAdmission:
             cpu_pressure_text=cpu_pressure_text,
             load1=load1,
             cpu_count=cpu_count,
-            limits=self._active_limits(),
+            limits=resource_limits_for_admission(self.limits, blocked=self._blocked),
         )
         if allowed:
             self._blocked = False

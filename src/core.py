@@ -14,7 +14,7 @@ import random as random
 import sqlite3
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -607,8 +607,7 @@ def _format_next_due(prompta: Prompta, job: PromptJob, now: float | None = None)
     return f"now ({when})" if remaining <= 0 else f"in {_format_duration(remaining)} ({when})"
 
 
-def _job_status(prompta: Prompta, job: PromptJob) -> tuple[str, str]:
-    state = prompta._job_state(job.name)
+def _job_status_from_state(state: Mapping[str, Any]) -> tuple[str, str]:
     if state.get("paused") is True:
         return "Ⅱ", "paused"
     status = str(state.get("status") or "pending")
@@ -629,6 +628,10 @@ def _job_status(prompta: Prompta, job: PromptJob) -> tuple[str, str]:
     if state.get("last_sent_at"):
         return "●", "healthy"
     return "○", "pending"
+
+
+def _job_status(prompta: Prompta, job: PromptJob) -> tuple[str, str]:
+    return _job_status_from_state(prompta._job_state(job.name))
 
 
 def _prompt_preview(prompt: str, width: int = 52) -> str:
