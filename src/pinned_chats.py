@@ -8,6 +8,77 @@ from pathlib import Path
 from .persistence import connect_sqlite, read_legacy_json, remove_legacy_json
 
 
+def normalize_pinned_ids(values: Iterable[object], *, limit: int = 500) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        chat_id = str(value or "").strip()
+        if not chat_id or chat_id in seen:
+            continue
+        seen.add(chat_id)
+        ids.append(chat_id)
+        if len(ids) >= limit:
+            break
+    return ids
+
+
+def seed_pinned_state(
+    initialized: bool,
+    current_ids: list[str],
+    values: Iterable[object],
+    *,
+    limit: int = 500,
+) -> tuple[bool, list[str], bool]:
+    if initialized:
+        return initialized, list(current_ids), False
+    return True, normalize_pinned_ids(values, limit=limit), True
+
+
+def set_pinned_state(
+    initialized: bool,
+    current_ids: list[str],
+    chat_id: str,
+    pinned: bool,
+) -> tuple[bool, list[str], bool]:
+    normalized = str(chat_id or "").strip()
+    if not normalized:
+        raise ValueError("Chat id is required")
+
+    ids = list(current_ids)
+    changed = False
+    if pinned:
+        if normalized not in ids:
+            ids.append(normalized)
+            changed = True
+    elif normalized in ids:
+        ids.remove(normalized)
+        changed = True
+
+    return True, ids, changed or not initialized
+
+
+def promote_pinned_state(
+    initialized: bool,
+    current_ids: list[str],
+    previous_id: str,
+    next_id: str,
+) -> tuple[bool, list[str], bool]:
+    previous = str(previous_id or "").strip()
+    next_value = str(next_id or "").strip()
+    if not previous or not next_value:
+        raise ValueError("Both previous and next chat ids are required")
+
+    ids = list(current_ids)
+    if previous not in ids or previous == next_value:
+        return initialized, ids, False
+
+    previous_index = ids.index(previous)
+    ids.remove(previous)
+    if next_value not in ids:
+        ids.insert(previous_index, next_value)
+    return True, ids, True
+
+
 class PinnedChatStore:
     """Persist UI pin state in SQLite independently of any one browser profile."""
 
@@ -41,17 +112,7 @@ class PinnedChatStore:
 
     @classmethod
     def _normalize(cls, values: Iterable[object]) -> list[str]:
-        ids: list[str] = []
-        seen: set[str] = set()
-        for value in values:
-            chat_id = str(value or "").strip()
-            if not chat_id or chat_id in seen:
-                continue
-            seen.add(chat_id)
-            ids.append(chat_id)
-            if len(ids) >= cls._LIMIT:
-                break
-        return ids
+        return normalize_pinned_ids(values, limit=cls._LIMIT)
 
     def _migrate_legacy(self) -> None:
         payload = read_legacy_json(self.legacy_path)
@@ -106,46 +167,42 @@ class PinnedChatStore:
 
     def seed(self, values: Iterable[object]) -> dict[str, object]:
         with self.lock:
-            if not self._initialized:
-                self._ids = self._normalize(values)
-                self._initialized = True
+            initialized, ids, should_write = seed_pinned_state(
+                self._initialized,
+                self._ids,
+                values,
+                limit=self._LIMIT,
+            )
+            self._initialized = initialized
+            self._ids = ids
+            if should_write:
                 self._write_locked()
             return {"initialized": self._initialized, "ids": list(self._ids)}
 
     def set_pinned(self, chat_id: str, pinned: bool) -> dict[str, object]:
-        normalized = str(chat_id or "").strip()
-        if not normalized:
-            raise ValueError("Chat id is required")
-
         with self.lock:
-            changed = False
-            if pinned:
-                if normalized not in self._ids:
-                    self._ids.append(normalized)
-                    changed = True
-            elif normalized in self._ids:
-                self._ids.remove(normalized)
-                changed = True
-
-            if changed or not self._initialized:
-                self._initialized = True
+            initialized, ids, should_write = set_pinned_state(
+                self._initialized,
+                self._ids,
+                chat_id,
+                pinned,
+            )
+            self._initialized = initialized
+            self._ids = ids
+            if should_write:
                 self._write_locked()
-
             return {"initialized": self._initialized, "ids": list(self._ids)}
 
     def promote(self, previous_id: str, next_id: str) -> dict[str, object]:
-        previous = str(previous_id or "").strip()
-        next_value = str(next_id or "").strip()
-        if not previous or not next_value:
-            raise ValueError("Both previous and next chat ids are required")
-
         with self.lock:
-            if previous in self._ids and previous != next_value:
-                previous_index = self._ids.index(previous)
-                self._ids.remove(previous)
-                if next_value not in self._ids:
-                    self._ids.insert(previous_index, next_value)
-                self._initialized = True
+            initialized, ids, should_write = promote_pinned_state(
+                self._initialized,
+                self._ids,
+                previous_id,
+                next_id,
+            )
+            self._initialized = initialized
+            self._ids = ids
+            if should_write:
                 self._write_locked()
-
             return {"initialized": self._initialized, "ids": list(self._ids)}

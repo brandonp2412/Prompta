@@ -17,7 +17,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 from .attachment_store import AttachmentStore
 from .cache import DEFAULT_CACHE_PATH, ChatCache
@@ -34,6 +34,20 @@ from .read_state import ConversationReadState
 from .scheduler_runtime import SchedulerRuntime
 from .send_jobs import SendJobRegistry as SendJobRegistry
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
+from .web_decisions import (
+    one_time_schedule_response,
+    parse_query,
+    pin_promote_request,
+    pin_seed_ids,
+    pin_update_request,
+    query_limit,
+    required_boolean,
+    resource_id,
+    schedule_at_request,
+    schedule_every_request,
+    schedule_response,
+    send_operation,
+)
 from .web_jobs import WebJobService
 from .web_store import ReadOnlyChatStore as ReadOnlyChatStore
 
@@ -908,16 +922,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json(cast(PromptaUIServer, self.server).unattended_mode())
             return
         if path == "/api/changelog":
-            query = parse_qs(parsed.query)
-            try:
-                limit = int(query.get("limit", ["100"])[0])
-            except ValueError:
-                limit = 100
-            bounded_limit = max(1, min(limit, 5_000))
+            query = parse_query(parsed.query)
+            limit = query_limit(query, default=100, minimum=1, maximum=5_000)
             self._json(
                 {
-                    "changes": _UI_CHANGELOG[:bounded_limit],
-                    "has_more": len(_UI_CHANGELOG) > bounded_limit,
+                    "changes": _UI_CHANGELOG[:limit],
+                    "has_more": len(_UI_CHANGELOG) > limit,
                     "total": len(_UI_CHANGELOG),
                 }
             )
@@ -926,13 +936,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._json(cast(PromptaUIServer, self.server).pinned_chats.snapshot())
             return
         if path == "/api/chats":
-            query = parse_qs(parsed.query)
+            query = parse_query(parsed.query)
             search = query.get("q", [""])[0]
             include_ids = query.get("include", [])
-            try:
-                limit = int(query.get("limit", ["200"])[0])
-            except ValueError:
-                limit = 200
+            limit = query_limit(query, default=200)
             self._json(
                 cast(PromptaUIServer, self.server).conversation_page(
                     limit=limit,
@@ -942,11 +949,8 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/logs":
-            query = parse_qs(parsed.query)
-            try:
-                limit = int(query.get("limit", ["500"])[0])
-            except ValueError:
-                limit = 500
+            query = parse_query(parsed.query)
+            limit = query_limit(query, default=500)
             service = query.get("service", ["ui"])[0]
             try:
                 payload = cast(PromptaUIServer, self.server).logs(limit=limit, service=service)
@@ -968,8 +972,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             )
             return
         preview_prefix = "/api/attachment-previews/"
-        if path.startswith(preview_prefix):
-            preview_id = unquote(path[len(preview_prefix) :]).strip("/")
+        preview_id = resource_id(path, preview_prefix)
+        if preview_id is not None:
+            preview_id = unquote(preview_id)
             preview = cast(PromptaUIServer, self.server).image_preview(preview_id)
             if preview is None:
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -978,8 +983,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             self._write_response(HTTPStatus.OK, media_type, body)
             return
         send_prefix = "/api/sends/"
-        if path.startswith(send_prefix):
-            send_id = unquote(path[len(send_prefix) :]).strip("/")
+        send_id = resource_id(path, send_prefix)
+        if send_id is not None:
+            send_id = unquote(send_id)
             job = cast(PromptaUIServer, self.server).send_job(send_id)
             if job is None:
                 self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
@@ -1004,7 +1010,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
         if not path.startswith(prefix):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        send_id = unquote(path[len(prefix) :]).strip("/")
+        send_id = unquote(resource_id(path, prefix) or "")
         if not send_id:
             self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
             return
@@ -1022,9 +1028,14 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             payload = self._json_body()
             if payload is None:
                 return
-            unattended = payload.get("unattended")
-            if not isinstance(unattended, bool):
-                self._json({"error": "Expected unattended to be a boolean"}, HTTPStatus.BAD_REQUEST)
+            try:
+                unattended = required_boolean(
+                    payload,
+                    "unattended",
+                    error="Expected unattended to be a boolean",
+                )
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             self._json(cast(PromptaUIServer, self.server).set_unattended_mode(unattended))
             return
@@ -1033,9 +1044,10 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             payload = self._json_body()
             if payload is None:
                 return
-            ids = payload.get("ids")
-            if not isinstance(ids, list):
-                self._json({"error": "Expected ids to be a list"}, HTTPStatus.BAD_REQUEST)
+            try:
+                ids = pin_seed_ids(payload)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             self._json(cast(PromptaUIServer, self.server).pinned_chats.seed(ids))
             return
@@ -1044,8 +1056,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             payload = self._json_body()
             if payload is None:
                 return
-            previous_id = str(payload.get("from") or "").strip()
-            next_id = str(payload.get("to") or "").strip()
+            previous_id, next_id = pin_promote_request(payload)
             try:
                 result = cast(PromptaUIServer, self.server).pinned_chats.promote(
                     previous_id, next_id
@@ -1060,12 +1071,8 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             payload = self._json_body()
             if payload is None:
                 return
-            chat_id = str(payload.get("id") or "").strip()
-            pinned = payload.get("pinned")
-            if not isinstance(pinned, bool):
-                self._json({"error": "Expected pinned to be a boolean"}, HTTPStatus.BAD_REQUEST)
-                return
             try:
+                chat_id, pinned = pin_update_request(payload)
                 result = cast(PromptaUIServer, self.server).pinned_chats.set_pinned(chat_id, pinned)
             except ValueError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -1079,8 +1086,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
         read_prefix = "/api/chats/"
         read_suffix = "/read"
-        if path.startswith(read_prefix) and path.endswith(read_suffix):
-            conversation_id = unquote(path[len(read_prefix) : -len(read_suffix)]).strip("/")
+        read_id = resource_id(path, read_prefix, read_suffix)
+        if read_id is not None:
+            conversation_id = unquote(read_id)
             try:
                 result = cast(PromptaUIServer, self.server).read_state.mark_read(conversation_id)
             except ValueError as exc:
@@ -1110,21 +1118,8 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             payload = self._json_body()
             if payload is None:
                 return
-            prompt = str(payload.get("prompt") or "").strip()
             try:
-                interval_minutes = float(str(payload.get("interval_minutes") or ""))
-            except (TypeError, ValueError):
-                interval_minutes = 0.0
-            if not prompt:
-                self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
-                return
-            if not math.isfinite(interval_minutes) or interval_minutes <= 0:
-                self._json(
-                    {"error": "Schedule interval must be a finite value greater than zero"},
-                    HTTPStatus.BAD_REQUEST,
-                )
-                return
-            try:
+                prompt, interval_minutes = schedule_every_request(payload)
                 result = cast(PromptaUIServer, self.server).schedule_every(
                     prompt,
                     interval_minutes,
@@ -1136,27 +1131,18 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 logger.exception("Prompta UI scheduling failed")
                 self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
                 return
-            status = HTTPStatus.CREATED if result.get("created") is not False else HTTPStatus.OK
-            self._json({"ok": True, **result}, status)
+            status, response = schedule_response(result)
+            self._json(response, status)
             return
 
         if path == "/api/schedule-at":
             payload = self._json_body()
             if payload is None:
                 return
-            prompt = str(payload.get("prompt") or "").strip()
             try:
-                run_at_epoch = float(str(payload.get("run_at_epoch") or ""))
-            except (TypeError, ValueError):
-                run_at_epoch = 0.0
-            if not prompt:
-                self._json({"error": "Schedule prompt is empty"}, HTTPStatus.BAD_REQUEST)
-                return
-            if not math.isfinite(run_at_epoch) or run_at_epoch <= time.time():
-                self._json(
-                    {"error": "Schedule time must be a finite timestamp in the future"},
-                    HTTPStatus.BAD_REQUEST,
-                )
+                prompt, run_at_epoch = schedule_at_request(payload, now=time.time())
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             try:
                 result = cast(PromptaUIServer, self.server).schedule_at(prompt, run_at_epoch)
@@ -1164,13 +1150,15 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
                 logger.exception("Prompta UI one-time scheduling failed")
                 self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
                 return
-            self._json({"ok": True, **result}, HTTPStatus.CREATED)
+            status, response = one_time_schedule_response(result)
+            self._json(response, status)
             return
 
         send_prefix = "/api/sends/"
         bump_suffix = "/bump"
-        if path.startswith(send_prefix) and path.endswith(bump_suffix):
-            send_id = unquote(path[len(send_prefix) : -len(bump_suffix)]).strip("/")
+        bump_id = resource_id(path, send_prefix, bump_suffix)
+        if bump_id is not None:
+            send_id = unquote(bump_id)
             if not send_id:
                 self._json({"error": "Send not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -1194,7 +1182,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             message, attachments, client_id = send_payload
             force_tracking = self.headers.get("X-Prompta-Track-Response", "").strip() == "1"
             job = cast(PromptaUIServer, self.server).send_jobs.submit(
-                operation="once_tracked" if force_tracking else "once",
+                operation=send_operation(reply=False, track_response=force_tracking),
                 message=message,
                 attachments=attachments,
                 client_id=client_id,
@@ -1204,8 +1192,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
         prefix = "/api/chats/"
         probe_suffix = "/probe"
-        if path.startswith(prefix) and path.endswith(probe_suffix):
-            conversation_id = unquote(path[len(prefix) : -len(probe_suffix)]).strip("/")
+        probe_id = resource_id(path, prefix, probe_suffix)
+        if probe_id is not None:
+            conversation_id = unquote(probe_id)
             if not conversation_id:
                 self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -1233,8 +1222,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
 
         stop_suffix = "/stop"
-        if path.startswith(prefix) and path.endswith(stop_suffix):
-            conversation_id = unquote(path[len(prefix) : -len(stop_suffix)]).strip("/")
+        stop_id = resource_id(path, prefix, stop_suffix)
+        if stop_id is not None:
+            conversation_id = unquote(stop_id)
             if not conversation_id:
                 self._json({"error": "Conversation not found"}, HTTPStatus.NOT_FOUND)
                 return
@@ -1251,11 +1241,12 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
 
         suffix = "/messages"
-        if not (path.startswith(prefix) and path.endswith(suffix)):
+        message_id = resource_id(path, prefix, suffix)
+        if message_id is None:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
 
-        conversation_id = unquote(path[len(prefix) : -len(suffix)]).strip("/")
+        conversation_id = unquote(message_id)
         server = cast(PromptaUIServer, self.server)
         if (
             not conversation_id
@@ -1271,7 +1262,7 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
 
         force_tracking = self.headers.get("X-Prompta-Track-Response", "").strip() == "1"
         job = server.send_jobs.submit(
-            operation="reply_tracked" if force_tracking else "reply",
+            operation=send_operation(reply=True, track_response=force_tracking),
             conversation_id=conversation_id,
             message=message,
             attachments=attachments,

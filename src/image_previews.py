@@ -11,6 +11,56 @@ from .file_storage import remove_stored_file, resolve_stored_file, safe_basename
 from .persistence import connect_sqlite, read_legacy_json, remove_legacy_json
 
 
+def preview_attachment_assignments(
+    messages: list[object],
+    records: list[dict[str, Any]],
+    conversation_id: str,
+) -> list[tuple[int, list[dict[str, str]]]]:
+    matching_records = [
+        dict(record)
+        for record in records
+        if str(record.get("conversation_id") or "") == conversation_id
+    ]
+    matching_records.sort(key=lambda record: float(record.get("created_at") or 0.0))
+
+    assignments: list[tuple[int, list[dict[str, str]]]] = []
+    used_indexes: set[int] = set()
+    for record in matching_records:
+        expected = str(record.get("message") or "").strip()
+        candidates = [
+            (index, message)
+            for index, message in enumerate(messages)
+            if index not in used_indexes
+            and isinstance(message, dict)
+            and str(message.get("role") or "") == "user"
+            and str(message.get("content") or "").strip() == expected
+        ]
+        if not candidates:
+            continue
+
+        record_created = float(record.get("created_at") or 0.0)
+        index, _message = min(
+            candidates,
+            key=lambda item: abs(float(item[1].get("created_at") or 0.0) - record_created),
+        )
+        used_indexes.add(index)
+
+        images = record.get("images")
+        if not isinstance(images, list):
+            continue
+        attachments = [
+            {
+                "id": str(image.get("id") or ""),
+                "name": str(image.get("name") or "image"),
+                "type": str(image.get("type") or "image/*"),
+            }
+            for image in images
+            if isinstance(image, dict) and image.get("id")
+        ]
+        assignments.append((index, attachments))
+    return assignments
+
+
 class ImagePreviewStore:
     def __init__(self, state_dir: Path) -> None:
         self.path = state_dir / "ui-image-previews.sqlite3"
@@ -361,43 +411,15 @@ class ImagePreviewStore:
             return
         with self.lock:
             self.records = self._load_database()
-            records = [
-                dict(record)
-                for record in self.records.values()
-                if isinstance(record, dict)
-                and str(record.get("conversation_id") or "") == conversation_id
-            ]
-        records.sort(key=lambda record: float(record.get("created_at") or 0.0))
-        used_indexes: set[int] = set()
-        for record in records:
-            expected = str(record.get("message") or "").strip()
-            candidates = [
-                (index, message)
-                for index, message in enumerate(messages)
-                if index not in used_indexes
-                and isinstance(message, dict)
-                and str(message.get("role") or "") == "user"
-                and str(message.get("content") or "").strip() == expected
-            ]
-            if not candidates:
-                continue
-            record_created = float(record.get("created_at") or 0.0)
-            index, message = min(
-                candidates,
-                key=lambda item: abs(float(item[1].get("created_at") or 0.0) - record_created),
-            )
-            used_indexes.add(index)
-            images = record.get("images")
-            if isinstance(images, list):
-                message["attachments"] = [
-                    {
-                        "id": str(image.get("id") or ""),
-                        "name": str(image.get("name") or "image"),
-                        "type": str(image.get("type") or "image/*"),
-                    }
-                    for image in images
-                    if isinstance(image, dict) and image.get("id")
-                ]
+            records = [dict(record) for record in self.records.values() if isinstance(record, dict)]
+        for index, attachments in preview_attachment_assignments(
+            messages,
+            records,
+            conversation_id,
+        ):
+            message = messages[index]
+            if isinstance(message, dict):
+                message["attachments"] = attachments
 
     def image_preview(self, preview_id: str) -> tuple[bytes, str] | None:
         if not re.fullmatch(r"[a-f0-9]{32}", preview_id):

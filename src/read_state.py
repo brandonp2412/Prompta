@@ -8,6 +8,27 @@ from pathlib import Path
 from typing import Any
 
 
+def read_state_ids(conversations: Iterable[dict[str, Any]]) -> list[str]:
+    return [chat_id for chat in conversations if (chat_id := str(chat.get("id") or "").strip())]
+
+
+def decorate_read_state(
+    conversations: Iterable[dict[str, Any]],
+    *,
+    baseline: float,
+    read_at: dict[str, float],
+) -> list[dict[str, Any]]:
+    rows = [dict(chat) for chat in conversations]
+    for chat in rows:
+        chat_id = str(chat.get("id") or "").strip()
+        try:
+            last_assistant_at = float(chat.get("last_assistant_at") or 0.0)
+        except (TypeError, ValueError):
+            last_assistant_at = 0.0
+        chat["unread"] = last_assistant_at > max(baseline, read_at.get(chat_id, baseline))
+    return rows
+
+
 class ConversationReadState:
     """Persist per-conversation read markers shared by every Prompta UI client."""
 
@@ -82,8 +103,7 @@ class ConversationReadState:
 
     def decorate(self, conversations: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         rows = [dict(chat) for chat in conversations]
-        ids = [str(chat.get("id") or "").strip() for chat in rows]
-        ids = [chat_id for chat_id in ids if chat_id]
+        ids = read_state_ids(rows)
 
         with self.lock, self._connect() as connection:
             baseline_row = connection.execute(
@@ -100,12 +120,4 @@ class ConversationReadState:
                 ):
                     read_at[str(row["conversation_id"])] = float(row["read_at"])
 
-        for chat in rows:
-            chat_id = str(chat.get("id") or "").strip()
-            try:
-                last_assistant_at = float(chat.get("last_assistant_at") or 0.0)
-            except (TypeError, ValueError):
-                last_assistant_at = 0.0
-            chat["unread"] = last_assistant_at > max(baseline, read_at.get(chat_id, baseline))
-
-        return rows
+        return decorate_read_state(rows, baseline=baseline, read_at=read_at)
