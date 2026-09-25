@@ -333,6 +333,26 @@ class PlaywrightDriver(BrowserDriverBase):
                     continue
         return None
 
+    async def _hydrated_composer(self, page: Page) -> Locator | None:
+        # ChatGPT hydrates its initial textarea into a ProseMirror editor. The
+        # empty ProseMirror node can have no rendered box even though it is the
+        # real focusable composer, so Playwright reports it as not visible.
+        hydrated = page.get_by_role("main").locator(
+            '[contenteditable="true"][role="textbox"][data-composer-markdown]'
+        )
+        try:
+            hydrated_count = min(await hydrated.count(), 12)
+        except PlaywrightError:
+            return None
+        for index in range(hydrated_count):
+            candidate = hydrated.nth(index)
+            try:
+                if await candidate.is_enabled():
+                    return candidate
+            except PlaywrightError:
+                continue
+        return None
+
     async def _composer(self, page: Page) -> Locator | None:
         main = page.get_by_role("main")
 
@@ -346,21 +366,9 @@ class PlaywrightDriver(BrowserDriverBase):
                 scope.get_by_placeholder(_COMPOSER_NAME_RE),
             ]
 
-        # ChatGPT hydrates its initial textarea into a ProseMirror editor. The
-        # empty ProseMirror node can have no rendered box even though it is the
-        # real focusable composer, so Playwright reports it as not visible.
-        hydrated = main.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]')
-        try:
-            hydrated_count = min(await hydrated.count(), 12)
-        except PlaywrightError:
-            hydrated_count = 0
-        for index in range(hydrated_count):
-            candidate = hydrated.nth(index)
-            try:
-                if await candidate.is_enabled():
-                    return candidate
-            except PlaywrightError:
-                continue
+        hydrated = await self._hydrated_composer(page)
+        if hydrated is not None:
+            return hydrated
 
         for candidates in (named(main), [main.get_by_role("textbox")], named(page)):
             found = await self._first_usable(candidates)
@@ -754,7 +762,27 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _focus_composer(self) -> Locator:
         await self.wait_for_composer()
-        composer = await self._composer(self._page())
+        page = self._page()
+
+        # The first server-rendered textarea is short-lived. Give ChatGPT a
+        # bounded grace period to replace it with the real ProseMirror editor
+        # before starting a fill, otherwise Playwright can spend its full
+        # action timeout writing to a node that is being detached.
+        composer = await self._composer(page)
+        fallback = composer
+        hydration_deadline = asyncio.get_running_loop().time() + 1.5
+        while asyncio.get_running_loop().time() < hydration_deadline:
+            hydrated = await self._hydrated_composer(page)
+            if hydrated is not None:
+                composer = hydrated
+                break
+            current = await self._composer(page)
+            if current is not None:
+                fallback = current
+            await asyncio.sleep(0.05)
+        else:
+            composer = fallback
+
         if composer is None:
             raise RuntimeError("ChatGPT composer could not be focused")
         await composer.focus()

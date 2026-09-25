@@ -104,6 +104,32 @@ async def test_composer_prefers_main_textbox_over_sidebar_and_dialog(live_driver
 
 
 @pytest.mark.asyncio
+async def test_focus_composer_waits_for_chatgpt_prosemirror_hydration(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main><textarea aria-label="Ask ChatGPT"></textarea></main>
+        <script>
+          setTimeout(() => {
+            const editor = document.createElement("div");
+            editor.contentEditable = "true";
+            editor.setAttribute("role", "textbox");
+            editor.setAttribute("aria-label", "Ask ChatGPT");
+            editor.setAttribute("data-composer-markdown", "");
+            editor.style.width = "0";
+            editor.style.height = "100px";
+            document.querySelector("textarea").replaceWith(editor);
+          }, 150);
+        </script>
+        """
+    )
+
+    composer = await driver._focus_composer()
+
+    assert await composer.get_attribute("data-composer-markdown") == ""
+
+
+@pytest.mark.asyncio
 async def test_type_message_survives_chatgpt_prosemirror_hydration(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
