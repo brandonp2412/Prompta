@@ -394,9 +394,10 @@ class ConversationTracker:
             conversation_id = str(row.get("id") or "")
             target_url = str(row.get("url") or f"https://chatgpt.com/c/{conversation_id}")
             context = claimed_contexts.pop(conversation_id, "")
+            claimed_live_context = bool(context)
             try:
                 expected_path = urlsplit(target_url).path.rstrip("/")
-                if context:
+                if claimed_live_context:
                     logger.info(
                         "Prompta claimed live delivery handoff conversation=%s",
                         conversation_id,
@@ -419,6 +420,8 @@ class ConversationTracker:
                         await asyncio.sleep(0.5)
                     if messages:
                         break
+                    if claimed_live_context:
+                        break
                     if load_attempt + 1 < RESTART_RECOVERY_LOAD_ATTEMPTS:
                         logger.warning(
                             "Prompta recovery conversation=%s did not expose messages; "
@@ -427,6 +430,26 @@ class ConversationTracker:
                         )
                         await driver.navigate(target_url, context=context)
                         await self.ensure_route(driver, expected_path, context=context)
+                if not messages and claimed_live_context:
+                    snapshot["streaming"] = True
+                    self.cache.resume(conversation_id, context_id=context)
+                    self._write_snapshot(conversation_id, snapshot)
+                    self.active[context] = ActiveConversation(
+                        conversation_id=conversation_id,
+                        context_id=context,
+                        job_name=str(row.get("job_name") or ""),
+                        prompt=str(row.get("prompt") or ""),
+                        last_digest=self.cache.digest(snapshot),
+                        last_live_snapshot_at=0.0,
+                        recovered_cache_updated_at=float(row.get("updated_at") or 0.0),
+                    )
+                    recovered += 1
+                    logger.info(
+                        "Prompta retained unhydrated live handoff conversation=%s "
+                        "for passive tracking",
+                        conversation_id,
+                    )
+                    continue
                 if not messages:
                     logger.warning(
                         "Prompta recovery conversation=%s still has no messages; "

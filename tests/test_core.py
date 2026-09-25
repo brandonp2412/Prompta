@@ -4327,6 +4327,77 @@ async def test_recover_cached_conversations_reattaches_streaming_chat_after_rest
 
 
 @pytest.mark.asyncio
+async def test_recover_cached_conversations_retains_unhydrated_live_handoff(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "fresh-handoff-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="delivery-context",
+        job_name="",
+        prompt="Fresh prompt",
+    )
+
+    class HandoffDriver(FakeDriver):
+        def __init__(self, prompt: str) -> None:
+            super().__init__(prompt)
+            self.find_context_calls = 0
+
+        async def find_context_for_path(self, expected_path: str) -> str:
+            assert expected_path == f"/c/{conversation_id}"
+            self.find_context_calls += 1
+            return "context-live"
+
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
+            assert expression == "location.pathname"
+            assert context == "context-live"
+            return f"/c/{conversation_id}"
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-live"
+            return {
+                "title": "",
+                "path": f"/c/{conversation_id}",
+                "streaming": False,
+                "messages": [],
+            }
+
+        async def conversation_final_event(
+            self,
+            requested_conversation_id: str,
+            *,
+            context: str | None = None,
+        ) -> dict[str, Any]:
+            raise AssertionError("live handoff must not use backend recovery before hydration")
+
+    fake = HandoffDriver("Fresh prompt")
+    fake.navigate = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("live handoff must not navigate away before hydration")
+    )
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(_: float) -> None:
+        await original_sleep(0.002)
+
+    with (
+        patch("prompta.core._RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS", 0.001),
+        patch("prompta.core.asyncio.sleep", side_effect=fast_sleep),
+    ):
+        assert await prompta.recover_cached_conversations() == 1
+
+    assert fake.find_context_calls == 1
+    fake.navigate.assert_not_awaited()  # type: ignore[attr-defined]
+    fake.close_context.assert_not_awaited()  # type: ignore[attr-defined]
+    assert list(prompta._active_conversations) == ["context-live"]
+    assert prompta.cache.status(conversation_id) == "active"
+    assert prompta.cache.messages(conversation_id)[0]["content"] == "Fresh prompt"
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_recover_cached_conversations_reloads_slow_chat_before_interrupting(
     tmp_path: Path,
 ) -> None:
