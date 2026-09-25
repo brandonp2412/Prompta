@@ -51,6 +51,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TIMEOUT_MS = 30_000
 _HANDOFF_PAGE_OWNER_ID = "handoff"
 _HANDOFF_PAGE_MAX_AGE_SECONDS = 40 * 60
+
+
+def _normalise_composer_text(text: str) -> str:
+    normalized = " ".join(text.split()).strip()
+    return re.sub(r"(?<==)\s+(?=https?://)", "", normalized)
+
+
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
@@ -810,14 +817,14 @@ class PlaywrightDriver(BrowserDriverBase):
         composer = await self._focus_composer()
         await self._replace_composer_text(composer, text)
 
-        expected = " ".join(text.split()).strip()
+        expected = _normalise_composer_text(text)
         deadline = asyncio.get_running_loop().time() + 3.0
         matched_since: float | None = None
         rewritten_after_hydration = False
         while asyncio.get_running_loop().time() < deadline:
             current = await self._composer(self._page())
             if current is not None:
-                actual = " ".join((await self._composer_text(current)).split()).strip()
+                actual = _normalise_composer_text(await self._composer_text(current))
                 now = asyncio.get_running_loop().time()
                 if actual == expected:
                     if matched_since is None:

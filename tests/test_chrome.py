@@ -165,6 +165,37 @@ async def test_type_message_survives_chatgpt_prosemirror_hydration(live_driver) 
 
 
 @pytest.mark.asyncio
+async def test_type_message_accepts_prosemirror_autolink_spacing(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <div
+            contenteditable="true"
+            role="textbox"
+            aria-label="Ask ChatGPT"
+            data-composer-markdown=""
+          ></div>
+        </main>
+        <script>
+          const editor = document.querySelector("[data-composer-markdown]");
+          editor.addEventListener("input", () => {
+            if (editor.textContent.includes("=https://")) {
+              editor.textContent = editor.textContent.replace("=https://", "= https://");
+            }
+          });
+        </script>
+        """
+    )
+
+    await driver.type_message("PROMPTA_E2E_BASE_URL=https://prompta.example/c/ uv run pytest")
+
+    assert "= https://prompta.example/c/" in (
+        await page.locator("[data-composer-markdown]").inner_text()
+    )
+
+
+@pytest.mark.asyncio
 async def test_type_message_waits_for_chatgpt_composer_state_to_settle(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
