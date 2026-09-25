@@ -527,18 +527,28 @@ class PlaywrightDriver(BrowserDriverBase):
         if browser_context is None:
             return None
         target_path = urlsplit(expected_path).path.rstrip("/") or "/"
-        for page in list(browser_context.pages):
-            if page.is_closed():
+        matching_pages = [
+            page
+            for page in list(browser_context.pages)
+            if not page.is_closed() and (urlsplit(page.url).path.rstrip("/") or "/") == target_path
+        ]
+
+        # A delivery worker can hand off a fresh reply tab while this tracker still
+        # knows about an older retained tab for the same conversation. Prefer the
+        # explicit handoff so response tracking follows the newly sent reply.
+        for page in matching_pages:
+            owner_id = await self._owned_page_owner_id(page)
+            if owner_id != _HANDOFF_PAGE_OWNER_ID:
                 continue
-            if (urlsplit(page.url).path.rstrip("/") or "/") != target_path:
-                continue
+            await self._mark_owned(page)
+            return self._page_contexts.get(page) or self._register_page(page, owned=True)
+
+        for page in matching_pages:
             context_id = self._page_contexts.get(page)
             if context_id:
                 return context_id
             owner_id = await self._owned_page_owner_id(page)
-            if owner_id == _HANDOFF_PAGE_OWNER_ID:
-                await self._mark_owned(page)
-            elif owner_id != self.page_owner_id:
+            if owner_id != self.page_owner_id:
                 continue
             return self._register_page(page, owned=True)
         return None

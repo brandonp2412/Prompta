@@ -583,6 +583,49 @@ async def test_handoff_context_keeps_page_open_for_tracker_claim(
 
 
 @pytest.mark.asyncio
+async def test_find_context_for_path_prefers_fresh_handoff_over_registered_duplicate(
+    live_driver,
+    tmp_path: Path,
+) -> None:
+    driver, _page = live_driver
+    context = driver._browser_context
+    assert context is not None
+
+    async def fulfill(route):
+        await route.fulfill(status=200, content_type="text/html", body="<main>chat</main>")
+
+    await context.route("https://chatgpt.com/**", fulfill)
+
+    tracker = PlaywrightDriver(
+        profile=tmp_path / "tracker-profile",
+        ownership_prefix="prompta-conversation:",
+    )
+    tracker._browser = driver._browser
+    tracker._browser_context = context
+    tracker._connected = True
+
+    stale_page = await context.new_page()
+    await stale_page.goto("https://chatgpt.com/c/duplicate")
+    await tracker._mark_owned(stale_page)
+    stale_context = tracker._register_page(stale_page, owned=True)
+
+    delivery_context = await driver.new_tab("https://chatgpt.com/c/duplicate")
+    delivery_page = driver._pages[delivery_context]
+    await driver.handoff_context(
+        delivery_context,
+        ownership_prefix="prompta-conversation:",
+    )
+
+    claimed_context = await tracker.find_context_for_path("/c/duplicate")
+
+    assert claimed_context
+    assert claimed_context != stale_context
+    assert tracker._pages[claimed_context] is delivery_page
+    claimed_marker = await delivery_page.evaluate("window.name")
+    assert f":{tracker.page_owner_id}:" in claimed_marker
+
+
+@pytest.mark.asyncio
 async def test_orphan_cleanup_reaps_only_stale_unregistered_prompta_pages(live_driver) -> None:
     driver, page = live_driver
     context = driver._browser_context
