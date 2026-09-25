@@ -130,6 +130,40 @@ def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> Non
     assert again["conversation_id"] == "chat-1"
 
 
+def test_succeeded_completion_acknowledges_late_duplicate_without_mutation(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+    assert store.complete_claim(
+        "send-1",
+        "worker-a",
+        conversation_id="chat-original",
+        now=101.0,
+    )
+
+    assert store.complete_claim(
+        "send-1",
+        "stale-worker",
+        conversation_id="chat-late-duplicate",
+        now=999.0,
+    )
+    completed = store.records()[0]
+    assert completed["conversation_id"] == "chat-original"
+    assert completed["finished_at"] == 101.0
+
+
+def test_expired_delivery_lease_is_reclaimable_at_exact_boundary(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+
+    reclaimed = store.claim_next("worker-b", now=110.0, lease_seconds=10.0)
+
+    assert reclaimed is not None
+    assert reclaimed["lease_owner"] == "worker-b"
+    assert reclaimed["lease_acquired_at"] == 110.0
+
+
 def test_retry_backoff_controls_claim_eligibility(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())
