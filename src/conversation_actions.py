@@ -638,6 +638,55 @@ class ConversationActions:
                         active.idle_polls = 0
                         active.settled_at = 0.0
                         snapshot = await driver.conversation_snapshot(context)
+                        snapshot_messages = snapshot.get("messages")
+                        if not isinstance(snapshot_messages, list):
+                            snapshot_messages = []
+                        confirmed_dom_user_id = (
+                            user_id
+                            if user_id
+                            and user_id != baseline_user_id
+                            and user_text == self.normalise(prompt)
+                            else ""
+                        )
+                        sent_user_id = str(
+                            confirmed_dom_user_id or probe.get("message_id") or ""
+                        ).strip()
+                        sent_user_text = self.normalise(prompt)
+                        sent_user_present = any(
+                            isinstance(message, dict)
+                            and str(message.get("role") or "") == "user"
+                            and (
+                                (
+                                    bool(sent_user_id)
+                                    and str(message.get("id") or "") == sent_user_id
+                                )
+                                or self.normalise(str(message.get("content") or ""))
+                                == sent_user_text
+                            )
+                            for message in snapshot_messages
+                        )
+                        if not sent_user_present:
+                            cached_messages = self.cache.messages(conversation_id)
+                            next_ordinal = (
+                                max(
+                                    (
+                                        int(message.get("ordinal") or 0)
+                                        for message in cached_messages
+                                    ),
+                                    default=-1,
+                                )
+                                + 1
+                            )
+                            snapshot = dict(snapshot)
+                            snapshot["messages"] = [
+                                *snapshot_messages,
+                                {
+                                    "id": sent_user_id or f"__prompta_sent_user_{time.time_ns()}",
+                                    "role": "user",
+                                    "content": prompt,
+                                    "ordinal": next_ordinal,
+                                },
+                            ]
                         self.cache.write_snapshot(conversation_id, snapshot)
                         active.last_digest = self.cache.digest(snapshot)
                     logger.info(

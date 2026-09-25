@@ -575,6 +575,55 @@ async def test_send_reply_refreshes_retained_conversation_tab(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_send_reply_persists_confirmed_user_when_snapshot_and_dom_lag(
+    tmp_path: Path,
+) -> None:
+    prompt = "Follow up while the transcript is still hydrating"
+    conversation_id = "lagging-reply-chat"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+
+    class LaggingReplyDriver(FakeDriver):
+        async def eval(self, expression: str) -> str:
+            assert expression == "location.pathname"
+            return f"/c/{conversation_id}"
+
+        async def dom_state(self) -> dict[str, object]:
+            return {
+                "composer_text": "" if self.sent else self.typed,
+                "last_user_text": "Original prompt",
+                "last_user_id": "old-user",
+                "rate_limit_text": "",
+            }
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            assert context == "context-new"
+            return {
+                "title": "Lagging reply",
+                "path": f"/c/{conversation_id}",
+                "streaming": True,
+                "messages": [],
+            }
+
+    fake = LaggingReplyDriver(prompt)
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+    prompta.cache.start(
+        conversation_id,
+        context_id="context-old",
+        job_name="",
+        prompt="Original prompt",
+    )
+
+    assert await prompta.send_reply(conversation_id, prompt) == conversation_id
+
+    messages = prompta.cache.messages(conversation_id)
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"] == prompt
+    assert messages[-1]["message_key"] == "message-1"
+    await prompta.close()
+
+
+@pytest.mark.asyncio
 async def test_send_reply_allows_attachment_only_message(tmp_path: Path) -> None:
     conversation_id = "existing-chat"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
