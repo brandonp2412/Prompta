@@ -13,18 +13,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .chromium import finalize_completed_assistant_content, preserves_non_tool_text
+from .chromium import preserves_non_tool_text
 from .preview import compact_sidebar_preview
+from .snapshot_reconciliation import (
+    classify_snapshot_coverage,
+    incoming_messages,
+    normalize_snapshot_messages,
+    resolve_streaming_message_key,
+    select_handoff_candidate,
+    snapshot_message_status,
+)
 from .stream_order import (
     compact_prose_observation,
     has_stream_order_inversion,
     recover_stream_order_from_observations,
     stabilize_streaming_content,
-)
-from .structured_capture import (
-    has_completed_final_text,
-    message_parts_from_source_events,
-    rendered_content_from_parts,
 )
 from .structured_store import (
     migrate_structured_capture,
@@ -1125,52 +1128,8 @@ class ChatCache:
         complete: bool = False,
     ) -> None:
         now = time.time()
-        messages = snapshot.get("messages")
-        if not isinstance(messages, list):
-            messages = []
-        source_events = snapshot.get("source_events")
-        structured_events = (
-            [event for event in source_events if isinstance(event, dict)]
-            if isinstance(source_events, list)
-            else []
-        )
-        has_dom_prose_fallback = any(
-            str(event.get("id") or "").endswith(":dom-prose") for event in structured_events
-        )
-        if structured_events:
-            ordered_parts = message_parts_from_source_events(structured_events)
-            ordered_content = rendered_content_from_parts(ordered_parts)
-            trusted_completed_content = (
-                complete and has_dom_prose_fallback and has_completed_final_text(ordered_parts)
-            )
-            if ordered_content and (not has_dom_prose_fallback or trusted_completed_content):
-                for message_index in range(len(messages) - 1, -1, -1):
-                    message = messages[message_index]
-                    if (
-                        not isinstance(message, dict)
-                        or str(message.get("role") or "") != "assistant"
-                    ):
-                        continue
-                    visible_content = str(message.get("content") or "")
-                    if trusted_completed_content or preserves_non_tool_text(
-                        visible_content, ordered_content
-                    ):
-                        messages = [
-                            dict(item) if isinstance(item, dict) else item for item in messages
-                        ]
-                        messages[message_index]["content"] = ordered_content
-                    break
-        if complete:
-            for message_index in range(len(messages) - 1, -1, -1):
-                message = messages[message_index]
-                if not isinstance(message, dict) or str(message.get("role") or "") != "assistant":
-                    continue
-                content = str(message.get("content") or "")
-                finalized_content = finalize_completed_assistant_content(content)
-                if finalized_content != content:
-                    messages = [dict(item) if isinstance(item, dict) else item for item in messages]
-                    messages[message_index]["content"] = finalized_content
-                break
+        messages, structured_events = normalize_snapshot_messages(snapshot, complete=complete)
+        source_events: list[Any] = structured_events
 
         completed_at = now if complete else None
         snapshot_path = str(snapshot.get("path") or "")
@@ -1192,110 +1151,10 @@ class ChatCache:
             dict(row) for row in existing_rows if str(row["message_key"]) != _SEEDED_PROMPT_KEY
         ]
 
-        incoming: list[tuple[int, str, str, str]] = []
-        for snapshot_index, message in enumerate(messages):
-            if not isinstance(message, dict):
-                continue
-            role = str(message.get("role") or "")
-            content = str(message.get("content") or "")
-            if role == "assistant":
-                content = strip_delivery_timeout_noise(content)
-            raw_key = str(message.get("id") or "")
-            message_key = raw_key or f"{role}:{snapshot_index}"
-            if role == "assistant" and message_key.startswith("request-placeholder-"):
-                continue
-            incoming.append((snapshot_index, role, content, message_key))
-
-        first_incoming = incoming[0] if incoming else None
-        first_existing = existing_history[0] if existing_history else None
-        snapshot_is_full = first_existing is None
-        if first_incoming is not None and first_existing is not None:
-            _, incoming_role, incoming_content, incoming_key = first_incoming
-            snapshot_is_full = incoming_key == str(first_existing["message_key"]) or (
-                incoming_role == str(first_existing["role"])
-                and incoming_content.strip() == str(first_existing["content"]).strip()
-            )
-
-        # ChatGPT virtualizes older turns. A DOM snapshot can begin at the first
-        # cached message while still omitting a stable message in the middle.
-        # Treat that as partial; otherwise snapshot indexes can reuse occupied
-        # ordinals and make legitimate messages render as duplicates. The one
-        # safe exception is a stale assistant sibling within a user turn that
-        # still has another canonical assistant represented in the snapshot.
-        # Older Prompta extractors could persist multiple assistant DOM nodes
-        # from one ChatGPT agent turn; a corrected full snapshot should be able
-        # to collapse those rows without preserving the stale sibling forever.
-        superseded_stable_keys: set[str] = set()
-        if snapshot_is_full and existing_history:
-            unmatched_incoming = list(incoming)
-            stable_existing = [
-                row
-                for row in existing_history
-                if str(row["status"]) == "complete"
-                and not str(row["message_key"]).startswith("__prompta_live_assistant_")
-                and not str(row["message_key"]).startswith("request-placeholder-")
-            ]
-            matched_stable_keys: set[str] = set()
-            missing_stable: list[dict[str, Any]] = []
-            for existing in stable_existing:
-                existing_key = str(existing["message_key"])
-                existing_role = str(existing["role"])
-                existing_content = str(existing["content"] or "").strip()
-                match_index = next(
-                    (
-                        index
-                        for index, (_, role, content, key) in enumerate(unmatched_incoming)
-                        if key == existing_key
-                    ),
-                    -1,
-                )
-                if match_index < 0:
-                    match_index = next(
-                        (
-                            index
-                            for index, (_, role, content, _) in enumerate(unmatched_incoming)
-                            if role == existing_role and content.strip() == existing_content
-                        ),
-                        -1,
-                    )
-                if match_index < 0:
-                    missing_stable.append(existing)
-                    continue
-                matched_stable_keys.add(existing_key)
-                unmatched_incoming.pop(match_index)
-
-            stable_users = [row for row in stable_existing if str(row["role"]) == "user"]
-            for missing in missing_stable:
-                if str(missing["role"]) != "assistant":
-                    snapshot_is_full = False
-                    break
-                missing_ordinal = int(missing["ordinal"])
-                previous_user_ordinal = max(
-                    (
-                        int(row["ordinal"])
-                        for row in stable_users
-                        if int(row["ordinal"]) < missing_ordinal
-                    ),
-                    default=-1,
-                )
-                next_user_ordinal = min(
-                    (
-                        int(row["ordinal"])
-                        for row in stable_users
-                        if int(row["ordinal"]) > missing_ordinal
-                    ),
-                    default=2_147_483_647,
-                )
-                matched_assistant_sibling = any(
-                    str(row["role"]) == "assistant"
-                    and str(row["message_key"]) in matched_stable_keys
-                    and previous_user_ordinal < int(row["ordinal"]) < next_user_ordinal
-                    for row in stable_existing
-                )
-                if not matched_assistant_sibling:
-                    snapshot_is_full = False
-                    break
-                superseded_stable_keys.add(str(missing["message_key"]))
+        incoming = incoming_messages(messages)
+        coverage = classify_snapshot_coverage(incoming, existing_history)
+        snapshot_is_full = coverage.is_full
+        superseded_stable_keys = coverage.superseded_stable_keys
 
         max_existing_ordinal = max(
             (int(row["ordinal"]) for row in existing_rows),
@@ -1359,36 +1218,15 @@ class ChatCache:
             )
 
             preceding_user_key = ""
-            for snapshot_index, role, content, raw_message_key in incoming:
-                message_key = raw_message_key
-                if (
-                    role == "assistant"
-                    and message_key.startswith("__prompta_live_assistant_")
-                    and message_key not in current_by_key
-                    and preceding_user_key in current_by_key
-                ):
-                    preceding_user = current_by_key[preceding_user_key]
-                    target_ordinal = int(preceding_user["ordinal"]) + 1
-                    for candidate_key, candidate in current_by_key.items():
-                        if candidate_key.startswith("__prompta_live_assistant_"):
-                            continue
-                        if str(candidate["role"]) != "assistant":
-                            continue
-                        if int(candidate["ordinal"]) != target_ordinal:
-                            continue
-                        candidate_content = str(candidate["content"] or "").strip()
-                        incoming_content = content.strip()
-                        if (
-                            candidate_content
-                            and incoming_content
-                            and (
-                                candidate_content == incoming_content
-                                or candidate_content.startswith(incoming_content)
-                                or incoming_content.startswith(candidate_content)
-                            )
-                        ):
-                            message_key = candidate_key
-                            break
+            for message in incoming:
+                snapshot_index = message.snapshot_index
+                role = message.role
+                content = message.content
+                message_key = resolve_streaming_message_key(
+                    message,
+                    preceding_user_key=preceding_user_key,
+                    current_by_key=current_by_key,
+                )
 
                 existing = current_by_key.get(message_key)
                 persisted_message_keys[snapshot_index] = message_key
@@ -1400,80 +1238,59 @@ class ChatCache:
                     ordinal = next_partial_ordinal
                     next_partial_ordinal += 1
 
-                handoff_candidate: dict[str, Any] | None = None
-                if (
-                    role == "assistant"
-                    and not message_key.startswith("__prompta_live_assistant_")
-                    and existing is None
-                    and preceding_user_key in current_by_key
-                ):
+                handoff_candidate = select_handoff_candidate(
+                    role=role,
+                    message_key=message_key,
+                    existing=existing,
+                    preceding_user_key=preceding_user_key,
+                    current_by_key=current_by_key,
+                )
+                if handoff_candidate is not None:
                     expected_ordinal = int(current_by_key[preceding_user_key]["ordinal"]) + 1
-                    handoff_candidates = [
-                        candidate
-                        for candidate_key, candidate in current_by_key.items()
-                        if candidate_key != message_key
-                        and str(candidate.get("role") or "") == "assistant"
-                        and int(candidate.get("ordinal") or -1) == expected_ordinal
-                    ]
-                    if handoff_candidates:
-                        handoff_candidate = max(
-                            handoff_candidates,
-                            key=lambda candidate: (
-                                str(candidate.get("message_key") or "").startswith(
-                                    "__prompta_live_assistant_"
-                                ),
-                                str(candidate.get("status") or "") == "streaming",
-                                float(candidate.get("updated_at") or 0.0),
-                            ),
-                        )
-                    if handoff_candidate is not None:
-                        ordinal = expected_ordinal
-                        transient_key = str(handoff_candidate["message_key"])
-                        structured_handoffs[message_key] = transient_key
-                        handoff_content = str(handoff_candidate.get("content") or "").strip()
-                        preserved_handoff_content = bool(
-                            handoff_content
-                            and not preserves_non_tool_text(handoff_content, content)
-                        )
-                        if preserved_handoff_content:
-                            content = stabilize_streaming_content(handoff_content, content)
+                    ordinal = expected_ordinal
+                    transient_key = str(handoff_candidate["message_key"])
+                    structured_handoffs[message_key] = transient_key
+                    handoff_content = str(handoff_candidate.get("content") or "").strip()
+                    preserved_handoff_content = bool(
+                        handoff_content and not preserves_non_tool_text(handoff_content, content)
+                    )
+                    if preserved_handoff_content:
+                        content = stabilize_streaming_content(handoff_content, content)
 
-                        transient_observations = _dom_prose_observations(
-                            self.connection,
-                            conversation_id=conversation_id,
-                            message_key=transient_key,
-                            source_events=[],
-                            observed_at=now,
-                        )
-                        if transient_observations and not preserved_handoff_content:
-                            live_prose = compact_prose_observation(transient_observations[-1][1])
-                            if live_prose and not preserves_non_tool_text(
-                                live_prose,
-                                content,
-                            ):
-                                content = stabilize_streaming_content(live_prose, content)
-                                current_observations = [
-                                    (now, prose)
-                                    for event in (
-                                        source_events if isinstance(source_events, list) else []
-                                    )
-                                    if isinstance(event, dict) and (prose := _dom_prose_text(event))
-                                ]
-                                observations = transient_observations + current_observations
-                                if has_stream_order_inversion(content, observations):
-                                    content = recover_stream_order_from_observations(
-                                        content,
-                                        observations,
-                                    )
+                    transient_observations = _dom_prose_observations(
+                        self.connection,
+                        conversation_id=conversation_id,
+                        message_key=transient_key,
+                        source_events=[],
+                        observed_at=now,
+                    )
+                    if transient_observations and not preserved_handoff_content:
+                        live_prose = compact_prose_observation(transient_observations[-1][1])
+                        if live_prose and not preserves_non_tool_text(
+                            live_prose,
+                            content,
+                        ):
+                            content = stabilize_streaming_content(live_prose, content)
+                            current_observations = [
+                                (now, prose)
+                                for event in (
+                                    source_events if isinstance(source_events, list) else []
+                                )
+                                if isinstance(event, dict) and (prose := _dom_prose_text(event))
+                            ]
+                            observations = transient_observations + current_observations
+                            if has_stream_order_inversion(content, observations):
+                                content = recover_stream_order_from_observations(
+                                    content,
+                                    observations,
+                                )
 
                 snapshot_keys.append(message_key)
-                message_status = (
-                    "streaming"
-                    if not complete
-                    and bool(snapshot.get("streaming"))
-                    and snapshot_index == len(messages) - 1
-                    and role == "assistant"
-                    else "complete"
+                message_status = snapshot_message_status(
+                    message,
+                    message_count=len(messages),
+                    complete=complete,
+                    streaming=bool(snapshot.get("streaming")),
                 )
                 if (
                     role == "assistant"
@@ -1567,16 +1384,10 @@ class ChatCache:
                 if role == "user":
                     preceding_user_key = message_key
 
-            source_events = snapshot.get("source_events")
-            structured_events = (
-                [event for event in source_events if isinstance(event, dict)]
-                if isinstance(source_events, list)
-                else []
-            )
             structured_message_key = ""
-            for snapshot_index, role, _, _ in reversed(incoming):
-                if role == "assistant":
-                    structured_message_key = persisted_message_keys.get(snapshot_index, "")
+            for message in reversed(incoming):
+                if message.role == "assistant":
+                    structured_message_key = persisted_message_keys.get(message.snapshot_index, "")
                     if structured_message_key:
                         break
             if structured_message_key:
@@ -1624,9 +1435,9 @@ class ChatCache:
             if snapshot_keys:
                 unique_keys = list(dict.fromkeys(snapshot_keys))
                 snapshot_user_contents = {
-                    content.strip()
-                    for _, role, content, _ in incoming
-                    if role == "user" and content.strip()
+                    message.content.strip()
+                    for message in incoming
+                    if message.role == "user" and message.content.strip()
                 }
                 if snapshot_user_contents:
                     self.connection.execute(
@@ -1639,9 +1450,9 @@ class ChatCache:
                     )
 
                 current_assistants = [
-                    content.strip()
-                    for _, role, content, _ in incoming
-                    if role == "assistant" and content.strip()
+                    message.content.strip()
+                    for message in incoming
+                    if message.role == "assistant" and message.content.strip()
                 ]
                 transient_rows = self.connection.execute(
                     """
