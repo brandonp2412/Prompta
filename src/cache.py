@@ -1439,7 +1439,9 @@ class ChatCache:
                     for message in incoming
                     if message.role == "user" and message.content.strip()
                 }
-                if snapshot_user_contents:
+                seeded_prompt = existing_by_key.get(_SEEDED_PROMPT_KEY)
+                seeded_prompt_content = str((seeded_prompt or {}).get("content") or "").strip()
+                if seeded_prompt_content in snapshot_user_contents:
                     self.connection.execute(
                         """
                         DELETE FROM messages

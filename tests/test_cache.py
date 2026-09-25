@@ -1326,6 +1326,46 @@ def test_snapshot_promotes_transient_web_route_to_canonical_url(tmp_path: Path) 
     assert metadata["url"] == "https://chatgpt.com/c/6aae32ba-f3b4-83ec-bdf9-d34b777de6ce"
 
 
+def test_partial_reply_snapshot_preserves_seeded_original_prompt(tmp_path: Path) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Original prompt",
+    )
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Conversation",
+            "path": "/c/conversation-1",
+            "streaming": False,
+            "messages": [{"id": "assistant-1", "role": "assistant", "content": "First response"}],
+        },
+        complete=True,
+    )
+    cache.resume("conversation-1", context_id="context-2")
+
+    cache.write_snapshot(
+        "conversation-1",
+        {
+            "title": "Conversation",
+            "path": "/c/conversation-1",
+            "streaming": True,
+            "messages": [{"id": "user-2", "role": "user", "content": "Follow-up prompt"}],
+        },
+    )
+
+    messages = cache.messages("conversation-1")
+    cache.close()
+
+    assert [(message["role"], message["content"]) for message in messages] == [
+        ("user", "Original prompt"),
+        ("assistant", "First response"),
+        ("user", "Follow-up prompt"),
+    ]
+
+
 def test_cache_migration_removes_seeded_prompt_after_real_user_message(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)
