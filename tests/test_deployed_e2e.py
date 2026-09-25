@@ -94,6 +94,28 @@ def _wait_for_exact_reply(page, token: str, timeout_ms: int = 300_000) -> None:
     )
 
 
+def _wait_for_send_delivery(request, base: str, send_id: str) -> None:
+    timeout_ms = int(os.environ.get("PROMPTA_E2E_DELIVERY_TIMEOUT_MS", "900000"))
+    deadline = time.monotonic() + timeout_ms / 1000
+    last_job: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        response = request.get(urljoin(base, f"api/sends/{send_id}"))
+        assert response.ok, f"send receipt {send_id} returned HTTP {response.status}"
+        last_job = response.json()
+        status = str(last_job.get("status") or "")
+        if status == "succeeded":
+            return
+        if status in {"failed", "cancelled", "dead_lettered", "outcome_unknown"}:
+            raise AssertionError(
+                f"send {send_id} ended as {status}: "
+                f"{last_job.get('error') or last_job.get('last_error') or 'no error detail'}"
+            )
+        time.sleep(0.5)
+    raise AssertionError(
+        f"send {send_id} did not complete delivery within {timeout_ms}ms: {last_job}"
+    )
+
+
 def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
     executable = shutil.which("chromium") or shutil.which("brave")
     if executable is None:
@@ -199,7 +221,18 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
                 assert composer.is_enabled()
                 prompt = f"Reply with exactly {run_token} and nothing else."
                 composer.fill(prompt)
-                page.get_by_role("button", name="Send message").click()
+                with page.expect_response(
+                    lambda response: (
+                        response.request.method == "POST"
+                        and response.url == urljoin(base, "api/chats")
+                    ),
+                    timeout=15_000,
+                ) as send_response_info:
+                    page.get_by_role("button", name="Send message").click()
+                send_response = send_response_info.value
+                assert send_response.ok
+                send_id = str(send_response.json().get("send_id") or "")
+                assert send_id, "new-chat response did not include send_id"
                 page.locator(".message.user .message-content").get_by_text(
                     prompt, exact=True
                 ).wait_for(state="visible", timeout=15_000)
@@ -208,6 +241,7 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
                     assert selected_status.first.get_attribute("aria-label") != "Complete"
                 page.screenshot(path=artifacts / "new-chat-pending.png", full_page=True)
 
+                _wait_for_send_delivery(context.request, base, send_id)
                 _wait_for_exact_reply(page, run_token)
                 first_chat_url = page.url
                 assert "#/" in first_chat_url
@@ -222,10 +256,21 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
                 assert composer.is_enabled()
                 followup_prompt = f"Reply with exactly {followup_token} and nothing else."
                 composer.fill(followup_prompt)
-                page.get_by_role("button", name="Send message").click()
+                with page.expect_response(
+                    lambda response: (
+                        response.request.method == "POST" and response.url.endswith("/messages")
+                    ),
+                    timeout=15_000,
+                ) as send_response_info:
+                    page.get_by_role("button", name="Send message").click()
+                send_response = send_response_info.value
+                assert send_response.ok
+                send_id = str(send_response.json().get("send_id") or "")
+                assert send_id, "reply response did not include send_id"
                 page.locator(".message.user .message-content").get_by_text(
                     followup_prompt, exact=True
                 ).wait_for(state="visible", timeout=15_000)
+                _wait_for_send_delivery(context.request, base, send_id)
                 _wait_for_exact_reply(page, followup_token)
                 page.screenshot(path=artifacts / "reply-complete.png", full_page=True)
 
