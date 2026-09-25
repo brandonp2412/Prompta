@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from .structured_capture import has_completed_final_text, message_parts_from_source_events
@@ -116,3 +117,101 @@ def advance_completion_poll(
     if not changed and not streaming and (has_assistant or missing_latest_assistant):
         return idle_polls + 1, settled_at
     return 0, 0.0
+
+
+class RecoveryAction(StrEnum):
+    WAIT = "wait"
+    RETRY = "retry"
+    RELOAD = "reload"
+    INTERRUPT = "interrupt"
+
+
+@dataclass(frozen=True)
+class TransientRecoveryDecision:
+    action: RecoveryAction
+    transient_since_epoch: float
+
+
+def transient_recovery_decision(
+    *,
+    now_epoch: float,
+    transient_since_epoch: float,
+    recovered_cache_updated_at: float,
+    recovery_attempts: int,
+    recovery_delay_seconds: float,
+    failure_timeout_seconds: float,
+) -> TransientRecoveryDecision:
+    started_at = transient_since_epoch
+    if started_at <= 0:
+        started_at = (
+            min(now_epoch, recovered_cache_updated_at)
+            if recovered_cache_updated_at > 0
+            else now_epoch
+        )
+    timeout = recovery_delay_seconds if recovery_attempts <= 0 else failure_timeout_seconds
+    action = RecoveryAction.WAIT
+    if now_epoch - started_at >= timeout:
+        action = RecoveryAction.RELOAD if recovery_attempts <= 0 else RecoveryAction.INTERRUPT
+    return TransientRecoveryDecision(action=action, transient_since_epoch=started_at)
+
+
+def delivery_failure_action(
+    *,
+    now_monotonic: float,
+    idle_polls: int,
+    retry_attempts: int,
+    retry_at: float,
+    recovery_attempts: int,
+    recovery_at: float,
+    failure_polls: int,
+    retry_discovery_polls: int,
+    retry_max_attempts: int,
+    retry_grace_seconds: float,
+    recovery_max_attempts: int,
+    recovery_grace_seconds: float,
+    retry_control_failed: bool = False,
+) -> RecoveryAction:
+    if recovery_at > 0 and now_monotonic - recovery_at < recovery_grace_seconds:
+        return RecoveryAction.WAIT
+    if retry_at > 0 and now_monotonic - retry_at < retry_grace_seconds:
+        return RecoveryAction.WAIT
+    if idle_polls < failure_polls:
+        return RecoveryAction.WAIT
+    if retry_attempts < retry_max_attempts:
+        if not retry_control_failed:
+            return RecoveryAction.RETRY
+        if idle_polls < failure_polls + retry_discovery_polls:
+            return RecoveryAction.WAIT
+    if recovery_attempts < recovery_max_attempts:
+        return RecoveryAction.RELOAD
+    return RecoveryAction.INTERRUPT
+
+
+@dataclass(frozen=True)
+class FinalTextRecoveryDecision:
+    action: RecoveryAction
+    missing_since_epoch: float
+    timeout_expired: bool
+
+
+def final_text_recovery_decision(
+    *,
+    now_epoch: float,
+    missing_since_epoch: float,
+    recovery_attempts: int,
+    max_recovery_attempts: int,
+    failure_timeout_seconds: float,
+) -> FinalTextRecoveryDecision:
+    started_at = missing_since_epoch if missing_since_epoch > 0 else now_epoch
+    timeout_expired = now_epoch - started_at >= failure_timeout_seconds
+    if recovery_attempts < max_recovery_attempts:
+        action = RecoveryAction.RELOAD
+    elif timeout_expired:
+        action = RecoveryAction.INTERRUPT
+    else:
+        action = RecoveryAction.WAIT
+    return FinalTextRecoveryDecision(
+        action=action,
+        missing_since_epoch=started_at,
+        timeout_expired=timeout_expired,
+    )

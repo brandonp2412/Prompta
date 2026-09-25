@@ -14,8 +14,12 @@ from .chromium import (
     preserves_non_tool_text,
 )
 from .conversation_reconciliation import (
+    RecoveryAction,
     advance_completion_poll,
     assess_snapshot_completion,
+    delivery_failure_action,
+    final_text_recovery_decision,
+    transient_recovery_decision,
 )
 from .structured_capture import has_completed_final_text, message_parts_from_source_events
 from .tool_diff_capture import ToolDiffCapture
@@ -681,18 +685,17 @@ class ConversationTracker:
                 persistent_transient = transient_hint
                 if persistent_transient:
                     now_epoch = time.time()
-                    if active.transient_since_epoch <= 0:
-                        recovered_at = active.recovered_cache_updated_at
-                        active.transient_since_epoch = (
-                            min(now_epoch, recovered_at) if recovered_at > 0 else now_epoch
-                        )
-                    transient_timeout = (
-                        TRANSIENT_RECOVERY_DELAY_SECONDS
-                        if active.transient_recovery_attempts <= 0
-                        else TRANSIENT_FAILURE_TIMEOUT_SECONDS
+                    transient_decision = transient_recovery_decision(
+                        now_epoch=now_epoch,
+                        transient_since_epoch=active.transient_since_epoch,
+                        recovered_cache_updated_at=active.recovered_cache_updated_at,
+                        recovery_attempts=active.transient_recovery_attempts,
+                        recovery_delay_seconds=TRANSIENT_RECOVERY_DELAY_SECONDS,
+                        failure_timeout_seconds=TRANSIENT_FAILURE_TIMEOUT_SECONDS,
                     )
-                    if now_epoch - active.transient_since_epoch >= transient_timeout:
-                        if active.transient_recovery_attempts <= 0:
+                    active.transient_since_epoch = transient_decision.transient_since_epoch
+                    if transient_decision.action is not RecoveryAction.WAIT:
+                        if transient_decision.action is RecoveryAction.RELOAD:
                             target_url = str(
                                 self.cache.metadata(active.conversation_id).get("url")
                                 or f"https://chatgpt.com/c/{active.conversation_id}"
@@ -825,19 +828,23 @@ class ConversationTracker:
                 active.idle_polls += 1
                 active.settled_at = 0.0
                 now = time.monotonic()
-                if (
-                    active.delivery_recovery_at > 0
-                    and now - active.delivery_recovery_at < DELIVERY_RECOVERY_GRACE_SECONDS
-                ):
+                failure_action = delivery_failure_action(
+                    now_monotonic=now,
+                    idle_polls=active.idle_polls,
+                    retry_attempts=active.delivery_retry_attempts,
+                    retry_at=active.delivery_retry_at,
+                    recovery_attempts=active.delivery_recovery_attempts,
+                    recovery_at=active.delivery_recovery_at,
+                    failure_polls=DELIVERY_FAILURE_POLLS,
+                    retry_discovery_polls=DELIVERY_RETRY_DISCOVERY_POLLS,
+                    retry_max_attempts=DELIVERY_RETRY_MAX_ATTEMPTS,
+                    retry_grace_seconds=DELIVERY_RETRY_GRACE_SECONDS,
+                    recovery_max_attempts=DELIVERY_RECOVERY_MAX_ATTEMPTS,
+                    recovery_grace_seconds=DELIVERY_RECOVERY_GRACE_SECONDS,
+                )
+                if failure_action is RecoveryAction.WAIT:
                     continue
-                if (
-                    active.delivery_retry_at > 0
-                    and now - active.delivery_retry_at < DELIVERY_RETRY_GRACE_SECONDS
-                ):
-                    continue
-                if active.idle_polls < DELIVERY_FAILURE_POLLS:
-                    continue
-                if active.delivery_retry_attempts < DELIVERY_RETRY_MAX_ATTEMPTS:
+                if failure_action is RecoveryAction.RETRY:
                     try:
                         retried = await driver.click_delivery_retry(context, timeout=3.0)
                     except Exception as exc:
@@ -857,8 +864,23 @@ class ConversationTracker:
                             active.delivery_retry_attempts,
                         )
                         continue
-                    discovery_deadline = DELIVERY_FAILURE_POLLS + DELIVERY_RETRY_DISCOVERY_POLLS
-                    if active.idle_polls < discovery_deadline:
+                    failure_action = delivery_failure_action(
+                        now_monotonic=now,
+                        idle_polls=active.idle_polls,
+                        retry_attempts=active.delivery_retry_attempts,
+                        retry_at=active.delivery_retry_at,
+                        recovery_attempts=active.delivery_recovery_attempts,
+                        recovery_at=active.delivery_recovery_at,
+                        failure_polls=DELIVERY_FAILURE_POLLS,
+                        retry_discovery_polls=DELIVERY_RETRY_DISCOVERY_POLLS,
+                        retry_max_attempts=DELIVERY_RETRY_MAX_ATTEMPTS,
+                        retry_grace_seconds=DELIVERY_RETRY_GRACE_SECONDS,
+                        recovery_max_attempts=DELIVERY_RECOVERY_MAX_ATTEMPTS,
+                        recovery_grace_seconds=DELIVERY_RECOVERY_GRACE_SECONDS,
+                        retry_control_failed=True,
+                    )
+                    if failure_action is RecoveryAction.WAIT:
+                        discovery_deadline = DELIVERY_FAILURE_POLLS + DELIVERY_RETRY_DISCOVERY_POLLS
                         logger.warning(
                             "Prompta delivery retry control not available conversation=%s "
                             "poll=%d/%d; keeping tab alive",
@@ -867,7 +889,7 @@ class ConversationTracker:
                             discovery_deadline,
                         )
                         continue
-                if active.delivery_recovery_attempts < DELIVERY_RECOVERY_MAX_ATTEMPTS:
+                if failure_action is RecoveryAction.RELOAD:
                     target_url = str(
                         self.cache.metadata(active.conversation_id).get("url")
                         or f"https://chatgpt.com/c/{active.conversation_id}"
@@ -958,9 +980,15 @@ class ConversationTracker:
                     continue
 
                 now_epoch = time.time()
-                if active.final_text_missing_since_epoch <= 0:
-                    active.final_text_missing_since_epoch = now_epoch
-                if active.final_text_recovery_attempts < FINAL_TEXT_RECOVERY_MAX_ATTEMPTS:
+                final_text_decision = final_text_recovery_decision(
+                    now_epoch=now_epoch,
+                    missing_since_epoch=active.final_text_missing_since_epoch,
+                    recovery_attempts=active.final_text_recovery_attempts,
+                    max_recovery_attempts=FINAL_TEXT_RECOVERY_MAX_ATTEMPTS,
+                    failure_timeout_seconds=FINAL_TEXT_FAILURE_TIMEOUT_SECONDS,
+                )
+                active.final_text_missing_since_epoch = final_text_decision.missing_since_epoch
+                if final_text_decision.action is RecoveryAction.RELOAD:
                     target_url = str(
                         self.cache.metadata(active.conversation_id).get("url")
                         or f"https://chatgpt.com/c/{active.conversation_id}"
@@ -983,6 +1011,8 @@ class ConversationTracker:
                             "Prompta missing-final-text recovery reload failed conversation=%s",
                             active.conversation_id,
                         )
+                        if not final_text_decision.timeout_expired:
+                            continue
                     else:
                         active.final_text_recovery_attempts += 1
                         active.idle_polls = 0
@@ -993,10 +1023,7 @@ class ConversationTracker:
                             active.conversation_id,
                         )
                         continue
-                if (
-                    now_epoch - active.final_text_missing_since_epoch
-                    < FINAL_TEXT_FAILURE_TIMEOUT_SECONDS
-                ):
+                elif final_text_decision.action is RecoveryAction.WAIT:
                     continue
                 self.cache.mark_interrupted(active.conversation_id)
                 try:
