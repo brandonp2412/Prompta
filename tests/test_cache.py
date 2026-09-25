@@ -495,6 +495,128 @@ def test_live_snapshot_keeps_dom_order_when_source_prose_has_no_timestamp(
     assert content.index("Test MCP · inspect") < content.index("Visible follow-up")
 
 
+def test_snapshot_promotes_stable_streaming_assistant_when_message_id_changes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-stable-id-handoff"
+    streaming_key = "streaming-assistant-id"
+    final_key = "final-assistant-id"
+    fence = chr(96) * 3
+    tool = f"{fence}tool:Test MCP · inspect\nCalled tool\n{fence}"
+    cache.start(
+        conversation_id,
+        context_id="context-stable-id-handoff",
+        job_name="",
+        prompt="Do work",
+    )
+    invocation = {
+        "id": "call-1",
+        "role": "assistant",
+        "recipient": "api_tool.call_tool",
+        "content_type": "code",
+        "text": json.dumps({"path": "/Test MCP/link_123/inspect", "args": {}}),
+        "create_time": 2.0,
+    }
+    result = {
+        "id": "result-1",
+        "role": "tool",
+        "recipient": "all",
+        "content_type": "text",
+        "text": json.dumps({"ok": True}),
+        "create_time": 3.0,
+        "invoked_resource": {
+            "resource_uri": "/Test MCP/link_123/inspect",
+            "app_name": "Test MCP",
+        },
+    }
+    intro = {
+        "id": f"{streaming_key}:dom-prose:0:dom-prose",
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "parts": ["Starting the work"],
+        "text": "",
+        "create_time": 1.0,
+        "end_turn": False,
+        "content_references": [{"type": "prompta_dom_order", "preceding_tool_count": 0}],
+    }
+    progress = {
+        "id": f"{streaming_key}:dom-prose:1:dom-prose",
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "parts": ["Checks now pass"],
+        "text": "",
+        "create_time": 4.0,
+        "end_turn": False,
+        "content_references": [{"type": "prompta_dom_order", "preceding_tool_count": 1}],
+    }
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": streaming_key,
+                    "role": "assistant",
+                    "content": f"Starting the work\n\n{tool}\n\nChecks now pass",
+                },
+            ],
+            "source_events": [intro, invocation, result, progress],
+        },
+    )
+
+    final = {
+        "id": f"{final_key}:dom-prose:0:dom-prose",
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "parts": ["Implemented"],
+        "text": "",
+        "create_time": 5.0,
+        "end_turn": True,
+        "content_references": [{"type": "prompta_dom_order", "preceding_tool_count": 1}],
+    }
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": final_key,
+                    "role": "assistant",
+                    "content": f"{tool}\n\nImplemented",
+                },
+            ],
+            "source_events": [invocation, result, final],
+        },
+        complete=True,
+    )
+
+    messages = cache.messages(conversation_id)
+    stale_source_count = cache.connection.execute(
+        "SELECT COUNT(*) FROM source_events WHERE conversation_id = ? AND message_key = ?",
+        (conversation_id, streaming_key),
+    ).fetchone()[0]
+    cache.close()
+
+    assert [(message["message_key"], message["status"]) for message in messages] == [
+        ("u1", "complete"),
+        (final_key, "complete"),
+    ]
+    content = messages[-1]["content"]
+    assert content.index("Starting the work") < content.index("Test MCP · inspect")
+    assert content.index("Test MCP · inspect") < content.index("Checks now pass")
+    assert content.index("Checks now pass") < content.index("Implemented")
+    assert stale_source_count == 0
+
+
 def test_snapshot_promotes_transient_structured_tools_to_durable_assistant(
     tmp_path: Path,
 ) -> None:

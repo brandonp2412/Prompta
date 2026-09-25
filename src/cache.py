@@ -1360,7 +1360,7 @@ class ChatCache:
                     ordinal = next_partial_ordinal
                     next_partial_ordinal += 1
 
-                transient_candidate: dict[str, Any] | None = None
+                handoff_candidate: dict[str, Any] | None = None
                 if (
                     role == "assistant"
                     and not message_key.startswith("__prompta_live_assistant_")
@@ -1368,20 +1368,36 @@ class ChatCache:
                     and preceding_user_key in current_by_key
                 ):
                     expected_ordinal = int(current_by_key[preceding_user_key]["ordinal"]) + 1
-                    transient_candidate = next(
-                        (
-                            candidate
-                            for candidate_key, candidate in current_by_key.items()
-                            if candidate_key.startswith("__prompta_live_assistant_")
-                            and str(candidate.get("role") or "") == "assistant"
-                            and int(candidate.get("ordinal") or -1) == expected_ordinal
-                        ),
-                        None,
-                    )
-                    if transient_candidate is not None:
+                    handoff_candidates = [
+                        candidate
+                        for candidate_key, candidate in current_by_key.items()
+                        if candidate_key != message_key
+                        and str(candidate.get("role") or "") == "assistant"
+                        and int(candidate.get("ordinal") or -1) == expected_ordinal
+                    ]
+                    if handoff_candidates:
+                        handoff_candidate = max(
+                            handoff_candidates,
+                            key=lambda candidate: (
+                                str(candidate.get("message_key") or "").startswith(
+                                    "__prompta_live_assistant_"
+                                ),
+                                str(candidate.get("status") or "") == "streaming",
+                                float(candidate.get("updated_at") or 0.0),
+                            ),
+                        )
+                    if handoff_candidate is not None:
                         ordinal = expected_ordinal
-                        transient_key = str(transient_candidate["message_key"])
+                        transient_key = str(handoff_candidate["message_key"])
                         structured_handoffs[message_key] = transient_key
+                        handoff_content = str(handoff_candidate.get("content") or "").strip()
+                        preserved_handoff_content = bool(
+                            handoff_content
+                            and not preserves_non_tool_text(handoff_content, content)
+                        )
+                        if preserved_handoff_content:
+                            content = stabilize_streaming_content(handoff_content, content)
+
                         transient_observations = _dom_prose_observations(
                             self.connection,
                             conversation_id=conversation_id,
@@ -1389,7 +1405,7 @@ class ChatCache:
                             source_events=[],
                             observed_at=now,
                         )
-                        if transient_observations:
+                        if transient_observations and not preserved_handoff_content:
                             live_prose = compact_prose_observation(transient_observations[-1][1])
                             if live_prose and not preserves_non_tool_text(
                                 live_prose,

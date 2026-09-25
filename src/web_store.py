@@ -46,12 +46,28 @@ def _is_final_text_duplicate(content: str, final_texts: list[str]) -> bool:
     )
 
 
+def _leading_prose_before_tool(content: str) -> str:
+    cleaned = strip_delivery_timeout_noise(str(content or "")).strip()
+    if not cleaned:
+        return ""
+    fence = chr(96) * 3
+    starts = [
+        index
+        for prefix in ("tool", "tool-call", "function", "function-call")
+        if (index := cleaned.find(fence + prefix)) >= 0
+    ]
+    if not starts:
+        return cleaned
+    return cleaned[: min(starts)].strip()
+
+
 def _attach_transient_dom_prose_observations(
     messages: list[dict[str, Any]],
     observations_by_message: dict[str, list[tuple[float, str]]],
     source_ranges_by_message: dict[str, tuple[float, float]],
+    anchors_by_message: dict[str, list[tuple[float, str, int]]],
 ) -> None:
-    """Attach legacy live-assistant prose observations to their durable turn."""
+    """Attach orphaned assistant prose observations to their durable turn."""
 
     durable_assistant_keys = [
         str(message.get("message_key") or "")
@@ -61,9 +77,7 @@ def _attach_transient_dom_prose_observations(
     ]
     durable_keys = set(durable_assistant_keys)
     for transient_key, observations in list(observations_by_message.items()):
-        if transient_key in durable_keys or not transient_key.startswith(
-            "__prompta_live_assistant_"
-        ):
+        if transient_key in durable_keys or transient_key.startswith("request-placeholder-"):
             continue
         transient_range = source_ranges_by_message.get(transient_key)
         if transient_range is None:
@@ -87,6 +101,11 @@ def _attach_transient_dom_prose_observations(
         existing = observations_by_message.setdefault(best_key, [])
         existing.extend(observations)
         existing.sort(key=lambda item: item[0])
+        orphan_anchors = anchors_by_message.get(transient_key, [])
+        if orphan_anchors:
+            existing_anchors = anchors_by_message.setdefault(best_key, [])
+            existing_anchors.extend(orphan_anchors)
+            existing_anchors.sort(key=lambda item: item[0])
 
 
 def _is_dom_prose_part(part: dict[str, Any]) -> bool:
@@ -659,6 +678,19 @@ class ReadOnlyChatStore:
                     if "message_versions" in tables
                     else []
                 )
+                assistant_versions = (
+                    connection.execute(
+                        """
+                        SELECT message_key, content, observed_at
+                        FROM message_versions
+                        WHERE conversation_id = ? AND role = 'assistant'
+                        ORDER BY observed_at, rowid
+                        """,
+                        (conversation_id,),
+                    ).fetchall()
+                    if "message_versions" in tables
+                    else []
+                )
                 latest_state = (
                     connection.execute(
                         """
@@ -805,10 +837,50 @@ class ReadOnlyChatStore:
                         (observed_at, prose, preceding_tool_count)
                     )
                     break
+
+        durable_assistant_keys = {
+            str(message.get("message_key") or "")
+            for message in message_payloads
+            if str(message.get("role") or "") == "assistant"
+            and not str(message.get("message_key") or "").startswith("__prompta_live_assistant_")
+        }
+        recovered_version_targets: set[str] = set()
+        for row in assistant_versions:
+            orphan_key = str(row["message_key"] or "")
+            if (
+                not orphan_key
+                or orphan_key in durable_assistant_keys
+                or orphan_key.startswith("request-placeholder-")
+            ):
+                continue
+            leading_prose = _leading_prose_before_tool(str(row["content"] or ""))
+            if not leading_prose:
+                continue
+            observed_at = float(row["observed_at"] or 0.0)
+            candidates = [
+                durable_key
+                for durable_key in durable_assistant_keys
+                if (source_range := source_ranges_by_message.get(durable_key)) is not None
+                and source_range[0] <= observed_at <= source_range[1]
+            ]
+            if len(candidates) != 1:
+                continue
+            target_key = candidates[0]
+            if target_key in recovered_version_targets:
+                continue
+            source_start = source_ranges_by_message[target_key][0]
+            anchor_time = source_start - 0.000001
+            dom_prose_by_message.setdefault(target_key, []).append((anchor_time, leading_prose))
+            dom_anchors_by_message.setdefault(target_key, []).append(
+                (anchor_time, leading_prose, 0)
+            )
+            recovered_version_targets.add(target_key)
+
         _attach_transient_dom_prose_observations(
             message_payloads,
             dom_prose_by_message,
             source_ranges_by_message,
+            dom_anchors_by_message,
         )
         version_count_by_message = {
             str(row["message_key"]): int(row["version_count"] or 0) for row in version_counts

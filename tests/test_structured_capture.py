@@ -1025,6 +1025,136 @@ def test_read_only_store_keeps_late_recovered_prose_before_final_text(
     )
 
 
+def test_read_only_store_recovers_orphaned_stable_assistant_prose(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-orphan-stable-prose"
+    durable_key = "final-assistant-id"
+    orphan_key = "streaming-assistant-id"
+    fence = chr(96) * 3
+    invocation = {
+        "id": "call-1",
+        "role": "assistant",
+        "recipient": "api_tool.call_tool",
+        "content_type": "code",
+        "text": json.dumps({"path": "/Test MCP/link_123/inspect", "args": {}}),
+        "create_time": 2.0,
+    }
+    result = {
+        "id": "result-1",
+        "role": "tool",
+        "recipient": "all",
+        "content_type": "text",
+        "text": json.dumps({"ok": True}),
+        "create_time": 3.0,
+        "invoked_resource": {
+            "resource_uri": "/Test MCP/link_123/inspect",
+            "app_name": "Test MCP",
+        },
+    }
+    final = {
+        "id": durable_key,
+        "role": "assistant",
+        "recipient": "all",
+        "content_type": "text",
+        "parts": ["Implemented"],
+        "text": "",
+        "create_time": 5.0,
+        "end_turn": True,
+    }
+    cache.start(
+        conversation_id,
+        context_id="context-orphan-stable-prose",
+        job_name="",
+        prompt="Do work",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Work",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Do work"},
+                {
+                    "id": durable_key,
+                    "role": "assistant",
+                    "content": f"{fence}tool:tool\nCalled tool\n{fence}\n\nImplemented",
+                },
+            ],
+            "source_events": [invocation, result, final],
+        },
+        complete=True,
+    )
+    orphan_events = [
+        (
+            1.0,
+            {
+                "id": f"{orphan_key}:dom-prose:0:dom-prose",
+                "parts": ["Starting the work"],
+                "create_time": 1.0,
+                "content_references": [{"type": "prompta_dom_order", "preceding_tool_count": 0}],
+            },
+        ),
+        (
+            4.0,
+            {
+                "id": f"{orphan_key}:dom-prose:1:dom-prose",
+                "parts": ["Checks now pass"],
+                "create_time": 4.0,
+                "content_references": [{"type": "prompta_dom_order", "preceding_tool_count": 1}],
+            },
+        ),
+    ]
+    with cache.connection:
+        cache.connection.execute(
+            """
+            INSERT INTO message_versions (
+                conversation_id, message_key, version, role, content, status, observed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                orphan_key,
+                0,
+                "assistant",
+                f"Starting the work\n\n{fence}tool:tool\nCalled tool\n{fence}\n\nChecks now pass",
+                "streaming",
+                2.5,
+            ),
+        )
+        for ordinal, (source_created_at, event) in enumerate(orphan_events):
+            cache.connection.execute(
+                """
+                INSERT INTO source_events (
+                    conversation_id, message_key, event_key, ordinal, raw_json,
+                    observed_at, source_created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    orphan_key,
+                    f"{orphan_key}:dom-prose:{ordinal}:source",
+                    ordinal,
+                    json.dumps(event),
+                    100.0 + ordinal,
+                    source_created_at,
+                ),
+            )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    content = assistant["content"]
+    assert assistant["parts_renderable"] is True
+    assert content.index("Starting the work") < content.index("Test MCP · inspect")
+    assert content.index("Test MCP · inspect") < content.index("Checks now pass")
+    assert content.index("Checks now pass") < content.index("Implemented")
+
+
 def test_read_only_store_prefers_informative_dom_anchor_over_stale_zero_anchor(
     tmp_path: Path,
 ) -> None:
