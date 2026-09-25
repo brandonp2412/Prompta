@@ -241,6 +241,35 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
     }
 
 
+def normalise_job_definition(
+    name: str,
+    prompt: str,
+    interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
+    daily_at: str | None = None,
+    exact_interval: bool = False,
+    run_at_epoch: float | None = None,
+    source_revision: str = "",
+) -> PromptJob:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("prompta job name is empty")
+    if not prompt.strip():
+        raise ValueError("prompta prompt is empty")
+    normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
+    normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
+    if normalised_run_at is not None and normalised_run_at <= 0:
+        raise ValueError("run_at_epoch must be a positive Unix timestamp")
+    return PromptJob(
+        normalized_name,
+        prompt,
+        max(0.0, interval_seconds),
+        normalised_daily_at,
+        bool(exact_interval),
+        normalised_run_at,
+        source_revision.strip().lower(),
+    )
+
+
 def add_job(
     path: Path,
     name: str,
@@ -251,20 +280,15 @@ def add_job(
     run_at_epoch: float | None = None,
     source_revision: str | None = None,
 ) -> None:
-    normalized_name = name.strip()
-    if not normalized_name:
-        raise ValueError("prompta job name is empty")
-    if not prompt.strip():
-        raise ValueError("prompta prompt is empty")
-    normalised_daily_at = _normalise_daily_at(daily_at) if daily_at is not None else None
-    normalised_run_at = float(run_at_epoch) if run_at_epoch is not None else None
-    normalised_source_revision = (
-        source_revision.strip().lower()
-        if source_revision is not None
-        else current_source_revision()
+    job = normalise_job_definition(
+        name,
+        prompt,
+        interval_seconds,
+        daily_at,
+        exact_interval,
+        run_at_epoch,
+        source_revision if source_revision is not None else current_source_revision(),
     )
-    if normalised_run_at is not None and normalised_run_at <= 0:
-        raise ValueError("run_at_epoch must be a positive Unix timestamp")
 
     with _connect(path) as connection:
         connection.execute(
@@ -281,13 +305,13 @@ def add_job(
                 run_at_epoch = excluded.run_at_epoch
             """,
             (
-                normalized_name,
-                prompt,
-                max(0.0, interval_seconds),
-                normalised_daily_at,
-                int(exact_interval),
-                normalised_run_at,
-                normalised_source_revision,
+                job.name,
+                job.prompt,
+                job.interval_seconds,
+                job.daily_at,
+                int(job.exact_interval),
+                job.run_at_epoch,
+                job.source_revision,
             ),
         )
 

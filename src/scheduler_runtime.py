@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
-from .jobs import PromptJob, _next_daily_epoch, load_jobs
+from .jobs import PromptJob, load_jobs
 from .persistence import (
     DEFAULT_RUNTIME_PATH,
     LEGACY_STATE_PATH,
@@ -19,6 +19,21 @@ from .persistence import (
     remove_legacy_json,
 )
 from .rate_limit import RateLimitBackoff, RateLimitError
+from .scheduler_policy import (
+    due_in as calculate_due_in,
+)
+from .scheduler_policy import (
+    failure_retry_remaining as calculate_failure_retry_remaining,
+)
+from .scheduler_policy import (
+    initial_due_at,
+    initial_jitter_window,
+    recurring_delay,
+    recurring_jitter_cap,
+)
+from .scheduler_policy import (
+    send_gap_remaining as calculate_send_gap_remaining,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +54,6 @@ class DeliveryIntent(TypedDict):
 
 _NORMAL_SEND_GAP_SECONDS = 60.0
 _UNATTENDED_SEND_GAP_SECONDS = 10.0
-_INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
-_RECURRING_JITTER_FRACTION = 0.20
-_RECURRING_JITTER_CAP_SECONDS = 5 * 60.0
 
 
 class SchedulerRuntime:
@@ -673,65 +685,57 @@ class SchedulerRuntime:
         return _UNATTENDED_SEND_GAP_SECONDS if self.unattended_mode() else _NORMAL_SEND_GAP_SECONDS
 
     def send_gap_remaining(self, now: float) -> float:
-        try:
-            last_attempt_at = float(self.scheduler_state().get("last_attempt_at") or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
-        return max(0.0, last_attempt_at + self.send_gap_seconds() - now)
+        return calculate_send_gap_remaining(
+            last_attempt_at=self.scheduler_state().get("last_attempt_at"),
+            gap_seconds=self.send_gap_seconds(),
+            now=now,
+        )
 
     def ensure_initial_schedules(self, jobs: list[PromptJob], now: float) -> None:
         for job in jobs:
             state = self.job_state(job.name)
-            if any(
-                state.get(key)
-                for key in (
-                    "last_sent_at",
-                    "last_uncertain_send_at",
-                    "last_enqueued_at",
-                    "initial_due_at_epoch",
-                    "next_due_at_epoch",
-                )
-            ):
+            due_at = initial_due_at(job, state, now=now)
+            if due_at is None:
                 continue
+            if job.run_at_epoch is None and job.daily_at is None:
+                jitter_window = initial_jitter_window(job)
+                jitter_seconds = random.uniform(0.0, jitter_window) if jitter_window > 0 else 0.0
+                due_at = initial_due_at(
+                    job,
+                    state,
+                    now=now,
+                    jitter_seconds=jitter_seconds,
+                )
+                assert due_at is not None
+            self.update_job_state(job.name, {"initial_due_at_epoch": due_at})
             if job.run_at_epoch is not None:
-                due_at = float(job.run_at_epoch)
-                self.update_job_state(job.name, {"initial_due_at_epoch": due_at})
                 logger.info(
                     "Prompta job=%s one-time send scheduled for %s",
                     job.name,
                     datetime.fromtimestamp(due_at).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
                 )
-                continue
-            if job.daily_at is not None:
-                due_at = _next_daily_epoch(job.daily_at, now, include_now=True)
-                self.update_job_state(job.name, {"initial_due_at_epoch": due_at})
+            elif job.daily_at is not None:
                 logger.info(
                     "Prompta job=%s initial daily send scheduled for %s",
                     job.name,
                     datetime.fromtimestamp(due_at).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
                 )
-                continue
-            window = min(max(0.0, job.interval_seconds), _INITIAL_DELAY_CAP_SECONDS)
-            delay = random.uniform(0.0, window) if window > 0 else 0.0
-            self.update_job_state(job.name, {"initial_due_at_epoch": now + delay})
-            logger.info("Prompta job=%s initial start delayed by %.0fs", job.name, delay)
+            else:
+                logger.info("Prompta job=%s initial start delayed by %.0fs", job.name, due_at - now)
 
     @staticmethod
     def next_delay(job: PromptJob) -> float:
-        interval = max(0.0, job.interval_seconds)
-        if job.exact_interval:
-            return interval
-        jitter_cap = min(_RECURRING_JITTER_CAP_SECONDS, interval * _RECURRING_JITTER_FRACTION)
-        return interval + (random.uniform(0.0, jitter_cap) if jitter_cap > 0 else 0.0)
+        jitter_cap = recurring_jitter_cap(job)
+        jitter_seconds = random.uniform(0.0, jitter_cap) if jitter_cap > 0 else 0.0
+        return recurring_delay(job, jitter_seconds=jitter_seconds)
 
     def failure_retry_remaining(self, name: str, now: float) -> float:
         state = self.job_state(name)
-        try:
-            persisted = float(state.get("failure_retry_until_epoch") or 0.0)
-        except (TypeError, ValueError):
-            persisted = 0.0
-        in_memory = self.failure_retry_until.get(name, 0.0)
-        return max(0.0, max(persisted, in_memory) - now)
+        return calculate_failure_retry_remaining(
+            persisted_retry_until=state.get("failure_retry_until_epoch"),
+            in_memory_retry_until=self.failure_retry_until.get(name, 0.0),
+            now=now,
+        )
 
     def mark_failure(self, name: str, message: str, *, retry_until: float | None = None) -> None:
         updates: dict[str, Any] = {
@@ -747,27 +751,5 @@ class SchedulerRuntime:
         return load_jobs(self.jobs_file)
 
     def due_in(self, job: PromptJob, now: float | None = None) -> float:
-        state = self.job_state(job.name)
         current = time.time() if now is None else now
-        try:
-            last_sent_at = float(state.get("last_sent_at") or 0.0)
-            last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
-            next_due_at = float(state.get("next_due_at_epoch") or 0.0)
-            initial_due_at = float(state.get("initial_due_at_epoch") or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
-        last_attempt_at = max(last_sent_at, last_uncertain_send_at)
-        if job.run_at_epoch is not None:
-            if last_attempt_at > 0:
-                return float("inf")
-            due_at = initial_due_at if initial_due_at > 0 else float(job.run_at_epoch)
-            return max(0.0, due_at - current)
-        if next_due_at > 0 and last_sent_at >= last_uncertain_send_at:
-            return max(0.0, next_due_at - current)
-        if last_attempt_at > 0:
-            if job.daily_at is not None:
-                return max(0.0, _next_daily_epoch(job.daily_at, last_attempt_at) - current)
-            return max(0.0, last_attempt_at + max(0.0, job.interval_seconds) - current)
-        if initial_due_at > 0:
-            return max(0.0, initial_due_at - current)
-        return 0.0
+        return calculate_due_in(job, self.job_state(job.name), now=current)

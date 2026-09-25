@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import time
 from collections.abc import Callable
@@ -12,8 +11,15 @@ from websockets.exceptions import ConnectionClosed
 
 from .cache import ActiveConversation
 from .conversation_actions import SendNotAcceptedError, SendVerificationError
-from .jobs import PromptJob, _next_daily_epoch, remove_job
+from .jobs import PromptJob, remove_job
 from .rate_limit import RateLimitBackoff, RateLimitError
+from .scheduler_policy import (
+    next_due_at,
+    occurrence_key,
+    prompt_hash,
+    scheduled_job_prompt,
+    should_enqueue_job,
+)
 from .scheduler_runtime import SchedulerRuntime
 
 logger = logging.getLogger(__name__)
@@ -21,21 +27,6 @@ logger = logging.getLogger(__name__)
 _FAILURE_RETRY_SECONDS = 300.0
 _MAX_ACTIVE_SCHEDULED_JOBS = 4
 _MAX_ACTIVE_BROWSER_CONVERSATIONS = 24
-
-
-def prompt_hash(prompt: str) -> str:
-    return hashlib.sha256(prompt.encode()).hexdigest()
-
-
-def scheduled_job_prompt(job: PromptJob) -> str:
-    if not job.source_revision:
-        return job.prompt
-    return (
-        f"{job.prompt}\n\n"
-        "Prompta job context: the Prompta source revision when this job was created was "
-        f"{job.source_revision}. Use this revision when checking whether a reported bug predates "
-        "later code changes."
-    )
 
 
 class SchedulerExecution:
@@ -112,39 +103,17 @@ class SchedulerExecution:
         return False
 
     def _delivery_idempotency_key(self, job: PromptJob) -> str:
-        state = self.scheduler.job_state(job.name)
-        marker = 0.0
-        try:
-            last_sent_at = float(state.get("last_sent_at") or 0.0)
-            last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
-        except (TypeError, ValueError):
-            last_sent_at = 0.0
-            last_uncertain_send_at = 0.0
-        keys = (
-            ("last_uncertain_send_at",)
-            if last_uncertain_send_at > last_sent_at
-            else ("next_due_at_epoch", "initial_due_at_epoch", "last_sent_at")
-        )
-        for key in keys:
-            try:
-                value = float(state.get(key) or 0.0)
-            except (TypeError, ValueError):
-                value = 0.0
-            if value > 0:
-                marker = value
-                break
-        if job.run_at_epoch is not None:
-            marker = float(job.run_at_epoch)
-        raw = f"{job.name}\0{prompt_hash(job.prompt)}\0{marker:.6f}"
-        return hashlib.sha256(raw.encode()).hexdigest()
+        return occurrence_key(job, self.scheduler.job_state(job.name))
 
     async def run_job(self, job: PromptJob, *, now: float) -> bool:
         """Make the durable scheduling decision; browser delivery is a separate step."""
-        if self.scheduler.job_state(job.name).get("paused") is True:
-            return False
-        if self.scheduler.due_in(job, now) > 0:
-            return False
-        if self.scheduler.has_queued_delivery(job.name):
+        state = self.scheduler.job_state(job.name)
+        if not should_enqueue_job(
+            job,
+            state,
+            now=now,
+            pending_delivery=self.scheduler.has_queued_delivery(job.name),
+        ):
             return False
 
         prompt = scheduled_job_prompt(job)
@@ -292,18 +261,26 @@ class SchedulerExecution:
             return False
 
         sent_at = time.time() if now is None else attempted_at
-        next_due_at = 0.0
-        if not intent["one_time"]:
-            if intent["daily_at"] is not None:
-                next_due_at = _next_daily_epoch(intent["daily_at"], sent_at)
-            else:
-                delivery_job = PromptJob(
-                    job_name,
-                    "",
-                    intent["interval_seconds"],
-                    exact_interval=intent["exact_interval"],
-                )
-                next_due_at = sent_at + self.scheduler.next_delay(delivery_job)
+        jitter_seconds = 0.0
+        if not intent["one_time"] and intent["daily_at"] is None:
+            delivery_job = PromptJob(
+                job_name,
+                "",
+                intent["interval_seconds"],
+                exact_interval=intent["exact_interval"],
+            )
+            jitter_seconds = max(
+                0.0,
+                self.scheduler.next_delay(delivery_job) - max(0.0, delivery_job.interval_seconds),
+            )
+        next_due_at_epoch = next_due_at(
+            completed_at=sent_at,
+            one_time=bool(intent["one_time"]),
+            daily_at=intent["daily_at"],
+            interval_seconds=float(intent["interval_seconds"]),
+            exact_interval=bool(intent["exact_interval"]),
+            jitter_seconds=jitter_seconds,
+        )
         backoff.reset()
         self.scheduler.failure_retry_until.pop(job_name, None)
         self.scheduler.complete_delivery(
@@ -316,7 +293,7 @@ class SchedulerExecution:
                 "last_sent_at": sent_at,
                 "last_uncertain_send_at": 0.0,
                 "initial_due_at_epoch": 0.0,
-                "next_due_at_epoch": next_due_at,
+                "next_due_at_epoch": next_due_at_epoch,
                 "last_conversation_id": conversation_id,
                 "rate_limit_backoff": backoff.snapshot(),
                 "failure_retry_until_epoch": 0.0,
