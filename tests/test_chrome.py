@@ -395,6 +395,25 @@ async def test_dom_state_does_not_treat_conversation_rate_limit_text_as_banner(l
 
 
 @pytest.mark.asyncio
+async def test_dom_state_reads_current_search_unit_user_message(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <div data-chatgpt-search-unit-key="fallback-turn-0:1:user"
+             data-chatgpt-search-message-ids="u-current">
+          <div>Current semantic prompt</div>
+        </div>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-current"
+    assert state["last_user_text"] == "Current semantic prompt"
+
+
+@pytest.mark.asyncio
 async def test_dom_state_reads_and_dismisses_semantic_rate_limit_dialog(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

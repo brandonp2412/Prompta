@@ -23,11 +23,22 @@ FILE_INPUT_SELECTORS = (
 )
 
 MESSAGE_ROLE_SELECTOR = "[data-message-author-role]"
-ASSISTANT_MESSAGE_SELECTOR = '[data-message-author-role="assistant"]'
+USER_MESSAGE_SELECTORS = (
+    '[data-message-author-role="user"]',
+    '[data-chatgpt-search-unit-key$=":user"]',
+)
+ASSISTANT_MESSAGE_SELECTORS = (
+    '[data-message-author-role="assistant"]',
+    '[data-chatgpt-search-unit-key$=":assistant"]',
+)
 
 # Stable turn markers are kept separate from legacy layout fallbacks so callers
 # cannot accidentally make styling classes part of their primary discovery path.
-SEMANTIC_TURN_SELECTORS = ('[data-testid^="conversation-turn-"]',)
+SEMANTIC_TURN_SELECTORS = (
+    '[data-testid^="conversation-turn-"]',
+    '[data-chatgpt-search-unit-key$=":user"]',
+    '[data-chatgpt-search-unit-key$=":assistant"]',
+)
 LEGACY_TURN_SELECTORS = (
     ".agent-turn",
     "article",
@@ -73,6 +84,8 @@ def css_union(selectors: tuple[str, ...]) -> str:
 
 
 STOP_BUTTON_SELECTOR = css_union(STOP_BUTTON_SELECTORS)
+USER_MESSAGE_SELECTOR = css_union(USER_MESSAGE_SELECTORS)
+ASSISTANT_MESSAGE_SELECTOR = css_union(ASSISTANT_MESSAGE_SELECTORS)
 SEMANTIC_TURN_SELECTOR = css_union(SEMANTIC_TURN_SELECTORS)
 LEGACY_TURN_SELECTOR = css_union(LEGACY_TURN_SELECTORS)
 TURN_SELECTOR = css_union(TURN_SELECTORS)

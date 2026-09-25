@@ -49,6 +49,36 @@ def _conversation(body: str) -> str:
     return f"<main>{body}</main>"
 
 
+def test_current_search_unit_contract_preserves_user_and_assistant_turns(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-chatgpt-search-unit-key="fallback-turn-0:1:user"
+                 data-chatgpt-search-message-ids="u-current">
+              <div data-chatgpt-selection-message-id="u-current">
+                Reply with exactly CURRENT_TOKEN and nothing else.
+              </div>
+            </div>
+            <div data-chatgpt-search-unit-key="fallback-turn-0:2:assistant"
+                 data-chatgpt-search-message-ids="a-current a-current">
+              <div data-chatgpt-selection-message-id="a-current">
+                <div data-markdown-text-style="assistant-message">
+                  <p>CURRENT_TOKEN</p>
+                </div>
+              </div>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Reply with exactly CURRENT_TOKEN and nothing else."),
+        ("assistant", "CURRENT_TOKEN"),
+    ]
+    assert [message["id"] for message in snapshot["messages"]] == ["u-current", "a-current"]
+
+
 def test_wrapper_insertion_and_removal_preserve_semantic_transcript(browser_page) -> None:
     flat = _snapshot(
         browser_page,

@@ -41,7 +41,7 @@ from .browser_script_loader import load_browser_script
 from .chatgpt_dom import (
     CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
     FILE_INPUT_SELECTORS,
-    MESSAGE_ROLE_SELECTOR,
+    USER_MESSAGE_SELECTOR,
 )
 from .send_outcome import SendOutcomeUnknownError
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
@@ -1004,17 +1004,21 @@ class PlaywrightDriver(BrowserDriverBase):
         composer = await self._composer(page)
         composer_text = await self._composer_text(composer) if composer is not None else ""
 
-        users = page.locator(f'{MESSAGE_ROLE_SELECTOR}[data-message-author-role="user"]')
+        users = page.locator(USER_MESSAGE_SELECTOR)
         last_user_id = ""
         last_user_text = ""
         try:
             count = await users.count()
             if count:
                 last_user = users.nth(count - 1)
+                search_message_ids = (
+                    await last_user.get_attribute("data-chatgpt-search-message-ids") or ""
+                ).split()
                 last_user_id = (
                     await last_user.get_attribute("data-message-id")
                     or await last_user.get_attribute("data-message-uuid")
-                    or ""
+                    or await last_user.get_attribute("data-chatgpt-selection-message-id")
+                    or (search_message_ids[-1] if search_message_ids else "")
                 )
                 last_user_text = str(
                     await last_user.evaluate(load_browser_script("last_user_text.js")) or ""

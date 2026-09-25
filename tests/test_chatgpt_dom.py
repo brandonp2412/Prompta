@@ -24,7 +24,11 @@ def test_selector_contract_keeps_hidden_file_input_and_stop_state_signals() -> N
 
 
 def test_selector_contract_separates_semantic_turns_from_legacy_fallbacks() -> None:
-    assert SEMANTIC_TURN_SELECTORS == ('[data-testid^="conversation-turn-"]',)
+    assert SEMANTIC_TURN_SELECTORS == (
+        '[data-testid^="conversation-turn-"]',
+        '[data-chatgpt-search-unit-key$=":user"]',
+        '[data-chatgpt-search-unit-key$=":assistant"]',
+    )
     assert LEGACY_TURN_SELECTORS == (".agent-turn", "article")
     assert TURN_SELECTORS == SEMANTIC_TURN_SELECTORS + LEGACY_TURN_SELECTORS
     assert "[data-message-id]" not in TURN_SELECTORS

@@ -2,19 +2,42 @@
   const assistantSelector=__ASSISTANT_SELECTOR__;
   const semanticTurnSelector=__SEMANTIC_TURN_SELECTOR__;
   const legacyTurnSelector=__LEGACY_TURN_SELECTOR__;
-  const messageRole=node=>String(node?.getAttribute?.('data-message-author-role')||'');
+  const semanticSearchRole=node=>{
+    const key=String(
+      node?.getAttribute?.('data-chatgpt-search-unit-key')
+      ||node?.getAttribute?.('data-content-search-unit-key')
+      ||''
+    );
+    return key.match(/:(user|assistant)$/)?.[1]||'';
+  };
+  const messageRole=node=>String(
+    node?.getAttribute?.('data-message-author-role')
+    ||semanticSearchRole(node)
+    ||''
+  );
+  const searchMessageIds=node=>String(
+    node?.getAttribute?.('data-chatgpt-search-message-ids')||''
+  ).split(/\s+/).filter(Boolean);
   const messageId=node=>String(
     node?.getAttribute?.('data-message-id')
     ||node?.getAttribute?.('data-message-uuid')
+    ||node?.getAttribute?.('data-chatgpt-selection-message-id')
+    ||searchMessageIds(node).at(-1)
     ||''
   );
-  const authorNodes=role=>[...document.querySelectorAll(messageRoleSelector)]
+  const messageNodes=()=>[...new Set([
+    ...document.querySelectorAll(messageRoleSelector),
+    ...document.querySelectorAll(semanticTurnSelector)
+  ])].filter(node=>messageRole(node));
+  const authorNodes=role=>messageNodes()
     .filter(node=>!role||messageRole(node)===role);
   const authorNode=(root,role='')=>{
     if(!root)return null;
     if(messageRole(root)&&(!role||messageRole(root)===role))return root;
-    return [...root.querySelectorAll(messageRoleSelector)]
-      .find(node=>!role||messageRole(node)===role)||null;
+    return [...new Set([
+      ...root.querySelectorAll(messageRoleSelector),
+      ...root.querySelectorAll(semanticTurnSelector)
+    ])].find(node=>messageRole(node)&&(!role||messageRole(node)===role))||null;
   };
   const semanticTurnRoot=node=>node?.closest?.(semanticTurnSelector)||null;
   const structuralTurnRoot=node=>{
