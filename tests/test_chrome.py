@@ -104,6 +104,41 @@ async def test_composer_prefers_main_textbox_over_sidebar_and_dialog(live_driver
 
 
 @pytest.mark.asyncio
+async def test_type_message_survives_chatgpt_prosemirror_hydration(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <textarea aria-label="Ask ChatGPT"></textarea>
+        </main>
+        <script>
+          setTimeout(() => {
+            const textarea = document.querySelector("textarea");
+            const editor = document.createElement("div");
+            editor.contentEditable = "true";
+            editor.setAttribute("role", "textbox");
+            editor.setAttribute("aria-label", "Ask ChatGPT");
+            editor.setAttribute("data-composer-markdown", "");
+            editor.textContent = "stale failed automation draft";
+            editor.style.width = "0";
+            editor.style.height = "100px";
+            editor.style.overflow = "hidden";
+            textarea.replaceWith(editor);
+          }, 150);
+        </script>
+        """
+    )
+
+    await driver.type_message("a scheduled automation prompt that survives hydration")
+
+    editor = page.locator('[data-composer-markdown][contenteditable="true"]')
+    assert await editor.is_visible() is False
+    assert (await editor.inner_text()).strip() == (
+        "a scheduled automation prompt that survives hydration"
+    )
+
+
+@pytest.mark.asyncio
 async def test_type_message_waits_for_chatgpt_composer_state_to_settle(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

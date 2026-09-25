@@ -346,6 +346,22 @@ class PlaywrightDriver(BrowserDriverBase):
                 scope.get_by_placeholder(_COMPOSER_NAME_RE),
             ]
 
+        # ChatGPT hydrates its initial textarea into a ProseMirror editor. The
+        # empty ProseMirror node can have no rendered box even though it is the
+        # real focusable composer, so Playwright reports it as not visible.
+        hydrated = main.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]')
+        try:
+            hydrated_count = min(await hydrated.count(), 12)
+        except PlaywrightError:
+            hydrated_count = 0
+        for index in range(hydrated_count):
+            candidate = hydrated.nth(index)
+            try:
+                if await candidate.is_enabled():
+                    return candidate
+            except PlaywrightError:
+                continue
+
         for candidates in (named(main), [main.get_by_role("textbox")], named(page)):
             found = await self._first_usable(candidates)
             if found is not None:
@@ -744,39 +760,67 @@ class PlaywrightDriver(BrowserDriverBase):
         await composer.focus()
         return composer
 
+    async def _replace_composer_text(self, composer: Locator, text: str) -> None:
+        try:
+            if await composer.is_visible():
+                await composer.fill(text)
+                return
+        except PlaywrightError:
+            pass
+
+        try:
+            keyboard = self._page().keyboard
+            await composer.focus()
+            await keyboard.press("Control+A")
+            await keyboard.press("Backspace")
+            if text:
+                await keyboard.insert_text(text)
+        except PlaywrightError as exc:
+            raise RuntimeError("ChatGPT composer could not accept text") from exc
+
     async def type_message(self, text: str) -> None:
         composer = await self._focus_composer()
-        try:
-            await composer.fill(text)
-        except PlaywrightError:
-            await composer.click()
-            await self._page().keyboard.insert_text(text)
+        await self._replace_composer_text(composer, text)
 
         expected = " ".join(text.split()).strip()
         deadline = asyncio.get_running_loop().time() + 3.0
+        matched_since: float | None = None
+        rewritten_after_hydration = False
         while asyncio.get_running_loop().time() < deadline:
             current = await self._composer(self._page())
             if current is not None:
-                actual = await self._composer_text(current)
-                if " ".join(actual.split()).strip() == expected:
-                    return
+                actual = " ".join((await self._composer_text(current)).split()).strip()
+                now = asyncio.get_running_loop().time()
+                if actual == expected:
+                    if matched_since is None:
+                        matched_since = now
+                    if now - matched_since >= 0.75:
+                        return
+                else:
+                    matched_since = None
+                    if not rewritten_after_hydration:
+                        await self._replace_composer_text(current, text)
+                        rewritten_after_hydration = True
             await asyncio.sleep(0.05)
 
         raise RuntimeError("ChatGPT composer did not contain the requested prompt")
 
     async def clear_composer(self, timeout: float = 3.0) -> None:
         composer = await self._focus_composer()
-        try:
-            await composer.fill("")
-        except PlaywrightError:
-            await composer.click()
-            await self._page().keyboard.press("Control+A")
-            await self._page().keyboard.press("Backspace")
+        await self._replace_composer_text(composer, "")
         deadline = asyncio.get_running_loop().time() + timeout
+        empty_since: float | None = None
         while asyncio.get_running_loop().time() < deadline:
-            if not (await self._composer_text(composer)).strip():
-                return
-            await asyncio.sleep(0.1)
+            current = await self._composer(self._page())
+            if current is not None and not (await self._composer_text(current)).strip():
+                now = asyncio.get_running_loop().time()
+                if empty_since is None:
+                    empty_since = now
+                if now - empty_since >= 0.75:
+                    return
+            else:
+                empty_since = None
+            await asyncio.sleep(0.05)
         raise RuntimeError("ChatGPT stale composer could not be cleared")
 
     async def _composer_text(self, composer: Locator) -> str:
