@@ -8,6 +8,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 from prompta.chatgpt_dom import (
+    MESSAGE_DISCOVERY_SCRIPT,
     MESSAGE_ROLE_SELECTOR,
     STREAMING_SELECTORS,
     TURN_SELECTORS,
@@ -44,15 +45,19 @@ def test_primary_contract_prefers_role_and_stable_data_attributes() -> None:
         '[data-is-streaming="true"]',
     )
 
-    role_discovery = CONVERSATION_SNAPSHOT_SCRIPT.index(
-        "const roleNodes=[...document.querySelectorAll(messageRoleSelector)]"
+    assert "const messageRoleSelector=" in MESSAGE_DISCOVERY_SCRIPT
+    assert "const semanticTurnSelector=" in MESSAGE_DISCOVERY_SCRIPT
+    assert "const legacyTurnSelector=" in MESSAGE_DISCOVERY_SCRIPT
+    assert MESSAGE_DISCOVERY_SCRIPT.index("semanticTurnSelector") < MESSAGE_DISCOVERY_SCRIPT.index(
+        "legacyTurnSelector"
     )
-    react_page_fallback = CONVERSATION_SNAPSHOT_SCRIPT.index(
+    assert (
         "const pageReactRoot=document.querySelector('main')||document.body;"
+        in CONVERSATION_SNAPSHOT_SCRIPT
     )
-    assert role_discovery < react_page_fallback
-    assert "const toolSelector='[data-tool-call-id],[data-tool-name]';" in (
-        CONVERSATION_SNAPSHOT_SCRIPT
+    assert (
+        "const toolDataSelector='[data-tool-call-id],[data-tool-name]';"
+        in CONVERSATION_SNAPSHOT_SCRIPT
     )
     assert "reactOrdered&&reactHasVisibleText&&reactKeepsVisibleText" in (
         CONVERSATION_SNAPSHOT_SCRIPT

@@ -4,10 +4,10 @@ This document is the target contract for Prompta's ChatGPT transcript extraction
 
 ## Current extraction inventory
 
-- `conversation_snapshot.py` owns the primary in-page snapshot script. It discovers visible user/assistant messages, reconstructs assistant prose and tool blocks, collects sanitized React-backed source events for the latest turn, derives stable/synthetic IDs, and reports streaming state. `parse_conversation_snapshot` is intentionally only a JSON boundary.
+- `conversation_snapshot.py` assembles the primary snapshot from `browser_scripts/conversation_snapshot.js` plus the shared transcript browser engine. The browser script discovers visible user/assistant messages, reconstructs assistant prose and tool blocks, collects sanitized React-backed source events for the latest turn, derives stable/synthetic IDs, and reports streaming state. `parse_conversation_snapshot` remains only a JSON boundary.
 - `webdriver.py` is the browser-independent caller. `conversation_snapshot()` executes the snapshot script. `conversation_activity()` separately derives completion/streaming/failure state, and `conversation_final_event()` can read the authenticated conversation API to recover a completed final assistant event.
 - `chromium.py` is read-only Chromium/CDP enrichment. Its React probe recovers structured tool-call metadata for the latest assistant turn, then `tool_blocks_from_messages()` / `ordered_assistant_content_from_messages()` / `merge_tool_blocks()` enrich assistant content without discarding non-tool text.
-- `chatgpt_dom.py` centralizes ChatGPT DOM selectors. Stable role/data/test attributes are listed before structural or class-based compatibility fallbacks.
+- `chatgpt_dom.py` centralizes ChatGPT DOM selectors and renders `message_discovery.js`. Stable role/data/test attributes are kept separate from structural/class compatibility fallbacks so the semantic path remains explicitly first.
 
 These paths overlap today. The redesign should converge them on the contract below rather than adding another independent extractor.
 
