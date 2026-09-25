@@ -1334,6 +1334,7 @@ function clearConversation() {
 function renderNewChat() {
   cancelChatSwitch();
   const enteringNewChat = !state.composingNew;
+  if (enteringNewChat) appViewState.conversationPinnedToBottom = true;
   state.composingNew = true;
   state.selectedId = null;
   state.selectedUpdatedAt = null;
