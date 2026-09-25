@@ -21,10 +21,26 @@ test("coalesces unchanged recent chat summary cache writes", () => {
   expect(cache.rememberSummaries(changed.map((chat) => ({ ...chat })))).toBe(false);
 });
 
-test("keeps IndexedDB cache reads scoped instead of scanning whole stores", async () => {
+test("keeps recent chat state in memory without browser persistence", async () => {
+  const cache = new RecentChatCache("/test", 2);
   const source = await Bun.file(import.meta.dir + "/recentChatCache.ts").text();
 
-  expect(source).not.toContain(".getAll()");
-  expect(source).toContain("openCursor(this.scopeKeyRange())");
-  expect(source).toContain('openCursor(range, "prev")');
+  expect(source).not.toContain("indexedDB");
+  expect(source).not.toContain("IDBDatabase");
+
+  cache.remember({ id: "first", title: "First" });
+  cache.remember({ id: "second", title: "Second" });
+  cache.remember({ id: "third", title: "Third" });
+
+  expect(await cache.get("first")).toBeNull();
+  expect(await cache.get("third")).toEqual({ id: "third", title: "Third" });
+
+  cache.rememberSummaries([
+    { id: "third", title: "Third" },
+    { id: "second", title: "Second" },
+  ]);
+  expect(await cache.warmSummaries()).toEqual([
+    { id: "third", title: "Third" },
+    { id: "second", title: "Second" },
+  ]);
 });

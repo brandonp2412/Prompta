@@ -7310,9 +7310,6 @@ function formatScheduleInterval(minutes) {
 	}
 	return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
-function isPostJsonTransportError(error) {
-	return error instanceof PostJsonTransportError;
-}
 async function postJsonRequest(url, payload, attempts = 1, timeoutMs = 45e3, fetchImpl = fetch) {
 	let lastError = /* @__PURE__ */ new Error("Request failed");
 	for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
@@ -7473,6 +7470,12 @@ function Composer($$anchor, $$props) {
 			name: "/add",
 			description: "Add a repeating scheduled job",
 			id: "slashCommandAdd"
+		},
+		{
+			command: "/every ",
+			name: "/every",
+			description: "Add a repeating scheduled job",
+			id: "slashCommandEvery"
 		},
 		{
 			command: "/list",
@@ -18595,25 +18598,15 @@ delegate([
 ]);
 //#endregion
 //#region src/ui/recentChatCache.ts
-var DATABASE_NAME$1, DATABASE_VERSION$1, STORE_NAME$1, ACCESSED_AT_INDEX_NAME, SUMMARY_STORE_NAME, SUMMARY_LIMIT, RecentChatCache;
+var SUMMARY_LIMIT, RecentChatCache;
 var init_recentChatCache = __esmMin((() => {
-	DATABASE_NAME$1 = "prompta-recent-chats";
-	DATABASE_VERSION$1 = 3;
-	STORE_NAME$1 = "chats";
-	ACCESSED_AT_INDEX_NAME = "scope-accessed-at";
-	SUMMARY_STORE_NAME = "summaries";
 	SUMMARY_LIMIT = 200;
 	RecentChatCache = class {
-		scope;
 		limit;
 		memory = /* @__PURE__ */ new Map();
-		databasePromise = null;
-		persistedSummaryFingerprint = "";
-		activeSummaryFingerprint = "";
-		pendingSummaryWrite = null;
-		summaryWriteRunning = false;
-		constructor(scope, limit = 20) {
-			this.scope = scope;
+		summaries = [];
+		summaryFingerprint = "";
+		constructor(_scope, limit = 20) {
 			this.limit = limit;
 		}
 		getMemory(conversationId) {
@@ -18624,100 +18617,33 @@ var init_recentChatCache = __esmMin((() => {
 			return chat;
 		}
 		async get(conversationId) {
-			const memoryChat = this.getMemory(conversationId);
-			if (memoryChat) return memoryChat;
-			const database = await this.database();
-			if (!database) return null;
-			const record = await new Promise((resolve) => {
-				const request = database.transaction(STORE_NAME$1, "readonly").objectStore(STORE_NAME$1).get(this.key(conversationId));
-				request.onsuccess = () => resolve(request.result || null);
-				request.onerror = () => resolve(null);
-			});
-			if (!record?.chat || record.scope !== this.scope) return null;
-			this.rememberMemory(conversationId, record.chat);
-			this.persist(record.chat);
-			return record.chat;
+			return this.getMemory(conversationId);
 		}
 		remember(chat) {
 			const conversationId = String(chat?.id || "");
 			if (!conversationId) return;
 			this.rememberMemory(conversationId, chat);
-			this.persist(chat);
 		}
 		rememberSummaries(chats) {
 			const summaries = chats.filter((chat) => String(chat?.id || "")).slice(0, SUMMARY_LIMIT);
 			const fingerprint = JSON.stringify(summaries);
-			if (fingerprint === this.persistedSummaryFingerprint || fingerprint === this.activeSummaryFingerprint || fingerprint === this.pendingSummaryWrite?.fingerprint) return false;
-			this.pendingSummaryWrite = {
-				fingerprint,
-				summaries
-			};
-			this.drainSummaryWrites();
+			if (fingerprint === this.summaryFingerprint) return false;
+			this.summaries = summaries;
+			this.summaryFingerprint = fingerprint;
 			return true;
 		}
 		async warmSummaries() {
-			const database = await this.database();
-			if (!database) return [];
-			const chats = (await new Promise((resolve) => {
-				const request = database.transaction(SUMMARY_STORE_NAME, "readonly").objectStore(SUMMARY_STORE_NAME).openCursor(this.scopeKeyRange());
-				const scopedRecords = [];
-				request.onsuccess = () => {
-					const cursor = request.result;
-					if (!cursor) {
-						resolve(scopedRecords);
-						return;
-					}
-					const record = cursor.value;
-					if (record.chat) scopedRecords.push(record);
-					cursor.continue();
-				};
-				request.onerror = () => resolve(scopedRecords);
-			})).sort((left, right) => left.position - right.position).slice(0, SUMMARY_LIMIT).map((record) => record.chat);
-			this.persistedSummaryFingerprint = JSON.stringify(chats);
-			return chats;
+			return [...this.summaries];
 		}
 		async warm() {
-			const database = await this.database();
-			if (!database) return [];
-			const chats = await new Promise((resolve) => {
-				const store = database.transaction(STORE_NAME$1, "readonly").objectStore(STORE_NAME$1);
-				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
-				const request = store.index(ACCESSED_AT_INDEX_NAME).openCursor(range, "prev");
-				const scopedChats = [];
-				request.onsuccess = () => {
-					const cursor = request.result;
-					if (!cursor || scopedChats.length >= this.limit) {
-						resolve(scopedChats);
-						return;
-					}
-					const record = cursor.value;
-					if (record.chat) scopedChats.push(record.chat);
-					if (scopedChats.length >= this.limit) {
-						resolve(scopedChats);
-						return;
-					}
-					cursor.continue();
-				};
-				request.onerror = () => resolve(scopedChats);
-			});
-			for (const chat of chats) {
-				const conversationId = String(chat?.id || "");
-				if (conversationId) this.rememberMemory(conversationId, chat);
-			}
-			return chats;
+			return [...this.memory.values()].reverse().slice(0, this.limit);
 		}
 		async remove(conversationId) {
 			this.memory.delete(conversationId);
-			const database = await this.database();
-			if (!database) return;
-			await new Promise((resolve) => {
-				const transaction = database.transaction([STORE_NAME$1, SUMMARY_STORE_NAME], "readwrite");
-				transaction.objectStore(STORE_NAME$1).delete(this.key(conversationId));
-				transaction.objectStore(SUMMARY_STORE_NAME).delete(this.key(conversationId));
-				transaction.oncomplete = () => resolve();
-				transaction.onerror = () => resolve();
-				transaction.onabort = () => resolve();
-			});
+			const nextSummaries = this.summaries.filter((chat) => String(chat?.id || "") !== conversationId);
+			if (nextSummaries.length === this.summaries.length) return;
+			this.summaries = nextSummaries;
+			this.summaryFingerprint = JSON.stringify(nextSummaries);
 		}
 		rememberMemory(conversationId, chat) {
 			this.memory.delete(conversationId);
@@ -18727,207 +18653,6 @@ var init_recentChatCache = __esmMin((() => {
 				if (!oldest) break;
 				this.memory.delete(oldest);
 			}
-		}
-		key(conversationId) {
-			return this.scope + ":" + conversationId;
-		}
-		scopeKeyRange() {
-			const prefix = this.scope + ":";
-			return IDBKeyRange.bound(prefix, prefix + "￿");
-		}
-		async persist(chat) {
-			const conversationId = String(chat?.id || "");
-			if (!conversationId) return;
-			const database = await this.database();
-			if (!database) return;
-			await new Promise((resolve) => {
-				const transaction = database.transaction(STORE_NAME$1, "readwrite");
-				const store = transaction.objectStore(STORE_NAME$1);
-				store.put({
-					key: this.key(conversationId),
-					scope: this.scope,
-					conversationId,
-					chat,
-					accessedAt: Date.now()
-				});
-				const range = IDBKeyRange.bound([this.scope, 0], [this.scope, Number.MAX_SAFE_INTEGER]);
-				const cursorRequest = store.index(ACCESSED_AT_INDEX_NAME).openKeyCursor(range, "prev");
-				let retained = 0;
-				cursorRequest.onsuccess = () => {
-					const cursor = cursorRequest.result;
-					if (!cursor) return;
-					retained += 1;
-					if (retained > this.limit) store.delete(cursor.primaryKey);
-					cursor.continue();
-				};
-				transaction.oncomplete = () => resolve();
-				transaction.onerror = () => resolve();
-				transaction.onabort = () => resolve();
-			});
-		}
-		async drainSummaryWrites() {
-			if (this.summaryWriteRunning) return;
-			this.summaryWriteRunning = true;
-			try {
-				while (this.pendingSummaryWrite) {
-					const pending = this.pendingSummaryWrite;
-					this.pendingSummaryWrite = null;
-					if (pending.fingerprint === this.persistedSummaryFingerprint) continue;
-					this.activeSummaryFingerprint = pending.fingerprint;
-					await this.persistSummaries(pending.summaries);
-					this.persistedSummaryFingerprint = pending.fingerprint;
-					this.activeSummaryFingerprint = "";
-				}
-			} finally {
-				this.activeSummaryFingerprint = "";
-				this.summaryWriteRunning = false;
-				if (this.pendingSummaryWrite) this.drainSummaryWrites();
-			}
-		}
-		async persistSummaries(chats) {
-			const database = await this.database();
-			if (!database) return;
-			const retainedIds = new Set(chats.map((chat) => String(chat.id)));
-			await new Promise((resolve) => {
-				const transaction = database.transaction(SUMMARY_STORE_NAME, "readwrite");
-				const store = transaction.objectStore(SUMMARY_STORE_NAME);
-				const cursorRequest = store.openCursor(this.scopeKeyRange());
-				cursorRequest.onsuccess = () => {
-					const cursor = cursorRequest.result;
-					if (cursor) {
-						const record = cursor.value;
-						if (!retainedIds.has(String(record.conversationId || ""))) cursor.delete();
-						cursor.continue();
-						return;
-					}
-					chats.forEach((chat, position) => {
-						const conversationId = String(chat.id);
-						store.put({
-							key: this.key(conversationId),
-							scope: this.scope,
-							conversationId,
-							chat,
-							position
-						});
-					});
-				};
-				transaction.oncomplete = () => resolve();
-				transaction.onerror = () => resolve();
-				transaction.onabort = () => resolve();
-			});
-		}
-		database() {
-			if (this.databasePromise) return this.databasePromise;
-			this.databasePromise = new Promise((resolve) => {
-				if (!("indexedDB" in globalThis)) {
-					resolve(null);
-					return;
-				}
-				let request;
-				try {
-					request = indexedDB.open(DATABASE_NAME$1, DATABASE_VERSION$1);
-				} catch {
-					resolve(null);
-					return;
-				}
-				request.onupgradeneeded = (event) => {
-					const database = request.result;
-					const transaction = request.transaction;
-					const chatStore = database.objectStoreNames.contains(STORE_NAME$1) ? transaction?.objectStore(STORE_NAME$1) : database.createObjectStore(STORE_NAME$1, { keyPath: "key" });
-					if (chatStore && !chatStore.indexNames.contains(ACCESSED_AT_INDEX_NAME)) chatStore.createIndex(ACCESSED_AT_INDEX_NAME, ["scope", "accessedAt"]);
-					if (chatStore && event.oldVersion > 0 && event.oldVersion < DATABASE_VERSION$1) chatStore.clear();
-					if (!database.objectStoreNames.contains(SUMMARY_STORE_NAME)) database.createObjectStore(SUMMARY_STORE_NAME, { keyPath: "key" });
-				};
-				request.onsuccess = () => {
-					const database = request.result;
-					database.onversionchange = () => database.close();
-					resolve(database);
-				};
-				request.onerror = () => resolve(null);
-			});
-			return this.databasePromise;
-		}
-	};
-}));
-//#endregion
-//#region src/ui/offlineOutbox.ts
-function createOfflinePostRecord(scope, input, createdAt = Date.now()) {
-	const clientId = input.clientId.trim();
-	if (!clientId) throw new Error("Offline outbox requires a client id");
-	return {
-		id: `${scope}:${clientId}`,
-		scope,
-		operation: input.operation,
-		targetChatId: input.targetChatId?.trim() || null,
-		message: input.message,
-		attachments: (input.attachments || []).map((attachment) => ({ ...attachment })),
-		clientId,
-		createdAt: input.createdAt ?? createdAt,
-		retryState: "pending",
-		retryCount: 0,
-		lastAttemptAt: null,
-		lastError: input.lastError || ""
-	};
-}
-var DATABASE_NAME, DATABASE_VERSION, STORE_NAME, CREATED_AT_INDEX_NAME, IndexedDbOfflineOutboxWriter, OfflineOutbox;
-var init_offlineOutbox = __esmMin((() => {
-	DATABASE_NAME = "prompta-offline-outbox";
-	DATABASE_VERSION = 1;
-	STORE_NAME = "posts";
-	CREATED_AT_INDEX_NAME = "scope-created-at";
-	IndexedDbOfflineOutboxWriter = class {
-		databasePromise = null;
-		async put(record) {
-			const database = await this.database();
-			if (!database) throw new Error("IndexedDB is unavailable");
-			await new Promise((resolve, reject) => {
-				const transaction = database.transaction(STORE_NAME, "readwrite");
-				transaction.objectStore(STORE_NAME).put(record);
-				transaction.oncomplete = () => resolve();
-				transaction.onerror = () => reject(transaction.error || /* @__PURE__ */ new Error("Offline outbox write failed"));
-				transaction.onabort = () => reject(transaction.error || /* @__PURE__ */ new Error("Offline outbox write aborted"));
-			});
-		}
-		database() {
-			if (this.databasePromise) return this.databasePromise;
-			this.databasePromise = new Promise((resolve) => {
-				if (!("indexedDB" in globalThis)) {
-					resolve(null);
-					return;
-				}
-				let request;
-				try {
-					request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-				} catch {
-					resolve(null);
-					return;
-				}
-				request.onupgradeneeded = () => {
-					const database = request.result;
-					const store = database.objectStoreNames.contains(STORE_NAME) ? request.transaction?.objectStore(STORE_NAME) : database.createObjectStore(STORE_NAME, { keyPath: "id" });
-					if (store && !store.indexNames.contains(CREATED_AT_INDEX_NAME)) store.createIndex(CREATED_AT_INDEX_NAME, ["scope", "createdAt"]);
-				};
-				request.onsuccess = () => {
-					const database = request.result;
-					database.onversionchange = () => database.close();
-					resolve(database);
-				};
-				request.onerror = () => resolve(null);
-			});
-			return this.databasePromise;
-		}
-	};
-	OfflineOutbox = class {
-		scope;
-		writer;
-		constructor(scope, writer = new IndexedDbOfflineOutboxWriter()) {
-			this.scope = scope;
-			this.writer = writer;
-		}
-		async enqueue(input) {
-			const record = createOfflinePostRecord(this.scope, input);
-			await this.writer.put(record);
-			return record;
 		}
 	};
 }));
@@ -20943,24 +20668,8 @@ async function sendSelectedMessage() {
 		watchSend(result.send_id, creatingNew, conversationId);
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
-		let savedOffline = false;
-		if (isPostJsonTransportError(error)) try {
-			await offlineOutbox.enqueue({
-				operation: creatingNew ? "new_chat" : "reply",
-				targetChatId: creatingNew ? null : conversationId || null,
-				message,
-				attachments: serializedAttachments,
-				clientId: String(pending.clientId || ""),
-				createdAt: now * 1e3,
-				lastError: errorMessage
-			});
-			savedOffline = true;
-			if (attachments.length) attachmentPicker.clear();
-		} catch (outboxError) {
-			console.error("Could not persist failed post to the offline outbox", outboxError);
-		}
 		pending.status = "failed";
-		pending.error = savedOffline ? "Saved offline for retry." : errorMessage;
+		pending.error = errorMessage;
 		pending.updatedAt = Date.now() / 1e3;
 		if (creatingNew) {
 			state.newChatFingerprint = "";
@@ -21023,12 +20732,11 @@ async function startApp() {
 	await loadChats(true);
 	liveUpdates.start();
 }
-var clientScope, recentChatCache, offlineOutbox, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetches, queuedPrefetchSet, prefetchedChatRevisions, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
+var clientScope, recentChatCache, INITIAL_CHAT_LIST_LIMIT, CHAT_LIST_PAGE_SIZE, clientSessionId, actionToastTimer, chatDetailRequests, queuedPrefetches, queuedPrefetchSet, prefetchedChatRevisions, chatPrefetchRunning, state, sidebarRenderDeferred, sidebar, conversationRenderer, attachmentPicker, logsPanel, deploymentMonitor, completionNotifications, liveUpdates, iconStatusClasses, chatsRequestController, HISTORICAL_ACTIVITY_PROBE_TTL_MS, searchTimer;
 var init_app = __esmMin((() => {
 	init_conversationState_svelte();
 	init_clientLogic();
 	init_recentChatCache();
-	init_offlineOutbox();
 	init_appViewState_svelte();
 	init_clipboard();
 	init_browserState_svelte();
@@ -21043,7 +20751,6 @@ var init_app = __esmMin((() => {
 	init_clientStorage();
 	clientScope = location.pathname.replace(/\/$/, "") || "/";
 	recentChatCache = new RecentChatCache(clientScope, 20);
-	offlineOutbox = new OfflineOutbox(clientScope);
 	INITIAL_CHAT_LIST_LIMIT = 50;
 	CHAT_LIST_PAGE_SIZE = 50;
 	clientSessionId = loadClientSessionId();

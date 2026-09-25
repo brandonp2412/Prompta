@@ -7,6 +7,7 @@
 
   const commands = [
     { command: "/add ", name: "/add", description: "Add a repeating scheduled job", id: "slashCommandAdd" },
+    { command: "/every ", name: "/every", description: "Add a repeating scheduled job", id: "slashCommandEvery" },
     { command: "/list", name: "/list", description: "List and manage scheduled jobs", id: "slashCommandList" },
     { command: "/logs", name: "/logs", description: "View Prompta service logs", id: "slashCommandLogs" },
     { command: "/at ", name: "/at", description: "Run a prompt at a date and time", id: "slashCommandAt" },

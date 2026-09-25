@@ -21,3 +21,9 @@ test("slash autocomplete keeps native textarea semantics", () => {
     "aria-activedescendant={slashOpen && activeCommand ? activeCommand.id : undefined}",
   );
 });
+
+test("slash autocomplete includes the /every compatibility alias", () => {
+  expect(composerSource).toContain('command: "/every "');
+  expect(composerSource).toContain('name: "/every"');
+  expect(composerSource).toContain('id: "slashCommandEvery"');
+});
