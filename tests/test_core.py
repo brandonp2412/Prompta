@@ -13,7 +13,7 @@ import pytest
 from prompta.cache import ActiveConversation, ChatCache
 from prompta.chrome import ChromeDebuggerUnavailableError
 from prompta.control_server import ControlDeferredError
-from prompta.conversation_actions import SendNotAcceptedError
+from prompta.conversation_actions import ConversationActions, SendNotAcceptedError
 from prompta.conversation_tracker import (
     DEPLOYED_E2E_STALE_ACTIVE_SECONDS,
     RESTART_RECOVERY_RETRY_SECONDS,
@@ -898,6 +898,13 @@ async def test_effort_preference_failure_propagates_poisoned_browser(tmp_path: P
 
     with pytest.raises(RuntimeError, match="poisoned"):
         await prompta._ensure_high_effort(driver)
+
+
+def test_conversation_text_normalisation_accepts_prosemirror_autolink_spacing() -> None:
+    configured = "PROMPTA_E2E_BASE_URL=https://prompta.example/c/ uv run pytest"
+    editor_text = "PROMPTA_E2E_BASE_URL= https://prompta.example/c/ uv run pytest"
+
+    assert ConversationActions.normalise(configured) == ConversationActions.normalise(editor_text)
 
 
 def test_daemon_check_does_not_create_lock_file(tmp_path: Path) -> None:

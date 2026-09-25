@@ -861,7 +861,13 @@ class PlaywrightDriver(BrowserDriverBase):
             return ""
 
     async def click_send(self) -> None:
-        await self.click_send_button(timeout=10.0)
+        await self._focus_composer()
+        try:
+            await self._page().keyboard.press("Enter")
+        except Exception as exc:
+            raise SendOutcomeUnknownError(
+                "ChatGPT send mutation failed while pressing Enter; the prompt may have been submitted"
+            ) from exc
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
         page = self._page()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -54,7 +55,12 @@ class ConversationActions:
 
     @staticmethod
     def normalise(text: str) -> str:
-        return " ".join(text.split()).strip()
+        normalized = " ".join(text.split()).strip()
+        # ChatGPT's ProseMirror auto-links a URL immediately following "=" and
+        # exposes one synthetic separating space in editor/transcript text.
+        # Treat that browser-only presentation difference as equivalent while
+        # keeping the configured prompt unchanged.
+        return re.sub(r"(?<==)\s+(?=https?://)", "", normalized)
 
     @staticmethod
     async def _raise_if_history_rate_limited(driver: Any) -> None:

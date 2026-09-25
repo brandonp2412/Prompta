@@ -191,21 +191,20 @@ async def test_type_message_waits_for_chatgpt_composer_state_to_settle(live_driv
 
 
 @pytest.mark.asyncio
-async def test_click_send_waits_for_send_button_instead_of_pressing_enter(live_driver) -> None:
+async def test_click_send_uses_enter_on_hydrated_composer(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
         """
         <main>
-          <textarea aria-label="Message ChatGPT">scheduled automation prompt</textarea>
-          <button aria-label="Send prompt" disabled onclick="window.sent=true"></button>
+          <div
+            contenteditable="true"
+            role="textbox"
+            aria-label="Ask ChatGPT"
+            data-composer-markdown=""
+            onkeydown="if(event.key==='Enter'){event.preventDefault();window.sent=true}"
+          >scheduled automation prompt</div>
+          <button aria-label="Send prompt" disabled></button>
         </main>
-        <script>
-          const composer = document.querySelector("textarea");
-          composer.addEventListener("keydown", event => event.preventDefault());
-          setTimeout(() => {
-            document.querySelector("button").disabled = false;
-          }, 150);
-        </script>
         """
     )
 
