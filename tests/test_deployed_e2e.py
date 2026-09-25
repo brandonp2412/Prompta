@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import os
 import shutil
 import time
@@ -13,6 +14,23 @@ pytestmark = pytest.mark.skipif(
     reason="Set PROMPTA_E2E_BASE_URL to run the destructive deployed Prompta E2E test",
 )
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _serialize_deployed_e2e():
+    if not os.environ.get("PROMPTA_E2E_BASE_URL"):
+        yield
+        return
+
+    lock_path = Path(os.environ.get("PROMPTA_E2E_LOCK", "/tmp/prompta-deployed-e2e.lock"))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
 TOOL_PREVIEW_REGRESSION_CHAT = "6ab5951b-a778-83ec-8e70-a77c62cde6d7"
 CANONICAL_ORDER_REGRESSION_CHAT = "6ab58fa4-714c-83ec-ac6b-3365d325a355"
 
@@ -25,6 +43,17 @@ def _base_url() -> str:
 def _artifact_dir() -> Path:
     path = Path(os.environ.get("PROMPTA_E2E_ARTIFACTS", "/tmp/prompta-deployed-e2e"))
     path.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "desktop-home.png",
+        "historical-tool-preview.png",
+        "historical-canonical-order.png",
+        "new-chat-pending.png",
+        "new-chat-complete.png",
+        "reply-complete.png",
+        "mobile-complete.png",
+        "trace.zip",
+    ):
+        (path / name).unlink(missing_ok=True)
     return path
 
 
