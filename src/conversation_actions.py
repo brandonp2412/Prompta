@@ -203,7 +203,10 @@ class ConversationActions:
                     (
                         candidate
                         for candidate in (probe_conversation_id, route_conversation_id)
-                        if candidate and not candidate.startswith("WEB:")
+                        if candidate
+                        and not candidate.startswith("WEB:")
+                        and not candidate.casefold().startswith("local-chatgpt%3a")
+                        and not candidate.casefold().startswith("local-chatgpt:")
                     ),
                     "",
                 )
@@ -221,7 +224,7 @@ class ConversationActions:
                         provisional_confirmed or send_confirmed or dom_confirmed or route_confirmed
                     )
 
-                if durable_conversation_id:
+                if durable_conversation_id and (send_confirmed or dom_confirmed or route_confirmed):
                     conversation_id = durable_conversation_id
                     logger.info(
                         "Prompta sent prompt in new conversation=%s message_id=%s transport_confirmed=%s dom_confirmed=%s",

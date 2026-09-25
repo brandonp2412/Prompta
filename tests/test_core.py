@@ -333,6 +333,74 @@ async def test_send_once_ignores_provisional_web_route_until_durable_id(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_send_once_rejects_unconfirmed_local_chatgpt_probe_id(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+
+    class LocalOnlyDriver(FakeDriver):
+        async def page_send_probe(self) -> dict[str, object]:
+            return {
+                "message_id": "message-1",
+                "conversation_id": "local-chatgpt%3Atemporary",
+                "response_status": 0,
+                "committed": False,
+            }
+
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            send_timeout_seconds=0.01,
+        ),
+        "ws://unused",
+    )
+    fake = LocalOnlyDriver(
+        prompt,
+        committed=False,
+        capture_status=0,
+        expose_user_message=False,
+        route_after_send=False,
+    )
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(SendVerificationError, match="could not prove"):
+        await prompta.send_once(prompt)
+
+
+@pytest.mark.asyncio
+async def test_send_once_requires_confirmation_for_probe_conversation_id(tmp_path: Path) -> None:
+    prompt = "PROMPTA TEST"
+
+    class UnconfirmedProbeDriver(FakeDriver):
+        async def page_send_probe(self) -> dict[str, object]:
+            return {
+                "message_id": "message-1",
+                "conversation_id": "durable-chat",
+                "response_status": 0,
+                "committed": False,
+            }
+
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            send_timeout_seconds=0.01,
+        ),
+        "ws://unused",
+    )
+    fake = UnconfirmedProbeDriver(
+        prompt,
+        committed=False,
+        capture_status=0,
+        expose_user_message=False,
+        route_after_send=False,
+    )
+    prompta.driver = cast(Any, fake)
+    prompta._ensure_high_effort = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(SendVerificationError, match="could not prove"):
+        await prompta.send_once(prompt)
+
+
+@pytest.mark.asyncio
 async def test_send_once_with_attachment_clicks_send_button(tmp_path: Path) -> None:
     prompt = "PROMPTA ATTACHMENT TEST"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
