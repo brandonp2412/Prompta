@@ -5,7 +5,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import pytest
 
@@ -124,6 +124,45 @@ def _wait_for_exact_reply(page, token: str, timeout_ms: int = 300_000) -> None:
           return nodes.some((node) => node.innerText.trim() === expected);
         }""",
         arg=token,
+        timeout=timeout_ms,
+    )
+
+
+def _wait_for_settled_completion(page, request, base: str, timeout_ms: int = 300_000) -> None:
+    fragment = urlparse(page.url).fragment.removeprefix("/")
+    conversation_id = fragment.split("/", 1)[0]
+    assert conversation_id, f"conversation URL is missing a chat id: {page.url}"
+
+    deadline = time.monotonic() + timeout_ms / 1000
+    last_chat: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        response = request.get(urljoin(base, f"api/chats/{conversation_id}"))
+        assert response.ok, (
+            f"conversation {conversation_id} returned HTTP {response.status} while waiting to settle"
+        )
+        last_chat = response.json()
+        status = str(last_chat.get("status") or "")
+        if status == "complete":
+            break
+        if status in {"failed", "dead_lettered"}:
+            raise AssertionError(f"conversation {conversation_id} ended as {status}: {last_chat}")
+        time.sleep(0.25)
+    else:
+        raise AssertionError(
+            f"conversation {conversation_id} did not settle within {timeout_ms}ms: {last_chat}"
+        )
+
+    page.wait_for_function(
+        """() => {
+          const selectedStatus = document.querySelector(
+            '.chat-item.selected .item-status-dot'
+          )?.getAttribute('aria-label');
+          const sendButton = document.querySelector('#sendButton');
+          const headingMeta = document.querySelector('#chatHeading .heading-meta')?.textContent || '';
+          return selectedStatus === 'complete'
+            && sendButton?.dataset.action === 'send'
+            && !headingMeta.includes('updating live');
+        }""",
         timeout=timeout_ms,
     )
 
@@ -251,6 +290,7 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
                     timeout=30_000,
                 )
                 _wait_for_exact_reply(page, run_token, timeout_ms=60_000)
+                _wait_for_settled_completion(page, context.request, base, timeout_ms=60_000)
                 first_chat_url = page.url
             else:
                 page.get_by_role("button", name="Start a new chat").click()
@@ -281,6 +321,7 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
 
                 _wait_for_send_delivery(context.request, base, send_id)
                 _wait_for_exact_reply(page, run_token)
+                _wait_for_settled_completion(page, context.request, base)
                 first_chat_url = page.url
                 assert "#/" in first_chat_url
                 page.screenshot(path=artifacts / "new-chat-complete.png", full_page=True)
@@ -288,6 +329,7 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
             if verify_only:
                 assert existing_chat_id, "verify-only mode requires an existing chat"
                 _wait_for_exact_reply(page, followup_token, timeout_ms=60_000)
+                _wait_for_settled_completion(page, context.request, base, timeout_ms=60_000)
             else:
                 composer = page.get_by_role("textbox", name="Message Prompta")
                 composer.wait_for(state="visible", timeout=10_000)
@@ -310,6 +352,7 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
                 ).wait_for(state="visible", timeout=15_000)
                 _wait_for_send_delivery(context.request, base, send_id)
                 _wait_for_exact_reply(page, followup_token)
+                _wait_for_settled_completion(page, context.request, base)
                 page.screenshot(path=artifacts / "reply-complete.png", full_page=True)
 
             page.goto(base, wait_until="domcontentloaded", timeout=30_000)
@@ -319,6 +362,7 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
             page.goto(first_chat_url, wait_until="domcontentloaded", timeout=30_000)
             _wait_for_exact_reply(page, run_token, timeout_ms=30_000)
             _wait_for_exact_reply(page, followup_token, timeout_ms=30_000)
+            _wait_for_settled_completion(page, context.request, base, timeout_ms=30_000)
             _assert_viewport_layout(page)
 
             page.set_viewport_size({"width": 390, "height": 844})
