@@ -26,6 +26,18 @@
                 const message=branch[index].message||{};
                 if(String(message?.author?.role||message?.role||'')==='user')lastUser=index;
               }
+              let latestUser=null;
+              if(lastUser>=0){
+                const message=branch[lastUser].message||{};
+                const content=message?.content||{};
+                const parts=Array.isArray(content?.parts)
+                  ?content.parts.filter(part=>typeof part==='string'&&part.trim())
+                  :[];
+                latestUser={
+                  id:String(message?.id||''),
+                  text:parts.length?parts.join(String.fromCharCode(10)):String(content?.text||'')
+                };
+              }
               let finalEvent=null;
               for(let index=lastUser+1;index<branch.length;index+=1){
                 const entry=branch[index];
@@ -76,6 +88,7 @@
                 ok:true,
                 status:response.status,
                 title:String(payload.title||''),
+                latest_user:latestUser,
                 final_event:finalEvent
               });
             }catch(error){

@@ -23,3 +23,5 @@ async def test_conversation_final_event_emits_valid_newline_join_expression() ->
 
     assert "parts.join(String.fromCharCode(10))" in driver.expression
     assert "parts.join('\n')" not in driver.expression
+    assert "let latestUser=null" in driver.expression
+    assert "latest_user:latestUser" in driver.expression

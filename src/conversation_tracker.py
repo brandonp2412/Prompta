@@ -207,33 +207,88 @@ class ConversationTracker:
             return False
 
         cached_messages = self.cache.messages(conversation_id)
+        latest_user = next(
+            (
+                message
+                for message in reversed(cached_messages)
+                if str(message.get("role") or "") == "user"
+            ),
+            None,
+        )
+        if latest_user is None:
+            return False
+
+        backend_latest_user = payload.get("latest_user")
+        if not isinstance(backend_latest_user, dict):
+            logger.warning(
+                "Prompta backend conversation=%s did not identify its latest user turn",
+                conversation_id,
+            )
+            return False
+        cached_user_key = str(latest_user.get("message_key") or "").strip()
+        cached_user_text = str(latest_user.get("content") or "").strip()
+        backend_user_key = str(backend_latest_user.get("id") or "").strip()
+        backend_user_text = str(backend_latest_user.get("text") or "").strip()
+        matching_user = bool(
+            (cached_user_text and backend_user_text and cached_user_text == backend_user_text)
+            or (cached_user_key and backend_user_key and cached_user_key == backend_user_key)
+        )
+        if not matching_user:
+            logger.warning(
+                "Prompta backend final-text recovery is still on an older user turn "
+                "conversation=%s",
+                conversation_id,
+            )
+            return False
+
+        latest_user_ordinal = int(latest_user.get("ordinal") or 0)
         assistant = next(
             (
                 message
                 for message in reversed(cached_messages)
                 if str(message.get("role") or "") == "assistant"
+                and int(message.get("ordinal") or 0) > latest_user_ordinal
             ),
             None,
         )
+        final_id = str(final_event.get("id") or "").strip()
         if assistant is None:
-            return False
-        message_key = str(assistant.get("message_key") or "")
-        if not message_key:
-            return False
-
-        existing_events = self.cache.source_events_for_message(
-            conversation_id,
-            message_key,
-        )
-        final_id = str(final_event.get("id") or "")
-        source_events = [
-            event
-            for event in existing_events
-            if not final_id or str(event.get("id") or "") != final_id
-        ]
-        source_events.append(final_event)
-        if not has_completed_final_text(message_parts_from_source_events(source_events)):
-            return False
+            if not final_id:
+                return False
+            message_key = final_id
+            source_events = [final_event]
+            parts = message_parts_from_source_events(source_events)
+            final_part = next(
+                (
+                    part
+                    for part in reversed(parts)
+                    if str(part.get("kind") or "") == "final_text"
+                    and bool(str(part.get("content") or "").strip())
+                ),
+                None,
+            )
+            if final_part is None or not has_completed_final_text(parts):
+                return False
+            assistant_content = str(final_part.get("content") or "")
+            assistant_ordinal = latest_user_ordinal + 1
+        else:
+            message_key = str(assistant.get("message_key") or "")
+            if not message_key:
+                return False
+            existing_events = self.cache.source_events_for_message(
+                conversation_id,
+                message_key,
+            )
+            source_events = [
+                event
+                for event in existing_events
+                if not final_id or str(event.get("id") or "") != final_id
+            ]
+            source_events.append(final_event)
+            if not has_completed_final_text(message_parts_from_source_events(source_events)):
+                return False
+            assistant_content = str(assistant.get("content") or "")
+            assistant_ordinal = int(assistant.get("ordinal") or 0)
 
         metadata = self.cache.metadata(conversation_id)
         snapshot = {
@@ -243,8 +298,8 @@ class ConversationTracker:
                 {
                     "id": message_key,
                     "role": "assistant",
-                    "content": str(assistant.get("content") or ""),
-                    "ordinal": int(assistant.get("ordinal") or 0),
+                    "content": assistant_content,
+                    "ordinal": assistant_ordinal,
                 }
             ],
             "source_events": source_events,
@@ -890,9 +945,17 @@ class ConversationTracker:
             if streaming_hint or transient_hint:
                 continue
 
+            missing_latest_assistant = (
+                waiting_for_latest_assistant
+                and snapshot_has_latest_user
+                and activity.get("complete") is True
+                and not streaming
+                and not failure_hint
+                and not has_assistant
+            )
             if active.settled_at > 0 and completion_hint and not streaming:
                 pass
-            elif not changed and has_assistant and not streaming:
+            elif not changed and not streaming and (has_assistant or missing_latest_assistant):
                 active.idle_polls += 1
             else:
                 active.idle_polls = 0
@@ -901,8 +964,8 @@ class ConversationTracker:
             fallback_completion = (
                 completion_hint and "turn_ended" in activity and activity.get("turn_ended") is None
             )
-            missing_final_text = fallback_completion and _structured_tool_turn_missing_final_text(
-                snapshot
+            missing_final_text = missing_latest_assistant or (
+                fallback_completion and _structured_tool_turn_missing_final_text(snapshot)
             )
             if not missing_final_text:
                 active.final_text_missing_since_epoch = 0.0
@@ -962,8 +1025,8 @@ class ConversationTracker:
                         active.idle_polls = 0
                         active.last_live_snapshot_at = 0.0
                         logger.warning(
-                            "Prompta reloaded tool conversation=%s because completion chrome "
-                            "appeared before authoritative final text",
+                            "Prompta reloaded conversation=%s because completion chrome "
+                            "appeared before authoritative assistant text",
                             active.conversation_id,
                         )
                         continue
@@ -983,8 +1046,8 @@ class ConversationTracker:
                     )
                 self.active.pop(context, None)
                 logger.warning(
-                    "Prompta marked conversation=%s interrupted because a tool turn "
-                    "never exposed authoritative final text",
+                    "Prompta marked conversation=%s interrupted because the completed turn "
+                    "never exposed authoritative assistant text",
                     active.conversation_id,
                 )
                 continue

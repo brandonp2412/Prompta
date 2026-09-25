@@ -3125,6 +3125,124 @@ async def test_poll_active_tool_turn_waits_for_authoritative_final_text(
 
 
 @pytest.mark.asyncio
+async def test_poll_active_followup_recovers_backend_final_when_dom_never_shows_assistant(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "conversation-followup-missing-assistant"
+    context_id = "context-followup-missing-assistant"
+    first_turn = {
+        "title": "Exact reply",
+        "path": f"/c/{conversation_id}",
+        "messages": [
+            {"id": "user-1", "role": "user", "content": "Reply once"},
+            {"id": "assistant-1", "role": "assistant", "content": "FIRST"},
+        ],
+        "streaming": False,
+    }
+    prompta.cache.start(
+        conversation_id,
+        context_id=context_id,
+        job_name="deployed-e2e",
+        prompt="Reply once",
+        force_tracking=True,
+    )
+    prompta.cache.write_snapshot(conversation_id, first_turn, complete=True)
+    prompta.cache.resume(conversation_id, context_id=context_id)
+
+    durable_followup = {
+        **first_turn,
+        "messages": [
+            *first_turn["messages"],
+            {"id": "user-2", "role": "user", "content": "Reply with FOLLOWUP"},
+        ],
+    }
+    prompta.cache.write_snapshot(conversation_id, durable_followup)
+    waiting_dom = durable_followup
+    active = ActiveConversation(
+        conversation_id=conversation_id,
+        context_id=context_id,
+        job_name="deployed-e2e",
+        prompt="Reply with FOLLOWUP",
+        last_digest=prompta.cache.digest(waiting_dom),
+    )
+    prompta._active_conversations[context_id] = active
+
+    driver = MagicMock()
+    driver.is_connected = True
+    driver.conversation_activity = AsyncMock(
+        return_value={
+            "streaming": False,
+            "complete": True,
+            "transient": False,
+            "failed": False,
+            "turn_ended": None,
+        }
+    )
+    driver.conversation_snapshot = AsyncMock(return_value=waiting_dom)
+    driver.conversation_final_event = AsyncMock(
+        return_value={
+            "ok": True,
+            "status": 200,
+            "title": "Exact reply",
+            "latest_user": {
+                "id": "user-2",
+                "text": "Reply with FOLLOWUP",
+            },
+            "final_event": {
+                "id": "assistant-2",
+                "parent_id": "user-2",
+                "role": "assistant",
+                "recipient": "all",
+                "content_type": "text",
+                "parts": ["FOLLOWUP"],
+                "text": "",
+                "create_time": 103.0,
+                "end_turn": True,
+            },
+        }
+    )
+    driver.close_context = AsyncMock()
+    prompta.driver = cast(Any, driver)
+
+    for _ in range(10):
+        await prompta._poll_active_conversations()
+
+    assert prompta.cache.status(conversation_id) == "complete"
+    assert not prompta._active_conversations
+    messages = prompta.cache.messages(conversation_id)
+    assert [(message["role"], message["content"]) for message in messages] == [
+        ("user", "Reply once"),
+        ("assistant", "FIRST"),
+        ("user", "Reply with FOLLOWUP"),
+        ("assistant", "FOLLOWUP"),
+    ]
+    assert messages[-1]["message_key"] == "assistant-2"
+    parts = prompta.cache.connection.execute(
+        """
+        SELECT kind, content, end_turn
+        FROM message_parts
+        WHERE conversation_id = ? AND message_key = ?
+        ORDER BY ordinal
+        """,
+        (conversation_id, "assistant-2"),
+    ).fetchall()
+    assert [tuple(part) for part in parts] == [("final_text", "FOLLOWUP", 1)]
+    driver.conversation_final_event.assert_awaited_once_with(
+        conversation_id,
+        context=context_id,
+    )
+    driver.close_context.assert_awaited_once_with(context_id)
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_poll_active_conversation_marks_persistent_delivery_timeout_interrupted(
     tmp_path: Path,
 ) -> None:
@@ -4370,6 +4488,10 @@ async def test_recover_cached_conversation_uses_backend_final_when_dom_never_hyd
                 "ok": True,
                 "status": 200,
                 "title": "Backend recovered chat",
+                "latest_user": {
+                    "id": "u1",
+                    "text": "Keep working",
+                },
                 "final_event": {
                     "id": "final-1",
                     "parent_id": "result-1",
