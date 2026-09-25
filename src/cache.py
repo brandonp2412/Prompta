@@ -846,6 +846,21 @@ class ChatCache:
         ).fetchall()
         return [str(row["id"]) for row in rows]
 
+    def stale_deployed_e2e_active_conversation_ids(self, *, activity_before: float) -> list[str]:
+        activity_sql = _conversation_meaningful_activity_sql()
+        rows = self.connection.execute(
+            f"""
+            SELECT c.id
+            FROM conversations AS c
+            WHERE c.status = 'active'
+              AND c.prompt GLOB 'Reply with exactly PROMPTA_E2E_*'
+              AND {activity_sql} < ?
+            ORDER BY c.updated_at
+            """,
+            (activity_before,),
+        ).fetchall()
+        return [str(row["id"]) for row in rows]
+
     def status(self, conversation_id: str) -> str | None:
         row = self.connection.execute(
             "SELECT status FROM conversations WHERE id = ?",
@@ -1644,6 +1659,7 @@ class ChatCache:
         *,
         interrupted_after: float,
         activity_after: float | None = None,
+        deployed_e2e_activity_after: float | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Return conversations whose live capture should be reattached by the conversation worker."""
@@ -1655,6 +1671,15 @@ class ChatCache:
               AND {_conversation_meaningful_activity_sql()} >= ?
             """
             parameters.append(activity_after)
+        deployed_e2e_filter = ""
+        if deployed_e2e_activity_after is not None:
+            deployed_e2e_filter = f"""
+              AND NOT (
+                    c.prompt GLOB 'Reply with exactly PROMPTA_E2E_*'
+                    AND {_conversation_meaningful_activity_sql()} < ?
+                  )
+            """
+            parameters.append(deployed_e2e_activity_after)
         parameters.append(max(1, limit))
         rows = self.connection.execute(
             f"""
@@ -1675,6 +1700,7 @@ class ChatCache:
                     )
                   )
               {activity_filter}
+              {deployed_e2e_filter}
             ORDER BY c.updated_at DESC
             LIMIT ?
             """,

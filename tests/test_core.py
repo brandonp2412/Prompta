@@ -14,7 +14,11 @@ from prompta.cache import ActiveConversation, ChatCache
 from prompta.chrome import ChromeDebuggerUnavailableError
 from prompta.control_server import ControlDeferredError
 from prompta.conversation_actions import SendNotAcceptedError
-from prompta.conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS, STALE_ACTIVE_TAB_SECONDS
+from prompta.conversation_tracker import (
+    DEPLOYED_E2E_STALE_ACTIVE_SECONDS,
+    RESTART_RECOVERY_RETRY_SECONDS,
+    STALE_ACTIVE_TAB_SECONDS,
+)
 from prompta.core import (
     Prompta,
     PromptaConfig,
@@ -3900,6 +3904,46 @@ async def test_recover_cached_conversations_does_not_reopen_stale_active_chat(
     assert await prompta.recover_cached_conversations() == 0
 
     assert prompta.cache.status(conversation_id) == "interrupted"
+    prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
+async def test_recover_cached_conversations_retires_stale_deployed_e2e_early(
+    tmp_path: Path,
+) -> None:
+    prompta = Prompta(
+        PromptaConfig(
+            jobs_file=tmp_path / "jobs.json",
+            cache_path=tmp_path / "chats.sqlite3",
+        ),
+        "ws://unused",
+    )
+    conversation_id = "stale-deployed-e2e-chat"
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="",
+        prompt="Reply with exactly PROMPTA_E2E_1790300000 and nothing else.",
+    )
+    stale_at = time.time() - DEPLOYED_E2E_STALE_ACTIVE_SECONDS - 1
+    with prompta.cache.connection:
+        prompta.cache.connection.execute(
+            "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+            (stale_at, stale_at, conversation_id),
+        )
+        prompta.cache.connection.execute(
+            "UPDATE messages SET status = 'streaming', created_at = ?, updated_at = ?, "
+            "activity_at = ? WHERE conversation_id = ?",
+            (stale_at, stale_at, stale_at, conversation_id),
+        )
+    prompta._ensure_driver = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("historical E2E chats must not reopen browser tabs")
+    )
+
+    assert await prompta.recover_cached_conversations() == 0
+    assert prompta.cache.status(conversation_id) == "interrupted"
+    assert await prompta.recover_cached_conversations() == 0
     prompta._ensure_driver.assert_not_awaited()  # type: ignore[attr-defined]
     prompta.cache.close()
 

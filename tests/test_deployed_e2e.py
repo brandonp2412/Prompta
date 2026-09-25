@@ -9,10 +9,30 @@ from urllib.parse import urljoin
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
+deployed_e2e_only = pytest.mark.skipif(
     not os.environ.get("PROMPTA_E2E_BASE_URL"),
     reason="Set PROMPTA_E2E_BASE_URL to run the destructive deployed Prompta E2E test",
 )
+
+
+def _try_acquire_deployed_e2e_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_handle = lock_path.open("a+")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_handle.close()
+        return None
+    lock_handle.seek(0)
+    lock_handle.truncate()
+    lock_handle.write(f"pid={os.getpid()}\n")
+    lock_handle.flush()
+    return lock_handle
+
+
+def _release_deployed_e2e_lock(lock_handle) -> None:
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle.close()
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -22,13 +42,27 @@ def _serialize_deployed_e2e():
         return
 
     lock_path = Path(os.environ.get("PROMPTA_E2E_LOCK", "/tmp/prompta-deployed-e2e.lock"))
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle = _try_acquire_deployed_e2e_lock(lock_path)
+    if lock_handle is None:
+        pytest.skip(f"another deployed Prompta E2E run already holds {lock_path}")
+    try:
+        yield
+    finally:
+        _release_deployed_e2e_lock(lock_handle)
+
+
+def test_deployed_e2e_lock_rejects_second_holder(tmp_path: Path) -> None:
+    lock_path = tmp_path / "deployed-e2e.lock"
+    first = _try_acquire_deployed_e2e_lock(lock_path)
+    assert first is not None
+    try:
+        assert _try_acquire_deployed_e2e_lock(lock_path) is None
+    finally:
+        _release_deployed_e2e_lock(first)
+
+    replacement = _try_acquire_deployed_e2e_lock(lock_path)
+    assert replacement is not None
+    _release_deployed_e2e_lock(replacement)
 
 
 TOOL_PREVIEW_REGRESSION_CHAT = "6ab5951b-a778-83ec-8e70-a77c62cde6d7"
@@ -116,6 +150,7 @@ def _wait_for_send_delivery(request, base: str, send_id: str) -> None:
     )
 
 
+@deployed_e2e_only
 def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
     executable = shutil.which("chromium") or shutil.which("brave")
     if executable is None:

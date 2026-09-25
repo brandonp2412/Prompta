@@ -24,6 +24,7 @@ RESTART_RECOVERY_INTERRUPTED_SECONDS = 15 * 60.0
 RESTART_RECOVERY_LOAD_ATTEMPTS = 2
 RESTART_RECOVERY_RETRY_SECONDS = 60.0
 ACTIVE_TAB_RETENTION_SECONDS = 15.0
+DEPLOYED_E2E_STALE_ACTIVE_SECONDS = 5 * 60.0
 STALE_ACTIVE_TAB_SECONDS = 40 * 60.0
 FALLBACK_COMPLETION_POLLS = 10
 DELIVERY_FAILURE_POLLS = 3
@@ -265,10 +266,26 @@ class ConversationTracker:
 
     async def recover_cached_conversations(self, *, limit: int = 50) -> int:
 
-        activity_after = time.time() - STALE_ACTIVE_TAB_SECONDS
+        now = time.time()
+        activity_after = now - STALE_ACTIVE_TAB_SECONDS
+        deployed_e2e_activity_after = now - DEPLOYED_E2E_STALE_ACTIVE_SECONDS
+        retired_deployed_e2e = set(
+            self.cache.stale_deployed_e2e_active_conversation_ids(
+                activity_before=deployed_e2e_activity_after
+            )
+        )
+        for conversation_id in retired_deployed_e2e:
+            self.cache.mark_interrupted(conversation_id)
+            logger.warning(
+                "Prompta retired stale deployed E2E conversation=%s before restart recovery",
+                conversation_id,
+            )
+
         for conversation_id in self.cache.stale_active_conversation_ids(
             activity_before=activity_after
         ):
+            if conversation_id in retired_deployed_e2e:
+                continue
             self.cache.mark_interrupted(conversation_id)
             logger.warning(
                 "Prompta retired stale cached conversation=%s before restart recovery",
@@ -279,8 +296,9 @@ class ConversationTracker:
         recoverable = [
             row
             for row in self.cache.recoverable_conversations(
-                interrupted_after=time.time() - RESTART_RECOVERY_INTERRUPTED_SECONDS,
+                interrupted_after=now - RESTART_RECOVERY_INTERRUPTED_SECONDS,
                 activity_after=activity_after,
+                deployed_e2e_activity_after=deployed_e2e_activity_after,
                 limit=max(1, limit) + len(attached_ids),
             )
             if str(row.get("id") or "") not in attached_ids

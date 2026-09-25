@@ -72,6 +72,48 @@ def test_cache_migration_adds_double_checked_to_existing_database(tmp_path: Path
     assert row["double_checked"] == 0
 
 
+def test_recoverable_conversations_only_excludes_stale_deployed_e2e(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    now = time.time()
+    stale_at = now - 301
+    for conversation_id, prompt in (
+        ("e2e-stale", "Reply with exactly PROMPTA_E2E_1790300000 and nothing else."),
+        ("e2e-fresh", "Reply with exactly PROMPTA_E2E_1790300001 and nothing else."),
+        ("ordinary-old", "Do ordinary work"),
+    ):
+        cache.start(
+            conversation_id,
+            context_id=f"context-{conversation_id}",
+            job_name="",
+            prompt=prompt,
+        )
+    with cache.connection:
+        for conversation_id in ("e2e-stale", "ordinary-old"):
+            cache.connection.execute(
+                "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+                (stale_at, stale_at, conversation_id),
+            )
+            cache.connection.execute(
+                "UPDATE messages SET created_at = ?, updated_at = ?, activity_at = ? "
+                "WHERE conversation_id = ?",
+                (stale_at, stale_at, stale_at, conversation_id),
+            )
+
+    rows = cache.recoverable_conversations(
+        interrupted_after=now - 900,
+        activity_after=now - 2400,
+        deployed_e2e_activity_after=now - 300,
+    )
+    recovered_ids = {str(row["id"]) for row in rows}
+    cache.close()
+
+    assert "e2e-stale" not in recovered_ids
+    assert "e2e-fresh" in recovered_ids
+    assert "ordinary-old" in recovered_ids
+
+
 def test_cache_creates_indexes_for_sidebar_and_structured_event_queries(tmp_path: Path) -> None:
     cache = ChatCache(tmp_path / "chats.sqlite3")
 
