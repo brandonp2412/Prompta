@@ -13,6 +13,10 @@ from .chromium import (
     merge_tool_blocks,
     preserves_non_tool_text,
 )
+from .conversation_reconciliation import (
+    advance_completion_poll,
+    assess_snapshot_completion,
+)
 from .structured_capture import has_completed_final_text, message_parts_from_source_events
 from .tool_diff_capture import ToolDiffCapture
 from .webdriver import BrowsingContextUnavailableError
@@ -26,6 +30,7 @@ RESTART_RECOVERY_RETRY_SECONDS = 60.0
 ACTIVE_TAB_RETENTION_SECONDS = 15.0
 DEPLOYED_E2E_STALE_ACTIVE_SECONDS = 5 * 60.0
 STALE_ACTIVE_TAB_SECONDS = 40 * 60.0
+COMPLETION_POLLS = 3
 FALLBACK_COMPLETION_POLLS = 10
 DELIVERY_FAILURE_POLLS = 3
 DELIVERY_RETRY_DISCOVERY_POLLS = 3
@@ -37,17 +42,6 @@ TRANSIENT_RECOVERY_DELAY_SECONDS = 30.0
 TRANSIENT_FAILURE_TIMEOUT_SECONDS = 15 * 60.0
 FINAL_TEXT_RECOVERY_MAX_ATTEMPTS = 1
 FINAL_TEXT_FAILURE_TIMEOUT_SECONDS = 2 * 60.0
-
-
-def _structured_tool_turn_missing_final_text(snapshot: dict[str, Any]) -> bool:
-    events = snapshot.get("source_events")
-    if not isinstance(events, list) or not events:
-        return False
-    parts = message_parts_from_source_events(events)
-    has_tool_call = any(
-        isinstance(part, dict) and str(part.get("kind") or "") == "tool_call" for part in parts
-    )
-    return has_tool_call and not has_completed_final_text(parts)
 
 
 class ConversationTracker:
@@ -805,39 +799,18 @@ class ConversationTracker:
                 active.last_digest = source_digest
                 changed = False
 
-            messages = snapshot.get("messages")
-            if not isinstance(messages, list):
-                messages = []
-
             durable_messages = self.cache.messages(active.conversation_id)
-            latest_durable = durable_messages[-1] if durable_messages else None
-            waiting_for_latest_assistant = (
-                isinstance(latest_durable, dict)
-                and str(latest_durable.get("role") or "") == "user"
-                and bool(str(latest_durable.get("content") or "").strip())
+            completion = assess_snapshot_completion(
+                snapshot,
+                durable_messages,
+                activity,
+                completion_hint=completion_hint,
+                failure_hint=failure_hint,
+                completion_polls=COMPLETION_POLLS,
+                fallback_completion_polls=FALLBACK_COMPLETION_POLLS,
             )
-            snapshot_has_latest_user = True
-            if waiting_for_latest_assistant:
-                latest_user_key = str(latest_durable.get("message_key") or "")
-                latest_user_text = str(latest_durable.get("content") or "").strip()
-                snapshot_has_latest_user = any(
-                    isinstance(message, dict)
-                    and str(message.get("role") or "") == "user"
-                    and (
-                        (latest_user_key and str(message.get("id") or "") == latest_user_key)
-                        or str(message.get("content") or "").strip() == latest_user_text
-                    )
-                    for message in messages
-                )
-
-            last_message = messages[-1] if messages else None
-            has_assistant = (
-                snapshot_has_latest_user
-                and isinstance(last_message, dict)
-                and str(last_message.get("role") or "") == "assistant"
-                and bool(str(last_message.get("content") or "").strip())
-            )
-            streaming = bool(snapshot.get("streaming"))
+            has_assistant = completion.has_assistant
+            streaming = completion.streaming
 
             if changed:
                 self._write_snapshot(active.conversation_id, snapshot)
@@ -945,33 +918,23 @@ class ConversationTracker:
             if streaming_hint or transient_hint:
                 continue
 
-            missing_latest_assistant = (
-                waiting_for_latest_assistant
-                and snapshot_has_latest_user
-                and activity.get("complete") is True
-                and not streaming
-                and not failure_hint
-                and not has_assistant
+            missing_latest_assistant = completion.missing_latest_assistant
+            active.idle_polls, active.settled_at = advance_completion_poll(
+                idle_polls=active.idle_polls,
+                settled_at=active.settled_at,
+                changed=changed,
+                completion_hint=completion_hint,
+                streaming=streaming,
+                has_assistant=has_assistant,
+                missing_latest_assistant=missing_latest_assistant,
             )
-            if active.settled_at > 0 and completion_hint and not streaming:
-                pass
-            elif not changed and not streaming and (has_assistant or missing_latest_assistant):
-                active.idle_polls += 1
-            else:
-                active.idle_polls = 0
-                active.settled_at = 0.0
 
-            fallback_completion = (
-                completion_hint and "turn_ended" in activity and activity.get("turn_ended") is None
-            )
-            missing_final_text = missing_latest_assistant or (
-                fallback_completion and _structured_tool_turn_missing_final_text(snapshot)
-            )
+            missing_final_text = completion.missing_final_text
             if not missing_final_text:
                 active.final_text_missing_since_epoch = 0.0
                 active.final_text_recovery_attempts = 0
 
-            completion_polls = FALLBACK_COMPLETION_POLLS if fallback_completion else 3
+            completion_polls = completion.completion_polls
             if active.idle_polls < completion_polls:
                 continue
             if not completion_hint and active.idle_polls < 30:
@@ -1065,7 +1028,7 @@ class ConversationTracker:
                 logger.info(
                     "Prompta cached completed conversation=%s messages=%d; retaining tab for %.0fs",
                     active.conversation_id,
-                    len(messages),
+                    completion.message_count,
                     ACTIVE_TAB_RETENTION_SECONDS,
                 )
                 continue
