@@ -396,6 +396,49 @@ async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
 
 
 @pytest.mark.asyncio
+async def test_machine_gun_mode_keeps_force_tracked_conversation_active(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    cache_path = tmp_path / "chats.sqlite3"
+    conversation_id = "chat-machine-gun-force-tracked"
+
+    cache = ChatCache(cache_path)
+    cache.start(
+        conversation_id,
+        context_id="prompta-delivery:send-tab",
+        job_name="deployed-e2e",
+        prompt="Reply exactly",
+        force_tracking=True,
+    )
+    assert cache.release_browser_context(
+        conversation_id,
+        context_id="prompta-delivery:send-tab",
+    )
+    cache.close()
+
+    driver = FakeTrackingDriver("prompta-conversation:tracked", conversation_id)
+    worker = ConversationWorker(
+        state_path,
+        cache_path=cache_path,
+        driver_factory=cast(Any, lambda: driver),
+        recovery_message_timeout_seconds=0.01,
+    )
+    try:
+        worker.runtime.set_unattended_mode(True)
+        assert await worker.run_once() is True
+
+        assert worker.cache.status(conversation_id) == "active"
+        assert worker.cache.is_force_tracking(conversation_id) is True
+        assert list(worker.tracker.active) == ["prompta-conversation:tracked"]
+        assert _browser_context_id(worker.cache, conversation_id) == (
+            "prompta-conversation:tracked"
+        )
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
 async def test_recovery_claims_live_handoffs_before_opening_reload_tabs(
     tmp_path: Path,
 ) -> None:

@@ -71,6 +71,7 @@ class ConversationActions:
         *,
         job_name: str = "",
         attachments: list[str] | None = None,
+        force_tracking: bool = False,
     ) -> str:
         if not prompt.strip() and not attachments:
             raise ValueError("prompta prompt is empty")
@@ -228,8 +229,9 @@ class ConversationActions:
                         context_id=context,
                         job_name=job_name,
                         prompt=prompt,
+                        force_tracking=force_tracking,
                     )
-                    if self.unattended_mode():
+                    if self.unattended_mode() and not force_tracking:
                         self.cache.mark_unattended(conversation_id)
                     else:
                         self.active[context] = ActiveConversation(
@@ -252,8 +254,9 @@ class ConversationActions:
                     context_id=context,
                     job_name=job_name,
                     prompt=prompt,
+                    force_tracking=force_tracking,
                 )
-                if self.unattended_mode():
+                if self.unattended_mode() and not force_tracking:
                     self.cache.mark_unattended(provisional_conversation_id)
                 else:
                     self.active[context] = ActiveConversation(
@@ -445,6 +448,7 @@ class ConversationActions:
         prompt: str,
         *,
         attachments: list[str] | None = None,
+        force_tracking: bool = False,
     ) -> str:
 
         if not conversation_id.strip():
@@ -453,7 +457,10 @@ class ConversationActions:
             raise ValueError("prompta prompt is empty")
 
         driver = await self.ensure_driver()
+        if force_tracking:
+            self.cache.set_force_tracking(conversation_id)
         metadata = self.cache.metadata(conversation_id)
+        force_tracking = force_tracking or bool(metadata.get("force_tracking"))
         target_url = str(metadata.get("url") or f"https://chatgpt.com/c/{conversation_id}")
         expected_path = urlsplit(target_url).path.rstrip("/")
         existing = next(
@@ -608,7 +615,7 @@ class ConversationActions:
                 )
                 if send_confirmed or dom_confirmed:
                     metadata = self.cache.resume(conversation_id, context_id=context)
-                    if self.unattended_mode():
+                    if self.unattended_mode() and not force_tracking:
                         self.cache.mark_unattended(conversation_id)
                     else:
                         if active is None:

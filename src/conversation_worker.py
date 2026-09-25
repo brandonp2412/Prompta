@@ -85,6 +85,8 @@ class ConversationWorker:
         detached = 0
         driver = self.browser.driver
         for context, active in list(self.tracker.active.items()):
+            if self.cache.is_force_tracking(active.conversation_id):
+                continue
             self.cache.mark_unattended(active.conversation_id)
             if driver is not None:
                 try:
@@ -115,7 +117,22 @@ class ConversationWorker:
     async def run_once(self) -> bool:
         if self.runtime.unattended_mode():
             detached = await self._detach_for_unattended_mode()
-            return detached > 0
+            if self.runtime.global_backoff_remaining() > 0:
+                return detached > 0
+            recovered = await self.tracker.recover_cached_conversations(
+                limit=1,
+                force_tracking_only=True,
+            )
+            if not self.tracker.active and recovered == 0:
+                return detached > 0
+            driver = await self.browser.ensure_driver()
+            if await self._dismiss_history_rate_limits(driver):
+                return detached > 0 or recovered > 0
+            await self.tracker.poll_active_conversations()
+            await driver.cleanup_orphan_pages()
+            if await self._dismiss_history_rate_limits(driver):
+                return detached > 0 or recovered > 0
+            return detached > 0 or recovered > 0 or bool(self.tracker.active)
 
         if self.runtime.global_backoff_remaining() > 0:
             return False

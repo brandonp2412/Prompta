@@ -101,6 +101,7 @@ async def test_delivery_success_preserves_page_for_conversation_worker_handoff(
         *,
         job_name: str = "",
         attachments: list[str] | None = None,
+        force_tracking: bool = False,
     ) -> str:
         del attachments
         await actions.ensure_driver()
@@ -111,6 +112,7 @@ async def test_delivery_success_preserves_page_for_conversation_worker_handoff(
             context_id=context_id,
             job_name=job_name,
             prompt=prompt,
+            force_tracking=force_tracking,
         )
         actions.active[context_id] = ActiveConversation(
             conversation_id=conversation_id,
@@ -140,6 +142,27 @@ async def test_delivery_success_preserves_page_for_conversation_worker_handoff(
         assert row["browser_context_id"] == "prompta-delivery:send-tab"
     finally:
         cache.close()
+
+
+def test_tracked_reply_keeps_busy_reply_guard(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    send_browser = AsyncMock(return_value="chat-tracked")
+
+    with (
+        patch.object(sender, "_global_cooldown_remaining", return_value=0.0),
+        patch.object(sender.runtime, "send_gap_remaining", return_value=0.0),
+        patch.object(sender, "_defer_busy_reply") as defer_busy_reply,
+        patch.object(sender, "_send_browser", new=send_browser),
+    ):
+        assert sender("reply_tracked", "follow up", "chat-tracked", []) == "chat-tracked"
+
+    defer_busy_reply.assert_called_once_with("chat-tracked")
+    send_browser.assert_awaited_once_with(
+        "reply_tracked",
+        "follow up",
+        "chat-tracked",
+        [],
+    )
 
 
 @pytest.mark.asyncio

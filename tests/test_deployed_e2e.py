@@ -74,18 +74,6 @@ def _base_url() -> str:
     return value if value.endswith("/") else value + "/"
 
 
-def _unattended_mode(request, base: str) -> bool:
-    response = request.get(urljoin(base, "api/mode"))
-    assert response.ok, f"mode endpoint returned HTTP {response.status}"
-    return response.json().get("unattended") is True
-
-
-def _set_unattended_mode(request, base: str, enabled: bool) -> None:
-    response = request.post(urljoin(base, "api/mode"), data={"unattended": enabled})
-    assert response.ok, f"mode update returned HTTP {response.status}"
-    assert response.json().get("unattended") is enabled
-
-
 def _artifact_dir() -> Path:
     path = Path(os.environ.get("PROMPTA_E2E_ARTIFACTS", "/tmp/prompta-deployed-e2e"))
     path.mkdir(parents=True, exist_ok=True)
@@ -182,10 +170,10 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=executable, headless=True)
-        context = browser.new_context(viewport={"width": 1440, "height": 1000})
-        original_unattended_mode = _unattended_mode(context.request, base)
-        if original_unattended_mode:
-            _set_unattended_mode(context.request, base, False)
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 1000},
+            extra_http_headers={"X-Prompta-Track-Response": "1"},
+        )
         context.tracing.start(screenshots=True, snapshots=True)
         page = context.new_page()
         page.on(
@@ -345,9 +333,5 @@ def test_deployed_prompta_round_trip_and_historical_rendering() -> None:
                 if "favicon" not in message.casefold() and "notification" not in message.casefold()
             ]
         finally:
-            try:
-                if original_unattended_mode:
-                    _set_unattended_mode(context.request, base, True)
-            finally:
-                context.tracing.stop(path=artifacts / "trace.zip")
-                browser.close()
+            context.tracing.stop(path=artifacts / "trace.zip")
+            browser.close()

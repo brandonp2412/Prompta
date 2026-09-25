@@ -1192,8 +1192,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             if send_payload is None:
                 return
             message, attachments, client_id = send_payload
+            force_tracking = self.headers.get("X-Prompta-Track-Response", "").strip() == "1"
             job = cast(PromptaUIServer, self.server).send_jobs.submit(
-                operation="once",
+                operation="once_tracked" if force_tracking else "once",
                 message=message,
                 attachments=attachments,
                 client_id=client_id,
@@ -1268,8 +1269,9 @@ class PromptaUIHandler(BaseHTTPRequestHandler):
             return
         message, attachments, client_id = send_payload
 
+        force_tracking = self.headers.get("X-Prompta-Track-Response", "").strip() == "1"
         job = server.send_jobs.submit(
-            operation="reply",
+            operation="reply_tracked" if force_tracking else "reply",
             conversation_id=conversation_id,
             message=message,
             attachments=attachments,

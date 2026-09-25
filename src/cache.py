@@ -428,6 +428,7 @@ class ChatCache:
                 preview TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
                 double_checked INTEGER NOT NULL DEFAULT 0 CHECK (double_checked IN (0, 1)),
+                force_tracking INTEGER NOT NULL DEFAULT 0 CHECK (force_tracking IN (0, 1)),
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
                 completed_at REAL
@@ -503,6 +504,11 @@ class ChatCache:
             self.connection.execute(
                 "ALTER TABLE conversations ADD COLUMN double_checked "
                 "INTEGER NOT NULL DEFAULT 0 CHECK (double_checked IN (0, 1))"
+            )
+        if "force_tracking" not in conversation_columns:
+            self.connection.execute(
+                "ALTER TABLE conversations ADD COLUMN force_tracking "
+                "INTEGER NOT NULL DEFAULT 0 CHECK (force_tracking IN (0, 1))"
             )
         self.connection.execute(
             """
@@ -724,6 +730,7 @@ class ChatCache:
         context_id: str,
         job_name: str,
         prompt: str,
+        force_tracking: bool = False,
     ) -> None:
         now = time.time()
         with self.connection:
@@ -731,9 +738,9 @@ class ChatCache:
                 """
                 INSERT INTO conversations (
                     id, job_name, prompt, url, browser_context_id, preview,
-                    status, created_at, updated_at
+                    force_tracking, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     job_name = excluded.job_name,
                     prompt = excluded.prompt,
@@ -743,6 +750,7 @@ class ChatCache:
                         WHEN conversations.preview = '' THEN excluded.preview
                         ELSE conversations.preview
                     END,
+                    force_tracking = MAX(conversations.force_tracking, excluded.force_tracking),
                     status = 'active',
                     updated_at = excluded.updated_at,
                     completed_at = NULL
@@ -754,6 +762,7 @@ class ChatCache:
                     f"https://chatgpt.com/c/{conversation_id}",
                     context_id,
                     compact_sidebar_preview(prompt),
+                    int(force_tracking),
                     now,
                     now,
                 ),
@@ -797,7 +806,7 @@ class ChatCache:
     def metadata(self, conversation_id: str) -> dict[str, Any]:
         row = self.connection.execute(
             """
-            SELECT id, job_name, prompt, url, status
+            SELECT id, job_name, prompt, url, status, force_tracking
             FROM conversations
             WHERE id = ?
             """,
@@ -806,6 +815,22 @@ class ChatCache:
         if row is None:
             raise ValueError(f"unknown cached conversation: {conversation_id}")
         return dict(row)
+
+    def set_force_tracking(self, conversation_id: str) -> None:
+        with self.connection:
+            cursor = self.connection.execute(
+                "UPDATE conversations SET force_tracking = 1 WHERE id = ?",
+                (conversation_id,),
+            )
+        if cursor.rowcount == 0:
+            raise ValueError(f"unknown cached conversation: {conversation_id}")
+
+    def is_force_tracking(self, conversation_id: str) -> bool:
+        row = self.connection.execute(
+            "SELECT force_tracking FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        return bool(row["force_tracking"]) if row is not None else False
 
     def last_message_activity_at(self, conversation_id: str) -> float:
         activity_sql = _conversation_meaningful_activity_sql()
@@ -1000,7 +1025,7 @@ class ChatCache:
         """Detach every durable active conversation without reading its result."""
 
         rows = self.connection.execute(
-            "SELECT id FROM conversations WHERE status = 'active'"
+            "SELECT id FROM conversations WHERE status = 'active' AND force_tracking = 0"
         ).fetchall()
         for row in rows:
             self.mark_unattended(str(row["id"]))
@@ -1660,6 +1685,7 @@ class ChatCache:
         interrupted_after: float,
         activity_after: float | None = None,
         deployed_e2e_activity_after: float | None = None,
+        force_tracking_only: bool = False,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Return conversations whose live capture should be reattached by the conversation worker."""
@@ -1680,10 +1706,11 @@ class ChatCache:
                   )
             """
             parameters.append(deployed_e2e_activity_after)
+        force_tracking_filter = "AND c.force_tracking = 1" if force_tracking_only else ""
         parameters.append(max(1, limit))
         rows = self.connection.execute(
             f"""
-            SELECT c.id, c.job_name, c.prompt, c.url, c.status,
+            SELECT c.id, c.job_name, c.prompt, c.url, c.status, c.force_tracking,
                    c.created_at, c.updated_at, c.completed_at
             FROM conversations AS c
             WHERE (
@@ -1701,6 +1728,7 @@ class ChatCache:
                   )
               {activity_filter}
               {deployed_e2e_filter}
+              {force_tracking_filter}
             ORDER BY c.updated_at DESC
             LIMIT ?
             """,

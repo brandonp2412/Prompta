@@ -593,6 +593,49 @@ def test_chat_http_route_accepts_attachment_only_message(tmp_path: Path) -> None
             thread.join(timeout=2)
 
 
+def test_chat_http_route_can_force_response_tracking(tmp_path: Path) -> None:
+    store = ReadOnlyChatStore(tmp_path / "missing.sqlite3")
+    server = PromptaUIServer(("127.0.0.1", 0), store, tmp_path / "state.json")
+    server.send_jobs.submit = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "send_id": "tracked-send",
+            "status": "queued",
+            "conversation_id": "",
+        }
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    try:
+        thread.start()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/api/chats",
+            data=json.dumps(
+                {
+                    "message": "Reply exactly",
+                    "client_id": "tracked-client",
+                }
+            ).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "X-Prompta-Track-Response": "1",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            assert response.status == HTTPStatus.ACCEPTED
+            body = json.loads(response.read())
+            assert body["send_id"] == "tracked-send"
+
+        call = server.send_jobs.submit.call_args  # type: ignore[attr-defined]
+        assert call.kwargs["operation"] == "once_tracked"
+        assert call.kwargs["message"] == "Reply exactly"
+        assert call.kwargs["client_id"] == "tracked-client"
+    finally:
+        server.shutdown()
+        server.server_close()
+        if thread.is_alive():
+            thread.join(timeout=2)
+
+
 def test_send_job_registry_calls_success_hook_with_client_id() -> None:
     succeeded = MagicMock()
     sender = MagicMock(return_value="chat-new")

@@ -264,7 +264,12 @@ class ConversationTracker:
         )
         return True
 
-    async def recover_cached_conversations(self, *, limit: int = 50) -> int:
+    async def recover_cached_conversations(
+        self,
+        *,
+        limit: int = 50,
+        force_tracking_only: bool = False,
+    ) -> int:
 
         now = time.time()
         activity_after = now - STALE_ACTIVE_TAB_SECONDS
@@ -299,6 +304,7 @@ class ConversationTracker:
                 interrupted_after=now - RESTART_RECOVERY_INTERRUPTED_SECONDS,
                 activity_after=activity_after,
                 deployed_e2e_activity_after=deployed_e2e_activity_after,
+                force_tracking_only=force_tracking_only,
                 limit=max(1, limit) + len(attached_ids),
             )
             if str(row.get("id") or "") not in attached_ids

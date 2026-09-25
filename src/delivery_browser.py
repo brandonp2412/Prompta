@@ -110,9 +110,10 @@ class BrowserDeliverySender:
                 retry_after=max(0.1, gap),
             )
 
-        if operation == "reply":
+        base_operation = operation.removesuffix("_tracked")
+        if base_operation == "reply":
             self._defer_busy_reply(conversation_id)
-        elif operation != "once":
+        elif base_operation != "once":
             raise ValueError(f"unsupported Prompta delivery operation: {operation}")
 
         try:
@@ -135,6 +136,8 @@ class BrowserDeliverySender:
         conversation_id: str,
         attachments: list[str],
     ) -> str:
+        force_tracking = operation.endswith("_tracked")
+        base_operation = operation.removesuffix("_tracked") if force_tracking else operation
         active: dict[str, ActiveConversation] = {}
         cache = ChatCache(self.cache_path)
         browser = BrowserSession("https://chatgpt.com", self._new_driver)
@@ -173,16 +176,20 @@ class BrowserDeliverySender:
         )
         try:
             try:
-                if operation == "once":
+                if base_operation == "once":
                     return await actions.send_once(
                         message,
                         attachments=attachments,
+                        force_tracking=force_tracking,
                     )
-                return await actions.send_reply(
-                    conversation_id,
-                    message,
-                    attachments=attachments,
-                )
+                if base_operation == "reply":
+                    return await actions.send_reply(
+                        conversation_id,
+                        message,
+                        attachments=attachments,
+                        force_tracking=force_tracking,
+                    )
+                raise ValueError(f"unsupported delivery operation: {operation}")
             except (
                 RateLimitError,
                 ControlDeferredError,
