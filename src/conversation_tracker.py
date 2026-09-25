@@ -501,7 +501,12 @@ class ConversationTracker:
                             exc_info=True,
                         )
                 if str(row.get("status") or "") == "active":
-                    self.cache.mark_interrupted(conversation_id)
+                    logger.warning(
+                        "Prompta recovery deferred for fresh active conversation=%s; "
+                        "it will remain active until a later recovery succeeds or "
+                        "the normal stale-active timeout retires it",
+                        conversation_id,
+                    )
         self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
         return recovered
 

@@ -4614,6 +4614,105 @@ async def test_recover_cached_conversation_uses_backend_final_when_dom_never_hyd
 
 
 @pytest.mark.asyncio
+async def test_recover_cached_conversations_keeps_fresh_active_when_backend_lags_latest_user(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "fresh-backend-lag-chat"
+    target_url = f"https://chatgpt.com/c/{conversation_id}"
+    prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
+    prompta.cache.start(
+        conversation_id,
+        context_id="old-context",
+        job_name="",
+        prompt="First turn",
+    )
+    prompta.cache.write_snapshot(
+        conversation_id,
+        {
+            "path": f"/c/{conversation_id}",
+            "streaming": True,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "First turn", "ordinal": 0},
+                {"id": "a1", "role": "assistant", "content": "First answer", "ordinal": 1},
+                {"id": "u2", "role": "user", "content": "Second turn", "ordinal": 2},
+            ],
+        },
+    )
+
+    class LaggingBackendDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__("Second turn")
+            self.current_path = "/"
+
+        async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
+            self.context = "context-new"
+            self.navigated.append(url)
+            self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
+            return self.context
+
+        async def navigate(self, url: str, *, context: str | None = None) -> None:
+            self.navigated.append(url)
+            self.navigation_contexts.append(context)
+            self.current_path = f"/c/{conversation_id}" if url == target_url else "/"
+
+        async def eval(self, expression: str, *, context: str | None = None) -> str:
+            assert expression == "location.pathname"
+            return self.current_path
+
+        async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
+            self.current_path = path
+            return True
+
+        async def conversation_snapshot(self, context: str) -> dict[str, Any]:
+            return {
+                "title": "Lagging backend",
+                "path": self.current_path,
+                "streaming": False,
+                "messages": [],
+            }
+
+        async def conversation_final_event(
+            self,
+            requested_conversation_id: str,
+            *,
+            context: str | None = None,
+        ) -> dict[str, Any]:
+            assert requested_conversation_id == conversation_id
+            return {
+                "ok": True,
+                "status": 200,
+                "latest_user": {"id": "u1", "text": "First turn"},
+                "final_event": {
+                    "id": "final-1",
+                    "role": "assistant",
+                    "recipient": "all",
+                    "content_type": "text",
+                    "parts": ["First answer"],
+                    "text": "",
+                    "end_turn": True,
+                },
+            }
+
+    fake = LaggingBackendDriver()
+    fake.close_context = AsyncMock()  # type: ignore[method-assign]
+    prompta.driver = cast(Any, fake)
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(_: float) -> None:
+        await original_sleep(0.002)
+
+    with (
+        patch("prompta.core._RESTART_RECOVERY_MESSAGE_TIMEOUT_SECONDS", 0.001),
+        patch("prompta.core.asyncio.sleep", side_effect=fast_sleep),
+    ):
+        assert await prompta.recover_cached_conversations() == 0
+
+    assert prompta.cache.status(conversation_id) == "active"
+    fake.close_context.assert_awaited_once_with("context-new")  # type: ignore[attr-defined]
+    prompta.cache.close()
+
+
+@pytest.mark.asyncio
 async def test_recover_cached_conversations_skips_already_attached_chat(tmp_path: Path) -> None:
     conversation_id = "already-attached-chat"
     prompta = Prompta(PromptaConfig(jobs_file=tmp_path / "jobs.json"), "ws://unused")
