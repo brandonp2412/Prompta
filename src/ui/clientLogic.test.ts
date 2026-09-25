@@ -25,6 +25,7 @@ import {
   pendingConversationSends,
   promotePinnedConversationId,
   pendingSendActivity,
+  pendingSendPreviewText,
   shouldRenderNewChatView,
   shouldShowStopAction,
   shouldProbeHistoricalActivity,
@@ -605,6 +606,28 @@ describe("optimistic new-chat reconciliation", () => {
     );
 
     expect(matched).toBeNull();
+  });
+
+  test("reconciles an attachment-only new chat by nearby empty prompt", () => {
+    const matched = matchingOptimisticConversation(
+      [{ id: "WEB:attachment-chat", prompt: "", created_at: 1_002 }],
+      {
+        message: "",
+        attachmentNames: ["photo.png"],
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matched?.id).toBe("WEB:attachment-chat");
+  });
+
+  test("does not treat a textless pending send without attachments as a chat", () => {
+    expect(
+      matchingOptimisticConversation([{ id: "WEB:empty-chat", prompt: "", created_at: 1_002 }], {
+        message: "",
+        createdAt: 1_000,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -1223,6 +1246,39 @@ describe("optimistic reply reconciliation", () => {
 
     expect(matchedIndex).toBe(-1);
   });
+
+  test("reconciles an attachment-only reply with its durable user message", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [
+        {
+          role: "user",
+          content: "",
+          attachments: [{ name: "photo.png" }],
+          created_at: 1_002,
+        },
+      ],
+      {
+        message: "",
+        attachmentNames: ["photo.png"],
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(0);
+  });
+
+  test("does not reconcile attachment-only pending state with a textless row lacking attachments", () => {
+    const matchedIndex = matchingPendingReplyMessageIndex(
+      [{ role: "user", content: "", created_at: 1_002 }],
+      {
+        message: "",
+        attachmentNames: ["photo.png"],
+        createdAt: 1_000,
+      },
+    );
+
+    expect(matchedIndex).toBe(-1);
+  });
 });
 
 describe("selected chat refresh", () => {
@@ -1283,6 +1339,13 @@ describe("composer content", () => {
 
   test("accepts text without attachments", () => {
     expect(composerHasContent("hello", 0)).toBe(true);
+  });
+
+  test("uses attachment names for an attachment-only sidebar preview", () => {
+    expect(pendingSendPreviewText("   ", ["photo.png", "notes.txt"])).toBe(
+      "Attached: photo.png, notes.txt",
+    );
+    expect(pendingSendPreviewText("caption", ["photo.png"])).toBe("caption");
   });
 });
 

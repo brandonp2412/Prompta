@@ -333,6 +333,7 @@ export type PendingNewSend = {
   message?: string;
   status?: string;
   createdAt?: number;
+  attachmentNames?: string[];
 };
 
 export type PendingReply = {
@@ -353,6 +354,7 @@ export type PendingReply = {
   responseObservedInCache?: boolean;
   createdAt?: number;
   updatedAt?: number;
+  attachmentNames?: string[];
   attachments?: Array<{
     id?: string;
     name?: string;
@@ -366,6 +368,12 @@ export type CachedMessage = {
   content?: string;
   created_at?: number;
   updated_at?: number;
+  attachments?: Array<{
+    id?: string;
+    name?: string;
+    type?: string;
+    src?: string;
+  }>;
 };
 
 export type ScheduleSlashCommand =
@@ -844,8 +852,9 @@ export function matchingOptimisticConversation(
   }
 
   const prompt = comparablePrompt(pending.message);
+  const attachmentOnly = !prompt && Boolean(pending.attachmentNames?.length);
 
-  if (!prompt) return null;
+  if (!prompt && !attachmentOnly) return null;
 
   const createdAt = comparableTimestampSeconds(pending.createdAt);
   let best: ChatSummary | null = null;
@@ -976,15 +985,21 @@ export function matchingPendingReplyMessageIndex(
   claimedIndexes: ReadonlySet<number> = new Set(),
 ): number {
   const content = comparablePrompt(pending.message);
+  const attachmentOnly =
+    !content && Boolean(pending.attachmentNames?.length || pending.attachments?.length);
 
-  if (!content) return -1;
+  if (!content && !attachmentOnly) return -1;
+
+  const matchesPendingContent = (message: CachedMessage): boolean => {
+    if (message.role !== "user") return false;
+    if (content) return comparablePrompt(message.content) === content;
+
+    return !comparablePrompt(message.content) && Boolean(message.attachments?.length);
+  };
 
   if (pending.origin === "new") {
     const firstDurableUserIndex = messages.findIndex(
-      (message, index) =>
-        !claimedIndexes.has(index) &&
-        message.role === "user" &&
-        comparablePrompt(message.content) === content,
+      (message, index) => !claimedIndexes.has(index) && matchesPendingContent(message),
     );
 
     if (firstDurableUserIndex >= 0) return firstDurableUserIndex;
@@ -1006,7 +1021,7 @@ export function matchingPendingReplyMessageIndex(
 
     const message = messages[index];
 
-    if (message.role !== "user" || comparablePrompt(message.content) !== content) continue;
+    if (!matchesPendingContent(message)) continue;
 
     const messageTime = comparableTimestampSeconds(message.created_at || message.updated_at);
 
@@ -1220,6 +1235,19 @@ export function nextSlashCommandIndex(
   if (currentIndex < 0 || currentIndex >= count) return step < 0 ? count - 1 : 0;
 
   return (currentIndex + step + count) % count;
+}
+
+export function pendingSendPreviewText(
+  message: unknown,
+  attachmentNames: readonly string[] = [],
+): string {
+  const text = textValue(message).trim();
+
+  if (text) return text;
+
+  const names = attachmentNames.map((name) => String(name || "").trim()).filter(Boolean);
+
+  return names.length ? "Attached: " + names.join(", ") : "";
 }
 
 export function composerHasContent(message: string, attachmentCount: number): boolean {

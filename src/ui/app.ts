@@ -15,6 +15,7 @@ import {
   missingPendingConversationSummaries,
   pendingConversationDisplayId,
   pendingConversationStatus,
+  pendingSendPreviewText,
   promotePinnedConversationId,
   matchingPendingReplyMessageIndex,
   parseAtSlashCommand,
@@ -756,7 +757,7 @@ function sidebarChats(): UiChat[] {
     return {
       ...chat,
       status: pendingConversationStatus(chat.status, latest.status),
-      preview: latest.message,
+      preview: pendingSendPreviewText(latest.message, latest.attachmentNames),
       updated_at: Math.max(Number(chat.updated_at || 0), Number(latest.updatedAt || 0)),
       last_user_at: Math.max(
         Number(chat.last_user_at || chat.created_at || 0),
@@ -787,11 +788,12 @@ function sidebarChats(): UiChat[] {
   }
 
   const pendingId = pendingConversationDisplayId(pending);
+  const pendingPreview = pendingSendPreviewText(pending.message, pending.attachmentNames);
   const optimistic = {
     id: pendingId,
     status: pendingConversationStatus("", pending.status),
-    title: truncate(pending.message, 72) || "New chat",
-    preview: pending.message,
+    title: truncate(pending.message || pending.attachmentNames?.[0] || "", 72) || "New chat",
+    preview: pendingPreview,
     message_count: 1,
     job_name: "new chat",
     created_at: pending.createdAt,
@@ -2577,7 +2579,8 @@ async function sendSelectedMessage() {
   const conversationId = state.selectedId;
   const attachments = attachmentPicker.snapshot();
 
-  if (!message || state.mode !== "chats" || state.sending) return;
+  if (!composerHasContent(message, attachments.length) || state.mode !== "chats" || state.sending)
+    return;
 
   if (message.toLowerCase() === "/logs") {
     clearComposerDraft();
