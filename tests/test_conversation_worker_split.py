@@ -292,6 +292,49 @@ def test_conversation_worker_deduplicates_extraction_diagnostics(
 
 
 @pytest.mark.asyncio
+async def test_run_once_polls_live_conversations_before_incremental_recovery(
+    tmp_path: Path,
+) -> None:
+    driver = FakeTrackingDriver("prompta-conversation:live", "chat-live")
+    worker = ConversationWorker(
+        tmp_path / "runtime.sqlite3",
+        cache_path=tmp_path / "chats.sqlite3",
+        driver_factory=cast(Any, lambda: driver),
+    )
+    events: list[str] = []
+
+    async def poll_active_conversations() -> None:
+        events.append("poll")
+
+    async def recover_cached_conversations(*, limit: int = 50) -> int:
+        events.append(f"recover:{limit}")
+        return 0
+
+    async def cleanup_orphan_pages() -> int:
+        events.append("cleanup")
+        return 0
+
+    try:
+        with (
+            patch.object(
+                worker.tracker,
+                "poll_active_conversations",
+                new=poll_active_conversations,
+            ),
+            patch.object(
+                worker.tracker,
+                "recover_cached_conversations",
+                new=recover_cached_conversations,
+            ),
+            patch.object(driver, "cleanup_orphan_pages", new=cleanup_orphan_pages),
+        ):
+            assert await worker.run_once() is False
+            assert events == ["poll", "recover:1", "cleanup"]
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
 async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
     tmp_path: Path,
 ) -> None:

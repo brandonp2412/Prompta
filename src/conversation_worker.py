@@ -124,9 +124,11 @@ class ConversationWorker:
         if await self._dismiss_history_rate_limits(driver):
             return False
 
-        recovered = await self.tracker.recover_cached_conversations()
-        await driver.cleanup_orphan_pages()
         await self.tracker.poll_active_conversations()
+        recovered = await self.tracker.recover_cached_conversations(limit=1)
+        await driver.cleanup_orphan_pages()
+        if recovered:
+            await self.tracker.poll_active_conversations()
         if await self._dismiss_history_rate_limits(driver):
             return False
         return recovered > 0 or bool(self.tracker.active)
