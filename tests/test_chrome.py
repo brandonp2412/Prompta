@@ -104,6 +104,56 @@ async def test_composer_prefers_main_textbox_over_sidebar_and_dialog(live_driver
 
 
 @pytest.mark.asyncio
+async def test_type_message_waits_for_chatgpt_composer_state_to_settle(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <textarea aria-label="Message ChatGPT"></textarea>
+        </main>
+        <script>
+          const composer = document.querySelector("textarea");
+          composer.addEventListener("input", () => {
+            const typed = composer.value;
+            composer.value = "";
+            setTimeout(() => { composer.value = typed; }, 150);
+          }, { once: true });
+        </script>
+        """
+    )
+
+    await driver.type_message("a long scheduled automation prompt")
+
+    assert await page.get_by_role("textbox", name="Message ChatGPT").input_value() == (
+        "a long scheduled automation prompt"
+    )
+
+
+@pytest.mark.asyncio
+async def test_click_send_waits_for_send_button_instead_of_pressing_enter(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <textarea aria-label="Message ChatGPT">scheduled automation prompt</textarea>
+          <button aria-label="Send prompt" disabled onclick="window.sent=true"></button>
+        </main>
+        <script>
+          const composer = document.querySelector("textarea");
+          composer.addEventListener("keydown", event => event.preventDefault());
+          setTimeout(() => {
+            document.querySelector("button").disabled = false;
+          }, 150);
+        </script>
+        """
+    )
+
+    await driver.click_send()
+
+    assert await page.evaluate("Boolean(window.sent)") is True
+
+
+@pytest.mark.asyncio
 async def test_send_prefers_main_accessible_button_over_same_named_toolbar_action(
     live_driver,
 ) -> None:

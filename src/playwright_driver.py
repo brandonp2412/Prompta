@@ -751,10 +751,18 @@ class PlaywrightDriver(BrowserDriverBase):
         except PlaywrightError:
             await composer.click()
             await self._page().keyboard.insert_text(text)
-        actual = await self._composer_text(composer)
+
         expected = " ".join(text.split()).strip()
-        if " ".join(actual.split()).strip() != expected:
-            raise RuntimeError("ChatGPT composer did not contain the requested prompt")
+        deadline = asyncio.get_running_loop().time() + 3.0
+        while asyncio.get_running_loop().time() < deadline:
+            current = await self._composer(self._page())
+            if current is not None:
+                actual = await self._composer_text(current)
+                if " ".join(actual.split()).strip() == expected:
+                    return
+            await asyncio.sleep(0.05)
+
+        raise RuntimeError("ChatGPT composer did not contain the requested prompt")
 
     async def clear_composer(self, timeout: float = 3.0) -> None:
         composer = await self._focus_composer()
@@ -781,13 +789,7 @@ class PlaywrightDriver(BrowserDriverBase):
             return ""
 
     async def click_send(self) -> None:
-        composer = await self._focus_composer()
-        try:
-            await composer.press("Enter")
-        except Exception as exc:
-            raise SendOutcomeUnknownError(
-                "ChatGPT send mutation failed while pressing Enter; the prompt may have been submitted"
-            ) from exc
+        await self.click_send_button(timeout=10.0)
 
     async def click_send_button(self, timeout: float = 120.0) -> None:
         page = self._page()
