@@ -493,6 +493,74 @@ def test_read_only_store_ignores_stale_request_placeholder_parts(tmp_path: Path)
     assert assistant["parts_renderable"] is True
 
 
+def test_read_only_store_drops_transient_thinking_promoted_to_durable_assistant(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    conversation_id = "conversation-promoted-thinking"
+    final_text = "PROMPTA_E2E_EXACT_FOLLOWUP"
+    cache.start(
+        conversation_id,
+        context_id="context-promoted-thinking",
+        job_name="",
+        prompt="Reply exactly",
+    )
+    cache.write_snapshot(
+        conversation_id,
+        {
+            "title": "Exact reply",
+            "path": f"/c/{conversation_id}",
+            "streaming": False,
+            "messages": [
+                {"id": "u1", "role": "user", "content": "Reply exactly"},
+                {"id": "a1", "role": "assistant", "content": final_text},
+            ],
+        },
+        complete=True,
+    )
+    with cache.connection:
+        cache.connection.executemany(
+            """
+            INSERT INTO message_parts (
+                conversation_id, message_key, part_key, ordinal, kind, content,
+                source_event_key, end_turn
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    conversation_id,
+                    "a1",
+                    "final-dom-part",
+                    0,
+                    "assistant_text",
+                    final_text,
+                    "a1:dom-prose:0:dom-prose",
+                    1,
+                ),
+                (
+                    conversation_id,
+                    "a1",
+                    "stale-thinking-part",
+                    1,
+                    "assistant_text",
+                    "Thinking",
+                    "__prompta_live_assistant_abc__:dom-prose:0:dom-prose",
+                    None,
+                ),
+            ],
+        )
+    cache.close()
+
+    chat = ReadOnlyChatStore(path).conversation(conversation_id)
+
+    assert chat is not None
+    assistant = chat["messages"][-1]
+    assert assistant["content"] == final_text
+    assert [part["content"] for part in assistant["parts"] if part["content"]] == [final_text]
+    assert assistant["parts_renderable"] is True
+
+
 def test_read_only_store_does_not_drop_canonical_final_text_when_parts_are_stale(
     tmp_path: Path,
 ) -> None:

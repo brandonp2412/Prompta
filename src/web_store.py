@@ -61,6 +61,14 @@ def _leading_prose_before_tool(content: str) -> str:
     return cleaned[: min(starts)].strip()
 
 
+def _meaningful_dom_prose(content: str) -> str:
+    """Drop transient ChatGPT activity labels while preserving visible transcript prose."""
+
+    return "\n\n".join(
+        prose for _, prose in observed_prose_blocks([(0.0, content)]) if prose.strip()
+    ).strip()
+
+
 def _attach_transient_dom_prose_observations(
     messages: list[dict[str, Any]],
     observations_by_message: dict[str, list[tuple[float, str]]],
@@ -897,9 +905,10 @@ class ReadOnlyChatStore:
                         "final_text",
                         "reasoning",
                     }:
-                        part["content"] = strip_delivery_timeout_noise(
-                            str(part.get("content") or "")
-                        )
+                        cleaned_part = strip_delivery_timeout_noise(str(part.get("content") or ""))
+                        if _is_dom_prose_part(part):
+                            cleaned_part = _meaningful_dom_prose(cleaned_part)
+                        part["content"] = cleaned_part
             message["parts"] = structured_parts
             message["parts_renderable"] = False
             message["tool_calls"] = calls_by_message.get(message_key, [])
@@ -911,7 +920,11 @@ class ReadOnlyChatStore:
             dom_observations = [
                 (observed_at, cleaned)
                 for observed_at, prose in dom_prose_by_message.get(message_key, [])
-                if (cleaned := compact_prose_observation(strip_delivery_timeout_noise(prose)))
+                if (
+                    cleaned := _meaningful_dom_prose(
+                        compact_prose_observation(strip_delivery_timeout_noise(prose))
+                    )
+                )
             ]
             use_structured_content = historical or str(message.get("status") or "") == "complete"
             if use_structured_content and str(message.get("role") or "") == "assistant":
