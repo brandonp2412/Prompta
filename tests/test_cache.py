@@ -1396,6 +1396,43 @@ def test_cache_migration_removes_seeded_prompt_after_real_user_message(tmp_path:
     ]
 
 
+def test_cache_migration_restores_seeded_prompt_when_only_followup_user_exists(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    cache.start(
+        "conversation-1",
+        context_id="context-1",
+        job_name="",
+        prompt="Original prompt",
+    )
+    with cache.connection:
+        cache.connection.execute(
+            "DELETE FROM messages WHERE conversation_id = ? AND message_key = ?",
+            ("conversation-1", "__prompta_prompt__"),
+        )
+        cache.connection.execute(
+            """
+            INSERT INTO messages (
+                conversation_id, message_key, ordinal, role, content, status,
+                created_at, updated_at
+            ) VALUES (?, ?, 2, 'user', ?, 'complete', 2, 2)
+            """,
+            ("conversation-1", "followup-user", "Follow-up prompt"),
+        )
+    cache.close()
+
+    reopened = ChatCache(path)
+    messages = reopened.messages("conversation-1")
+    reopened.close()
+
+    assert [(message["role"], message["content"]) for message in messages] == [
+        ("user", "Original prompt"),
+        ("user", "Follow-up prompt"),
+    ]
+
+
 def test_cache_marks_previous_active_conversations_interrupted(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

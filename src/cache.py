@@ -543,10 +543,20 @@ class ChatCache:
             FROM conversations c
             WHERE TRIM(c.prompt) <> ''
               AND NOT EXISTS (
-                  SELECT 1 FROM messages m WHERE m.conversation_id = c.id
+                  SELECT 1
+                  FROM messages m
+                  WHERE m.conversation_id = c.id
+                    AND m.message_key = ?
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM messages actual
+                  WHERE actual.conversation_id = c.id
+                    AND actual.role = 'user'
+                    AND TRIM(actual.content) = TRIM(c.prompt)
               )
             """,
-            (_SEEDED_PROMPT_KEY,),
+            (_SEEDED_PROMPT_KEY, _SEEDED_PROMPT_KEY),
         )
         self.connection.execute(
             """
@@ -558,6 +568,7 @@ class ChatCache:
                 WHERE actual.conversation_id = messages.conversation_id
                   AND actual.role = 'user'
                   AND actual.message_key != ?
+                  AND TRIM(actual.content) = TRIM(messages.content)
               )
             """,
             (_SEEDED_PROMPT_KEY, _SEEDED_PROMPT_KEY),
