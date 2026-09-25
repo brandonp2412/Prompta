@@ -9,14 +9,18 @@ from prompta.jobs import PromptJob, normalise_job_definition
 from prompta.scheduler_policy import (
     due_in,
     failure_retry_remaining,
+    failure_state_updates,
     initial_due_at,
     initial_jitter_window,
     next_due_at,
     occurrence_key,
+    pending_delivery_updates,
     recurring_delay,
     recurring_jitter_cap,
+    retry_at,
     send_gap_remaining,
     should_enqueue_job,
+    successful_delivery_updates,
     terminal_reconciliation_updates,
 )
 
@@ -264,6 +268,73 @@ def test_terminal_reconciliation_is_idempotent_and_preserves_failure_message() -
         )
         is None
     )
+
+
+def test_pending_delivery_metadata_is_derived_without_persistence() -> None:
+    job = PromptJob(
+        "daily",
+        "work",
+        1800,
+        daily_at="07:00",
+        exact_interval=True,
+        source_revision="abc123",
+    )
+    assert pending_delivery_updates(
+        job,
+        send_id="scheduled-1",
+        idempotency_key="key-1",
+        queued_at=1000.0,
+    ) == {
+        "last_enqueued_at": 1000.0,
+        "last_delivery_send_id": "scheduled-1",
+        "last_delivery_idempotency_key": "key-1",
+        "pending_delivery_prompt_sha256": hashlib.sha256(b"work").hexdigest(),
+        "pending_delivery_interval_seconds": 1800.0,
+        "pending_delivery_daily_at": "07:00",
+        "pending_delivery_exact_interval": True,
+        "pending_delivery_one_time": False,
+        "status": "queued",
+        "status_message": "",
+        "status_at": 1000.0,
+    }
+
+
+def test_success_and_failure_state_updates_are_explicit_transitions() -> None:
+    assert failure_state_updates(
+        "network failed",
+        status_at=1000.0,
+        retry_until=1300.0,
+    ) == {
+        "status": "failing",
+        "status_message": "network failed",
+        "status_at": 1000.0,
+        "failure_retry_until_epoch": 1300.0,
+    }
+
+    assert successful_delivery_updates(
+        {"job_prompt_sha256": "digest"},
+        conversation_id="conversation-1",
+        sent_at=2000.0,
+        next_due_at_epoch=3800.0,
+        rate_limit_backoff={"attempt": 0},
+    ) == {
+        "prompt_sha256": "digest",
+        "last_sent_at": 2000.0,
+        "last_uncertain_send_at": 0.0,
+        "initial_due_at_epoch": 0.0,
+        "next_due_at_epoch": 3800.0,
+        "last_conversation_id": "conversation-1",
+        "rate_limit_backoff": {"attempt": 0},
+        "failure_retry_until_epoch": 0.0,
+        "status": "healthy",
+        "status_message": "",
+        "status_at": 2000.0,
+    }
+
+
+def test_retry_at_clamps_negative_delay_and_uses_explicit_time() -> None:
+    assert retry_at(now=1000.0, delay_seconds=300.0) == 1300.0
+    assert retry_at(now=1000.0, delay_seconds=-5.0) == 1000.0
 
 
 def test_retry_and_send_gap_windows_use_explicit_time() -> None:

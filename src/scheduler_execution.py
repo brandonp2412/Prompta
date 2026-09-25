@@ -17,8 +17,10 @@ from .scheduler_policy import (
     next_due_at,
     occurrence_key,
     prompt_hash,
+    retry_at,
     scheduled_job_prompt,
     should_enqueue_job,
+    successful_delivery_updates,
 )
 from .scheduler_runtime import SchedulerRuntime
 
@@ -199,11 +201,11 @@ class SchedulerExecution:
                 )
         except RateLimitError as exc:
             delay = self.scheduler.record_global_rate_limit(exc)
-            self.scheduler.mark_failure(job_name, str(exc))
+            self.scheduler.mark_failure(job_name, str(exc), now=attempted_at)
             self.scheduler.defer_delivery(
                 intent["id"],
                 error=str(exc),
-                available_at=attempted_at + delay,
+                available_at=retry_at(now=attempted_at, delay_seconds=delay),
             )
             logger.warning(
                 "Prompta delivery intent=%d job=%s rate limited account-wide; retrying after %.1fs",
@@ -238,8 +240,16 @@ class SchedulerExecution:
                 job_name,
                 exc,
             )
-            retry_until = attempted_at + _FAILURE_RETRY_SECONDS
-            self.scheduler.mark_failure(job_name, str(exc), retry_until=retry_until)
+            retry_until = retry_at(
+                now=attempted_at,
+                delay_seconds=_FAILURE_RETRY_SECONDS,
+            )
+            self.scheduler.mark_failure(
+                job_name,
+                str(exc),
+                retry_until=retry_until,
+                now=attempted_at,
+            )
             self.scheduler.defer_delivery(
                 intent["id"],
                 error=str(exc),
@@ -288,19 +298,13 @@ class SchedulerExecution:
             job_name,
             conversation_id=conversation_id,
             sent_at=sent_at,
-            job_updates={
-                "prompt_sha256": intent["job_prompt_sha256"],
-                "last_sent_at": sent_at,
-                "last_uncertain_send_at": 0.0,
-                "initial_due_at_epoch": 0.0,
-                "next_due_at_epoch": next_due_at_epoch,
-                "last_conversation_id": conversation_id,
-                "rate_limit_backoff": backoff.snapshot(),
-                "failure_retry_until_epoch": 0.0,
-                "status": "healthy",
-                "status_message": "",
-                "status_at": sent_at,
-            },
+            job_updates=successful_delivery_updates(
+                intent,
+                conversation_id=conversation_id,
+                sent_at=sent_at,
+                next_due_at_epoch=next_due_at_epoch,
+                rate_limit_backoff=backoff.snapshot(),
+            ),
         )
         logger.info(
             "Prompta delivered intent=%d job=%s conversation=%s",

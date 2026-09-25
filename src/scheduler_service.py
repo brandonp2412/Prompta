@@ -12,7 +12,7 @@ from .jobs import PromptJob, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
 from .scheduler_policy import (
     occurrence_key,
-    prompt_hash,
+    pending_delivery_updates,
     receipt_is_pending,
     receipt_is_terminal,
     recurring_jitter_cap,
@@ -65,19 +65,12 @@ class DurableSchedulerProducer:
     ) -> None:
         self.runtime.update_job_state(
             job.name,
-            {
-                "last_enqueued_at": queued_at,
-                "last_delivery_send_id": send_id,
-                "last_delivery_idempotency_key": idempotency_key,
-                "pending_delivery_prompt_sha256": prompt_hash(job.prompt),
-                "pending_delivery_interval_seconds": float(job.interval_seconds),
-                "pending_delivery_daily_at": job.daily_at or "",
-                "pending_delivery_exact_interval": bool(job.exact_interval),
-                "pending_delivery_one_time": job.run_at_epoch is not None,
-                "status": "queued",
-                "status_message": "",
-                "status_at": queued_at,
-            },
+            pending_delivery_updates(
+                job,
+                send_id=send_id,
+                idempotency_key=idempotency_key,
+                queued_at=queued_at,
+            ),
         )
 
     def enqueue_if_due(self, job: PromptJob, *, now: float) -> bool:

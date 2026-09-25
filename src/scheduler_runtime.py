@@ -26,6 +26,7 @@ from .scheduler_policy import (
     failure_retry_remaining as calculate_failure_retry_remaining,
 )
 from .scheduler_policy import (
+    failure_state_updates,
     initial_due_at,
     initial_jitter_window,
     recurring_delay,
@@ -737,15 +738,22 @@ class SchedulerRuntime:
             now=now,
         )
 
-    def mark_failure(self, name: str, message: str, *, retry_until: float | None = None) -> None:
-        updates: dict[str, Any] = {
-            "status": "failing",
-            "status_message": message,
-            "status_at": time.time(),
-        }
-        if retry_until is not None:
-            updates["failure_retry_until_epoch"] = retry_until
-        self.update_job_state(name, updates)
+    def mark_failure(
+        self,
+        name: str,
+        message: str,
+        *,
+        retry_until: float | None = None,
+        now: float | None = None,
+    ) -> None:
+        self.update_job_state(
+            name,
+            failure_state_updates(
+                message,
+                status_at=time.time() if now is None else now,
+                retry_until=retry_until,
+            ),
+        )
 
     def read_jobs(self) -> dict[str, PromptJob]:
         return load_jobs(self.jobs_file)

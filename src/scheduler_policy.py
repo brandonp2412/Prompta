@@ -205,6 +205,71 @@ def failure_retry_remaining(
     return max(0.0, max(persisted, float(in_memory_retry_until)) - now)
 
 
+def retry_at(*, now: float, delay_seconds: float) -> float:
+    return float(now) + max(0.0, float(delay_seconds))
+
+
+def failure_state_updates(
+    message: str,
+    *,
+    status_at: float,
+    retry_until: float | None = None,
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {
+        "status": "failing",
+        "status_message": message,
+        "status_at": float(status_at),
+    }
+    if retry_until is not None:
+        updates["failure_retry_until_epoch"] = float(retry_until)
+    return updates
+
+
+def pending_delivery_updates(
+    job: PromptJob,
+    *,
+    send_id: str,
+    idempotency_key: str,
+    queued_at: float,
+) -> dict[str, Any]:
+    return {
+        "last_enqueued_at": float(queued_at),
+        "last_delivery_send_id": send_id,
+        "last_delivery_idempotency_key": idempotency_key,
+        "pending_delivery_prompt_sha256": prompt_hash(job.prompt),
+        "pending_delivery_interval_seconds": float(job.interval_seconds),
+        "pending_delivery_daily_at": job.daily_at or "",
+        "pending_delivery_exact_interval": bool(job.exact_interval),
+        "pending_delivery_one_time": job.run_at_epoch is not None,
+        "status": "queued",
+        "status_message": "",
+        "status_at": float(queued_at),
+    }
+
+
+def successful_delivery_updates(
+    intent: Mapping[str, Any],
+    *,
+    conversation_id: str,
+    sent_at: float,
+    next_due_at_epoch: float,
+    rate_limit_backoff: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "prompt_sha256": str(intent.get("job_prompt_sha256") or ""),
+        "last_sent_at": float(sent_at),
+        "last_uncertain_send_at": 0.0,
+        "initial_due_at_epoch": 0.0,
+        "next_due_at_epoch": float(next_due_at_epoch),
+        "last_conversation_id": conversation_id,
+        "rate_limit_backoff": dict(rate_limit_backoff),
+        "failure_retry_until_epoch": 0.0,
+        "status": "healthy",
+        "status_message": "",
+        "status_at": float(sent_at),
+    }
+
+
 def terminal_reconciliation_updates(
     state: Mapping[str, Any],
     receipt: Mapping[str, Any],
