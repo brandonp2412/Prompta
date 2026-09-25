@@ -537,7 +537,11 @@ class ConversationTracker:
             return
         if driver is None:
             return
-        for context, active in list(self.active.items()):
+        active_items = list(self.active.items())
+        active_items.sort(
+            key=lambda item: self.cache.latest_message_role(item[1].conversation_id) != "user"
+        )
+        for context, active in active_items:
             durable_status = self.cache.status(active.conversation_id)
             durable_context = self.cache.browser_context_id(active.conversation_id)
             superseded_by_new_activity = (

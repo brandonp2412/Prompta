@@ -10,6 +10,7 @@ import pytest
 
 from prompta import conversation_worker as conversation_worker_module
 from prompta.cache import ActiveConversation, ChatCache
+from prompta.conversation_tracker import ConversationTracker
 from prompta.conversation_worker import ConversationWorker
 
 
@@ -94,6 +95,99 @@ def _browser_context_id(cache: ChatCache, conversation_id: str) -> str:
     ).fetchone()
     assert row is not None
     return str(row["browser_context_id"])
+
+
+@pytest.mark.asyncio
+async def test_tracker_prioritizes_conversation_waiting_for_assistant(
+    tmp_path: Path,
+) -> None:
+    cache = ChatCache(tmp_path / "chats.sqlite3")
+    background_id = "chat-background-stream"
+    waiting_id = "chat-waiting-reply"
+    background_context = "context-background"
+    waiting_context = "context-waiting"
+
+    cache.start(
+        background_id,
+        context_id=background_context,
+        job_name="",
+        prompt="Long background work",
+    )
+    cache.write_snapshot(
+        background_id,
+        {
+            "streaming": True,
+            "messages": [
+                {"id": "bg-u", "role": "user", "content": "Long background work"},
+                {"id": "bg-a", "role": "assistant", "content": "Still working"},
+            ],
+        },
+    )
+    cache.start(
+        waiting_id,
+        context_id=waiting_context,
+        job_name="",
+        prompt="First request",
+    )
+    cache.write_snapshot(
+        waiting_id,
+        {
+            "streaming": True,
+            "messages": [
+                {"id": "wait-u1", "role": "user", "content": "First request"},
+                {"id": "wait-a1", "role": "assistant", "content": "First answer"},
+                {"id": "wait-u2", "role": "user", "content": "Follow up"},
+            ],
+        },
+    )
+
+    class PriorityDriver:
+        needs_browser_restart = False
+
+        def __init__(self) -> None:
+            self.activity_order: list[str] = []
+
+        async def conversation_activity(self, context: str) -> dict[str, Any]:
+            self.activity_order.append(context)
+            return {
+                "streaming": True,
+                "complete": False,
+                "transient": False,
+                "failed": False,
+                "turn_ended": None,
+            }
+
+    driver = PriorityDriver()
+
+    async def ensure_driver() -> PriorityDriver:
+        return driver
+
+    tracker = ConversationTracker(
+        cache,
+        ensure_driver=ensure_driver,
+        ensure_route=lambda *args, **kwargs: None,
+        current_driver=lambda: driver,
+        recovery_message_timeout_seconds=lambda: 0.01,
+    )
+    tracker.active[background_context] = ActiveConversation(
+        conversation_id=background_id,
+        context_id=background_context,
+        job_name="",
+        prompt="Long background work",
+        last_live_snapshot_at=10**12,
+    )
+    tracker.active[waiting_context] = ActiveConversation(
+        conversation_id=waiting_id,
+        context_id=waiting_context,
+        job_name="",
+        prompt="First request",
+        last_live_snapshot_at=10**12,
+    )
+    try:
+        await tracker.poll_active_conversations()
+        assert driver.activity_order == [waiting_context, background_context]
+    finally:
+        cache.close()
 
 
 def test_conversation_worker_uses_separate_browser_ownership_scope(tmp_path: Path) -> None:

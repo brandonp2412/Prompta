@@ -819,6 +819,19 @@ class ChatCache:
         ).fetchone()
         return float(row["activity_at"] or 0.0) if row is not None else 0.0
 
+    def latest_message_role(self, conversation_id: str) -> str:
+        row = self.connection.execute(
+            """
+            SELECT role
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY ordinal DESC, created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (conversation_id,),
+        ).fetchone()
+        return str(row["role"] or "") if row is not None else ""
+
     def stale_active_conversation_ids(self, *, activity_before: float) -> list[str]:
         activity_sql = _conversation_meaningful_activity_sql()
         rows = self.connection.execute(
