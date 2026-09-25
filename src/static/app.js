@@ -19186,10 +19186,26 @@ function createCompletionNotifications({ displayServerName, getServerName, chatT
 	function completionKey(chat) {
 		return String(chat.id || "") + ":" + String(chat.completed_at ?? chat.updated_at ?? "");
 	}
+	function completionTitle(chat, display) {
+		const candidate = String(chatTitle(chat) || "").trim();
+		const appTitles = /* @__PURE__ */ new Set(["prompta", `prompta · ${String(display || "").trim().toLowerCase()}`]);
+		const genericAppTitle = (value) => appTitles.has(String(value || "").trim().toLowerCase());
+		if (candidate && !genericAppTitle(candidate)) return candidate;
+		for (const value of [
+			chat.prompt,
+			chat.job_name,
+			chat.preview,
+			chat.id
+		]) {
+			const fallback = String(value || "").trim();
+			if (fallback && fallback.toLowerCase() !== "new chat" && !genericAppTitle(fallback)) return fallback.slice(0, 72);
+		}
+		return "Untitled conversation";
+	}
 	async function showChatFinished(chat) {
 		if (!("Notification" in window) || Notification.permission !== "granted") return false;
 		const display = displayServerName(getServerName() || location.hostname);
-		const title = chatTitle(chat);
+		const title = completionTitle(chat, display);
 		const options = {
 			body: "Finished · " + display,
 			tag: "prompta-finished-" + chat.id,

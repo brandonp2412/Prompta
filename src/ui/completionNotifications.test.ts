@@ -133,6 +133,40 @@ describe("completion notifications", () => {
     expect(browser.shown).toHaveLength(1);
   });
 
+  test("does not regress to the generic Prompta app title", async () => {
+    const browser = browserNotifications();
+    const completion = notifications();
+
+    completion.markActive("chat-title-regression");
+    completion.trackCompletions([
+      {
+        id: "chat-title-regression",
+        status: "complete",
+        title: "Prompta",
+        prompt: "Fix PWA notification titles",
+        completed_at: 150,
+      },
+    ]);
+    completion.markActive("chat-server-title-regression");
+    completion.trackCompletions([
+      {
+        id: "chat-server-title-regression",
+        status: "complete",
+        title: "Prompta · GLASS",
+        prompt: "Keep conversation title in notifications",
+        completed_at: 151,
+      },
+    ]);
+    await settle();
+
+    expect(browser.shown).toHaveLength(2);
+    expect(browser.shown.map(({ source }) => source)).toEqual(["service-worker", "service-worker"]);
+    expect(browser.shown.map(({ title }) => title)).toEqual([
+      "Fix PWA notification titles",
+      "Keep conversation title in notifications",
+    ]);
+  });
+
   test("notifies a fast completion explicitly started by this client", async () => {
     const browser = browserNotifications();
     const completion = notifications();
