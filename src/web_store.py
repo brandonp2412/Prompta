@@ -751,16 +751,10 @@ class ReadOnlyChatStore:
                     latest_dom_prose,
                     current_content,
                 ):
-                    recovered_content = stabilize_streaming_content(
+                    message["content"] = stabilize_streaming_content(
                         current_content,
                         latest_dom_prose,
                     )
-                    if has_stream_order_inversion(recovered_content, dom_observations):
-                        recovered_content = recover_stream_order_from_observations(
-                            recovered_content,
-                            dom_observations,
-                        )
-                    message["content"] = recovered_content
 
             if use_structured_content and structured_parts:
                 structured_content = rendered_content_from_parts(structured_parts)

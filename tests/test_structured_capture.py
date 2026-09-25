@@ -1078,13 +1078,6 @@ def test_active_streaming_preserves_cached_prose_order_when_dom_reorders_it(
     canonical = chr(10).join(
         ["First update", "", "Second update", "", "Third update", "", "Fourth update"]
     )
-    reordered_dom = [
-        "First update",
-        "Third update",
-        "Fourth update",
-        "Second update",
-        "Fifth update",
-    ]
     cache.start(
         conversation_id,
         context_id="context-active-streaming-prose-order",
@@ -1100,20 +1093,43 @@ def test_active_streaming_preserves_cached_prose_order_when_dom_reorders_it(
                 {"id": "u1", "role": "user", "content": "Do work"},
                 {"id": "a1", "role": "assistant", "content": canonical},
             ],
-            "source_events": [
-                {
-                    "id": "a1:dom-prose",
-                    "role": "assistant",
-                    "recipient": "all",
-                    "content_type": "text",
-                    "parts": reordered_dom,
-                    "text": "",
-                    "create_time": None,
-                    "end_turn": None,
-                }
-            ],
         },
     )
+    observations = [
+        (10.0, ["First update"]),
+        (20.0, ["First update", "Third update"]),
+        (30.0, ["First update", "Third update", "Fourth update"]),
+        (
+            40.0,
+            [
+                "First update",
+                "Third update",
+                "Fourth update",
+                "Second update",
+                "Fifth update",
+            ],
+        ),
+    ]
+    with cache.connection:
+        for index, (observed_at, parts) in enumerate(observations, start=1):
+            event = {"id": "a1:dom-prose", "parts": parts}
+            cache.connection.execute(
+                """
+                INSERT INTO source_events (
+                    conversation_id, message_key, event_key, ordinal,
+                    raw_json, observed_at, source_created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    "a1",
+                    f"a1:dom-prose:{index}",
+                    index,
+                    json.dumps(event),
+                    observed_at,
+                    None,
+                ),
+            )
     cache.close()
 
     chat = ReadOnlyChatStore(path).conversation(conversation_id)
