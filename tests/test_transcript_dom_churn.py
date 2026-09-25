@@ -61,7 +61,7 @@ def test_current_search_unit_contract_preserves_user_and_assistant_turns(browser
               </div>
             </div>
             <div data-chatgpt-search-unit-key="fallback-turn-0:2:assistant"
-                 data-chatgpt-search-message-ids="a-current a-current">
+                 data-chatgpt-search-message-ids="a-current a-current" style="width:0;height:120px">
               <div data-chatgpt-selection-message-id="a-current">
                 <div data-markdown-text-style="assistant-message">
                   <p>CURRENT_TOKEN</p>
