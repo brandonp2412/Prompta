@@ -89,11 +89,20 @@ def _attach_transient_dom_prose_observations(
         existing.sort(key=lambda item: item[0])
 
 
+def _is_dom_prose_part(part: dict[str, Any]) -> bool:
+    source_event_key = str(part.get("source_event_key") or "")
+    if source_event_key.endswith(":dom-prose"):
+        return True
+    metadata = part.get("metadata")
+    return isinstance(metadata, dict) and metadata.get("recovered_from") == "dom-prose"
+
+
 def _merge_tool_parts_with_dom_prose(
     parts: list[dict[str, Any]],
     observations: list[tuple[float, str]],
     *,
     message_key: str,
+    dom_anchors: list[tuple[float, str, int]] | None = None,
 ) -> list[dict[str, Any]] | None:
     """Recover prose/tool interleaving when intermediate text parts did not survive."""
 
@@ -106,6 +115,7 @@ def _merge_tool_parts_with_dom_prose(
         str(part.get("content") or "").strip()
         for part in parts
         if str(part.get("kind") or "") in {"assistant_text", "reasoning", "final_text"}
+        and not _is_dom_prose_part(part)
         and str(part.get("content") or "").strip()
     ]
     prose_blocks = [
@@ -129,8 +139,36 @@ def _merge_tool_parts_with_dom_prose(
             continue
     final_sort_time = min(final_sort_times) if final_sort_times else None
 
+    dom_part_sort_times: list[tuple[str, float]] = []
+    for part in parts:
+        if not _is_dom_prose_part(part):
+            continue
+        normalized = _normalized_prose_for_match(str(part.get("content") or ""))
+        timestamp = part.get("source_created_at")
+        try:
+            sort_time = float(timestamp) if timestamp is not None else None
+        except (TypeError, ValueError):
+            sort_time = None
+        if normalized and sort_time is not None:
+            dom_part_sort_times.append((normalized, sort_time))
+
+    tool_sort_times = sorted(
+        float(part["source_created_at"])
+        for part in parts
+        if str(part.get("kind") or "") == "tool_call" and part.get("source_created_at") is not None
+    )
+    first_anchor_by_prose: dict[str, int] = {}
+    for _, anchor_content, preceding_tool_count in sorted(
+        dom_anchors or [], key=lambda item: item[0]
+    ):
+        normalized = _normalized_prose_for_match(anchor_content)
+        if normalized and normalized not in first_anchor_by_prose:
+            first_anchor_by_prose[normalized] = preceding_tool_count
+
     timeline: list[tuple[float, int, int, dict[str, Any]]] = []
     for index, part in enumerate(parts):
+        if _is_dom_prose_part(part):
+            continue
         timestamp = part.get("source_created_at")
         try:
             sort_time = float(timestamp) if timestamp is not None else float("inf")
@@ -139,9 +177,38 @@ def _merge_tool_parts_with_dom_prose(
         timeline.append((sort_time, 1, index, dict(part)))
 
     for index, (observed_at, content) in enumerate(prose_blocks):
-        recovered_sort_time = (
-            min(observed_at, final_sort_time) if final_sort_time is not None else observed_at
-        )
+        normalized = _normalized_prose_for_match(content)
+        matching_dom_times = [
+            sort_time
+            for existing, sort_time in dom_part_sort_times
+            if existing == normalized
+            or existing.startswith(normalized)
+            or normalized.startswith(existing)
+        ]
+        recovered_sort_time = min([observed_at, *matching_dom_times])
+        matching_anchors = [
+            preceding_tool_count
+            for existing, preceding_tool_count in first_anchor_by_prose.items()
+            if existing == normalized
+            or existing.startswith(normalized)
+            or normalized.startswith(existing)
+        ]
+        if matching_anchors and tool_sort_times:
+            preceding_tool_count = matching_anchors[0]
+            if preceding_tool_count <= 0:
+                recovered_sort_time = tool_sort_times[0] - 0.000001
+            elif preceding_tool_count >= len(tool_sort_times):
+                recovered_sort_time = tool_sort_times[-1] + 0.000001
+            else:
+                before_time = tool_sort_times[preceding_tool_count - 1]
+                after_time = tool_sort_times[preceding_tool_count]
+                recovered_sort_time = (
+                    before_time + ((after_time - before_time) / 2)
+                    if after_time > before_time
+                    else before_time + 0.000001
+                )
+        if final_sort_time is not None:
+            recovered_sort_time = min(recovered_sort_time, final_sort_time)
         timeline.append(
             (
                 recovered_sort_time,
@@ -682,6 +749,7 @@ class ReadOnlyChatStore:
             and row["latest_source_created_at"] is not None
         }
         dom_prose_by_message: dict[str, list[tuple[float, str]]] = {}
+        dom_anchors_by_message: dict[str, list[tuple[float, str, int]]] = {}
         for row in dom_prose_events:
             try:
                 event = json.loads(str(row["raw_json"] or "{}"))
@@ -692,9 +760,27 @@ class ReadOnlyChatStore:
             prose = _dom_prose_text(event)
             if not prose:
                 continue
-            dom_prose_by_message.setdefault(str(row["message_key"]), []).append(
-                (float(row["observed_at"]), prose)
-            )
+            message_key = str(row["message_key"])
+            observed_at = float(row["observed_at"])
+            dom_prose_by_message.setdefault(message_key, []).append((observed_at, prose))
+            references = event.get("content_references")
+            if isinstance(references, list):
+                for reference in references:
+                    if (
+                        not isinstance(reference, dict)
+                        or reference.get("type") != "prompta_dom_order"
+                    ):
+                        continue
+                    try:
+                        preceding_tool_count = int(reference.get("preceding_tool_count"))
+                    except (TypeError, ValueError):
+                        continue
+                    if preceding_tool_count < 0:
+                        continue
+                    dom_anchors_by_message.setdefault(message_key, []).append(
+                        (observed_at, prose, preceding_tool_count)
+                    )
+                    break
         _attach_transient_dom_prose_observations(
             message_payloads,
             dom_prose_by_message,
@@ -737,6 +823,7 @@ class ReadOnlyChatStore:
                     structured_parts,
                     dom_observations,
                     message_key=message_key,
+                    dom_anchors=dom_anchors_by_message.get(message_key),
                 )
                 if recovered_parts is not None:
                     structured_parts = recovered_parts
