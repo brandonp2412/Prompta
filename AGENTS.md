@@ -1,5 +1,7 @@
 - Do not disable lint/type-check rules, add blanket suppression comments, or weaken compiler settings to make `bun check` pass. Fix the underlying types and behavior instead.
 - At the end of every work session, integrate validated work into `main`, push `main`, and leave no completed work stranded only in a worktree.
+- Serialize all `main` integration with the shared lock file `/home/brandon/prompta/.git/prompta-main-merge.lock`. Acquire it with `flock` before updating/rebasing against `main`, fast-forwarding or merging `main`, or pushing `main`, and hold it until the push completes.
+- If the main-merge lock is already held, wait for it instead of attempting concurrent integration. Never delete the lock file to bypass another worker; lock ownership is released when the owning process exits.
 - When you finish working, deploy to nox
 - Never rebuild the full UI DOM; patch existing nodes in place.
 - Build browser UI with Svelte 5 + TypeScript + Vite; prefer Svelte components for new rendering/state code instead of adding manual DOM rendering to app.ts.
