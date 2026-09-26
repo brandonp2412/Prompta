@@ -242,29 +242,30 @@ class SendJobRegistry:
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
-            if self._admission is not None:
-                allowed, reason = self._admission()
-                if not allowed:
-                    if reason != self._admission_reason:
-                        logger.warning("Prompta delivery admission blocked: %s", reason)
-                        self._admission_reason = reason
+            try:
+                if self._admission is not None:
+                    allowed, reason = self._admission()
+                    if not allowed:
+                        if reason != self._admission_reason:
+                            logger.warning("Prompta delivery admission blocked: %s", reason)
+                            self._admission_reason = reason
+                        self._work_event.wait(timeout=1.0)
+                        self._work_event.clear()
+                        continue
+                    if self._admission_reason:
+                        logger.info("Prompta delivery admission recovered")
+                        self._admission_reason = ""
+                task = self._next_database_task()
+                if task is None:
                     self._work_event.wait(timeout=1.0)
                     self._work_event.clear()
                     continue
-                if self._admission_reason:
-                    logger.info("Prompta delivery admission recovered")
-                    self._admission_reason = ""
-            task = self._next_database_task()
-            if task is None:
-                self._work_event.wait(timeout=1.0)
-                self._work_event.clear()
-                continue
-            try:
                 self._run(*task)
             except DeliveryLeaseLost:
                 logger.info("Prompta delivery lease ended before completion")
             except Exception:
-                logger.exception("Prompta delivery worker failed")
+                logger.exception("Prompta delivery worker failed; retrying after recovery delay")
+                self._stop_event.wait(timeout=1.0)
 
     def close(self) -> None:
         self._stop_event.set()

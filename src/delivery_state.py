@@ -170,8 +170,14 @@ def exponential_retry_delay(
     base_seconds: float,
     cap_seconds: float,
 ) -> float:
+    base = float(base_seconds)
+    cap = float(cap_seconds)
+    if not math.isfinite(base) or not math.isfinite(cap) or base <= 0 or cap <= 0:
+        raise ValueError("retry base and cap must be finite and positive")
     exponent = max(0, int(attempt) - 1)
-    return min(float(cap_seconds), float(base_seconds) * (2**exponent))
+    if base >= cap or exponent >= math.log2(cap) - math.log2(base):
+        return cap
+    return min(cap, math.ldexp(base, exponent))
 
 
 def decide_failure_transition(

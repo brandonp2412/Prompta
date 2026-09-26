@@ -1,1 +1,1 @@
-JSON.stringify((()=>{const probe=window.__promptaSendProbe||{};if(window.__promptaSendProbeOriginalFetch){window.fetch=window.__promptaSendProbeOriginalFetch;}delete window.__promptaSendProbe;delete window.__promptaSendProbeOriginalFetch;return probe})())
+JSON.stringify((()=>{const probe=window.__promptaSendProbe||{};probe.cancel?.();if(window.__promptaSendProbeOriginalFetch){window.fetch=window.__promptaSendProbeOriginalFetch;}delete window.__promptaSendProbe;delete window.__promptaSendProbeOriginalFetch;return probe})())

@@ -91,6 +91,20 @@ def test_browser_script_is_valid_javascript(script_path: Path) -> None:
     )
 
 
+def test_send_probe_protocol_and_cleanup() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable")
+    subprocess.run(
+        [node, "--test", "tests/send_probe.test.cjs"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
 def test_browser_script_loader_reads_packaged_assets() -> None:
     for script_path in SCRIPT_ROOT.glob("*.js"):
         assert load_browser_script(script_path.name)
