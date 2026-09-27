@@ -68,6 +68,14 @@
     ||searchMessageIds(node).at(-1)
     ||''
   );
+  const descendantMessageId=root=>{
+    if(!root?.querySelectorAll)return '';
+    for(const node of root.querySelectorAll('*')){
+      const id=messageId(node);
+      if(id)return id;
+    }
+    return '';
+  };
   const messageNodes=()=>{
     const primary=[...new Set([
       ...document.querySelectorAll(messageRoleSelector),
@@ -135,5 +143,5 @@
     ||null;
   const turnMessageId=(turn,role='')=>messageId(turn)
     ||messageId(authorNode(turn,role))
-    ||messageId(turn?.querySelector?.('[data-message-id],[data-message-uuid]'))
+    ||descendantMessageId(turn)
     ||'';

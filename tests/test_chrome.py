@@ -455,6 +455,33 @@ async def test_dom_state_reads_user_after_semantic_attribute_namespace_churn(liv
 
 
 @pytest.mark.asyncio
+async def test_dom_state_reads_descendant_message_id_after_attribute_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <main>
+          <section>
+            <h5>You said:</h5>
+            <div data-future-selection-message-id="u-descendant">
+              Prompt with descendant-only identity
+            </div>
+          </section>
+          <section>
+            <h5>ChatGPT said:</h5>
+            <div data-future-selection-message-id="a-descendant">Answer</div>
+          </section>
+        </main>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-descendant"
+    assert state["last_user_text"] == "Prompt with descendant-only identity"
+
+
+@pytest.mark.asyncio
 async def test_dom_state_ignores_hidden_stale_user_duplicate(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
