@@ -30,7 +30,7 @@ JSON.stringify((()=>{
       if(tag==='br')return '\n';
       if(/^h[1-6]$/.test(tag)){
         const heading=children().trim();
-        if(assistantUiNoise.test(normalise(heading)))return '';
+        if(accessibleRole(heading)||assistantUiNoise.test(normalise(heading)))return '';
         return '#'.repeat(Number(tag[1]))+' '+heading+'\n\n';
       }
       if(tag==='p')return children().trim()+'\n\n';

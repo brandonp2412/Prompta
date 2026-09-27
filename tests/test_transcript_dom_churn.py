@@ -182,6 +182,72 @@ def test_accessible_headings_recover_heading_only_legacy_articles(browser_page) 
     ]
 
 
+def test_heading_only_turns_survive_semantic_wrapper_and_attribute_removal(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-layout-shell="outer-user">
+              <div data-layout-shell="inner-user">
+                <h5>You wrote:</h5>
+                <div>Question after all turn attributes disappear</div>
+              </div>
+            </div>
+            <div data-layout-shell="outer-assistant">
+              <div data-layout-shell="inner-assistant">
+                <h5>Assistant responded:</h5>
+                <div><p>Answer after all turn attributes disappear.</p></div>
+              </div>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after all turn attributes disappear"),
+        ("assistant", "Answer after all turn attributes disappear."),
+    ]
+
+
+def test_single_role_heading_does_not_create_false_turn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div>
+              <h5>User</h5>
+              <p>This is ordinary page content, not a transcript turn.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == []
+
+
+def test_heading_fallback_does_not_duplicate_partially_semantic_transcript(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-message-author-role="user" data-message-id="u1">
+              <h5>You said:</h5>
+              Question with surviving author metadata
+            </div>
+            <div data-layout-shell="assistant">
+              <h5>ChatGPT answered:</h5>
+              <p>Answer discovered only from accessible heading.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question with surviving author metadata"),
+        ("assistant", "Answer discovered only from accessible heading."),
+    ]
+
+
 def test_unknown_namespace_nested_inside_semantic_turn_wrapper_is_discovered(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

@@ -27,6 +27,22 @@
     }
     return '';
   };
+  const headingMessageNodes=root=>{
+    if(!root?.querySelectorAll)return [];
+    const roleHeadings=[...root.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+      .filter(heading=>accessibleRole(heading.textContent));
+    return roleHeadings.map(heading=>{
+      let candidate=heading.parentElement||heading;
+      for(let parent=candidate.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
+        if(parent.tagName==='MAIN'||parent.getAttribute?.('role')==='main')break;
+        const headings=[...parent.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+          .filter(node=>accessibleRole(node.textContent));
+        if(headings.length!==1||headings[0]!==heading)break;
+        candidate=parent;
+      }
+      return candidate;
+    });
+  };
   const directMessageRole=node=>String(
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(node,/(?:^|-)message-author-role$/i)
@@ -53,11 +69,26 @@
     const root=document.querySelector('main')||document.body||document.documentElement;
     const structural=roles.has('user')&&roles.has('assistant')?[]:
       [...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+    const headingCandidates=headingMessageNodes(root);
+    const recoverableRoles=new Set([
+      ...roles,
+      ...headingCandidates.map(messageRole).filter(Boolean)
+    ]);
+    const headingStructural=recoverableRoles.has('user')&&recoverableRoles.has('assistant')
+      ?headingCandidates
+      :[];
     const primarySelector=messageRoleSelector+','+semanticTurnSelector;
+    const overlapsPrimary=node=>primary.some(existing=>
+      messageRole(existing)===messageRole(node)
+      &&(existing===node||existing.contains(node)||node.contains(existing))
+    );
     const legacy=[...document.querySelectorAll(legacyTurnSelector)]
       .filter(node=>!node.querySelector(primarySelector))
       .filter(node=>messageRole(node));
-    return [...new Set([...primary,...structural,...legacy])];
+    const fallback=[...structural,...headingStructural,...legacy]
+      .filter(node=>messageRole(node))
+      .filter(node=>!overlapsPrimary(node));
+    return [...new Set([...primary,...fallback])];
   };
   const authorNodes=role=>messageNodes()
     .filter(node=>!role||messageRole(node)===role);
