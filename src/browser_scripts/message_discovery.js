@@ -83,8 +83,10 @@
     ])].filter(node=>messageRole(node));
     const roles=new Set(primary.map(messageRole));
     const root=document.querySelector('main')||document.body||document.documentElement;
-    const structural=roles.has('user')&&roles.has('assistant')?[]:
-      [...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+    // Always inspect structural role metadata too. During staggered DOM rollouts a page can
+    // contain both the established namespace and a renamed one; stopping once both roles
+    // are seen in the established markup would silently drop turns using the new namespace.
+    const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
     const headingCandidates=headingMessageNodes(root);
     const recoverableRoles=new Set([
       ...roles,
@@ -114,8 +116,8 @@
       ...root.querySelectorAll(messageRoleSelector),
       ...root.querySelectorAll(semanticTurnSelector)
     ])].filter(node=>messageRole(node));
-    if(primary.length)return primary;
-    return [...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+    const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+    return [...new Set([...primary,...structural])];
   };
   const authorNode=(root,role='')=>{
     if(!root)return null;

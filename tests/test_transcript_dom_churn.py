@@ -278,6 +278,39 @@ def test_unknown_namespace_nested_inside_semantic_turn_wrapper_is_discovered(bro
     assert [message["id"] for message in snapshot["messages"]] == ["u1", "a1"]
 
 
+def test_mixed_known_and_renamed_role_namespaces_preserve_all_turns(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-message-author-role="user" data-message-id="u-known">Known question</div>
+            <div data-message-author-role="assistant" data-message-id="a-known">
+              <p>Known answer.</p>
+            </div>
+            <div data-future-message-author-role="user" data-future-message-id="u-future">
+              Question from renamed namespace
+            </div>
+            <div data-future-message-author-role="assistant" data-future-message-id="a-future">
+              <p>Answer from renamed namespace.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Known question"),
+        ("assistant", "Known answer."),
+        ("user", "Question from renamed namespace"),
+        ("assistant", "Answer from renamed namespace."),
+    ]
+    assert [message["id"] for message in snapshot["messages"]] == [
+        "u-known",
+        "a-known",
+        "u-future",
+        "a-future",
+    ]
+
+
 def test_role_aliases_and_search_key_separator_churn_preserve_transcript(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
