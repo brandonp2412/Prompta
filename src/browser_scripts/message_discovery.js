@@ -78,6 +78,9 @@
     }
     return '';
   };
+  const documentOrder=(left,right)=>left===right?0:(
+    left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
+  );
   const messageNodes=()=>{
     const primary=[...new Set([
       ...document.querySelectorAll(messageRoleSelector),
@@ -108,7 +111,7 @@
     const fallback=[...structural,...headingStructural,...legacy]
       .filter(node=>messageRole(node))
       .filter(node=>!overlapsPrimary(node));
-    return [...new Set([...primary,...fallback])];
+    return [...new Set([...primary,...fallback])].sort(documentOrder);
   };
   const authorNodes=role=>messageNodes()
     .filter(node=>!role||messageRole(node)===role);
@@ -119,7 +122,7 @@
       ...root.querySelectorAll(semanticTurnSelector)
     ])].filter(node=>messageRole(node));
     const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
-    return [...new Set([...primary,...structural])];
+    return [...new Set([...primary,...structural])].sort(documentOrder);
   };
   const authorNode=(root,role='')=>{
     if(!root)return null;

@@ -336,6 +336,39 @@ def test_mixed_known_and_renamed_role_namespaces_preserve_all_turns(browser_page
     ]
 
 
+def test_interleaved_known_and_renamed_role_namespaces_keep_dom_order(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-message-author-role="user" data-message-id="u1">First question</div>
+            <div data-message-author-role="assistant" data-message-id="a1"><p>First answer.</p></div>
+            <div data-future-message-author-role="user" data-future-message-id="u2">Second question</div>
+            <div data-future-message-author-role="assistant" data-future-message-id="a2"><p>Second answer.</p></div>
+            <div data-message-author-role="user" data-message-id="u3">Third question</div>
+            <div data-message-author-role="assistant" data-message-id="a3"><p>Third answer.</p></div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "First question"),
+        ("assistant", "First answer."),
+        ("user", "Second question"),
+        ("assistant", "Second answer."),
+        ("user", "Third question"),
+        ("assistant", "Third answer."),
+    ]
+    assert [message["id"] for message in snapshot["messages"]] == [
+        "u1",
+        "a1",
+        "u2",
+        "a2",
+        "u3",
+        "a3",
+    ]
+
+
 def test_role_aliases_and_search_key_separator_churn_preserve_transcript(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
