@@ -346,19 +346,30 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _hydrated_composer(self, page: Page) -> Locator | None:
         # ChatGPT hydrates its initial textarea into a ProseMirror editor. The
-        # empty ProseMirror node can have no rendered box even though it is the
-        # real focusable composer, so Playwright reports it as not visible.
+        # empty editor can have no rendered box even though it is focusable, so
+        # Playwright visibility is not a useful signal. Prefer the main landmark,
+        # but tolerate landmark/wrapper churn when the page-wide editor is unique.
         main = page.get_by_role("main")
         candidates = (
-            main.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
-            main.locator('[contenteditable="true"][role="textbox"]'),
+            (
+                main.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
+                False,
+            ),
+            (main.locator('[contenteditable="true"][role="textbox"]'), False),
+            (
+                page.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
+                True,
+            ),
+            (page.locator('[contenteditable="true"][role="textbox"]'), True),
         )
-        for hydrated in candidates:
+        for hydrated, require_unique in candidates:
             try:
-                hydrated_count = min(await hydrated.count(), 12)
+                count = await hydrated.count()
             except PlaywrightError:
                 continue
-            for index in range(hydrated_count):
+            if require_unique and count != 1:
+                continue
+            for index in range(min(count, 12)):
                 candidate = hydrated.nth(index)
                 try:
                     if (await candidate.get_attribute("aria-hidden") or "").casefold() == "true":
@@ -396,6 +407,47 @@ class PlaywrightDriver(BrowserDriverBase):
             found = await self._first_usable([textboxes])
             if found is not None:
                 return found
+        return None
+
+    async def _file_input(self, page: Page) -> Locator | None:
+        # File inputs are often intentionally hidden, so visibility is not a useful
+        # signal. Prefer structural proximity to the active composer and only use a
+        # page-wide fallback when it is unambiguous.
+        composer = await self._composer(page)
+        if composer is not None:
+            try:
+                form = composer.locator("xpath=ancestor::form[1]")
+                form_inputs = form.locator('input[type="file"]')
+                if await form_inputs.count() == 1:
+                    candidate = form_inputs.first
+                    if await candidate.is_enabled():
+                        return candidate
+            except PlaywrightError:
+                pass
+
+        scoped_selectors = FILE_INPUT_SELECTORS[:-1]
+        for selector in scoped_selectors:
+            inputs = page.locator(selector)
+            try:
+                count = min(await inputs.count(), 12)
+            except PlaywrightError:
+                continue
+            for index in range(count):
+                candidate = inputs.nth(index)
+                try:
+                    if await candidate.is_enabled():
+                        return candidate
+                except PlaywrightError:
+                    continue
+
+        all_inputs = page.locator('input[type="file"]')
+        try:
+            if await all_inputs.count() == 1:
+                candidate = all_inputs.first
+                if await candidate.is_enabled():
+                    return candidate
+        except PlaywrightError:
+            pass
         return None
 
     async def _semantic_button(
@@ -948,10 +1000,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 raise RuntimeError(f"Prompta attachment does not exist: {path}")
         page = self._page()
 
-        file_input = await self._first_usable(
-            [page.locator(selector) for selector in FILE_INPUT_SELECTORS],
-            enabled=True,
-        )
+        file_input = await self._file_input(page)
         if file_input is None:
             attach = await self._semantic_button(page, _ATTACH_RE)
             if attach is not None:
@@ -965,12 +1014,6 @@ class PlaywrightDriver(BrowserDriverBase):
                     if file_input is not None:
                         break
                     await asyncio.sleep(0.1)
-        if file_input is None:
-            # Hidden file inputs are intentionally allowed here: file inputs have no
-            # useful semantic role when ChatGPT keeps them visually hidden.
-            fallback = page.locator('input[type="file"]')
-            if await fallback.count():
-                file_input = fallback.first
         if file_input is None:
             raise RuntimeError("ChatGPT attachment input could not be found")
 

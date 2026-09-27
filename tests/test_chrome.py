@@ -152,6 +152,27 @@ async def test_focus_composer_survives_composer_data_attribute_rename(live_drive
 
 
 @pytest.mark.asyncio
+async def test_focus_composer_survives_main_landmark_removal(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <section>
+          <div
+            contenteditable="true"
+            role="textbox"
+            data-renamed-composer-contract=""
+            style="width:0;height:100px"
+          ></div>
+        </section>
+        """
+    )
+
+    composer = await driver._focus_composer()
+
+    assert await composer.get_attribute("data-renamed-composer-contract") == ""
+
+
+@pytest.mark.asyncio
 async def test_type_message_survives_chatgpt_prosemirror_hydration(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -595,6 +616,53 @@ async def test_hidden_file_input_is_supported_as_non_semantic_fallback(
         await page.locator('input[type="file"]').evaluate("input => input.files[0].name")
         == "note.txt"
     )
+
+
+@pytest.mark.asyncio
+async def test_attachment_prefers_hidden_file_input_in_composer_form(
+    live_driver,
+    tmp_path: Path,
+) -> None:
+    driver, page = live_driver
+    attachment = tmp_path / "scoped.txt"
+    attachment.write_text("hello")
+    await page.set_content(
+        """
+        <input id="unrelated" type="file" style="display:none">
+        <form>
+          <textarea aria-label="Message ChatGPT"></textarea>
+          <input id="composer-upload" type="file" style="display:none">
+        </form>
+        """
+    )
+
+    await driver.attach_files([str(attachment)])
+
+    assert await page.locator("#unrelated").evaluate("input => input.files.length") == 0
+    assert (
+        await page.locator("#composer-upload").evaluate("input => input.files[0].name")
+        == "scoped.txt"
+    )
+
+
+@pytest.mark.asyncio
+async def test_attachment_rejects_ambiguous_page_wide_file_inputs(
+    live_driver,
+    tmp_path: Path,
+) -> None:
+    driver, page = live_driver
+    attachment = tmp_path / "ambiguous.txt"
+    attachment.write_text("hello")
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <input type="file" style="display:none">
+        <input type="file" style="display:none">
+        """
+    )
+
+    with pytest.raises(RuntimeError, match="attachment input could not be found"):
+        await driver.attach_files([str(attachment)])
 
 
 @pytest.mark.asyncio
