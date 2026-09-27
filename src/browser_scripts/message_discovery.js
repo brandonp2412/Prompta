@@ -2,12 +2,15 @@
   const assistantSelector=__ASSISTANT_SELECTOR__;
   const semanticTurnSelector=__SEMANTIC_TURN_SELECTOR__;
   const legacyTurnSelector=__LEGACY_TURN_SELECTOR__;
+  const semanticAttribute=(node,namePattern)=>{
+    if(!node?.attributes)return '';
+    for(const attribute of node.attributes){
+      if(namePattern.test(attribute.name))return String(attribute.value||'');
+    }
+    return '';
+  };
   const semanticSearchRole=node=>{
-    const key=String(
-      node?.getAttribute?.('data-chatgpt-search-unit-key')
-      ||node?.getAttribute?.('data-content-search-unit-key')
-      ||''
-    );
+    const key=semanticAttribute(node,/(?:^|-)search-unit-key$/i);
     return key.match(/:(user|assistant)$/)?.[1]||'';
   };
   const accessibleRole=value=>{
@@ -24,20 +27,20 @@
     }
     return '';
   };
-  const messageRole=node=>String(
+  const directMessageRole=node=>String(
     node?.getAttribute?.('data-message-author-role')
+    ||semanticAttribute(node,/(?:^|-)message-author-role$/i)
     ||semanticSearchRole(node)
     ||accessibleRole(node?.getAttribute?.('aria-label'))
-    ||headingRole(node)
     ||''
   );
-  const searchMessageIds=node=>String(
-    node?.getAttribute?.('data-chatgpt-search-message-ids')||''
-  ).split(/\s+/).filter(Boolean);
+  const messageRole=node=>directMessageRole(node)||headingRole(node);
+  const searchMessageIds=node=>semanticAttribute(node,/(?:^|-)search-message-ids$/i)
+    .split(/\s+/).filter(Boolean);
   const messageId=node=>String(
     node?.getAttribute?.('data-message-id')
     ||node?.getAttribute?.('data-message-uuid')
-    ||node?.getAttribute?.('data-chatgpt-selection-message-id')
+    ||semanticAttribute(node,/(?:^|-)(?:selection-)?message-(?:id|uuid)$/i)
     ||searchMessageIds(node).at(-1)
     ||''
   );
@@ -46,11 +49,15 @@
       ...document.querySelectorAll(messageRoleSelector),
       ...document.querySelectorAll(semanticTurnSelector)
     ])].filter(node=>messageRole(node));
+    const roles=new Set(primary.map(messageRole));
+    const root=document.querySelector('main')||document.body||document.documentElement;
+    const structural=roles.has('user')&&roles.has('assistant')?[]:
+      [...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
     const primarySelector=messageRoleSelector+','+semanticTurnSelector;
     const legacy=[...document.querySelectorAll(legacyTurnSelector)]
       .filter(node=>!node.querySelector(primarySelector))
       .filter(node=>messageRole(node));
-    return [...new Set([...primary,...legacy])];
+    return [...new Set([...primary,...structural,...legacy])];
   };
   const authorNodes=role=>messageNodes()
     .filter(node=>!role||messageRole(node)===role);

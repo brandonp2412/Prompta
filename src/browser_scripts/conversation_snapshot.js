@@ -73,8 +73,13 @@ JSON.stringify((()=>{
   const cleanToolName=value=>{const text=(value||'').replace(/\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
   const toolRows=agent=>{
     if(!agent)return [];
-    const dataRows=[...agent.querySelectorAll(toolDataSelector)].filter(node=>
-      !node.parentElement?.closest(toolDataSelector)
+    const knownDataRows=[...agent.querySelectorAll(toolDataSelector)];
+    const dataCandidates=knownDataRows.length?knownDataRows:
+      [...agent.querySelectorAll('*')].filter(node=>
+        semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i)
+      );
+    const dataRows=dataCandidates.filter(node=>
+      !dataCandidates.some(other=>other!==node&&other.contains(node))
     );
     const triggerRows=[...agent.querySelectorAll(toolTriggerSelector)].map(marker=>{
       const dataRow=marker.closest(toolDataSelector);
@@ -231,6 +236,7 @@ JSON.stringify((()=>{
   const toolBlocks=(agent,fallbackMessages=[])=>{
     const domBlocks=toolRows(agent).map(node=>{
       const marker=node.matches(toolDataSelector+','+toolTriggerSelector)
+        ||semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i)
         ?node
         :node.querySelector(toolDataSelector+','+toolTriggerSelector);
       const lines=(node.innerText||node.textContent||'').split(/\n+/)
@@ -238,7 +244,9 @@ JSON.stringify((()=>{
         .filter(Boolean);
       const name=[
         node.getAttribute('data-tool-name'),
+        semanticAttribute(node,/(?:^|-)tool-name$/i),
         marker?.getAttribute?.('data-tool-name'),
+        semanticAttribute(marker,/(?:^|-)tool-name$/i),
         node.getAttribute('title'),
         marker?.getAttribute?.('title'),
         ...lines

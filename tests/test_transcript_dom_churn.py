@@ -104,6 +104,34 @@ def test_content_search_unit_attribute_rename_preserves_turns(browser_page) -> N
     ]
 
 
+def test_unknown_semantic_attribute_namespace_preserves_turns_and_ids(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-transcript-search-unit-key="fallback-turn-0:1:user"
+                 data-transcript-search-message-ids="u-future">
+              <div data-transcript-selection-message-id="u-future">
+                Question after namespace churn
+              </div>
+            </div>
+            <div data-transcript-search-unit-key="fallback-turn-0:2:assistant"
+                 data-transcript-search-message-ids="a-future">
+              <div data-transcript-selection-message-id="a-future">
+                <p>Answer after namespace churn.</p>
+              </div>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after namespace churn"),
+        ("assistant", "Answer after namespace churn."),
+    ]
+    assert [message["id"] for message in snapshot["messages"]] == ["u-future", "a-future"]
+
+
 def test_accessible_turn_heading_recovers_role_when_author_attribute_disappears(
     browser_page,
 ) -> None:
@@ -374,6 +402,32 @@ def test_semantic_tool_rows_survive_wrapper_and_class_churn(browser_page) -> Non
     assert "execute_python" in content
     assert "status completed" in content
     assert content.index("Inspecting.") < content.index("```tool:Glass") < content.index("Done.")
+
+
+def test_unknown_tool_attribute_namespace_preserves_tool_capture(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before renamed tool metadata.</p>
+                <div data-runtime-tool-call-id="tool-9" data-runtime-tool-name="Glass">
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </div>
+                <p>After renamed tool metadata.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "tool:Glass" in content
+    assert "execute_python" in content
+    assert content.index("Before renamed tool metadata.") < content.index("tool:Glass")
+    assert content.index("tool:Glass") < content.index("After renamed tool metadata.")
 
 
 def test_partial_reasoning_activity_is_retained_without_private_dom_shape(browser_page) -> None:
