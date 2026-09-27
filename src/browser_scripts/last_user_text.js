@@ -14,7 +14,7 @@ JSON.stringify((()=>{
 
   const clone=user.cloneNode(true);
   clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-  clone.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node=>{
+  clone.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]').forEach(node=>{
     if(accessibleRole(node.textContent))node.remove();
   });
   const raw=(clone.textContent||'').trim();

@@ -29,9 +29,11 @@
     const match=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied))?\s*:?$/i);
     return normaliseRole(match?.[1]);
   };
+  const headingNodes=root=>root?.querySelectorAll
+    ?[...root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
+    :[];
   const headingRole=node=>{
-    if(!node?.querySelectorAll)return '';
-    for(const heading of node.querySelectorAll('h1,h2,h3,h4,h5,h6')){
+    for(const heading of headingNodes(node)){
       const role=accessibleRole(heading.textContent);
       if(role)return role;
     }
@@ -39,13 +41,13 @@
   };
   const headingMessageNodes=root=>{
     if(!root?.querySelectorAll)return [];
-    const roleHeadings=[...root.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+    const roleHeadings=headingNodes(root)
       .filter(heading=>accessibleRole(heading.textContent));
     return roleHeadings.map(heading=>{
       let candidate=heading.parentElement||heading;
       for(let parent=candidate.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
         if(parent.tagName==='MAIN'||parent.getAttribute?.('role')==='main')break;
-        const headings=[...parent.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+        const headings=headingNodes(parent)
           .filter(node=>accessibleRole(node.textContent));
         if(headings.length!==1||headings[0]!==heading)break;
         candidate=parent;

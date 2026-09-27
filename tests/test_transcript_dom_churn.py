@@ -334,6 +334,29 @@ def test_role_aliases_and_search_key_separator_churn_preserve_transcript(browser
     assert [message["id"] for message in snapshot["messages"]] == ["u-alias", "a-alias"]
 
 
+def test_aria_heading_roles_recover_transcript_after_heading_tag_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-layout-shell="user">
+              <div role="heading" aria-level="5">You said:</div>
+              <div>Question after heading tag churn</div>
+            </div>
+            <div data-layout-shell="assistant">
+              <div role="heading" aria-level="5">ChatGPT replied:</div>
+              <p>Answer after heading tag churn.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after heading tag churn"),
+        ("assistant", "Answer after heading tag churn."),
+    ]
+
+
 def test_accessible_role_aliases_survive_heading_vocabulary_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

@@ -25,7 +25,7 @@ JSON.stringify((()=>{
     if(!root)return '';
     const clone=root.cloneNode(true);
     clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-    clone.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node=>{
+    clone.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]').forEach(node=>{
       if(accessibleRole(node.textContent))node.remove();
     });
     const text=(clone.textContent||'').trim();
