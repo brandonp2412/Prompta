@@ -688,6 +688,33 @@ async def test_attachment_prefers_hidden_file_input_in_composer_form(
 
 
 @pytest.mark.asyncio
+async def test_attachment_prefers_unique_multi_file_input_inside_composer(
+    live_driver,
+    tmp_path: Path,
+) -> None:
+    driver, page = live_driver
+    attachment = tmp_path / "ranked.txt"
+    attachment.write_text("hello")
+    await page.set_content(
+        """
+        <form>
+          <textarea aria-label="Message ChatGPT"></textarea>
+          <input id="media-upload" type="file" accept="image/*" style="display:none">
+          <input id="general-upload" type="file" multiple style="display:none">
+        </form>
+        """
+    )
+
+    await driver.attach_files([str(attachment)])
+
+    assert await page.locator("#media-upload").evaluate("input => input.files.length") == 0
+    assert (
+        await page.locator("#general-upload").evaluate("input => input.files[0].name")
+        == "ranked.txt"
+    )
+
+
+@pytest.mark.asyncio
 async def test_attachment_rejects_ambiguous_page_wide_file_inputs(
     live_driver,
     tmp_path: Path,

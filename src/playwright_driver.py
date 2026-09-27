@@ -426,10 +426,21 @@ class PlaywrightDriver(BrowserDriverBase):
             try:
                 form = composer.locator("xpath=ancestor::form[1]")
                 form_inputs = form.locator('input[type="file"]')
-                if await form_inputs.count() == 1:
+                form_input_count = await form_inputs.count()
+                if form_input_count == 1:
                     candidate = form_inputs.first
                     if await candidate.is_enabled():
                         return candidate
+                elif form_input_count > 1:
+                    # ChatGPT may expose separate hidden pickers for media and
+                    # general attachments. Prefer a unique multi-file picker
+                    # structurally owned by the active composer rather than
+                    # depending on wrapper classes or test IDs.
+                    multi_inputs = form.locator('input[type="file"][multiple]')
+                    if await multi_inputs.count() == 1:
+                        candidate = multi_inputs.first
+                        if await candidate.is_enabled():
+                            return candidate
             except PlaywrightError:
                 pass
 
@@ -440,13 +451,14 @@ class PlaywrightDriver(BrowserDriverBase):
                 count = min(await inputs.count(), 12)
             except PlaywrightError:
                 continue
-            for index in range(count):
-                candidate = inputs.nth(index)
-                try:
-                    if await candidate.is_enabled():
-                        return candidate
-                except PlaywrightError:
-                    continue
+            if count != 1:
+                continue
+            candidate = inputs.first
+            try:
+                if await candidate.is_enabled():
+                    return candidate
+            except PlaywrightError:
+                continue
 
         all_inputs = page.locator('input[type="file"]')
         try:
@@ -1030,10 +1042,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 await attach.click()
                 deadline = asyncio.get_running_loop().time() + 3.0
                 while asyncio.get_running_loop().time() < deadline:
-                    file_input = await self._first_usable(
-                        [page.locator(selector) for selector in FILE_INPUT_SELECTORS],
-                        enabled=True,
-                    )
+                    file_input = await self._file_input(page)
                     if file_input is not None:
                         break
                     await asyncio.sleep(0.1)
