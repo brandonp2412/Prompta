@@ -1151,9 +1151,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 rate_limit_texts.append(text)
 
         if rate_limit_dialog is not None:
-            dismiss = await self._first_usable(
-                [rate_limit_dialog.get_by_role("button", name=_DISMISS_RE)]
-            )
+            dismiss = await self._dialog_dismiss_button(rate_limit_dialog)
             if dismiss is not None:
                 try:
                     await dismiss.click()
@@ -1166,6 +1164,30 @@ class PlaywrightDriver(BrowserDriverBase):
             "last_user_text": last_user_text,
             "rate_limit_text": "\n".join(rate_limit_texts),
         }
+
+    async def _dialog_dismiss_button(self, dialog: Locator) -> Locator | None:
+        named = await self._first_usable([dialog.get_by_role("button", name=_DISMISS_RE)])
+        if named is not None:
+            return named
+
+        # Once the surrounding element has already been positively identified as
+        # the target modal, a single usable button is a safe structural fallback.
+        # This keeps dismissal working when ChatGPT changes button copy or drops
+        # a test ID without risking clicks elsewhere on the page.
+        buttons = dialog.get_by_role("button")
+        try:
+            count = min(await buttons.count(), 12)
+        except PlaywrightError:
+            return None
+        usable: list[Locator] = []
+        for index in range(count):
+            candidate = buttons.nth(index)
+            try:
+                if await candidate.is_visible() and await candidate.is_enabled():
+                    usable.append(candidate)
+            except PlaywrightError:
+                continue
+        return usable[0] if len(usable) == 1 else None
 
     async def _is_history_rate_limit_dialog(self, candidate: Locator) -> bool:
         try:
@@ -1209,9 +1231,7 @@ class PlaywrightDriver(BrowserDriverBase):
         if history_rate_limit is None:
             return False
         self._history_rate_limit_seen = True
-        dismiss = await self._first_usable(
-            [history_rate_limit.get_by_role("button", name=_DISMISS_RE)]
-        )
+        dismiss = await self._dialog_dismiss_button(history_rate_limit)
         if dismiss is None:
             return False
         try:
