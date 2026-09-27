@@ -624,6 +624,58 @@ def test_partial_reasoning_activity_is_retained_without_private_dom_shape(browse
     assert "Reading relevant tests" in message["content"]
 
 
+def test_streaming_detection_survives_semantic_attribute_namespace_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1" data-runtime-streaming="active">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Still generating.</p>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+    snapshot = _snapshot(browser_page, browser_page.content())
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True
+
+
+def test_streaming_detection_survives_aria_busy_markup_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1" aria-busy="true">
+                <p>Still generating after markup churn.</p>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+    snapshot = _snapshot(browser_page, browser_page.content())
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True
+
+
 def _is_styling_class_selector(selector: str) -> bool:
     return "[class" in selector or bool(re.search(r"(^|[\s>+~,])\.[A-Za-z_-]", selector))
 

@@ -622,10 +622,16 @@ JSON.stringify((()=>{
   const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
   const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
+  const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...latestTurn.querySelectorAll('*')].some(node=>{
+    const state=semanticAttribute(node,/(?:^|-)(?:is-)?streaming$/i).toLowerCase();
+    return ['true','active','1','yes'].includes(state)
+      ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
+  }));
+  const streamingActive=streamActive||semanticStreamActive;
   const visibleMessageId=messageId(latestAssistant)||turnMessageId(latestTurn,'assistant');
   const endStateMessages=latestTurnReactMessages.length
     ?latestTurnReactMessages
-    :((latestTurn&&latestHasToolDom&&!stop&&!streamActive)
+    :((latestTurn&&latestHasToolDom&&!stop&&!streamingActive)
       ?reactMessages(latestTurn,'end-state')
       :[]);
   const endStates=(visibleMessageId
@@ -719,7 +725,7 @@ JSON.stringify((()=>{
     title:document.title||'',
     messages,
     source_events:sourceEvents,
-    streaming:stop||streamActive||turnEnded===false,
+    streaming:stop||streamingActive||turnEnded===false,
     react_fallback:fallbackSummary,
     extraction_diagnostics:{
       message_provenance:[...extractionProvenance],

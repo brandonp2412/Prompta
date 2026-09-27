@@ -4,11 +4,17 @@ JSON.stringify((()=>{
           const streamingSelector=__STREAMING_SELECTOR__;
           const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
           const stop=[...document.querySelectorAll(stopSelector)].some(visible);
-          const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
           const assistant=authorNodes('assistant').at(-1)||null;
           const semanticTurns=[...document.querySelectorAll(semanticTurnSelector)].filter(visible);
           const legacyTurns=[...document.querySelectorAll(legacyTurnSelector)].filter(visible);
           const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
+          const streamRoot=turn||assistant;
+          const semanticStreamActive=Boolean(streamRoot&&[streamRoot,...streamRoot.querySelectorAll('*')].some(node=>{
+            const state=semanticAttribute(node,/(?:^|-)(?:is-)?streaming$/i).toLowerCase();
+            return ['true','active','1','yes'].includes(state)
+              ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
+          }));
+          const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible)||semanticStreamActive;
           const visibleMessageId=messageId(assistant)||turnMessageId(turn,'assistant');
           let activityReactFallback=null;
           const reactTurnEnd=()=>{
