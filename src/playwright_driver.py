@@ -80,6 +80,12 @@ _ATTACH_RE = re.compile(
 _RETRY_RE = re.compile(r"^(?:try again|retry|regenerate(?: response)?)$", re.IGNORECASE)
 _DISMISS_RE = re.compile(r"^(?:got it|ok|okay|dismiss|close)$", re.IGNORECASE)
 _EFFORT_RE = re.compile(r"\b(max|extra\s+high|instant|medium|high)\b", re.IGNORECASE)
+_CLOUDFLARE_CHALLENGE_RE = re.compile(
+    r"(?:verify you are human|checking your browser|performing security verification|"
+    r"enable javascript and cookies to continue)",
+    re.IGNORECASE,
+)
+_CLOUDFLARE_FRAME_RE = re.compile(r"(?:cloudflare|security verification|challenge)", re.IGNORECASE)
 
 
 class ChromeDebuggerUnavailableError(RuntimeError):
@@ -712,6 +718,21 @@ class PlaywrightDriver(BrowserDriverBase):
             title = ""
         if "just a moment" in title or "attention required" in title:
             return True
+
+        # Prefer user-facing challenge semantics so DOM IDs/classes can change
+        # without making Cloudflare detection disappear. Keep provider-specific
+        # attributes below as compatibility fallbacks for challenge pages that
+        # render little or no visible text.
+        semantic = await self._first_usable(
+            [
+                page.get_by_text(_CLOUDFLARE_CHALLENGE_RE),
+                page.get_by_title(_CLOUDFLARE_FRAME_RE),
+            ],
+            enabled=False,
+        )
+        if semantic is not None:
+            return True
+
         challenge = page.locator(
             "#challenge-form,#cf-challenge-running,#cf-please-wait,#challenge-spinner,"
             '#turnstile-wrapper,input[name="cf-turnstile-response"],'

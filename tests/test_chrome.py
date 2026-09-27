@@ -39,6 +39,26 @@ async def live_driver(tmp_path: Path):
         await playwright.stop()
 
 
+@pytest.mark.asyncio
+async def test_cloudflare_challenge_detection_uses_visible_semantics_without_provider_ids(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content("<main><p>Performing security verification</p></main>")
+
+    assert await driver._cloudflare_challenge_present() is True
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_challenge_detection_uses_frame_title_without_provider_url(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content('<iframe title="Cloudflare security verification"></iframe>')
+
+    assert await driver._cloudflare_challenge_present() is True
+
+
 def test_legacy_chromedriver_name_is_playwright_compatibility_alias() -> None:
     assert ChromeDriverDriver is PlaywrightDriver
 
