@@ -91,6 +91,25 @@ const promptaTranscriptEngine=(()=>{
       )
     };
   };
+  const isStopControl=node=>{
+    if(!node?.matches?.('button,[role="button"]'))return false;
+    const attributeText=[...(node.attributes||[])]
+      .filter(attribute=>(
+        attribute.name==='aria-label'
+        ||attribute.name==='title'
+        ||attribute.name==='data-testid'
+        ||attribute.name.startsWith('data-')
+      ))
+      .map(attribute=>attribute.name+' '+attribute.value)
+      .join(' ');
+    const label=[
+      node.getAttribute?.('aria-label')||'',
+      node.getAttribute?.('title')||'',
+      node.textContent||'',
+      attributeText
+    ].join(' ').replace(/[-_]+/g,' ');
+    return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
+  };
   const latestAssistantRoot=()=>{
     const latestAssistant=authorNodes('assistant').at(-1)||null;
     return turnRoot(latestAssistant)
@@ -117,6 +136,7 @@ const promptaTranscriptEngine=(()=>{
   return {
     hasVisibleAssistantText,
     inspectReact,
+    isStopControl,
     latestAssistantRoot,
     reactFallbackSummary,
     reactMessages,

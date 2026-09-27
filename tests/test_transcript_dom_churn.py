@@ -905,3 +905,31 @@ def test_primary_transcript_selectors_do_not_depend_on_styling_classes() -> None
     offenders = [selector for selector in primary_selectors if _is_styling_class_selector(selector)]
 
     assert offenders == []
+
+
+def test_stop_control_detection_survives_semantic_markup_churn(browser_page) -> None:
+    html = _conversation(
+        """
+        <section data-testid="conversation-turn-a1">
+          <div data-message-author-role="assistant" data-message-id="a1">
+            <p>Still generating after stop-control markup churn.</p>
+          </div>
+        </section>
+        <div role="button" data-runtime-action="cancel-generation" style="width:32px;height:32px">
+          <span>Cancel generation</span>
+        </div>
+        """
+    )
+    browser_page.set_content(html)
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True

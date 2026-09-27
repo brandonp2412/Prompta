@@ -638,7 +638,9 @@ JSON.stringify((()=>{
     if(contentType==='text'||contentType==='multimodal_text')return Boolean(text);
     return false;
   }).map(sanitiseSourceEvent);
-  const stop=[...document.querySelectorAll(stopSelector)].some(visible);
+  const semanticStop=[...document.querySelectorAll('button,[role="button"]')]
+    .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
+  const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
   const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
   const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;

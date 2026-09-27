@@ -16,7 +16,9 @@ JSON.stringify((()=>{
               return (box.width>0||box.height>1)&&box.height>0;
             });
           };
-          const stop=[...document.querySelectorAll(stopSelector)].some(visible);
+          const semanticStop=[...document.querySelectorAll('button,[role="button"]')]
+            .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
+          const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
           const assistant=authorNodes('assistant').at(-1)||null;
           const semanticTurns=[...document.querySelectorAll(semanticTurnSelector)].filter(visible);
           const legacyTurns=[...document.querySelectorAll(legacyTurnSelector)].filter(visible);
