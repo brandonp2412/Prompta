@@ -1110,7 +1110,9 @@ class PlaywrightDriver(BrowserDriverBase):
         # A dedicated rate-limit dialog is a useful semantic signal. Generic
         # role=alert elements are intentionally ignored because ChatGPT uses them
         # for unrelated transient notifications.
-        semantic_dialogs = page.get_by_role("dialog").filter(has_text=_RATE_LIMIT_RE)
+        semantic_dialogs = page.locator(
+            'dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]'
+        ).filter(has_text=_RATE_LIMIT_RE)
         try:
             dialog_count = min(await semantic_dialogs.count(), 12)
         except PlaywrightError:
@@ -1185,7 +1187,7 @@ class PlaywrightDriver(BrowserDriverBase):
         if exact is not None:
             return exact
 
-        dialogs = page.get_by_role("dialog")
+        dialogs = page.locator('dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]')
         try:
             count = min(await dialogs.count(), 12)
         except PlaywrightError:

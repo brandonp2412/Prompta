@@ -602,6 +602,25 @@ async def test_dom_state_reads_and_dismisses_semantic_rate_limit_dialog(live_dri
 
 
 @pytest.mark.asyncio
+async def test_dom_state_reads_alertdialog_rate_limit_after_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <section role="alertdialog">
+          <p>Too many requests. Try again later.</p>
+          <button onclick="this.closest('[role=alertdialog]').remove()">Close</button>
+        </section>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert "Too many requests" in state["rate_limit_text"]
+    assert await page.get_by_role("alertdialog").count() == 0
+
+
+@pytest.mark.asyncio
 async def test_dom_state_ignores_generic_rate_limit_alert(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -635,6 +654,27 @@ async def test_dom_state_dismisses_history_throttling_without_rate_limiting_send
 
     assert state["rate_limit_text"] == ""
     assert await page.get_by_role("dialog").count() == 0
+
+
+@pytest.mark.asyncio
+async def test_dom_state_dismisses_history_throttling_after_dialog_role_churn(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <section aria-modal="true">
+          <p>Too many requests while loading chat history.</p>
+          <button onclick="this.closest('[aria-modal=true]').remove()">Dismiss</button>
+        </section>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["rate_limit_text"] == ""
+    assert await page.locator('[aria-modal="true"]').count() == 0
 
 
 @pytest.mark.asyncio
