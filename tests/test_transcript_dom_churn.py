@@ -134,6 +134,31 @@ def test_unknown_semantic_attribute_namespace_preserves_turns_and_ids(browser_pa
     assert [message["id"] for message in snapshot["messages"]] == ["u-future", "a-future"]
 
 
+def test_latest_assistant_root_uses_structural_role_discovery_after_namespace_churn(
+    browser_page,
+) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <div data-transcript-search-unit-key="fallback-turn-0:1:user">Question</div>
+            <section data-turn-shell="future-wrapper">
+              <div data-transcript-search-unit-key="fallback-turn-0:2:assistant">
+                <p>Answer after namespace churn.</p>
+              </div>
+            </section>
+            """
+        )
+    )
+    latest = browser_page.evaluate(
+        "() => {" + TRANSCRIPT_BROWSER_ENGINE_SCRIPT + ";"
+        "const root=promptaTranscriptEngine.latestAssistantRoot();"
+        "return root?.getAttribute('data-turn-shell')||'';"
+        "}"
+    )
+
+    assert latest == "future-wrapper"
+
+
 def test_accessible_turn_heading_recovers_role_when_author_attribute_disappears(
     browser_page,
 ) -> None:

@@ -92,8 +92,7 @@ const promptaTranscriptEngine=(()=>{
     };
   };
   const latestAssistantRoot=()=>{
-    const assistants=[...document.querySelectorAll(assistantSelector)];
-    const latestAssistant=assistants.at(-1);
+    const latestAssistant=authorNodes('assistant').at(-1)||null;
     return turnRoot(latestAssistant)
       ||document.querySelector('main')
       ||document.body;
