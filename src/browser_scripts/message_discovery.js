@@ -9,15 +9,25 @@
     }
     return '';
   };
+  const normaliseRole=value=>{
+    const role=String(value||'').replace(/\s+/g,' ').trim().toLowerCase();
+    if(/^(?:user|human|you)$/.test(role))return 'user';
+    if(/^(?:assistant|chatgpt|model|bot)$/.test(role))return 'assistant';
+    return '';
+  };
   const semanticSearchRole=node=>{
     const key=semanticAttribute(node,/(?:^|-)search-unit-key$/i);
-    return key.match(/(?:^|:)(user|assistant)(?::|$)/)?.[1]||'';
+    const tokens=String(key||'').split(/[^a-z0-9]+/i).filter(Boolean);
+    for(const token of tokens){
+      const role=normaliseRole(token);
+      if(role)return role;
+    }
+    return '';
   };
   const accessibleRole=value=>{
     const label=String(value||'').replace(/\s+/g,' ').trim();
-    if(/^(?:you|user)(?:\s+(?:said|wrote|asked))?\s*:?$/i.test(label))return 'user';
-    if(/^(?:chatgpt|assistant)(?:\s+(?:said|answered|responded))?\s*:?$/i.test(label))return 'assistant';
-    return '';
+    const match=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied))?\s*:?$/i);
+    return normaliseRole(match?.[1]);
   };
   const headingRole=node=>{
     if(!node?.querySelectorAll)return '';
@@ -43,13 +53,11 @@
       return candidate;
     });
   };
-  const directMessageRole=node=>String(
+  const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(node,/(?:^|-)message-author-role$/i)
-    ||semanticSearchRole(node)
-    ||accessibleRole(node?.getAttribute?.('aria-label'))
-    ||''
-  );
+  )||semanticSearchRole(node)
+    ||accessibleRole(node?.getAttribute?.('aria-label'));
   const messageRole=node=>directMessageRole(node)||headingRole(node);
   const searchMessageIds=node=>semanticAttribute(node,/(?:^|-)search-message-ids$/i)
     .split(/\s+/).filter(Boolean);

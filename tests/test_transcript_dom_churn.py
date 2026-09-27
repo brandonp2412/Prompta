@@ -278,6 +278,52 @@ def test_unknown_namespace_nested_inside_semantic_turn_wrapper_is_discovered(bro
     assert [message["id"] for message in snapshot["messages"]] == ["u1", "a1"]
 
 
+def test_role_aliases_and_search_key_separator_churn_preserve_transcript(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-future-message-author-role="human" data-future-message-id="u-alias">
+              Question after role vocabulary churn
+            </div>
+            <div data-future-search-unit-key="turn/2/model/content"
+                 data-future-search-message-ids="a-alias">
+              <p>Answer after separator and role vocabulary churn.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after role vocabulary churn"),
+        ("assistant", "Answer after separator and role vocabulary churn."),
+    ]
+    assert [message["id"] for message in snapshot["messages"]] == ["u-alias", "a-alias"]
+
+
+def test_accessible_role_aliases_survive_heading_vocabulary_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-layout-shell="user">
+              <h5>Human asked:</h5>
+              <div>Question after heading vocabulary churn</div>
+            </div>
+            <div data-layout-shell="assistant">
+              <h5>Model replied:</h5>
+              <p>Answer after heading vocabulary churn.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after heading vocabulary churn"),
+        ("assistant", "Answer after heading vocabulary churn."),
+    ]
+
+
 def test_search_unit_role_survives_added_key_segments(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
