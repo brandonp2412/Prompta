@@ -436,6 +436,63 @@ async def test_dom_state_reads_current_search_unit_user_message(live_driver) -> 
 
 
 @pytest.mark.asyncio
+async def test_dom_state_reads_user_after_semantic_attribute_namespace_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <div data-future-search-unit-key="turn:17:user:content"
+             data-future-search-message-ids="u-future">
+          <div data-future-selection-message-id="u-future">Prompt after namespace churn</div>
+        </div>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-future"
+    assert state["last_user_text"] == "Prompt after namespace churn"
+
+
+@pytest.mark.asyncio
+async def test_dom_state_ignores_hidden_stale_user_duplicate(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <div data-message-author-role="user" data-message-id="u-visible">Current prompt</div>
+        <div style="display:none" data-message-author-role="user" data-message-id="u-stale">
+          Hidden stale prompt
+        </div>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-visible"
+    assert state["last_user_text"] == "Current prompt"
+
+
+@pytest.mark.asyncio
+async def test_dom_state_reads_heading_only_user_turn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <article>
+          <h5>You said:</h5>
+          <div data-message-id="u-heading">Prompt after author metadata disappears</div>
+        </article>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-heading"
+    assert state["last_user_text"] == "Prompt after author metadata disappears"
+
+
+@pytest.mark.asyncio
 async def test_dom_state_reads_and_dismisses_semantic_rate_limit_dialog(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

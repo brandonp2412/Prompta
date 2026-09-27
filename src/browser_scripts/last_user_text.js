@@ -1,7 +1,28 @@
-root => {
-                          const clone=root.cloneNode(true);
-                          clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-                          const text=(clone.textContent||'').trim();
-                          const suffix=['Show moreShow less','Show lessShow more'].find(v=>text.endsWith(v));
-                          return (suffix?text.slice(0,-suffix.length):text).trim();
-                        }
+JSON.stringify((()=>{
+/*__MESSAGE_DISCOVERY__*/
+  const rendered=node=>{
+    for(let current=node;current&&current.nodeType===Node.ELEMENT_NODE;current=current.parentElement){
+      if(current.hidden||(current.getAttribute?.('aria-hidden')||'').toLowerCase()==='true')return false;
+      const style=getComputedStyle(current);
+      if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+    }
+    return true;
+  };
+  const users=authorNodes('user');
+  const user=[...users].reverse().find(rendered)||users.at(-1)||null;
+  if(!user)return {id:'',text:''};
+
+  const clone=user.cloneNode(true);
+  clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
+  clone.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node=>{
+    if(accessibleRole(node.textContent))node.remove();
+  });
+  const raw=(clone.textContent||'').trim();
+  const suffix=['Show moreShow less','Show lessShow more'].find(value=>raw.endsWith(value));
+  const text=(suffix?raw.slice(0,-suffix.length):raw).trim();
+  const turn=turnRoot(user);
+  return {
+    id:messageId(user)||turnMessageId(turn,'user'),
+    text
+  };
+})())

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .browser_script_loader import render_browser_script
+from .browser_script_loader import load_browser_script, render_browser_script
 
 # CSS is limited to DOM state and hidden file inputs. Playwright interactions use
 # accessible roles, names and visible text in playwright_driver.py.
@@ -98,4 +98,8 @@ MESSAGE_DISCOVERY_SCRIPT = render_browser_script(
     assistant_selector=ASSISTANT_MESSAGE_SELECTOR,
     semantic_turn_selector=SEMANTIC_TURN_SELECTOR,
     legacy_turn_selector=LEGACY_TURN_SELECTOR,
+)
+
+LAST_USER_STATE_SCRIPT = load_browser_script("last_user_text.js").replace(
+    "/*__MESSAGE_DISCOVERY__*/", MESSAGE_DISCOVERY_SCRIPT
 )
