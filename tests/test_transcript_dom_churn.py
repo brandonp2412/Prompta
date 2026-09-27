@@ -729,6 +729,25 @@ def test_missing_message_ids_do_not_drop_or_duplicate_turns(browser_page) -> Non
     ]
 
 
+def test_code_language_metadata_survives_css_class_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <pre data-syntax-language="python"><code class="syntax-tokenized">print('ok')</code></pre>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("assistant", "```python\nprint('ok')\n```"),
+    ]
+
+
 def test_streaming_transition_updates_content_and_completion_state(browser_page) -> None:
     browser_page.set_content(
         _conversation(

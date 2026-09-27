@@ -51,8 +51,19 @@ JSON.stringify((()=>{
       if(tag==='code'&&node.parentElement?.tagName.toLowerCase()!=='pre')return '`'+children()+'`';
       if(tag==='pre'){
         const code=node.querySelector('code')||node;
-        const className=code.getAttribute('class')||'';
-        const language=className.match(/language-([\w+-]+)/)?.[1]||'';
+        const languageCandidates=[code,node];
+        let language='';
+        for(const candidate of languageCandidates){
+          for(const attribute of candidate.attributes||[]){
+            if(!/(?:^|[-_:])(?:code[-_:]?)?(?:language|lang)$/i.test(attribute.name))continue;
+            const value=String(attribute.value||'').trim();
+            if(/^[\w.+#-]{1,32}$/.test(value)){language=value;break;}
+          }
+          if(language)break;
+          const className=candidate.getAttribute?.('class')||'';
+          language=className.match(/(?:^|\s)(?:language|lang)-([\w.+#-]+)/i)?.[1]||'';
+          if(language)break;
+        }
         return '```'+language+'\n'+(code.textContent||'').replace(/\n$/,'')+'\n```\n\n';
       }
       if(tag==='a'){
