@@ -2,7 +2,20 @@ JSON.stringify((()=>{
 /*__TRANSCRIPT_BROWSER_ENGINE__*/
           const stopSelector=__STOP_SELECTOR__;
           const streamingSelector=__STREAMING_SELECTOR__;
-          const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';};
+          const visible=e=>{
+            if(!e)return false;
+            const s=getComputedStyle(e);
+            if(s.display==='none'||s.visibility==='hidden'||s.opacity==='0')return false;
+            const r=e.getBoundingClientRect();
+            if((r.width>0||r.height>1)&&r.height>0)return true;
+            if(s.display!=='contents')return false;
+            return [...e.querySelectorAll('*')].some(node=>{
+              const style=getComputedStyle(node);
+              if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+              const box=node.getBoundingClientRect();
+              return (box.width>0||box.height>1)&&box.height>0;
+            });
+          };
           const stop=[...document.querySelectorAll(stopSelector)].some(visible);
           const assistant=authorNodes('assistant').at(-1)||null;
           const semanticTurns=[...document.querySelectorAll(semanticTurnSelector)].filter(visible);

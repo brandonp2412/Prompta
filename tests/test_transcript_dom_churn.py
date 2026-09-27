@@ -494,6 +494,39 @@ def test_reordered_non_content_controls_do_not_change_message_text(
     ]
 
 
+def test_display_contents_turn_wrapper_remains_visible(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">Question</div>
+            </section>
+            <section data-testid="conversation-turn-a1" data-runtime-streaming="active" style="display:contents">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Answer inside a boxless semantic wrapper.</p>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    snapshot = _snapshot(browser_page, browser_page.content())
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question"),
+        ("assistant", "Answer inside a boxless semantic wrapper."),
+    ]
+    assert snapshot["streaming"] is True
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+
+
 def test_hidden_duplicate_turn_does_not_replace_visible_message(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
