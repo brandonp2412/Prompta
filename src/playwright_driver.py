@@ -362,11 +362,13 @@ class PlaywrightDriver(BrowserDriverBase):
                 False,
             ),
             (main.locator('[contenteditable="true"][role="textbox"]'), False),
+            (main.locator('[contenteditable="true"]'), True),
             (
                 page.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
                 True,
             ),
             (page.locator('[contenteditable="true"][role="textbox"]'), True),
+            (page.locator('[contenteditable="true"]'), True),
         )
         for hydrated, require_unique in candidates:
             try:

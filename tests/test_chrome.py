@@ -172,6 +172,28 @@ async def test_focus_composer_survives_composer_data_attribute_rename(live_drive
 
 
 @pytest.mark.asyncio
+async def test_focus_composer_survives_textbox_role_removal(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <aside><div contenteditable="true" aria-label="Search"></div></aside>
+        <main>
+          <div
+            contenteditable="true"
+            aria-label="Ask ChatGPT"
+            data-renamed-composer-contract=""
+            style="width:0;height:100px"
+          ></div>
+        </main>
+        """
+    )
+
+    composer = await driver._focus_composer()
+
+    assert await composer.get_attribute("aria-label") == "Ask ChatGPT"
+
+
+@pytest.mark.asyncio
 async def test_focus_composer_survives_main_landmark_removal(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
