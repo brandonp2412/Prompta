@@ -11,6 +11,12 @@ JSON.stringify((()=>{
     if(!root)return '';
     const clone=root.cloneNode(true);
     clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
+    clone.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node=>{
+      const label=(node.textContent||'').replace(/\s+/g,' ').trim();
+      if(/^(?:(?:you|user)(?:\s+(?:said|wrote|asked))?|(?:chatgpt|assistant)(?:\s+(?:said|answered|responded))?)\s*:?$/i.test(label)){
+        node.remove();
+      }
+    });
     const text=(clone.textContent||'').trim();
     const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
     return (actionSuffix?text.slice(0,-actionSuffix.length):text).trim();

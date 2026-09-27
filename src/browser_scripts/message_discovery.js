@@ -10,9 +10,25 @@
     );
     return key.match(/:(user|assistant)$/)?.[1]||'';
   };
+  const accessibleRole=value=>{
+    const label=String(value||'').replace(/\s+/g,' ').trim();
+    if(/^(?:you|user)(?:\s+(?:said|wrote|asked))?\s*:?$/i.test(label))return 'user';
+    if(/^(?:chatgpt|assistant)(?:\s+(?:said|answered|responded))?\s*:?$/i.test(label))return 'assistant';
+    return '';
+  };
+  const headingRole=node=>{
+    if(!node?.querySelectorAll)return '';
+    for(const heading of node.querySelectorAll('h1,h2,h3,h4,h5,h6')){
+      const role=accessibleRole(heading.textContent);
+      if(role)return role;
+    }
+    return '';
+  };
   const messageRole=node=>String(
     node?.getAttribute?.('data-message-author-role')
     ||semanticSearchRole(node)
+    ||accessibleRole(node?.getAttribute?.('aria-label'))
+    ||headingRole(node)
     ||''
   );
   const searchMessageIds=node=>String(
@@ -25,10 +41,17 @@
     ||searchMessageIds(node).at(-1)
     ||''
   );
-  const messageNodes=()=>[...new Set([
-    ...document.querySelectorAll(messageRoleSelector),
-    ...document.querySelectorAll(semanticTurnSelector)
-  ])].filter(node=>messageRole(node));
+  const messageNodes=()=>{
+    const primary=[...new Set([
+      ...document.querySelectorAll(messageRoleSelector),
+      ...document.querySelectorAll(semanticTurnSelector)
+    ])].filter(node=>messageRole(node));
+    const primarySelector=messageRoleSelector+','+semanticTurnSelector;
+    const legacy=[...document.querySelectorAll(legacyTurnSelector)]
+      .filter(node=>!node.querySelector(primarySelector))
+      .filter(node=>messageRole(node));
+    return [...new Set([...primary,...legacy])];
+  };
   const authorNodes=role=>messageNodes()
     .filter(node=>!role||messageRole(node)===role);
   const authorNode=(root,role='')=>{

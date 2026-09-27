@@ -344,20 +344,25 @@ class PlaywrightDriver(BrowserDriverBase):
         # ChatGPT hydrates its initial textarea into a ProseMirror editor. The
         # empty ProseMirror node can have no rendered box even though it is the
         # real focusable composer, so Playwright reports it as not visible.
-        hydrated = page.get_by_role("main").locator(
-            '[contenteditable="true"][role="textbox"][data-composer-markdown]'
+        main = page.get_by_role("main")
+        candidates = (
+            main.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
+            main.locator('[contenteditable="true"][role="textbox"]'),
         )
-        try:
-            hydrated_count = min(await hydrated.count(), 12)
-        except PlaywrightError:
-            return None
-        for index in range(hydrated_count):
-            candidate = hydrated.nth(index)
+        for hydrated in candidates:
             try:
-                if await candidate.is_enabled():
-                    return candidate
+                hydrated_count = min(await hydrated.count(), 12)
             except PlaywrightError:
                 continue
+            for index in range(hydrated_count):
+                candidate = hydrated.nth(index)
+                try:
+                    if (await candidate.get_attribute("aria-hidden") or "").casefold() == "true":
+                        continue
+                    if await candidate.is_enabled():
+                        return candidate
+                except PlaywrightError:
+                    continue
         return None
 
     async def _composer(self, page: Page) -> Locator | None:

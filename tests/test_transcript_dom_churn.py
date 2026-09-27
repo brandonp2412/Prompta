@@ -79,6 +79,79 @@ def test_current_search_unit_contract_preserves_user_and_assistant_turns(browser
     assert [message["id"] for message in snapshot["messages"]] == ["u-current", "a-current"]
 
 
+def test_content_search_unit_attribute_rename_preserves_turns(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-content-search-unit-key="fallback-turn-0:1:user"
+                 data-chatgpt-search-message-ids="u-content">
+              <div data-chatgpt-selection-message-id="u-content">Question after attribute rename</div>
+            </div>
+            <div data-content-search-unit-key="fallback-turn-0:2:assistant"
+                 data-chatgpt-search-message-ids="a-content">
+              <div data-chatgpt-selection-message-id="a-content">
+                <p>Answer after attribute rename.</p>
+              </div>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after attribute rename"),
+        ("assistant", "Answer after attribute rename."),
+    ]
+
+
+def test_accessible_turn_heading_recovers_role_when_author_attribute_disappears(
+    browser_page,
+) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <h5>You said:</h5>
+              <div data-message-id="u-heading">Question without author attribute</div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <h5>ChatGPT said:</h5>
+              <div data-message-id="a-heading"><p>Answer without author attribute.</p></div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question without author attribute"),
+        ("assistant", "Answer without author attribute."),
+    ]
+
+
+def test_accessible_headings_recover_heading_only_legacy_articles(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <article>
+              <h5>You said:</h5>
+              <div>Question in heading-only legacy turn</div>
+            </article>
+            <article>
+              <h5>ChatGPT said:</h5>
+              <div><p>Answer in heading-only legacy turn.</p></div>
+            </article>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question in heading-only legacy turn"),
+        ("assistant", "Answer in heading-only legacy turn."),
+    ]
+
+
 def test_wrapper_insertion_and_removal_preserve_semantic_transcript(browser_page) -> None:
     flat = _snapshot(
         browser_page,

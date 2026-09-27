@@ -28,6 +28,8 @@ def test_selector_contract_separates_semantic_turns_from_legacy_fallbacks() -> N
         '[data-testid^="conversation-turn-"]',
         '[data-chatgpt-search-unit-key$=":user"]',
         '[data-chatgpt-search-unit-key$=":assistant"]',
+        '[data-content-search-unit-key$=":user"]',
+        '[data-content-search-unit-key$=":assistant"]',
     )
     assert LEGACY_TURN_SELECTORS == (".agent-turn", "article")
     assert TURN_SELECTORS == SEMANTIC_TURN_SELECTORS + LEGACY_TURN_SELECTORS

@@ -130,6 +130,28 @@ async def test_focus_composer_waits_for_chatgpt_prosemirror_hydration(live_drive
 
 
 @pytest.mark.asyncio
+async def test_focus_composer_survives_composer_data_attribute_rename(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <div
+            contenteditable="true"
+            role="textbox"
+            aria-label="Ask ChatGPT"
+            data-renamed-composer-contract=""
+            style="width:0;height:100px"
+          ></div>
+        </main>
+        """
+    )
+
+    composer = await driver._focus_composer()
+
+    assert await composer.get_attribute("data-renamed-composer-contract") == ""
+
+
+@pytest.mark.asyncio
 async def test_type_message_survives_chatgpt_prosemirror_hydration(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

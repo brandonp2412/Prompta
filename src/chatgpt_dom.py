@@ -4,12 +4,6 @@ from .browser_script_loader import render_browser_script
 
 # CSS is limited to DOM state and hidden file inputs. Playwright interactions use
 # accessible roles, names and visible text in playwright_driver.py.
-FILE_INPUT_SELECTORS = (
-    'form[data-type="unified-composer"] input[type="file"]',
-    '[data-composer-surface] input[type="file"]',
-    'input[type="file"]',
-)
-
 STOP_BUTTON_SELECTORS = (
     'button[aria-label="Stop answering"]',
     'button[aria-label="Stop generating"]',
@@ -26,10 +20,12 @@ MESSAGE_ROLE_SELECTOR = "[data-message-author-role]"
 USER_MESSAGE_SELECTORS = (
     '[data-message-author-role="user"]',
     '[data-chatgpt-search-unit-key$=":user"]',
+    '[data-content-search-unit-key$=":user"]',
 )
 ASSISTANT_MESSAGE_SELECTORS = (
     '[data-message-author-role="assistant"]',
     '[data-chatgpt-search-unit-key$=":assistant"]',
+    '[data-content-search-unit-key$=":assistant"]',
 )
 
 # Stable turn markers are kept separate from legacy layout fallbacks so callers
@@ -38,6 +34,8 @@ SEMANTIC_TURN_SELECTORS = (
     '[data-testid^="conversation-turn-"]',
     '[data-chatgpt-search-unit-key$=":user"]',
     '[data-chatgpt-search-unit-key$=":assistant"]',
+    '[data-content-search-unit-key$=":user"]',
+    '[data-content-search-unit-key$=":assistant"]',
 )
 LEGACY_TURN_SELECTORS = (
     ".agent-turn",
