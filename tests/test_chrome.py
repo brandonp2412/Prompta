@@ -534,7 +534,7 @@ async def test_dom_state_dismisses_history_throttling_without_rate_limiting_send
     await page.set_content(
         """
         <textarea aria-label="Message ChatGPT"></textarea>
-        <div role="dialog" data-testid="modal-conversation-history-rate-limit">
+        <div role="dialog">
           <p>Too many requests while loading conversation history.</p>
           <button onclick="this.closest('[role=dialog]').remove()">Got it</button>
         </div>

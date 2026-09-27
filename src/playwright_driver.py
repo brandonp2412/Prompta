@@ -62,6 +62,10 @@ _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
 )
+_HISTORY_RATE_LIMIT_RE = re.compile(
+    r"(?:conversation|chat)\s+history|loading\s+(?:your\s+)?(?:conversation|chat)s?",
+    re.IGNORECASE,
+)
 _LOGIN_RE = re.compile(r"^(?:log ?in|sign ?in)$", re.IGNORECASE)
 _COMPOSER_NAME_RE = re.compile(
     r"^(?:chat with chatgpt|message(?: chatgpt)?|ask(?: chatgpt| anything)?|prompt|send a message)$",
@@ -1022,15 +1026,7 @@ class PlaywrightDriver(BrowserDriverBase):
         rate_limit_dialog: Locator | None = None
 
         async def is_history_rate_limit(candidate: Locator) -> bool:
-            try:
-                return bool(
-                    await candidate.evaluate(
-                        load_browser_script("matches_or_closest.js"),
-                        CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
-                    )
-                )
-            except PlaywrightError:
-                return False
+            return await self._is_history_rate_limit_dialog(candidate)
 
         # Conversation-history throttling is unrelated to sending prompts. Dismiss
         # it for hygiene, but never surface it as a send-rate-limit signal.
@@ -1094,12 +1090,45 @@ class PlaywrightDriver(BrowserDriverBase):
             "rate_limit_text": "\n".join(rate_limit_texts),
         }
 
-    async def _dismiss_history_rate_limit(self, page: Page | None = None) -> bool:
-        current_page = page or self._page()
-        history_rate_limit = await self._first_usable(
-            [current_page.get_by_test_id("modal-conversation-history-rate-limit")],
+    async def _is_history_rate_limit_dialog(self, candidate: Locator) -> bool:
+        try:
+            if await candidate.evaluate(
+                load_browser_script("matches_or_closest.js"),
+                CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
+            ):
+                return True
+            text = (await candidate.inner_text()).strip()
+        except PlaywrightError:
+            return False
+        return bool(_RATE_LIMIT_RE.search(text) and _HISTORY_RATE_LIMIT_RE.search(text))
+
+    async def _history_rate_limit_dialog(self, page: Page) -> Locator | None:
+        exact = await self._first_usable(
+            [page.get_by_test_id("modal-conversation-history-rate-limit")],
             enabled=False,
         )
+        if exact is not None:
+            return exact
+
+        dialogs = page.get_by_role("dialog")
+        try:
+            count = min(await dialogs.count(), 12)
+        except PlaywrightError:
+            return None
+        for index in range(count):
+            candidate = dialogs.nth(index)
+            try:
+                if not await candidate.is_visible():
+                    continue
+            except PlaywrightError:
+                continue
+            if await self._is_history_rate_limit_dialog(candidate):
+                return candidate
+        return None
+
+    async def _dismiss_history_rate_limit(self, page: Page | None = None) -> bool:
+        current_page = page or self._page()
+        history_rate_limit = await self._history_rate_limit_dialog(current_page)
         if history_rate_limit is None:
             return False
         self._history_rate_limit_seen = True
