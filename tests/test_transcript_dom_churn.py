@@ -939,6 +939,35 @@ def test_streaming_detection_survives_aria_busy_markup_churn(browser_page) -> No
     assert snapshot["streaming"] is True
 
 
+def test_mixed_known_and_unknown_prose_markup_preserves_all_text(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Known semantic paragraph.</p>
+                <div data-future-copy-block="true">Text inside a future prose wrapper.</div>
+                <p>Known semantic tail.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    content = assistant["content"]
+    assert "Known semantic paragraph." in content
+    assert "Text inside a future prose wrapper." in content
+    assert "Known semantic tail." in content
+    assert content.index("Known semantic paragraph.") < content.index(
+        "Text inside a future prose wrapper."
+    )
+    assert content.index("Text inside a future prose wrapper.") < content.index(
+        "Known semantic tail."
+    )
+
+
 def test_mixed_tool_attribute_namespaces_preserve_all_tool_rows(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

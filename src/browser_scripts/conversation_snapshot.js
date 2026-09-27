@@ -139,24 +139,32 @@ JSON.stringify((()=>{
       .filter((node,index,nodes)=>!nodes.some((other,otherIndex)=>
         otherIndex!==index&&other.contains(node)
       ));
-    if(semantic.length)return semantic;
     const legacy=[...scope.querySelectorAll(legacyRichTextSelector)]
       .filter(visible)
       .filter(node=>!isInsideTool(node));
-    if(legacy.length)return legacy;
     const structural=[];
+    const coveredByKnownProse=node=>semantic.some(row=>
+      row===node||row.contains(node)
+    );
+    const containsKnownProse=node=>semantic.some(row=>node.contains(row));
     const collectStructural=node=>{
       if(!node||!visible(node))return;
+      if(node.matches?.('h1,h2,h3,h4,h5,h6,[role="heading"]')&&accessibleRole(node.textContent))return;
       if(rows.some(row=>row===node||row.contains(node)))return;
+      if(coveredByKnownProse(node))return;
       const containsTool=rows.some(row=>node.contains(row));
-      if(!containsTool){
+      if(!containsTool&&!containsKnownProse(node)){
         if(normalise(messageText(node)))structural.push(node);
         return;
       }
       for(const child of node.children)collectStructural(child);
     };
     for(const child of scope.children)collectStructural(child);
-    if(structural.length)return structural;
+    const discovered=[...semantic,...structural].sort((left,right)=>left===right?0:(
+      left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
+    ));
+    if(discovered.length)return discovered;
+    if(legacy.length)return legacy;
     return !rows.length&&normalise(messageText(scope))?[scope]:[];
   };
   const reactMessages=promptaTranscriptEngine.reactMessages;
