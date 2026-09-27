@@ -176,6 +176,48 @@ def test_speaker_role_attribute_rename_preserves_turns(browser_page) -> None:
     ]
 
 
+def test_message_role_attribute_rename_preserves_turns(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-transcript-message-role="user-message" data-message-id="u-message-role">
+              Question after message role attribute rename
+            </section>
+            <section data-transcript-message-role="assistant-response" data-message-id="a-message-role">
+              <p>Answer after message role attribute rename.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after message role attribute rename"),
+        ("assistant", "Answer after message role attribute rename."),
+    ]
+
+
+def test_accessible_message_labels_preserve_turns_without_data_roles(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <article aria-label="User message" data-message-id="u-aria">
+              Question discovered from accessible label
+            </article>
+            <article aria-label="Assistant response" data-message-id="a-aria">
+              <p>Answer discovered from accessible label.</p>
+            </article>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question discovered from accessible label"),
+        ("assistant", "Answer discovered from accessible label."),
+    ]
+
+
 def test_latest_assistant_root_uses_structural_role_discovery_after_namespace_churn(
     browser_page,
 ) -> None:

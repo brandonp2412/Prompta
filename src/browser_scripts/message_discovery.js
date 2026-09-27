@@ -11,8 +11,9 @@
   };
   const normaliseRole=value=>{
     const role=String(value||'').replace(/\s+/g,' ').trim().toLowerCase();
-    if(/^(?:user|human|you)$/.test(role))return 'user';
-    if(/^(?:assistant|chatgpt|model|bot)$/.test(role))return 'assistant';
+    const tokens=role.split(/[^a-z0-9]+/).filter(Boolean);
+    if(tokens.some(token=>/^(?:user|human|you)$/.test(token)))return 'user';
+    if(tokens.some(token=>/^(?:assistant|chatgpt|model|bot)$/.test(token)))return 'assistant';
     return '';
   };
   const semanticSearchRole=node=>{
@@ -26,7 +27,7 @@
   };
   const accessibleRole=value=>{
     const label=String(value||'').replace(/\s+/g,' ').trim();
-    const match=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied))?\s*:?$/i);
+    const match=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied|message|response|reply|prompt|turn))?\s*:?$/i);
     return normaliseRole(match?.[1]);
   };
   const headingNodes=root=>root?.querySelectorAll
@@ -57,7 +58,7 @@
   };
   const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
-    ||semanticAttribute(node,/(?:^|-)(?:(?:message-)?author|speaker)-role$/i)
+    ||semanticAttribute(node,/(?:^|-)(?:(?:message-)?(?:author|speaker)-role|message-role)$/i)
   )||semanticSearchRole(node)
     ||accessibleRole(node?.getAttribute?.('aria-label'));
   const messageRole=node=>directMessageRole(node)||headingRole(node);
