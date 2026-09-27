@@ -6,6 +6,7 @@ import shutil
 
 import pytest
 
+from prompta.browser_script_loader import render_browser_script
 from prompta.chatgpt_dom import (
     ASSISTANT_MESSAGE_SELECTOR,
     MESSAGE_ROLE_SELECTOR,
@@ -14,6 +15,7 @@ from prompta.chatgpt_dom import (
     STREAMING_SELECTORS,
 )
 from prompta.conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT
+from prompta.transcript_browser_engine import TRANSCRIPT_BROWSER_ENGINE_SCRIPT
 
 
 @pytest.fixture(scope="module")
@@ -479,6 +481,61 @@ def test_unknown_tool_attribute_namespace_preserves_tool_capture(browser_page) -
     assert "execute_python" in content
     assert content.index("Before renamed tool metadata.") < content.index("tool:Glass")
     assert content.index("tool:Glass") < content.index("After renamed tool metadata.")
+
+
+def test_completion_action_discovery_survives_action_id_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <div>
+                  <button data-testid="feedback-turn-action-button" aria-label="Helpful">+</button>
+                </div>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
+def test_tool_trigger_discovery_survives_label_and_wrapper_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before tool control.</p>
+                <section class="totally-new-tool-layout">
+                  <button aria-label="Show tool details">Glass</button>
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </section>
+                <p>After tool control.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "```tool:Glass" in content
+    assert "execute_python" in content
+    assert "completed" in content
+    assert content.index("Before tool control.") < content.index("```tool:Glass")
+    assert content.index("```tool:Glass") < content.index("After tool control.")
 
 
 def test_partial_reasoning_activity_is_retained_without_private_dom_shape(browser_page) -> None:

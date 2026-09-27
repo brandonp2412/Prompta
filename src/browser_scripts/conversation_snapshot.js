@@ -67,7 +67,17 @@ JSON.stringify((()=>{
     return walk(root).replace(/\n{3,}/g,'\n\n').trim();
   };
   const toolDataSelector='[data-tool-call-id],[data-tool-name]';
-  const toolTriggerSelector='button[aria-label="Open tool call list"],button[aria-label="Close tool call list"],[role="button"][aria-label="Open tool call list"],[role="button"][aria-label="Close tool call list"]';
+  const toolTriggerLabel=value=>/\btool\b.*\b(?:call|use|details?|result|output)s?\b|\b(?:call|use|details?|result|output)s?\b.*\btool\b/i.test(String(value||''));
+  const isToolTrigger=node=>{
+    if(!node?.matches?.('button,[role="button"]'))return false;
+    return [
+      node.getAttribute('aria-label'),
+      node.getAttribute('title'),
+      node.textContent
+    ].some(toolTriggerLabel);
+  };
+  const toolTriggerNodes=root=>[...root.querySelectorAll('button,[role="button"]')]
+    .filter(isToolTrigger);
   const legacyToolRowSelector='span[class~="group/tool-message"]';
   const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\w-]+)$/i;
   const cleanToolName=value=>{const text=(value||'').replace(/\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
@@ -81,7 +91,7 @@ JSON.stringify((()=>{
     const dataRows=dataCandidates.filter(node=>
       !dataCandidates.some(other=>other!==node&&other.contains(node))
     );
-    const triggerRows=[...agent.querySelectorAll(toolTriggerSelector)].map(marker=>{
+    const triggerRows=toolTriggerNodes(agent).map(marker=>{
       const dataRow=marker.closest(toolDataSelector);
       if(dataRow&&agent.contains(dataRow))return dataRow;
       const control=marker.closest('button,[role="button"]')||marker;
@@ -235,10 +245,11 @@ JSON.stringify((()=>{
   };
   const toolBlocks=(agent,fallbackMessages=[])=>{
     const domBlocks=toolRows(agent).map(node=>{
-      const marker=node.matches(toolDataSelector+','+toolTriggerSelector)
+      const marker=node.matches(toolDataSelector)
         ||semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i)
+        ||isToolTrigger(node)
         ?node
-        :node.querySelector(toolDataSelector+','+toolTriggerSelector);
+        :node.querySelector(toolDataSelector)||toolTriggerNodes(node)[0]||null;
       const lines=(node.innerText||node.textContent||'').split(/\n+/)
         .map(line=>line.trim())
         .filter(Boolean);

@@ -32,10 +32,12 @@ JSON.stringify((()=>{
           const turnText=(turn?.innerText||turn?.textContent||'').trim();
           const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\.?\s*Please check your connection and try again\.?\s*If this issue persists please contact us through our help center at help\.openai\.com\.?)/i.test(turnText);
           const deliveryFailed=/Message delivery timed out\.?\s*Please try again/i.test(turnText);
-          const finalAction=Boolean(turn&&[...turn.querySelectorAll('button')].some(button=>{
+          const finalAction=Boolean(turn&&[...turn.querySelectorAll('button,[role="button"]')].some(button=>{
             const testId=(button.getAttribute('data-testid')||'').trim();
             const label=(button.getAttribute('aria-label')||button.getAttribute('title')||button.textContent||'').trim();
-            return testId==='copy-turn-action-button'||/^Copy(?: response)?$/i.test(label);
+            const semanticTurnAction=/(?:^|[-_])turn[-_]action(?:[-_]button)?$|(?:^|[-_])turn[-_]action[-_]/i.test(testId);
+            const knownAction=/^(?:Copy(?: response)?|Regenerate(?: response)?|Read aloud|Good response|Bad response)$/i.test(label);
+            return semanticTurnAction||knownAction;
           }));
           const needsReactEndState=Boolean(turn&&!stop&&!streamActive&&!finalAction);
           const turnEnded=needsReactEndState?reactTurnEnd():null;
