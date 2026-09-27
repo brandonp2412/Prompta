@@ -811,6 +811,59 @@ def test_streaming_detection_survives_aria_busy_markup_churn(browser_page) -> No
     assert snapshot["streaming"] is True
 
 
+def test_mixed_tool_attribute_namespaces_preserve_all_tool_rows(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before tools.</p>
+                <div data-tool-call-id="known-1" data-tool-name="Known Tool">
+                  <button aria-label="Show tool details">Known Tool</button>
+                </div>
+                <div data-transcript-tool-call-id="future-2" data-transcript-tool-name="Future Tool">
+                  <button aria-label="Show tool details">Future Tool</button>
+                </div>
+                <p>After tools.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    content = assistant["content"]
+    assert "```tool:Known Tool" in content
+    assert "```tool:Future Tool" in content
+    assert "Before tools." in content
+    assert "After tools." in content
+
+
+def test_tool_trigger_uses_renamed_semantic_tool_ancestor(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <section data-transcript-tool-call-id="future-3" data-transcript-tool-name="Glass">
+                  <div>
+                    <button aria-label="Show tool details">Glass</button>
+                  </div>
+                </section>
+                <p>Done.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    assert "```tool:Glass" in assistant["content"]
+    assert "Done." in assistant["content"]
+
+
 def _is_styling_class_selector(selector: str) -> bool:
     return "[class" in selector or bool(re.search(r"(^|[\s>+~,])\.[A-Za-z_-]", selector))
 

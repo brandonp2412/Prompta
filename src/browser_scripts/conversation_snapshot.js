@@ -78,6 +78,16 @@ JSON.stringify((()=>{
     return walk(root).replace(/\n{3,}/g,'\n\n').trim();
   };
   const toolDataSelector='[data-tool-call-id],[data-tool-name]';
+  const toolSemanticAttribute=node=>semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i);
+  const toolDataNode=node=>Boolean(
+    node?.matches?.(toolDataSelector)||toolSemanticAttribute(node)
+  );
+  const closestToolDataNode=(node,root)=>{
+    for(let candidate=node;candidate&&candidate!==root;candidate=candidate.parentElement){
+      if(toolDataNode(candidate))return candidate;
+    }
+    return root&&toolDataNode(root)?root:null;
+  };
   const toolTriggerLabel=value=>/\btool\b.*\b(?:call|use|details?|result|output)s?\b|\b(?:call|use|details?|result|output)s?\b.*\btool\b/i.test(String(value||''));
   const isToolTrigger=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
@@ -94,16 +104,15 @@ JSON.stringify((()=>{
   const cleanToolName=value=>{const text=(value||'').replace(/\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
   const toolRows=agent=>{
     if(!agent)return [];
-    const knownDataRows=[...agent.querySelectorAll(toolDataSelector)];
-    const dataCandidates=knownDataRows.length?knownDataRows:
-      [...agent.querySelectorAll('*')].filter(node=>
-        semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i)
-      );
+    const dataCandidates=[
+      ...agent.querySelectorAll(toolDataSelector),
+      ...[...agent.querySelectorAll('*')].filter(toolSemanticAttribute)
+    ].filter((node,index,nodes)=>nodes.indexOf(node)===index);
     const dataRows=dataCandidates.filter(node=>
       !dataCandidates.some(other=>other!==node&&other.contains(node))
     );
     const triggerRows=toolTriggerNodes(agent).map(marker=>{
-      const dataRow=marker.closest(toolDataSelector);
+      const dataRow=closestToolDataNode(marker,agent);
       if(dataRow&&agent.contains(dataRow))return dataRow;
       const control=marker.closest('button,[role="button"]')||marker;
       return control.parentElement&&agent.contains(control.parentElement)?control.parentElement:control;
