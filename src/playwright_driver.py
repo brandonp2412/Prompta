@@ -1213,12 +1213,29 @@ class PlaywrightDriver(BrowserDriverBase):
                 await asyncio.sleep(0.1)
         raise RuntimeError("ChatGPT thinking-effort control did not become available")
 
-    async def _open_effort_menu(self) -> None:
-        page = self._page()
-        power = await self._first_usable(
-            [page.get_by_role("menuitem", name="Power", exact=True)],
+    async def _power_control(self, page: Page) -> Locator | None:
+        menuitems = page.get_by_role("menuitem")
+        try:
+            count = min(await menuitems.count(), 40)
+        except PlaywrightError:
+            count = 0
+        for index in range(count):
+            item = menuitems.nth(index)
+            try:
+                if not await item.is_visible() or not await item.is_enabled():
+                    continue
+                if await item.get_by_role("slider", include_hidden=True).count():
+                    return item
+            except PlaywrightError:
+                continue
+        return await self._first_usable(
+            [page.get_by_role("menuitem", name=re.compile(r"\bpower\b", re.IGNORECASE))],
             enabled=True,
         )
+
+    async def _open_effort_menu(self) -> None:
+        page = self._page()
+        power = await self._power_control(page)
         if power is not None:
             return
 
@@ -1236,14 +1253,42 @@ class PlaywrightDriver(BrowserDriverBase):
 
         deadline = asyncio.get_running_loop().time() + 2.0
         while asyncio.get_running_loop().time() < deadline:
-            power = await self._first_usable(
-                [page.get_by_role("menuitem", name="Power", exact=True)],
-                enabled=True,
-            )
+            power = await self._power_control(page)
             if power is not None:
                 return
             await asyncio.sleep(0.05)
         raise RuntimeError("ChatGPT Power control did not become available")
+
+    async def _model_selector_control(self, page: Page) -> Locator | None:
+        named = await self._first_usable(
+            [
+                page.get_by_role(
+                    "menuitem",
+                    name=re.compile(r"\b(?:select|choose|change)\s+model\b", re.IGNORECASE),
+                )
+            ],
+            enabled=True,
+        )
+        if named is not None:
+            return named
+
+        menuitems = page.get_by_role("menuitem")
+        submenu_candidates: list[Locator] = []
+        try:
+            count = min(await menuitems.count(), 40)
+        except PlaywrightError:
+            count = 0
+        for index in range(count):
+            item = menuitems.nth(index)
+            try:
+                if not await item.is_visible() or not await item.is_enabled():
+                    continue
+                popup = (await item.get_attribute("aria-haspopup") or "").casefold()
+                if popup in {"true", "menu", "listbox"}:
+                    submenu_candidates.append(item)
+            except PlaywrightError:
+                continue
+        return submenu_candidates[0] if len(submenu_candidates) == 1 else None
 
     async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
         page = self._page()
@@ -1272,16 +1317,10 @@ class PlaywrightDriver(BrowserDriverBase):
                     await asyncio.sleep(0.1)
                     continue
 
-            selector = await self._first_usable(
-                [page.get_by_role("menuitem", name="Select model", exact=True)],
-                enabled=True,
-            )
+            selector = await self._model_selector_control(page)
             if selector is None:
                 await self._open_effort_menu()
-                selector = await self._first_usable(
-                    [page.get_by_role("menuitem", name="Select model", exact=True)],
-                    enabled=True,
-                )
+                selector = await self._model_selector_control(page)
             if selector is not None:
                 try:
                     await selector.click()
@@ -1294,10 +1333,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def effort_power_info(self) -> dict[str, Any]:
         page = self._page()
-        power = await self._first_usable(
-            [page.get_by_role("menuitem", name="Power", exact=True)],
-            enabled=True,
-        )
+        power = await self._power_control(page)
         if power is None:
             return {}
 
@@ -1335,10 +1371,7 @@ class PlaywrightDriver(BrowserDriverBase):
     async def set_effort_power_position(self, position: int) -> dict[str, Any]:
         await self._open_effort_menu()
         page = self._page()
-        power = await self._first_usable(
-            [page.get_by_role("menuitem", name="Power", exact=True)],
-            enabled=True,
-        )
+        power = await self._power_control(page)
         if power is None:
             raise RuntimeError("ChatGPT Power control did not become available")
 

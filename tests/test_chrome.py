@@ -650,6 +650,27 @@ async def test_select_effort_model_uses_direct_chat_menu_item(live_driver) -> No
 
 
 @pytest.mark.asyncio
+async def test_select_effort_model_uses_unique_structural_submenu_when_copy_changes(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div id="selector" role="menuitem" aria-label="Choose engine" aria-haspopup="menu"
+             onclick="document.getElementById('models').hidden=false">Choose engine</div>
+        <div id="models" hidden>
+          <div id="sol" role="menuitemradio" aria-label="GPT-5.6 Sol"
+               onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        </div>
+        """
+    )
+
+    await driver.select_effort_model()
+
+    assert await page.locator("#sol").get_attribute("data-clicked") == "true"
+
+
+@pytest.mark.asyncio
 async def test_select_effort_model_accepts_already_checked_model(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -675,7 +696,7 @@ async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver
         <div id="menu" hidden>
           <span id="power-state">Medium, 2 of 4.</span>
           <span id="power-help">Use Left and Right arrow keys to adjust power.</span>
-          <div id="power" role="menuitem" aria-label="Power" tabindex="0"
+          <div id="power" role="menuitem" aria-label="Reasoning intensity" tabindex="0"
                aria-describedby="power-state power-help"
                onkeydown="
                  const labels = ['Instant', 'Medium', 'High', 'Pro'];
@@ -687,7 +708,7 @@ async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver
                  document.getElementById('power-state').textContent =
                    labels[value] + ', ' + (value + 1) + ' of 4.';
                ">
-            Power
+            Reasoning intensity
             <span role="slider" aria-valuemin="0" aria-valuemax="3"
                   aria-valuenow="1" aria-hidden="true"></span>
           </div>
