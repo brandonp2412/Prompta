@@ -2,10 +2,16 @@
   const assistantSelector=__ASSISTANT_SELECTOR__;
   const semanticTurnSelector=__SEMANTIC_TURN_SELECTOR__;
   const legacyTurnSelector=__LEGACY_TURN_SELECTOR__;
+  const normaliseAttributeName=value=>String(value||'')
+    .trim()
+    .toLowerCase()
+    .replace(/[_:]+/g,'-')
+    .replace(/-+/g,'-');
   const semanticAttribute=(node,namePattern)=>{
     if(!node?.attributes)return '';
     for(const attribute of node.attributes){
-      if(namePattern.test(attribute.name))return String(attribute.value||'');
+      const name=normaliseAttributeName(attribute.name);
+      if(namePattern.test(name))return String(attribute.value||'');
     }
     return '';
   };
@@ -82,17 +88,24 @@
   const documentOrder=(left,right)=>left===right?0:(
     left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
   );
+  const innermostRoleNodes=nodes=>nodes.filter(node=>!nodes.some(other=>
+    other!==node
+    &&node.contains(other)
+    &&messageRole(other)===messageRole(node)
+  ));
   const messageNodes=()=>{
-    const primary=[...new Set([
+    const primary=innermostRoleNodes([...new Set([
       ...document.querySelectorAll(messageRoleSelector),
       ...document.querySelectorAll(semanticTurnSelector)
-    ])].filter(node=>messageRole(node));
+    ])].filter(node=>messageRole(node)));
     const roles=new Set(primary.map(messageRole));
     const root=document.querySelector('main')||document.body||document.documentElement;
     // Always inspect structural role metadata too. During staggered DOM rollouts a page can
     // contain both the established namespace and a renamed one; stopping once both roles
     // are seen in the established markup would silently drop turns using the new namespace.
-    const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+    const structural=innermostRoleNodes(
+      [...root.querySelectorAll('*')].filter(node=>directMessageRole(node))
+    );
     const headingCandidates=headingMessageNodes(root);
     const recoverableRoles=new Set([
       ...roles,
@@ -118,11 +131,13 @@
     .filter(node=>!role||messageRole(node)===role);
   const descendantAuthorNodes=root=>{
     if(!root?.querySelectorAll)return [];
-    const primary=[...new Set([
+    const primary=innermostRoleNodes([...new Set([
       ...root.querySelectorAll(messageRoleSelector),
       ...root.querySelectorAll(semanticTurnSelector)
-    ])].filter(node=>messageRole(node));
-    const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+    ])].filter(node=>messageRole(node)));
+    const structural=innermostRoleNodes(
+      [...root.querySelectorAll('*')].filter(node=>directMessageRole(node))
+    );
     return [...new Set([...primary,...structural])].sort(documentOrder);
   };
   const authorNode=(root,role='')=>{

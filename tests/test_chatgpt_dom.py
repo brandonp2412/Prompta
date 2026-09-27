@@ -364,6 +364,39 @@ def test_snapshot_preserves_prose_tool_order_across_class_name_churn(
     ]
 
 
+
+def test_snapshot_discovers_roles_ids_and_tools_across_attribute_separator_churn() -> None:
+    snapshot = _snapshot_from_html(
+        """
+        <main>
+          <section data-content_search_unit_key="turn:user">
+            <div data-message_author_role="user" data-selection_message_uuid="u-sep">Question</div>
+          </section>
+          <section data-content_search_unit_key="turn:assistant">
+            <div data-message_author_role="assistant" data-selection_message_id="a-sep">
+              <p>Before tool.</p>
+              <div data-tool_name="Browser">
+                <button aria-label="Open tool call details">Tool</button>
+                <span>Result payload</span>
+              </div>
+              <p>After tool.</p>
+            </div>
+          </section>
+        </main>
+        """
+    )
+
+    assert [(message["role"], message["id"]) for message in snapshot["messages"]] == [
+        ("user", "u-sep"),
+        ("assistant", "a-sep"),
+    ]
+    content = snapshot["messages"][-1]["content"]
+    assert "Before tool." in content
+    assert "Browser" in content
+    assert "Result payload" in content
+    assert "After tool." in content
+
+
 def test_snapshot_script_parses_as_javascript(tmp_path) -> None:
     node = shutil.which("node")
     if node is None:
