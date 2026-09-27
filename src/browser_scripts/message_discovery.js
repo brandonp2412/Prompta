@@ -57,7 +57,7 @@
   };
   const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
-    ||semanticAttribute(node,/(?:^|-)message-author-role$/i)
+    ||semanticAttribute(node,/(?:^|-)(?:(?:message-)?author|speaker)-role$/i)
   )||semanticSearchRole(node)
     ||accessibleRole(node?.getAttribute?.('aria-label'));
   const messageRole=node=>directMessageRole(node)||headingRole(node);

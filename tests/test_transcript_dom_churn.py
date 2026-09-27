@@ -134,6 +134,48 @@ def test_unknown_semantic_attribute_namespace_preserves_turns_and_ids(browser_pa
     assert [message["id"] for message in snapshot["messages"]] == ["u-future", "a-future"]
 
 
+def test_generic_author_role_attribute_rename_preserves_turns(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-author-role="user" data-message-id="u-author">
+              Question after author attribute rename
+            </section>
+            <section data-author-role="assistant" data-message-id="a-author">
+              <p>Answer after author attribute rename.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after author attribute rename"),
+        ("assistant", "Answer after author attribute rename."),
+    ]
+
+
+def test_speaker_role_attribute_rename_preserves_turns(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-transcript-speaker-role="human" data-message-id="u-speaker">
+              Question after speaker attribute rename
+            </section>
+            <section data-transcript-speaker-role="model" data-message-id="a-speaker">
+              <p>Answer after speaker attribute rename.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after speaker attribute rename"),
+        ("assistant", "Answer after speaker attribute rename."),
+    ]
+
+
 def test_latest_assistant_root_uses_structural_role_discovery_after_namespace_churn(
     browser_page,
 ) -> None:
