@@ -144,10 +144,18 @@ JSON.stringify((()=>{
       .filter(visible)
       .filter(node=>!isInsideTool(node));
     if(legacy.length)return legacy;
-    const structural=[...scope.children]
-      .filter(visible)
-      .filter(node=>!rows.some(row=>row===node||row.contains(node)||node.contains(row)))
-      .filter(node=>normalise(messageText(node)));
+    const structural=[];
+    const collectStructural=node=>{
+      if(!node||!visible(node))return;
+      if(rows.some(row=>row===node||row.contains(node)))return;
+      const containsTool=rows.some(row=>node.contains(row));
+      if(!containsTool){
+        if(normalise(messageText(node)))structural.push(node);
+        return;
+      }
+      for(const child of node.children)collectStructural(child);
+    };
+    for(const child of scope.children)collectStructural(child);
     if(structural.length)return structural;
     return !rows.length&&normalise(messageText(scope))?[scope]:[];
   };

@@ -548,6 +548,34 @@ def test_wrapper_insertion_and_removal_preserve_semantic_transcript(browser_page
     ]
 
 
+def test_nested_structural_wrapper_preserves_prose_around_tool(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <div data-layout-shell="new-wrapper-shape">
+                  <div data-copy-row="before">Before <strong>tool</strong>.</div>
+                  <section data-runtime-tool-call-id="tool-nested" data-runtime-tool-name="Glass">
+                    <span>execute_python</span>
+                    <span>completed</span>
+                  </section>
+                  <div data-copy-row="after">After tool.</div>
+                </div>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert content.index("Before **tool**.") < content.index("```tool:Glass")
+    assert content.index("```tool:Glass") < content.index("After tool.")
+    assert "execute_python" in content
+    assert "completed" in content
+
+
 @pytest.mark.parametrize(
     ("prose_class", "tool_class"),
     [
