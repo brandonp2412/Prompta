@@ -11,7 +11,7 @@
   };
   const semanticSearchRole=node=>{
     const key=semanticAttribute(node,/(?:^|-)search-unit-key$/i);
-    return key.match(/:(user|assistant)$/)?.[1]||'';
+    return key.match(/(?:^|:)(user|assistant)(?::|$)/)?.[1]||'';
   };
   const accessibleRole=value=>{
     const label=String(value||'').replace(/\s+/g,' ').trim();
@@ -61,13 +61,20 @@
   };
   const authorNodes=role=>messageNodes()
     .filter(node=>!role||messageRole(node)===role);
+  const descendantAuthorNodes=root=>{
+    if(!root?.querySelectorAll)return [];
+    const primary=[...new Set([
+      ...root.querySelectorAll(messageRoleSelector),
+      ...root.querySelectorAll(semanticTurnSelector)
+    ])].filter(node=>messageRole(node));
+    if(primary.length)return primary;
+    return [...root.querySelectorAll('*')].filter(node=>directMessageRole(node));
+  };
   const authorNode=(root,role='')=>{
     if(!root)return null;
     if(messageRole(root)&&(!role||messageRole(root)===role))return root;
-    return [...new Set([
-      ...root.querySelectorAll(messageRoleSelector),
-      ...root.querySelectorAll(semanticTurnSelector)
-    ])].find(node=>messageRole(node)&&(!role||messageRole(node)===role))||null;
+    return descendantAuthorNodes(root)
+      .find(node=>!role||messageRole(node)===role)||null;
   };
   const semanticTurnRoot=node=>node?.closest?.(semanticTurnSelector)||null;
   const structuralTurnRoot=node=>{
@@ -75,7 +82,7 @@
     let candidate=null;
     for(let parent=node.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
       if(parent.tagName==='MAIN'||parent.getAttribute?.('role')==='main')break;
-      const authors=[...parent.querySelectorAll(messageRoleSelector)];
+      const authors=descendantAuthorNodes(parent);
       if(authors.length!==1||authors[0]!==node)break;
       candidate=parent;
     }

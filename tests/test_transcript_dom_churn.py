@@ -180,6 +180,57 @@ def test_accessible_headings_recover_heading_only_legacy_articles(browser_page) 
     ]
 
 
+def test_unknown_namespace_nested_inside_semantic_turn_wrapper_is_discovered(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-layout-shell="outer">
+                <div data-future-message-author-role="user" data-future-message-id="u1">
+                  Question after nested namespace churn
+                </div>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <div data-layout-shell="outer">
+                <div data-future-message-author-role="assistant" data-future-message-id="a1">
+                  <p>Answer after nested namespace churn.</p>
+                </div>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after nested namespace churn"),
+        ("assistant", "Answer after nested namespace churn."),
+    ]
+    assert [message["id"] for message in snapshot["messages"]] == ["u1", "a1"]
+
+
+def test_search_unit_role_survives_added_key_segments(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-future-search-unit-key="turn:1:user:content" data-future-search-message-ids="u1">
+              Question with extended semantic key
+            </div>
+            <div data-future-search-unit-key="turn:2:assistant:content" data-future-search-message-ids="a1">
+              <p>Answer with extended semantic key.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question with extended semantic key"),
+        ("assistant", "Answer with extended semantic key."),
+    ]
+
+
 def test_wrapper_insertion_and_removal_preserve_semantic_transcript(browser_page) -> None:
     flat = _snapshot(
         browser_page,
