@@ -132,22 +132,50 @@ const promptaTranscriptEngine=(()=>{
   const isTurnActionControl=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
     const attributes=[...(node.attributes||[])];
+    const semanticTokens=value=>new Set(
+      String(value||'')
+        .toLowerCase()
+        .replace(/[_:]+/g,'-')
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+    );
+    const actionTokens=new Set([
+      'copy','regenerate','retry','read','aloud','thumb','up','down',
+      'good','bad','feedback','response','message','turn','action'
+    ]);
     const semanticAction=attributes.some(attribute=>{
-      const name=String(attribute.name||'').toLowerCase().replace(/[_:]+/g,'-');
-      const value=String(attribute.value||'').toLowerCase().replace(/[_:]+/g,'-');
-      const nameTokens=new Set(name.split(/[^a-z0-9]+/).filter(Boolean));
-      const valueTokens=new Set(value.split(/[^a-z0-9]+/).filter(Boolean));
-      const tokens=new Set([...nameTokens,...valueTokens]);
-      return tokens.has('turn')&&tokens.has('action');
+      const tokens=new Set([
+        ...semanticTokens(attribute.name),
+        ...semanticTokens(attribute.value)
+      ]);
+      return (tokens.has('turn')&&tokens.has('action'))
+        ||(tokens.has('message')&&tokens.has('action'))
+        ||([...tokens].some(token=>actionTokens.has(token))
+          &&['data-action','data-testid','data-state','name'].includes(
+            String(attribute.name||'').toLowerCase()
+          ));
     });
     if(semanticAction)return true;
-    const actionLabel=value=>/^(?:Copy(?: response)?|Regenerate(?: response)?|Read aloud|Good response|Bad response)$/i
-      .test(String(value||'').replace(/\s+/g,' ').trim());
+    const descendantSemanticText=node.querySelectorAll
+      ?[...node.querySelectorAll('*')].flatMap(child=>[
+        child.getAttribute?.('aria-label')||'',
+        child.getAttribute?.('title')||'',
+        child.getAttribute?.('data-icon')||'',
+        child.getAttribute?.('data-testid')||'',
+        child.getAttribute?.('data-action')||''
+      ]).join(' ')
+      :'';
+    const actionLabel=value=>{
+      const label=String(value||'').replace(/[-_]+/g,' ').replace(/\s+/g,' ').trim();
+      if(!label)return false;
+      return /\b(?:copy|regenerate|retry|read\s+aloud|good\s+(?:response|answer)|bad\s+(?:response|answer)|thumbs?\s+(?:up|down))\b/i.test(label);
+    };
     return [
       node.getAttribute?.('aria-label')||'',
       labelledByText(node),
       node.getAttribute?.('title')||'',
-      node.textContent||''
+      node.textContent||'',
+      descendantSemanticText
     ].some(actionLabel);
   };
   const latestAssistantRoot=()=>{

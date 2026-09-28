@@ -1060,6 +1060,56 @@ def test_completion_action_discovery_uses_aria_labelledby(browser_page) -> None:
     assert activity["complete"] is True
 
 
+def test_completion_action_discovery_tolerates_copy_wording_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <button aria-label="Copy message">+</button>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
+def test_completion_action_discovery_uses_descendant_semantics(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <button><span data-icon="copy-message"></span></button>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
 def test_partial_reasoning_activity_is_retained_without_private_dom_shape(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
