@@ -121,6 +121,25 @@ const promptaTranscriptEngine=(()=>{
     ].join(' ').replace(/[-_]+/g,' ');
     return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
   };
+  const isTurnActionControl=node=>{
+    if(!node?.matches?.('button,[role="button"]'))return false;
+    const attributes=[...(node.attributes||[])];
+    const semanticAction=attributes.some(attribute=>{
+      const name=String(attribute.name||'').toLowerCase().replace(/[_:]+/g,'-');
+      const value=String(attribute.value||'').toLowerCase().replace(/[_:]+/g,'-');
+      const nameTokens=new Set(name.split(/[^a-z0-9]+/).filter(Boolean));
+      const valueTokens=new Set(value.split(/[^a-z0-9]+/).filter(Boolean));
+      const tokens=new Set([...nameTokens,...valueTokens]);
+      return tokens.has('turn')&&tokens.has('action');
+    });
+    if(semanticAction)return true;
+    const label=[
+      node.getAttribute?.('aria-label')||'',
+      node.getAttribute?.('title')||'',
+      node.textContent||''
+    ].join(' ').replace(/\s+/g,' ').trim();
+    return /^(?:Copy(?: response)?|Regenerate(?: response)?|Read aloud|Good response|Bad response)$/i.test(label);
+  };
   const latestAssistantRoot=()=>{
     const latestAssistant=authorNodes('assistant').at(-1)||null;
     return turnRoot(latestAssistant)
@@ -148,6 +167,7 @@ const promptaTranscriptEngine=(()=>{
     hasVisibleAssistantText,
     inspectReact,
     isStopControl,
+    isTurnActionControl,
     latestAssistantRoot,
     reactFallbackSummary,
     reactMessages,

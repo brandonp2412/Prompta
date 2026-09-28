@@ -900,6 +900,33 @@ def test_completion_action_discovery_survives_action_id_churn(browser_page) -> N
     assert activity["complete"] is True
 
 
+def test_completion_action_discovery_survives_attribute_namespace_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <div>
+                  <button data-transcript-turn-action="feedback" aria-label="Helpful">+</button>
+                </div>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
 def test_tool_trigger_discovery_survives_label_and_wrapper_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
