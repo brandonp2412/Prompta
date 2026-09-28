@@ -1507,6 +1507,27 @@ def test_aria_labelledby_heading_names_survive_heading_text_churn(browser_page) 
     ]
 
 
+def test_accessible_role_metadata_survives_label_and_heading_copy_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section role="group" aria-roledescription="Message from user">
+              <div>Question recovered from role description.</div>
+            </section>
+            <section role="group" title="Response by assistant">
+              <p>Answer recovered from title metadata.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Question recovered from role description."),
+        ("assistant", "Answer recovered from title metadata."),
+    ]
+
+
 def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

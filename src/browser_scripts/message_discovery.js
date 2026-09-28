@@ -42,26 +42,34 @@
   };
   const accessibleRole=value=>{
     const label=String(value||'').replace(/\s+/g,' ').trim();
-    const match=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied|message|response|reply|prompt|turn))?\s*:?$/i);
-    return normaliseRole(match?.[1]);
+    const leading=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied|message|response|reply|prompt|turn))?\s*:?$/i);
+    if(leading)return normaliseRole(leading[1]);
+    const relational=label.match(/^(?:message|response|reply|prompt|turn|answer)\s+(?:from|by)\s+(you|user|human|chatgpt|assistant|model|bot)\s*:?$/i);
+    return normaliseRole(relational?.[1]);
   };
-  const accessibleName=node=>{
-    const label=String(node?.getAttribute?.('aria-label')||'').trim();
-    if(label)return label;
-    const labelledBy=String(node?.getAttribute?.('aria-labelledby')||'')
-      .split(/\s+/)
-      .filter(Boolean);
-    if(!labelledBy.length)return '';
-    return labelledBy
-      .map(id=>document.getElementById(id)?.textContent||'')
-      .join(' ')
-      .replace(/\s+/g,' ')
-      .trim();
-  };
+  const labelledByText=node=>String(node?.getAttribute?.('aria-labelledby')||'')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(id=>document.getElementById(id)?.textContent||'')
+    .join(' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  const accessibleName=node=>String(
+    node?.getAttribute?.('aria-label')
+    ||labelledByText(node)
+    ||node?.getAttribute?.('title')
+    ||''
+  ).replace(/\s+/g,' ').trim();
+  const accessibleNodeRole=node=>[
+    node?.getAttribute?.('aria-label')||'',
+    labelledByText(node),
+    node?.getAttribute?.('aria-roledescription')||'',
+    node?.getAttribute?.('title')||''
+  ].map(accessibleRole).find(Boolean)||'';
   const headingNodes=root=>root?.querySelectorAll
     ?[...root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
     :[];
-  const headingAccessibleRole=heading=>accessibleRole(accessibleName(heading))
+  const headingAccessibleRole=heading=>accessibleNodeRole(heading)
     ||accessibleRole(heading?.textContent);
   const headingRole=node=>{
     for(const heading of headingNodes(node)){
@@ -100,7 +108,7 @@
       [['author','speaker','sender','actor','participant']]
     )
   )||semanticSearchRole(node)
-    ||(!isHeadingNode(node)?accessibleRole(accessibleName(node)):'');
+    ||(!isHeadingNode(node)?accessibleNodeRole(node):'');
   const messageRole=node=>directMessageRole(node)||headingRole(node);
   const searchMessageIds=node=>semanticAttribute(
     node,
