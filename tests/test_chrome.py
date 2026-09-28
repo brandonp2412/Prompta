@@ -1243,6 +1243,22 @@ async def test_history_navigation_uses_link_role(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_history_navigation_survives_accessible_role_churn(live_driver) -> None:
+    driver, page = live_driver
+
+    async def fulfill(route):
+        await route.fulfill(status=200, content_type="text/html", body="<main>target</main>")
+
+    await page.route("https://chatgpt.com/**", fulfill)
+    await page.set_content(
+        '<a role="button" href="https://chatgpt.com/c/target">History item</a>'
+    )
+
+    assert await driver.activate_history_link("/c/target") is True
+    await page.wait_for_url("https://chatgpt.com/c/target")
+
+
+@pytest.mark.asyncio
 async def test_find_context_for_path_only_adopts_prompta_owned_pages(live_driver) -> None:
     driver, page = live_driver
     context = driver._browser_context

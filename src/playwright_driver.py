@@ -617,25 +617,29 @@ class PlaywrightDriver(BrowserDriverBase):
     async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
         page = self._page(context)
         target = path.rstrip("/") or "/"
-        links = page.get_by_role("link")
-        try:
-            count = min(await links.count(), 250)
-        except PlaywrightError:
-            return False
-        for index in range(count):
-            link = links.nth(index)
+        # Prefer link semantics, but tolerate role/tag churn as long as the
+        # destination contract remains intact. ChatGPT has changed accessible
+        # roles on history controls before; matching the exact href path avoids
+        # coupling navigation to those presentation details.
+        for links in (page.get_by_role("link"), page.locator("[href]")):
             try:
-                if not await link.is_visible():
-                    continue
-                href = await link.get_attribute("href")
-                if not href:
-                    continue
-                if (urlsplit(href).path.rstrip("/") or "/") != target:
-                    continue
-                await link.click()
-                return True
+                count = min(await links.count(), 250)
             except PlaywrightError:
                 continue
+            for index in range(count):
+                link = links.nth(index)
+                try:
+                    if not await link.is_visible():
+                        continue
+                    href = await link.get_attribute("href")
+                    if not href:
+                        continue
+                    if (urlsplit(href).path.rstrip("/") or "/") != target:
+                        continue
+                    await link.click()
+                    return True
+                except PlaywrightError:
+                    continue
         return False
 
     async def find_context_for_path(self, expected_path: str) -> str | None:
