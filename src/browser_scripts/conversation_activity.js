@@ -25,7 +25,11 @@ JSON.stringify((()=>{
           const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
           const streamRoot=turn||assistant;
           const semanticStreamActive=Boolean(streamRoot&&[streamRoot,...streamRoot.querySelectorAll('*')].some(node=>{
-            const state=semanticAttribute(node,/(?:^|-)(?:is-)?streaming$/i).toLowerCase();
+            const state=semanticAttribute(
+              node,
+              /(?:^|-)(?:is-)?streaming$/i,
+              [['streaming']]
+            ).toLowerCase();
             return ['true','active','1','yes'].includes(state)
               ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
           }));

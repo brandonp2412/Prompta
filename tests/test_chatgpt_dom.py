@@ -364,7 +364,6 @@ def test_snapshot_preserves_prose_tool_order_across_class_name_churn(
     ]
 
 
-
 def test_snapshot_discovers_roles_ids_and_tools_across_attribute_separator_churn() -> None:
     snapshot = _snapshot_from_html(
         """
@@ -395,6 +394,43 @@ def test_snapshot_discovers_roles_ids_and_tools_across_attribute_separator_churn
     assert "Browser" in content
     assert "Result payload" in content
     assert "After tool." in content
+
+
+def test_snapshot_survives_inserted_semantic_attribute_namespace_tokens() -> None:
+    snapshot = _snapshot_from_html(
+        """
+        <main>
+          <section
+            data-chat-search-unit-key-v2="turn:user"
+            data-selection-message-uuid-v2="u-ns"
+          >
+            Question
+          </section>
+          <section
+            data-chat-search-unit-key-v2="turn:assistant"
+            data-selection-message-uuid-v2="a-ns"
+            data-runtime-streaming-state-v2="active"
+          >
+            <p>Before tool.</p>
+            <div data-runtime-tool-call-id-v2="call-1">
+              <button aria-label="Open tool call details">Tool</button>
+              <span>Namespaced result</span>
+            </div>
+            <p>After tool.</p>
+          </section>
+        </main>
+        """
+    )
+
+    assert [(message["role"], message["id"]) for message in snapshot["messages"]] == [
+        ("user", "u-ns"),
+        ("assistant", "a-ns"),
+    ]
+    content = snapshot["messages"][-1]["content"]
+    assert "Before tool." in content
+    assert "Namespaced result" in content
+    assert "After tool." in content
+    assert snapshot["streaming"] is True
 
 
 def test_snapshot_script_parses_as_javascript(tmp_path) -> None:

@@ -952,7 +952,7 @@ def test_streaming_detection_survives_semantic_attribute_namespace_churn(browser
     browser_page.set_content(
         _conversation(
             """
-            <section data-testid="conversation-turn-a1" data-runtime-streaming="active">
+            <section data-testid="conversation-turn-a1" data-runtime-streaming-state-v2="active">
               <div data-message-author-role="assistant" data-message-id="a1">
                 <p>Still generating.</p>
               </div>

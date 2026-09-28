@@ -89,7 +89,11 @@ JSON.stringify((()=>{
     return walk(root).replace(/\n{3,}/g,'\n\n').trim();
   };
   const toolDataSelector='[data-tool-call-id],[data-tool-name]';
-  const toolSemanticAttribute=node=>semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i);
+  const toolSemanticAttribute=node=>semanticAttribute(
+    node,
+    /(?:^|-)tool-(?:call-id|name)$/i,
+    [['tool'],['name','id']]
+  );
   const toolDataNode=node=>Boolean(
     node?.matches?.(toolDataSelector)||toolSemanticAttribute(node)
   );
@@ -672,7 +676,11 @@ JSON.stringify((()=>{
   const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
   const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...latestTurn.querySelectorAll('*')].some(node=>{
-    const state=semanticAttribute(node,/(?:^|-)(?:is-)?streaming$/i).toLowerCase();
+    const state=semanticAttribute(
+      node,
+      /(?:^|-)(?:is-)?streaming$/i,
+      [['streaming']]
+    ).toLowerCase();
     return ['true','active','1','yes'].includes(state)
       ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
   }));

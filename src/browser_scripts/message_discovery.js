@@ -7,11 +7,16 @@
     .toLowerCase()
     .replace(/[_:]+/g,'-')
     .replace(/-+/g,'-');
-  const semanticAttribute=(node,namePattern)=>{
+  const semanticAttribute=(node,namePattern,tokenGroups=[])=>{
     if(!node?.attributes)return '';
     for(const attribute of node.attributes){
       const name=normaliseAttributeName(attribute.name);
       if(namePattern.test(name))return String(attribute.value||'');
+      if(!tokenGroups.length)continue;
+      const tokens=new Set(name.split('-').filter(Boolean));
+      if(tokenGroups.every(group=>group.some(token=>tokens.has(token)))){
+        return String(attribute.value||'');
+      }
     }
     return '';
   };
@@ -23,7 +28,11 @@
     return '';
   };
   const semanticSearchRole=node=>{
-    const key=semanticAttribute(node,/(?:^|-)search-unit-key$/i);
+    const key=semanticAttribute(
+      node,
+      /(?:^|-)search-unit-key$/i,
+      [['search'],['unit'],['key']]
+    );
     const tokens=String(key||'').split(/[^a-z0-9]+/i).filter(Boolean);
     for(const token of tokens){
       const role=normaliseRole(token);
@@ -64,16 +73,27 @@
   };
   const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
-    ||semanticAttribute(node,/(?:^|-)(?:(?:message-)?(?:author|speaker)-role|message-role)$/i)
+    ||semanticAttribute(
+      node,
+      /(?:^|-)(?:(?:message-)?(?:author|speaker)-role|message-role)$/i,
+      [['author','speaker'],['role']]
+    )
   )||semanticSearchRole(node)
     ||accessibleRole(node?.getAttribute?.('aria-label'));
   const messageRole=node=>directMessageRole(node)||headingRole(node);
-  const searchMessageIds=node=>semanticAttribute(node,/(?:^|-)search-message-ids$/i)
-    .split(/\s+/).filter(Boolean);
+  const searchMessageIds=node=>semanticAttribute(
+    node,
+    /(?:^|-)search-message-ids$/i,
+    [['search'],['message'],['id','ids']]
+  ).split(/\s+/).filter(Boolean);
   const messageId=node=>String(
     node?.getAttribute?.('data-message-id')
     ||node?.getAttribute?.('data-message-uuid')
-    ||semanticAttribute(node,/(?:^|-)(?:selection-)?message-(?:id|uuid)$/i)
+    ||semanticAttribute(
+      node,
+      /(?:^|-)(?:selection-)?message-(?:id|uuid)$/i,
+      [['message'],['id','uuid']]
+    )
     ||searchMessageIds(node).at(-1)
     ||''
   );
