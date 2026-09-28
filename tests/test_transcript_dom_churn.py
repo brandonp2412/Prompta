@@ -973,6 +973,82 @@ def test_completion_action_discovery_survives_attribute_namespace_churn(browser_
     assert activity["complete"] is True
 
 
+def test_control_discovery_survives_interactive_element_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <div role="menuitem" tabindex="0" aria-label="Copy response">Copy</div>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
+def test_stop_control_discovery_survives_focusable_control_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Still answering.</p>
+              </div>
+            </section>
+            <div tabindex="0" aria-label="Stop responding">Stop</div>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+
+
+def test_tool_trigger_discovery_survives_non_button_control_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before tool control.</p>
+                <section class="totally-new-tool-layout">
+                  <summary aria-label="Show tool details">Glass</summary>
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </section>
+                <p>After tool control.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "tool:Glass" in content
+    assert "execute_python" in content
+    assert "completed" in content
+
+
 def test_tool_trigger_discovery_survives_label_and_wrapper_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

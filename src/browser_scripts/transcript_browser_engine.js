@@ -100,8 +100,24 @@ const promptaTranscriptEngine=(()=>{
     .trim();
   const labelledByText=node=>referencedText(node,'aria-labelledby');
   const describedByText=node=>referencedText(node,'aria-describedby');
+  const interactiveControlSelector=[
+    'button',
+    'summary',
+    'input[type="button"]',
+    'input[type="submit"]',
+    '[role="button"]',
+    '[role="menuitem"]',
+    '[aria-controls]',
+    '[aria-expanded]',
+    '[aria-pressed]',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',');
+  const interactiveControls=root=>root?.querySelectorAll
+    ?[...root.querySelectorAll(interactiveControlSelector)]
+    :[];
+  const isInteractiveControl=node=>Boolean(node?.matches?.(interactiveControlSelector));
   const isStopControl=node=>{
-    if(!node?.matches?.('button,[role="button"]'))return false;
+    if(!isInteractiveControl(node))return false;
     const attributeText=[...(node.attributes||[])]
       .filter(attribute=>(
         attribute.name==='aria-label'
@@ -133,7 +149,7 @@ const promptaTranscriptEngine=(()=>{
     return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
   };
   const isTurnActionControl=node=>{
-    if(!node?.matches?.('button,[role="button"]'))return false;
+    if(!isInteractiveControl(node))return false;
     const attributes=[...(node.attributes||[])];
     const semanticTokens=value=>new Set(
       String(value||'')
@@ -208,6 +224,8 @@ const promptaTranscriptEngine=(()=>{
   return {
     hasVisibleAssistantText,
     inspectReact,
+    interactiveControls,
+    isInteractiveControl,
     isStopControl,
     isTurnActionControl,
     latestAssistantRoot,
