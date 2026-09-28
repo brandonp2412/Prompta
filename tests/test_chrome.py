@@ -1099,6 +1099,64 @@ async def test_power_control_survives_wrapper_role_removal(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_effort_power_info_survives_slider_role_removal(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <span id="power-state">Medium, 2 of 4.</span>
+        <div id="power" tabindex="0" aria-describedby="power-state">
+          <span>Reasoning intensity</span>
+          <span aria-valuemin="0" aria-valuemax="3" aria-valuenow="1"
+                aria-hidden="true"></span>
+        </div>
+        """
+    )
+
+    info = await driver.effort_power_info()
+
+    assert info["text"] == "Medium"
+    assert info["position"] == 2
+    assert info["total"] == 4
+    assert info["value"] == 1
+
+
+@pytest.mark.asyncio
+async def test_set_effort_power_position_survives_slider_role_removal(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <button aria-haspopup="menu" onclick="document.getElementById('menu').hidden=false">
+          Thinking effort
+        </button>
+        <div id="menu" hidden>
+          <span id="power-state">Medium, 2 of 4.</span>
+          <div id="power" tabindex="0" aria-describedby="power-state"
+               onkeydown="
+                 const labels = ['Instant', 'Medium', 'High', 'Pro'];
+                 const slider = this.querySelector('[aria-valuenow][aria-valuemin][aria-valuemax]');
+                 let value = Number(slider.getAttribute('aria-valuenow'));
+                 if (event.key === 'ArrowRight') value = Math.min(3, value + 1);
+                 if (event.key === 'ArrowLeft') value = Math.max(0, value - 1);
+                 slider.setAttribute('aria-valuenow', String(value));
+                 document.getElementById('power-state').textContent =
+                   labels[value] + ', ' + (value + 1) + ' of 4.';
+               ">
+            <span>Reasoning intensity</span>
+            <span aria-valuemin="0" aria-valuemax="3" aria-valuenow="1"
+                  aria-hidden="true"></span>
+          </div>
+        </div>
+        """
+    )
+
+    info = await driver.set_effort_power_position(3)
+
+    assert info["text"] == "High"
+    assert info["position"] == 3
+    assert info["value"] == 2
+
+
+@pytest.mark.asyncio
 async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

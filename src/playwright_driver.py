@@ -1624,6 +1624,8 @@ class PlaywrightDriver(BrowserDriverBase):
         slider = power.get_by_role("slider", include_hidden=True)
         try:
             if await slider.count() < 1:
+                slider = power.locator('[aria-valuenow][aria-valuemin][aria-valuemax]')
+            if await slider.count() < 1:
                 return {}
             current_value = int(await slider.first.get_attribute("aria-valuenow") or -1)
             min_value = int(await slider.first.get_attribute("aria-valuemin") or 0)
