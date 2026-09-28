@@ -1023,6 +1023,44 @@ async def test_select_effort_model_accepts_already_checked_model(live_driver) ->
 
 
 @pytest.mark.asyncio
+async def test_power_control_survives_selectable_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div id="power" role="button" aria-label="Reasoning intensity" tabindex="0">
+          Reasoning intensity
+          <span role="slider" aria-valuemin="0" aria-valuemax="3"
+                aria-valuenow="1" aria-hidden="true"></span>
+        </div>
+        """
+    )
+
+    power = await driver._power_control(page)
+
+    assert power is not None
+    assert await power.get_attribute("id") == "power"
+
+
+@pytest.mark.asyncio
+async def test_power_control_survives_wrapper_role_removal(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div id="power" tabindex="0">
+          <span>Reasoning intensity</span>
+          <span role="slider" aria-valuemin="0" aria-valuemax="3"
+                aria-valuenow="1" aria-hidden="true"></span>
+        </div>
+        """
+    )
+
+    power = await driver._power_control(page)
+
+    assert power is not None
+    assert await power.get_attribute("id") == "power"
+
+
+@pytest.mark.asyncio
 async def test_set_effort_power_position_targets_high_not_locked_pro(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

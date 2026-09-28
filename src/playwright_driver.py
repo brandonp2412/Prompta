@@ -1395,22 +1395,67 @@ class PlaywrightDriver(BrowserDriverBase):
         raise RuntimeError("ChatGPT thinking-effort control did not become available")
 
     async def _power_control(self, page: Page) -> Locator | None:
-        menuitems = page.get_by_role("menuitem")
-        try:
-            count = min(await menuitems.count(), 40)
-        except PlaywrightError:
-            count = 0
-        for index in range(count):
-            item = menuitems.nth(index)
+        # The power row has changed accessible role before. The durable contract is
+        # that it owns the reasoning slider, so discover that structure across
+        # common selectable/container roles before falling back to its visible name.
+        for role in ("menuitem", "menuitemradio", "radio", "option", "button", "group"):
+            controls = page.get_by_role(role)
             try:
-                if not await item.is_visible() or not await item.is_enabled():
-                    continue
-                if await item.get_by_role("slider", include_hidden=True).count():
-                    return item
+                count = min(await controls.count(), 40)
             except PlaywrightError:
                 continue
+            for index in range(count):
+                item = controls.nth(index)
+                try:
+                    if not await item.is_visible():
+                        continue
+                    if (await item.get_attribute("aria-disabled") or "").casefold() == "true":
+                        continue
+                    if await item.locator(
+                        '[role="slider"],[aria-valuenow][aria-valuemin][aria-valuemax]'
+                    ).count():
+                        return item
+                except PlaywrightError:
+                    continue
+
+        # Some UI builds drop the wrapper role entirely but keep a focusable owner
+        # around the slider. Use the nearest focusable ancestor only when it is a
+        # unique structural owner, avoiding assumptions about classes or test IDs.
+        sliders = page.locator('[role="slider"],[aria-valuenow][aria-valuemin][aria-valuemax]')
+        try:
+            slider_count = min(await sliders.count(), 12)
+        except PlaywrightError:
+            slider_count = 0
+        owners: list[Locator] = []
+        for index in range(slider_count):
+            slider = sliders.nth(index)
+            try:
+                owner = slider.locator("xpath=ancestor::*[@tabindex][1]")
+                if await owner.count() != 1:
+                    continue
+                candidate = owner.first
+                if not await candidate.is_visible():
+                    continue
+                if (await candidate.get_attribute("aria-disabled") or "").casefold() == "true":
+                    continue
+                if (
+                    await candidate.locator(
+                        '[role="slider"],[aria-valuenow][aria-valuemin][aria-valuemax]'
+                    ).count()
+                    != 1
+                ):
+                    continue
+                owners.append(candidate)
+            except PlaywrightError:
+                continue
+        if len(owners) == 1:
+            return owners[0]
+
         return await self._first_usable(
-            [page.get_by_role("menuitem", name=re.compile(r"\bpower\b", re.IGNORECASE))],
+            [
+                page.get_by_role(role, name=re.compile(r"\bpower\b", re.IGNORECASE))
+                for role in ("menuitem", "option", "button", "group")
+            ],
             enabled=True,
         )
 
