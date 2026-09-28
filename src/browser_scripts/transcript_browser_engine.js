@@ -102,11 +102,22 @@ const promptaTranscriptEngine=(()=>{
       ))
       .map(attribute=>attribute.name+' '+attribute.value)
       .join(' ');
+    const descendantSemanticText=node.querySelectorAll
+      ?[...node.querySelectorAll('*')].flatMap(child=>[
+        child.getAttribute?.('aria-label')||'',
+        child.getAttribute?.('title')||'',
+        child.getAttribute?.('data-icon')||'',
+        child.getAttribute?.('data-testid')||'',
+        child.getAttribute?.('data-action')||'',
+        child.getAttribute?.('data-state')||''
+      ]).join(' ')
+      :'';
     const label=[
       node.getAttribute?.('aria-label')||'',
       node.getAttribute?.('title')||'',
       node.textContent||'',
-      attributeText
+      attributeText,
+      descendantSemanticText
     ].join(' ').replace(/[-_]+/g,' ');
     return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
   };

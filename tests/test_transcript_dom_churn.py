@@ -1126,3 +1126,32 @@ def test_stop_control_detection_survives_semantic_markup_churn(browser_page) -> 
     assert activity["streaming"] is True
     assert activity["complete"] is False
     assert snapshot["streaming"] is True
+
+
+def test_stop_control_detection_survives_label_and_wrapper_churn(browser_page) -> None:
+    html = _conversation(
+        """
+        <section data-testid="conversation-turn-a1">
+          <div data-message-author-role="assistant" data-message-id="a1">
+            <p>Still generating without a stable stop label.</p>
+          </div>
+        </section>
+        <button style="width:32px;height:32px">
+          <svg data-icon="stop" viewBox="0 0 16 16"><rect width="8" height="8" /></svg>
+        </button>
+        """
+    )
+    browser_page.set_content(html)
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True
+
