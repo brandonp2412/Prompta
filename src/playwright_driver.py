@@ -1259,26 +1259,73 @@ class PlaywrightDriver(BrowserDriverBase):
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + timeout
+        chat_name = re.compile(r"^\s*chat(?:\s+mode)?\s*$", re.IGNORECASE)
+
+        async def chat_control() -> Locator | None:
+            candidates = [
+                page.get_by_role(role, name=chat_name)
+                for role in ("radio", "tab", "button", "menuitemradio", "option")
+            ]
+            found = await self._first_usable(candidates, enabled=True)
+            if found is not None:
+                return found
+
+            # Accessible roles occasionally disappear during UI refactors while the
+            # user-facing control text stays intact. Restrict the text fallback to
+            # interactive elements so transcript text containing "Chat" is ignored.
+            interactive = page.locator(
+                'button,[role="radio"],[role="tab"],[role="button"],'
+                '[role="menuitemradio"],[role="option"]'
+            ).filter(has_text=chat_name)
+            try:
+                count = min(await interactive.count(), 12)
+            except PlaywrightError:
+                return None
+            for index in range(count):
+                candidate = interactive.nth(index)
+                try:
+                    if await candidate.is_visible() and await candidate.is_enabled():
+                        return candidate
+                except PlaywrightError:
+                    continue
+            return None
+
+        async def selected(control: Locator) -> bool:
+            for attribute in ("aria-checked", "aria-selected"):
+                value = (await control.get_attribute(attribute) or "").strip().casefold()
+                if value == "true":
+                    return True
+                if value == "false":
+                    return False
+            state = (await control.get_attribute("data-state") or "").strip().casefold()
+            if state in {"active", "checked", "selected", "on"}:
+                return True
+            if state in {"inactive", "unchecked", "unselected", "off"}:
+                return False
+            return False
+
         while asyncio.get_running_loop().time() < deadline:
             await self._dismiss_history_rate_limit(page)
-            chat = await self._first_usable(
-                [page.get_by_role("radio", name="Chat", exact=True)],
-                enabled=True,
-            )
+            chat = await chat_control()
             if chat is None:
-                # ChatGPT no longer always exposes explicit Chat/Work mode radios.
+                # ChatGPT no longer always exposes explicit Chat/Work mode controls.
                 # A usable composer is sufficient evidence that the page is on the
-                # normal chat surface; preserve radio selection when the control exists.
+                # normal chat surface.
                 if await self._composer(page) is not None:
                     return
                 await asyncio.sleep(0.1)
                 continue
             try:
-                if (await chat.get_attribute("aria-checked") or "").casefold() == "true":
+                if await selected(chat):
                     return
                 await chat.click()
                 while asyncio.get_running_loop().time() < deadline:
-                    if (await chat.get_attribute("aria-checked") or "").casefold() == "true":
+                    if await selected(chat):
+                        return
+                    # Some implementations switch the surface without exposing a
+                    # selected-state attribute. The composer is the semantic success
+                    # signal in that case.
+                    if await self._composer(page) is not None:
                         return
                     await asyncio.sleep(0.05)
             except PlaywrightError:

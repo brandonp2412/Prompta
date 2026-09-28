@@ -862,6 +862,46 @@ async def test_ensure_chat_surface_selects_chat_radio(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ensure_chat_surface_survives_tab_role_and_selected_state_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <button id="chat" role="tab" aria-selected="false"
+                onclick="this.setAttribute('aria-selected','true');
+                         document.getElementById('work').setAttribute('aria-selected','false')">
+          Chat mode
+        </button>
+        <button id="work" role="tab" aria-selected="true">Work</button>
+        """
+    )
+
+    await driver.ensure_chat_surface(timeout=0.5)
+
+    assert await page.locator("#chat").get_attribute("aria-selected") == "true"
+    assert await page.locator("#work").get_attribute("aria-selected") == "false"
+
+
+@pytest.mark.asyncio
+async def test_ensure_chat_surface_survives_missing_accessible_role(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <button id="chat" data-state="inactive"
+                onclick="this.dataset.state='active';
+                         document.getElementById('composer').hidden=false">
+          Chat
+        </button>
+        <textarea id="composer" aria-label="Ask ChatGPT" hidden></textarea>
+        """
+    )
+
+    await driver.ensure_chat_surface(timeout=0.5)
+
+    assert await page.locator("#chat").get_attribute("data-state") == "active"
+    assert await page.locator("#composer").is_visible()
+
+
+@pytest.mark.asyncio
 async def test_ensure_chat_surface_accepts_composer_without_mode_radio(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
