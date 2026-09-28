@@ -20,8 +20,9 @@ JSON.stringify((()=>{
             .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
           const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
           const assistant=authorNodes('assistant').at(-1)||null;
-          const semanticTurns=[...document.querySelectorAll(semanticTurnSelector)].filter(visible);
-          const legacyTurns=[...document.querySelectorAll(legacyTurnSelector)].filter(visible);
+          const transcript=transcriptRoot();
+          const semanticTurns=[...transcript.querySelectorAll(semanticTurnSelector)].filter(visible);
+          const legacyTurns=[...transcript.querySelectorAll(legacyTurnSelector)].filter(visible);
           const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
           const streamRoot=turn||assistant;
           const semanticStreamActive=Boolean(streamRoot&&[streamRoot,...streamRoot.querySelectorAll('*')].some(node=>{
@@ -33,11 +34,11 @@ JSON.stringify((()=>{
             return ['true','active','1','yes'].includes(state)
               ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
           }));
-          const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible)||semanticStreamActive;
+          const streamActive=[...transcript.querySelectorAll(streamingSelector)].some(visible)||semanticStreamActive;
           const visibleMessageId=messageId(assistant)||turnMessageId(turn,'assistant');
           let activityReactFallback=null;
           const reactTurnEnd=()=>{
-            const root=turn||document.querySelector('main,[role="main"]')||document.body;
+            const root=turn||transcript;
             if(!root)return null;
             activityReactFallback=promptaTranscriptEngine.inspectReact(
               root,

@@ -1377,6 +1377,38 @@ def test_stop_control_detection_survives_label_and_wrapper_churn(browser_page) -
     assert snapshot["streaming"] is True
 
 
+def test_streaming_marker_outside_selected_transcript_does_not_keep_chat_active(browser_page) -> None:
+    browser_page.set_content(
+        """
+        <main>
+          <section data-testid="conversation-turn-a1">
+            <div data-message-author-role="assistant" data-message-id="a1">
+              <p>Completed answer.</p>
+              <button aria-label="Copy">Copy</button>
+            </div>
+          </section>
+        </main>
+        <aside>
+          <section data-testid="conversation-turn-decoy" aria-busy="true" style="width:100px;height:40px">
+            Background panel activity.
+          </section>
+        </aside>
+        """
+    )
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[aria-busy="true"][data-testid*="turn" i]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+    assert snapshot["streaming"] is False
+
+
 def test_accessible_heading_names_survive_visible_heading_copy_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -1481,6 +1513,27 @@ def test_role_main_landmark_bounds_structural_message_discovery(browser_page) ->
     assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
         ("user", "Main user."),
         ("assistant", "Main assistant."),
+    ]
+
+
+def test_legacy_turn_fallback_stays_within_selected_chat_landmark(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <main>
+          <section data-sender="human" data-turn-id="u-chat"><p>Actual question.</p></section>
+          <section data-sender="model" data-turn-id="a-chat"><p>Actual answer.</p></section>
+        </main>
+        <aside>
+          <article aria-label="User message"><p>Sidebar legacy question.</p></article>
+          <article aria-label="Assistant response"><p>Sidebar legacy answer.</p></article>
+        </aside>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Actual question."),
+        ("assistant", "Actual answer."),
     ]
 
 

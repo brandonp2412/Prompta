@@ -506,9 +506,10 @@ JSON.stringify((()=>{
   entries.splice(0,entries.length,...dedupedEntries);
   if(entries.length)extractionProvenance.add('dom-role');
   const explicitUserTurns=new Set(userNodes.map(turnRoot).filter(Boolean));
+  const transcript=transcriptRoot();
   const semanticAssistantTurns=[...new Set([
     ...assistantNodes.map(turnRoot).filter(Boolean),
-    ...document.querySelectorAll(semanticTurnSelector)
+    ...transcript.querySelectorAll(semanticTurnSelector)
   ])]
     .filter(visible)
     .filter(turn=>!explicitUserTurns.has(turn))
@@ -516,7 +517,7 @@ JSON.stringify((()=>{
   const semanticAssistantSet=new Set(semanticAssistantTurns);
   // Legacy fallback: class/tag turn wrappers are consulted only for layouts
   // that do not expose an author node or stable conversation-turn marker.
-  const legacyAssistantTurns=[...document.querySelectorAll(legacyTurnSelector)]
+  const legacyAssistantTurns=[...transcript.querySelectorAll(legacyTurnSelector)]
     .filter(visible)
     .filter(turn=>!semanticAssistantSet.has(turn))
     .filter(turn=>!authorNode(turn,'user'))
@@ -626,7 +627,7 @@ JSON.stringify((()=>{
     if(!right.node)return -1;
     return left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
   });
-  const pageReactRoot=document.querySelector('main,[role="main"]')||document.body;
+  const pageReactRoot=transcriptRoot();
   const pageReactMessages=(!entries.length&&pageReactRoot)
     ?reactMessages(pageReactRoot,'transcript-gap')
     :[];
@@ -697,7 +698,7 @@ JSON.stringify((()=>{
   const semanticStop=[...document.querySelectorAll('button,[role="button"]')]
     .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
   const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
-  const streamActive=[...document.querySelectorAll(streamingSelector)].some(visible);
+  const streamActive=[...transcript.querySelectorAll(streamingSelector)].some(visible);
   const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
   const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...latestTurn.querySelectorAll('*')].some(node=>{

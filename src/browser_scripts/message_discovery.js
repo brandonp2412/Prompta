@@ -217,7 +217,7 @@
       messageRole(existing)===messageRole(node)
       &&(existing===node||existing.contains(node)||node.contains(existing))
     );
-    const legacy=[...document.querySelectorAll(legacyTurnSelector)]
+    const legacy=[...root.querySelectorAll(legacyTurnSelector)]
       .filter(node=>!node.querySelector(primarySelector))
       .filter(node=>messageRole(node));
     const fallback=[...structural,...headingStructural,...legacy]
