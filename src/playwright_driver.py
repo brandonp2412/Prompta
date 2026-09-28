@@ -1388,25 +1388,60 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _effort_trigger_locator(self) -> Locator | None:
         page = self._page()
+        trigger_roles = ("button", "combobox", "menuitem", "option", "radio")
         semantic_candidates = [
-            page.get_by_role("button", name=_EFFORT_TRIGGER_RE),
-            page.get_by_role("button", name=_EFFORT_RE),
+            page.get_by_role(role, name=name)
+            for name in (_EFFORT_TRIGGER_RE, _EFFORT_RE)
+            for role in trigger_roles
         ]
-        for buttons in semantic_candidates:
+        for controls in semantic_candidates:
             try:
-                count = min(await buttons.count(), 12)
+                count = min(await controls.count(), 12)
             except PlaywrightError:
                 continue
             for index in range(count):
-                button = buttons.nth(index)
+                control = controls.nth(index)
                 try:
-                    if not await button.is_visible() or not await button.is_enabled():
+                    if not await control.is_visible() or not await control.is_enabled():
                         continue
-                    if not await button.get_attribute("aria-haspopup"):
+                    popup = (await control.get_attribute("aria-haspopup") or "").casefold()
+                    if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
                         continue
-                    return button
+                    return control
                 except PlaywrightError:
                     continue
+
+        # Accessible-role implementations can churn independently of the public
+        # label. As a final semantic fallback, inspect popup owners directly and
+        # accept one only when its accessible/visible text names the effort/model
+        # control. This avoids coupling to styling classes or private test IDs.
+        popup_controls = page.locator("[aria-haspopup]")
+        try:
+            count = min(await popup_controls.count(), 24)
+        except PlaywrightError:
+            count = 0
+        for index in range(count):
+            control = popup_controls.nth(index)
+            try:
+                if not await control.is_visible() or not await control.is_enabled():
+                    continue
+                popup = (await control.get_attribute("aria-haspopup") or "").casefold()
+                if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
+                    continue
+                label = " ".join(
+                    filter(
+                        None,
+                        (
+                            await control.get_attribute("aria-label"),
+                            await control.get_attribute("title"),
+                            await control.inner_text(),
+                        ),
+                    )
+                )
+                if _EFFORT_TRIGGER_RE.search(label) or _EFFORT_RE.search(label):
+                    return control
+            except PlaywrightError:
+                continue
         return None
 
     async def effort_trigger_info(self, timeout: float = 20.0) -> dict[str, Any]:
@@ -1544,18 +1579,17 @@ class PlaywrightDriver(BrowserDriverBase):
             r"\b(?:select|choose|change)\s+(?:model|engine)\b",
             re.IGNORECASE,
         )
+        selectable_roles = ("menuitem", "button", "combobox", "option", "radio")
         named = await self._first_usable(
-            [
-                page.get_by_role("menuitem", name=model_menu_name),
-                page.get_by_role("button", name=model_menu_name),
-            ],
+            [page.get_by_role(role, name=model_menu_name) for role in selectable_roles],
             enabled=True,
         )
         if named is not None:
             return named
 
         submenu_candidates: list[Locator] = []
-        for role in ("menuitem", "button"):
+        seen: set[str] = set()
+        for role in selectable_roles:
             controls = page.get_by_role(role)
             try:
                 count = min(await controls.count(), 40)
@@ -1567,7 +1601,33 @@ class PlaywrightDriver(BrowserDriverBase):
                     if not await item.is_visible() or not await item.is_enabled():
                         continue
                     popup = (await item.get_attribute("aria-haspopup") or "").casefold()
-                    if popup in {"true", "menu", "listbox"}:
+                    if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
+                        continue
+                    key = await item.evaluate(
+                        "node => node.id || node.getAttribute('aria-label') || node.textContent || ''"
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    submenu_candidates.append(item)
+                except PlaywrightError:
+                    continue
+
+        # If the owner has lost its ARIA role but still advertises popup semantics,
+        # use it only when there is one unambiguous visible candidate on the page.
+        if not submenu_candidates:
+            popup_controls = page.locator("[aria-haspopup]")
+            try:
+                count = min(await popup_controls.count(), 24)
+            except PlaywrightError:
+                count = 0
+            for index in range(count):
+                item = popup_controls.nth(index)
+                try:
+                    if not await item.is_visible() or not await item.is_enabled():
+                        continue
+                    popup = (await item.get_attribute("aria-haspopup") or "").casefold()
+                    if popup in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
                         submenu_candidates.append(item)
                 except PlaywrightError:
                     continue

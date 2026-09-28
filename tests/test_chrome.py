@@ -976,6 +976,32 @@ async def test_effort_trigger_accepts_model_label_with_effort_text(live_driver) 
 
 
 @pytest.mark.asyncio
+async def test_effort_trigger_accepts_combobox_role_after_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        '<div role="combobox" aria-label="Thinking effort" aria-haspopup="listbox" '
+        'tabindex="0">High</div>'
+    )
+
+    trigger = await driver.effort_trigger_info(timeout=0.2)
+
+    assert trigger["text"] == "High"
+    assert "Thinking effort" in trigger["label"]
+
+
+@pytest.mark.asyncio
+async def test_effort_trigger_accepts_popup_owner_without_role(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        '<div aria-label="Select ChatGPT model" aria-haspopup="menu" tabindex="0">Medium</div>'
+    )
+
+    trigger = await driver.effort_trigger_info(timeout=0.2)
+
+    assert trigger["text"] == "Medium"
+
+
+@pytest.mark.asyncio
 async def test_select_effort_model_uses_direct_chat_menu_item(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -1018,6 +1044,25 @@ async def test_select_effort_model_accepts_radio_role_after_menu_role_churn(live
         """
         <div id="sol" role="radio" aria-label="GPT-5.6 Sol"
              onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        """
+    )
+
+    await driver.select_effort_model()
+
+    assert await page.locator("#sol").get_attribute("data-clicked") == "true"
+
+
+@pytest.mark.asyncio
+async def test_select_effort_model_accepts_combobox_submenu_after_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div id="selector" role="combobox" aria-haspopup="listbox" tabindex="0"
+             onclick="document.getElementById('models').hidden=false">Choose engine</div>
+        <div id="models" hidden>
+          <div id="sol" role="option" aria-label="GPT-5.6 Sol"
+               onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        </div>
         """
     )
 
@@ -1492,7 +1537,8 @@ def test_semantic_locators_are_first_in_browser_controls() -> None:
     assert 'get_by_role("button", name=name)' in button_source
     assert "get_by_test_id" not in button_source
     assert "locator(selector)" not in button_source
-    assert 'get_by_role("button", name=' in effort_trigger_source
+    assert 'get_by_role(role, name=name)' in effort_trigger_source
+    assert 'page.locator("[aria-haspopup]")' in effort_trigger_source
     assert "get_by_test_id" not in login_source
     assert '[href*="/login" i]' in login_source
     assert 'for role in ("menuitemradio", "radio", "option")' in model_source
