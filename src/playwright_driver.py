@@ -428,19 +428,24 @@ class PlaywrightDriver(BrowserDriverBase):
         composer = await self._composer(page)
         if composer is not None:
             try:
-                form = composer.locator("xpath=ancestor::form[1]")
-                form_inputs = form.locator('input[type="file"]')
-                form_input_count = await form_inputs.count()
-                if form_input_count == 1:
-                    candidate = form_inputs.first
+                # Prefer the nearest ancestor that structurally owns a file
+                # input. ChatGPT has historically used a <form> here, but the
+                # wrapper element itself is not part of the semantic contract.
+                owner = composer.locator(
+                    'xpath=ancestor::*[.//input[@type="file"]][1]'
+                )
+                owner_inputs = owner.locator('input[type="file"]')
+                owner_input_count = await owner_inputs.count()
+                if owner_input_count == 1:
+                    candidate = owner_inputs.first
                     if await candidate.is_enabled():
                         return candidate
-                elif form_input_count > 1:
+                elif owner_input_count > 1:
                     # ChatGPT may expose separate hidden pickers for media and
                     # general attachments. Prefer a unique multi-file picker
                     # structurally owned by the active composer rather than
                     # depending on wrapper classes or test IDs.
-                    multi_inputs = form.locator('input[type="file"][multiple]')
+                    multi_inputs = owner.locator('input[type="file"][multiple]')
                     if await multi_inputs.count() == 1:
                         candidate = multi_inputs.first
                         if await candidate.is_enabled():

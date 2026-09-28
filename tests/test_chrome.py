@@ -776,6 +776,33 @@ async def test_attachment_prefers_hidden_file_input_in_composer_form(
 
 
 @pytest.mark.asyncio
+async def test_attachment_prefers_file_input_in_non_form_composer_wrapper(
+    live_driver,
+    tmp_path: Path,
+) -> None:
+    driver, page = live_driver
+    attachment = tmp_path / "wrapper.txt"
+    attachment.write_text("hello")
+    await page.set_content(
+        """
+        <input id="unrelated" type="file" style="display:none">
+        <section data-shell="composer">
+          <textarea aria-label="Message ChatGPT"></textarea>
+          <input id="composer-upload" type="file" style="display:none">
+        </section>
+        """
+    )
+
+    await driver.attach_files([str(attachment)])
+
+    assert await page.locator("#unrelated").evaluate("input => input.files.length") == 0
+    assert (
+        await page.locator("#composer-upload").evaluate("input => input.files[0].name")
+        == "wrapper.txt"
+    )
+
+
+@pytest.mark.asyncio
 async def test_attachment_prefers_unique_multi_file_input_inside_composer(
     live_driver,
     tmp_path: Path,
