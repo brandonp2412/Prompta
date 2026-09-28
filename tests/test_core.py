@@ -38,6 +38,7 @@ from prompta.core import (
     add_job,
     clear_jobs,
     load_jobs,
+    main,
     parse_retry_after,
     remove_job,
     set_job_paused,
@@ -1217,6 +1218,40 @@ async def test_machine_gun_mode_keeps_all_delivery_types_moving_without_result_c
     assert prompta.send_once.await_count == 2
     prompta.send_reply.assert_awaited_once_with("conversation-0", "follow up", attachments=[])
     prompta.cache.close()
+
+
+def test_pause_command_allows_omitted_name() -> None:
+    args = _parser().parse_args(["pause"])
+
+    assert args.command == "pause"
+    assert args.name is None
+
+
+def test_pause_without_name_pauses_all_jobs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    add_job(runtime_path, "flux", "Continue Flux")
+    add_job(runtime_path, "kite", "Continue Kite")
+
+    with patch(
+        "sys.argv",
+        [
+            "prompta",
+            "pause",
+            "--jobs-file",
+            str(runtime_path),
+            "--state",
+            str(runtime_path),
+        ],
+    ):
+        main()
+
+    runtime = SchedulerRuntime(runtime_path, runtime_path)
+    assert runtime.job_state("flux")["paused"] is True
+    assert runtime.job_state("kite")["paused"] is True
+    assert "Paused 2 jobs" in capsys.readouterr().out
 
 
 def test_pause_state_round_trip(tmp_path: Path) -> None:

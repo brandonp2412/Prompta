@@ -109,8 +109,9 @@ uv run prompta remove my-job
 # Remove all jobs
 uv run prompta clear
 
-# Pause or resume a job
+# Pause one job, pause all jobs, or resume one job
 uv run prompta pause my-job
+uv run prompta pause
 uv run prompta resume my-job
 ```
 

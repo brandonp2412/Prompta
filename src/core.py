@@ -579,12 +579,12 @@ class Prompta:
 
 def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
     """Set a job's paused state and return whether the job exists."""
-    jobs = load_jobs(path)
-    if name not in jobs:
-        return False
-    prompta = Prompta(PromptaConfig(jobs_file=path, state_path=state_path), "")
-    prompta._update_job_state(name, {"paused": paused})
-    return True
+    return SchedulerRuntime(state_path, path).set_job_paused(name, paused)
+
+
+def set_all_jobs_paused(path: Path, state_path: Path, paused: bool) -> int:
+    """Set every configured job's paused state and return the number changed."""
+    return SchedulerRuntime(state_path, path).set_all_jobs_paused(paused)
 
 
 def _format_duration(seconds: float) -> str:
@@ -1009,11 +1009,15 @@ def _parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     clear_parser = subparsers.add_parser("clear", aliases=["cls"], help="Remove all jobs")
     clear_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-    for command, help_text in (("pause", "Pause a named job"), ("resume", "Resume a named job")):
-        job_parser = subparsers.add_parser(command, help=help_text)
-        job_parser.add_argument("name")
-        job_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
-        job_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    pause_help = "Pause one named job, or all jobs when omitted"
+    pause_parser = subparsers.add_parser("pause", help=pause_help, description=pause_help)
+    pause_parser.add_argument("name", nargs="?", help="Job name; omit to pause all configured jobs")
+    pause_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    pause_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    resume_parser = subparsers.add_parser("resume", help="Resume a named job")
+    resume_parser.add_argument("name")
+    resume_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    resume_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     once_parser = subparsers.add_parser(
         "once", help="Send one prompt immediately without creating a repeating job"
     )
@@ -1225,12 +1229,18 @@ def main() -> None:
         clear_jobs(args.jobs_file)
         _print_notice("✓", f"Cleared {count} job{'s' if count != 1 else ''}", tone="32")
         return
+    if args.command == "pause" and args.name is None:
+        count = set_all_jobs_paused(args.jobs_file, args.state, True)
+        _print_notice(
+            "Ⅱ",
+            f"Paused {count} job{'s' if count != 1 else ''}",
+            tone="33",
+        )
+        return
     if args.command in {"pause", "resume"}:
-        jobs = load_jobs(args.jobs_file)
-        if args.name not in jobs:
-            raise SystemExit(f"No Prompta job named {args.name!r}")
         paused = args.command == "pause"
-        set_job_paused(args.jobs_file, args.state, args.name, paused)
+        if not set_job_paused(args.jobs_file, args.state, args.name, paused):
+            raise SystemExit(f"No Prompta job named {args.name!r}")
         _print_notice(
             "Ⅱ" if paused else "▶",
             f"{'Paused' if paused else 'Resumed'} {args.name}",

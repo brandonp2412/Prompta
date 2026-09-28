@@ -264,6 +264,29 @@ class SchedulerRuntime:
                 ],
             )
 
+    def set_job_paused(self, name: str, paused: bool) -> bool:
+        if name not in load_jobs(self.jobs_file):
+            return False
+        self.update_job_state(name, {"paused": paused})
+        return True
+
+    def set_all_jobs_paused(self, paused: bool) -> int:
+        names = list(load_jobs(self.jobs_file))
+        if not names:
+            return 0
+        value_json = json.dumps(paused, ensure_ascii=False)
+        with self._connect_state() as connection:
+            connection.executemany(
+                """
+                INSERT INTO scheduler_state(scope, name, key, value_json)
+                VALUES ('job', ?, 'paused', ?)
+                ON CONFLICT(scope, name, key) DO UPDATE SET
+                    value_json = excluded.value_json
+                """,
+                [(name, value_json) for name in names],
+            )
+        return len(names)
+
     def scheduler_state(self) -> dict[str, Any]:
         try:
             with self._connect_state() as connection:
