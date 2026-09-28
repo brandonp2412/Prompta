@@ -133,7 +133,10 @@ JSON.stringify((()=>{
   };
   const toolTriggerNodes=root=>[...root.querySelectorAll('button,[role="button"]')]
     .filter(isToolTrigger);
-  const legacyToolRowSelector='span[class~="group/tool-message"]';
+  const legacyToolRowClass=node=>String(node?.getAttribute?.('class')||'')
+    .split(/\s+/)
+    .filter(Boolean)
+    .some(token=>/(?:^|[\/_-])tool(?:[\/_-])(?:message|call|result|output)(?:$|[\/_-])/i.test(token));
   const toolNoise=/^(?:Open tool call list|Close tool call list|Tool|Tool call|Expand|Collapse|cot-v5-[\w-]+)$/i;
   const cleanToolName=value=>{const text=(value||'').replace(/\s+/g,' ').trim();return text&&!toolNoise.test(text)?text:'';};
   const toolRows=agent=>{
@@ -156,7 +159,8 @@ JSON.stringify((()=>{
       .filter((node,index,rows)=>!rows.some((other,otherIndex)=>
         otherIndex!==index&&other.contains(node)
       ));
-    const legacy=[...agent.querySelectorAll(legacyToolRowSelector)]
+    const legacy=[...agent.querySelectorAll('*')]
+      .filter(legacyToolRowClass)
       .filter(node=>visible(node))
       .filter(node=>!semantic.some(row=>row===node||row.contains(node)||node.contains(row)));
     return [...semantic,...legacy].sort((left,right)=>left===right?0:(

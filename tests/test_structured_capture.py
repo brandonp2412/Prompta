@@ -117,6 +117,11 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
     assert "const semantic=[...scope.querySelectorAll(proseBlockSelector)]" in (
         CONVERSATION_SNAPSHOT_SCRIPT
     )
+    assert "const legacyToolRowClass=node=>String(node?.getAttribute?.('class')||'')" in (
+        CONVERSATION_SNAPSHOT_SCRIPT
+    )
+    assert ".filter(legacyToolRowClass)" in CONVERSATION_SNAPSHOT_SCRIPT
+    assert "legacyToolRowSelector" not in CONVERSATION_SNAPSHOT_SCRIPT
 
 
 def test_browser_snapshot_filters_transient_connection_noise_from_react_history() -> None:

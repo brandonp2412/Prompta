@@ -1256,6 +1256,32 @@ def test_tool_trigger_uses_renamed_semantic_tool_ancestor(browser_page) -> None:
     assert "Done." in assistant["content"]
 
 
+def test_legacy_tool_row_discovery_survives_class_token_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before legacy tool.</p>
+                <span class="layout/tool-call-message">
+                  <span>Legacy Tool</span>
+                  <span>completed</span>
+                </span>
+                <p>After legacy tool.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    content = assistant["content"]
+    assert "```tool:Legacy Tool" in content
+    assert "Before legacy tool." in content
+    assert "After legacy tool." in content
+
+
 def _is_styling_class_selector(selector: str) -> bool:
     return "[class" in selector or bool(re.search(r"(^|[\s>+~,])\.[A-Za-z_-]", selector))
 
