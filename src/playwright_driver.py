@@ -479,6 +479,42 @@ class PlaywrightDriver(BrowserDriverBase):
             pass
         return None
 
+    async def _composer_submit_button(self, composer: Locator) -> Locator | None:
+        # Prefer an actual form when present, but do not make the wrapper tag part
+        # of the fallback contract. ChatGPT has changed composer wrappers before.
+        owners = (
+            composer.locator("xpath=ancestor::form[1]"),
+            composer.locator('xpath=ancestor::*[.//button[@type="submit"]][1]'),
+        )
+        for owner in owners:
+            try:
+                if await owner.count() != 1:
+                    continue
+                tag_name = str(
+                    await owner.evaluate(load_browser_script("element_tag_name.js")) or ""
+                ).casefold()
+                if tag_name in {"html", "body", "main"}:
+                    continue
+                submits = owner.locator('button[type="submit"]')
+                if await submits.count() != 1:
+                    continue
+
+                # A generic, unlabeled submit is only safe when the structural
+                # owner contains a single editor. This prevents a broad wrapper
+                # (or the whole app shell) from donating an unrelated submit.
+                editors = owner.locator(
+                    'textarea,[contenteditable="true"],[role="textbox"]'
+                )
+                if await editors.count() != 1:
+                    continue
+
+                button = await self._first_usable([submits])
+                if button is not None:
+                    return button
+            except PlaywrightError:
+                continue
+        return None
+
     async def _semantic_button(
         self,
         page: Page,
@@ -997,13 +1033,7 @@ class PlaywrightDriver(BrowserDriverBase):
             if button is None:
                 composer = await self._composer(page)
                 if composer is not None:
-                    try:
-                        form = composer.locator("xpath=ancestor::form[1]")
-                        # An unlabeled submit button has no user-facing name. Only
-                        # consider one belonging to this composer's own form.
-                        button = await self._first_usable([form.locator('button[type="submit"]')])
-                    except PlaywrightError:
-                        button = None
+                    button = await self._composer_submit_button(composer)
             if button is not None:
                 try:
                     await button.click()
