@@ -1356,6 +1356,53 @@ def test_stop_control_detection_survives_label_and_wrapper_churn(browser_page) -
     assert snapshot["streaming"] is True
 
 
+def test_accessible_heading_names_survive_visible_heading_copy_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section>
+              <div role="heading" aria-level="2" aria-label="You said">Message</div>
+              <p>Question survives heading copy churn.</p>
+            </section>
+            <section>
+              <div role="heading" aria-level="2" aria-label="Assistant response">Message</div>
+              <p>Answer survives heading copy churn.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Question survives heading copy churn."),
+        ("assistant", "Answer survives heading copy churn."),
+    ]
+
+
+def test_aria_labelledby_heading_names_survive_heading_text_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <span id="user-role-label" hidden>You wrote</span>
+            <section>
+              <div role="heading" aria-level="2" aria-labelledby="user-role-label">Message</div>
+              <p>Labelled user turn.</p>
+            </section>
+            <span id="assistant-role-label" hidden>ChatGPT replied</span>
+            <section>
+              <div role="heading" aria-level="2" aria-labelledby="assistant-role-label">Message</div>
+              <p>Labelled assistant turn.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Labelled user turn."),
+        ("assistant", "Labelled assistant turn."),
+    ]
+
 def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

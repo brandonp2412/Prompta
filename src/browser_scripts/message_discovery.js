@@ -61,9 +61,11 @@
   const headingNodes=root=>root?.querySelectorAll
     ?[...root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
     :[];
+  const headingAccessibleRole=heading=>accessibleRole(accessibleName(heading))
+    ||accessibleRole(heading?.textContent);
   const headingRole=node=>{
     for(const heading of headingNodes(node)){
-      const role=accessibleRole(heading.textContent);
+      const role=headingAccessibleRole(heading);
       if(role)return role;
     }
     return '';
@@ -71,19 +73,20 @@
   const headingMessageNodes=root=>{
     if(!root?.querySelectorAll)return [];
     const roleHeadings=headingNodes(root)
-      .filter(heading=>accessibleRole(heading.textContent));
+      .filter(heading=>headingAccessibleRole(heading));
     return roleHeadings.map(heading=>{
       let candidate=heading.parentElement||heading;
       for(let parent=candidate.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
         if(parent.tagName==='MAIN'||parent.getAttribute?.('role')==='main')break;
         const headings=headingNodes(parent)
-          .filter(node=>accessibleRole(node.textContent));
+          .filter(node=>headingAccessibleRole(node));
         if(headings.length!==1||headings[0]!==heading)break;
         candidate=parent;
       }
       return candidate;
     });
   };
+  const isHeadingNode=node=>Boolean(node?.matches?.('h1,h2,h3,h4,h5,h6,[role="heading"]'));
   const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(
@@ -97,7 +100,7 @@
       [['author','speaker','sender']]
     )
   )||semanticSearchRole(node)
-    ||accessibleRole(accessibleName(node));
+    ||(!isHeadingNode(node)?accessibleRole(accessibleName(node)):'');
   const messageRole=node=>directMessageRole(node)||headingRole(node);
   const searchMessageIds=node=>semanticAttribute(
     node,
@@ -142,7 +145,7 @@
     const score=root=>{
       const semantic=root.querySelectorAll(messageRoleSelector+','+semanticTurnSelector).length;
       const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node)).length;
-      const headings=headingNodes(root).filter(node=>accessibleRole(node.textContent)).length;
+      const headings=headingNodes(root).filter(node=>headingAccessibleRole(node)).length;
       return semantic*4+structural*2+headings;
     };
     return landmarks

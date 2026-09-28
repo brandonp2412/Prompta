@@ -26,7 +26,7 @@ JSON.stringify((()=>{
     const clone=root.cloneNode(true);
     clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
     clone.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]').forEach(node=>{
-      if(accessibleRole(node.textContent))node.remove();
+      if(headingAccessibleRole(node))node.remove();
     });
     const text=(clone.textContent||'').trim();
     const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
@@ -39,10 +39,12 @@ JSON.stringify((()=>{
       const tag=node.tagName.toLowerCase();
       const children=()=>[...node.childNodes].map(walk).join('');
       if(tag==='br')return '\n';
-      if(/^h[1-6]$/.test(tag)){
+      if(/^h[1-6]$/.test(tag)||node.getAttribute?.('role')==='heading'){
         const heading=children().trim();
-        if(accessibleRole(heading)||assistantUiNoise.test(normalise(heading)))return '';
-        return '#'.repeat(Number(tag[1]))+' '+heading+'\n\n';
+        if(headingAccessibleRole(node)||assistantUiNoise.test(normalise(heading)))return '';
+        const explicitLevel=Number(node.getAttribute?.('aria-level')||0);
+        const level=/^h[1-6]$/.test(tag)?Number(tag[1]):(explicitLevel>=1&&explicitLevel<=6?explicitLevel:2);
+        return '#'.repeat(level)+' '+heading+'\n\n';
       }
       if(tag==='p')return children().trim()+'\n\n';
       if(tag==='strong'||tag==='b')return '**'+children()+'**';
