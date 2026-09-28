@@ -91,6 +91,13 @@ const promptaTranscriptEngine=(()=>{
       )
     };
   };
+  const labelledByText=node=>String(node?.getAttribute?.('aria-labelledby')||'')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(id=>document.getElementById(id)?.textContent||'')
+    .join(' ')
+    .replace(/\s+/g,' ')
+    .trim();
   const isStopControl=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
     const attributeText=[...(node.attributes||[])]
@@ -114,6 +121,7 @@ const promptaTranscriptEngine=(()=>{
       :'';
     const label=[
       node.getAttribute?.('aria-label')||'',
+      labelledByText(node),
       node.getAttribute?.('title')||'',
       node.textContent||'',
       attributeText,
@@ -133,12 +141,14 @@ const promptaTranscriptEngine=(()=>{
       return tokens.has('turn')&&tokens.has('action');
     });
     if(semanticAction)return true;
-    const label=[
+    const actionLabel=value=>/^(?:Copy(?: response)?|Regenerate(?: response)?|Read aloud|Good response|Bad response)$/i
+      .test(String(value||'').replace(/\s+/g,' ').trim());
+    return [
       node.getAttribute?.('aria-label')||'',
+      labelledByText(node),
       node.getAttribute?.('title')||'',
       node.textContent||''
-    ].join(' ').replace(/\s+/g,' ').trim();
-    return /^(?:Copy(?: response)?|Regenerate(?: response)?|Read aloud|Good response|Bad response)$/i.test(label);
+    ].some(actionLabel);
   };
   const latestAssistantRoot=()=>{
     const latestAssistant=authorNodes('assistant').at(-1)||null;

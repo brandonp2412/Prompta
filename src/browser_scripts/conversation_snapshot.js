@@ -104,10 +104,18 @@ JSON.stringify((()=>{
     return root&&toolDataNode(root)?root:null;
   };
   const toolTriggerLabel=value=>/\btool\b.*\b(?:call|use|details?|result|output)s?\b|\b(?:call|use|details?|result|output)s?\b.*\btool\b/i.test(String(value||''));
+  const labelledByText=node=>String(node?.getAttribute?.('aria-labelledby')||'')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(id=>document.getElementById(id)?.textContent||'')
+    .join(' ')
+    .replace(/\s+/g,' ')
+    .trim();
   const isToolTrigger=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
     return [
       node.getAttribute('aria-label'),
+      labelledByText(node),
       node.getAttribute('title'),
       node.textContent
     ].some(toolTriggerLabel);

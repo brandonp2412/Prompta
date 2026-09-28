@@ -218,6 +218,29 @@ def test_accessible_message_labels_preserve_turns_without_data_roles(browser_pag
     ]
 
 
+def test_aria_labelledby_preserves_turns_without_data_roles(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <span id="user-turn-label">User message</span>
+            <article aria-labelledby="user-turn-label" data-message-id="u-labelled">
+              Question discovered from labelled-by reference
+            </article>
+            <span id="assistant-turn-label">Assistant response</span>
+            <article aria-labelledby="assistant-turn-label" data-message-id="a-labelled">
+              <p>Answer discovered from labelled-by reference.</p>
+            </article>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question discovered from labelled-by reference"),
+        ("assistant", "Answer discovered from labelled-by reference."),
+    ]
+
+
 def test_latest_assistant_root_uses_structural_role_discovery_after_namespace_churn(
     browser_page,
 ) -> None:
@@ -953,6 +976,60 @@ def test_tool_trigger_discovery_survives_label_and_wrapper_churn(browser_page) -
     assert "completed" in content
     assert content.index("Before tool control.") < content.index("```tool:Glass")
     assert content.index("```tool:Glass") < content.index("After tool control.")
+
+
+def test_tool_trigger_discovery_uses_aria_labelledby(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before labelled tool control.</p>
+                <span id="tool-trigger-label">Show tool details</span>
+                <section class="new-tool-layout">
+                  <button aria-labelledby="tool-trigger-label">Glass</button>
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </section>
+                <p>After labelled tool control.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "tool:Glass" in content
+    assert "execute_python" in content
+    assert content.index("Before labelled tool control.") < content.index("tool:Glass")
+    assert content.index("tool:Glass") < content.index("After labelled tool control.")
+
+
+def test_completion_action_discovery_uses_aria_labelledby(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <span id="copy-action-label">Copy response</span>
+                <button aria-labelledby="copy-action-label">+</button>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
 
 
 def test_partial_reasoning_activity_is_retained_without_private_dom_shape(browser_page) -> None:

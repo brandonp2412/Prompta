@@ -45,6 +45,19 @@
     const match=label.match(/^(you|user|human|chatgpt|assistant|model|bot)(?:\s+(?:said|wrote|asked|answered|responded|replied|message|response|reply|prompt|turn))?\s*:?$/i);
     return normaliseRole(match?.[1]);
   };
+  const accessibleName=node=>{
+    const label=String(node?.getAttribute?.('aria-label')||'').trim();
+    if(label)return label;
+    const labelledBy=String(node?.getAttribute?.('aria-labelledby')||'')
+      .split(/\s+/)
+      .filter(Boolean);
+    if(!labelledBy.length)return '';
+    return labelledBy
+      .map(id=>document.getElementById(id)?.textContent||'')
+      .join(' ')
+      .replace(/\s+/g,' ')
+      .trim();
+  };
   const headingNodes=root=>root?.querySelectorAll
     ?[...root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
     :[];
@@ -84,7 +97,7 @@
       [['author','speaker','sender']]
     )
   )||semanticSearchRole(node)
-    ||accessibleRole(node?.getAttribute?.('aria-label'));
+    ||accessibleRole(accessibleName(node));
   const messageRole=node=>directMessageRole(node)||headingRole(node);
   const searchMessageIds=node=>semanticAttribute(
     node,
