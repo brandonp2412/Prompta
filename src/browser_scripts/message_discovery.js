@@ -47,13 +47,15 @@
     const relational=label.match(/^(?:message|response|reply|prompt|turn|answer)\s+(?:from|by)\s+(you|user|human|chatgpt|assistant|model|bot)\s*:?$/i);
     return normaliseRole(relational?.[1]);
   };
-  const labelledByText=node=>String(node?.getAttribute?.('aria-labelledby')||'')
+  const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
     .map(id=>document.getElementById(id)?.textContent||'')
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
+  const labelledByText=node=>referencedText(node,'aria-labelledby');
+  const describedByText=node=>referencedText(node,'aria-describedby');
   const accessibleName=node=>String(
     node?.getAttribute?.('aria-label')
     ||labelledByText(node)
@@ -63,6 +65,7 @@
   const accessibleNodeRole=node=>[
     node?.getAttribute?.('aria-label')||'',
     labelledByText(node),
+    describedByText(node),
     node?.getAttribute?.('aria-roledescription')||'',
     node?.getAttribute?.('title')||''
   ].map(accessibleRole).find(Boolean)||'';

@@ -91,13 +91,15 @@ const promptaTranscriptEngine=(()=>{
       )
     };
   };
-  const labelledByText=node=>String(node?.getAttribute?.('aria-labelledby')||'')
+  const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
     .map(id=>document.getElementById(id)?.textContent||'')
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
+  const labelledByText=node=>referencedText(node,'aria-labelledby');
+  const describedByText=node=>referencedText(node,'aria-describedby');
   const isStopControl=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
     const attributeText=[...(node.attributes||[])]
@@ -122,6 +124,7 @@ const promptaTranscriptEngine=(()=>{
     const label=[
       node.getAttribute?.('aria-label')||'',
       labelledByText(node),
+      describedByText(node),
       node.getAttribute?.('title')||'',
       node.textContent||'',
       attributeText,
@@ -173,6 +176,7 @@ const promptaTranscriptEngine=(()=>{
     return [
       node.getAttribute?.('aria-label')||'',
       labelledByText(node),
+      describedByText(node),
       node.getAttribute?.('title')||'',
       node.textContent||'',
       descendantSemanticText

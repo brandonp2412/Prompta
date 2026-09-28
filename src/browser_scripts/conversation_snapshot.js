@@ -106,13 +106,15 @@ JSON.stringify((()=>{
     return root&&toolDataNode(root)?root:null;
   };
   const toolTriggerLabel=value=>/\btool\b.*\b(?:call|use|details?|result|output)s?\b|\b(?:call|use|details?|result|output)s?\b.*\btool\b/i.test(String(value||''));
-  const labelledByText=node=>String(node?.getAttribute?.('aria-labelledby')||'')
+  const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
     .map(id=>document.getElementById(id)?.textContent||'')
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
+  const labelledByText=node=>referencedText(node,'aria-labelledby');
+  const describedByText=node=>referencedText(node,'aria-describedby');
   const isToolTrigger=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
     const descendantSemanticText=node.querySelectorAll
@@ -128,6 +130,7 @@ JSON.stringify((()=>{
     return [
       node.getAttribute('aria-label'),
       labelledByText(node),
+      describedByText(node),
       node.getAttribute('title'),
       node.textContent,
       descendantSemanticText
