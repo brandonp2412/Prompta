@@ -91,13 +91,13 @@
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(
       node,
-      /(?:^|-)(?:(?:message-)?(?:author|speaker)-role|message-role)$/i,
-      [['author','speaker'],['role']]
+      /(?:^|-)(?:(?:message-)?(?:author|speaker|actor|participant)-role|message-role)$/i,
+      [['author','speaker','actor','participant'],['role']]
     )
     ||semanticAttribute(
       node,
-      /(?:^|-)(?:(?:message|turn)-)?(?:author|speaker|sender)$/i,
-      [['author','speaker','sender']]
+      /(?:^|-)(?:(?:message|turn)-)?(?:author|speaker|sender|actor|participant)$/i,
+      [['author','speaker','sender','actor','participant']]
     )
   )||semanticSearchRole(node)
     ||(!isHeadingNode(node)?accessibleRole(accessibleName(node)):'');

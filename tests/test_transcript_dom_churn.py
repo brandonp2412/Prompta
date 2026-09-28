@@ -1122,6 +1122,27 @@ def test_role_discovery_survives_sender_attribute_without_role_token(browser_pag
     assert ("assistant", "Sender assistant markup.") in roles
 
 
+def test_role_discovery_survives_actor_and_participant_attribute_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-turn-actor="human" data-message-id="u-actor">
+              <p>Actor user markup.</p>
+            </section>
+            <section data-message-participant-role="model" data-message-id="a-participant">
+              <p>Participant assistant markup.</p>
+            </section>
+            """
+        ),
+    )
+
+    roles = [(message["role"], message["content"]) for message in snapshot["messages"]]
+
+    assert ("user", "Actor user markup.") in roles
+    assert ("assistant", "Participant assistant markup.") in roles
+
+
 def test_streaming_detection_survives_semantic_attribute_namespace_churn(browser_page) -> None:
     browser_page.set_content(
         _conversation(

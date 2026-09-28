@@ -1603,8 +1603,11 @@ class PlaywrightDriver(BrowserDriverBase):
                     popup = (await item.get_attribute("aria-haspopup") or "").casefold()
                     if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
                         continue
-                    key = await item.evaluate(
-                        "node => node.id || node.getAttribute('aria-label') || node.textContent || ''"
+                    key = (
+                        await item.get_attribute("id")
+                        or await item.get_attribute("aria-label")
+                        or await item.text_content()
+                        or ""
                     )
                     if key in seen:
                         continue
