@@ -716,9 +716,13 @@ class PlaywrightDriver(BrowserDriverBase):
             return True
         fallback = await self._first_usable(
             [
-                page.get_by_test_id("login-button"),
-                page.locator('a[href*="/auth/login"]'),
-                page.locator('a[href*="/login"]'),
+                # Authentication URLs are a more durable structural contract than
+                # ChatGPT's private test IDs or wrapper classes. Do not require an
+                # anchor tag: client-side routers may expose link semantics on a
+                # different element while preserving the destination.
+                page.locator('[href*="/auth/login" i]'),
+                page.locator('[href*="/login" i]'),
+                page.locator('form[action*="/login" i] button'),
             ],
             enabled=False,
         )

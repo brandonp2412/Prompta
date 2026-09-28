@@ -451,6 +451,16 @@ async def test_login_required_uses_role_and_accessible_name(live_driver) -> None
 
 
 @pytest.mark.asyncio
+async def test_login_required_survives_private_test_id_and_link_copy_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        '<nav><a data-testid="totally-new-auth-control" href="/auth/login?next=/">Continue</a></nav>'
+    )
+
+    assert await driver.login_required() is True
+
+
+@pytest.mark.asyncio
 async def test_wait_for_composer_accepts_semantic_textbox_without_css_contract(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -1236,6 +1246,7 @@ def test_semantic_locators_are_first_in_browser_controls() -> None:
     composer_source = inspect.getsource(PlaywrightDriver._composer)
     button_source = inspect.getsource(PlaywrightDriver._semantic_button)
     effort_trigger_source = inspect.getsource(PlaywrightDriver._effort_trigger_locator)
+    login_source = inspect.getsource(PlaywrightDriver.login_required)
     model_source = inspect.getsource(PlaywrightDriver.select_effort_model)
     power_source = inspect.getsource(PlaywrightDriver.effort_power_info)
 
@@ -1245,6 +1256,8 @@ def test_semantic_locators_are_first_in_browser_controls() -> None:
     assert "get_by_test_id" not in button_source
     assert "locator(selector)" not in button_source
     assert 'get_by_role("button", name=' in effort_trigger_source
+    assert "get_by_test_id" not in login_source
+    assert '[href*="/login" i]' in login_source
     assert 'get_by_role("menuitemradio").filter' in model_source
     assert 'get_by_role("slider", include_hidden=True)' in power_source
     assert "locator('[role=\"slider\"]')" not in power_source
