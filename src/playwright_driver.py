@@ -1158,6 +1158,19 @@ class PlaywrightDriver(BrowserDriverBase):
             if text and text not in rate_limit_texts:
                 rate_limit_texts.append(text)
 
+        # Last resort for markup churn: recover a bounded interactive container
+        # around the visible rate-limit message when dialog roles/test IDs vanish.
+        if not rate_limit_texts:
+            structural = await self._interactive_text_container(page, _RATE_LIMIT_RE)
+            if structural is not None and not await is_history_rate_limit(structural):
+                try:
+                    text = (await structural.inner_text()).strip()
+                except PlaywrightError:
+                    text = ""
+                if text and _RATE_LIMIT_RE.search(text):
+                    rate_limit_texts.append(text)
+                    rate_limit_dialog = structural
+
         if rate_limit_dialog is not None:
             dismiss = await self._dialog_dismiss_button(rate_limit_dialog)
             if dismiss is not None:
@@ -1209,6 +1222,39 @@ class PlaywrightDriver(BrowserDriverBase):
             return False
         return bool(_RATE_LIMIT_RE.search(text) and _HISTORY_RATE_LIMIT_RE.search(text))
 
+    async def _interactive_text_container(
+        self,
+        page: Page,
+        text_pattern: re.Pattern[str],
+    ) -> Locator | None:
+        """Find the nearest visible button-bearing container around semantic text.
+
+        This is deliberately a last-resort structural fallback for UI churn where a
+        modal loses its dialog role/test ID but keeps its user-visible message and
+        an interactive dismissal control.
+        """
+        matches = page.get_by_text(text_pattern, exact=False)
+        try:
+            count = min(await matches.count(), 12)
+        except PlaywrightError:
+            return None
+        for index in range(count):
+            match = matches.nth(index)
+            try:
+                if not await match.is_visible():
+                    continue
+                container = match.locator(
+                    "xpath=ancestor-or-self::*[.//button or .//*[@role='button']][1]"
+                )
+                if await container.count() == 0 or not await container.is_visible():
+                    continue
+                if await self._dialog_dismiss_button(container) is None:
+                    continue
+                return container
+            except PlaywrightError:
+                continue
+        return None
+
     async def _history_rate_limit_dialog(self, page: Page) -> Locator | None:
         exact = await self._first_usable(
             [page.get_by_test_id("modal-conversation-history-rate-limit")],
@@ -1221,7 +1267,7 @@ class PlaywrightDriver(BrowserDriverBase):
         try:
             count = min(await dialogs.count(), 12)
         except PlaywrightError:
-            return None
+            count = 0
         for index in range(count):
             candidate = dialogs.nth(index)
             try:
@@ -1231,6 +1277,10 @@ class PlaywrightDriver(BrowserDriverBase):
                 continue
             if await self._is_history_rate_limit_dialog(candidate):
                 return candidate
+
+        structural = await self._interactive_text_container(page, _HISTORY_RATE_LIMIT_RE)
+        if structural is not None and await self._is_history_rate_limit_dialog(structural):
+            return structural
         return None
 
     async def _dismiss_history_rate_limit(self, page: Page | None = None) -> bool:
