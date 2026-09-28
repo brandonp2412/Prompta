@@ -1390,34 +1390,37 @@ class PlaywrightDriver(BrowserDriverBase):
         raise RuntimeError("ChatGPT Power control did not become available")
 
     async def _model_selector_control(self, page: Page) -> Locator | None:
+        model_menu_name = re.compile(
+            r"\b(?:select|choose|change)\s+(?:model|engine)\b",
+            re.IGNORECASE,
+        )
         named = await self._first_usable(
             [
-                page.get_by_role(
-                    "menuitem",
-                    name=re.compile(r"\b(?:select|choose|change)\s+model\b", re.IGNORECASE),
-                )
+                page.get_by_role("menuitem", name=model_menu_name),
+                page.get_by_role("button", name=model_menu_name),
             ],
             enabled=True,
         )
         if named is not None:
             return named
 
-        menuitems = page.get_by_role("menuitem")
         submenu_candidates: list[Locator] = []
-        try:
-            count = min(await menuitems.count(), 40)
-        except PlaywrightError:
-            count = 0
-        for index in range(count):
-            item = menuitems.nth(index)
+        for role in ("menuitem", "button"):
+            controls = page.get_by_role(role)
             try:
-                if not await item.is_visible() or not await item.is_enabled():
-                    continue
-                popup = (await item.get_attribute("aria-haspopup") or "").casefold()
-                if popup in {"true", "menu", "listbox"}:
-                    submenu_candidates.append(item)
+                count = min(await controls.count(), 40)
             except PlaywrightError:
                 continue
+            for index in range(count):
+                item = controls.nth(index)
+                try:
+                    if not await item.is_visible() or not await item.is_enabled():
+                        continue
+                    popup = (await item.get_attribute("aria-haspopup") or "").casefold()
+                    if popup in {"true", "menu", "listbox"}:
+                        submenu_candidates.append(item)
+                except PlaywrightError:
+                    continue
         return submenu_candidates[0] if len(submenu_candidates) == 1 else None
 
     async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
@@ -1425,13 +1428,18 @@ class PlaywrightDriver(BrowserDriverBase):
         model_name_re = re.compile(rf"^\s*{re.escape(model_name)}(?:\s|$)", re.IGNORECASE)
 
         async def find_option() -> Locator | None:
-            return await self._first_usable(
-                [
-                    page.get_by_role("menuitemradio", name=model_name_re),
-                    page.get_by_role("menuitemradio").filter(has_text=model_name_re),
-                ],
-                enabled=True,
-            )
+            # Menus have changed role structure before. Prefer accessible role/name
+            # semantics, but accept the equivalent selectable roles rather than
+            # coupling model discovery to one private menu implementation.
+            named_roles = [
+                page.get_by_role(role, name=model_name_re)
+                for role in ("menuitemradio", "radio", "option")
+            ]
+            text_roles = [
+                page.get_by_role(role).filter(has_text=model_name_re)
+                for role in ("menuitemradio", "radio", "option")
+            ]
+            return await self._first_usable(named_roles + text_roles, enabled=True)
 
         deadline = asyncio.get_running_loop().time() + 5.0
         while asyncio.get_running_loop().time() < deadline:

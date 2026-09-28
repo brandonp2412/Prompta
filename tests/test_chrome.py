@@ -921,6 +921,40 @@ async def test_select_effort_model_uses_unique_structural_submenu_when_copy_chan
 
 
 @pytest.mark.asyncio
+async def test_select_effort_model_accepts_radio_role_after_menu_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div id="sol" role="radio" aria-label="GPT-5.6 Sol"
+             onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        """
+    )
+
+    await driver.select_effort_model()
+
+    assert await page.locator("#sol").get_attribute("data-clicked") == "true"
+
+
+@pytest.mark.asyncio
+async def test_select_effort_model_accepts_button_submenu_after_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <button id="selector" aria-haspopup="menu"
+                onclick="document.getElementById('models').hidden=false">Choose engine</button>
+        <div id="models" hidden>
+          <div id="sol" role="radio" aria-label="GPT-5.6 Sol"
+               onclick="this.dataset.clicked='true'">GPT-5.6 Sol</div>
+        </div>
+        """
+    )
+
+    await driver.select_effort_model()
+
+    assert await page.locator("#sol").get_attribute("data-clicked") == "true"
+
+
+@pytest.mark.asyncio
 async def test_select_effort_model_accepts_already_checked_model(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -1258,6 +1292,6 @@ def test_semantic_locators_are_first_in_browser_controls() -> None:
     assert 'get_by_role("button", name=' in effort_trigger_source
     assert "get_by_test_id" not in login_source
     assert '[href*="/login" i]' in login_source
-    assert 'get_by_role("menuitemradio").filter' in model_source
+    assert 'for role in ("menuitemradio", "radio", "option")' in model_source
     assert 'get_by_role("slider", include_hidden=True)' in power_source
     assert "locator('[role=\"slider\"]')" not in power_source
