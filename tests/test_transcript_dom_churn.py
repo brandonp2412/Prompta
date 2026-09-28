@@ -948,6 +948,48 @@ def test_partial_reasoning_activity_is_retained_without_private_dom_shape(browse
     assert "Reading relevant tests" in message["content"]
 
 
+def test_role_discovery_survives_author_attribute_without_role_token(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-turn-author="user" data-message-id="u-future">
+              <p>Future user markup.</p>
+            </section>
+            <section data-message-author="assistant" data-message-id="a-future">
+              <p>Future assistant markup.</p>
+            </section>
+            """
+        ),
+    )
+
+    roles = [(message["role"], message["content"]) for message in snapshot["messages"]]
+
+    assert ("user", "Future user markup.") in roles
+    assert ("assistant", "Future assistant markup.") in roles
+
+
+def test_role_discovery_survives_sender_attribute_without_role_token(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-sender="human" data-message-id="u-sender">
+              <p>Sender user markup.</p>
+            </section>
+            <section data-sender="model" data-message-id="a-sender">
+              <p>Sender assistant markup.</p>
+            </section>
+            """
+        ),
+    )
+
+    roles = [(message["role"], message["content"]) for message in snapshot["messages"]]
+
+    assert ("user", "Sender user markup.") in roles
+    assert ("assistant", "Sender assistant markup.") in roles
+
+
 def test_streaming_detection_survives_semantic_attribute_namespace_churn(browser_page) -> None:
     browser_page.set_content(
         _conversation(
