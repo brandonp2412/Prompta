@@ -80,6 +80,10 @@ _ATTACH_RE = re.compile(
 _RETRY_RE = re.compile(r"^(?:try again|retry|regenerate(?: response)?)$", re.IGNORECASE)
 _DISMISS_RE = re.compile(r"^(?:got it|ok|okay|dismiss|close)$", re.IGNORECASE)
 _EFFORT_RE = re.compile(r"\b(max|extra\s+high|instant|medium|high)\b", re.IGNORECASE)
+_EFFORT_TRIGGER_RE = re.compile(
+    r"\b(?:thinking\s+effort|select\s+(?:chatgpt\s+)?model|model\s+selector)\b",
+    re.IGNORECASE,
+)
 _CLOUDFLARE_CHALLENGE_RE = re.compile(
     r"(?:verify you are human|checking your browser|performing security verification|"
     r"enable javascript and cookies to continue)",
@@ -1284,7 +1288,7 @@ class PlaywrightDriver(BrowserDriverBase):
     async def _effort_trigger_locator(self) -> Locator | None:
         page = self._page()
         semantic_candidates = [
-            page.get_by_role("button", name=re.compile(r"thinking effort", re.IGNORECASE)),
+            page.get_by_role("button", name=_EFFORT_TRIGGER_RE),
             page.get_by_role("button", name=_EFFORT_RE),
         ]
         for buttons in semantic_candidates:

@@ -885,6 +885,19 @@ async def test_effort_trigger_accepts_thinking_effort_button(live_driver) -> Non
 
 
 @pytest.mark.asyncio
+async def test_effort_trigger_accepts_model_label_with_effort_text(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        '<button aria-label="Select ChatGPT model" aria-haspopup="menu">Medium</button>'
+    )
+
+    trigger = await driver.effort_trigger_info(timeout=0.2)
+
+    assert trigger["text"] == "Medium"
+    assert "Select ChatGPT model" in trigger["label"]
+
+
+@pytest.mark.asyncio
 async def test_select_effort_model_uses_direct_chat_menu_item(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
