@@ -78,6 +78,11 @@
       /(?:^|-)(?:(?:message-)?(?:author|speaker)-role|message-role)$/i,
       [['author','speaker'],['role']]
     )
+    ||semanticAttribute(
+      node,
+      /(?:^|-)(?:(?:message|turn)-)?(?:author|speaker|sender)$/i,
+      [['author','speaker','sender']]
+    )
   )||semanticSearchRole(node)
     ||accessibleRole(node?.getAttribute?.('aria-label'));
   const messageRole=node=>directMessageRole(node)||headingRole(node);
