@@ -139,9 +139,47 @@
     &&node.contains(other)
     &&messageRole(other)===messageRole(node)
   ));
+  const commonAncestor=(left,right)=>{
+    if(!left||!right)return null;
+    const ancestors=new Set();
+    for(let node=left;node;node=node.parentElement)ancestors.add(node);
+    for(let node=right;node;node=node.parentElement){
+      if(ancestors.has(node))return node;
+    }
+    return null;
+  };
+  const nodeDepth=node=>{
+    let depth=0;
+    for(let current=node;current;current=current.parentElement)depth+=1;
+    return depth;
+  };
+  const inferredTranscriptRoot=()=>{
+    const pageRoot=document.body||document.documentElement;
+    if(!pageRoot)return document.documentElement;
+    const roleNodes=innermostRoleNodes([...new Set([
+      ...pageRoot.querySelectorAll(messageRoleSelector),
+      ...pageRoot.querySelectorAll(semanticTurnSelector),
+      ...[...pageRoot.querySelectorAll('*')].filter(node=>directMessageRole(node)),
+      ...headingMessageNodes(pageRoot)
+    ])].filter(node=>messageRole(node))).sort(documentOrder);
+    const candidates=[];
+    for(let index=1;index<roleNodes.length;index+=1){
+      const left=roleNodes[index-1];
+      const right=roleNodes[index];
+      if(messageRole(left)===messageRole(right))continue;
+      const root=commonAncestor(left,right);
+      if(root&&root!==pageRoot&&root!==document.documentElement)candidates.push(root);
+    }
+    if(!candidates.length)return pageRoot;
+    const countRoles=root=>roleNodes.filter(node=>root.contains(node)).length;
+    return [...new Set(candidates)]
+      .map(root=>({root,count:countRoles(root),depth:nodeDepth(root)}))
+      .sort((left,right)=>right.count-left.count||right.depth-left.depth)[0]?.root
+      ||pageRoot;
+  };
   const transcriptRoot=()=>{
     const landmarks=[...document.querySelectorAll('main,[role="main"]')];
-    if(!landmarks.length)return document.body||document.documentElement;
+    if(!landmarks.length)return inferredTranscriptRoot();
     const score=root=>{
       const semantic=root.querySelectorAll(messageRoleSelector+','+semanticTurnSelector).length;
       const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node)).length;
@@ -154,12 +192,12 @@
       ||landmarks[0];
   };
   const messageNodes=()=>{
+    const root=transcriptRoot();
     const primary=innermostRoleNodes([...new Set([
-      ...document.querySelectorAll(messageRoleSelector),
-      ...document.querySelectorAll(semanticTurnSelector)
+      ...root.querySelectorAll(messageRoleSelector),
+      ...root.querySelectorAll(semanticTurnSelector)
     ])].filter(node=>messageRole(node)));
     const roles=new Set(primary.map(messageRole));
-    const root=transcriptRoot();
     // Always inspect structural role metadata too. During staggered DOM rollouts a page can
     // contain both the established namespace and a renamed one; stopping once both roles
     // are seen in the established markup would silently drop turns using the new namespace.

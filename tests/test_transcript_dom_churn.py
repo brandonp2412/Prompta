@@ -1403,6 +1403,7 @@ def test_aria_labelledby_heading_names_survive_heading_text_churn(browser_page) 
         ("assistant", "Labelled assistant turn."),
     ]
 
+
 def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -1459,4 +1460,48 @@ def test_role_main_landmark_bounds_structural_message_discovery(browser_page) ->
     assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
         ("user", "Main user."),
         ("assistant", "Main assistant."),
+    ]
+
+
+def test_missing_main_landmark_infers_transcript_around_structural_role_noise(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <aside data-sender="model" data-message-id="sidebar-noise">Sidebar noise.</aside>
+        <div class="future-chat-shell">
+          <section data-sender="human" data-turn-id="u-chat"><p>Actual question.</p></section>
+          <section data-sender="model" data-turn-id="a-chat"><p>Actual answer.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Actual question."),
+        ("assistant", "Actual answer."),
+    ]
+
+
+def test_missing_main_landmark_scopes_primary_semantic_nodes_to_inferred_transcript(
+    browser_page,
+) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <aside data-message-author-role="assistant" data-message-id="sidebar-noise">
+          Sidebar assistant noise.
+        </aside>
+        <div class="future-chat-shell">
+          <section data-message-author-role="user" data-message-id="u1"><p>First question.</p></section>
+          <section data-message-author-role="assistant" data-message-id="a1"><p>First answer.</p></section>
+          <section data-message-author-role="user" data-message-id="u2"><p>Second question.</p></section>
+          <section data-message-author-role="assistant" data-message-id="a2"><p>Second answer.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "First question."),
+        ("assistant", "First answer."),
+        ("user", "Second question."),
+        ("assistant", "Second answer."),
     ]
