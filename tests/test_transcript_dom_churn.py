@@ -978,6 +978,34 @@ def test_tool_trigger_discovery_survives_label_and_wrapper_churn(browser_page) -
     assert content.index("```tool:Glass") < content.index("After tool control.")
 
 
+def test_tool_trigger_discovery_survives_nested_semantic_icon_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before nested tool control.</p>
+                <section class="unrelated-wrapper-name">
+                  <button><svg data-icon="tool-call"></svg><span>Glass</span></button>
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </section>
+                <p>After nested tool control.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "```tool:Glass" in content
+    assert "execute_python" in content
+    assert "completed" in content
+    assert content.index("Before nested tool control.") < content.index("```tool:Glass")
+    assert content.index("```tool:Glass") < content.index("After nested tool control.")
+
+
 def test_tool_trigger_discovery_uses_aria_labelledby(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

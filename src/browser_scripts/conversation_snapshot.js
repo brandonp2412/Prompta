@@ -113,11 +113,22 @@ JSON.stringify((()=>{
     .trim();
   const isToolTrigger=node=>{
     if(!node?.matches?.('button,[role="button"]'))return false;
+    const descendantSemanticText=node.querySelectorAll
+      ?[...node.querySelectorAll('*')].flatMap(child=>[
+        child.getAttribute?.('aria-label')||'',
+        child.getAttribute?.('title')||'',
+        child.getAttribute?.('data-icon')||'',
+        child.getAttribute?.('data-testid')||'',
+        child.getAttribute?.('data-action')||'',
+        child.getAttribute?.('data-state')||''
+      ]).join(' ')
+      :'';
     return [
       node.getAttribute('aria-label'),
       labelledByText(node),
       node.getAttribute('title'),
-      node.textContent
+      node.textContent,
+      descendantSemanticText
     ].some(toolTriggerLabel);
   };
   const toolTriggerNodes=root=>[...root.querySelectorAll('button,[role="button"]')]
