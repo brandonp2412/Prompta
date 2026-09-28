@@ -136,13 +136,27 @@
     &&node.contains(other)
     &&messageRole(other)===messageRole(node)
   ));
+  const transcriptRoot=()=>{
+    const landmarks=[...document.querySelectorAll('main,[role="main"]')];
+    if(!landmarks.length)return document.body||document.documentElement;
+    const score=root=>{
+      const semantic=root.querySelectorAll(messageRoleSelector+','+semanticTurnSelector).length;
+      const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node)).length;
+      const headings=headingNodes(root).filter(node=>accessibleRole(node.textContent)).length;
+      return semantic*4+structural*2+headings;
+    };
+    return landmarks
+      .map((root,index)=>({root,index,score:score(root)}))
+      .sort((left,right)=>right.score-left.score||left.index-right.index)[0]?.root
+      ||landmarks[0];
+  };
   const messageNodes=()=>{
     const primary=innermostRoleNodes([...new Set([
       ...document.querySelectorAll(messageRoleSelector),
       ...document.querySelectorAll(semanticTurnSelector)
     ])].filter(node=>messageRole(node)));
     const roles=new Set(primary.map(messageRole));
-    const root=document.querySelector('main,[role="main"]')||document.body||document.documentElement;
+    const root=transcriptRoot();
     // Always inspect structural role metadata too. During staggered DOM rollouts a page can
     // contain both the established namespace and a renamed one; stopping once both roles
     // are seen in the established markup would silently drop turns using the new namespace.

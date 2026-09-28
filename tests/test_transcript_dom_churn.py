@@ -1323,6 +1323,26 @@ def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None
     ]
 
 
+def test_structural_discovery_uses_chat_landmark_when_first_main_is_unrelated(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <main>
+          <section data-sender="model" data-message-id="decoy">Unrelated main content.</section>
+        </main>
+        <div role="main">
+          <section data-sender="human" data-turn-id="u-chat"><p>Actual question.</p></section>
+          <section data-sender="model" data-turn-id="a-chat"><p>Actual answer.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Actual question."),
+        ("assistant", "Actual answer."),
+    ]
+
+
 def test_role_main_landmark_bounds_structural_message_discovery(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
