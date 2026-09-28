@@ -601,7 +601,7 @@ JSON.stringify((()=>{
     if(!right.node)return -1;
     return left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
   });
-  const pageReactRoot=document.querySelector('main')||document.body;
+  const pageReactRoot=document.querySelector('main,[role="main"]')||document.body;
   const pageReactMessages=(!entries.length&&pageReactRoot)
     ?reactMessages(pageReactRoot,'transcript-gap')
     :[];

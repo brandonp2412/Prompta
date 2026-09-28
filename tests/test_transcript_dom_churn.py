@@ -1197,3 +1197,41 @@ def test_stop_control_detection_survives_label_and_wrapper_churn(browser_page) -
     assert activity["complete"] is False
     assert snapshot["streaming"] is True
 
+
+def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-turn-id="u-turn-future" data-sender="human">
+              <p>Future user identity.</p>
+            </section>
+            <section data-conversation-turn-uuid="a-turn-future" data-sender="model">
+              <p>Future assistant identity.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [(message["role"], message["id"]) for message in snapshot["messages"]] == [
+        ("user", "u-turn-future"),
+        ("assistant", "a-turn-future"),
+    ]
+
+
+def test_role_main_landmark_bounds_structural_message_discovery(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <aside data-sender="model" data-message-id="sidebar-noise">Sidebar noise.</aside>
+        <div role="main">
+          <section data-sender="human" data-turn-id="u-main"><p>Main user.</p></section>
+          <section data-sender="model" data-turn-id="a-main"><p>Main assistant.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Main user."),
+        ("assistant", "Main assistant."),
+    ]

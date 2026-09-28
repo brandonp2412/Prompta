@@ -99,6 +99,11 @@
       /(?:^|-)(?:selection-)?message-(?:id|uuid)$/i,
       [['message'],['id','uuid']]
     )
+    ||semanticAttribute(
+      node,
+      /(?:^|-)(?:(?:conversation-)?turn)-(?:id|uuid)$/i,
+      [['turn'],['id','uuid']]
+    )
     ||searchMessageIds(node).at(-1)
     ||''
   );
@@ -124,7 +129,7 @@
       ...document.querySelectorAll(semanticTurnSelector)
     ])].filter(node=>messageRole(node)));
     const roles=new Set(primary.map(messageRole));
-    const root=document.querySelector('main')||document.body||document.documentElement;
+    const root=document.querySelector('main,[role="main"]')||document.body||document.documentElement;
     // Always inspect structural role metadata too. During staggered DOM rollouts a page can
     // contain both the established namespace and a renamed one; stopping once both roles
     // are seen in the established markup would silently drop turns using the new namespace.

@@ -37,7 +37,7 @@ JSON.stringify((()=>{
           const visibleMessageId=messageId(assistant)||turnMessageId(turn,'assistant');
           let activityReactFallback=null;
           const reactTurnEnd=()=>{
-            const root=turn||document.querySelector('main')||document.body;
+            const root=turn||document.querySelector('main,[role="main"]')||document.body;
             if(!root)return null;
             activityReactFallback=promptaTranscriptEngine.inspectReact(
               root,
