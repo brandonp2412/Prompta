@@ -77,6 +77,11 @@ class FakeTrackingDriver:
     async def close_context(self, context: str) -> None:
         self.closed_contexts.append(context)
 
+    async def handoff_context(self, context: str, *, ownership_prefix: str) -> None:
+        assert ownership_prefix == "prompta-conversation:"
+        self.handoff_context_id = context
+        self.events.append(f"handoff:{context}")
+
     async def close(self) -> None:
         self.closed = True
         self.is_connected = False
@@ -306,8 +311,12 @@ async def test_run_once_polls_live_conversations_before_incremental_recovery(
     async def poll_active_conversations() -> None:
         events.append("poll")
 
-    async def recover_cached_conversations(*, limit: int = 50) -> int:
-        events.append(f"recover:{limit}")
+    async def recover_cached_conversations(
+        *,
+        limit: int = 50,
+        handoff_only: bool = False,
+    ) -> int:
+        events.append(f"recover:{limit}:handoff={handoff_only}")
         return 0
 
     async def cleanup_orphan_pages() -> int:
@@ -329,7 +338,12 @@ async def test_run_once_polls_live_conversations_before_incremental_recovery(
             patch.object(driver, "cleanup_orphan_pages", new=cleanup_orphan_pages),
         ):
             assert await worker.run_once() is False
-            assert events == ["poll", "recover:1", "cleanup"]
+            assert events == [
+                "poll",
+                "recover:8:handoff=True",
+                "recover:1:handoff=False",
+                "cleanup",
+            ]
     finally:
         await worker.close()
 
@@ -356,6 +370,7 @@ async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
     cache.close()
 
     driver = FakeTrackingDriver("prompta-conversation:recovered", conversation_id)
+    driver.handoff_context_id = driver.context_id
     driver_factory_calls = 0
 
     def driver_factory() -> FakeTrackingDriver:
@@ -386,11 +401,101 @@ async def test_machine_gun_mode_off_reclaims_and_polls_unattended_conversation(
             activity.assert_awaited()
 
         assert driver_factory_calls == 1
+        assert driver.new_tab_calls == 0
         assert worker.cache.status(conversation_id) == "active"
         assert list(worker.tracker.active) == ["prompta-conversation:recovered"]
         assert _browser_context_id(worker.cache, conversation_id) == (
             "prompta-conversation:recovered"
         )
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
+async def test_machine_gun_mode_preserves_open_tab_for_later_handoff(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    cache_path = tmp_path / "chats.sqlite3"
+    conversation_id = "chat-machine-gun-preserved"
+    context_id = "prompta-conversation:preserved"
+
+    driver = FakeTrackingDriver(context_id, conversation_id)
+    worker = ConversationWorker(
+        state_path,
+        cache_path=cache_path,
+        driver_factory=cast(Any, lambda: driver),
+    )
+    try:
+        await worker.browser.ensure_driver()
+        worker.cache.start(
+            conversation_id,
+            context_id=context_id,
+            job_name="machine-gun-preserve",
+            prompt="Keep the browser tab open",
+        )
+        worker.tracker.active[context_id] = ActiveConversation(
+            conversation_id=conversation_id,
+            context_id=context_id,
+            job_name="machine-gun-preserve",
+            prompt="Keep the browser tab open",
+        )
+        worker.runtime.set_unattended_mode(True)
+
+        with patch.object(
+            driver,
+            "conversation_activity",
+            wraps=driver.conversation_activity,
+        ) as activity:
+            assert await worker.run_once() is True
+            activity.assert_not_awaited()
+
+        assert worker.cache.status(conversation_id) == "unattended"
+        assert driver.handoff_context_id == context_id
+        assert driver.closed_contexts == []
+        assert worker.tracker.active == {}
+    finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
+async def test_navigational_recovery_is_limited_to_one_attempt_per_cooldown(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    cache_path = tmp_path / "chats.sqlite3"
+
+    cache = ChatCache(cache_path)
+    cache.start(
+        "chat-old",
+        context_id="prompta-delivery:old",
+        job_name="old",
+        prompt="Old unattended work",
+    )
+    cache.mark_unattended("chat-old")
+    cache.start(
+        "chat-new",
+        context_id="prompta-delivery:new",
+        job_name="new",
+        prompt="New unattended work",
+    )
+    cache.mark_unattended("chat-new")
+    cache.close()
+
+    driver = FakeTrackingDriver("prompta-conversation:recovered", "chat-new")
+    worker = ConversationWorker(
+        state_path,
+        cache_path=cache_path,
+        driver_factory=cast(Any, lambda: driver),
+        recovery_message_timeout_seconds=0.01,
+    )
+    try:
+        worker.tracker.next_recovery_retry_at = 0.0
+        assert await worker.run_once() is True
+        assert driver.new_tab_calls == 1
+
+        assert await worker.run_once() is True
+        assert driver.new_tab_calls == 1
     finally:
         await worker.close()
 
@@ -690,7 +795,19 @@ async def test_conversation_worker_dismisses_modal_without_shared_send_cooldown(
         driver_factory=cast(Any, lambda: driver),
     )
     try:
-        assert await worker.run_once() is False
+        with patch.object(
+            driver,
+            "dismiss_history_rate_limit",
+            wraps=driver.dismiss_history_rate_limit,
+        ) as dismiss:
+            assert await worker.run_once() is False
+            assert dismiss.await_count == 1
+
+            # A history throttle pauses transcript reads locally instead of
+            # hammering the modal every worker tick.
+            assert await worker.run_once() is False
+            assert dismiss.await_count == 1
+
         status = worker.runtime.account_admission_status()
         assert status["blocked"] is False
         assert status["kind"] == ""

@@ -322,6 +322,7 @@ class ConversationTracker:
         *,
         limit: int = 50,
         force_tracking_only: bool = False,
+        handoff_only: bool = False,
     ) -> int:
 
         now = time.time()
@@ -351,6 +352,7 @@ class ConversationTracker:
             )
 
         attached_ids = {active.conversation_id for active in self.active.values()}
+        candidate_limit = max(50, limit) if handoff_only else max(1, limit)
         recoverable = [
             row
             for row in self.cache.recoverable_conversations(
@@ -358,12 +360,15 @@ class ConversationTracker:
                 activity_after=activity_after,
                 deployed_e2e_activity_after=deployed_e2e_activity_after,
                 force_tracking_only=force_tracking_only,
-                limit=max(1, limit) + len(attached_ids),
+                limit=candidate_limit + len(attached_ids),
             )
             if str(row.get("id") or "") not in attached_ids
-        ][: max(1, limit)]
+        ]
+        if not handoff_only:
+            recoverable = recoverable[: max(1, limit)]
         if not recoverable:
-            self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
+            if not handoff_only:
+                self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
             return 0
 
         driver = await self.ensure_driver()
@@ -388,6 +393,13 @@ class ConversationTracker:
                     claimed_contexts[conversation_id] = context
             if claimed_contexts:
                 recoverable.sort(key=lambda row: str(row.get("id") or "") not in claimed_contexts)
+
+        if handoff_only:
+            recoverable = [
+                row for row in recoverable if str(row.get("id") or "") in claimed_contexts
+            ][: max(1, limit)]
+            if not recoverable:
+                return 0
 
         recovered = 0
         for row in recoverable:
@@ -530,7 +542,8 @@ class ConversationTracker:
                         "the normal stale-active timeout retires it",
                         conversation_id,
                     )
-        self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
+        if not handoff_only:
+            self.next_recovery_retry_at = time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS
         return recovered
 
     @staticmethod

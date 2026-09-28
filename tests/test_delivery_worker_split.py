@@ -104,6 +104,7 @@ async def test_delivery_success_preserves_page_for_conversation_worker_handoff(
         force_tracking: bool = False,
     ) -> str:
         del attachments
+        assert actions.preserve_unattended_context is True
         await actions.ensure_driver()
         conversation_id = "chat-handoff"
         context_id = "prompta-delivery:send-tab"

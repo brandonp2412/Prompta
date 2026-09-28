@@ -173,6 +173,7 @@ class BrowserDeliverySender:
             wait_for_cached_response=wait_for_cached_response,
             unattended_mode=self.runtime.unattended_mode,
             before_send_attempt=record_send_attempt,
+            preserve_unattended_context=True,
         )
         try:
             try:

@@ -41,6 +41,7 @@ class ConversationActions:
         wait_for_cached_response: Callable[..., Any],
         unattended_mode: Callable[[], bool],
         before_send_attempt: Callable[[], None] | None = None,
+        preserve_unattended_context: bool = False,
     ) -> None:
         self.cache = cache
         self.active = active
@@ -52,6 +53,7 @@ class ConversationActions:
         self.wait_for_cached_response_callback = wait_for_cached_response
         self.unattended_mode = unattended_mode
         self.before_send_attempt = before_send_attempt
+        self.preserve_unattended_context = preserve_unattended_context
 
     @staticmethod
     def normalise(text: str) -> str:
@@ -242,6 +244,13 @@ class ConversationActions:
                     )
                     if self.unattended_mode() and not force_tracking:
                         self.cache.mark_unattended(conversation_id)
+                        if self.preserve_unattended_context:
+                            self.active[context] = ActiveConversation(
+                                conversation_id=conversation_id,
+                                context_id=context,
+                                job_name=job_name,
+                                prompt=prompt,
+                            )
                     else:
                         self.active[context] = ActiveConversation(
                             conversation_id=conversation_id,
@@ -267,6 +276,13 @@ class ConversationActions:
                 )
                 if self.unattended_mode() and not force_tracking:
                     self.cache.mark_unattended(provisional_conversation_id)
+                    if self.preserve_unattended_context:
+                        self.active[context] = ActiveConversation(
+                            conversation_id=provisional_conversation_id,
+                            context_id=context,
+                            job_name=job_name,
+                            prompt=prompt,
+                        )
                 else:
                     self.active[context] = ActiveConversation(
                         conversation_id=provisional_conversation_id,
@@ -626,6 +642,14 @@ class ConversationActions:
                     metadata = self.cache.resume(conversation_id, context_id=context)
                     if self.unattended_mode() and not force_tracking:
                         self.cache.mark_unattended(conversation_id)
+                        if self.preserve_unattended_context and active is None:
+                            active = ActiveConversation(
+                                conversation_id=conversation_id,
+                                context_id=context,
+                                job_name=str(metadata.get("job_name") or ""),
+                                prompt=str(metadata.get("prompt") or ""),
+                            )
+                            self.active[context] = active
                     else:
                         if active is None:
                             active = ActiveConversation(

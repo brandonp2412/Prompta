@@ -4,12 +4,13 @@ import argparse
 import asyncio
 import logging
 import os
+import time
 from contextlib import suppress
 from pathlib import Path
 
 from .browser_session import BrowserSession, DriverFactory
 from .cache import ChatCache
-from .conversation_tracker import ConversationTracker
+from .conversation_tracker import RESTART_RECOVERY_RETRY_SECONDS, ConversationTracker
 from .persistence import DEFAULT_RUNTIME_PATH
 from .playwright_driver import PlaywrightDriver
 from .scheduler_runtime import SchedulerRuntime
@@ -21,6 +22,7 @@ _CONVERSATION_WINDOW_PREFIX = "prompta-conversation:"
 _DEFAULT_RECOVERY_MESSAGE_TIMEOUT_SECONDS = 12.0
 _DEFAULT_POLL_SECONDS = 1.0
 _WATCHDOG_HEARTBEAT_SECONDS = 30.0
+_HISTORY_RATE_LIMIT_BACKOFF_SECONDS = 60.0
 
 
 class ConversationWorker:
@@ -67,6 +69,10 @@ class ConversationWorker:
             current_driver=lambda: self.browser.driver,
             recovery_message_timeout_seconds=lambda: self.recovery_message_timeout_seconds,
         )
+        # Allow one immediate recovery after worker startup, then use the
+        # tracker's cooldown to prevent navigation bursts.
+        self.tracker.next_recovery_retry_at = 0.0
+        self._history_rate_limit_retry_at = 0.0
 
     def _new_driver(self) -> PlaywrightDriver:
         if self.driver_factory is not None:
@@ -88,12 +94,25 @@ class ConversationWorker:
             if self.cache.is_force_tracking(active.conversation_id):
                 continue
             self.cache.mark_unattended(active.conversation_id)
+            handed_off = False
             if driver is not None:
+                try:
+                    await driver.handoff_context(
+                        context,
+                        ownership_prefix=_CONVERSATION_WINDOW_PREFIX,
+                    )
+                    handed_off = True
+                except Exception:
+                    logger.warning(
+                        "Could not preserve conversation-worker tab while entering Machine Gun Mode",
+                        exc_info=True,
+                    )
+            if not handed_off and driver is not None:
                 try:
                     await driver.close_context(context)
                 except Exception:
                     logger.debug(
-                        "Could not close conversation-worker tab while entering Machine Gun Mode",
+                        "Could not close conversation-worker tab after failed handoff",
                         exc_info=True,
                     )
             self.tracker.active.pop(context, None)
@@ -112,12 +131,20 @@ class ConversationWorker:
         # Conversation-history throttling may prevent transcript reads, but it
         # does not imply that sending prompts is rate limited. Keep the pause local
         # to the conversation worker instead of blocking the delivery worker.
+        if limited:
+            self._history_rate_limit_retry_at = max(
+                self._history_rate_limit_retry_at,
+                time.monotonic() + _HISTORY_RATE_LIMIT_BACKOFF_SECONDS,
+            )
         return limited
 
     async def run_once(self) -> bool:
         if self.runtime.unattended_mode():
             detached = await self._detach_for_unattended_mode()
-            if self.runtime.global_backoff_remaining() > 0:
+            if (
+                self.runtime.global_backoff_remaining() > 0
+                or time.monotonic() < self._history_rate_limit_retry_at
+            ):
                 return detached > 0
             recovered = await self.tracker.recover_cached_conversations(
                 limit=1,
@@ -134,7 +161,10 @@ class ConversationWorker:
                 return detached > 0 or recovered > 0
             return detached > 0 or recovered > 0 or bool(self.tracker.active)
 
-        if self.runtime.global_backoff_remaining() > 0:
+        if (
+            self.runtime.global_backoff_remaining() > 0
+            or time.monotonic() < self._history_rate_limit_retry_at
+        ):
             return False
 
         driver = await self.browser.ensure_driver()
@@ -142,13 +172,34 @@ class ConversationWorker:
             return False
 
         await self.tracker.poll_active_conversations()
-        recovered = await self.tracker.recover_cached_conversations(limit=1)
-        await driver.cleanup_orphan_pages()
-        if recovered:
+
+        # Claim already-open delivery handoff tabs immediately. This is read-only
+        # and does not navigate ChatGPT, so Machine Gun Mode can be disabled
+        # without creating a burst of conversation-history requests.
+        handoff_recovered = await self.tracker.recover_cached_conversations(
+            limit=8,
+            handoff_only=True,
+        )
+        if handoff_recovered:
             await self.tracker.poll_active_conversations()
+            self.tracker.next_recovery_retry_at = max(
+                self.tracker.next_recovery_retry_at,
+                time.monotonic() + RESTART_RECOVERY_RETRY_SECONDS,
+            )
+
+        # A missing handoff requires a real navigation/reload. Keep that expensive
+        # fallback on the existing one-minute recovery cadence so a mode transition
+        # cannot stampede ChatGPT history with many tabs at once.
+        navigated_recovered = 0
+        if time.monotonic() >= self.tracker.next_recovery_retry_at:
+            navigated_recovered = await self.tracker.recover_cached_conversations(limit=1)
+            if navigated_recovered:
+                await self.tracker.poll_active_conversations()
+
+        await driver.cleanup_orphan_pages()
         if await self._dismiss_history_rate_limits(driver):
             return False
-        return recovered > 0 or bool(self.tracker.active)
+        return handoff_recovered > 0 or navigated_recovered > 0 or bool(self.tracker.active)
 
     async def _watchdog_heartbeat(self, health: ServiceHealthStore) -> None:
         while True:
