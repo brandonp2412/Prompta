@@ -84,6 +84,31 @@
   const isSemanticInteractiveControl=node=>Boolean(
     node?.matches?.(semanticInteractiveControlSelector)
   );
+  // Action-state discovery must tolerate more tag/role churn than transcript
+  // stripping. Keep ordinary answer links out of the stripping selector while
+  // still recognizing link-like controls that carry explicit action semantics.
+  const semanticActionControlSelector=[
+    semanticInteractiveControlSelector,
+    'a[href][aria-label]',
+    'a[href][aria-labelledby]',
+    'a[href][aria-describedby]',
+    'a[href][title]',
+    'select',
+    'input:not([type="hidden"])',
+    '[role="link"]',
+    '[aria-controls]',
+    '[aria-haspopup]',
+    '[aria-expanded]',
+    '[aria-pressed]',
+    '[aria-checked]',
+    '[aria-selected]'
+  ].join(',');
+  const semanticActionControls=root=>root?.querySelectorAll
+    ?[...root.querySelectorAll(semanticActionControlSelector)]
+    :[];
+  const isSemanticActionControl=node=>Boolean(
+    node?.matches?.(semanticActionControlSelector)
+  );
   const accessibleNodeRole=node=>[
     node?.getAttribute?.('aria-label')||'',
     labelledByText(node),

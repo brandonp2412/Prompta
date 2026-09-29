@@ -1073,6 +1073,55 @@ def test_control_discovery_survives_interactive_element_churn(browser_page) -> N
     assert activity["complete"] is True
 
 
+def test_completion_action_discovery_survives_link_semantics_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <a href="#" aria-label="Copy response">Copy</a>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
+def test_navigational_link_named_copy_is_not_completion_action(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Answer with <a href="https://example.com" aria-label="Copy response">docs</a>.</p>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is False
+
+
 def test_stop_control_discovery_survives_focusable_control_churn(browser_page) -> None:
     browser_page.set_content(
         _conversation(
@@ -1096,6 +1145,33 @@ def test_stop_control_discovery_survives_focusable_control_churn(browser_page) -
 
     assert activity["streaming"] is True
     assert activity["complete"] is False
+
+
+def test_stop_control_discovery_survives_link_semantics_churn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Still answering.</p>
+              </div>
+            </section>
+            <a href="#" aria-label="Stop responding">Stop</a>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True
 
 
 def test_tool_trigger_discovery_survives_non_button_control_churn(browser_page) -> None:
@@ -1122,6 +1198,55 @@ def test_tool_trigger_discovery_survives_non_button_control_churn(browser_page) 
     assert "tool:Glass" in content
     assert "execute_python" in content
     assert "completed" in content
+
+
+def test_tool_trigger_discovery_survives_link_semantics_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before tool control.</p>
+                <section class="future-tool-layout">
+                  <a href="#" aria-label="Show tool details">Glass</a>
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </section>
+                <p>After tool control.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "tool:Glass" in content
+    assert "execute_python" in content
+    assert "completed" in content
+    assert content.index("Before tool control.") < content.index("tool:Glass")
+    assert content.index("tool:Glass") < content.index("After tool control.")
+
+
+def test_accessible_content_link_named_tool_details_is_not_promoted_to_tool_block(
+    browser_page,
+) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Read <a href="https://example.com" aria-label="Show tool details">the docs</a>.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert "tool:" not in content
+    assert "[the docs](https://example.com)" in content
 
 
 def test_tool_trigger_discovery_survives_label_and_wrapper_churn(browser_page) -> None:

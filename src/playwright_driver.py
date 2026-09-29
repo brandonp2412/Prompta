@@ -1328,9 +1328,18 @@ class PlaywrightDriver(BrowserDriverBase):
                 if not await match.is_visible():
                     continue
                 container = match.locator(
-                    "xpath=ancestor-or-self::*[.//button or .//*[@role='button']][1]"
+                    "xpath=ancestor-or-self::*["
+                    ".//button or .//a[@href] or .//input[not(@type='hidden')] or .//summary "
+                    "or .//*[@role] or .//*[@tabindex and @tabindex!='-1'] "
+                    "or .//*[@aria-controls] or .//*[@aria-expanded]"
+                    "][1]"
                 )
                 if await container.count() == 0 or not await container.is_visible():
+                    continue
+                tag_name = str(
+                    await container.evaluate(load_browser_script("element_tag_name.js")) or ""
+                ).casefold()
+                if tag_name in {"html", "body", "main"}:
                     continue
                 if await self._dialog_dismiss_button(container) is None:
                     continue

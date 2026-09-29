@@ -101,9 +101,31 @@ const promptaTranscriptEngine=(()=>{
   const labelledByText=node=>referencedText(node,'aria-labelledby');
   const describedByText=node=>referencedText(node,'aria-describedby');
   const interactiveControls=semanticInteractiveControls;
+  const actionControls=semanticActionControls;
   const isInteractiveControl=isSemanticInteractiveControl;
+  const isActionControl=isSemanticActionControl;
+  const isControlLikeAnchor=node=>{
+    if(node?.tagName!=='A')return true;
+    const role=String(node.getAttribute?.('role')||'').trim().toLowerCase();
+    if(role&&role!=='link')return true;
+    const href=String(node.getAttribute?.('href')||'').trim();
+    const explicitActionSemantics=[
+      'aria-label','aria-labelledby','aria-describedby','title',
+      'aria-controls','aria-haspopup','aria-expanded','aria-pressed'
+    ].some(attribute=>Boolean(node.getAttribute?.(attribute)));
+    if(!explicitActionSemantics)return false;
+    return (
+      !href
+      ||href.startsWith('#')
+      ||/^javascript:/i.test(href)
+      ||Boolean(node.getAttribute?.('aria-controls'))
+      ||Boolean(node.getAttribute?.('aria-haspopup'))
+      ||Boolean(node.getAttribute?.('aria-expanded'))
+      ||Boolean(node.getAttribute?.('aria-pressed'))
+    );
+  };
   const isStopControl=node=>{
-    if(!isInteractiveControl(node))return false;
+    if(!isActionControl(node)||!isControlLikeAnchor(node))return false;
     const attributeText=[...(node.attributes||[])]
       .filter(attribute=>(
         attribute.name==='aria-label'
@@ -135,7 +157,7 @@ const promptaTranscriptEngine=(()=>{
     return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
   };
   const isTurnActionControl=node=>{
-    if(!isInteractiveControl(node))return false;
+    if(!isActionControl(node)||!isControlLikeAnchor(node))return false;
     const attributes=[...(node.attributes||[])];
     const semanticTokens=value=>new Set(
       String(value||'')
@@ -211,7 +233,10 @@ const promptaTranscriptEngine=(()=>{
     hasVisibleAssistantText,
     inspectReact,
     interactiveControls,
+    actionControls,
     isInteractiveControl,
+    isActionControl,
+    isControlLikeAnchor,
     isStopControl,
     isTurnActionControl,
     latestAssistantRoot,

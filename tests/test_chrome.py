@@ -848,6 +848,28 @@ async def test_dom_state_recovers_rate_limit_after_modal_semantics_disappear(liv
 
 
 @pytest.mark.asyncio
+async def test_dom_state_recovers_rate_limit_after_modal_and_button_semantics_disappear(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <section class="future-overlay-shell">
+          <p>Too many requests. Try again later.</p>
+          <div tabindex="0" aria-label="Close"
+               onclick="this.closest('section').remove()">Continue</div>
+        </section>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert "Too many requests" in state["rate_limit_text"]
+    assert await page.locator(".future-overlay-shell").count() == 0
+
+
+@pytest.mark.asyncio
 async def test_dom_state_ignores_generic_rate_limit_alert(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -1076,6 +1098,26 @@ async def test_history_rate_limit_dismiss_survives_modal_role_and_testid_removal
         <section class="future-history-overlay">
           <p>Too many requests while loading your conversation history.</p>
           <button onclick="this.closest('section').remove()">Continue</button>
+        </section>
+        <textarea aria-label="Message ChatGPT"></textarea>
+        """
+    )
+
+    assert await driver.dismiss_history_rate_limit() is True
+    assert await page.locator(".future-history-overlay").count() == 0
+
+
+@pytest.mark.asyncio
+async def test_history_rate_limit_dismiss_survives_modal_and_button_semantics_removal(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <section class="future-history-overlay">
+          <p>Too many requests while loading your conversation history.</p>
+          <span tabindex="0" title="Dismiss"
+                onclick="this.closest('section').remove()">Continue</span>
         </section>
         <textarea aria-label="Message ChatGPT"></textarea>
         """

@@ -117,7 +117,10 @@ JSON.stringify((()=>{
   const toolLabelledByText=node=>toolReferencedText(node,'aria-labelledby');
   const toolDescribedByText=node=>toolReferencedText(node,'aria-describedby');
   const isToolTrigger=node=>{
-    if(!promptaTranscriptEngine.isInteractiveControl(node))return false;
+    if(
+      !promptaTranscriptEngine.isActionControl(node)
+      ||!promptaTranscriptEngine.isControlLikeAnchor(node)
+    )return false;
     const descendantSemanticText=node.querySelectorAll
       ?[...node.querySelectorAll('*')].flatMap(child=>[
         child.getAttribute?.('aria-label')||'',
@@ -137,7 +140,7 @@ JSON.stringify((()=>{
       descendantSemanticText
     ].some(toolTriggerLabel);
   };
-  const toolTriggerNodes=root=>promptaTranscriptEngine.interactiveControls(root)
+  const toolTriggerNodes=root=>promptaTranscriptEngine.actionControls(root)
     .filter(isToolTrigger);
   const legacyToolRowClass=node=>String(node?.getAttribute?.('class')||'')
     .split(/\s+/)
@@ -702,7 +705,7 @@ JSON.stringify((()=>{
     if(contentType==='text'||contentType==='multimodal_text')return Boolean(text);
     return false;
   }).map(sanitiseSourceEvent);
-  const semanticStop=promptaTranscriptEngine.interactiveControls(document)
+  const semanticStop=promptaTranscriptEngine.actionControls(document)
     .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
   const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
   const streamActive=[...transcript.querySelectorAll(streamingSelector)].some(visible);

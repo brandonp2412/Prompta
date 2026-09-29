@@ -16,7 +16,7 @@ JSON.stringify((()=>{
               return (box.width>0||box.height>1)&&box.height>0;
             });
           };
-          const semanticStop=promptaTranscriptEngine.interactiveControls(document)
+          const semanticStop=promptaTranscriptEngine.actionControls(document)
             .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
           const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
           const assistant=authorNodes('assistant').at(-1)||null;
@@ -58,7 +58,7 @@ JSON.stringify((()=>{
           const turnText=(turn?.innerText||turn?.textContent||'').trim();
           const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\.?\s*Please check your connection and try again\.?\s*If this issue persists please contact us through our help center at help\.openai\.com\.?)/i.test(turnText);
           const deliveryFailed=/Message delivery timed out\.?\s*Please try again/i.test(turnText);
-          const finalAction=Boolean(turn&&promptaTranscriptEngine.interactiveControls(turn)
+          const finalAction=Boolean(turn&&promptaTranscriptEngine.actionControls(turn)
             .some(control=>promptaTranscriptEngine.isTurnActionControl(control)));
           const needsReactEndState=Boolean(turn&&!stop&&!streamActive&&!finalAction);
           const turnEnded=needsReactEndState?reactTurnEnd():null;
