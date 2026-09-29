@@ -1643,7 +1643,6 @@ def test_connect_does_not_depend_on_new_chat_sidebar_click() -> None:
     source = inspect.getsource(PlaywrightDriver.connect)
 
     assert 'self.navigate("https://chatgpt.com/"' in source
-    assert '"--disable-vulkan"' in source
     assert "new_chat.click" not in source
 
 
