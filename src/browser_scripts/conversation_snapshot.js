@@ -92,6 +92,11 @@ JSON.stringify((()=>{
     /(?:^|-)tool-(?:call-id|name)$/i,
     [['tool'],['name','id']]
   );
+  const toolNameAttribute=node=>semanticAttribute(
+    node,
+    /(?:^|-)tool-name$/i,
+    [['tool'],['name']]
+  );
   const toolDataNode=node=>Boolean(
     node?.matches?.(toolDataSelector)||toolSemanticAttribute(node)
   );
@@ -116,16 +121,6 @@ JSON.stringify((()=>{
       !promptaTranscriptEngine.isActionControl(node)
       ||!promptaTranscriptEngine.isControlLikeAnchor(node)
     )return false;
-    const descendantSemanticText=node.querySelectorAll
-      ?deepQueryAll(node,'*').flatMap(child=>[
-        child.getAttribute?.('aria-label')||'',
-        child.getAttribute?.('title')||'',
-        child.getAttribute?.('data-icon')||'',
-        child.getAttribute?.('data-testid')||'',
-        child.getAttribute?.('data-action')||'',
-        child.getAttribute?.('data-state')||''
-      ]).join(' ')
-      :'';
     return [
       node.getAttribute('aria-label'),
       toolLabelledByText(node),
@@ -133,7 +128,7 @@ JSON.stringify((()=>{
       node.getAttribute('title'),
       semanticControlText(node),
       composedTextContent(node),
-      descendantSemanticText
+      promptaTranscriptEngine.semanticMetadataText(node)
     ].some(toolTriggerLabel);
   };
   const toolTriggerNodes=root=>promptaTranscriptEngine.actionControls(root)
@@ -324,19 +319,17 @@ JSON.stringify((()=>{
   };
   const toolBlocks=(agent,fallbackMessages=[])=>{
     const domBlocks=toolRows(agent).map(node=>{
-      const marker=node.matches(toolDataSelector)
-        ||semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i)
-        ||isToolTrigger(node)
+      const marker=toolDataNode(node)||isToolTrigger(node)
         ?node
-        :deepQueryAll(node,toolDataSelector)[0]||toolTriggerNodes(node)[0]||null;
+        :deepQueryAll(node,'*').find(toolDataNode)||toolTriggerNodes(node)[0]||null;
       const lines=composedTextContent(node).split(/\n+/)
         .map(line=>line.trim())
         .filter(Boolean);
       const name=[
         node.getAttribute('data-tool-name'),
-        semanticAttribute(node,/(?:^|-)tool-name$/i),
+        toolNameAttribute(node),
         marker?.getAttribute?.('data-tool-name'),
-        semanticAttribute(marker,/(?:^|-)tool-name$/i),
+        toolNameAttribute(marker),
         node.getAttribute('title'),
         marker?.getAttribute?.('title'),
         ...lines

@@ -1443,6 +1443,32 @@ def test_tool_trigger_discovery_survives_nested_semantic_icon_churn(browser_page
     assert content.index("```tool:Glass") < content.index("After nested tool control.")
 
 
+def test_tool_trigger_discovery_survives_renamed_descendant_metadata(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before renamed nested tool control.</p>
+                <section class="unrelated-wrapper-name">
+                  <button><svg data.icon.kind="tool-call"></svg><span>Glass</span></button>
+                  <span>execute_python</span>
+                  <span>completed</span>
+                </section>
+                <p>After renamed nested tool control.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    content = snapshot["messages"][0]["content"]
+    assert chr(96) * 3 + "tool:Glass" in content
+    assert "execute_python" in content
+    assert "completed" in content
+
+
 def test_tool_trigger_discovery_uses_aria_labelledby(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -1582,6 +1608,31 @@ def test_completion_action_discovery_uses_descendant_semantics(browser_page) -> 
               <div data-message-author-role="assistant" data-message-id="a1">
                 <p>Complete answer.</p>
                 <button><span data-icon="copy-message"></span></button>
+              </div>
+            </section>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+
+
+def test_completion_action_discovery_survives_renamed_descendant_metadata(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Complete answer.</p>
+                <button><span data.action.icon="copy-message"></span></button>
               </div>
             </section>
             """
@@ -1792,6 +1843,31 @@ def test_mixed_tool_attribute_namespaces_preserve_all_tool_rows(browser_page) ->
     assert "After tools." in content
 
 
+def test_tool_metadata_survives_token_reordering_and_separator_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before reordered tool metadata.</p>
+                <section data.call.tool.id="future-4" data.name.tool="Glass Serena">
+                  <button aria-label="Show tool details">Inspect result</button>
+                </section>
+                <p>After reordered tool metadata.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    content = assistant["content"]
+    assert chr(96) * 3 + "tool:Glass Serena" in content
+    assert "Before reordered tool metadata." in content
+    assert "After reordered tool metadata." in content
+
+
 def test_tool_trigger_uses_renamed_semantic_tool_ancestor(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -1898,6 +1974,34 @@ def test_stop_control_detection_survives_label_and_wrapper_churn(browser_page) -
         </section>
         <button style="width:32px;height:32px">
           <svg data-icon="stop" viewBox="0 0 16 16"><rect width="8" height="8" /></svg>
+        </button>
+        """
+    )
+    browser_page.set_content(html)
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True
+
+
+def test_stop_control_detection_survives_renamed_descendant_metadata(browser_page) -> None:
+    html = _conversation(
+        """
+        <section data-testid="conversation-turn-a1">
+          <div data-message-author-role="assistant" data-message-id="a1">
+            <p>Still generating after descendant metadata churn.</p>
+          </div>
+        </section>
+        <button style="width:32px;height:32px">
+          <svg data.control.icon="stop-response" viewBox="0 0 16 16"></svg>
         </button>
         """
     )
@@ -2037,6 +2141,29 @@ def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None
     assert [(message["role"], message["id"]) for message in snapshot["messages"]] == [
         ("user", "u-turn-future"),
         ("assistant", "a-turn-future"),
+    ]
+
+
+def test_semantic_message_attributes_survive_separator_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data.turn.uuid="u-dot" data.message.sender.role="human">
+              <p>Dotted user metadata.</p>
+            </section>
+            <section data.turn.uuid="a-dot" data.message.sender.role="model">
+              <p>Dotted assistant metadata.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [
+        (message["role"], message["id"], message["content"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-dot", "Dotted user metadata."),
+        ("assistant", "a-dot", "Dotted assistant metadata."),
     ]
 
 

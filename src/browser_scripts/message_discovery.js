@@ -64,8 +64,9 @@
   const normaliseAttributeName=value=>String(value||'')
     .trim()
     .toLowerCase()
-    .replace(/[_:]+/g,'-')
-    .replace(/-+/g,'-');
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/-+/g,'-')
+    .replace(/^-|-$/g,'');
   const semanticAttribute=(node,namePattern,tokenGroups=[])=>{
     if(!node?.attributes)return '';
     for(const attribute of node.attributes){

@@ -104,6 +104,20 @@ const promptaTranscriptEngine=(()=>{
   const actionControls=semanticActionControls;
   const isInteractiveControl=isSemanticInteractiveControl;
   const isActionControl=isSemanticActionControl;
+  const semanticMetadataText=node=>[
+    node,
+    ...deepQueryAll(node,'*')
+  ].filter(Boolean).flatMap(candidate=>
+    [...(candidate.attributes||[])]
+      .filter(attribute=>{
+        const name=normaliseAttributeName(attribute.name);
+        return name==='aria-label'
+          ||name==='title'
+          ||name==='name'
+          ||name.startsWith('data-');
+      })
+      .map(attribute=>normaliseAttributeName(attribute.name)+' '+String(attribute.value||''))
+  ).join(' ').replace(/[-_:./]+/g,' ').replace(/\s+/g,' ').trim();
   const isControlLikeAnchor=node=>{
     if(node?.tagName!=='A')return true;
     const role=String(node.getAttribute?.('role')||'').trim().toLowerCase();
@@ -126,25 +140,6 @@ const promptaTranscriptEngine=(()=>{
   };
   const isStopControl=node=>{
     if(!isActionControl(node)||!isControlLikeAnchor(node))return false;
-    const attributeText=[...(node.attributes||[])]
-      .filter(attribute=>(
-        attribute.name==='aria-label'
-        ||attribute.name==='title'
-        ||attribute.name==='data-testid'
-        ||attribute.name.startsWith('data-')
-      ))
-      .map(attribute=>attribute.name+' '+attribute.value)
-      .join(' ');
-    const descendantSemanticText=node.querySelectorAll
-      ?deepQueryAll(node,'*').flatMap(child=>[
-        child.getAttribute?.('aria-label')||'',
-        child.getAttribute?.('title')||'',
-        child.getAttribute?.('data-icon')||'',
-        child.getAttribute?.('data-testid')||'',
-        child.getAttribute?.('data-action')||'',
-        child.getAttribute?.('data-state')||''
-      ]).join(' ')
-      :'';
     const label=[
       node.getAttribute?.('aria-label')||'',
       labelledByText(node),
@@ -152,8 +147,7 @@ const promptaTranscriptEngine=(()=>{
       node.getAttribute?.('title')||'',
       semanticControlText(node),
       composedTextContent(node),
-      attributeText,
-      descendantSemanticText
+      semanticMetadataText(node)
     ].join(' ').replace(/[-_]+/g,' ');
     return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
   };
@@ -184,15 +178,6 @@ const promptaTranscriptEngine=(()=>{
           ));
     });
     if(semanticAction)return true;
-    const descendantSemanticText=node.querySelectorAll
-      ?deepQueryAll(node,'*').flatMap(child=>[
-        child.getAttribute?.('aria-label')||'',
-        child.getAttribute?.('title')||'',
-        child.getAttribute?.('data-icon')||'',
-        child.getAttribute?.('data-testid')||'',
-        child.getAttribute?.('data-action')||''
-      ]).join(' ')
-      :'';
     const actionLabel=value=>{
       const label=String(value||'').replace(/[-_]+/g,' ').replace(/\s+/g,' ').trim();
       if(!label)return false;
@@ -205,7 +190,7 @@ const promptaTranscriptEngine=(()=>{
       node.getAttribute?.('title')||'',
       semanticControlText(node),
       composedTextContent(node),
-      descendantSemanticText
+      semanticMetadataText(node)
     ].some(actionLabel);
   };
   const latestAssistantRoot=()=>{
@@ -238,6 +223,7 @@ const promptaTranscriptEngine=(()=>{
     actionControls,
     isInteractiveControl,
     isActionControl,
+    semanticMetadataText,
     isControlLikeAnchor,
     isStopControl,
     isTurnActionControl,
