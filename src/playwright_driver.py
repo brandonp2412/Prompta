@@ -629,6 +629,7 @@ class PlaywrightDriver(BrowserDriverBase):
                         "--disable-background-networking",
                         "--disable-breakpad",
                         "--disable-component-update",
+                        "--disable-vulkan",
                         "--password-store=basic",
                         "--window-size=1280,1000",
                     ],
