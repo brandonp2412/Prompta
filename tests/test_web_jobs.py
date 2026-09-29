@@ -36,6 +36,13 @@ def test_web_job_service_manages_interval_job_lifecycle(tmp_path: Path) -> None:
     assert resumed["jobs"][0]["paused"] is False
     assert wakeups == [True, True]
 
+    paused_all = service.apply("pause_all", {})
+    assert all(job["paused"] for job in paused_all["jobs"])
+
+    resumed_all = service.apply("resume_all", {})
+    assert all(not job["paused"] for job in resumed_all["jobs"])
+    assert wakeups == [True, True, True]
+
     removed = service.apply("remove", {"name": "audit"})
     assert removed["jobs"] == []
 

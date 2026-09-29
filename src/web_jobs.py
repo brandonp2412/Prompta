@@ -142,6 +142,11 @@ class WebJobService:
             if normalized_action == "resume":
                 self._wake_scheduler()
 
+        elif normalized_action in {"pause_all", "resume_all"}:
+            runtime.set_all_jobs_paused(normalized_action == "pause_all")
+            if normalized_action == "resume_all":
+                self._wake_scheduler()
+
         elif normalized_action == "clear":
             clear_jobs(self.jobs_path)
             runtime.clear_all_job_state()

@@ -45,6 +45,15 @@ def test_jobs_ui_is_paginated() -> None:
     assert "Next" in page
 
 
+def test_jobs_ui_has_global_pause_resume_toggle() -> None:
+    page = Path("src/ui/JobsPage.svelte").read_text()
+    assert 'role="switch"' in page
+    assert '"pause_all"' in page
+    assert '"resume_all"' in page
+    assert "Pause all" in page
+    assert "Resume all" in page
+
+
 def test_web_server_exposes_no_chat_or_result_routes() -> None:
     web = Path("src/web.py").read_text()
     assert "/api/jobs" in web

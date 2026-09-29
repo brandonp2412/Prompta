@@ -23,6 +23,8 @@
   let pageStart = $derived((page - 1) * pageSize);
   let pageEnd = $derived(Math.min(pageStart + pageSize, jobs.length));
   let visibleJobs = $derived(jobs.slice(pageStart, pageEnd));
+  let allPaused = $derived(jobs.length > 0 && jobs.every((job) => job.paused));
+  let pausedCount = $derived(jobs.filter((job) => job.paused).length);
   let status = $state("");
   let saving = $state(false);
   let editing = $state("");
@@ -32,6 +34,7 @@
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
+  let editorOpen = $state(false);
 
   function reset() {
     editing = "";
@@ -41,6 +44,20 @@
     interval = "40";
     dailyAt = "09:00";
     exact = false;
+  }
+
+  function closeEditor() {
+    reset();
+    editorOpen = false;
+  }
+
+  function beginNew() {
+    reset();
+    editorOpen = true;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>(".name-field input")?.focus();
+      document.getElementById("job-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   function formatDate(epoch: number) {
@@ -135,7 +152,7 @@
       },
       "Saved " + jobName + ".",
     );
-    if (saved) reset();
+    if (saved) closeEditor();
   }
 
   function edit(job: Job) {
@@ -146,18 +163,28 @@
     dailyAt = job.daily_at || "09:00";
     interval = String(job.interval_minutes || 40);
     exact = job.exact_interval;
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    editorOpen = true;
+    requestAnimationFrame(() => {
+      document.getElementById("job-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   async function remove(job: Job) {
     if (!window.confirm("Remove “" + job.name + "”?")) return;
     const removed = await command({ action: "remove", name: job.name }, "Removed " + job.name + ".");
-    if (removed && editing === job.name) reset();
+    if (removed && editing === job.name) closeEditor();
+  }
+
+  async function toggleAll() {
+    if (!jobs.length) return;
+    const action = allPaused ? "resume_all" : "pause_all";
+    const success = allPaused ? "Resumed all jobs." : "Paused all jobs.";
+    await command({ action }, success);
   }
 
   async function clearAll() {
     if (!jobs.length || !window.confirm("Remove all " + String(jobs.length) + " configured jobs?")) return;
-    if (await command({ action: "clear" }, "Cleared all scheduled jobs.")) reset();
+    if (await command({ action: "clear" }, "Cleared all scheduled jobs.")) closeEditor();
   }
 
   onMount(() => {
@@ -168,58 +195,95 @@
 </script>
 
 <section class="jobs-panel" aria-labelledby="jobs-title">
-  <div class="section-heading">
-    <div>
-      <h1 id="jobs-title">Scheduled jobs</h1>
-      <p>{jobs.length} configured</p>
+  <div class="jobs-toolbar">
+    <div class="toolbar-title">
+      <h1 id="jobs-title">Jobs</h1>
+      <span>{jobs.length}</span>
     </div>
-    <div class="heading-actions">
+
+    <div class="toolbar-actions">
       <span class="status-line" role="status" aria-live="polite">{status}</span>
-      <button class="text-button" type="button" disabled={saving} onclick={() => void load()}>
-        Refresh
+
+      <button
+        class:active={!allPaused}
+        class="master-toggle"
+        type="button"
+        role="switch"
+        aria-checked={!allPaused}
+        disabled={!jobs.length || saving}
+        title={allPaused ? "Resume all jobs" : "Pause all jobs"}
+        onclick={() => void toggleAll()}
+      >
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span>{allPaused ? "Resume all" : "Pause all"}</span>
       </button>
+
+      <button class="toolbar-button" type="button" disabled={saving} onclick={() => void load()}>Refresh</button>
+      <button class="primary-button" type="button" disabled={saving} onclick={beginNew}>New job</button>
     </div>
   </div>
 
-  <div class="jobs-list">
+  <div class="jobs-summary">
+    <span>{jobs.length - pausedCount} running</span>
+    <span>{pausedCount} paused</span>
+    {#if jobs.length > pageSize}
+      <span>{pageStart + 1}–{pageEnd} shown</span>
+    {/if}
+  </div>
+
+  <div class="jobs-table" role="table" aria-label="Scheduled jobs">
+    <div class="jobs-table-head" role="row">
+      <span role="columnheader">Job</span>
+      <span role="columnheader">Schedule</span>
+      <span role="columnheader">Next run</span>
+      <span role="columnheader">State</span>
+      <span role="columnheader" class="actions-heading">Actions</span>
+    </div>
+
     {#if jobs.length === 0}
       <div class="empty-row">No scheduled jobs.</div>
     {/if}
 
     {#each visibleJobs as job (job.name)}
-      <article class="job-row">
-        <div class="job-content">
-          <div class="job-title-line">
-            <h2>{job.name}</h2>
-            <span class:error={job.status === "failing"} class:paused={job.paused} class="job-status">
-              {job.paused ? "paused" : job.status || "pending"}
-            </span>
-            <span class="job-schedule">{scheduleText(job)}</span>
-          </div>
-
-          <div class="job-prompt">{job.prompt}</div>
-
-          <div class="job-meta">
-            <span><strong>Next</strong> {job.paused ? "Paused" : formatDate(job.next_due_at_epoch)}</span>
-            <span><strong>Last sent</strong> {formatDate(job.last_sent_at)}</span>
+      <div class="job-row" role="row">
+        <div class="job-main" role="cell">
+          <div class="job-name">{job.name}</div>
+          <div class="job-prompt" title={job.prompt}>{job.prompt}</div>
+          <div class="job-submeta">
+            <span>Last sent {formatDate(job.last_sent_at)}</span>
             {#if job.source_revision}
-              <span title={job.source_revision}><strong>Rev</strong> {job.source_revision.slice(0, 8)}</span>
+              <span title={job.source_revision}>rev {job.source_revision.slice(0, 8)}</span>
             {/if}
           </div>
+        </div>
 
+        <div class="job-cell schedule-cell" role="cell">
+          <span class="cell-label">Schedule</span>
+          <span>{scheduleText(job)}</span>
+        </div>
+
+        <div class="job-cell" role="cell">
+          <span class="cell-label">Next run</span>
+          <span>{job.paused ? "Paused" : formatDate(job.next_due_at_epoch)}</span>
+        </div>
+
+        <div class="job-cell state-cell" role="cell">
+          <span class="cell-label">State</span>
+          <span class:error={job.status === "failing"} class="state-value">
+            <span class="state-dot"></span>
+            {job.paused ? "paused" : job.status || "pending"}
+          </span>
           {#if job.status_message}
-            <p class="job-message">{job.status_message}</p>
+            <span class="job-message">{job.status_message}</span>
           {/if}
         </div>
 
-        <div class="job-actions">
+        <div class="job-actions" role="cell">
           {#if !job.run_at_epoch}
-            <button class="text-button" type="button" disabled={saving} onclick={() => edit(job)}>
-              Edit
-            </button>
+            <button class="row-action" type="button" disabled={saving} onclick={() => edit(job)}>Edit</button>
           {/if}
           <button
-            class="text-button"
+            class="row-action"
             type="button"
             disabled={saving}
             onclick={() =>
@@ -230,101 +294,98 @@
           >
             {job.paused ? "Resume" : "Pause"}
           </button>
-          <button class="text-button danger-text" type="button" disabled={saving} onclick={() => void remove(job)}>
+          <button class="row-action danger-text" type="button" disabled={saving} onclick={() => void remove(job)}>
             Remove
           </button>
         </div>
-      </article>
+      </div>
     {/each}
   </div>
 
   {#if jobs.length > pageSize}
     <nav class="pagination" aria-label="Job pages">
-      <span>{pageStart + 1}–{pageEnd} of {jobs.length} · Page {page} of {pageCount}</span>
+      <span>Page {page} of {pageCount}</span>
       <div class="pagination-actions">
-        <button class="text-button" type="button" disabled={page <= 1} onclick={() => changePage(page - 1)}>
+        <button class="toolbar-button" type="button" disabled={page <= 1} onclick={() => changePage(page - 1)}>
           Previous
         </button>
-        <button
-          class="text-button"
-          type="button"
-          disabled={page >= pageCount}
-          onclick={() => changePage(page + 1)}
-        >
+        <button class="toolbar-button" type="button" disabled={page >= pageCount} onclick={() => changePage(page + 1)}>
           Next
         </button>
       </div>
     </nav>
   {/if}
 
-  <form
-    class="job-form"
-    onsubmit={(event) => {
-      event.preventDefault();
-      void submit();
-    }}
-  >
-    <div class="form-heading">
-      <div>
-        <h2>{editing ? "Edit " + editing : "Add job"}</h2>
-        <p>{editing ? "Update the prompt or schedule." : "Create a recurring scheduled prompt."}</p>
+  {#if editorOpen}
+    <form
+      id="job-editor"
+      class="job-editor"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <div class="editor-heading">
+        <div>
+          <h2>{editing ? "Edit job" : "New job"}</h2>
+          {#if editing}<span>{editing}</span>{/if}
+        </div>
+        <button class="toolbar-button" type="button" disabled={saving} onclick={closeEditor}>Close</button>
       </div>
-    </div>
 
-    <div class="form-fields">
-      <label class="name-field">
-        <span>Name</span>
-        <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
-      </label>
+      <div class="editor-grid">
+        <label class="name-field">
+          <span>Name</span>
+          <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+        </label>
 
-      <label class="prompt-field">
-        <span>Prompt</span>
-        <textarea bind:value={prompt} rows="4" required></textarea>
-      </label>
-
-      <label>
-        <span>Schedule</span>
-        <select bind:value={schedule}>
-          <option value="interval">Interval</option>
-          <option value="daily">Daily</option>
-        </select>
-      </label>
-
-      {#if schedule === "interval"}
         <label>
-          <span>Every (minutes)</span>
-          <input bind:value={interval} type="number" min="0.1" step="0.1" required />
+          <span>Schedule</span>
+          <select bind:value={schedule}>
+            <option value="interval">Interval</option>
+            <option value="daily">Daily</option>
+          </select>
         </label>
-      {:else}
-        <label>
-          <span>At</span>
-          <input bind:value={dailyAt} type="time" required />
-        </label>
-      {/if}
-    </div>
 
-    <div class="form-footer">
-      {#if schedule === "interval"}
-        <label class="checkbox-row">
-          <input bind:checked={exact} type="checkbox" />
-          <span>Exact interval</span>
-        </label>
-      {:else}
-        <span></span>
-      {/if}
+        {#if schedule === "interval"}
+          <label>
+            <span>Every (minutes)</span>
+            <input bind:value={interval} type="number" min="0.1" step="0.1" required />
+          </label>
+        {:else}
+          <label>
+            <span>At</span>
+            <input bind:value={dailyAt} type="time" required />
+          </label>
+        {/if}
 
-      <div class="form-actions">
-        <button class="text-button" type="button" disabled={saving} onclick={reset}>
-          {editing ? "Cancel" : "Reset"}
-        </button>
-        <button class="primary-button" type="submit" disabled={saving}>Save job</button>
+        <label class="prompt-field">
+          <span>Prompt</span>
+          <textarea bind:value={prompt} rows="7" required></textarea>
+        </label>
       </div>
-    </div>
-  </form>
 
-  <div class="danger-zone">
-    <button class="text-button danger-text" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
+      <div class="editor-footer">
+        {#if schedule === "interval"}
+          <label class="checkbox-row">
+            <input bind:checked={exact} type="checkbox" />
+            <span>Exact interval</span>
+          </label>
+        {:else}
+          <span></span>
+        {/if}
+
+        <div class="editor-actions">
+          <button class="toolbar-button" type="button" disabled={saving} onclick={closeEditor}>Cancel</button>
+          <button class="primary-button" type="submit" disabled={saving}>Save</button>
+        </div>
+      </div>
+    </form>
+  {/if}
+
+  <footer class="jobs-footer">
+    <button class="row-action danger-text" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
       Clear all jobs
     </button>
-  </div>
+  </footer>
 </section>

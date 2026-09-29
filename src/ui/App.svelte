@@ -11,10 +11,8 @@
 
 <main class="jobs-app">
   <header class="app-header">
-    <div>
-      <div class="brand">Prompta</div>
-      <p>Scheduled job manager · {serverName}</p>
-    </div>
+    <div class="brand">Prompta</div>
+    <div class="server-name">{serverName}</div>
   </header>
 
   <JobsPage />
