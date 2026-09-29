@@ -1034,6 +1034,7 @@ class SendJobRegistry:
                     "retry_at",
                     "retry_attempt",
                     "infrastructure_retry_attempt",
+                    "last_error",
                 )
                 if key in updates
             }
@@ -1105,6 +1106,7 @@ class SendJobRegistry:
             retry_after_seconds=transition.retry_after_seconds,
             retry_attempt=transition.retry_attempt,
             infrastructure_retry_attempt=transition.infrastructure_retry_attempt,
+            last_error=transition.error if remember_last_error else "",
         )
         self._remember_recoverable(
             send_id=send_id,
@@ -1455,14 +1457,7 @@ class SendJobRegistry:
 
                 current = self.get(send_id) or {}
                 finished_at = time.time()
-                self._update(
-                    send_id,
-                    status="succeeded",
-                    conversation_id=result,
-                    error="",
-                    retry_at=0.0,
-                    retry_after_seconds=0,
-                )
+                self._cleanup_attachments(attachments)
                 self._remember_recoverable(
                     send_id=send_id,
                     operation=operation,
@@ -1473,6 +1468,14 @@ class SendJobRegistry:
                     created_at=float(current.get("created_at") or time.time()),
                     status="succeeded",
                     finished_at=finished_at,
+                )
+                self._update(
+                    send_id,
+                    status="succeeded",
+                    conversation_id=result,
+                    error="",
+                    retry_at=0.0,
+                    retry_after_seconds=0,
                 )
                 if self._on_success is not None and client_id:
                     try:

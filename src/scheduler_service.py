@@ -236,8 +236,8 @@ class DurableSchedulerProducer:
         health = ServiceHealthStore(self.runtime.state_path)
         while True:
             did_work = self.tick()
-            health.beat("scheduler")
             notify_watchdog()
+            health.beat("scheduler")
             time.sleep(0.1 if did_work else max(0.1, poll_seconds))
 
 

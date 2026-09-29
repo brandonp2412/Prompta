@@ -204,8 +204,8 @@ class ConversationWorker:
     async def _watchdog_heartbeat(self, health: ServiceHealthStore) -> None:
         while True:
             await asyncio.sleep(_WATCHDOG_HEARTBEAT_SECONDS)
-            health.beat("conversation_worker")
             notify_watchdog()
+            health.beat("conversation_worker")
 
     async def run_forever(self) -> None:
         logger.info(
@@ -216,13 +216,13 @@ class ConversationWorker:
         watchdog_task = asyncio.create_task(self._watchdog_heartbeat(health))
         try:
             while True:
-                health.begin_activity("conversation_worker", "poll")
                 notify_watchdog()
+                health.begin_activity("conversation_worker", "poll")
                 try:
                     did_work = await self.run_once()
                 finally:
-                    health.end_activity("conversation_worker", "poll")
                     notify_watchdog()
+                    health.end_activity("conversation_worker", "poll")
                 await asyncio.sleep(0.25 if did_work else _DEFAULT_POLL_SECONDS)
         finally:
             watchdog_task.cancel()

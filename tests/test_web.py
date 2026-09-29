@@ -19,6 +19,7 @@ import pytest
 from prompta.cache import ChatCache
 from prompta.control_server import ControlDeferredError, ControlUnavailableError
 from prompta.core import RateLimitError
+from prompta.delivery_state import DeliveryTransition
 from prompta.jobs import load_jobs
 from prompta.web import (
     PromptaUIHandler,
@@ -2060,6 +2061,38 @@ def test_send_job_registry_dead_letters_exhausted_send(tmp_path: Path) -> None:
     assert dead_letter["lease_owner"] == ""
 
 
+def test_failure_transition_persists_last_error_atomically(tmp_path: Path) -> None:
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    registry = SendJobRegistry(None, queue_path=queue_path, consume=False)
+    try:
+        queued = registry.submit(
+            operation="reply",
+            message="Continue",
+            conversation_id="chat-1",
+        )
+        registry._persist_failure_transition(
+            send_id=queued["send_id"],
+            operation="reply",
+            message="Continue",
+            conversation_id="chat-1",
+            attachments=[],
+            client_id="",
+            transition=DeliveryTransition(
+                status="dead_lettered",
+                error="browser session unavailable",
+                retry_attempt=5,
+            ),
+        )
+
+        persisted = registry._database_records()
+        assert len(persisted) == 1
+        assert persisted[0]["status"] == "dead_lettered"
+        assert persisted[0]["error"] == "browser session unavailable"
+        assert persisted[0]["last_error"] == "browser session unavailable"
+    finally:
+        registry.close()
+
+
 def test_read_only_store_lists_and_reads_cached_chat(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     _seed_cache(path)
@@ -3034,6 +3067,7 @@ def test_read_only_store_tracks_real_message_activity_for_broken_chat_detection(
     detail = store.conversation("chat-health")
     cache.close()
 
+    assert summary["last_message_at"] == 5_001.0
     assert summary["last_user_at"] == 2_000.0
     assert summary["last_assistant_at"] == 5_001.0
     assert detail is not None

@@ -238,8 +238,8 @@ class PromptaUIServer(ThreadingHTTPServer):
         now = time.time()
         if now - self._last_health_beat < 5.0:
             return
-        self.service_health_store.beat("ui", now=now)
         notify_watchdog()
+        self.service_health_store.beat("ui", now=now)
         self._last_health_beat = now
 
     def liveness_status(self) -> dict[str, Any]:
