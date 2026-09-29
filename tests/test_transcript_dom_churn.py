@@ -2246,6 +2246,74 @@ def test_streaming_marker_outside_selected_transcript_does_not_keep_chat_active(
     assert snapshot["streaming"] is False
 
 
+def test_stale_streaming_marker_on_older_turn_does_not_keep_chat_active(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">First question</div>
+            </section>
+            <section data-testid="conversation-turn-a1" data-streaming="active">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Older answer with stale streaming state.</p>
+                <button aria-label="Copy">Copy</button>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-u2">
+              <div data-message-author-role="user" data-message-id="u2">Latest question</div>
+            </section>
+            <section data-testid="conversation-turn-a2">
+              <div data-message-author-role="assistant" data-message-id="a2">
+                <p>Latest completed answer.</p>
+                <button aria-label="Copy">Copy</button>
+              </div>
+            </section>
+            """
+        )
+    )
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+    assert snapshot["streaming"] is False
+
+
+def test_transcript_wrapper_streaming_marker_still_applies_to_latest_turn(browser_page) -> None:
+    browser_page.set_content(
+        """
+        <main data-streaming="active">
+          <section data-testid="conversation-turn-u1">
+            <div data-message-author-role="user" data-message-id="u1">Question</div>
+          </section>
+          <section data-testid="conversation-turn-a1">
+            <div data-message-author-role="assistant" data-message-id="a1">
+              <p>Current answer.</p>
+            </div>
+          </section>
+        </main>
+        """
+    )
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+    assert snapshot["streaming"] is True
+
+
 def test_accessible_heading_names_survive_visible_heading_copy_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,

@@ -34,7 +34,17 @@ JSON.stringify((()=>{
           const legacyTurns=deepQueryAll(transcript,legacyTurnSelector).filter(visible);
           const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
           const streamRoot=turn||assistant;
-          const semanticStreamActive=Boolean(streamRoot&&[streamRoot,...deepQueryAll(streamRoot,'*')].some(node=>{
+          const currentStreamNodes=()=>{
+            if(!streamRoot)return [transcript,...deepQueryAll(transcript,'*')];
+            const nodes=[streamRoot,...deepQueryAll(streamRoot,'*')];
+            for(let current=composedParent(streamRoot);current;current=composedParent(current)){
+              nodes.push(current);
+              if(current===transcript||current===document.body||current===document.documentElement)break;
+            }
+            return [...new Set(nodes)];
+          };
+          const streamNodes=currentStreamNodes();
+          const semanticStreamActive=streamNodes.some(node=>{
             if(!rendered(node))return false;
             const state=semanticAttribute(
               node,
@@ -43,8 +53,10 @@ JSON.stringify((()=>{
             ).toLowerCase();
             return ['true','active','1','yes'].includes(state)
               ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
-          }));
-          const streamActive=deepQueryAll(transcript,streamingSelector).some(visible)||semanticStreamActive;
+          });
+          const streamActive=streamNodes.some(node=>
+            node?.matches?.(streamingSelector)&&visible(node)
+          )||semanticStreamActive;
           const visibleMessageId=messageId(assistant)||turnMessageId(turn,'assistant');
           let activityReactFallback=null;
           const reactTurnEnd=()=>{

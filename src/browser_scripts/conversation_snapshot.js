@@ -698,14 +698,26 @@ JSON.stringify((()=>{
   const semanticStop=promptaTranscriptEngine.actionControls(document)
     .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
   const stop=deepQueryAll(document,stopSelector).some(visible)||semanticStop;
-  const streamActive=deepQueryAll(transcript,streamingSelector).some(visible);
   const latestAssistant=[...assistantNodes].reverse()
     .find(node=>visible(turnRoot(node)||node))
     ||authorNode(latestAgent,'assistant')
     ||assistantNodes.at(-1)
     ||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
-  const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...deepQueryAll(latestTurn,'*')].some(node=>{
+  const currentStreamNodes=()=>{
+    if(!latestTurn)return [transcript,...deepQueryAll(transcript,'*')];
+    const nodes=[latestTurn,...deepQueryAll(latestTurn,'*')];
+    for(let current=composedParent(latestTurn);current;current=composedParent(current)){
+      nodes.push(current);
+      if(current===transcript||current===document.body||current===document.documentElement)break;
+    }
+    return [...new Set(nodes)];
+  };
+  const streamNodes=currentStreamNodes();
+  const streamActive=streamNodes.some(node=>
+    node?.matches?.(streamingSelector)&&visible(node)
+  );
+  const semanticStreamActive=streamNodes.some(node=>{
     if(!rendered(node))return false;
     const state=semanticAttribute(
       node,
@@ -714,7 +726,7 @@ JSON.stringify((()=>{
     ).toLowerCase();
     return ['true','active','1','yes'].includes(state)
       ||(node.getAttribute?.('aria-busy')||'').toLowerCase()==='true';
-  }));
+  });
   const streamingActive=streamActive||semanticStreamActive;
   const visibleMessageId=messageId(latestAssistant)||turnMessageId(latestTurn,'assistant');
   const endStateMessages=latestTurnReactMessages.length
