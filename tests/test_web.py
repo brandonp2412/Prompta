@@ -2137,6 +2137,48 @@ def test_sidebar_window_is_selected_by_creation_time_not_response_activity(tmp_p
     assert [chat["id"] for chat in store.conversations(limit=1)] == ["newer-chat"]
 
 
+def test_sidebar_window_includes_older_thread_with_newer_user_message(tmp_path: Path) -> None:
+    path = tmp_path / "chats.sqlite3"
+    cache = ChatCache(path)
+    for conversation_id, created_at in (("revived-old", 10.0), ("newer-chat", 20.0)):
+        cache.start(
+            conversation_id,
+            context_id=f"context-{conversation_id}",
+            job_name="",
+            prompt=conversation_id,
+        )
+        with cache.connection:
+            cache.connection.execute(
+                "UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?",
+                (created_at, created_at, conversation_id),
+            )
+            cache.connection.execute(
+                """
+                UPDATE messages
+                SET created_at = ?, activity_at = ?
+                WHERE conversation_id = ? AND message_key = '__prompta_prompt__'
+                """,
+                (created_at, created_at, conversation_id),
+            )
+
+    with patch("prompta.cache.time.time", return_value=30.0):
+        cache.write_snapshot(
+            "revived-old",
+            {
+                "title": "Revived old chat",
+                "messages": [
+                    {"id": "u-revive", "role": "user", "content": "Continue this thread"},
+                ],
+            },
+        )
+    cache.close()
+
+    rows = ReadOnlyChatStore(path).conversations(limit=1)
+
+    assert [chat["id"] for chat in rows] == ["revived-old"]
+    assert rows[0]["last_user_at"] == 30.0
+
+
 def test_ui_server_orders_pinned_then_pending_then_created(tmp_path: Path) -> None:
     path = tmp_path / "chats.sqlite3"
     cache = ChatCache(path)

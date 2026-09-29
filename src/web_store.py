@@ -399,6 +399,16 @@ class ReadOnlyChatStore:
                     if "activity_at" in message_columns
                     else "m.created_at"
                 )
+                last_user_activity = f"""COALESCE(
+                    (
+                        SELECT MAX({message_activity})
+                        FROM messages m
+                        WHERE m.conversation_id = c.id
+                          AND m.role = 'user'
+                          AND m.message_key NOT LIKE 'request-placeholder-%'
+                    ),
+                    c.created_at
+                )"""
                 preview_column = "c.preview," if has_preview_column else ""
                 latest_message_preview = """(
                     SELECT m.content
@@ -456,11 +466,12 @@ class ReadOnlyChatStore:
                             c.created_at,
                             c.updated_at,
                             c.completed_at,
+                            {last_user_activity} AS last_user_at,
                             {preview_column}
                             {include_rank} AS include_rank
                         FROM conversations c
                         {where}
-                        ORDER BY include_rank, c.created_at DESC, c.id
+                        ORDER BY include_rank, last_user_at DESC, c.created_at DESC, c.id
                         LIMIT ?
                     ),
                     message_stats AS (
@@ -468,7 +479,6 @@ class ReadOnlyChatStore:
                             m.conversation_id,
                             MAX({message_activity}) AS last_message_at,
                             MAX(CASE WHEN m.role = 'assistant' THEN {message_activity} END) AS last_assistant_at,
-                            MAX(CASE WHEN m.role = 'user' THEN {message_activity} END) AS last_user_at,
                             COUNT(*) AS message_count
                         FROM messages m
                         JOIN selected s ON s.id = m.conversation_id
@@ -487,7 +497,7 @@ class ReadOnlyChatStore:
                         s.completed_at,
                         COALESCE(ms.last_message_at, s.created_at) AS last_message_at,
                         ms.last_assistant_at,
-                        COALESCE(ms.last_user_at, s.created_at) AS last_user_at,
+                        s.last_user_at AS last_user_at,
                         {preview_expression} AS preview,
                         CASE
                             WHEN COALESCE(ms.message_count, 0) > 0 THEN ms.message_count
@@ -496,7 +506,7 @@ class ReadOnlyChatStore:
                         END AS message_count
                     FROM selected s
                     LEFT JOIN message_stats ms ON ms.conversation_id = s.id
-                    ORDER BY s.include_rank, s.created_at DESC, s.id
+                    ORDER BY s.include_rank, s.last_user_at DESC, s.created_at DESC, s.id
                     """,
                     parameters,
                 ).fetchall()
