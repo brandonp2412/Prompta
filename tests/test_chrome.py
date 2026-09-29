@@ -570,6 +570,14 @@ async def test_login_required_survives_private_test_id_and_link_copy_churn(live_
 
 
 @pytest.mark.asyncio
+async def test_login_required_survives_role_and_tag_churn_without_href(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content('<div tabindex="0" aria-label="Sign in">Continue</div>')
+
+    assert await driver.login_required() is True
+
+
+@pytest.mark.asyncio
 async def test_wait_for_composer_accepts_semantic_textbox_without_css_contract(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -615,6 +623,27 @@ async def test_dom_state_reads_current_search_unit_user_message(live_driver) -> 
 
     assert state["last_user_id"] == "u-current"
     assert state["last_user_text"] == "Current semantic prompt"
+
+
+@pytest.mark.asyncio
+async def test_dom_state_excludes_role_churned_controls_from_latest_user_text(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <div data-message-author-role="user" data-message-id="u-controls">
+          <span>Keep only this prompt.</span>
+          <summary>Show more</summary>
+          <div tabindex="0" aria-label="Edit message">Edit</div>
+          <div role="menuitem">Copy prompt</div>
+        </div>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-controls"
+    assert state["last_user_text"] == "Keep only this prompt."
 
 
 @pytest.mark.asyncio
@@ -702,6 +731,25 @@ async def test_dom_state_reads_heading_only_user_turn(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dom_state_reads_heading_only_user_turn_after_heading_role_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <textarea aria-label="Message ChatGPT"></textarea>
+        <article>
+          <div aria-level="5">You said:</div>
+          <div data-message-id="u-heading-roleless">Prompt after heading role disappears</div>
+        </article>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert state["last_user_id"] == "u-heading-roleless"
+    assert state["last_user_text"] == "Prompt after heading role disappears"
+
+
+@pytest.mark.asyncio
 async def test_dom_state_reads_and_dismisses_semantic_rate_limit_dialog(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -749,6 +797,28 @@ async def test_dom_state_reads_alertdialog_rate_limit_after_role_churn(live_driv
           <p>Too many requests. Try again later.</p>
           <button onclick="this.closest('[role=alertdialog]').remove()">Close</button>
         </section>
+        """
+    )
+
+    state = await driver.dom_state()
+
+    assert "Too many requests" in state["rate_limit_text"]
+    assert await page.get_by_role("alertdialog").count() == 0
+
+
+@pytest.mark.asyncio
+async def test_dom_state_dismisses_rate_limit_after_control_role_and_tag_churn(
+    live_driver,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <section role="alertdialog" aria-modal="true">
+          <p>Too many requests. Try again later.</p>
+          <div tabindex="0" aria-label="Close"
+               onclick="this.closest('[role=alertdialog]').remove()">Continue</div>
+        </section>
+        <textarea aria-label="Message ChatGPT"></textarea>
         """
     )
 
@@ -1066,6 +1136,28 @@ async def test_ensure_chat_surface_survives_missing_accessible_role(live_driver)
           Chat
         </button>
         <textarea id="composer" aria-label="Ask ChatGPT" hidden></textarea>
+        """
+    )
+
+    await driver.ensure_chat_surface(timeout=0.5)
+
+    assert await page.locator("#chat").get_attribute("data-state") == "active"
+    assert await page.locator("#composer").is_visible()
+
+
+@pytest.mark.asyncio
+async def test_ensure_chat_surface_survives_role_and_tag_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <div id="chat" tabindex="0" aria-label="Chat mode" data-state="inactive"
+               onclick="this.dataset.state='active';
+                        document.getElementById('composer').hidden=false">
+            Open
+          </div>
+          <textarea id="composer" aria-label="Ask ChatGPT" hidden></textarea>
+        </main>
         """
     )
 

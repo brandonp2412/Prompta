@@ -787,13 +787,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def login_required(self) -> bool:
         page = self._page()
-        direct = await self._first_usable(
-            [
-                page.get_by_role("button", name=_LOGIN_RE),
-                page.get_by_role("link", name=_LOGIN_RE),
-            ],
-            enabled=False,
-        )
+        direct = await self._semantic_button(page, _LOGIN_RE)
         if direct is not None:
             return True
         fallback = await self._first_usable(
@@ -1259,27 +1253,45 @@ class PlaywrightDriver(BrowserDriverBase):
         }
 
     async def _dialog_dismiss_button(self, dialog: Locator) -> Locator | None:
-        named = await self._first_usable([dialog.get_by_role("button", name=_DISMISS_RE)])
+        named = await self._first_usable(
+            [
+                dialog.get_by_role(role, name=_DISMISS_RE)
+                for role in ("button", "menuitem", "option", "link")
+            ]
+        )
         if named is not None:
             return named
 
-        # Once the surrounding element has already been positively identified as
-        # the target modal, a single usable button is a safe structural fallback.
-        # This keeps dismissal working when ChatGPT changes button copy or drops
-        # a test ID without risking clicks elsewhere on the page.
-        buttons = dialog.get_by_role("button")
+        controls = dialog.locator(
+            "button,a,input,summary,[role],[tabindex],[aria-label],"
+            "[aria-labelledby],[title],[aria-controls],[aria-expanded]"
+        )
         try:
-            count = min(await buttons.count(), 12)
+            count = min(await controls.count(), 24)
         except PlaywrightError:
             return None
+
+        labelled: list[Locator] = []
         usable: list[Locator] = []
         for index in range(count):
-            candidate = buttons.nth(index)
+            candidate = controls.nth(index)
             try:
-                if await candidate.is_visible() and await candidate.is_enabled():
-                    usable.append(candidate)
+                if not await candidate.is_visible() or not await candidate.is_enabled():
+                    continue
+                usable.append(candidate)
+                labels = await candidate.evaluate(load_browser_script("semantic_control_labels.js"))
+                if isinstance(labels, list) and any(
+                    _DISMISS_RE.search(str(label)) for label in labels
+                ):
+                    labelled.append(candidate)
             except PlaywrightError:
                 continue
+        if len(labelled) == 1:
+            return labelled[0]
+
+        # Once the surrounding element has already been positively identified as
+        # the target modal, one usable interactive control is a safe structural
+        # fallback even if ChatGPT changes both its role and visible copy.
         return usable[0] if len(usable) == 1 else None
 
     async def _is_history_rate_limit_dialog(self, candidate: Locator) -> bool:
@@ -1392,24 +1404,36 @@ class PlaywrightDriver(BrowserDriverBase):
             if found is not None:
                 return found
 
-            # Accessible roles occasionally disappear during UI refactors while the
-            # user-facing control text stays intact. Restrict the text fallback to
-            # interactive elements so transcript text containing "Chat" is ignored.
-            interactive = page.locator(
-                'button,[role="radio"],[role="tab"],[role="button"],'
-                '[role="menuitemradio"],[role="option"]'
-            ).filter(has_text=chat_name)
-            try:
-                count = min(await interactive.count(), 12)
-            except PlaywrightError:
-                return None
-            for index in range(count):
-                candidate = interactive.nth(index)
+            # Accessible roles and tags can churn independently of the public
+            # label. Prefer the main landmark, then require a unique semantic match
+            # page-wide so transcript text or sidebar links cannot steal the click.
+            scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
+            for scope in scopes:
+                interactive = scope.locator(
+                    "button,input,summary,[role],[tabindex],[aria-label],"
+                    "[aria-labelledby],[title],[aria-checked],[aria-selected],[data-state]"
+                )
                 try:
-                    if await candidate.is_visible() and await candidate.is_enabled():
-                        return candidate
+                    count = min(await interactive.count(), 40)
                 except PlaywrightError:
                     continue
+                matched: list[Locator] = []
+                for index in range(count):
+                    candidate = interactive.nth(index)
+                    try:
+                        if not await candidate.is_visible() or not await candidate.is_enabled():
+                            continue
+                        labels = await candidate.evaluate(
+                            load_browser_script("semantic_control_labels.js")
+                        )
+                        if isinstance(labels, list) and any(
+                            chat_name.search(str(label)) for label in labels
+                        ):
+                            matched.append(candidate)
+                    except PlaywrightError:
+                        continue
+                if len(matched) == 1:
+                    return matched[0]
             return None
 
         async def selected(control: Locator) -> bool:

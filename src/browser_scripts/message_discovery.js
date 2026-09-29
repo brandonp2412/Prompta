@@ -62,6 +62,28 @@
     ||node?.getAttribute?.('title')
     ||''
   ).replace(/\s+/g,' ').trim();
+  const semanticInteractiveControlSelector=[
+    'button',
+    'summary',
+    'input[type="button"]',
+    'input[type="submit"]',
+    '[role="button"]',
+    '[role="menuitem"]',
+    '[role="menuitemradio"]',
+    '[role="option"]',
+    '[role="radio"]',
+    '[role="tab"]',
+    '[aria-controls]',
+    '[aria-expanded]',
+    '[aria-pressed]',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',');
+  const semanticInteractiveControls=root=>root?.querySelectorAll
+    ?[...root.querySelectorAll(semanticInteractiveControlSelector)]
+    :[];
+  const isSemanticInteractiveControl=node=>Boolean(
+    node?.matches?.(semanticInteractiveControlSelector)
+  );
   const accessibleNodeRole=node=>[
     node?.getAttribute?.('aria-label')||'',
     labelledByText(node),
@@ -73,8 +95,9 @@
   const isTranscriptLandmark=node=>Boolean(node&&(
     node.tagName==='MAIN'||['main','log','feed'].includes(String(node.getAttribute?.('role')||'').toLowerCase())
   ));
+  const semanticHeadingSelector='h1,h2,h3,h4,h5,h6,[role="heading"],[aria-level]';
   const headingNodes=root=>root?.querySelectorAll
-    ?[...root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
+    ?[...root.querySelectorAll(semanticHeadingSelector)]
     :[];
   const headingAccessibleRole=heading=>accessibleNodeRole(heading)
     ||accessibleRole(heading?.textContent);
@@ -101,7 +124,7 @@
       return candidate;
     });
   };
-  const isHeadingNode=node=>Boolean(node?.matches?.('h1,h2,h3,h4,h5,h6,[role="heading"]'));
+  const isHeadingNode=node=>Boolean(node?.matches?.(semanticHeadingSelector));
   const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(

@@ -24,8 +24,8 @@ JSON.stringify((()=>{
   const messageText=root=>{
     if(!root)return '';
     const clone=root.cloneNode(true);
-    clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-    clone.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]').forEach(node=>{
+    semanticInteractiveControls(clone).forEach(node=>node.remove());
+    clone.querySelectorAll(semanticHeadingSelector).forEach(node=>{
       if(headingAccessibleRole(node))node.remove();
     });
     const text=(clone.textContent||'').trim();
@@ -36,10 +36,11 @@ JSON.stringify((()=>{
     const walk=node=>{
       if(node.nodeType===Node.TEXT_NODE)return node.textContent||'';
       if(node.nodeType!==Node.ELEMENT_NODE)return '';
+      if(node!==root&&isSemanticInteractiveControl(node))return '';
       const tag=node.tagName.toLowerCase();
       const children=()=>[...node.childNodes].map(walk).join('');
       if(tag==='br')return '\n';
-      if(/^h[1-6]$/.test(tag)||node.getAttribute?.('role')==='heading'){
+      if(node.matches?.(semanticHeadingSelector)){
         const heading=children().trim();
         if(headingAccessibleRole(node)||assistantUiNoise.test(normalise(heading)))return '';
         const explicitLevel=Number(node.getAttribute?.('aria-level')||0);
@@ -178,12 +179,14 @@ JSON.stringify((()=>{
     const isInsideTool=node=>rows.some(row=>row===node||row.contains(node));
     const semantic=[...scope.querySelectorAll(proseBlockSelector)]
       .filter(visible)
+      .filter(node=>!isSemanticInteractiveControl(node))
       .filter(node=>!isInsideTool(node))
       .filter((node,index,nodes)=>!nodes.some((other,otherIndex)=>
         otherIndex!==index&&other.contains(node)
       ));
     const legacy=[...scope.querySelectorAll(legacyRichTextSelector)]
       .filter(visible)
+      .filter(node=>!isSemanticInteractiveControl(node))
       .filter(node=>!isInsideTool(node));
     const structural=[];
     const coveredByKnownProse=node=>semantic.some(row=>
@@ -192,7 +195,8 @@ JSON.stringify((()=>{
     const containsKnownProse=node=>semantic.some(row=>node.contains(row));
     const collectStructural=node=>{
       if(!node||!visible(node))return;
-      if(node.matches?.('h1,h2,h3,h4,h5,h6,[role="heading"]')&&accessibleRole(node.textContent))return;
+      if(isSemanticInteractiveControl(node))return;
+      if(node.matches?.(semanticHeadingSelector)&&headingAccessibleRole(node))return;
       if(rows.some(row=>row===node||row.contains(node)))return;
       if(coveredByKnownProse(node))return;
       const containsTool=rows.some(row=>node.contains(row));

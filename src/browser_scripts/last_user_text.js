@@ -13,9 +13,9 @@ JSON.stringify((()=>{
   if(!user)return {id:'',text:''};
 
   const clone=user.cloneNode(true);
-  clone.querySelectorAll('button,[role="button"]').forEach(node=>node.remove());
-  clone.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]').forEach(node=>{
-    if(accessibleRole(node.textContent))node.remove();
+  semanticInteractiveControls(clone).forEach(node=>node.remove());
+  clone.querySelectorAll(semanticHeadingSelector).forEach(node=>{
+    if(headingAccessibleRole(node))node.remove();
   });
   const raw=(clone.textContent||'').trim();
   const suffix=['Show moreShow less','Show lessShow more'].find(value=>raw.endsWith(value));

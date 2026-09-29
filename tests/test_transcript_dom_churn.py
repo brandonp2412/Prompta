@@ -81,6 +81,37 @@ def test_current_search_unit_contract_preserves_user_and_assistant_turns(browser
     assert [message["id"] for message in snapshot["messages"]] == ["u-current", "a-current"]
 
 
+def test_role_churned_controls_do_not_leak_into_transcript_text(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">
+                <p>Prompt body.</p>
+                <summary>Show more</summary>
+                <div tabindex="0" aria-label="Edit message">Edit</div>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <div data-markdown-text-style="assistant-message">
+                  <p>Answer body.</p>
+                  <div role="menuitem">Copy response</div>
+                  <div role="option">Read aloud</div>
+                </div>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Prompt body."),
+        ("assistant", "Answer body."),
+    ]
+
+
 def test_content_search_unit_attribute_rename_preserves_turns(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -563,6 +594,29 @@ def test_aria_heading_roles_recover_transcript_after_heading_tag_churn(browser_p
     assert _semantic_messages(snapshot) == [
         ("user", "Question after heading tag churn"),
         ("assistant", "Answer after heading tag churn."),
+    ]
+
+
+def test_aria_level_recovers_transcript_after_heading_role_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-layout-shell="user">
+              <div aria-level="5">You said:</div>
+              <div>Question after heading role churn</div>
+            </div>
+            <div data-layout-shell="assistant">
+              <div aria-level="5">ChatGPT replied:</div>
+              <p>Answer after heading role churn.</p>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question after heading role churn"),
+        ("assistant", "Answer after heading role churn."),
     ]
 
 
