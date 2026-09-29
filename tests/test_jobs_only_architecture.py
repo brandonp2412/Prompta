@@ -36,6 +36,15 @@ def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
     assert 'fetch("/api/jobs"' not in page
 
 
+def test_jobs_ui_is_paginated() -> None:
+    page = Path("src/ui/JobsPage.svelte").read_text()
+    assert "const pageSize = 10" in page
+    assert "{#each visibleJobs as job" in page
+    assert 'aria-label="Job pages"' in page
+    assert "Previous" in page
+    assert "Next" in page
+
+
 def test_web_server_exposes_no_chat_or_result_routes() -> None:
     web = Path("src/web.py").read_text()
     assert "/api/jobs" in web

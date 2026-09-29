@@ -94,6 +94,25 @@ button:disabled { cursor: default; opacity: 0.45; }
 
 .jobs-list { display: block; }
 
+.pagination,
+.pagination-actions {
+  display: flex;
+  align-items: center;
+}
+
+.pagination {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid #2e2e2e;
+  color: #777;
+  font-size: 0.8rem;
+}
+
+.pagination-actions {
+  gap: 14px;
+}
+
 .empty-row {
   padding: 28px 0;
   color: #777;
@@ -332,6 +351,12 @@ button:disabled { cursor: default; opacity: 0.45; }
   }
 
   .status-line { display: none; }
+
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
 
   .job-row { padding: 17px 0; }
 

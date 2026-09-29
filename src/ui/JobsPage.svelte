@@ -16,7 +16,13 @@
     last_sent_at: number;
   };
 
+  const pageSize = 10;
   let jobs = $state<Job[]>([]);
+  let page = $state(1);
+  let pageCount = $derived(Math.max(1, Math.ceil(jobs.length / pageSize)));
+  let pageStart = $derived((page - 1) * pageSize);
+  let pageEnd = $derived(Math.min(pageStart + pageSize, jobs.length));
+  let visibleJobs = $derived(jobs.slice(pageStart, pageEnd));
   let status = $state("");
   let saving = $state(false);
   let editing = $state("");
@@ -60,6 +66,15 @@
     return "every " + amount + (job.exact_interval ? " · exact" : "");
   }
 
+  function clampPage() {
+    page = Math.max(1, Math.min(page, Math.max(1, Math.ceil(jobs.length / pageSize))));
+  }
+
+  function changePage(nextPage: number) {
+    page = Math.max(1, Math.min(nextPage, pageCount));
+    document.getElementById("jobs-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   async function load({ quiet = false }: { quiet?: boolean } = {}) {
     if (!quiet) status = "Loading jobs…";
 
@@ -69,6 +84,7 @@
 
       const result = await response.json();
       jobs = Array.isArray(result.jobs) ? result.jobs : [];
+      clampPage();
       if (!quiet) status = String(jobs.length) + " configured job" + (jobs.length === 1 ? "" : "s") + ".";
     } catch (error) {
       status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
@@ -91,6 +107,7 @@
       }
 
       jobs = Array.isArray(result.jobs) ? result.jobs : [];
+      clampPage();
       status = success;
       return true;
     } catch (error) {
@@ -169,7 +186,7 @@
       <div class="empty-row">No scheduled jobs.</div>
     {/if}
 
-    {#each jobs as job (job.name)}
+    {#each visibleJobs as job (job.name)}
       <article class="job-row">
         <div class="job-content">
           <div class="job-title-line">
@@ -220,6 +237,25 @@
       </article>
     {/each}
   </div>
+
+  {#if jobs.length > pageSize}
+    <nav class="pagination" aria-label="Job pages">
+      <span>{pageStart + 1}–{pageEnd} of {jobs.length} · Page {page} of {pageCount}</span>
+      <div class="pagination-actions">
+        <button class="text-button" type="button" disabled={page <= 1} onclick={() => changePage(page - 1)}>
+          Previous
+        </button>
+        <button
+          class="text-button"
+          type="button"
+          disabled={page >= pageCount}
+          onclick={() => changePage(page + 1)}
+        >
+          Next
+        </button>
+      </div>
+    </nav>
+  {/if}
 
   <form
     class="job-form"
