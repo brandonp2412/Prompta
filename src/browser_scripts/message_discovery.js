@@ -126,11 +126,17 @@
     '[aria-checked]',
     '[aria-selected]'
   ].join(',');
-  const semanticActionControls=root=>root?.querySelectorAll
-    ?[...root.querySelectorAll(semanticActionControlSelector)]
-    :[];
+  const semanticActionControls=root=>{
+    if(!root?.querySelectorAll)return [];
+    return [...new Set([
+      ...root.querySelectorAll(semanticActionControlSelector),
+      ...[...root.querySelectorAll(focusableInteractiveSelector)]
+        .filter(isFocusableInteractiveControl)
+    ])];
+  };
   const isSemanticActionControl=node=>Boolean(
     node?.matches?.(semanticActionControlSelector)
+    ||isFocusableInteractiveControl(node)
   );
   const accessibleNodeRole=node=>[
     node?.getAttribute?.('aria-label')||'',
