@@ -195,9 +195,18 @@ const promptaTranscriptEngine=(()=>{
   };
   const isRenderedNode=node=>{
     for(let current=node;current&&current.nodeType===Node.ELEMENT_NODE;current=composedParent(current)){
-      if(current.hidden)return false;
+      if(
+        current.hidden
+        ||(current.getAttribute?.('aria-hidden')||'').trim().toLowerCase()==='true'
+      )return false;
       const style=getComputedStyle(current);
-      if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+      if(
+        style.display==='none'
+        ||style.visibility==='hidden'
+        ||style.visibility==='collapse'
+        ||Number(style.opacity)===0
+        ||style.contentVisibility==='hidden'
+      )return false;
     }
     return Boolean(node);
   };
@@ -239,6 +248,7 @@ const promptaTranscriptEngine=(()=>{
     isControlLikeAnchor,
     isStopControl,
     isTurnActionControl,
+    isRenderedNode,
     latestAssistantRoot,
     reactFallbackSummary,
     reactMessages,

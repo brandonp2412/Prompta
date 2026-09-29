@@ -2,15 +2,7 @@ JSON.stringify((()=>{
 /*__TRANSCRIPT_BROWSER_ENGINE__*/
           const stopSelector=__STOP_SELECTOR__;
           const streamingSelector=__STREAMING_SELECTOR__;
-          const rendered=e=>{
-            if(!e)return false;
-            for(let current=e;current&&current.nodeType===Node.ELEMENT_NODE;current=composedParent(current)){
-              if(current.hidden)return false;
-              const style=getComputedStyle(current);
-              if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
-            }
-            return true;
-          };
+          const rendered=e=>promptaTranscriptEngine.isRenderedNode(e);
           const visible=e=>{
             if(!rendered(e))return false;
             const s=getComputedStyle(e);

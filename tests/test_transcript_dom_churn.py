@@ -393,6 +393,33 @@ def test_latest_assistant_root_ignores_hidden_duplicate_turn(browser_page) -> No
     assert latest == "visible-turn"
 
 
+def test_latest_assistant_root_ignores_aria_hidden_duplicate_turn(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-turn-shell="visible-turn">
+              <div data-message-author-role="assistant" data-message-id="a-visible">
+                <p>Visible answer.</p>
+              </div>
+            </section>
+            <section data-turn-shell="hidden-turn" aria-hidden="true">
+              <div data-message-author-role="assistant" data-message-id="a-hidden">
+                <p>Accessibility-hidden stale answer.</p>
+              </div>
+            </section>
+            """
+        )
+    )
+    latest = browser_page.evaluate(
+        "() => {" + TRANSCRIPT_BROWSER_ENGINE_SCRIPT + ";"
+        "const root=promptaTranscriptEngine.latestAssistantRoot();"
+        "return root?.getAttribute('data-turn-shell')||'';"
+        "}"
+    )
+
+    assert latest == "visible-turn"
+
+
 def test_latest_assistant_root_uses_semantic_transcript_landmark_when_assistant_is_not_in_dom(
     browser_page,
 ) -> None:
@@ -985,6 +1012,34 @@ def test_hidden_streaming_marker_inside_visible_turn_is_ignored(browser_page) ->
               <div data-message-author-role="assistant" data-message-id="a1">
                 <p>Visible completed answer.</p>
                 <span aria-busy="true" style="display:none">Hidden stale progress marker</span>
+                <button aria-label="Copy">Copy</button>
+              </div>
+            </section>
+            """
+        )
+    )
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label="Stop answering"]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+    assert snapshot["streaming"] is False
+
+
+def test_aria_hidden_streaming_marker_inside_visible_turn_is_ignored(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Visible completed answer.</p>
+                <span aria-busy="true" aria-hidden="true">Accessibility-hidden stale progress</span>
                 <button aria-label="Copy">Copy</button>
               </div>
             </section>
