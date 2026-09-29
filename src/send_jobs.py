@@ -104,6 +104,7 @@ class SendJobRegistry:
         self._external_record_rate_limit = record_rate_limit
         self._external_clear_rate_limit = clear_rate_limit
         self._admission_reason = ""
+        self._admission_blocked = False
         self._jobs: dict[str, dict[str, Any]] = {}
         self._client_jobs: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -246,14 +247,16 @@ class SendJobRegistry:
                 if self._admission is not None:
                     allowed, reason = self._admission()
                     if not allowed:
-                        if reason != self._admission_reason:
+                        if not self._admission_blocked:
                             logger.warning("Prompta delivery admission blocked: %s", reason)
-                            self._admission_reason = reason
+                        self._admission_blocked = True
+                        self._admission_reason = reason
                         self._work_event.wait(timeout=1.0)
                         self._work_event.clear()
                         continue
-                    if self._admission_reason:
+                    if self._admission_blocked:
                         logger.info("Prompta delivery admission recovered")
+                        self._admission_blocked = False
                         self._admission_reason = ""
                 task = self._next_database_task()
                 if task is None:

@@ -2513,9 +2513,7 @@ def test_semantic_attributes_survive_separator_removal(browser_page) -> None:
         ),
     )
 
-    assert [
-        (message["role"], message["id"]) for message in snapshot["messages"]
-    ] == [
+    assert [(message["role"], message["id"]) for message in snapshot["messages"]] == [
         ("user", "u-compact"),
         ("assistant", "a-compact"),
     ]

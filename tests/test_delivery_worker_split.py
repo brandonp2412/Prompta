@@ -51,6 +51,43 @@ def test_registry_startup_does_not_overwrite_a_concurrent_delivery_claim(tmp_pat
         registry.close()
 
 
+def test_delivery_admission_logs_only_block_and_recovery_transitions(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    samples = iter(
+        [
+            (False, "available RAM 19.8% < 20.0%"),
+            (False, "available RAM 18.4% < 25.0%"),
+            (False, "available RAM 19.4% < 25.0%"),
+            (True, ""),
+        ]
+    )
+    calls = 0
+
+    def admission() -> tuple[bool, str]:
+        nonlocal calls
+        calls += 1
+        return next(samples, (True, ""))
+
+    caplog.set_level("INFO")
+    registry = SendJobRegistry(
+        lambda *_args: "unused",
+        queue_path=tmp_path / "ui-send-jobs.sqlite3",
+        consume=True,
+        admission=admission,
+    )
+    try:
+        assert _wait_for(lambda: calls >= 4, timeout=5.0)
+    finally:
+        registry.close()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert (
+        sum(message.startswith("Prompta delivery admission blocked:") for message in messages) == 1
+    )
+    assert messages.count("Prompta delivery admission recovered") == 1
+
+
 def test_delivery_worker_has_no_monolith_control_send_path() -> None:
     source = Path("src/delivery_worker.py").read_text()
 

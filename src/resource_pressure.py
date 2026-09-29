@@ -120,8 +120,8 @@ def evaluate_resource_admission(
         if available_fraction < limits.min_available_memory_fraction:
             return (
                 False,
-                f"available RAM {available_fraction:.0%} < "
-                f"{limits.min_available_memory_fraction:.0%}",
+                f"available RAM {available_fraction:.1%} < "
+                f"{limits.min_available_memory_fraction:.1%}",
             )
 
     cpu_pressure_available = bool(cpu_pressure_text.strip())

@@ -46,6 +46,7 @@ def test_resource_admission_defers_when_available_ram_falls_below_twenty_percent
 
     assert allowed is False
     assert "available RAM" in reason
+    assert "15.6% < 20.0%" in reason
 
 
 def test_resource_admission_defers_when_cpu_load_is_saturated() -> None:
