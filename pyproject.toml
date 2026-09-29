@@ -5,20 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "prompta"
 version = "0.1.0"
-description = "Periodic fresh-chat prompt sender for ChatGPT"
+description = "Scheduled fresh-chat prompt dispatcher for ChatGPT"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
     "playwright>=1.55.0",
-    "websockets>=12.0",
 ]
 
 [project.scripts]
 prompta = "prompta.core:main"
 prompta-ui = "prompta.web:main"
 prompta-delivery-worker = "prompta.delivery_worker:main"
-prompta-conversation-worker = "prompta.conversation_worker:main"
 prompta-scheduler = "prompta.scheduler_service:main"
 
 [tool.setuptools]
@@ -48,7 +46,6 @@ config-settings = { editable_mode = "strict" }
 
 [dependency-groups]
 dev = [
-    "pillow>=12.3.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.6",

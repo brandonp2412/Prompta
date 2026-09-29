@@ -20,7 +20,6 @@ from prompta.scheduler_policy import (
     retry_at,
     send_gap_remaining,
     should_enqueue_job,
-    successful_delivery_updates,
     terminal_reconciliation_updates,
 )
 
@@ -211,7 +210,6 @@ def test_terminal_reconciliation_returns_complete_success_transition() -> None:
     receipt = {
         "send_id": "scheduled-1",
         "status": "succeeded",
-        "conversation_id": "conversation-1",
         "finished_at": 1005.0,
     }
 
@@ -230,7 +228,6 @@ def test_terminal_reconciliation_returns_complete_success_transition() -> None:
         "prompt_sha256": "digest",
         "last_sent_at": 1005.0,
         "last_uncertain_send_at": 0.0,
-        "last_conversation_id": "conversation-1",
         "failure_retry_until_epoch": 0.0,
         "status": "healthy",
         "status_message": "",
@@ -309,26 +306,6 @@ def test_success_and_failure_state_updates_are_explicit_transitions() -> None:
         "status_message": "network failed",
         "status_at": 1000.0,
         "failure_retry_until_epoch": 1300.0,
-    }
-
-    assert successful_delivery_updates(
-        {"job_prompt_sha256": "digest"},
-        conversation_id="conversation-1",
-        sent_at=2000.0,
-        next_due_at_epoch=3800.0,
-        rate_limit_backoff={"attempt": 0},
-    ) == {
-        "prompt_sha256": "digest",
-        "last_sent_at": 2000.0,
-        "last_uncertain_send_at": 0.0,
-        "initial_due_at_epoch": 0.0,
-        "next_due_at_epoch": 3800.0,
-        "last_conversation_id": "conversation-1",
-        "rate_limit_backoff": {"attempt": 0},
-        "failure_retry_until_epoch": 0.0,
-        "status": "healthy",
-        "status_message": "",
-        "status_at": 2000.0,
     }
 
 

@@ -1,13 +1,13 @@
 {
   "name": "Prompta",
   "short_name": "Prompta",
-  "description": "Prompta conversation viewer and message composer",
+  "description": "Prompta scheduled job manager",
   "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#212121",
-  "theme_color": "#212121",
+  "background_color": "#171717",
+  "theme_color": "#171717",
   "icons": [
     {
       "src": "./icon.svg",

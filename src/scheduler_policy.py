@@ -247,29 +247,6 @@ def pending_delivery_updates(
     }
 
 
-def successful_delivery_updates(
-    intent: Mapping[str, Any],
-    *,
-    conversation_id: str,
-    sent_at: float,
-    next_due_at_epoch: float,
-    rate_limit_backoff: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        "prompt_sha256": str(intent.get("job_prompt_sha256") or ""),
-        "last_sent_at": float(sent_at),
-        "last_uncertain_send_at": 0.0,
-        "initial_due_at_epoch": 0.0,
-        "next_due_at_epoch": float(next_due_at_epoch),
-        "last_conversation_id": conversation_id,
-        "rate_limit_backoff": dict(rate_limit_backoff),
-        "failure_retry_until_epoch": 0.0,
-        "status": "healthy",
-        "status_message": "",
-        "status_at": float(sent_at),
-    }
-
-
 def terminal_reconciliation_updates(
     state: Mapping[str, Any],
     receipt: Mapping[str, Any],
@@ -312,7 +289,6 @@ def terminal_reconciliation_updates(
                 "prompt_sha256": str(state.get("pending_delivery_prompt_sha256") or ""),
                 "last_sent_at": completed_at,
                 "last_uncertain_send_at": 0.0,
-                "last_conversation_id": str(receipt.get("conversation_id") or ""),
                 "failure_retry_until_epoch": 0.0,
                 "status": "healthy",
                 "status_message": "",

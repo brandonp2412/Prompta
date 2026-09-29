@@ -1,37 +1,31 @@
 <script lang="ts">
-  import { dialogVisibility } from "./browserAttachments.svelte";
-  import { formatClockTime12Hour, formatDailyTime12Hour, postJsonRequest } from "./clientLogic";
-  import { jobPromptIsExpandable, paginateJobs } from "./jobs";
+  import { onMount } from "svelte";
 
   type Job = {
     name: string;
-    prompt?: string;
-    status?: string;
-    paused?: boolean;
-    run_at_epoch?: number;
-    daily_at?: string;
-    interval_minutes?: number;
-    exact_interval?: boolean;
-    source_revision?: string;
+    prompt: string;
+    status: string;
+    status_message: string;
+    paused: boolean;
+    run_at_epoch: number | null;
+    daily_at: string | null;
+    interval_minutes: number;
+    exact_interval: boolean;
+    source_revision: string;
+    next_due_at_epoch: number;
+    last_sent_at: number;
   };
 
-  let jobs = $state.raw<Job[]>([]);
-  let page = $state(1);
+  let jobs = $state<Job[]>([]);
   let status = $state("");
   let saving = $state(false);
   let editing = $state("");
   let name = $state("");
   let prompt = $state("");
-  let schedule = $state("interval");
+  let schedule = $state<"interval" | "daily">("interval");
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
-  let confirmation = $state<
-    | { kind: "remove"; job: Job }
-    | { kind: "clear"; count: number }
-    | null
-  >(null);
-  const pagination = $derived(paginateJobs(jobs, page));
 
   function reset() {
     editing = "";
@@ -43,52 +37,64 @@
     exact = false;
   }
 
-  function scheduleText(job: Job) {
-    if (job.run_at_epoch) {
-      const date = new Date(job.run_at_epoch * 1000);
-      return `once · ${date.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })} ${formatClockTime12Hour(date)}`;
-    }
-
-    if (job.daily_at) return `daily · ${formatDailyTime12Hour(job.daily_at)}`;
-
-    const minutes = Number(job.interval_minutes);
-    const value =
-      minutes >= 60 && minutes % 60 === 0
-        ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}`
-        : `${minutes} minute${minutes === 1 ? "" : "s"}`;
-
-    return `every ${value}${job.exact_interval ? " · exact" : ""}`;
+  function formatDate(epoch: number) {
+    if (!epoch) return "—";
+    return new Date(epoch * 1000).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   }
 
-  async function load() {
-    status = "Loading jobs…";
+  function scheduleText(job: Job) {
+    if (job.run_at_epoch) return "once · " + formatDate(job.run_at_epoch);
+    if (job.daily_at) return "daily · " + job.daily_at;
+
+    const minutes = Number(job.interval_minutes);
+    const amount =
+      minutes >= 60 && minutes % 60 === 0
+        ? String(minutes / 60) + " hour" + (minutes === 60 ? "" : "s")
+        : String(minutes) + " minute" + (minutes === 1 ? "" : "s");
+    return "every " + amount + (job.exact_interval ? " · exact" : "");
+  }
+
+  async function load({ quiet = false }: { quiet?: boolean } = {}) {
+    if (!quiet) status = "Loading jobs…";
 
     try {
-      const response = await fetch("api/jobs", { cache: "no-store" });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const response = await fetch("/api/jobs", { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
 
       const result = await response.json();
       jobs = Array.isArray(result.jobs) ? result.jobs : [];
-      page = 1;
-      status = `${jobs.length} configured job${jobs.length === 1 ? "" : "s"}.`;
+      if (!quiet) status = String(jobs.length) + " configured job" + (jobs.length === 1 ? "" : "s") + ".";
     } catch (error) {
-      status = `Could not load jobs: ${String(error).replace(/^Error:\s*/, "")}`;
+      status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
     }
   }
 
   async function command(payload: Record<string, unknown>, success: string) {
-    status = "Running Prompta CLI command…";
     saving = true;
+    status = "Saving…";
 
     try {
-      const result = await postJsonRequest("api/jobs", payload);
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(String(result.error || String(response.status) + " " + response.statusText));
+      }
+
       jobs = Array.isArray(result.jobs) ? result.jobs : [];
-      page = paginateJobs(jobs, page).page;
-      const invoked = Array.isArray(result.command) ? result.command.join(" ") : "";
-      status = invoked ? `${success} · ${invoked}` : success;
+      status = success;
       return true;
     } catch (error) {
-      status = `Jobs command failed: ${String(error).replace(/^Error:\s*/, "")}`;
+      status = "Job update failed: " + String(error).replace(/^Error:\s*/, "");
       return false;
     } finally {
       saving = false;
@@ -96,280 +102,197 @@
   }
 
   async function submit() {
-    const daily = schedule === "daily";
+    const jobName = name.trim();
+    const jobPrompt = prompt.trim();
+    if (!jobName || !jobPrompt) return;
 
-    if (
-      await command(
-        {
-          action: "add",
-          name: name.trim(),
-          prompt: prompt.trim(),
-          daily_at: daily ? dailyAt : "",
-          interval_minutes: daily ? null : Number(interval),
-          exact_interval: !daily && exact,
-        },
-        `Saved ${name.trim()}`,
-      )
-    ) {
-      reset();
-    }
+    const daily = schedule === "daily";
+    const saved = await command(
+      {
+        action: "add",
+        name: jobName,
+        prompt: jobPrompt,
+        daily_at: daily ? dailyAt : "",
+        interval_minutes: daily ? null : Number(interval),
+        exact_interval: !daily && exact,
+      },
+      "Saved " + jobName + ".",
+    );
+    if (saved) reset();
   }
 
   function edit(job: Job) {
     editing = job.name;
     name = job.name;
-    prompt = job.prompt || "";
+    prompt = job.prompt;
     schedule = job.daily_at ? "daily" : "interval";
     dailyAt = job.daily_at || "09:00";
     interval = String(job.interval_minutes || 40);
-    exact = Boolean(job.exact_interval);
+    exact = job.exact_interval;
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
-  function requestRemove(job: Job) {
-    confirmation = { kind: "remove", job };
+  async function remove(job: Job) {
+    if (!window.confirm("Remove “" + job.name + "”?")) return;
+    const removed = await command({ action: "remove", name: job.name }, "Removed " + job.name + ".");
+    if (removed && editing === job.name) reset();
   }
 
-  function requestClear() {
-    if (!jobs.length) return;
-
-    confirmation = { kind: "clear", count: jobs.length };
+  async function clearAll() {
+    if (!jobs.length || !window.confirm("Remove all " + String(jobs.length) + " configured jobs?")) return;
+    if (await command({ action: "clear" }, "Cleared all scheduled jobs.")) reset();
   }
 
-  function cancelConfirmation() {
-    confirmation = null;
-  }
-
-  async function confirmDestructiveAction() {
-    const pending = confirmation;
-    confirmation = null;
-    if (!pending) return;
-
-    if (pending.kind === "clear") {
-      if (await command({ action: "clear" }, "Cleared all scheduled jobs")) reset();
-      return;
-    }
-
-    const job = pending.job;
-    if (await command({ action: "remove", name: job.name }, `Removed ${job.name}`)) {
-      if (editing === job.name) reset();
-    }
-  }
-
-  $effect(() => {
-    reset();
+  onMount(() => {
     void load();
+    const timer = window.setInterval(() => void load({ quiet: true }), 5000);
+    return () => window.clearInterval(timer);
   });
 </script>
 
-<section class="jobs-page" aria-labelledby="jobsPageTitle">
-  <div class="jobs-page-shell">
-    <header class="jobs-page-header">
-      <div class="chat-heading">
-        <div class="heading-title" id="jobsPageTitle">Scheduled jobs</div>
-        <div class="heading-meta">Create and manage scheduled prompts.</div>
-      </div>
-    </header>
-
-    <div class="jobs-page-status" role="status">{status}</div>
-
-    <div class="jobs-list">
-      {#if !jobs.length}<div class="jobs-empty">No scheduled jobs.</div>{/if}
-
-      {#each pagination.items as job (job.name)}
-        <article class="job-row">
-          <div class="job-row-top">
-            <div>
-              <div class="job-row-name">{job.name}</div>
-              <div class="job-row-meta">
-                {scheduleText(job)}
-                {#if job.source_revision}
-                  · rev <span title={job.source_revision}>{job.source_revision.slice(0, 8)}</span>
-                {/if}
-              </div>
-            </div>
-            <span class="job-status">{job.status || (job.paused ? "paused" : "pending")}</span>
-          </div>
-
-          {#if jobPromptIsExpandable(job.prompt)}
-            <details class="job-prompt-details">
-              <summary class="job-prompt-summary">
-                <span class="job-prompt-preview" aria-hidden="true">{job.prompt || ""}</span>
-                <span class="job-prompt-toggle-label">
-                  <span class="job-prompt-show">Show full prompt</span>
-                  <span class="job-prompt-hide">Hide prompt</span>
-                </span>
-              </summary>
-              <div class="job-row-prompt job-row-prompt-full">{job.prompt || ""}</div>
-            </details>
-          {:else}
-            <div class="job-row-prompt">{job.prompt || ""}</div>
-          {/if}
-
-          <div class="job-row-actions">
-            {#if !job.run_at_epoch}
-              <button
-                type="button"
-                class="job-action"
-                aria-label={`Edit ${job.name}`}
-                disabled={saving}
-                onclick={() => edit(job)}
-              >
-                Edit
-              </button>
-            {/if}
-            <button
-              type="button"
-              class="job-action"
-              aria-label={`${job.paused ? "Resume" : "Pause"} ${job.name}`}
-              disabled={saving}
-              onclick={() =>
-                void command(
-                  { action: job.paused ? "resume" : "pause", name: job.name },
-                  `${job.paused ? "Resumed" : "Paused"} ${job.name}`,
-                )}
-            >
-              {job.paused ? "Resume" : "Pause"}
-            </button>
-            <button
-              type="button"
-              class="job-action"
-              aria-label={`Remove ${job.name}`}
-              disabled={saving}
-              onclick={() => requestRemove(job)}
-            >
-              Remove
-            </button>
-          </div>
-        </article>
-      {/each}
+<section class="jobs-panel" aria-labelledby="jobs-title">
+  <div class="section-heading">
+    <div>
+      <h1 id="jobs-title">Scheduled jobs</h1>
+      <p>Create, edit, pause, resume, and remove jobs. Every run starts a fresh ChatGPT chat and is discarded after dispatch.</p>
     </div>
-
-    {#if pagination.pageCount > 1}
-      <nav class="jobs-pagination" aria-label="Scheduled jobs pages">
-        <button
-          type="button"
-          class="jobs-secondary-button"
-          disabled={pagination.page === 1}
-          onclick={() => (page = pagination.page - 1)}
-        >
-          Previous
-        </button>
-        <span class="jobs-pagination-status" aria-live="polite">
-          Page {pagination.page} of {pagination.pageCount}
-        </span>
-        <button
-          type="button"
-          class="jobs-secondary-button"
-          disabled={pagination.page === pagination.pageCount}
-          onclick={() => (page = pagination.page + 1)}
-        >
-          Next
-        </button>
-      </nav>
-    {/if}
-
-    <form
-      class="jobs-form"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
-      <h3>{editing ? `Edit ${editing}` : "Add job"}</h3>
-      <label>
-        <span>Name</span>
-        <input id="jobName" name="name" bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
-      </label>
-      <label>
-        <span>Prompt</span>
-        <textarea id="jobPrompt" name="prompt" bind:value={prompt} rows="3" required></textarea>
-      </label>
-      <div class="jobs-form-grid">
-        <label>
-          <span>Schedule</span>
-          <select id="jobSchedule" name="schedule" bind:value={schedule}>
-            <option value="interval">Interval</option>
-            <option value="daily">Daily</option>
-          </select>
-        </label>
-        {#if schedule === "interval"}
-          <label>
-            <span>Every (minutes)</span>
-            <input id="jobInterval" name="interval" bind:value={interval} type="number" min="0.1" step="0.1" />
-          </label>
-        {:else}
-          <label>
-            <span>At</span>
-            <input id="jobDailyAt" name="dailyAt" bind:value={dailyAt} type="time" />
-          </label>
-        {/if}
-      </div>
-
-      {#if schedule === "interval"}
-        <label class="jobs-check">
-          <input id="jobExact" name="exact" bind:checked={exact} type="checkbox" />
-          <span>Exact interval</span>
-        </label>
-      {/if}
-
-      <div class="jobs-form-actions">
-        <button type="button" class="jobs-secondary-button" disabled={saving} onclick={reset}>
-          {editing ? "Cancel edit" : "Reset"}
-        </button>
-        <button type="submit" class="jobs-primary-button" disabled={saving}>Save job</button>
-      </div>
-    </form>
-
-    <div class="jobs-page-footer">
-      <button
-        type="button"
-        class="jobs-danger-button"
-        disabled={!jobs.length || saving}
-        onclick={requestClear}
-      >
-        Clear all jobs
-      </button>
-    </div>
+    <button class="secondary-button" type="button" disabled={saving} onclick={() => void load()}>
+      Refresh
+    </button>
   </div>
 
-  <dialog
-    {@attach dialogVisibility(() => Boolean(confirmation), () => true, cancelConfirmation)}
-    class="jobs-confirm-dialog"
-    aria-labelledby="jobsConfirmTitle"
-    aria-describedby="jobsConfirmDescription"
-    onclick={(event) => {
-      if (event.target === event.currentTarget) cancelConfirmation();
+  <div class="status-line" role="status" aria-live="polite">{status}</div>
+
+  <div class="jobs-list">
+    {#if jobs.length === 0}
+      <div class="empty-card">No scheduled jobs.</div>
+    {/if}
+
+    {#each jobs as job (job.name)}
+      <article class="job-card">
+        <div class="job-card-header">
+          <div>
+            <h2>{job.name}</h2>
+            <p class="muted">{scheduleText(job)}</p>
+          </div>
+          <span class:paused={job.paused} class:error={job.status === "failing"} class="status-pill">
+            {job.paused ? "paused" : job.status || "pending"}
+          </span>
+        </div>
+
+        <pre class="job-prompt">{job.prompt}</pre>
+
+        <dl class="job-facts">
+          <div>
+            <dt>Next run</dt>
+            <dd>{job.paused ? "Paused" : formatDate(job.next_due_at_epoch)}</dd>
+          </div>
+          <div>
+            <dt>Last sent</dt>
+            <dd>{formatDate(job.last_sent_at)}</dd>
+          </div>
+          {#if job.source_revision}
+            <div>
+              <dt>Created at rev</dt>
+              <dd title={job.source_revision}>{job.source_revision.slice(0, 8)}</dd>
+            </div>
+          {/if}
+        </dl>
+
+        {#if job.status_message}
+          <p class="job-message">{job.status_message}</p>
+        {/if}
+
+        <div class="job-actions">
+          {#if !job.run_at_epoch}
+            <button class="secondary-button" type="button" disabled={saving} onclick={() => edit(job)}>
+              Edit
+            </button>
+          {/if}
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={saving}
+            onclick={() =>
+              void command(
+                { action: job.paused ? "resume" : "pause", name: job.name },
+                (job.paused ? "Resumed " : "Paused ") + job.name + ".",
+              )}
+          >
+            {job.paused ? "Resume" : "Pause"}
+          </button>
+          <button class="danger-button" type="button" disabled={saving} onclick={() => void remove(job)}>
+            Remove
+          </button>
+        </div>
+      </article>
+    {/each}
+  </div>
+
+  <form
+    class="job-form"
+    onsubmit={(event) => {
+      event.preventDefault();
+      void submit();
     }}
   >
-    <div class="jobs-confirm-shell">
-      <h3 id="jobsConfirmTitle">
-        {confirmation?.kind === "clear" ? "Clear scheduled jobs?" : "Remove scheduled job?"}
-      </h3>
-      <p id="jobsConfirmDescription">
-        {#if confirmation?.kind === "clear"}
-          This will remove all {confirmation.count} configured jobs. This cannot be undone.
-        {:else if confirmation?.kind === "remove"}
-          Remove “{confirmation.job.name}”? This cannot be undone.
-        {/if}
-      </p>
-      <div class="jobs-confirm-actions">
-        <button
-          type="button"
-          class="jobs-secondary-button"
-          disabled={saving}
-          onclick={cancelConfirmation}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="jobs-danger-button"
-          disabled={saving}
-          onclick={() => void confirmDestructiveAction()}
-        >
-          {confirmation?.kind === "clear" ? "Clear all jobs" : "Remove job"}
-        </button>
+    <div class="section-heading">
+      <div>
+        <h2>{editing ? "Edit " + editing : "Add job"}</h2>
+        <p>{editing ? "Update the prompt or schedule." : "Create a recurring scheduled prompt."}</p>
       </div>
     </div>
-  </dialog>
+
+    <label>
+      <span>Name</span>
+      <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+    </label>
+
+    <label>
+      <span>Prompt</span>
+      <textarea bind:value={prompt} rows="6" required></textarea>
+    </label>
+
+    <div class="form-grid">
+      <label>
+        <span>Schedule</span>
+        <select bind:value={schedule}>
+          <option value="interval">Interval</option>
+          <option value="daily">Daily</option>
+        </select>
+      </label>
+
+      {#if schedule === "interval"}
+        <label>
+          <span>Every (minutes)</span>
+          <input bind:value={interval} type="number" min="0.1" step="0.1" required />
+        </label>
+      {:else}
+        <label>
+          <span>At</span>
+          <input bind:value={dailyAt} type="time" required />
+        </label>
+      {/if}
+    </div>
+
+    {#if schedule === "interval"}
+      <label class="checkbox-row">
+        <input bind:checked={exact} type="checkbox" />
+        <span>Use exact interval (disable schedule jitter)</span>
+      </label>
+    {/if}
+
+    <div class="form-actions">
+      <button class="secondary-button" type="button" disabled={saving} onclick={reset}>
+        {editing ? "Cancel edit" : "Reset"}
+      </button>
+      <button class="primary-button" type="submit" disabled={saving}>Save job</button>
+    </div>
+  </form>
+
+  <div class="danger-zone">
+    <button class="danger-button" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
+      Clear all jobs
+    </button>
+  </div>
 </section>

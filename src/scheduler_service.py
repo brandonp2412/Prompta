@@ -89,10 +89,7 @@ class DurableSchedulerProducer:
         receipt, created = self.queue.enqueue_idempotent(
             {
                 "send_id": send_id,
-                "operation": "once",
                 "message": scheduled_job_prompt(job),
-                "conversation_id": "",
-                "attachments": [],
                 "client_id": f"scheduled:{idempotency_key}",
                 "status": "queued",
                 "created_at": now,
@@ -189,8 +186,6 @@ class DurableSchedulerProducer:
                     "send_id": send_id,
                     "operation": "once",
                     "message": str(intent["prompt"]),
-                    "conversation_id": "",
-                    "attachments": [],
                     "client_id": f"scheduled:{idempotency_key}",
                     "status": "queued",
                     "created_at": float(intent.get("queued_at") or time.time()),

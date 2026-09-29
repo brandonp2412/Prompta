@@ -12,6 +12,3 @@ mount(App, {
   target,
   props: { serverName },
 });
-
-// The data/orchestration layer attaches after Svelte has mounted the stable shell.
-await import("./app");

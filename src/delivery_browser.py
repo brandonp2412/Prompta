@@ -9,41 +9,45 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .browser_script_loader import load_browser_script
 from .browser_session import BrowserSession
-from .cache import ActiveConversation, ChatCache
-from .control_server import ControlDeferredError
-from .conversation_actions import ConversationActions, SendNotAcceptedError
 from .playwright_driver import PlaywrightDriver
-from .rate_limit import RateLimitError
+from .rate_limit import RateLimitError, is_rate_limited_text
 from .scheduler_runtime import SchedulerRuntime
-from .send_jobs import DeliveryBackendUnavailableError
 from .send_outcome import SendOutcomeUnknownError
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
+_SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
-_CONVERSATION_WINDOW_PREFIX = "prompta-conversation:"
+
+
+class DeliveryBackendUnavailableError(RuntimeError):
+    """A pre-dispatch browser failure that is safe to retry."""
+
+
+class SendNotAcceptedError(RuntimeError):
+    """ChatGPT demonstrably did not accept a submitted prompt."""
 
 
 class BrowserDeliverySender:
-    """Own one durable delivery from SQLite lease through ChatGPT browser send."""
+    """Send one scheduled prompt in a fresh ChatGPT tab, then discard the tab."""
 
     def __init__(
         self,
         state_path: Path,
         *,
-        cache_path: Path | None = None,
         profile: Path | None = None,
         chrome_path: str = "/usr/bin/chromium",
         debugger_address: str | None = None,
         flaresolverr_url: str | None = None,
         auth_timeout_seconds: float = 30.0,
         driver_factory: Callable[[], PlaywrightDriver] | None = None,
+        send_timeout_seconds: float = _DEFAULT_SEND_TIMEOUT_SECONDS,
     ) -> None:
         self.state_path = state_path.expanduser()
         state_dir = self.state_path.parent
-        self.cache_path = (cache_path or state_dir / "chats.sqlite3").expanduser()
         self.profile = (
             profile
             or Path(
@@ -58,6 +62,7 @@ class BrowserDeliverySender:
         self.flaresolverr_url = flaresolverr_url
         self.auth_timeout_seconds = max(0.1, float(auth_timeout_seconds))
         self.driver_factory = driver_factory
+        self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
 
     def _new_driver(self) -> PlaywrightDriver:
@@ -79,23 +84,14 @@ class BrowserDeliverySender:
     def _record_send_attempt(self) -> None:
         self.runtime.update_scheduler_state({"last_attempt_at": time.time()})
 
-    def _defer_busy_reply(self, conversation_id: str) -> None:
-        cache = ChatCache(self.cache_path)
-        try:
-            if cache.status(conversation_id) == "active":
-                raise ControlDeferredError(
-                    "Conversation is still active; reply was deferred before delivery"
-                )
-        finally:
-            cache.close()
+    @staticmethod
+    def _normalise(text: str) -> str:
+        return " ".join(text.split()).strip()
 
-    def __call__(
-        self,
-        operation: str,
-        message: str,
-        conversation_id: str,
-        attachments: list[str],
-    ) -> str:
+    def __call__(self, message: str) -> None:
+        if not message.strip():
+            raise ValueError("prompta prompt is empty")
+
         remaining = self._global_cooldown_remaining()
         if remaining > 0:
             raise RateLimitError(
@@ -105,21 +101,13 @@ class BrowserDeliverySender:
 
         gap = self.runtime.send_gap_remaining(time.time())
         if gap > 0:
-            raise ControlDeferredError(
-                "Prompta global send gap is active",
-                retry_after=max(0.1, gap),
+            raise DeliveryBackendUnavailableError(
+                "Prompta global send gap is active for another "
+                + f"{max(1, math.ceil(gap))} seconds"
             )
-
-        base_operation = operation.removesuffix("_tracked")
-        if base_operation == "reply":
-            self._defer_busy_reply(conversation_id)
-        elif base_operation != "once":
-            raise ValueError(f"unsupported Prompta delivery operation: {operation}")
 
         try:
-            result = asyncio.run(
-                self._send_browser(operation, message, conversation_id, attachments)
-            )
+            asyncio.run(self._send_browser(message))
         except RateLimitError as exc:
             delay = self.runtime.record_global_rate_limit(exc)
             raise RateLimitError(
@@ -127,107 +115,170 @@ class BrowserDeliverySender:
                 retry_after=max(1, math.ceil(delay)),
             ) from exc
 
-        return result
-
-    async def _send_browser(
-        self,
-        operation: str,
-        message: str,
-        conversation_id: str,
-        attachments: list[str],
-    ) -> str:
-        force_tracking = operation.endswith("_tracked")
-        base_operation = operation.removesuffix("_tracked") if force_tracking else operation
-        active: dict[str, ActiveConversation] = {}
-        cache = ChatCache(self.cache_path)
+    async def _send_browser(self, message: str) -> None:
         browser = BrowserSession("https://chatgpt.com", self._new_driver)
-
-        async def wait_for_cached_response(
-            _conversation_id: str,
-            **_kwargs: Any,
-        ) -> bool:
-            return False
-
-        async def enrich_completed_tool_calls(
-            _conversation_id: str,
-            _snapshot: dict[str, Any],
-            **_kwargs: Any,
-        ) -> None:
-            return None
-
+        driver: PlaywrightDriver | None = None
+        context = ""
+        capture: dict[str, Any] | None = None
+        probe_armed = False
         send_attempted = False
 
-        def record_send_attempt() -> None:
-            nonlocal send_attempted
-            self._record_send_attempt()
-            send_attempted = True
-
-        actions = ConversationActions(
-            cache,
-            active,
-            _DEFAULT_SEND_TIMEOUT_SECONDS,
-            ensure_driver=browser.ensure_driver,
-            ensure_high_effort=browser.ensure_high_effort,
-            ensure_route=browser.ensure_conversation_route,
-            enrich_completed_tool_calls=enrich_completed_tool_calls,
-            wait_for_cached_response=wait_for_cached_response,
-            unattended_mode=self.runtime.unattended_mode,
-            before_send_attempt=record_send_attempt,
-            preserve_unattended_context=True,
-        )
         try:
             try:
-                if base_operation == "once":
-                    return await actions.send_once(
-                        message,
-                        attachments=attachments,
-                        force_tracking=force_tracking,
+                driver = await browser.ensure_driver()
+                context = await driver.new_tab()
+                await driver.wait_for_composer()
+                await driver.ensure_chat_surface()
+                await browser.ensure_high_effort(driver)
+
+                baseline = await driver.dom_state()
+                baseline_path = str(
+                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                )
+                stale_text = self._normalise(str(baseline.get("composer_text") or ""))
+                if stale_text:
+                    logger.warning("Prompta found stale text in a fresh-chat composer; clearing it")
+                    await driver.clear_composer()
+                    baseline = await driver.dom_state()
+                    if self._normalise(str(baseline.get("composer_text") or "")):
+                        raise RuntimeError("ChatGPT stale new-chat composer could not be cleared")
+
+                rate_limit_text = str(baseline.get("rate_limit_text") or "")
+                if is_rate_limited_text(rate_limit_text):
+                    raise RateLimitError.from_text(rate_limit_text)
+
+                await driver.arm_page_send_probe()
+                probe_armed = True
+                capture = driver.arm_send_capture()
+                await driver.type_message(message)
+
+                typed = await driver.dom_state()
+                if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(
+                    message
+                ):
+                    raise RuntimeError("ChatGPT composer did not contain the configured prompt")
+
+                dispatch_error: SendOutcomeUnknownError | None = None
+                try:
+                    await driver.click_send()
+                except SendOutcomeUnknownError as exc:
+                    self._record_send_attempt()
+                    send_attempted = True
+                    dispatch_error = exc
+                    logger.warning(
+                        "Prompta send outcome became ambiguous during dispatch; "
+                        "checking only whether the prompt was accepted"
                     )
-                if base_operation == "reply":
-                    return await actions.send_reply(
-                        conversation_id,
-                        message,
-                        attachments=attachments,
-                        force_tracking=force_tracking,
+                else:
+                    self._record_send_attempt()
+                    send_attempted = True
+
+                last_state: dict[str, Any] = {}
+                last_probe: dict[str, Any] = {}
+                last_path = baseline_path
+                last_transport_confirmed = False
+                deadline = asyncio.get_running_loop().time() + self.send_timeout_seconds
+
+                while asyncio.get_running_loop().time() < deadline:
+                    try:
+                        state = await driver.dom_state()
+                        probe = await driver.page_send_probe()
+                        path = str(
+                            await driver.eval(load_browser_script("location_pathname.js")) or ""
+                        )
+                    except Exception as exc:
+                        raise SendOutcomeUnknownError(
+                            "Prompta lost send confirmation after dispatch",
+                            stage="send_confirmation",
+                        ) from exc
+
+                    last_state = state
+                    last_probe = probe
+                    last_path = path
+
+                    rate_limit_text = str(state.get("rate_limit_text") or "")
+                    if is_rate_limited_text(rate_limit_text):
+                        raise RateLimitError.from_text(rate_limit_text)
+
+                    status = int(probe.get("response_status") or (capture or {}).get("status") or 0)
+                    transport_confirmed = bool(probe.get("committed")) or (
+                        capture is not None and driver.captured_send_response(capture) is not None
                     )
-                raise ValueError(f"unsupported delivery operation: {operation}")
-            except (
-                RateLimitError,
-                ControlDeferredError,
-                SendNotAcceptedError,
-                SendOutcomeUnknownError,
-            ):
+                    last_transport_confirmed = transport_confirmed
+
+                    if status == 429:
+                        raise RateLimitError("prompta send rate limited")
+                    if status >= 500:
+                        raise SendOutcomeUnknownError(
+                            f"prompta send returned HTTP {status} after dispatch",
+                            stage="send_response",
+                        )
+                    if status >= 400:
+                        raise SendNotAcceptedError(f"prompta send failed with HTTP {status}")
+                    if capture is not None and capture.get("fetch_error"):
+                        raise SendOutcomeUnknownError(
+                            "prompta send transport failed after dispatch: "
+                            + str(capture["fetch_error"]),
+                            stage="send_transport",
+                        )
+
+                    route_confirmed = path.startswith("/c/") and path != baseline_path
+
+                    if transport_confirmed or route_confirmed:
+                        logger.info(
+                            "Prompta dispatched fresh-chat prompt transport_confirmed=%s "
+                            "route_confirmed=%s",
+                            transport_confirmed,
+                            route_confirmed,
+                        )
+                        return
+
+                    await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+
+                final_composer = self._normalise(str(last_state.get("composer_text") or ""))
+                if (
+                    final_composer == self._normalise(message)
+                    and not last_transport_confirmed
+                    and last_path == baseline_path
+                ):
+                    raise SendNotAcceptedError(
+                        "ChatGPT did not accept the prompt; it remained in the composer"
+                    )
+
+                detail = (
+                    "prompta could not prove the fresh-chat prompt was accepted "
+                    + f"(composer_empty={not bool(final_composer)}, "
+                    + f"transport_confirmed={last_transport_confirmed}, "
+                    + f"probe_status={int(last_probe.get('response_status') or 0)}, "
+                    + f"path={last_path or '/'})"
+                )
+                if dispatch_error is not None:
+                    raise SendOutcomeUnknownError(
+                        detail,
+                        stage=dispatch_error.stage,
+                    ) from dispatch_error
+                raise SendOutcomeUnknownError(detail, stage="send_confirmation")
+            except (RateLimitError, SendNotAcceptedError, SendOutcomeUnknownError):
                 raise
             except Exception as exc:
                 if not send_attempted:
                     raise DeliveryBackendUnavailableError(str(exc)) from exc
                 raise SendOutcomeUnknownError(
-                    "Prompta failed after dispatch and cannot prove whether the send completed",
+                    "Prompta failed after dispatch and cannot prove send acceptance",
                     stage="post_dispatch",
                 ) from exc
         finally:
-            driver = browser.driver
-            for context, tracked in list(active.items()):
-                handed_off = False
-                if driver is not None:
-                    try:
-                        await driver.handoff_context(
-                            context,
-                            ownership_prefix=_CONVERSATION_WINDOW_PREFIX,
-                        )
-                        handed_off = True
-                    except Exception:
-                        logger.warning(
-                            "Prompta could not preserve sent conversation=%s for tracker handoff",
-                            tracked.conversation_id,
-                            exc_info=True,
-                        )
-                if not handed_off:
-                    cache.release_browser_context(
-                        tracked.conversation_id,
-                        context_id=context,
-                    )
-            active.clear()
             if driver is not None:
+                if capture is not None:
+                    driver.clear_send_capture(capture)
+                if probe_armed:
+                    try:
+                        await driver.clear_page_send_probe()
+                    except Exception:
+                        logger.debug("Could not clear page send probe", exc_info=True)
+                if context:
+                    try:
+                        await driver.close_context(context)
+                    except Exception:
+                        logger.debug("Could not discard Prompta fresh-chat tab", exc_info=True)
                 await driver.close()
-            cache.close()

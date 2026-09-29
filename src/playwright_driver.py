@@ -38,19 +38,12 @@ from .browser_ownership import (
     owned_window_started_at,
 )
 from .browser_script_loader import load_browser_script
-from .chatgpt_dom import (
-    CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
-    FILE_INPUT_SELECTORS,
-    LAST_USER_STATE_SCRIPT,
-)
 from .send_outcome import SendOutcomeUnknownError
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
-_HANDOFF_PAGE_OWNER_ID = "handoff"
-_HANDOFF_PAGE_MAX_AGE_SECONDS = 40 * 60
 
 
 def _normalise_composer_text(text: str) -> str:
@@ -62,23 +55,12 @@ _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
     re.IGNORECASE,
 )
-_HISTORY_RATE_LIMIT_RE = re.compile(
-    r"(?:conversation|chat)\s+history|loading\s+(?:your\s+)?(?:conversation|chat)s?",
-    re.IGNORECASE,
-)
 _LOGIN_RE = re.compile(r"^(?:log ?in|sign ?in)$", re.IGNORECASE)
 _COMPOSER_NAME_RE = re.compile(
     r"^(?:chat with chatgpt|message(?: chatgpt)?|ask(?: chatgpt| anything)?|prompt|send a message)$",
     re.IGNORECASE,
 )
 _SEND_RE = re.compile(r"^(?:send|send prompt)$", re.IGNORECASE)
-_STOP_RE = re.compile(r"^(?:stop|stop answering|stop generating)$", re.IGNORECASE)
-_ATTACH_RE = re.compile(
-    r"(?:add files? and more|attach|upload|add (?:file|photo))",
-    re.IGNORECASE,
-)
-_RETRY_RE = re.compile(r"^(?:try again|retry|regenerate(?: response)?)$", re.IGNORECASE)
-_DISMISS_RE = re.compile(r"^(?:got it|ok|okay|dismiss|close)$", re.IGNORECASE)
 _EFFORT_RE = re.compile(r"\b(max|extra\s+high|instant|medium|high)\b", re.IGNORECASE)
 _EFFORT_TRIGGER_RE = re.compile(
     r"\b(?:thinking\s+effort|select\s+(?:chatgpt\s+)?model|model\s+selector)\b",
@@ -271,10 +253,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 # Legacy ownership markers cannot prove that another live process
                 # does not still own the page, so fail safe and leave them alone.
                 continue
-            if owner_id == _HANDOFF_PAGE_OWNER_ID:
-                if started_at > time.time() - _HANDOFF_PAGE_MAX_AGE_SECONDS:
-                    continue
-            elif owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
+            if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
                 continue
             try:
                 await page.close()
@@ -434,62 +413,6 @@ class PlaywrightDriver(BrowserDriverBase):
                 return found
         return None
 
-    async def _file_input(self, page: Page) -> Locator | None:
-        # File inputs are often intentionally hidden, so visibility is not a useful
-        # signal. Prefer structural proximity to the active composer and only use a
-        # page-wide fallback when it is unambiguous.
-        composer = await self._composer(page)
-        if composer is not None:
-            try:
-                # Prefer the nearest ancestor that structurally owns a file
-                # input. ChatGPT has historically used a <form> here, but the
-                # wrapper element itself is not part of the semantic contract.
-                owner = composer.locator('xpath=ancestor::*[.//input[@type="file"]][1]')
-                owner_inputs = owner.locator('input[type="file"]')
-                owner_input_count = await owner_inputs.count()
-                if owner_input_count == 1:
-                    candidate = owner_inputs.first
-                    if await candidate.is_enabled():
-                        return candidate
-                elif owner_input_count > 1:
-                    # ChatGPT may expose separate hidden pickers for media and
-                    # general attachments. Prefer a unique multi-file picker
-                    # structurally owned by the active composer rather than
-                    # depending on wrapper classes or test IDs.
-                    multi_inputs = owner.locator('input[type="file"][multiple]')
-                    if await multi_inputs.count() == 1:
-                        candidate = multi_inputs.first
-                        if await candidate.is_enabled():
-                            return candidate
-            except PlaywrightError:
-                pass
-
-        scoped_selectors = FILE_INPUT_SELECTORS[:-1]
-        for selector in scoped_selectors:
-            inputs = page.locator(selector)
-            try:
-                count = min(await inputs.count(), 12)
-            except PlaywrightError:
-                continue
-            if count != 1:
-                continue
-            candidate = inputs.first
-            try:
-                if await candidate.is_enabled():
-                    return candidate
-            except PlaywrightError:
-                continue
-
-        all_inputs = page.locator('input[type="file"]')
-        try:
-            if await all_inputs.count() == 1:
-                candidate = all_inputs.first
-                if await candidate.is_enabled():
-                    return candidate
-        except PlaywrightError:
-            pass
-        return None
-
     async def _composer_submit_button(self, composer: Locator) -> Locator | None:
         # Prefer an actual form when present, but do not make the wrapper tag part
         # of the fallback contract. ChatGPT has changed composer wrappers before.
@@ -535,7 +458,7 @@ class PlaywrightDriver(BrowserDriverBase):
         # ChatGPT has moved actions between native buttons, ARIA menu items, and
         # roleless focusable wrappers while keeping their accessible labels.
         # Prefer the chat landmark before the whole page so a toolbar action with
-        # the same name cannot steal the click from the composer/transcript.
+        # the same name cannot steal the click from the composer.
         scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
         action_roles = ("button", "menuitem", "option", "link", "radio")
 
@@ -702,76 +625,6 @@ class PlaywrightDriver(BrowserDriverBase):
                 await self._mark_owned(page)
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(f"Playwright navigation timed out for {url}") from exc
-
-    async def activate_history_link(self, path: str, *, context: str | None = None) -> bool:
-        page = self._page(context)
-        target = path.rstrip("/") or "/"
-        # Prefer link semantics, but tolerate role/tag churn as long as the
-        # destination contract remains intact. ChatGPT has changed accessible
-        # roles on history controls before; matching the exact href path avoids
-        # coupling navigation to those presentation details.
-        for links in (page.get_by_role("link"), page.locator("[href]")):
-            try:
-                count = min(await links.count(), 250)
-            except PlaywrightError:
-                continue
-            for index in range(count):
-                link = links.nth(index)
-                try:
-                    if not await link.is_visible():
-                        continue
-                    href = await link.get_attribute("href")
-                    if not href:
-                        continue
-                    if (urlsplit(href).path.rstrip("/") or "/") != target:
-                        continue
-                    await link.click()
-                    return True
-                except PlaywrightError:
-                    continue
-        return False
-
-    async def find_context_for_path(self, expected_path: str) -> str | None:
-        browser_context = self._browser_context
-        if browser_context is None:
-            return None
-        target_path = urlsplit(expected_path).path.rstrip("/") or "/"
-        matching_pages = [
-            page
-            for page in list(browser_context.pages)
-            if not page.is_closed() and (urlsplit(page.url).path.rstrip("/") or "/") == target_path
-        ]
-
-        # A delivery worker can hand off a fresh reply tab while this tracker still
-        # knows about an older retained tab for the same conversation. Prefer the
-        # explicit handoff so response tracking follows the newly sent reply.
-        for page in matching_pages:
-            owner_id = await self._owned_page_owner_id(page)
-            if owner_id != _HANDOFF_PAGE_OWNER_ID:
-                continue
-            await self._mark_owned(page)
-            return self._page_contexts.get(page) or self._register_page(page, owned=True)
-
-        for page in matching_pages:
-            context_id = self._page_contexts.get(page)
-            if context_id:
-                return context_id
-            owner_id = await self._owned_page_owner_id(page)
-            if owner_id != self.page_owner_id:
-                continue
-            return self._register_page(page, owned=True)
-        return None
-
-    async def handoff_context(self, context: str, *, ownership_prefix: str) -> None:
-        page = self._page(context)
-        await page.evaluate(
-            load_browser_script("set_window_name.js"),
-            new_owned_window_marker(
-                prefix=ownership_prefix,
-                owner_id=_HANDOFF_PAGE_OWNER_ID,
-            ),
-        )
-        self._owned_contexts.discard(context)
 
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         browser_context = self._browser_context
@@ -1087,332 +940,35 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT send button did not become enabled")
 
-    async def click_stop(self, context: str, timeout: float = 5.0) -> bool:
-        page = self._page(context)
-        deadline = asyncio.get_running_loop().time() + max(0.2, timeout)
-        while asyncio.get_running_loop().time() < deadline:
-            button = await self._semantic_button(page, _STOP_RE)
-            if button is not None:
-                await button.click()
-                return True
-            await asyncio.sleep(0.1)
-        return False
-
-    async def click_delivery_retry(self, context: str, timeout: float = 3.0) -> bool:
-        page = self._page(context)
-        deadline = asyncio.get_running_loop().time() + max(0.1, timeout)
-        while asyncio.get_running_loop().time() < deadline:
-            failure = page.get_by_text(
-                re.compile(r"Message delivery timed out\.?\s*Please try again", re.IGNORECASE)
-            )
-            if await self._first_usable([failure], enabled=False) is None:
-                await asyncio.sleep(0.15)
-                continue
-            retry = await self._semantic_button(page, _RETRY_RE)
-            if retry is not None:
-                await retry.click()
-                return True
-            await asyncio.sleep(0.15)
-        return False
-
-    async def attach_files(self, files: list[str]) -> None:
-        paths = [str(Path(path).expanduser().resolve()) for path in files]
-        if not paths:
-            return
-        for path in paths:
-            if not Path(path).is_file():
-                raise RuntimeError(f"Prompta attachment does not exist: {path}")
-        page = self._page()
-
-        file_input = await self._file_input(page)
-        if file_input is None:
-            attach = await self._semantic_button(page, _ATTACH_RE)
-            if attach is not None:
-                await attach.click()
-                deadline = asyncio.get_running_loop().time() + 3.0
-                while asyncio.get_running_loop().time() < deadline:
-                    file_input = await self._file_input(page)
-                    if file_input is not None:
-                        break
-                    await asyncio.sleep(0.1)
-        if file_input is None:
-            raise RuntimeError("ChatGPT attachment input could not be found")
-
-        await file_input.set_input_files(paths)
-        names = [Path(path).name for path in paths]
-        deadline = asyncio.get_running_loop().time() + 120.0
-        stable = 0
-        while asyncio.get_running_loop().time() < deadline:
-            selected = await file_input.evaluate(load_browser_script("file_input_names.js"))
-            selected_names = set(selected or [])
-            visible_names = True
-            for name in names:
-                if name in selected_names:
-                    continue
-                if (
-                    await self._first_usable([page.get_by_text(name, exact=False)], enabled=False)
-                    is None
-                ):
-                    visible_names = False
-                    break
-            busy = await self._first_usable(
-                [
-                    page.get_by_role("progressbar"),
-                    page.locator('[aria-busy="true"]'),
-                    page.get_by_test_id(re.compile(r"upload", re.IGNORECASE)),
-                ],
-                enabled=False,
-            )
-            if visible_names and busy is None:
-                stable += 1
-                if stable >= 3:
-                    return
-            else:
-                stable = 0
-            await asyncio.sleep(0.2)
-        raise RuntimeError("ChatGPT attachment upload did not finish within 120s")
-
     async def dom_state(self) -> dict[str, Any]:
         page = self._page()
         composer = await self._composer(page)
         composer_text = await self._composer_text(composer) if composer is not None else ""
 
-        last_user_id = ""
-        last_user_text = ""
-        try:
-            last_user_state = json.loads(await page.evaluate(LAST_USER_STATE_SCRIPT) or "{}")
-            last_user_id = str(last_user_state.get("id") or "")
-            last_user_text = str(last_user_state.get("text") or "")
-        except (PlaywrightError, TypeError, ValueError):
-            pass
-
         rate_limit_texts: list[str] = []
-        rate_limit_dialog: Locator | None = None
-
-        async def is_history_rate_limit(candidate: Locator) -> bool:
-            return await self._is_history_rate_limit_dialog(candidate)
-
-        # Conversation-history throttling is unrelated to sending prompts. Dismiss
-        # it for hygiene, but never surface it as a send-rate-limit signal.
-        await self._dismiss_history_rate_limit(page)
-
-        # A dedicated rate-limit dialog is a useful semantic signal. Generic
-        # role=alert elements are intentionally ignored because ChatGPT uses them
-        # for unrelated transient notifications.
-        semantic_dialogs = page.locator(
-            'dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]'
-        ).filter(has_text=_RATE_LIMIT_RE)
-        try:
-            dialog_count = min(await semantic_dialogs.count(), 12)
-        except PlaywrightError:
-            dialog_count = 0
-        for index in range(dialog_count):
-            candidate = semantic_dialogs.nth(index)
-            try:
-                if not await candidate.is_visible() or await is_history_rate_limit(candidate):
-                    continue
-                text = (await candidate.inner_text()).strip()
-            except PlaywrightError:
-                continue
-            if text and text not in rate_limit_texts:
-                rate_limit_texts.append(text)
-            if rate_limit_dialog is None:
-                rate_limit_dialog = candidate
-
-        # Fall back only to stable rate-limit test IDs. The history-throttling
-        # test ID also contains "rate-limit", so explicitly exclude it.
-        matches = page.get_by_test_id(re.compile(r"rate-limit", re.IGNORECASE)).filter(
-            has_text=_RATE_LIMIT_RE
-        )
-        try:
-            match_count = min(await matches.count(), 12)
-        except PlaywrightError:
-            match_count = 0
-        for index in range(match_count):
-            candidate = matches.nth(index)
-            try:
-                if not await candidate.is_visible() or await is_history_rate_limit(candidate):
-                    continue
-                text = (await candidate.inner_text()).strip()
-            except PlaywrightError:
-                continue
-            if text and text not in rate_limit_texts:
-                rate_limit_texts.append(text)
-
-        # Last resort for markup churn: recover a bounded interactive container
-        # around the visible rate-limit message when dialog roles/test IDs vanish.
-        if not rate_limit_texts:
-            structural = await self._interactive_text_container(page, _RATE_LIMIT_RE)
-            if structural is not None and not await is_history_rate_limit(structural):
-                try:
-                    text = (await structural.inner_text()).strip()
-                except PlaywrightError:
-                    text = ""
-                if text and _RATE_LIMIT_RE.search(text):
-                    rate_limit_texts.append(text)
-                    rate_limit_dialog = structural
-
-        if rate_limit_dialog is not None:
-            dismiss = await self._dialog_dismiss_button(rate_limit_dialog)
-            if dismiss is not None:
-                try:
-                    await dismiss.click()
-                except PlaywrightError:
-                    pass
-
-        return {
-            "composer_text": composer_text,
-            "last_user_id": last_user_id,
-            "last_user_text": last_user_text,
-            "rate_limit_text": "\n".join(rate_limit_texts),
-        }
-
-    async def _dialog_dismiss_button(self, dialog: Locator) -> Locator | None:
-        named = await self._first_usable(
-            [
-                dialog.get_by_role(role, name=_DISMISS_RE)
-                for role in ("button", "menuitem", "option", "link")
-            ]
-        )
-        if named is not None:
-            return named
-
-        controls = dialog.locator(
-            "button,a,input,summary,[role],[tabindex],[aria-label],"
-            "[aria-labelledby],[title],[aria-controls],[aria-expanded]"
-        )
-        try:
-            count = min(await controls.count(), 24)
-        except PlaywrightError:
-            return None
-
-        labelled: list[Locator] = []
-        usable: list[Locator] = []
-        for index in range(count):
-            candidate = controls.nth(index)
-            try:
-                if not await candidate.is_visible() or not await candidate.is_enabled():
-                    continue
-                usable.append(candidate)
-                labels = await candidate.evaluate(load_browser_script("semantic_control_labels.js"))
-                if isinstance(labels, list) and any(
-                    _DISMISS_RE.search(str(label)) for label in labels
-                ):
-                    labelled.append(candidate)
-            except PlaywrightError:
-                continue
-        if len(labelled) == 1:
-            return labelled[0]
-
-        # Once the surrounding element has already been positively identified as
-        # the target modal, one usable interactive control is a safe structural
-        # fallback even if ChatGPT changes both its role and visible copy.
-        return usable[0] if len(usable) == 1 else None
-
-    async def _is_history_rate_limit_dialog(self, candidate: Locator) -> bool:
-        try:
-            if await candidate.evaluate(
-                load_browser_script("matches_or_closest.js"),
-                CONVERSATION_HISTORY_RATE_LIMIT_SELECTOR,
-            ):
-                return True
-            text = (await candidate.inner_text()).strip()
-        except PlaywrightError:
-            return False
-        return bool(_RATE_LIMIT_RE.search(text) and _HISTORY_RATE_LIMIT_RE.search(text))
-
-    async def _interactive_text_container(
-        self,
-        page: Page,
-        text_pattern: re.Pattern[str],
-    ) -> Locator | None:
-        """Find the nearest visible button-bearing container around semantic text.
-
-        This is deliberately a last-resort structural fallback for UI churn where a
-        modal loses its dialog role/test ID but keeps its user-visible message and
-        an interactive dismissal control.
-        """
-        matches = page.get_by_text(text_pattern, exact=False)
+        matches = page.locator('[data-testid*="rate-limit" i]')
         try:
             count = min(await matches.count(), 12)
         except PlaywrightError:
-            return None
-        for index in range(count):
-            match = matches.nth(index)
-            try:
-                if not await match.is_visible():
-                    continue
-                container = match.locator(
-                    "xpath=ancestor-or-self::*["
-                    ".//button or .//a[@href] or .//input[not(@type='hidden')] or .//summary "
-                    "or .//*[@role] or .//*[@tabindex and @tabindex!='-1'] "
-                    "or .//*[@aria-controls] or .//*[@aria-expanded]"
-                    "][1]"
-                )
-                if await container.count() == 0 or not await container.is_visible():
-                    continue
-                tag_name = str(
-                    await container.evaluate(load_browser_script("element_tag_name.js")) or ""
-                ).casefold()
-                if tag_name in {"html", "body", "main"}:
-                    continue
-                if await self._dialog_dismiss_button(container) is None:
-                    continue
-                return container
-            except PlaywrightError:
-                continue
-        return None
-
-    async def _history_rate_limit_dialog(self, page: Page) -> Locator | None:
-        exact = await self._first_usable(
-            [page.get_by_test_id("modal-conversation-history-rate-limit")],
-            enabled=False,
-        )
-        if exact is not None:
-            return exact
-
-        dialogs = page.locator('dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]')
-        try:
-            count = min(await dialogs.count(), 12)
-        except PlaywrightError:
             count = 0
         for index in range(count):
-            candidate = dialogs.nth(index)
+            candidate = matches.nth(index)
             try:
+                test_id = str(await candidate.get_attribute("data-testid") or "")
+                if "conversation-history" in test_id.casefold():
+                    continue
                 if not await candidate.is_visible():
                     continue
+                text = (await candidate.inner_text()).strip()
             except PlaywrightError:
                 continue
-            if await self._is_history_rate_limit_dialog(candidate):
-                return candidate
+            if text and _RATE_LIMIT_RE.search(text) and text not in rate_limit_texts:
+                rate_limit_texts.append(text)
 
-        structural = await self._interactive_text_container(page, _HISTORY_RATE_LIMIT_RE)
-        if structural is not None and await self._is_history_rate_limit_dialog(structural):
-            return structural
-        return None
-
-    async def _dismiss_history_rate_limit(self, page: Page | None = None) -> bool:
-        current_page = page or self._page()
-        history_rate_limit = await self._history_rate_limit_dialog(current_page)
-        if history_rate_limit is None:
-            return False
-        self._history_rate_limit_seen = True
-        dismiss = await self._dialog_dismiss_button(history_rate_limit)
-        if dismiss is None:
-            return False
-        try:
-            await dismiss.click()
-            await history_rate_limit.wait_for(state="hidden", timeout=1_000)
-        except PlaywrightError:
-            return False
-        return True
-
-    async def dismiss_history_rate_limit(self, *, context: str | None = None) -> bool:
-        page = self._pages.get(context) if context else None
-        dismissed = await self._dismiss_history_rate_limit(page)
-        seen = self._history_rate_limit_seen
-        self._history_rate_limit_seen = False
-        return dismissed or seen
+        return {
+            "composer_text": composer_text,
+            "rate_limit_text": "\n".join(rate_limit_texts),
+        }
 
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()
@@ -1430,7 +986,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
             # Accessible roles and tags can churn independently of the public
             # label. Prefer the main landmark, then require a unique semantic match
-            # page-wide so transcript text or sidebar links cannot steal the click.
+            # page-wide so unrelated controls cannot steal the click.
             scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
             for scope in scopes:
                 interactive = scope.locator(
@@ -1475,7 +1031,6 @@ class PlaywrightDriver(BrowserDriverBase):
             return False
 
         while asyncio.get_running_loop().time() < deadline:
-            await self._dismiss_history_rate_limit(page)
             chat = await chat_control()
             if chat is None:
                 # ChatGPT no longer always exposes explicit Chat/Work mode controls.
@@ -1553,37 +1108,6 @@ class PlaywrightDriver(BrowserDriverBase):
             except PlaywrightError:
                 continue
         return None
-
-    async def effort_trigger_info(self, timeout: float = 20.0) -> dict[str, Any]:
-        deadline = asyncio.get_running_loop().time() + timeout
-        while asyncio.get_running_loop().time() < deadline:
-            button = await self._effort_trigger_locator()
-            if button is None:
-                await asyncio.sleep(0.15)
-                continue
-            try:
-                labels = await button.evaluate(load_browser_script("semantic_control_labels.js"))
-                label = " ".join(str(value) for value in labels) if isinstance(labels, list) else ""
-                box = await button.bounding_box()
-                if box is None:
-                    await asyncio.sleep(0.1)
-                    continue
-                normalized_label = re.sub(r"\s+", " ", label).strip()
-                match = _EFFORT_RE.search(normalized_label)
-                selected = (
-                    re.sub(r"\s+", " ", match.group(1)).strip().title()
-                    if match
-                    else "Thinking effort"
-                )
-                return {
-                    "text": selected,
-                    "label": normalized_label,
-                    "x": box["x"] + box["width"] / 2,
-                    "y": box["y"] + box["height"] / 2,
-                }
-            except PlaywrightError:
-                await asyncio.sleep(0.1)
-        raise RuntimeError("ChatGPT thinking-effort control did not become available")
 
     async def _power_control(self, page: Page) -> Locator | None:
         # The power row has changed accessible role before. The durable contract is
@@ -1856,46 +1380,12 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.05)
         raise RuntimeError(f"ChatGPT Power control did not reach position {position}")
 
-    async def _perform_actions(self, context: str, actions: list[dict[str, Any]]) -> None:
-        page = self._page(context)
-        key_map = {
-            "\ue003": "Backspace",
-            "\ue007": "Enter",
-            "\ue009": "Control",
-            "\ue00c": "Escape",
-        }
-        for source in actions:
-            source_type = source.get("type")
-            entries = source.get("actions") or []
-            if source_type == "key":
-                for action in entries:
-                    value = key_map.get(
-                        str(action.get("value") or ""), str(action.get("value") or "")
-                    )
-                    if action.get("type") == "keyDown":
-                        await page.keyboard.down(value)
-                    elif action.get("type") == "keyUp":
-                        await page.keyboard.up(value)
-            elif source_type == "pointer":
-                for action in entries:
-                    kind = action.get("type")
-                    if kind == "pointerMove":
-                        await page.mouse.move(
-                            float(action.get("x") or 0), float(action.get("y") or 0)
-                        )
-                    elif kind == "pointerDown":
-                        await page.mouse.down(button="left")
-                    elif kind == "pointerUp":
-                        await page.mouse.up(button="left")
-
-    async def _click_viewport_point(self, context: str, x: float, y: float) -> None:
-        page = self._page(context)
-        viewport = await page.evaluate(load_browser_script("viewport_size.js"))
-        width = float((viewport or {}).get("width") or 0)
-        height = float((viewport or {}).get("height") or 0)
-        if x < 0 or y < 0 or x >= width or y >= height:
-            raise RuntimeError("Playwright pointer target is out of bounds")
-        await page.mouse.click(x, y)
+    async def dismiss_transient_controls(self) -> None:
+        page = self._page()
+        try:
+            await page.keyboard.press("Escape")
+        except PlaywrightError:
+            pass
 
     async def close(self) -> None:
         pages = [

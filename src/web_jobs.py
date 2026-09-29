@@ -1,78 +1,27 @@
 from __future__ import annotations
 
-import hashlib
 import math
 import re
-import subprocess
-import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .jobs import PromptJob, add_job, load_jobs
+from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .scheduler_runtime import SchedulerRuntime
 
 
-def schedule_job_name(prompt: str, interval_minutes: float) -> str:
-    normalised_prompt = re.sub(r"\s+", " ", prompt).strip()
-    words = re.findall(r"[a-z0-9]+", normalised_prompt.casefold())[:6]
-    slug = "-".join(words) or "job"
-    interval_seconds = float(interval_minutes) * 60.0
-    identity = f"{normalised_prompt.casefold()}\0{interval_seconds:.9g}"
-    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-    return f"ui-{slug[:36]}-{digest}"
-
-
-def normalize_schedule_prompt(prompt: str) -> str:
-    return re.sub(r"\s+", " ", prompt).strip()
-
-
-def validate_schedule_interval(interval_minutes: float) -> float:
-    value = float(interval_minutes)
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError("Schedule interval must be a finite value greater than zero")
-    if value < 0.1:
-        raise ValueError("Schedule interval must be at least 6 seconds")
-    if value > 60.0 * 24.0 * 30.0:
-        raise ValueError("Schedule interval cannot exceed 30 days")
-    return value
-
-
-def matching_exact_interval_job(
-    jobs: list[PromptJob],
-    *,
-    prompt: str,
-    interval_seconds: float,
-) -> PromptJob | None:
-    prompt_identity = normalize_schedule_prompt(prompt).casefold()
-    for existing in jobs:
-        if (
-            normalize_schedule_prompt(existing.prompt).casefold() == prompt_identity
-            and existing.daily_at is None
-            and existing.run_at_epoch is None
-            and existing.exact_interval
-            and math.isclose(
-                existing.interval_seconds,
-                interval_seconds,
-                rel_tol=0.0,
-                abs_tol=1e-6,
-            )
-        ):
-            return existing
-    return None
-
-
-def schedule_at_job_name(prompt: str, run_at_epoch: float) -> str:
-    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:10]
-    return f"at-{int(run_at_epoch)}-{digest}"
-
-
-def validate_schedule_time(run_at_epoch: float, *, now: float) -> float:
-    value = float(run_at_epoch)
-    if not math.isfinite(value) or value <= now:
-        raise ValueError("Schedule time must be a finite timestamp in the future")
-    return value
+def _validated_interval_minutes(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ValueError("Interval minutes must be a number")
+    try:
+        minutes = float(value)
+    except ValueError as exc:
+        raise ValueError("Interval minutes must be a number") from exc
+    if not math.isfinite(minutes) or minutes < 0.1:
+        raise ValueError("Interval minutes must be at least 0.1")
+    if minutes > 60.0 * 24.0 * 30.0:
+        raise ValueError("Interval minutes cannot exceed 30 days")
+    return minutes
 
 
 def serialize_scheduled_jobs(
@@ -81,17 +30,19 @@ def serialize_scheduled_jobs(
 ) -> list[dict[str, Any]]:
     serialized: list[dict[str, Any]] = []
     for job in jobs:
-        job_state = state_jobs.get(job.name)
-        if not isinstance(job_state, dict):
-            job_state = {}
+        raw_state = state_jobs.get(job.name)
+        job_state = raw_state if isinstance(raw_state, dict) else {}
         paused = job_state.get("paused") is True
         status = "paused" if paused else str(job_state.get("status") or "pending")
-        if status not in {"paused", "pending", "healthy", "failing", "rate-limited"}:
+        if status not in {"paused", "pending", "queued", "healthy", "failing", "rate-limited"}:
             status = "pending"
-        try:
-            next_due_at = float(job_state.get("next_due_at_epoch") or 0.0)
-        except (TypeError, ValueError):
-            next_due_at = 0.0
+
+        def state_float(key: str) -> float:
+            try:
+                return float(job_state.get(key) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
         serialized.append(
             {
                 "name": job.name,
@@ -103,64 +54,13 @@ def serialize_scheduled_jobs(
                 "source_revision": job.source_revision,
                 "paused": paused,
                 "status": status,
-                "next_due_at_epoch": next_due_at,
+                "status_message": str(job_state.get("status_message") or ""),
+                "next_due_at_epoch": state_float("next_due_at_epoch")
+                or state_float("initial_due_at_epoch"),
+                "last_sent_at": state_float("last_sent_at"),
             }
         )
     return serialized
-
-
-def build_job_cli_command(
-    action: str,
-    payload: dict[str, Any],
-    *,
-    jobs_path: Path,
-    state_path: Path,
-) -> tuple[str, list[str], bool]:
-    normalized_action = action.strip().lower()
-    command = [sys.executable, "-m", "prompta.core"]
-
-    if normalized_action == "add":
-        name = str(payload.get("name") or "").strip()
-        prompt = str(payload.get("prompt") or "").strip()
-        if not name:
-            raise ValueError("Job name is required")
-        if not prompt:
-            raise ValueError("Job prompt is required")
-        command += ["add", name, prompt]
-        daily_at = str(payload.get("daily_at") or "").strip()
-        if daily_at:
-            if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at):
-                raise ValueError("Daily time must use HH:MM")
-            command += ["--daily-at", daily_at]
-        else:
-            raw_interval_minutes = payload.get("interval_minutes")
-            if not isinstance(raw_interval_minutes, (str, int, float)) or isinstance(
-                raw_interval_minutes, bool
-            ):
-                raise ValueError("Interval minutes must be a number")
-            try:
-                interval_minutes = float(raw_interval_minutes)
-            except ValueError as exc:
-                raise ValueError("Interval minutes must be a number") from exc
-            if not math.isfinite(interval_minutes) or interval_minutes <= 0:
-                raise ValueError("Interval minutes must be greater than zero")
-            command += ["--interval-minutes", str(interval_minutes)]
-            if payload.get("exact_interval") is True:
-                command.append("--exact-interval")
-        command += ["--jobs-file", str(jobs_path)]
-    elif normalized_action in {"remove", "pause", "resume"}:
-        name = str(payload.get("name") or "").strip()
-        if not name:
-            raise ValueError("Job name is required")
-        command += [normalized_action, name, "--jobs-file", str(jobs_path)]
-        if normalized_action in {"pause", "resume"}:
-            command += ["--state", str(state_path)]
-    elif normalized_action == "clear":
-        command += ["clear", "--jobs-file", str(jobs_path)]
-    else:
-        raise ValueError(f"Unsupported jobs command: {normalized_action}")
-
-    return normalized_action, command, normalized_action in {"add", "resume"}
 
 
 class WebJobService:
@@ -169,109 +69,84 @@ class WebJobService:
         jobs_path: Path,
         state_path: Path,
         server_name: str,
-        start_scheduler: Callable[[], bool],
+        start_scheduler: Callable[[], bool] | None = None,
     ) -> None:
-        self.jobs_path = jobs_path
-        self.state_path = state_path
+        self.jobs_path = jobs_path.expanduser()
+        self.state_path = state_path.expanduser()
         self.server_name = server_name
         self.start_scheduler = start_scheduler
 
+    @property
+    def runtime(self) -> SchedulerRuntime:
+        return SchedulerRuntime(self.state_path, self.jobs_path)
+
     def scheduled_jobs(self) -> dict[str, Any]:
-        state_payload = SchedulerRuntime(self.state_path, self.jobs_path).load_state()
+        state_payload = self.runtime.load_state()
         state_jobs = state_payload.get("jobs") if isinstance(state_payload, dict) else {}
         if not isinstance(state_jobs, dict):
             state_jobs = {}
-
         jobs = serialize_scheduled_jobs(list(load_jobs(self.jobs_path).values()), state_jobs)
         return {"jobs": jobs, "server": self.server_name}
 
-    def run_cli(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
-        action, command, should_start_scheduler = build_job_cli_command(
-            action,
-            payload,
-            jobs_path=self.jobs_path,
-            state_path=self.state_path,
-        )
-
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise RuntimeError(detail or f"prompta {action} failed")
-
-        if should_start_scheduler:
+    def _wake_scheduler(self) -> None:
+        if self.start_scheduler is not None:
             self.start_scheduler()
-        display = ["prompta", *command[3:]]
-        return {
-            "ok": True,
-            "command": display,
-            **self.scheduled_jobs(),
-        }
 
-    def schedule_every(self, prompt: str, interval_minutes: float) -> dict[str, Any]:
-        prompt = normalize_schedule_prompt(prompt)
-        if not prompt:
-            raise ValueError("Schedule prompt is required")
-        interval_minutes = validate_schedule_interval(interval_minutes)
-        interval_seconds = interval_minutes * 60.0
-        existing = matching_exact_interval_job(
-            list(load_jobs(self.jobs_path).values()),
-            prompt=prompt,
-            interval_seconds=interval_seconds,
-        )
-        if existing is not None:
-            scheduler_started = self.start_scheduler()
-            return {
-                "name": existing.name,
-                "prompt": existing.prompt,
-                "interval_minutes": existing.interval_seconds / 60.0,
-                "source_revision": existing.source_revision,
-                "scheduler_started": scheduler_started,
-                "server": self.server_name,
-                "created": False,
-            }
+    def apply(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized_action = action.strip().lower()
+        runtime = self.runtime
 
-        name = schedule_job_name(prompt, interval_minutes)
-        add_job(
-            self.jobs_path,
-            name,
-            prompt,
-            interval_seconds,
-            exact_interval=True,
-        )
-        scheduler_started = self.start_scheduler()
-        return {
-            "name": name,
-            "prompt": prompt,
-            "interval_minutes": interval_minutes,
-            "source_revision": load_jobs(self.jobs_path)[name].source_revision,
-            "scheduler_started": scheduler_started,
-            "server": self.server_name,
-            "created": True,
-        }
+        if normalized_action == "add":
+            name = str(payload.get("name") or "").strip()
+            prompt = str(payload.get("prompt") or "").strip()
+            if not name:
+                raise ValueError("Job name is required")
+            if not prompt:
+                raise ValueError("Job prompt is required")
 
-    def schedule_at(self, prompt: str, run_at_epoch: float) -> dict[str, Any]:
-        run_at_epoch = validate_schedule_time(run_at_epoch, now=time.time())
-        name = schedule_at_job_name(prompt, run_at_epoch)
-        add_job(
-            self.jobs_path,
-            name,
-            prompt,
-            0.0,
-            exact_interval=True,
-            run_at_epoch=run_at_epoch,
-        )
-        scheduler_started = self.start_scheduler()
-        return {
-            "name": name,
-            "prompt": prompt,
-            "run_at_epoch": run_at_epoch,
-            "source_revision": load_jobs(self.jobs_path)[name].source_revision,
-            "scheduler_started": scheduler_started,
-            "server": self.server_name,
-        }
+            daily_at = str(payload.get("daily_at") or "").strip() or None
+            if daily_at is not None:
+                if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at) is None:
+                    raise ValueError("Daily time must use HH:MM")
+                interval_seconds = 0.0
+                exact_interval = False
+            else:
+                minutes = _validated_interval_minutes(payload.get("interval_minutes"))
+                interval_seconds = minutes * 60.0
+                exact_interval = payload.get("exact_interval") is True
+
+            add_job(
+                self.jobs_path,
+                name,
+                prompt,
+                interval_seconds,
+                daily_at=daily_at,
+                exact_interval=exact_interval,
+            )
+            runtime.clear_job_state(name)
+            self._wake_scheduler()
+
+        elif normalized_action == "remove":
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("Job name is required")
+            remove_job(self.jobs_path, name)
+            runtime.clear_job_state(name)
+
+        elif normalized_action in {"pause", "resume"}:
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("Job name is required")
+            if not runtime.set_job_paused(name, normalized_action == "pause"):
+                raise ValueError("Unknown job: " + name)
+            if normalized_action == "resume":
+                self._wake_scheduler()
+
+        elif normalized_action == "clear":
+            clear_jobs(self.jobs_path)
+            runtime.clear_all_job_state()
+
+        else:
+            raise ValueError("Unsupported jobs action: " + normalized_action)
+
+        return {"ok": True, **self.scheduled_jobs()}

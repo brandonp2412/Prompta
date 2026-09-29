@@ -60,7 +60,6 @@ def test_scheduler_reconciles_worker_success_and_advances_recurring_job(tmp_path
     assert producer.queue.complete_claim(
         claimed["send_id"],
         "test-worker",
-        conversation_id="conversation-1",
         now=1005.0,
     )
 
@@ -70,7 +69,7 @@ def test_scheduler_reconciles_worker_success_and_advances_recurring_job(tmp_path
     state = restarted.runtime.job_state("recurring")
     assert state["last_sent_at"] == pytest.approx(1005.0)
     assert state["next_due_at_epoch"] == pytest.approx(1065.0)
-    assert state["last_conversation_id"] == "conversation-1"
+    assert "last_conversation_id" not in state
     assert state["status"] == "healthy"
 
     assert restarted.tick(now=1006.0) == 0

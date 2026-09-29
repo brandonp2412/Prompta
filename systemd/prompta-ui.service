@@ -1,5 +1,5 @@
 [Unit]
-Description=Prompta Nox conversation UI
+Description=Prompta scheduled jobs UI
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=120
@@ -12,7 +12,7 @@ WorkingDirectory=%h/prompta
 Environment=PYTHONUNBUFFERED=1
 Environment=UV_NO_PROGRESS=1
 Environment=PROMPTA_CHROME_DEBUGGER_ADDRESS=127.0.0.1:9222
-ExecStart=%h/prompta/.venv/bin/prompta-ui --cache %h/.local/state/prompta/chats.sqlite3 --logs %h/.local/state/prompta/prompta-nox.log --host 127.0.0.1 --port 8765 --preserve-active
+ExecStart=%h/prompta/.venv/bin/prompta-ui --host 127.0.0.1 --port 8765
 Restart=always
 RestartSec=3
 WatchdogSec=30s
@@ -22,9 +22,9 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/.local/state/prompta %h/.config/prompta
-MemoryHigh=512M
-MemoryMax=1G
-TasksMax=256
+MemoryHigh=256M
+MemoryMax=512M
+TasksMax=128
 
 [Install]
 WantedBy=prompta.target

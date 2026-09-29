@@ -10,10 +10,7 @@ from prompta.delivery_queue import DeliveryQueueStore
 def _queued_record(send_id: str = "send-1", *, client_id: str = "client-1") -> dict[str, object]:
     return {
         "send_id": send_id,
-        "operation": "once",
         "message": "hello",
-        "conversation_id": "",
-        "attachments": [],
         "client_id": client_id,
         "status": "queued",
         "created_at": 10.0,
@@ -54,46 +51,41 @@ def test_expired_delivery_lease_is_reclaimable_and_renewal_extends_it(tmp_path: 
     assert reclaimed["lease_owner"] == "worker-b"
 
 
-def test_health_metrics_cover_ready_lease_and_last_success(tmp_path: Path) -> None:
+def test_health_metrics_cover_pending_and_last_success(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())
 
     ready = store.health_metrics(now=20.0)
-    assert ready["oldest_ready_at"] == 10.0
-    assert ready["oldest_ready_age_seconds"] == 10.0
-    assert ready["current_lease_age_seconds"] is None
+    assert ready["queued"] == 1
+    assert ready["running"] == 0
+    assert ready["oldest_pending_age_seconds"] == 10.0
     assert ready["last_successful_delivery_at"] == 0.0
 
     claimed = store.claim_next("worker-a", now=20.0, lease_seconds=90.0)
     assert claimed is not None
     leased = store.health_metrics(now=25.0)
-    assert leased["current_lease_send_id"] == "send-1"
-    assert leased["current_lease_age_seconds"] == 5.0
-    assert leased["oldest_ready_age_seconds"] is None
+    assert leased["queued"] == 0
+    assert leased["running"] == 1
+    assert leased["oldest_pending_age_seconds"] == 15.0
 
-    assert store.complete_claim(
-        "send-1",
-        "worker-a",
-        conversation_id="chat-1",
-        now=30.0,
-    )
+    assert store.complete_claim("send-1", "worker-a", now=30.0)
     completed = store.health_metrics(now=31.0)
-    assert completed["current_lease_age_seconds"] is None
+    assert completed["running"] == 0
+    assert completed["oldest_pending_age_seconds"] == 0.0
     assert completed["last_successful_delivery_at"] == 30.0
-    assert completed["last_successful_delivery_send_id"] == "send-1"
-    assert completed["last_successful_delivery_conversation_id"] == "chat-1"
 
 
-def test_delivery_queue_creates_health_lookup_indexes(tmp_path: Path) -> None:
+def test_delivery_queue_creates_jobs_only_lookup_indexes(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     connection = store.connect()
     indexes = {
-        str(row["name"]) for row in connection.execute("PRAGMA index_list(send_jobs)").fetchall()
+        str(row["name"])
+        for row in connection.execute("PRAGMA index_list(job_deliveries)").fetchall()
     }
     connection.close()
 
-    assert "send_jobs_running_lease" in indexes
-    assert "send_jobs_succeeded_finished" in indexes
+    assert "job_deliveries_claimable" in indexes
+    assert "job_deliveries_client_id" in indexes
 
 
 def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> None:
@@ -101,55 +93,16 @@ def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> Non
     store.upsert(_queued_record())
     assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
 
-    assert not store.complete_claim(
-        "send-1",
-        "worker-b",
-        conversation_id="chat-wrong",
-        now=101.0,
-    )
-    assert store.complete_claim(
-        "send-1",
-        "worker-a",
-        conversation_id="chat-1",
-        now=102.0,
-    )
+    assert not store.complete_claim("send-1", "worker-b", now=101.0)
+    assert store.complete_claim("send-1", "worker-a", now=102.0)
     first = store.records()[0]
     assert first["status"] == "succeeded"
-    assert first["conversation_id"] == "chat-1"
     assert first["finished_at"] == 102.0
     assert first["lease_owner"] == ""
 
-    assert store.complete_claim(
-        "send-1",
-        "worker-a",
-        conversation_id="chat-1",
-        now=200.0,
-    )
+    assert store.complete_claim("send-1", "stale-worker", now=200.0)
     again = store.records()[0]
     assert again["finished_at"] == 102.0
-    assert again["conversation_id"] == "chat-1"
-
-
-def test_succeeded_completion_acknowledges_late_duplicate_without_mutation(tmp_path: Path) -> None:
-    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
-    store.upsert(_queued_record())
-    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
-    assert store.complete_claim(
-        "send-1",
-        "worker-a",
-        conversation_id="chat-original",
-        now=101.0,
-    )
-
-    assert store.complete_claim(
-        "send-1",
-        "stale-worker",
-        conversation_id="chat-late-duplicate",
-        now=999.0,
-    )
-    completed = store.records()[0]
-    assert completed["conversation_id"] == "chat-original"
-    assert completed["finished_at"] == 101.0
 
 
 def test_expired_delivery_lease_is_reclaimable_at_exact_boundary(tmp_path: Path) -> None:
@@ -184,7 +137,7 @@ def test_retry_backoff_controls_claim_eligibility(tmp_path: Path) -> None:
     assert claimed["lease_owner"] == "worker-b"
 
 
-def test_old_queue_schema_migrates_queued_and_retrying_rows(tmp_path: Path) -> None:
+def test_legacy_generic_queue_migrates_only_fresh_job_deliveries(tmp_path: Path) -> None:
     path = tmp_path / "delivery.sqlite3"
     connection = sqlite3.connect(path)
     connection.executescript(
@@ -215,7 +168,7 @@ def test_old_queue_schema_migrates_queued_and_retrying_rows(tmp_path: Path) -> N
             send_id, operation, message, client_id, status, created_at, updated_at,
             retry_at, retry_attempt, last_error
         ) VALUES (
-            'old-retry', 'reply', 'retry payload', 'old-client-r', 'retrying', 2, 2,
+            'old-reply', 'reply', 'reply payload', 'old-client-r', 'retrying', 2, 2,
             50, 3, 'temporary'
         );
         """
@@ -226,25 +179,20 @@ def test_old_queue_schema_migrates_queued_and_retrying_rows(tmp_path: Path) -> N
     store = DeliveryQueueStore(path)
     connection = store.connect()
     try:
-        columns = {row["name"] for row in connection.execute("PRAGMA table_info(send_jobs)")}
+        legacy = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'send_jobs'"
+        ).fetchone()
+        jobs_only = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'job_deliveries'"
+        ).fetchone()
     finally:
         connection.close()
-    assert {"lease_owner", "lease_acquired_at", "lease_expires_at"} <= columns
 
-    records = store.records()
-    assert [record["send_id"] for record in records] == ["old-queued", "old-retry"]
-    assert [record["client_id"] for record in records] == ["old-client-q", "old-client-r"]
+    assert legacy is None
+    assert jobs_only is not None
+    assert [record["send_id"] for record in store.records()] == ["old-queued"]
 
-    first = store.claim_next("worker-a", now=100.0, lease_seconds=30.0)
-    assert first is not None
-    assert first["send_id"] == "old-queued"
-    assert store.complete_claim(
-        "old-queued",
-        "worker-a",
-        conversation_id="chat-q",
-        now=101.0,
-    )
-    second = store.claim_next("worker-b", now=102.0, lease_seconds=30.0)
-    assert second is not None
-    assert second["send_id"] == "old-retry"
-    assert second["retry_attempt"] == 3
+    claimed = store.claim_next("worker-a", now=100.0, lease_seconds=30.0)
+    assert claimed is not None
+    assert claimed["send_id"] == "old-queued"
+    assert store.complete_claim("old-queued", "worker-a", now=101.0)

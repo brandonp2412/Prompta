@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import ast
-import json
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from prompta.browser_script_loader import load_browser_script, render_browser_script
+from prompta.browser_script_loader import load_browser_script
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src"
@@ -58,19 +57,8 @@ def test_production_python_contains_no_inline_browser_javascript() -> None:
                 and _literal_text(node.args[0])
             ):
                 offenders.append(f"{path.relative_to(ROOT)}:{getattr(node, 'lineno', 0)}")
-                continue
-            if isinstance(node, ast.Dict):
-                for key, value in zip(node.keys, node.values, strict=True):
-                    if (
-                        isinstance(key, ast.Constant)
-                        and key.value == "expression"
-                        and _literal_text(value)
-                    ):
-                        offenders.append(f"{path.relative_to(ROOT)}:{getattr(node, 'lineno', 0)}")
 
-    assert offenders == [], (
-        "Inline browser JavaScript belongs in src/browser_scripts: " + ", ".join(offenders)
-    )
+    assert offenders == []
 
 
 @pytest.mark.parametrize(
@@ -110,22 +98,19 @@ def test_browser_script_loader_reads_packaged_assets() -> None:
         assert load_browser_script(script_path.name)
 
 
-def test_browser_script_template_json_encodes_values() -> None:
-    conversation_id = 'conversation-"quoted"\nline\\slash'
-    script = render_browser_script(
-        "conversation_final_event.js",
-        conversation_id=conversation_id,
-    )
-
-    assert "__CONVERSATION_ID__" not in script
-    assert f"encodeURIComponent({json.dumps(conversation_id)})" in script
-
-
-def test_browser_script_template_rejects_unknown_marker() -> None:
-    with pytest.raises(ValueError, match="has no template marker"):
-        render_browser_script("ensure_token.js", missing="value")
-
-
 def test_browser_script_loader_rejects_nested_paths() -> None:
     with pytest.raises(ValueError, match="Invalid browser script name"):
         load_browser_script("../conversation_snapshot.js")
+
+
+def test_transcript_scripts_are_removed() -> None:
+    removed = {
+        "conversation_snapshot.js",
+        "conversation_activity.js",
+        "conversation_final_event.js",
+        "message_discovery.js",
+        "react_tool_messages.js",
+        "transcript_browser_engine.js",
+        "last_user_text.js",
+    }
+    assert removed.isdisjoint({path.name for path in SCRIPT_ROOT.glob("*.js")})

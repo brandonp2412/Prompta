@@ -1,59 +1,42 @@
-import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock
 
-import pytest
+from prompta.delivery_worker import DeliveryAdmission
+from prompta.jobs import add_job
+from prompta.scheduler_runtime import SchedulerRuntime
 
-from prompta.core import Prompta, PromptaConfig, PromptJob
+
+class FakeResourceAdmission:
+    def __init__(self, allowed: bool, reason: str = "") -> None:
+        self.allowed = allowed
+        self.reason = reason
+
+    def __call__(self) -> tuple[bool, str]:
+        return self.allowed, self.reason
 
 
-@pytest.mark.asyncio
-async def test_control_queue_waits_for_host_headroom(tmp_path: Path) -> None:
-    healthy = False
-
-    def admission() -> tuple[bool, str]:
-        return (healthy, "" if healthy else "host is busy")
-
-    prompta = Prompta(
-        PromptaConfig(
-            jobs_file=tmp_path / "jobs.json",
-            state_path=tmp_path / "state.json",
-            cache_path=tmp_path / "chats.sqlite3",
-        ),
-        "ws://unused",
-        resource_admission=admission,
+def test_delivery_admission_blocks_host_pressure(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "job", "work", 1800)
+    runtime = SchedulerRuntime(state, state)
+    admission = DeliveryAdmission(
+        runtime,
+        resource_admission=FakeResourceAdmission(False, "host is busy"),
     )
-    prompta.send_once = AsyncMock(return_value="new-chat")  # type: ignore[method-assign]
-    future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-    await prompta._once_requests.put(("Queued send", [], future))
 
-    assert await prompta._drain_once_requests() is False
-    assert prompta._once_requests.qsize() == 1
-    assert prompta.send_once.await_count == 0
-    assert not future.done()
+    allowed, reason, retry_after = admission()
 
-    healthy = True
-    prompta._update_scheduler_state({"last_attempt_at": 0.0})
-
-    assert await prompta._drain_once_requests() is True
-    assert await future == "new-chat"
-    assert prompta._once_requests.empty()
-    prompta.cache.close()
+    assert allowed is False
+    assert reason == "host is busy"
+    assert retry_after == 0.0
 
 
-@pytest.mark.asyncio
-async def test_scheduled_job_waits_for_host_headroom(tmp_path: Path) -> None:
-    prompta = Prompta(
-        PromptaConfig(
-            jobs_file=tmp_path / "jobs.json",
-            state_path=tmp_path / "state.json",
-            cache_path=tmp_path / "chats.sqlite3",
-        ),
-        "ws://unused",
-        resource_admission=lambda: (False, "memory pressure"),
-    )
-    prompta.send_once = AsyncMock(return_value="new-chat")  # type: ignore[method-assign]
+def test_delivery_admission_allows_healthy_host(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    runtime = SchedulerRuntime(state, state)
+    admission = DeliveryAdmission(runtime, resource_admission=FakeResourceAdmission(True))
 
-    assert await prompta._run_job(PromptJob("job", "work", 1800), now=1000.0) is False
-    assert prompta.send_once.await_count == 0
-    prompta.cache.close()
+    allowed, reason, retry_after = admission()
+
+    assert allowed is True
+    assert reason == ""
+    assert retry_after == 0.0

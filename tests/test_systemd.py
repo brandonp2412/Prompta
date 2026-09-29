@@ -1,19 +1,20 @@
 from pathlib import Path
 
 
-def test_legacy_monolith_unit_is_removed() -> None:
+def test_legacy_services_are_removed() -> None:
     assert not Path("systemd/prompta.service").exists()
+    assert not Path("systemd/prompta-conversation-worker.service").exists()
 
 
-def test_ui_is_not_coupled_to_workers_or_legacy_monolith() -> None:
+def test_ui_is_jobs_only_and_independent() -> None:
     unit = Path("systemd/prompta-ui.service").read_text()
 
-    assert "prompta.service" not in unit
-    assert "prompta-delivery-worker.service" not in unit
-    assert "prompta-scheduler.service" not in unit
-    assert "prompta-conversation-worker.service" not in unit
+    assert "prompta-ui --host 127.0.0.1 --port 8765" in unit
+    assert "--cache" not in unit
+    assert "--logs" not in unit
+    assert "--preserve-active" not in unit
+    assert "conversation" not in unit.lower()
     assert "WatchdogSec=30s" in unit
-    assert "NotifyAccess=main" in unit
     assert "WantedBy=prompta.target" in unit
 
 
@@ -25,24 +26,7 @@ def test_delivery_worker_is_independently_restartable() -> None:
     assert "prompta-browser.service" in unit
     assert "WatchdogSec=45s" in unit
     assert "NotifyAccess=main" in unit
-    assert "prompta.service" not in unit
-    assert "PartOf=prompta-ui.service" not in unit
-    assert "Requires=prompta-ui.service" not in unit
-
-
-def test_conversation_worker_is_independently_restartable() -> None:
-    unit = Path("systemd/prompta-conversation-worker.service").read_text()
-
-    assert "ExecStart=%h/prompta/.venv/bin/prompta-conversation-worker" in unit
-    assert "Restart=always" in unit
-    assert "prompta-browser.service" in unit
-    assert "WatchdogSec=120s" in unit
-    assert "NotifyAccess=main" in unit
-    assert "prompta-delivery-worker.service" not in unit
-    assert "prompta-scheduler.service" not in unit
-    assert "prompta.service" not in unit
-    assert "PartOf=prompta-ui.service" not in unit
-    assert "Requires=prompta-ui.service" not in unit
+    assert "prompta-conversation-worker.service" not in unit
 
 
 def test_scheduler_is_pure_independent_producer_service() -> None:
@@ -54,7 +38,6 @@ def test_scheduler_is_pure_independent_producer_service() -> None:
     assert "NotifyAccess=main" in unit
     assert "prompta-delivery-worker.service" not in unit
     assert "prompta-browser.service" not in unit
-    assert "prompta.service" not in unit
 
 
 def test_browser_has_independent_restart_and_resource_boundaries() -> None:
@@ -70,16 +53,16 @@ def test_browser_has_independent_restart_and_resource_boundaries() -> None:
     assert "Requires=prompta-ui.service" not in unit
 
 
-def test_target_starts_split_stack_without_legacy_monolith() -> None:
+def test_target_starts_only_jobs_stack() -> None:
     target = Path("systemd/prompta.target").read_text()
 
     for unit in (
         "prompta-ui.service",
         "prompta-scheduler.service",
         "prompta-delivery-worker.service",
-        "prompta-conversation-worker.service",
         "prompta-browser.service",
     ):
         assert unit in target
+    assert "prompta-conversation-worker.service" not in target
     assert "prompta.service" not in target
     assert "WantedBy=default.target" in target

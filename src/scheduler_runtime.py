@@ -53,8 +53,7 @@ class DeliveryIntent(TypedDict):
     attempt_count: int
 
 
-_NORMAL_SEND_GAP_SECONDS = 60.0
-_UNATTENDED_SEND_GAP_SECONDS = 10.0
+_SEND_GAP_SECONDS = 10.0
 
 
 class SchedulerRuntime:
@@ -132,7 +131,6 @@ class SchedulerRuntime:
                 attempt_count INTEGER NOT NULL DEFAULT 0,
                 last_attempt_at REAL NOT NULL DEFAULT 0,
                 available_at REAL NOT NULL DEFAULT 0,
-                conversation_id TEXT NOT NULL DEFAULT '',
                 last_error TEXT NOT NULL DEFAULT '',
                 completed_at REAL NOT NULL DEFAULT 0
             )
@@ -286,6 +284,17 @@ class SchedulerRuntime:
                 [(name, value_json) for name in names],
             )
         return len(names)
+
+    def clear_job_state(self, name: str) -> None:
+        with self._connect_state() as connection:
+            connection.execute(
+                "DELETE FROM scheduler_state WHERE scope = 'job' AND name = ?",
+                (name,),
+            )
+
+    def clear_all_job_state(self) -> None:
+        with self._connect_state() as connection:
+            connection.execute("DELETE FROM scheduler_state WHERE scope = 'job'")
 
     def scheduler_state(self) -> dict[str, Any]:
         try:
@@ -600,28 +609,6 @@ class SchedulerRuntime:
                 },
             )
 
-    def complete_delivery(
-        self,
-        intent_id: int,
-        job_name: str,
-        *,
-        conversation_id: str,
-        sent_at: float,
-        job_updates: dict[str, Any],
-    ) -> None:
-        with self._connect_state() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                UPDATE delivery_intents
-                SET status = 'delivered', conversation_id = ?, completed_at = ?,
-                    available_at = 0, last_error = ''
-                WHERE id = ? AND status = 'queued'
-                """,
-                (conversation_id, sent_at, intent_id),
-            )
-            self._write_job_updates(connection, job_name, job_updates)
-
     def delivery_intents(self, job_name: str | None = None) -> list[dict[str, Any]]:
         with self._connect_state() as connection:
             if job_name is None:
@@ -699,19 +686,10 @@ class SchedulerRuntime:
         self.update_scheduler_state({"rate_limit_backoff": snapshot})
         return remaining
 
-    def unattended_mode(self) -> bool:
-        return self.scheduler_state().get("unattended_mode") is True
-
-    def set_unattended_mode(self, enabled: bool) -> None:
-        self.update_scheduler_state({"unattended_mode": bool(enabled)})
-
-    def send_gap_seconds(self) -> float:
-        return _UNATTENDED_SEND_GAP_SECONDS if self.unattended_mode() else _NORMAL_SEND_GAP_SECONDS
-
     def send_gap_remaining(self, now: float) -> float:
         return calculate_send_gap_remaining(
             last_attempt_at=self.scheduler_state().get("last_attempt_at"),
-            gap_seconds=self.send_gap_seconds(),
+            gap_seconds=_SEND_GAP_SECONDS,
             now=now,
         )
 

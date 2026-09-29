@@ -17,7 +17,6 @@ SERVICE_STALE_AFTER_SECONDS = {
     "ui": 20.0,
     "scheduler": 20.0,
     "delivery_worker": 20.0,
-    "conversation_worker": 120.0,
     "browser": 30.0,
 }
 

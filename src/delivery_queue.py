@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any
 
 from .delivery_state import (
     RETRY_DELIVERY_STATUSES,
+    TERMINAL_DELIVERY_STATUSES,
     CompletionAction,
     claimable_delivery,
     completion_action,
@@ -17,10 +17,10 @@ from .delivery_state import (
 
 
 class DeliveryQueueStore:
-    """SQLite-backed delivery queue primitives safe for independent processes."""
+    """SQLite-backed queue containing only scheduled fresh-chat job deliveries."""
 
     def __init__(self, path: Path) -> None:
-        self.path = path
+        self.path = path.expanduser()
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
@@ -28,32 +28,25 @@ class DeliveryQueueStore:
         connection = sqlite3.connect(self.path, timeout=30.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
         connection.execute("PRAGMA busy_timeout=30000")
         return connection
 
     def initialize(self) -> None:
-        connection = self.connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.connect() as connection:
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS send_jobs (
+                CREATE TABLE IF NOT EXISTS job_deliveries (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     send_id TEXT NOT NULL UNIQUE,
-                    operation TEXT NOT NULL,
                     message TEXT NOT NULL,
-                    conversation_id TEXT NOT NULL DEFAULT '',
-                    attachments_json TEXT NOT NULL DEFAULT '[]',
                     client_id TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
                     error TEXT NOT NULL DEFAULT '',
+                    last_error TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     retry_at REAL NOT NULL DEFAULT 0,
                     retry_attempt INTEGER NOT NULL DEFAULT 0,
-                    infrastructure_retry_attempt INTEGER NOT NULL DEFAULT 0,
-                    last_error TEXT NOT NULL DEFAULT '',
                     finished_at REAL NOT NULL DEFAULT 0,
                     lease_owner TEXT NOT NULL DEFAULT '',
                     lease_acquired_at REAL NOT NULL DEFAULT 0,
@@ -61,429 +54,326 @@ class DeliveryQueueStore:
                 )
                 """
             )
-            columns = {
-                str(row["name"])
-                for row in connection.execute("PRAGMA table_info(send_jobs)").fetchall()
-            }
-            migrations = {
-                "infrastructure_retry_attempt": "INTEGER NOT NULL DEFAULT 0",
-                "lease_owner": "TEXT NOT NULL DEFAULT ''",
-                "lease_acquired_at": "REAL NOT NULL DEFAULT 0",
-                "lease_expires_at": "REAL NOT NULL DEFAULT 0",
-            }
-            for column, definition in migrations.items():
-                if column not in columns:
-                    connection.execute(f"ALTER TABLE send_jobs ADD COLUMN {column} {definition}")
             connection.execute(
                 """
-                CREATE UNIQUE INDEX IF NOT EXISTS send_jobs_client_id
-                    ON send_jobs(client_id) WHERE client_id <> ''
+                CREATE UNIQUE INDEX IF NOT EXISTS job_deliveries_client_id
+                ON job_deliveries(client_id) WHERE client_id <> ''
                 """
             )
             connection.execute(
                 """
-                CREATE INDEX IF NOT EXISTS send_jobs_fifo
-                    ON send_jobs(status, sequence)
+                CREATE INDEX IF NOT EXISTS job_deliveries_claimable
+                ON job_deliveries(status, retry_at, lease_expires_at, sequence)
                 """
             )
+            self._migrate_legacy_send_jobs(connection)
+
+    @staticmethod
+    def _migrate_legacy_send_jobs(connection: sqlite3.Connection) -> None:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'send_jobs'"
+        ).fetchone()
+        if exists is None:
+            return
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(send_jobs)").fetchall()
+        }
+        required = {
+            "send_id",
+            "operation",
+            "message",
+            "client_id",
+            "status",
+            "error",
+            "last_error",
+            "created_at",
+            "updated_at",
+            "retry_at",
+            "retry_attempt",
+            "finished_at",
+        }
+        if required.issubset(columns):
+            lease_owner = "lease_owner" if "lease_owner" in columns else "''"
+            lease_acquired_at = "lease_acquired_at" if "lease_acquired_at" in columns else "0"
+            lease_expires_at = "lease_expires_at" if "lease_expires_at" in columns else "0"
             connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS send_jobs_claimable
-                    ON send_jobs(status, retry_at, lease_expires_at, sequence)
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS send_jobs_running_lease
-                    ON send_jobs(lease_acquired_at, lease_expires_at)
-                    WHERE status = 'running' AND lease_owner <> ''
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS send_jobs_succeeded_finished
-                    ON send_jobs(finished_at DESC)
-                    WHERE status = 'succeeded' AND finished_at > 0
+                f"""
+                INSERT OR IGNORE INTO job_deliveries(
+                    send_id, message, client_id, status, error, last_error,
+                    created_at, updated_at, retry_at, retry_attempt, finished_at,
+                    lease_owner, lease_acquired_at, lease_expires_at
+                )
+                SELECT
+                    send_id, message, client_id, status, error, last_error,
+                    created_at, updated_at, retry_at, retry_attempt, finished_at,
+                    {lease_owner}, {lease_acquired_at}, {lease_expires_at}
+                FROM send_jobs
+                WHERE operation = 'once'
                 """
             )
-            connection.commit()
-        finally:
-            connection.close()
+        connection.execute("DROP TABLE send_jobs")
 
     @staticmethod
     def record_from_row(row: sqlite3.Row) -> dict[str, Any]:
-        try:
-            attachments = json.loads(str(row["attachments_json"] or "[]"))
-        except (TypeError, ValueError):
-            attachments = []
-        keys = set(row.keys())
-        record = {
-            "sequence": int(row["sequence"]) if "sequence" in keys else 0,
+        return {
             "send_id": str(row["send_id"]),
-            "operation": str(row["operation"]),
             "message": str(row["message"]),
-            "conversation_id": str(row["conversation_id"] or ""),
-            "attachments": [value for value in attachments if isinstance(value, str)]
-            if isinstance(attachments, list)
-            else [],
             "client_id": str(row["client_id"] or ""),
-            "status": str(row["status"]),
-            "error": str(row["error"] or "") if "error" in keys else "",
-            "retry_at": float(row["retry_at"] or 0.0),
-            "retry_attempt": max(0, int(row["retry_attempt"] or 0)),
-            "infrastructure_retry_attempt": max(0, int(row["infrastructure_retry_attempt"] or 0))
-            if "infrastructure_retry_attempt" in keys
-            else 0,
+            "status": str(row["status"] or "queued"),
+            "error": str(row["error"] or ""),
+            "last_error": str(row["last_error"] or ""),
             "created_at": float(row["created_at"] or 0.0),
-            "updated_at": float(row["updated_at"] or 0.0) if "updated_at" in keys else 0.0,
-            "lease_owner": str(row["lease_owner"] or "") if "lease_owner" in keys else "",
-            "lease_acquired_at": (
-                float(row["lease_acquired_at"] or 0.0) if "lease_acquired_at" in keys else 0.0
-            ),
-            "lease_expires_at": (
-                float(row["lease_expires_at"] or 0.0) if "lease_expires_at" in keys else 0.0
-            ),
+            "updated_at": float(row["updated_at"] or 0.0),
+            "retry_at": float(row["retry_at"] or 0.0),
+            "retry_attempt": int(row["retry_attempt"] or 0),
+            "finished_at": float(row["finished_at"] or 0.0),
+            "lease_owner": str(row["lease_owner"] or ""),
+            "lease_acquired_at": float(row["lease_acquired_at"] or 0.0),
+            "lease_expires_at": float(row["lease_expires_at"] or 0.0),
         }
-        last_error = str(row["last_error"] or "")
-        if last_error:
-            record["last_error"] = last_error
-        finished_at = float(row["finished_at"] or 0.0)
-        if finished_at > 0:
-            record["finished_at"] = finished_at
-        return record
 
     def records(self) -> list[dict[str, Any]]:
-        connection = self.connect()
-        try:
-            rows = connection.execute("SELECT * FROM send_jobs ORDER BY sequence").fetchall()
-            return [self.record_from_row(row) for row in rows]
-        finally:
-            connection.close()
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM job_deliveries ORDER BY sequence").fetchall()
+        return [self.record_from_row(row) for row in rows]
 
     def health_metrics(self, *, now: float | None = None) -> dict[str, Any]:
-        current = time.time() if now is None else float(now)
-        connection = self.connect()
-        try:
-            ready = connection.execute(
+        at = time.time() if now is None else float(now)
+        with self.connect() as connection:
+            counts = {
+                str(row["status"]): int(row["count"])
+                for row in connection.execute(
+                    """
+                    SELECT status, COUNT(*) AS count
+                    FROM job_deliveries
+                    GROUP BY status
+                    """
+                ).fetchall()
+            }
+            oldest = connection.execute(
                 """
-                SELECT MIN(created_at) AS oldest_ready_at
-                FROM send_jobs
-                WHERE status = 'queued'
-                   OR (
-                       status IN ('retrying', 'rate_limited')
-                       AND retry_at <= ?
-                   )
-                   OR (
-                       status = 'running'
-                       AND lease_expires_at <= ?
-                   )
-                """,
-                (current, current),
-            ).fetchone()
-            lease = connection.execute(
+                SELECT MIN(created_at) AS created_at
+                FROM job_deliveries
+                WHERE status IN ('queued', 'retrying', 'rate_limited', 'running')
                 """
-                SELECT send_id, lease_owner, lease_acquired_at, lease_expires_at
-                FROM send_jobs
-                WHERE status = 'running'
-                  AND lease_owner <> ''
-                  AND lease_expires_at > ?
-                ORDER BY lease_acquired_at
-                LIMIT 1
-                """,
-                (current,),
             ).fetchone()
             success = connection.execute(
                 """
-                SELECT send_id, conversation_id, finished_at
-                FROM send_jobs
+                SELECT finished_at
+                FROM job_deliveries
                 WHERE status = 'succeeded'
-                  AND finished_at > 0
                 ORDER BY finished_at DESC
                 LIMIT 1
                 """
             ).fetchone()
-        finally:
-            connection.close()
 
-        oldest_ready_at = float(ready["oldest_ready_at"] or 0.0) if ready is not None else 0.0
-        lease_acquired_at = float(lease["lease_acquired_at"] or 0.0) if lease is not None else 0.0
-        last_success_at = float(success["finished_at"] or 0.0) if success is not None else 0.0
+        oldest_at = float(oldest["created_at"] or 0.0) if oldest is not None else 0.0
         return {
-            "oldest_ready_at": oldest_ready_at,
-            "oldest_ready_age_seconds": (
-                max(0.0, current - oldest_ready_at) if oldest_ready_at > 0 else None
-            ),
-            "current_lease_send_id": str(lease["send_id"] or "") if lease is not None else "",
-            "current_lease_owner": str(lease["lease_owner"] or "") if lease is not None else "",
-            "current_lease_acquired_at": lease_acquired_at,
-            "current_lease_expires_at": (
-                float(lease["lease_expires_at"] or 0.0) if lease is not None else 0.0
-            ),
-            "current_lease_age_seconds": (
-                max(0.0, current - lease_acquired_at) if lease_acquired_at > 0 else None
-            ),
-            "last_successful_delivery_at": last_success_at,
-            "last_successful_delivery_send_id": (
-                str(success["send_id"] or "") if success is not None else ""
-            ),
-            "last_successful_delivery_conversation_id": (
-                str(success["conversation_id"] or "") if success is not None else ""
+            "queued": counts.get("queued", 0),
+            "running": counts.get("running", 0),
+            "retrying": counts.get("retrying", 0),
+            "rate_limited": counts.get("rate_limited", 0),
+            "dead_lettered": counts.get("dead_lettered", 0),
+            "outcome_unknown": counts.get("outcome_unknown", 0),
+            "oldest_pending_age_seconds": max(0.0, at - oldest_at) if oldest_at else 0.0,
+            "last_successful_delivery_at": (
+                float(success["finished_at"] or 0.0) if success is not None else 0.0
             ),
         }
 
     def get(self, send_id: str) -> dict[str, Any] | None:
-        connection = self.connect()
-        try:
+        with self.connect() as connection:
             row = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
-            return self.record_from_row(row) if row is not None else None
-        finally:
-            connection.close()
+        return self.record_from_row(row) if row is not None else None
 
     def enqueue_idempotent(self, record: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-        """Insert a delivery exactly once without changing an existing receipt."""
-        send_id = str(record["send_id"])
+        send_id = str(record.get("send_id") or "")
+        message = str(record.get("message") or "")
         client_id = str(record.get("client_id") or "")
-        connection = self.connect()
-        try:
+        if not send_id:
+            raise ValueError("delivery send_id is required")
+        if not message:
+            raise ValueError("delivery message is required")
+
+        now = float(record.get("created_at") or time.time())
+        with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+            existing = connection.execute(
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
-            if row is None and client_id:
-                row = connection.execute(
-                    "SELECT * FROM send_jobs WHERE client_id = ?",
+            if existing is None and client_id:
+                existing = connection.execute(
+                    "SELECT * FROM job_deliveries WHERE client_id = ?",
                     (client_id,),
                 ).fetchone()
-            if row is not None:
+            if existing is not None:
                 connection.commit()
-                return self.record_from_row(row), False
+                return self.record_from_row(existing), False
 
-            now = time.time()
             connection.execute(
                 """
-                INSERT INTO send_jobs (
-                    send_id, operation, message, conversation_id, attachments_json,
-                    client_id, status, error, created_at, updated_at, retry_at,
-                    retry_attempt, last_error, finished_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO job_deliveries(
+                    send_id, message, client_id, status, error, last_error,
+                    created_at, updated_at, retry_at, retry_attempt, finished_at
+                )
+                VALUES (?, ?, ?, 'queued', '', '', ?, ?, 0, 0, 0)
                 """,
-                (
-                    send_id,
-                    str(record["operation"]),
-                    str(record["message"]),
-                    str(record.get("conversation_id") or ""),
-                    json.dumps(record.get("attachments", [])),
-                    client_id,
-                    str(record.get("status") or "queued"),
-                    str(record.get("error") or ""),
-                    float(record.get("created_at") or now),
-                    float(record.get("updated_at") or now),
-                    float(record.get("retry_at") or 0.0),
-                    max(0, int(record.get("retry_attempt") or 0)),
-                    str(record.get("last_error") or ""),
-                    float(record.get("finished_at") or 0.0),
-                ),
+                (send_id, message, client_id, now, now),
             )
             row = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
             connection.commit()
-            if row is None:
-                raise sqlite3.DatabaseError("delivery enqueue did not persist a row")
-            return self.record_from_row(row), True
-        finally:
-            connection.close()
-
-    def requeue_legacy_outage(self, send_id: str, expected_error: str) -> bool:
-        """Requeue only the unchanged legacy failure; never overwrite a newer receipt."""
-        connection = self.connect()
-        try:
-            updated = connection.execute(
-                """
-                UPDATE send_jobs
-                SET status = 'queued', error = '', last_error = '', retry_at = 0,
-                    retry_attempt = 0, finished_at = 0, updated_at = ?
-                WHERE send_id = ? AND status = 'dead_lettered' AND last_error = ?
-                """,
-                (time.time(), send_id, expected_error),
-            )
-            connection.commit()
-            return updated.rowcount == 1
-        finally:
-            connection.close()
+        assert row is not None
+        return self.record_from_row(row), True
 
     def upsert(self, record: dict[str, Any]) -> None:
-        connection = self.connect()
-        try:
+        send_id = str(record.get("send_id") or "")
+        message = str(record.get("message") or "")
+        if not send_id:
+            raise ValueError("delivery send_id is required")
+        if not message:
+            raise ValueError("delivery message is required")
+
+        created_at = float(record.get("created_at") or time.time())
+        updated_at = float(record.get("updated_at") or created_at)
+        values = (
+            send_id,
+            message,
+            str(record.get("client_id") or ""),
+            str(record.get("status") or "queued"),
+            str(record.get("error") or ""),
+            str(record.get("last_error") or ""),
+            created_at,
+            updated_at,
+            float(record.get("retry_at") or 0.0),
+            int(record.get("retry_attempt") or 0),
+            float(record.get("finished_at") or 0.0),
+            str(record.get("lease_owner") or ""),
+            float(record.get("lease_acquired_at") or 0.0),
+            float(record.get("lease_expires_at") or 0.0),
+        )
+        with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO send_jobs (
-                    send_id, operation, message, conversation_id, attachments_json,
-                    client_id, status, error, created_at, updated_at, retry_at,
-                    retry_attempt, last_error, finished_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO job_deliveries(
+                    send_id, message, client_id, status, error, last_error,
+                    created_at, updated_at, retry_at, retry_attempt, finished_at,
+                    lease_owner, lease_acquired_at, lease_expires_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(send_id) DO UPDATE SET
-                    operation=excluded.operation,
-                    message=excluded.message,
-                    conversation_id=excluded.conversation_id,
-                    attachments_json=excluded.attachments_json,
-                    client_id=excluded.client_id,
-                    status=excluded.status,
-                    error=excluded.error,
-                    updated_at=excluded.updated_at,
-                    retry_at=excluded.retry_at,
-                    retry_attempt=excluded.retry_attempt,
-                    last_error=excluded.last_error,
-                    finished_at=excluded.finished_at
+                    message = excluded.message,
+                    client_id = excluded.client_id,
+                    status = excluded.status,
+                    error = excluded.error,
+                    last_error = excluded.last_error,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    retry_at = excluded.retry_at,
+                    retry_attempt = excluded.retry_attempt,
+                    finished_at = excluded.finished_at,
+                    lease_owner = excluded.lease_owner,
+                    lease_acquired_at = excluded.lease_acquired_at,
+                    lease_expires_at = excluded.lease_expires_at
                 """,
-                (
-                    record["send_id"],
-                    record["operation"],
-                    record["message"],
-                    record.get("conversation_id", ""),
-                    json.dumps(record.get("attachments", [])),
-                    record.get("client_id", ""),
-                    record.get("status", "queued"),
-                    record.get("error", record.get("last_error", "")),
-                    float(record.get("created_at") or time.time()),
-                    float(record.get("updated_at") or time.time()),
-                    float(record.get("retry_at") or 0.0),
-                    max(0, int(record.get("retry_attempt") or 0)),
-                    record.get("last_error", ""),
-                    float(record.get("finished_at") or 0.0),
-                ),
+                values,
             )
-            connection.commit()
-        finally:
-            connection.close()
-
-    def delete(self, send_id: str) -> None:
-        connection = self.connect()
-        try:
-            connection.execute("DELETE FROM send_jobs WHERE send_id = ?", (send_id,))
-            connection.commit()
-        finally:
-            connection.close()
-
-    def bump(self, send_id: str) -> None:
-        connection = self.connect()
-        try:
-            connection.execute(
-                """
-                UPDATE send_jobs
-                SET sequence = (SELECT COALESCE(MIN(sequence), 0) - 1 FROM send_jobs)
-                WHERE send_id = ?
-                  AND status IN ('queued', 'retrying', 'rate_limited')
-                """,
-                (send_id,),
-            )
-            connection.commit()
-        finally:
-            connection.close()
 
     def claim_next(
         self,
         owner: str,
         *,
+        lease_seconds: float,
         now: float | None = None,
-        lease_seconds: float = 90.0,
     ) -> dict[str, Any] | None:
-        if not owner:
-            raise ValueError("delivery claim owner must not be empty")
-        claim_time = time.time() if now is None else float(now)
-        lease_expires_at = claim_time + max(1.0, float(lease_seconds))
-        connection = self.connect()
-        try:
+        claimed_at = time.time() if now is None else float(now)
+        with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
                 """
                 SELECT *
-                FROM send_jobs
+                FROM job_deliveries
                 WHERE status IN ('queued', 'retrying', 'rate_limited', 'running')
                 ORDER BY sequence
                 """
             ).fetchall()
-            records = (self.record_from_row(row) for row in rows)
-            record = next(
+            row = next(
                 (
                     candidate
-                    for candidate in records
-                    if claimable_delivery(candidate, now=claim_time)
+                    for candidate in rows
+                    if claimable_delivery(self.record_from_row(candidate), now=claimed_at)
                 ),
                 None,
             )
-            if record is None:
+            if row is None:
                 connection.commit()
                 return None
 
-            send_id = str(record["send_id"])
-            updated = connection.execute(
+            send_id = str(row["send_id"])
+            connection.execute(
                 """
-                UPDATE send_jobs
+                UPDATE job_deliveries
                 SET status = 'running',
+                    updated_at = ?,
                     lease_owner = ?,
                     lease_acquired_at = ?,
-                    lease_expires_at = ?,
-                    updated_at = ?
+                    lease_expires_at = ?
                 WHERE send_id = ?
                 """,
-                (owner, claim_time, lease_expires_at, claim_time, send_id),
+                (
+                    claimed_at,
+                    owner,
+                    claimed_at,
+                    claimed_at + max(1.0, float(lease_seconds)),
+                    send_id,
+                ),
             )
-            if updated.rowcount != 1:
-                connection.rollback()
-                return None
             claimed = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
             connection.commit()
-            return self.record_from_row(claimed) if claimed is not None else None
-        finally:
-            connection.close()
+        return self.record_from_row(claimed) if claimed is not None else None
 
     def renew_lease(
         self,
         send_id: str,
         owner: str,
         *,
+        lease_seconds: float,
         now: float | None = None,
-        lease_seconds: float = 90.0,
     ) -> bool:
-        renew_time = time.time() if now is None else float(now)
-        lease_expires_at = renew_time + max(1.0, float(lease_seconds))
-        connection = self.connect()
-        try:
+        renewed_at = time.time() if now is None else float(now)
+        with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
-            if row is None:
+            if row is None or not renewable_delivery_lease(
+                self.record_from_row(row),
+                owner=owner,
+                now=renewed_at,
+            ):
                 connection.commit()
                 return False
-            record = self.record_from_row(row)
-            if not renewable_delivery_lease(record, owner=owner, now=renew_time):
-                connection.commit()
-                return False
-
             updated = connection.execute(
                 """
-                UPDATE send_jobs
-                SET lease_expires_at = ?,
-                    updated_at = ?
+                UPDATE job_deliveries
+                SET updated_at = ?, lease_expires_at = ?
                 WHERE send_id = ?
                 """,
-                (lease_expires_at, renew_time, send_id),
+                (renewed_at, renewed_at + max(1.0, float(lease_seconds)), send_id),
             )
             connection.commit()
             return updated.rowcount == 1
-        finally:
-            connection.close()
 
     def retry_claim(
         self,
@@ -499,33 +389,21 @@ class DeliveryQueueStore:
         if status not in RETRY_DELIVERY_STATUSES:
             raise ValueError(f"unsupported retry status: {status}")
         update_time = time.time() if now is None else float(now)
-        connection = self.connect()
-        try:
+        with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
-            if row is None:
+            if row is None or not owned_running_delivery(self.record_from_row(row), owner=owner):
                 connection.commit()
                 return False
-            record = self.record_from_row(row)
-            if not owned_running_delivery(record, owner=owner):
-                connection.commit()
-                return False
-
             updated = connection.execute(
                 """
-                UPDATE send_jobs
-                SET status = ?,
-                    error = ?,
-                    last_error = ?,
-                    retry_at = ?,
-                    retry_attempt = ?,
-                    updated_at = ?,
-                    lease_owner = '',
-                    lease_acquired_at = 0,
-                    lease_expires_at = 0
+                UPDATE job_deliveries
+                SET status = ?, error = ?, last_error = ?, retry_at = ?,
+                    retry_attempt = ?, updated_at = ?,
+                    lease_owner = '', lease_acquired_at = 0, lease_expires_at = 0
                 WHERE send_id = ?
                 """,
                 (
@@ -540,23 +418,19 @@ class DeliveryQueueStore:
             )
             connection.commit()
             return updated.rowcount == 1
-        finally:
-            connection.close()
 
     def complete_claim(
         self,
         send_id: str,
         owner: str,
         *,
-        conversation_id: str,
         now: float | None = None,
     ) -> bool:
         completed_at = time.time() if now is None else float(now)
-        connection = self.connect()
-        try:
+        with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM send_jobs WHERE send_id = ?",
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
                 (send_id,),
             ).fetchone()
             if row is None:
@@ -569,25 +443,50 @@ class DeliveryQueueStore:
             if action is CompletionAction.REJECT:
                 connection.commit()
                 return False
-
             updated = connection.execute(
                 """
-                UPDATE send_jobs
-                SET status = 'succeeded',
-                    conversation_id = ?,
-                    error = '',
-                    last_error = '',
-                    retry_at = 0,
+                UPDATE job_deliveries
+                SET status = 'succeeded', error = '', last_error = '', retry_at = 0,
                     finished_at = CASE WHEN finished_at > 0 THEN finished_at ELSE ? END,
-                    updated_at = ?,
-                    lease_owner = '',
-                    lease_acquired_at = 0,
+                    updated_at = ?, lease_owner = '', lease_acquired_at = 0,
                     lease_expires_at = 0
                 WHERE send_id = ?
                 """,
-                (conversation_id, completed_at, completed_at, send_id),
+                (completed_at, completed_at, send_id),
             )
             connection.commit()
             return updated.rowcount == 1
-        finally:
-            connection.close()
+
+    def fail_claim(
+        self,
+        send_id: str,
+        owner: str,
+        *,
+        status: str,
+        error: str,
+        now: float | None = None,
+    ) -> bool:
+        if status not in TERMINAL_DELIVERY_STATUSES or status == "succeeded":
+            raise ValueError(f"unsupported terminal delivery status: {status}")
+        finished_at = time.time() if now is None else float(now)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM job_deliveries WHERE send_id = ?",
+                (send_id,),
+            ).fetchone()
+            if row is None or not owned_running_delivery(self.record_from_row(row), owner=owner):
+                connection.commit()
+                return False
+            updated = connection.execute(
+                """
+                UPDATE job_deliveries
+                SET status = ?, error = ?, last_error = ?, retry_at = 0,
+                    finished_at = ?, updated_at = ?, lease_owner = '',
+                    lease_acquired_at = 0, lease_expires_at = 0
+                WHERE send_id = ?
+                """,
+                (status, error, error, finished_at, finished_at, send_id),
+            )
+            connection.commit()
+            return updated.rowcount == 1

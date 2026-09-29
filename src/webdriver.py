@@ -1,4 +1,4 @@
-"""Shared browser-independent helpers for Prompta browser automation."""
+"""Shared browser-independent helpers for Prompta fresh-chat delivery."""
 
 from __future__ import annotations
 
@@ -6,22 +6,17 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
-from .browser_script_loader import load_browser_script, render_browser_script
-from .chatgpt_dom import STOP_BUTTON_SELECTORS, STREAMING_SELECTOR
-from .conversation_snapshot import CONVERSATION_SNAPSHOT_SCRIPT, parse_conversation_snapshot
-from .transcript_browser_engine import TRANSCRIPT_BROWSER_ENGINE_SCRIPT
+from .browser_script_loader import load_browser_script
 
 
 class BrowsingContextUnavailableError(RuntimeError):
-    """Raised when a tracked browser tab/context no longer exists."""
+    """Raised when a Prompta-owned browser tab no longer exists."""
 
 
 _SEND_ENDPOINTS = ("/backend-api/f/conversation", "/backend-api/conversation")
 
 
 class BrowserDriverBase:
-    # Shared browser-independent helpers used by the Playwright driver.
-
     def __init__(self, url: str = "") -> None:
         self.url = url
         self.context = ""
@@ -73,40 +68,5 @@ class BrowserDriverBase:
             raise RuntimeError("Prompta browser profile is not logged into ChatGPT")
         return token
 
-    async def conversation_final_event(
-        self,
-        conversation_id: str,
-        *,
-        context: str | None = None,
-    ) -> dict[str, Any]:
-        raw = await self.eval(
-            render_browser_script(
-                "conversation_final_event.js",
-                conversation_id=conversation_id,
-            ),
-            context=context,
-            await_promise=True,
-        )
-        payload = json.loads(raw or "{}")
-        return payload if isinstance(payload, dict) else {}
 
-    async def conversation_activity(self, context: str) -> dict[str, Any]:
-        script = render_browser_script(
-            "conversation_activity.js",
-            stop_selector=",".join(STOP_BUTTON_SELECTORS),
-            streaming_selector=STREAMING_SELECTOR,
-        )
-        script = script.replace(
-            "/*__TRANSCRIPT_BROWSER_ENGINE__*/",
-            TRANSCRIPT_BROWSER_ENGINE_SCRIPT,
-        )
-        raw = await self.eval(script, context=context)
-        return json.loads(raw or "{}")
-
-    async def conversation_snapshot(self, context: str) -> dict[str, Any]:
-        raw = await self.eval(CONVERSATION_SNAPSHOT_SCRIPT, context=context)
-        return parse_conversation_snapshot(raw)
-
-
-# Compatibility alias for older imports; there is no WebDriver transport.
 WebDriverBase = BrowserDriverBase
