@@ -2416,11 +2416,6 @@ textarea:focus-visible {
   }
 
   .topbar-actions {
-    gap: 6px;
-  }
-
-  .topbar-actions #pinChatButton,
-  .topbar-actions #syncLabel {
     display: none;
   }
 

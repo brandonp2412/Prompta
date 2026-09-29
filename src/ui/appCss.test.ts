@@ -58,6 +58,12 @@ test("sidebar conversation filter chips are left aligned", async () => {
   expect(css).toMatch(/\.sidebar-toolbar-right \{[^}]*justify-content: flex-start;/s);
 });
 
+test("mobile chat header keeps trailing actions clear", async () => {
+  const css = await Bun.file(new URL("../static/app.css", import.meta.url)).text();
+
+  expect(css).toMatch(/@media \(max-width: 780px\)[\s\S]*?\.topbar-actions \{[^}]*display: none;/s);
+});
+
 test("offscreen rendering avoids variable-height conversation rows", async () => {
   const css = await Bun.file(new URL("../static/app.css", import.meta.url)).text();
 
