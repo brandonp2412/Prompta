@@ -490,18 +490,25 @@ JSON.stringify((()=>{
     message.role==='assistant'&&message.id.startsWith('request-placeholder-')
   ));
   const dedupedEntries=[];
-  const seenRoleKeys=new Map();
+  const seenMessageIds=new Map();
   for(const message of entries){
-    const key=message.role+'|'+(message.id||normalise(message.content));
-    const existingIndex=seenRoleKeys.get(key);
-    if(existingIndex===undefined){
-      seenRoleKeys.set(key,dedupedEntries.length);
+    const turn=turnRoot(message.node)||message.node;
+    const idKey=message.id?message.role+'|'+message.id:'';
+    const existingIndex=idKey
+      ?seenMessageIds.get(idKey)
+      :dedupedEntries.findIndex(existing=>(
+          !existing.id
+          &&existing.role===message.role
+          &&(turnRoot(existing.node)||existing.node)===turn
+        ));
+    if(existingIndex===undefined||existingIndex<0){
+      if(idKey)seenMessageIds.set(idKey,dedupedEntries.length);
       dedupedEntries.push(message);
       continue;
     }
     const existing=dedupedEntries[existingIndex];
     const existingVisible=visible(turnRoot(existing.node)||existing.node);
-    const messageVisible=visible(turnRoot(message.node)||message.node);
+    const messageVisible=visible(turn);
     if(messageVisible||!existingVisible){
       dedupedEntries[existingIndex]=message;
     }

@@ -55,7 +55,7 @@
     if(!start)return false;
     for(
       let current=start;
-      current&&current!==root&&current.nodeType===Node.ELEMENT_NODE;
+      current&&current.nodeType===Node.ELEMENT_NODE;
       current=composedParent(current)
     ){
       if(
@@ -70,6 +70,7 @@
         ||Number(style.opacity)===0
         ||style.contentVisibility==='hidden'
       )return false;
+      if(current===root)break;
     }
     return true;
   };
@@ -312,8 +313,8 @@
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(
       node,
-      /(?:^|-)(?:(?:message-)?(?:author|speaker|actor|participant)-role|message-role)$/i,
-      [['author','speaker','actor','participant'],['role']]
+      /(?:^|-)(?:(?:message-)?(?:author|speaker|sender|actor|participant)-role|message-role)$/i,
+      [['author','speaker','sender','actor','participant'],['role']]
     )
     ||semanticAttribute(
       node,
@@ -392,7 +393,7 @@
       ...deepQueryAll(pageRoot,semanticTurnSelector),
       ...deepQueryAll(pageRoot,'*').filter(node=>directMessageRole(node)),
       ...headingMessageNodes(pageRoot)
-    ])].filter(node=>messageRole(node))).sort(documentOrder);
+    ])].filter(node=>messageRole(node)&&isComposedRenderedWithin(pageRoot,node))).sort(documentOrder);
     const candidates=[];
     for(let index=1;index<roleNodes.length;index+=1){
       const left=roleNodes[index-1];
@@ -441,9 +442,12 @@
   };
   const transcriptRoot=()=>{
     const score=root=>{
-      const semantic=deepQueryAll(root,messageRoleSelector+','+semanticTurnSelector).length;
-      const structural=deepQueryAll(root,'*').filter(node=>directMessageRole(node)).length;
-      const headings=headingNodes(root).filter(node=>headingAccessibleRole(node)).length;
+      const semantic=deepQueryAll(root,messageRoleSelector+','+semanticTurnSelector)
+        .filter(node=>isComposedRenderedWithin(root,node)).length;
+      const structural=deepQueryAll(root,'*')
+        .filter(node=>directMessageRole(node)&&isComposedRenderedWithin(root,node)).length;
+      const headings=headingNodes(root)
+        .filter(node=>headingAccessibleRole(node)&&isComposedRenderedWithin(root,node)).length;
       return semantic*4+structural*2+headings;
     };
     const landmarks=deepQueryAll(document,transcriptLandmarkSelector);
@@ -477,15 +481,18 @@
     const primary=innermostRoleNodes([...new Set([
       ...deepQueryAll(root,messageRoleSelector),
       ...deepQueryAll(root,semanticTurnSelector)
-    ])].filter(node=>messageRole(node)));
+    ])].filter(node=>messageRole(node)&&isComposedRenderedWithin(root,node)));
     const roles=new Set(primary.map(messageRole));
     // Always inspect structural role metadata too. During staggered DOM rollouts a page can
     // contain both the established namespace and a renamed one; stopping once both roles
     // are seen in the established markup would silently drop turns using the new namespace.
     const structural=innermostRoleNodes(
-      deepQueryAll(root,'*').filter(node=>directMessageRole(node))
+      deepQueryAll(root,'*').filter(node=>(
+        directMessageRole(node)&&isComposedRenderedWithin(root,node)
+      ))
     );
-    const headingCandidates=headingMessageNodes(root);
+    const headingCandidates=headingMessageNodes(root)
+      .filter(node=>isComposedRenderedWithin(root,node));
     const recoverableRoles=new Set([
       ...roles,
       ...headingCandidates.map(messageRole).filter(Boolean)
@@ -500,7 +507,7 @@
     );
     const legacy=deepQueryAll(root,legacyTurnSelector)
       .filter(node=>!deepQueryAll(node,primarySelector).length)
-      .filter(node=>messageRole(node));
+      .filter(node=>messageRole(node)&&isComposedRenderedWithin(root,node));
     const fallback=[...structural,...headingStructural,...legacy]
       .filter(node=>messageRole(node))
       .filter(node=>!overlapsPrimary(node));

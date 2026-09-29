@@ -1038,6 +1038,62 @@ def test_hidden_duplicate_turn_does_not_replace_visible_message(browser_page) ->
     ]
 
 
+def test_hidden_unique_turn_is_not_scraped_into_transcript(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">Question</div>
+            </section>
+            <section data-testid="conversation-turn-a-stale" style="display:none">
+              <div data-message-author-role="assistant" data-message-id="a-stale">
+                <p>Hidden stale answer.</p>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Visible answer.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question"),
+        ("assistant", "Visible answer."),
+    ]
+
+
+def test_aria_hidden_unique_turn_is_not_scraped_into_transcript(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">Question</div>
+            </section>
+            <section data-testid="conversation-turn-a-stale" aria-hidden="true">
+              <div data-message-author-role="assistant" data-message-id="a-stale">
+                <p>Accessibility-hidden stale answer.</p>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Visible answer.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question"),
+        ("assistant", "Visible answer."),
+    ]
+
+
 def test_hidden_duplicate_turn_does_not_override_visible_completion_state(browser_page) -> None:
     browser_page.set_content(
         _conversation(
@@ -1174,6 +1230,35 @@ def test_missing_message_ids_do_not_drop_or_duplicate_turns(browser_page) -> Non
     assert _semantic_messages(snapshot) == [
         ("user", "Question without id"),
         ("assistant", "Answer without id."),
+    ]
+
+
+def test_repeated_idless_turns_are_not_deduplicated_by_content(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <div data-layout="turn">
+              <div data-message-author-role="user">Repeat this</div>
+            </div>
+            <div data-layout="turn">
+              <div data-message-author-role="assistant"><p>Same answer.</p></div>
+            </div>
+            <div data-layout="turn">
+              <div data-message-author-role="user">Repeat this</div>
+            </div>
+            <div data-layout="turn">
+              <div data-message-author-role="assistant"><p>Same answer.</p></div>
+            </div>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Repeat this"),
+        ("assistant", "Same answer."),
+        ("user", "Repeat this"),
+        ("assistant", "Same answer."),
     ]
 
 
@@ -2150,6 +2235,31 @@ def test_tool_metadata_survives_token_reordering_and_separator_churn(browser_pag
     assert "After reordered tool metadata." in content
 
 
+def test_tool_metadata_survives_compacted_attribute_names(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Before compacted tool metadata.</p>
+                <section data-toolcallid="future-compact" data-toolname="Glass Serena">
+                  <button aria-label="Show tool details">Inspect result</button>
+                </section>
+                <p>After compacted tool metadata.</p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    content = assistant["content"]
+    assert chr(96) * 3 + "tool:Glass Serena" in content
+    assert "Before compacted tool metadata." in content
+    assert "After compacted tool metadata." in content
+
+
 def test_tool_trigger_uses_renamed_semantic_tool_ancestor(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -2546,6 +2656,52 @@ def test_semantic_message_attributes_survive_separator_churn(browser_page) -> No
     ]
 
 
+def test_semantic_message_attributes_survive_compacted_names(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-messageauthorrole="human" data-turnuuid="u-compact">
+              <p>Compacted user metadata.</p>
+            </section>
+            <section data-messagesenderrole="model" data-turnuuid="a-compact">
+              <p>Compacted assistant metadata.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [
+        (message["role"], message["id"], message["content"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-compact", "Compacted user metadata."),
+        ("assistant", "a-compact", "Compacted assistant metadata."),
+    ]
+
+
+def test_compacted_search_metadata_preserves_roles_and_ids(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-searchunitkey="turn/1/human" data-searchmessageids="u-search-compact">
+              <p>Compacted search user metadata.</p>
+            </section>
+            <section data-searchunitkey="turn/2/model" data-searchmessageids="a-search-compact">
+              <p>Compacted search assistant metadata.</p>
+            </section>
+            """
+        ),
+    )
+
+    assert [
+        (message["role"], message["id"], message["content"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-search-compact", "Compacted search user metadata."),
+        ("assistant", "a-search-compact", "Compacted search assistant metadata."),
+    ]
+
+
 def test_structural_discovery_uses_chat_landmark_when_first_main_is_unrelated(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -2563,6 +2719,29 @@ def test_structural_discovery_uses_chat_landmark_when_first_main_is_unrelated(br
     assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
         ("user", "Actual question."),
         ("assistant", "Actual answer."),
+    ]
+
+
+def test_hidden_transcript_landmark_cannot_outrank_visible_chat(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <main style="display:none">
+          <section data-sender="human" data-turn-id="u-hidden-1"><p>Hidden question one.</p></section>
+          <section data-sender="model" data-turn-id="a-hidden-1"><p>Hidden answer one.</p></section>
+          <section data-sender="human" data-turn-id="u-hidden-2"><p>Hidden question two.</p></section>
+          <section data-sender="model" data-turn-id="a-hidden-2"><p>Hidden answer two.</p></section>
+        </main>
+        <div role="main">
+          <section data-sender="human" data-turn-id="u-visible"><p>Visible question.</p></section>
+          <section data-sender="model" data-turn-id="a-visible"><p>Visible answer.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Visible question."),
+        ("assistant", "Visible answer."),
     ]
 
 
