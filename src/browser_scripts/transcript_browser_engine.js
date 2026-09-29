@@ -24,7 +24,7 @@ const promptaTranscriptEngine=(()=>{
   const reactMessages=(root,reason,options={})=>inspectReact(root,reason,options).messages;
   const hasVisibleAssistantText=(agent,messages)=>{
     const normalise=value=>(value||'').replace(/\s+/g,' ').trim();
-    const visibleAgentText=normalise(agent?.innerText||agent?.textContent||'');
+    const visibleAgentText=normalise(composedTextContent(agent));
     if(!visibleAgentText)return false;
     return messages.some(message=>{
       const role=String(message?.author?.role||message?.role||'');
@@ -94,7 +94,7 @@ const promptaTranscriptEngine=(()=>{
   const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
-    .map(id=>document.getElementById(id)?.textContent||'')
+    .map(id=>composedTextContent(referencedElement(node,id)))
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
@@ -136,7 +136,7 @@ const promptaTranscriptEngine=(()=>{
       .map(attribute=>attribute.name+' '+attribute.value)
       .join(' ');
     const descendantSemanticText=node.querySelectorAll
-      ?[...node.querySelectorAll('*')].flatMap(child=>[
+      ?deepQueryAll(node,'*').flatMap(child=>[
         child.getAttribute?.('aria-label')||'',
         child.getAttribute?.('title')||'',
         child.getAttribute?.('data-icon')||'',
@@ -150,7 +150,7 @@ const promptaTranscriptEngine=(()=>{
       labelledByText(node),
       describedByText(node),
       node.getAttribute?.('title')||'',
-      node.textContent||'',
+      composedTextContent(node),
       attributeText,
       descendantSemanticText
     ].join(' ').replace(/[-_]+/g,' ');
@@ -184,7 +184,7 @@ const promptaTranscriptEngine=(()=>{
     });
     if(semanticAction)return true;
     const descendantSemanticText=node.querySelectorAll
-      ?[...node.querySelectorAll('*')].flatMap(child=>[
+      ?deepQueryAll(node,'*').flatMap(child=>[
         child.getAttribute?.('aria-label')||'',
         child.getAttribute?.('title')||'',
         child.getAttribute?.('data-icon')||'',
@@ -202,7 +202,7 @@ const promptaTranscriptEngine=(()=>{
       labelledByText(node),
       describedByText(node),
       node.getAttribute?.('title')||'',
-      node.textContent||'',
+      composedTextContent(node),
       descendantSemanticText
     ].some(actionLabel);
   };
@@ -217,7 +217,7 @@ const promptaTranscriptEngine=(()=>{
     const fallback=inspectReact(root,reason);
     const messages=fallback.messages.map(message=>sanitiseSourceEvent(message,options));
     return {
-      ready:Boolean(messages.length||document.querySelector(messageRoleSelector)||root),
+      ready:Boolean(messages.length||deepQueryAll(document,messageRoleSelector).length||root),
       href:location.href,
       title:document.title||'',
       messages,

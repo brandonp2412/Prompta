@@ -2,6 +2,58 @@
   const assistantSelector=__ASSISTANT_SELECTOR__;
   const semanticTurnSelector=__SEMANTIC_TURN_SELECTOR__;
   const legacyTurnSelector=__LEGACY_TURN_SELECTOR__;
+  const composedParent=node=>{
+    if(!node)return null;
+    if(node.assignedSlot)return node.assignedSlot;
+    if(node.parentElement)return node.parentElement;
+    const root=node.getRootNode?.();
+    return root&&root!==document?root.host||null:null;
+  };
+  const composedChildNodes=node=>{
+    if(!node)return [];
+    if(node.tagName==='SLOT'){
+      const assigned=node.assignedNodes?.({flatten:true})||[];
+      if(assigned.length)return [...assigned];
+    }
+    if(node.shadowRoot)return [...node.shadowRoot.childNodes];
+    return [...(node.childNodes||[])];
+  };
+  const composedChildren=node=>composedChildNodes(node)
+    .filter(child=>child.nodeType===Node.ELEMENT_NODE);
+  const composedTextContent=node=>{
+    if(!node)return '';
+    if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
+    return composedChildNodes(node).map(composedTextContent).join('');
+  };
+  const deepQueryAll=(root,selector)=>{
+    if(!root)return [];
+    const matches=[];
+    const walk=scope=>{
+      for(const child of composedChildren(scope)){
+        if(child.matches?.(selector))matches.push(child);
+        walk(child);
+      }
+    };
+    walk(root);
+    return matches;
+  };
+  const deepContains=(ancestor,node)=>{
+    if(!ancestor||!node)return false;
+    for(let current=node;current;current=composedParent(current)){
+      if(current===ancestor)return true;
+    }
+    return false;
+  };
+  const deepClosest=(node,selector)=>{
+    for(let current=node;current;current=composedParent(current)){
+      if(current.matches?.(selector))return current;
+    }
+    return null;
+  };
+  const referencedElement=(node,id)=>{
+    const root=node?.getRootNode?.();
+    return root?.getElementById?.(id)||document.getElementById(id);
+  };
   const normaliseAttributeName=value=>String(value||'')
     .trim()
     .toLowerCase()
@@ -50,7 +102,7 @@
   const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
-    .map(id=>document.getElementById(id)?.textContent||'')
+    .map(id=>referencedElement(node,id)?.textContent||'')
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
@@ -98,8 +150,8 @@
   const semanticInteractiveControls=root=>{
     if(!root?.querySelectorAll)return [];
     return [...new Set([
-      ...root.querySelectorAll(semanticInteractiveControlSelector),
-      ...[...root.querySelectorAll(focusableInteractiveSelector)]
+      ...deepQueryAll(root,semanticInteractiveControlSelector),
+      ...deepQueryAll(root,focusableInteractiveSelector)
         .filter(isFocusableInteractiveControl)
     ])];
   };
@@ -129,8 +181,8 @@
   const semanticActionControls=root=>{
     if(!root?.querySelectorAll)return [];
     return [...new Set([
-      ...root.querySelectorAll(semanticActionControlSelector),
-      ...[...root.querySelectorAll(focusableInteractiveSelector)]
+      ...deepQueryAll(root,semanticActionControlSelector),
+      ...deepQueryAll(root,focusableInteractiveSelector)
         .filter(isFocusableInteractiveControl)
     ])];
   };
@@ -151,10 +203,10 @@
   ));
   const semanticHeadingSelector='h1,h2,h3,h4,h5,h6,[role="heading"],[aria-level]';
   const headingNodes=root=>root?.querySelectorAll
-    ?[...root.querySelectorAll(semanticHeadingSelector)]
+    ?deepQueryAll(root,semanticHeadingSelector)
     :[];
   const headingAccessibleRole=heading=>accessibleNodeRole(heading)
-    ||accessibleRole(heading?.textContent);
+    ||accessibleRole(composedTextContent(heading));
   const headingRole=node=>{
     for(const heading of headingNodes(node)){
       const role=headingAccessibleRole(heading);
@@ -167,8 +219,8 @@
     const roleHeadings=headingNodes(root)
       .filter(heading=>headingAccessibleRole(heading));
     return roleHeadings.map(heading=>{
-      let candidate=heading.parentElement||heading;
-      for(let parent=candidate.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
+      let candidate=composedParent(heading)||heading;
+      for(let parent=composedParent(candidate);parent&&parent!==document.body;parent=composedParent(parent)){
         if(isTranscriptLandmark(parent))break;
         const headings=headingNodes(parent)
           .filter(node=>headingAccessibleRole(node));
@@ -179,6 +231,16 @@
     });
   };
   const isHeadingNode=node=>Boolean(node?.matches?.(semanticHeadingSelector));
+  const semanticMessageText=root=>{
+    const walk=node=>{
+      if(!node)return '';
+      if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
+      if(node!==root&&isSemanticInteractiveControl(node))return '';
+      if(node!==root&&isHeadingNode(node)&&headingAccessibleRole(node))return '';
+      return composedChildNodes(node).map(walk).join('');
+    };
+    return walk(root).trim();
+  };
   const directMessageRole=node=>normaliseRole(
     node?.getAttribute?.('data-message-author-role')
     ||semanticAttribute(
@@ -217,41 +279,51 @@
   );
   const descendantMessageId=root=>{
     if(!root?.querySelectorAll)return '';
-    for(const node of root.querySelectorAll('*')){
+    for(const node of deepQueryAll(root,'*')){
       const id=messageId(node);
       if(id)return id;
     }
     return '';
   };
-  const documentOrder=(left,right)=>left===right?0:(
-    left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
-  );
+  let documentOrderIndex=null;
+  const documentOrder=(left,right)=>{
+    if(left===right)return 0;
+    if(!documentOrderIndex){
+      documentOrderIndex=new Map(deepQueryAll(document,'*').map((node,index)=>[node,index]));
+    }
+    const leftIndex=documentOrderIndex.get(left);
+    const rightIndex=documentOrderIndex.get(right);
+    if(leftIndex!==undefined&&rightIndex!==undefined&&leftIndex!==rightIndex){
+      return leftIndex-rightIndex;
+    }
+    return left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
+  };
   const innermostRoleNodes=nodes=>nodes.filter(node=>!nodes.some(other=>
     other!==node
-    &&node.contains(other)
+    &&deepContains(node,other)
     &&messageRole(other)===messageRole(node)
   ));
   const commonAncestor=(left,right)=>{
     if(!left||!right)return null;
     const ancestors=new Set();
-    for(let node=left;node;node=node.parentElement)ancestors.add(node);
-    for(let node=right;node;node=node.parentElement){
+    for(let node=left;node;node=composedParent(node))ancestors.add(node);
+    for(let node=right;node;node=composedParent(node)){
       if(ancestors.has(node))return node;
     }
     return null;
   };
   const nodeDepth=node=>{
     let depth=0;
-    for(let current=node;current;current=current.parentElement)depth+=1;
+    for(let current=node;current;current=composedParent(current))depth+=1;
     return depth;
   };
   const inferredTranscriptRoot=()=>{
     const pageRoot=document.body||document.documentElement;
     if(!pageRoot)return document.documentElement;
     const roleNodes=innermostRoleNodes([...new Set([
-      ...pageRoot.querySelectorAll(messageRoleSelector),
-      ...pageRoot.querySelectorAll(semanticTurnSelector),
-      ...[...pageRoot.querySelectorAll('*')].filter(node=>directMessageRole(node)),
+      ...deepQueryAll(pageRoot,messageRoleSelector),
+      ...deepQueryAll(pageRoot,semanticTurnSelector),
+      ...deepQueryAll(pageRoot,'*').filter(node=>directMessageRole(node)),
       ...headingMessageNodes(pageRoot)
     ])].filter(node=>messageRole(node))).sort(documentOrder);
     const candidates=[];
@@ -264,7 +336,7 @@
     }
     if(!candidates.length)return pageRoot;
     const profile=root=>{
-      const roles=roleNodes.filter(node=>root.contains(node)).map(messageRole);
+      const roles=roleNodes.filter(node=>deepContains(root,node)).map(messageRole);
       let pairs=0;
       let unmatched=0;
       let pendingUser=false;
@@ -302,12 +374,12 @@
   };
   const transcriptRoot=()=>{
     const score=root=>{
-      const semantic=root.querySelectorAll(messageRoleSelector+','+semanticTurnSelector).length;
-      const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node)).length;
+      const semantic=deepQueryAll(root,messageRoleSelector+','+semanticTurnSelector).length;
+      const structural=deepQueryAll(root,'*').filter(node=>directMessageRole(node)).length;
       const headings=headingNodes(root).filter(node=>headingAccessibleRole(node)).length;
       return semantic*4+structural*2+headings;
     };
-    const landmarks=[...document.querySelectorAll(transcriptLandmarkSelector)];
+    const landmarks=deepQueryAll(document,transcriptLandmarkSelector);
     if(!landmarks.length)return inferredTranscriptRoot();
     const best=landmarks
       .map((root,index)=>({root,index,score:score(root)}))
@@ -321,12 +393,12 @@
     ){
       const inferredRoles=new Set([
         inferred,
-        ...inferred.querySelectorAll(messageRoleSelector),
-        ...inferred.querySelectorAll(semanticTurnSelector),
-        ...[...inferred.querySelectorAll('*')].filter(node=>directMessageRole(node)),
+        ...deepQueryAll(inferred,messageRoleSelector),
+        ...deepQueryAll(inferred,semanticTurnSelector),
+        ...deepQueryAll(inferred,'*').filter(node=>directMessageRole(node)),
         ...headingMessageNodes(inferred)
       ].map(node=>messageRole(node)).filter(Boolean));
-      const coherentDescendant=best.root.contains(inferred)
+      const coherentDescendant=deepContains(best.root,inferred)
         &&inferredRoles.has('user')
         &&inferredRoles.has('assistant');
       if(coherentDescendant||score(inferred)>best.score)return inferred;
@@ -336,15 +408,15 @@
   const messageNodes=()=>{
     const root=transcriptRoot();
     const primary=innermostRoleNodes([...new Set([
-      ...root.querySelectorAll(messageRoleSelector),
-      ...root.querySelectorAll(semanticTurnSelector)
+      ...deepQueryAll(root,messageRoleSelector),
+      ...deepQueryAll(root,semanticTurnSelector)
     ])].filter(node=>messageRole(node)));
     const roles=new Set(primary.map(messageRole));
     // Always inspect structural role metadata too. During staggered DOM rollouts a page can
     // contain both the established namespace and a renamed one; stopping once both roles
     // are seen in the established markup would silently drop turns using the new namespace.
     const structural=innermostRoleNodes(
-      [...root.querySelectorAll('*')].filter(node=>directMessageRole(node))
+      deepQueryAll(root,'*').filter(node=>directMessageRole(node))
     );
     const headingCandidates=headingMessageNodes(root);
     const recoverableRoles=new Set([
@@ -357,10 +429,10 @@
     const primarySelector=messageRoleSelector+','+semanticTurnSelector;
     const overlapsPrimary=node=>primary.some(existing=>
       messageRole(existing)===messageRole(node)
-      &&(existing===node||existing.contains(node)||node.contains(existing))
+      &&(existing===node||deepContains(existing,node)||deepContains(node,existing))
     );
-    const legacy=[...root.querySelectorAll(legacyTurnSelector)]
-      .filter(node=>!node.querySelector(primarySelector))
+    const legacy=deepQueryAll(root,legacyTurnSelector)
+      .filter(node=>!deepQueryAll(node,primarySelector).length)
       .filter(node=>messageRole(node));
     const fallback=[...structural,...headingStructural,...legacy]
       .filter(node=>messageRole(node))
@@ -372,11 +444,11 @@
   const descendantAuthorNodes=root=>{
     if(!root?.querySelectorAll)return [];
     const primary=innermostRoleNodes([...new Set([
-      ...root.querySelectorAll(messageRoleSelector),
-      ...root.querySelectorAll(semanticTurnSelector)
+      ...deepQueryAll(root,messageRoleSelector),
+      ...deepQueryAll(root,semanticTurnSelector)
     ])].filter(node=>messageRole(node)));
     const structural=innermostRoleNodes(
-      [...root.querySelectorAll('*')].filter(node=>directMessageRole(node))
+      deepQueryAll(root,'*').filter(node=>directMessageRole(node))
     );
     return [...new Set([...primary,...structural])].sort(documentOrder);
   };
@@ -387,7 +459,7 @@
       .find(node=>!role||messageRole(node)===role)||null;
   };
   const semanticTurnContainer=node=>{
-    for(let candidate=node;candidate&&candidate!==document.body;candidate=candidate.parentElement){
+    for(let candidate=node;candidate&&candidate!==document.body;candidate=composedParent(candidate)){
       const turnKey=semanticAttribute(
         candidate,
         /(?:^|-)turn-key$/i,
@@ -399,12 +471,12 @@
     return null;
   };
   const semanticTurnRoot=node=>semanticTurnContainer(node)
-    ||node?.closest?.(semanticTurnSelector)
+    ||deepClosest(node,semanticTurnSelector)
     ||null;
   const structuralTurnRoot=node=>{
     if(!node)return null;
     let candidate=null;
-    for(let parent=node.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
+    for(let parent=composedParent(node);parent&&parent!==document.body;parent=composedParent(parent)){
       if(isTranscriptLandmark(parent))break;
       const authors=descendantAuthorNodes(parent);
       if(authors.length!==1||authors[0]!==node)break;
@@ -412,7 +484,7 @@
     }
     return candidate;
   };
-  const legacyTurnRoot=node=>node?.closest?.(legacyTurnSelector)||null;
+  const legacyTurnRoot=node=>deepClosest(node,legacyTurnSelector)||null;
   const turnRoot=node=>semanticTurnRoot(node)
     ||structuralTurnRoot(node)
     ||legacyTurnRoot(node)

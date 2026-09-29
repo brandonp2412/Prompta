@@ -6,7 +6,7 @@ import shutil
 
 import pytest
 
-from prompta.browser_script_loader import render_browser_script
+from prompta.browser_script_loader import load_browser_script, render_browser_script
 from prompta.chatgpt_dom import (
     ASSISTANT_MESSAGE_SELECTOR,
     MESSAGE_ROLE_SELECTOR,
@@ -37,6 +37,19 @@ def browser_page():
 
 def _snapshot(browser_page, html: str) -> dict:
     browser_page.set_content(html)
+    return json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+
+def _shadow_snapshot(browser_page, html: str) -> dict:
+    browser_page.set_content('<div id="shadow-host"></div>')
+    browser_page.evaluate(
+        """(html) => {
+          const host = document.getElementById('shadow-host');
+          const root = host.attachShadow({mode: 'open'});
+          root.innerHTML = html;
+        }""",
+        html,
+    )
     return json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
 
 
@@ -2146,4 +2159,159 @@ def test_missing_main_landmark_scopes_primary_semantic_nodes_to_inferred_transcr
         ("assistant", "First answer."),
         ("user", "Second question."),
         ("assistant", "Second answer."),
+    ]
+
+
+def test_open_shadow_root_transcript_and_aria_references_survive_componentization(
+    browser_page,
+) -> None:
+    snapshot = _shadow_snapshot(
+        browser_page,
+        """
+        <main>
+          <span id="shadow-user-role" hidden>You wrote</span>
+          <section role="group" aria-labelledby="shadow-user-role" data-turn-id="u-shadow">
+            <p>Shadow question.</p>
+          </section>
+          <span id="shadow-assistant-role" hidden>ChatGPT replied</span>
+          <section role="group" aria-labelledby="shadow-assistant-role" data-turn-id="a-shadow">
+            <p>Shadow answer.</p>
+          </section>
+        </main>
+        """,
+    )
+
+    assert [
+        (message["role"], message["id"], message["content"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-shadow", "Shadow question."),
+        ("assistant", "a-shadow", "Shadow answer."),
+    ]
+
+
+def test_mixed_light_and_shadow_turns_keep_composed_document_order(browser_page) -> None:
+    browser_page.set_content(
+        """
+        <main>
+          <section data-sender="human" data-turn-id="u1"><p>First question.</p></section>
+          <div id="assistant-shadow-host"></div>
+          <section data-sender="human" data-turn-id="u2"><p>Second question.</p></section>
+          <section data-sender="model" data-turn-id="a2"><p>Second answer.</p></section>
+        </main>
+        """
+    )
+    browser_page.evaluate(
+        """() => {
+          const host = document.getElementById('assistant-shadow-host');
+          const root = host.attachShadow({mode: 'open'});
+          root.innerHTML = '<section data-sender="model" data-turn-id="a1"><p>First answer.</p></section>';
+        }"""
+    )
+
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "First question."),
+        ("assistant", "First answer."),
+        ("user", "Second question."),
+        ("assistant", "Second answer."),
+    ]
+
+
+def test_shadow_root_streaming_and_completion_controls_are_discovered(browser_page) -> None:
+    browser_page.set_content('<div id="shadow-host"></div>')
+    browser_page.evaluate(
+        """() => {
+          const host = document.getElementById('shadow-host');
+          const root = host.attachShadow({mode: 'open'});
+          root.innerHTML = '<main><section data-sender="human" data-turn-id="u-shadow"><p>Question.</p></section><section data-sender="model" data-turn-id="a-shadow" data-streaming="active"><p>Answer in progress.</p><button aria-label="Stop generating">Stop</button></section></main>';
+        }"""
+    )
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label*="stop" i]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    streaming = json.loads(browser_page.evaluate(activity_script))
+    assert streaming["streaming"] is True
+    assert streaming["complete"] is False
+
+    browser_page.evaluate(
+        """() => {
+          const root = document.getElementById('shadow-host').shadowRoot;
+          const turn = root.querySelector('[data-turn-id="a-shadow"]');
+          turn.removeAttribute('data-streaming');
+          turn.querySelector('button').remove();
+          turn.insertAdjacentHTML('beforeend', '<button aria-label="Copy">Copy</button>');
+        }"""
+    )
+
+    complete = json.loads(browser_page.evaluate(activity_script))
+    assert complete["streaming"] is False
+    assert complete["complete"] is True
+
+
+def test_shadow_root_control_labels_resolve_local_aria_references(browser_page) -> None:
+    browser_page.set_content('<div id="shadow-host"></div>')
+    browser_page.evaluate(
+        """() => {
+          const root = document.getElementById('shadow-host').attachShadow({mode: 'open'});
+          root.innerHTML = '<span id="action-label">Retry response</span><button aria-labelledby="action-label">↻</button>';
+        }"""
+    )
+
+    labels = browser_page.locator("button").evaluate(
+        load_browser_script("semantic_control_labels.js")
+    )
+
+    assert "Retry response" in labels
+
+
+def test_shadow_root_ancestor_matching_crosses_component_boundary(browser_page) -> None:
+    browser_page.set_content(
+        '<section data-testid="modal-conversation-history-rate-limit"><div id="shadow-host"></div></section>'
+    )
+    browser_page.evaluate(
+        """() => {
+          const root = document.getElementById('shadow-host').attachShadow({mode: 'open'});
+          root.innerHTML = '<button>Dismiss</button>';
+        }"""
+    )
+
+    matched = browser_page.locator("button").evaluate(
+        load_browser_script("matches_or_closest.js"),
+        '[data-testid="modal-conversation-history-rate-limit"]',
+    )
+
+    assert matched is True
+
+
+def test_shadow_message_hosts_and_slots_preserve_rendered_content(browser_page) -> None:
+    browser_page.set_content(
+        """
+        <main>
+          <div id="shadow-user" data-sender="human" data-turn-id="u-host"></div>
+          <div id="shadow-assistant" data-sender="model" data-turn-id="a-host">
+            <p>Slotted answer.</p>
+          </div>
+        </main>
+        """
+    )
+    browser_page.evaluate(
+        """() => {
+          const user = document.getElementById('shadow-user');
+          user.attachShadow({mode: 'open'}).innerHTML = '<span>Shadow-host question.</span>';
+          const assistant = document.getElementById('shadow-assistant');
+          assistant.attachShadow({mode: 'open'}).innerHTML = '<slot></slot>';
+        }"""
+    )
+
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert [
+        (message["role"], message["id"], message["content"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-host", "Shadow-host question."),
+        ("assistant", "a-host", "Slotted answer."),
     ]

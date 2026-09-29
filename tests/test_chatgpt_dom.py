@@ -171,7 +171,7 @@ def test_react_fallback_introspection_failure_returns_structured_error() -> None
     result = _react_fallback_from_html(
         "<main></main>",
         """() => {
-          document.body.querySelectorAll=()=>{throw new Error('private shape changed');};
+          Object.defineProperty(document.body,'children',{get(){throw new Error('private shape changed');}});
         }""",
     )
 

@@ -62,7 +62,16 @@
             }
           }
         };
-        for(const node of [root,...root.querySelectorAll('*')]){
+        const descendants=[];
+        const collect=scope=>{
+          for(const child of [...(scope?.children||[])]){
+            descendants.push(child);
+            if(child.shadowRoot)collect(child.shadowRoot);
+            collect(child);
+          }
+        };
+        collect(root);
+        for(const node of [root,...descendants]){
           if(budgetExhausted()){result.truncated=true;break;}
           result.scanned_nodes+=1;
           let keys=[];

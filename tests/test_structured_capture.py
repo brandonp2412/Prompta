@@ -114,9 +114,7 @@ def test_browser_snapshot_does_not_replace_visible_prose_with_tool_only_react_co
     )
     assert "const rows=toolRows(agent);" in CONVERSATION_SNAPSHOT_SCRIPT
     assert "const prose=proseRows(agent,rows);" in CONVERSATION_SNAPSHOT_SCRIPT
-    assert "const semantic=[...scope.querySelectorAll(proseBlockSelector)]" in (
-        CONVERSATION_SNAPSHOT_SCRIPT
-    )
+    assert "const semantic=deepQueryAll(scope,proseBlockSelector)" in (CONVERSATION_SNAPSHOT_SCRIPT)
     assert "const legacyToolRowClass=node=>String(node?.getAttribute?.('class')||'')" in (
         CONVERSATION_SNAPSHOT_SCRIPT
     )

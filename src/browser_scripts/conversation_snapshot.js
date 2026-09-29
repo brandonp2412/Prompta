@@ -6,7 +6,7 @@ JSON.stringify((()=>{
     const r=e.getBoundingClientRect();
     if((r.width>0||r.height>1)&&r.height>0)return true;
     if(s.display!=='contents')return false;
-    const descendants=[...e.querySelectorAll('*')];
+    const descendants=deepQueryAll(e,'*');
     return descendants.some(node=>{
       const style=getComputedStyle(node);
       if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
@@ -23,22 +23,17 @@ JSON.stringify((()=>{
   const streamingSelector=__STREAMING_SELECTOR__;
   const messageText=root=>{
     if(!root)return '';
-    const clone=root.cloneNode(true);
-    semanticInteractiveControls(clone).forEach(node=>node.remove());
-    clone.querySelectorAll(semanticHeadingSelector).forEach(node=>{
-      if(headingAccessibleRole(node))node.remove();
-    });
-    const text=(clone.textContent||'').trim();
+    const text=semanticMessageText(root);
     const actionSuffix=['Show moreShow less','Show lessShow more'].find(suffix=>text.endsWith(suffix));
     return (actionSuffix?text.slice(0,-actionSuffix.length):text).trim();
   };
   const markdownText=root=>{
     const walk=node=>{
-      if(node.nodeType===Node.TEXT_NODE)return node.textContent||'';
+      if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
       if(node.nodeType!==Node.ELEMENT_NODE)return '';
       if(node!==root&&isSemanticInteractiveControl(node))return '';
       const tag=node.tagName.toLowerCase();
-      const children=()=>[...node.childNodes].map(walk).join('');
+      const children=()=>composedChildNodes(node).map(walk).join('');
       if(tag==='br')return '\n';
       if(node.matches?.(semanticHeadingSelector)){
         const heading=children().trim();
@@ -51,9 +46,9 @@ JSON.stringify((()=>{
       if(tag==='strong'||tag==='b')return '**'+children()+'**';
       if(tag==='em'||tag==='i')return '*'+children()+'*';
       if(tag==='del'||tag==='s')return '~~'+children()+'~~';
-      if(tag==='code'&&node.parentElement?.tagName.toLowerCase()!=='pre')return '`'+children()+'`';
+      if(tag==='code'&&composedParent(node)?.tagName?.toLowerCase()!=='pre')return '`'+children()+'`';
       if(tag==='pre'){
-        const code=node.querySelector('code')||node;
+        const code=deepQueryAll(node,'code')[0]||node;
         const languageCandidates=[code,node];
         let language='';
         for(const candidate of languageCandidates){
@@ -67,7 +62,7 @@ JSON.stringify((()=>{
           language=className.match(/(?:^|\s)(?:language|lang)-([\w.+#-]+)/i)?.[1]||'';
           if(language)break;
         }
-        return '```'+language+'\n'+(code.textContent||'').replace(/\n$/,'')+'\n```\n\n';
+        return '```'+language+'\n'+composedTextContent(code).replace(/\n$/,'')+'\n```\n\n';
       }
       if(tag==='a'){
         const href=node.getAttribute('href')||'';
@@ -76,9 +71,9 @@ JSON.stringify((()=>{
       }
       if(tag==='ul'||tag==='ol'){
         const ordered=tag==='ol';
-        return [...node.children].filter(child=>child.tagName.toLowerCase()==='li').map((child,index)=>{
-          const body=[...child.childNodes].filter(part=>!(part.nodeType===Node.ELEMENT_NODE&&['ul','ol'].includes(part.tagName.toLowerCase()))).map(walk).join('').trim();
-          const nested=[...child.children].filter(part=>['ul','ol'].includes(part.tagName.toLowerCase())).map(walk).join('').trimEnd();
+        return composedChildren(node).filter(child=>child.tagName.toLowerCase()==='li').map((child,index)=>{
+          const body=composedChildNodes(child).filter(part=>!(part.nodeType===Node.ELEMENT_NODE&&['ul','ol'].includes(part.tagName.toLowerCase()))).map(walk).join('').trim();
+          const nested=composedChildren(child).filter(part=>['ul','ol'].includes(part.tagName.toLowerCase())).map(walk).join('').trimEnd();
           const prefix=ordered?(index+1)+'. ':'- ';
           return prefix+body+(nested?'\n'+nested.split('\n').map(line=>line?'  '+line:line).join('\n'):'');
         }).join('\n')+'\n\n';
@@ -101,7 +96,7 @@ JSON.stringify((()=>{
     node?.matches?.(toolDataSelector)||toolSemanticAttribute(node)
   );
   const closestToolDataNode=(node,root)=>{
-    for(let candidate=node;candidate&&candidate!==root;candidate=candidate.parentElement){
+    for(let candidate=node;candidate&&candidate!==root;candidate=composedParent(candidate)){
       if(toolDataNode(candidate))return candidate;
     }
     return root&&toolDataNode(root)?root:null;
@@ -110,7 +105,7 @@ JSON.stringify((()=>{
   const toolReferencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
-    .map(id=>document.getElementById(id)?.textContent||'')
+    .map(id=>composedTextContent(referencedElement(node,id)))
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
@@ -122,7 +117,7 @@ JSON.stringify((()=>{
       ||!promptaTranscriptEngine.isControlLikeAnchor(node)
     )return false;
     const descendantSemanticText=node.querySelectorAll
-      ?[...node.querySelectorAll('*')].flatMap(child=>[
+      ?deepQueryAll(node,'*').flatMap(child=>[
         child.getAttribute?.('aria-label')||'',
         child.getAttribute?.('title')||'',
         child.getAttribute?.('data-icon')||'',
@@ -136,7 +131,7 @@ JSON.stringify((()=>{
       toolLabelledByText(node),
       toolDescribedByText(node),
       node.getAttribute('title'),
-      node.textContent,
+      composedTextContent(node),
       descendantSemanticText
     ].some(toolTriggerLabel);
   };
@@ -151,68 +146,65 @@ JSON.stringify((()=>{
   const toolRows=agent=>{
     if(!agent)return [];
     const dataCandidates=[
-      ...agent.querySelectorAll(toolDataSelector),
-      ...[...agent.querySelectorAll('*')].filter(toolSemanticAttribute)
+      ...deepQueryAll(agent,toolDataSelector),
+      ...deepQueryAll(agent,'*').filter(toolSemanticAttribute)
     ].filter((node,index,nodes)=>nodes.indexOf(node)===index);
     const dataRows=dataCandidates.filter(node=>
-      !dataCandidates.some(other=>other!==node&&other.contains(node))
+      !dataCandidates.some(other=>other!==node&&deepContains(other,node))
     );
     const triggerRows=toolTriggerNodes(agent).map(marker=>{
       const dataRow=closestToolDataNode(marker,agent);
-      if(dataRow&&agent.contains(dataRow))return dataRow;
-      const control=marker.closest('button,[role="button"]')||marker;
-      return control.parentElement&&agent.contains(control.parentElement)?control.parentElement:control;
+      if(dataRow&&deepContains(agent,dataRow))return dataRow;
+      const control=deepClosest(marker,'button,[role="button"]')||marker;
+      const parent=composedParent(control);
+      return parent&&deepContains(agent,parent)?parent:control;
     });
     const semantic=[...new Set([...dataRows,...triggerRows])]
       .filter(node=>node&&visible(node))
       .filter((node,index,rows)=>!rows.some((other,otherIndex)=>
-        otherIndex!==index&&other.contains(node)
+        otherIndex!==index&&deepContains(other,node)
       ));
-    const legacy=[...agent.querySelectorAll('*')]
+    const legacy=deepQueryAll(agent,'*')
       .filter(legacyToolRowClass)
       .filter(node=>visible(node))
-      .filter(node=>!semantic.some(row=>row===node||row.contains(node)||node.contains(row)));
-    return [...semantic,...legacy].sort((left,right)=>left===right?0:(
-      left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
-    ));
+      .filter(node=>!semantic.some(row=>row===node||deepContains(row,node)||deepContains(node,row)));
+    return [...semantic,...legacy].sort(documentOrder);
   };
   const proseRows=(agent,rows=toolRows(agent))=>{
     if(!agent)return [];
     const scope=authorNode(agent,'assistant')||agent;
-    const isInsideTool=node=>rows.some(row=>row===node||row.contains(node));
-    const semantic=[...scope.querySelectorAll(proseBlockSelector)]
+    const isInsideTool=node=>rows.some(row=>row===node||deepContains(row,node));
+    const semantic=deepQueryAll(scope,proseBlockSelector)
       .filter(visible)
       .filter(node=>!isSemanticInteractiveControl(node))
       .filter(node=>!isInsideTool(node))
       .filter((node,index,nodes)=>!nodes.some((other,otherIndex)=>
-        otherIndex!==index&&other.contains(node)
+        otherIndex!==index&&deepContains(other,node)
       ));
-    const legacy=[...scope.querySelectorAll(legacyRichTextSelector)]
+    const legacy=deepQueryAll(scope,legacyRichTextSelector)
       .filter(visible)
       .filter(node=>!isSemanticInteractiveControl(node))
       .filter(node=>!isInsideTool(node));
     const structural=[];
     const coveredByKnownProse=node=>semantic.some(row=>
-      row===node||row.contains(node)
+      row===node||deepContains(row,node)
     );
-    const containsKnownProse=node=>semantic.some(row=>node.contains(row));
+    const containsKnownProse=node=>semantic.some(row=>deepContains(node,row));
     const collectStructural=node=>{
       if(!node||!visible(node))return;
       if(isSemanticInteractiveControl(node))return;
       if(node.matches?.(semanticHeadingSelector)&&headingAccessibleRole(node))return;
-      if(rows.some(row=>row===node||row.contains(node)))return;
+      if(rows.some(row=>row===node||deepContains(row,node)))return;
       if(coveredByKnownProse(node))return;
-      const containsTool=rows.some(row=>node.contains(row));
+      const containsTool=rows.some(row=>deepContains(node,row));
       if(!containsTool&&!containsKnownProse(node)){
         if(normalise(messageText(node)))structural.push(node);
         return;
       }
-      for(const child of node.children)collectStructural(child);
+      for(const child of composedChildren(node))collectStructural(child);
     };
-    for(const child of scope.children)collectStructural(child);
-    const discovered=[...semantic,...structural].sort((left,right)=>left===right?0:(
-      left.compareDocumentPosition(right)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
-    ));
+    for(const child of composedChildren(scope))collectStructural(child);
+    const discovered=[...semantic,...structural].sort(documentOrder);
     if(discovered.length)return discovered;
     if(legacy.length)return legacy;
     return !rows.length&&normalise(messageText(scope))?[scope]:[];
@@ -335,8 +327,8 @@ JSON.stringify((()=>{
         ||semanticAttribute(node,/(?:^|-)tool-(?:call-id|name)$/i)
         ||isToolTrigger(node)
         ?node
-        :node.querySelector(toolDataSelector)||toolTriggerNodes(node)[0]||null;
-      const lines=(node.innerText||node.textContent||'').split(/\n+/)
+        :deepQueryAll(node,toolDataSelector)[0]||toolTriggerNodes(node)[0]||null;
+      const lines=composedTextContent(node).split(/\n+/)
         .map(line=>line.trim())
         .filter(Boolean);
       const name=[
@@ -519,7 +511,7 @@ JSON.stringify((()=>{
   const transcript=transcriptRoot();
   const semanticAssistantTurns=[...new Set([
     ...assistantNodes.map(turnRoot).filter(Boolean),
-    ...transcript.querySelectorAll(semanticTurnSelector)
+    ...deepQueryAll(transcript,semanticTurnSelector)
   ])]
     .filter(visible)
     .filter(turn=>!explicitUserTurns.has(turn))
@@ -527,7 +519,7 @@ JSON.stringify((()=>{
   const semanticAssistantSet=new Set(semanticAssistantTurns);
   // Legacy fallback: class/tag turn wrappers are consulted only for layouts
   // that do not expose an author node or stable conversation-turn marker.
-  const legacyAssistantTurns=[...transcript.querySelectorAll(legacyTurnSelector)]
+  const legacyAssistantTurns=deepQueryAll(transcript,legacyTurnSelector)
     .filter(visible)
     .filter(turn=>!semanticAssistantSet.has(turn))
     .filter(turn=>!authorNode(turn,'user'))
@@ -541,10 +533,10 @@ JSON.stringify((()=>{
     const rows=toolRows(agent);
     const prose=proseRows(agent,rows);
     const richText=prose.map(markdownText).filter(Boolean);
-    const richPlain=prose.map(node=>(node.innerText||node.textContent||'').trim()).filter(Boolean);
+    const richPlain=prose.map(node=>composedTextContent(node).trim()).filter(Boolean);
     const explicitAssistant=authorNode(agent,'assistant');
     const domTools=toolBlocks(agent);
-    const rawVisible=(agent.innerText||agent.textContent||'').replace(networkErrorNoise,'').trim();
+    const rawVisible=composedTextContent(agent).replace(networkErrorNoise,'').trim();
     const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\.?(?:\s*waiting for (?:the )?complete answer\.?)?|waiting for (?:the )?complete answer\.?|message delivery timed out\.?\s*please try again\.?|a network error occurred\.?(?:\s*please check your connection and try again\.?(?:\s*if this issue persists please contact us through our help center at help\.openai\.com\.?)?)?)$/i;
     const activityLines=[...new Set(rawVisible.split(/\n+/).map(line=>line.trim()).filter(line=>(
       line
@@ -566,9 +558,7 @@ JSON.stringify((()=>{
     const orderedNodes=[
       ...prose.map(node=>({node,kind:'prose'})),
       ...rows.map(node=>({node,kind:'tool'}))
-    ].sort((left,right)=>left.node===right.node?0:(
-      left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1
-    ));
+    ].sort((left,right)=>documentOrder(left.node,right.node));
     let orderedToolIndex=0;
     const orderedParts=orderedNodes.map(entry=>{
       if(entry.kind==='prose')return markdownText(entry.node);
@@ -635,7 +625,7 @@ JSON.stringify((()=>{
     if(left.node===right.node)return 0;
     if(!left.node)return 1;
     if(!right.node)return -1;
-    return left.node.compareDocumentPosition(right.node)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;
+    return documentOrder(left.node,right.node);
   });
   const pageReactRoot=transcriptRoot();
   const pageReactMessages=(!entries.length&&pageReactRoot)
@@ -674,7 +664,7 @@ JSON.stringify((()=>{
     ordinal:index
   }));
   const latestAgent=candidates.at(-1)||null;
-  const visibleAgentText=normalise(latestAgent?.innerText||latestAgent?.textContent||'');
+  const visibleAgentText=normalise(composedTextContent(latestAgent));
   const latestHasToolDom=Boolean(latestAgent&&toolRows(latestAgent).length);
   let latestTurnReactMessages=(latestAgent&&latestHasToolDom)
     ?reactMessages(latestAgent,'source-events')
@@ -707,11 +697,11 @@ JSON.stringify((()=>{
   }).map(sanitiseSourceEvent);
   const semanticStop=promptaTranscriptEngine.actionControls(document)
     .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
-  const stop=[...document.querySelectorAll(stopSelector)].some(visible)||semanticStop;
-  const streamActive=[...transcript.querySelectorAll(streamingSelector)].some(visible);
+  const stop=deepQueryAll(document,stopSelector).some(visible)||semanticStop;
+  const streamActive=deepQueryAll(transcript,streamingSelector).some(visible);
   const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
-  const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...latestTurn.querySelectorAll('*')].some(node=>{
+  const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...deepQueryAll(latestTurn,'*')].some(node=>{
     const state=semanticAttribute(
       node,
       /(?:^|-)(?:is-)?streaming$/i,
