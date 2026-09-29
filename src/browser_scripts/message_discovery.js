@@ -51,8 +51,15 @@
     return null;
   };
   const referencedElement=(node,id)=>{
-    const root=node?.getRootNode?.();
-    return root?.getElementById?.(id)||document.getElementById(id);
+    const seenRoots=new Set();
+    for(let current=node;current;current=composedParent(current)){
+      const root=current.getRootNode?.();
+      if(!root||seenRoots.has(root))continue;
+      seenRoots.add(root);
+      const match=root.getElementById?.(id);
+      if(match)return match;
+    }
+    return document.getElementById(id);
   };
   const normaliseAttributeName=value=>String(value||'')
     .trim()
@@ -102,7 +109,7 @@
   const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
-    .map(id=>referencedElement(node,id)?.textContent||'')
+    .map(id=>composedTextContent(referencedElement(node,id)))
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();

@@ -2315,3 +2315,57 @@ def test_shadow_message_hosts_and_slots_preserve_rendered_content(browser_page) 
         ("user", "u-host", "Shadow-host question."),
         ("assistant", "a-host", "Slotted answer."),
     ]
+
+
+def test_nested_shadow_role_references_use_composed_label_text(browser_page) -> None:
+    browser_page.set_content('<div id="outer-host"></div>')
+    browser_page.evaluate(
+        """() => {
+          const outer = document.getElementById('outer-host').attachShadow({mode: 'open'});
+          outer.innerHTML = `
+            <main>
+              <span id="user-role-label"><span id="user-role-text"></span></span>
+              <div id="user-turn-host"></div>
+              <span id="assistant-role-label"><span id="assistant-role-text"></span></span>
+              <div id="assistant-turn-host"></div>
+            </main>
+          `;
+          outer.getElementById('user-role-text').attachShadow({mode: 'open'}).innerHTML = 'You wrote';
+          outer.getElementById('assistant-role-text').attachShadow({mode: 'open'}).innerHTML = 'ChatGPT replied';
+          outer.getElementById('user-turn-host').attachShadow({mode: 'open'}).innerHTML =
+            '<section aria-labelledby="user-role-label" data-turn-id="u-nested"><p>Nested question.</p></section>';
+          outer.getElementById('assistant-turn-host').attachShadow({mode: 'open'}).innerHTML =
+            '<section aria-labelledby="assistant-role-label" data-turn-id="a-nested"><p>Nested answer.</p></section>';
+        }"""
+    )
+
+    snapshot = json.loads(browser_page.evaluate(CONVERSATION_SNAPSHOT_SCRIPT))
+
+    assert [
+        (message["role"], message["id"], message["content"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-nested", "Nested question."),
+        ("assistant", "a-nested", "Nested answer."),
+    ]
+
+
+def test_nested_shadow_control_label_resolves_through_ancestor_root(browser_page) -> None:
+    browser_page.set_content('<div id="outer-host"></div>')
+    browser_page.evaluate(
+        """() => {
+          const outer = document.getElementById('outer-host').attachShadow({mode: 'open'});
+          outer.innerHTML =
+            '<span id="action-label"><span id="action-text"></span></span><div id="control-host"></div>';
+          outer.getElementById('action-text').attachShadow({mode: 'open'}).innerHTML =
+            'Retry response';
+          outer.getElementById('control-host').attachShadow({mode: 'open'}).innerHTML =
+            '<button aria-labelledby="action-label">↻</button>';
+        }"""
+    )
+
+    button = browser_page.locator("#outer-host").evaluate_handle(
+        "host => host.shadowRoot.getElementById('control-host').shadowRoot.querySelector('button')"
+    )
+    labels = button.evaluate(load_browser_script("semantic_control_labels.js"))
+
+    assert "Retry response" in labels
