@@ -115,10 +115,30 @@
     .trim();
   const labelledByText=node=>referencedText(node,'aria-labelledby');
   const describedByText=node=>referencedText(node,'aria-describedby');
+  const associatedLabelText=node=>[...(node?.labels||[])]
+    .map(label=>composedTextContent(label))
+    .join(' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  const semanticControlText=node=>[
+    node?.getAttribute?.('aria-label')||'',
+    labelledByText(node),
+    node?.getAttribute?.('aria-description')||'',
+    describedByText(node),
+    associatedLabelText(node),
+    node?.getAttribute?.('title')||'',
+    node?.getAttribute?.('alt')||'',
+    node?.getAttribute?.('value')||'',
+    node?.getAttribute?.('placeholder')||'',
+    composedTextContent(node)
+  ].join(' ').replace(/\s+/g,' ').trim();
   const accessibleName=node=>String(
     node?.getAttribute?.('aria-label')
     ||labelledByText(node)
+    ||associatedLabelText(node)
     ||node?.getAttribute?.('title')
+    ||node?.getAttribute?.('alt')
+    ||node?.getAttribute?.('value')
     ||''
   ).replace(/\s+/g,' ').trim();
   const semanticInteractiveControlSelector=[

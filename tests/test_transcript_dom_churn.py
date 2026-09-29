@@ -1234,6 +1234,57 @@ def test_stop_control_discovery_survives_focusable_control_churn(browser_page) -
     assert activity["complete"] is False
 
 
+def test_stop_control_discovery_uses_native_control_value(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Still answering.</p>
+              </div>
+            </section>
+            <input type="button" value="Stop responding">
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+
+
+def test_stop_control_discovery_uses_native_associated_label(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Still answering.</p>
+              </div>
+            </section>
+            <label for="stop-control">Stop responding</label>
+            <input id="stop-control" type="button" value="">
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is True
+    assert activity["complete"] is False
+
+
 def test_stop_control_discovery_survives_link_semantics_churn(browser_page) -> None:
     browser_page.set_content(
         _conversation(
@@ -2369,3 +2420,25 @@ def test_nested_shadow_control_label_resolves_through_ancestor_root(browser_page
     labels = button.evaluate(load_browser_script("semantic_control_labels.js"))
 
     assert "Retry response" in labels
+
+
+def test_control_labels_include_native_label_description_and_placeholder(browser_page) -> None:
+    browser_page.set_content(
+        """
+        <label for="retry-control">Retry response</label>
+        <input
+          id="retry-control"
+          aria-description="Runs the response again"
+          placeholder="Fallback retry"
+          value=""
+        >
+        """
+    )
+
+    labels = browser_page.locator("#retry-control").evaluate(
+        load_browser_script("semantic_control_labels.js")
+    )
+
+    assert "Retry response" in labels
+    assert "Runs the response again" in labels
+    assert "Fallback retry" in labels

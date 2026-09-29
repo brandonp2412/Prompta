@@ -1453,6 +1453,28 @@ async def test_effort_power_info_survives_slider_role_removal(live_driver) -> No
 
 
 @pytest.mark.asyncio
+async def test_effort_power_info_tolerates_css_significant_description_ids(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <span id='power"state'>High, 3 of 4.</span>
+        <div id="power" tabindex="0" aria-describedby='power"state'>
+          <span>Reasoning intensity</span>
+          <span aria-valuemin="0" aria-valuemax="3" aria-valuenow="2"
+                aria-hidden="true"></span>
+        </div>
+        """
+    )
+
+    info = await driver.effort_power_info()
+
+    assert info["text"] == "High"
+    assert info["position"] == 3
+    assert info["total"] == 4
+    assert info["value"] == 2
+
+
+@pytest.mark.asyncio
 async def test_set_effort_power_position_survives_slider_role_removal(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

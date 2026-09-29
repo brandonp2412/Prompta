@@ -131,6 +131,7 @@ JSON.stringify((()=>{
       toolLabelledByText(node),
       toolDescribedByText(node),
       node.getAttribute('title'),
+      semanticControlText(node),
       composedTextContent(node),
       descendantSemanticText
     ].some(toolTriggerLabel);

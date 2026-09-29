@@ -150,6 +150,7 @@ const promptaTranscriptEngine=(()=>{
       labelledByText(node),
       describedByText(node),
       node.getAttribute?.('title')||'',
+      semanticControlText(node),
       composedTextContent(node),
       attributeText,
       descendantSemanticText
@@ -202,6 +203,7 @@ const promptaTranscriptEngine=(()=>{
       labelledByText(node),
       describedByText(node),
       node.getAttribute?.('title')||'',
+      semanticControlText(node),
       composedTextContent(node),
       descendantSemanticText
     ].some(actionLabel);

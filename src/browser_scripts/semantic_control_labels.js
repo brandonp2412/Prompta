@@ -38,14 +38,17 @@ el => {
       .split(/\s+/)
       .filter(Boolean)
       .map(id => composedTextContent(referencedElement(id))),
+    el?.getAttribute?.('aria-description') || '',
     ...String(el?.getAttribute?.('aria-describedby') || '')
       .split(/\s+/)
       .filter(Boolean)
       .map(id => composedTextContent(referencedElement(id))),
+    ...[...(el?.labels || [])].map(label => composedTextContent(label)),
     el?.getAttribute?.('aria-roledescription') || '',
     el?.getAttribute?.('title') || '',
     el?.getAttribute?.('alt') || '',
     el?.getAttribute?.('value') || '',
+    el?.getAttribute?.('placeholder') || '',
     composedTextContent(el),
   ].map(normalise).filter(Boolean);
   return [...new Set(labels)];

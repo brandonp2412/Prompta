@@ -1786,13 +1786,17 @@ class PlaywrightDriver(BrowserDriverBase):
             max_value = int(await slider.first.get_attribute("aria-valuemax") or -1)
             described_by = str(await power.get_attribute("aria-describedby") or "").split()
             description_parts: list[str] = []
+            id_nodes = page.locator("[id]")
+            id_count = await id_nodes.count()
             for element_id in described_by:
-                described = page.locator(f'[id="{element_id}"]')
-                if await described.count() < 1:
-                    continue
-                text = (await described.first.inner_text()).strip()
-                if text:
-                    description_parts.append(text)
+                for index in range(id_count):
+                    described = id_nodes.nth(index)
+                    if await described.get_attribute("id") != element_id:
+                        continue
+                    text = (await described.inner_text()).strip()
+                    if text:
+                        description_parts.append(text)
+                    break
         except (PlaywrightError, ValueError):
             return {}
 
