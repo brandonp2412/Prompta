@@ -366,6 +366,27 @@ async def test_send_prefers_button_accessible_name(live_driver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_survives_role_and_tag_churn_inside_main(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <header>
+          <button aria-label="Send prompt" onclick="window.wrong=true">toolbar</button>
+        </header>
+        <main>
+          <textarea aria-label="Message ChatGPT">hello</textarea>
+          <div aria-label="Send prompt" tabindex="0" onclick="window.sent=true">arrow</div>
+        </main>
+        """
+    )
+
+    await driver.click_send_button(timeout=0.2)
+
+    assert await page.evaluate("Boolean(window.sent)") is True
+    assert await page.evaluate("Boolean(window.wrong)") is False
+
+
+@pytest.mark.asyncio
 async def test_send_ignores_test_id_on_unlabeled_button_outside_composer(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -473,6 +494,35 @@ async def test_stop_prefers_button_accessible_name(live_driver) -> None:
 
     assert await driver.click_stop(driver.context, timeout=0.2) is True
     assert await page.evaluate("window.stopped") is True
+
+
+@pytest.mark.asyncio
+async def test_stop_survives_role_and_tag_churn_with_labelledby(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <span id="stop-label" hidden>Stop generating</span>
+        <div tabindex="0" aria-labelledby="stop-label"
+             onclick="window.stopped=true">square</div>
+        """
+    )
+
+    assert await driver.click_stop(driver.context, timeout=0.2) is True
+    assert await page.evaluate("Boolean(window.stopped)") is True
+
+
+@pytest.mark.asyncio
+async def test_retry_survives_role_and_tag_churn(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <div>Message delivery timed out. Please try again</div>
+        <span tabindex="0" title="Retry" onclick="window.retried=true">again</span>
+        """
+    )
+
+    assert await driver.click_delivery_retry(driver.context, timeout=0.2) is True
+    assert await page.evaluate("Boolean(window.retried)") is True
 
 
 @pytest.mark.asyncio
@@ -1366,9 +1416,7 @@ async def test_history_navigation_survives_accessible_role_churn(live_driver) ->
         await route.fulfill(status=200, content_type="text/html", body="<main>target</main>")
 
     await page.route("https://chatgpt.com/**", fulfill)
-    await page.set_content(
-        '<a role="button" href="https://chatgpt.com/c/target">History item</a>'
-    )
+    await page.set_content('<a role="button" href="https://chatgpt.com/c/target">History item</a>')
 
     assert await driver.activate_history_link("/c/target") is True
     await page.wait_for_url("https://chatgpt.com/c/target")
@@ -1605,10 +1653,11 @@ def test_semantic_locators_are_first_in_browser_controls() -> None:
 
     assert 'get_by_role("textbox"' in composer_source
     assert "locator(selector)" not in composer_source
-    assert 'get_by_role("button", name=name)' in button_source
+    assert "get_by_role(role, name=name)" in button_source
+    assert "semantic_control_labels.js" in button_source
     assert "get_by_test_id" not in button_source
-    assert "locator(selector)" not in button_source
-    assert 'get_by_role(role, name=name)' in effort_trigger_source
+    assert "data-testid" not in button_source
+    assert "get_by_role(role, name=name)" in effort_trigger_source
     assert 'page.locator("[aria-haspopup]")' in effort_trigger_source
     assert "get_by_test_id" not in login_source
     assert '[href*="/login" i]' in login_source

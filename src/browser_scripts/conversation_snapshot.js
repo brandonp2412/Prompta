@@ -106,15 +106,15 @@ JSON.stringify((()=>{
     return root&&toolDataNode(root)?root:null;
   };
   const toolTriggerLabel=value=>/\btool\b.*\b(?:call|use|details?|result|output)s?\b|\b(?:call|use|details?|result|output)s?\b.*\btool\b/i.test(String(value||''));
-  const referencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
+  const toolReferencedText=(node,attributeName)=>String(node?.getAttribute?.(attributeName)||'')
     .split(/\s+/)
     .filter(Boolean)
     .map(id=>document.getElementById(id)?.textContent||'')
     .join(' ')
     .replace(/\s+/g,' ')
     .trim();
-  const labelledByText=node=>referencedText(node,'aria-labelledby');
-  const describedByText=node=>referencedText(node,'aria-describedby');
+  const toolLabelledByText=node=>toolReferencedText(node,'aria-labelledby');
+  const toolDescribedByText=node=>toolReferencedText(node,'aria-describedby');
   const isToolTrigger=node=>{
     if(!promptaTranscriptEngine.isInteractiveControl(node))return false;
     const descendantSemanticText=node.querySelectorAll
@@ -129,8 +129,8 @@ JSON.stringify((()=>{
       :'';
     return [
       node.getAttribute('aria-label'),
-      labelledByText(node),
-      describedByText(node),
+      toolLabelledByText(node),
+      toolDescribedByText(node),
       node.getAttribute('title'),
       node.textContent,
       descendantSemanticText

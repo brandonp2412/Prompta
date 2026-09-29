@@ -51,10 +51,7 @@ def test_primary_contract_prefers_role_and_stable_data_attributes() -> None:
     assert MESSAGE_DISCOVERY_SCRIPT.index("semanticTurnSelector") < MESSAGE_DISCOVERY_SCRIPT.index(
         "legacyTurnSelector"
     )
-    assert (
-        "const pageReactRoot=document.querySelector('main')||document.body;"
-        in CONVERSATION_SNAPSHOT_SCRIPT
-    )
+    assert "const pageReactRoot=transcriptRoot();" in CONVERSATION_SNAPSHOT_SCRIPT
     assert (
         "const toolDataSelector='[data-tool-call-id],[data-tool-name]';"
         in CONVERSATION_SNAPSHOT_SCRIPT

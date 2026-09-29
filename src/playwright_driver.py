@@ -431,9 +431,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 # Prefer the nearest ancestor that structurally owns a file
                 # input. ChatGPT has historically used a <form> here, but the
                 # wrapper element itself is not part of the semantic contract.
-                owner = composer.locator(
-                    'xpath=ancestor::*[.//input[@type="file"]][1]'
-                )
+                owner = composer.locator('xpath=ancestor::*[.//input[@type="file"]][1]')
                 owner_inputs = owner.locator('input[type="file"]')
                 owner_input_count = await owner_inputs.count()
                 if owner_input_count == 1:
@@ -502,9 +500,7 @@ class PlaywrightDriver(BrowserDriverBase):
                 # A generic, unlabeled submit is only safe when the structural
                 # owner contains a single editor. This prevents a broad wrapper
                 # (or the whole app shell) from donating an unrelated submit.
-                editors = owner.locator(
-                    'textarea,[contenteditable="true"],[role="textbox"]'
-                )
+                editors = owner.locator('textarea,[contenteditable="true"],[role="textbox"]')
                 if await editors.count() != 1:
                     continue
 
@@ -520,14 +516,51 @@ class PlaywrightDriver(BrowserDriverBase):
         page: Page,
         name: re.Pattern[str],
     ) -> Locator | None:
-        semantic = await self._first_usable(
-            [
-                page.get_by_role("main").get_by_role("button", name=name),
-                page.get_by_role("button", name=name),
-            ]
-        )
-        if semantic is not None:
-            return semantic
+        # Resolve controls by meaning rather than by one specific element/role.
+        # ChatGPT has moved actions between native buttons, ARIA menu items, and
+        # roleless focusable wrappers while keeping their accessible labels.
+        # Prefer the chat landmark before the whole page so a toolbar action with
+        # the same name cannot steal the click from the composer/transcript.
+        scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
+        action_roles = ("button", "menuitem", "option", "link", "radio")
+
+        for scope in scopes:
+            semantic = await self._first_usable(
+                [scope.get_by_role(role, name=name) for role in action_roles]
+            )
+            if semantic is not None:
+                return semantic
+
+            # If the ARIA role itself churned, inspect only elements that carry
+            # some interaction/accessibility signal. Match public labels/text,
+            # never CSS classes or private test IDs, and require an unambiguous
+            # fallback within the current scope before clicking it.
+            candidates = scope.locator(
+                "button,a,input,select,[role],[tabindex],[aria-label],[aria-labelledby],[title]"
+            )
+            try:
+                count = min(await candidates.count(), 80)
+            except PlaywrightError:
+                continue
+
+            matched: list[Locator] = []
+            for index in range(count):
+                candidate = candidates.nth(index)
+                try:
+                    if not await candidate.is_visible() or not await candidate.is_enabled():
+                        continue
+                    labels = await candidate.evaluate(
+                        load_browser_script("semantic_control_labels.js")
+                    )
+                    if not isinstance(labels, list):
+                        continue
+                    if any(name.search(str(label)) for label in labels):
+                        matched.append(candidate)
+                except PlaywrightError:
+                    continue
+            if len(matched) == 1:
+                return matched[0]
+
         return None
 
     def _page(self, context: str | None = None) -> Page:
@@ -1726,7 +1759,7 @@ class PlaywrightDriver(BrowserDriverBase):
         slider = power.get_by_role("slider", include_hidden=True)
         try:
             if await slider.count() < 1:
-                slider = power.locator('[aria-valuenow][aria-valuemin][aria-valuemax]')
+                slider = power.locator("[aria-valuenow][aria-valuemin][aria-valuemax]")
             if await slider.count() < 1:
                 return {}
             current_value = int(await slider.first.get_attribute("aria-valuenow") or -1)
