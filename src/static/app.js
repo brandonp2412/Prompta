@@ -4706,7 +4706,7 @@ function JobsPage($$anchor, $$props) {
 	async function load({ quiet = false } = {}) {
 		if (!quiet) set(status, "Loading jobs…");
 		try {
-			const response = await fetch("/api/jobs", { cache: "no-store" });
+			const response = await fetch("./api/jobs", { cache: "no-store" });
 			if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
 			const result = await response.json();
 			set(jobs, Array.isArray(result.jobs) ? result.jobs : [], true);
@@ -4719,7 +4719,7 @@ function JobsPage($$anchor, $$props) {
 		set(saving, true);
 		set(status, "Saving…");
 		try {
-			const response = await fetch("/api/jobs", {
+			const response = await fetch("./api/jobs", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(payload)
@@ -4980,7 +4980,7 @@ delegate(["click"]);
 //#endregion
 //#region src/ui/App.svelte
 var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`);
-var root_1 = /* @__PURE__ */ from_html(`<main class="jobs-app"><header class="app-header"><div><div class="brand">Prompta</div> <p> </p></div> <span class="jobs-only-badge">Jobs only</span></header> <!></main>`);
+var root_1 = /* @__PURE__ */ from_html(`<main class="jobs-app"><header class="app-header"><div><div class="brand">Prompta</div> <p> </p></div></header> <!></main>`);
 function App($$anchor, $$props) {
 	var main = root_1();
 	head("1ocnzw1", ($$anchor) => {
@@ -4995,7 +4995,6 @@ function App($$anchor, $$props) {
 	var div = child(header);
 	var text = only_child(sibling(child(div), 2));
 	reset(div);
-	next(2);
 	reset(header);
 	JobsPage(sibling(header, 2), {});
 	reset(main);

@@ -40,7 +40,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .app-header p, .section-heading p, .muted { color: #a3a3a3; }
 .app-header p, .section-heading p { margin: 5px 0 0; }
 
-.jobs-only-badge, .status-pill {
+.status-pill {
   border: 1px solid #3a3a3a;
   border-radius: 999px;
   background: #222;

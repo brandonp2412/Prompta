@@ -15,7 +15,6 @@
       <div class="brand">Prompta</div>
       <p>Scheduled job manager · {serverName}</p>
     </div>
-    <span class="jobs-only-badge">Jobs only</span>
   </header>
 
   <JobsPage />

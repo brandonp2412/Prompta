@@ -64,7 +64,7 @@
     if (!quiet) status = "Loading jobs…";
 
     try {
-      const response = await fetch("/api/jobs", { cache: "no-store" });
+      const response = await fetch("./api/jobs", { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
 
       const result = await response.json();
@@ -80,7 +80,7 @@
     status = "Saving…";
 
     try {
-      const response = await fetch("/api/jobs", {
+      const response = await fetch("./api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),

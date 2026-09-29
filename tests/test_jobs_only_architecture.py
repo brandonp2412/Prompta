@@ -27,6 +27,13 @@ def test_ui_contains_only_jobs_surface() -> None:
     assert "JobsPage" in app
     assert "PromptaPage" not in app
     assert "Machine Gun" not in app
+    assert "Jobs only" not in app
+
+
+def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
+    page = Path("src/ui/JobsPage.svelte").read_text()
+    assert 'fetch("./api/jobs"' in page
+    assert 'fetch("/api/jobs"' not in page
 
 
 def test_web_server_exposes_no_chat_or_result_routes() -> None:
