@@ -220,6 +220,44 @@ async def test_focus_composer_survives_contenteditable_value_churn(
 
 
 @pytest.mark.asyncio
+async def test_hydrated_composer_ignores_stale_semantically_hidden_editors(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <main>
+          <section hidden>
+            <div id="hidden-attr" contenteditable="true" role="textbox"
+                 data-composer-markdown=""></div>
+          </section>
+          <section style="display:none">
+            <div id="display-none" contenteditable="true" role="textbox"
+                 data-composer-markdown=""></div>
+          </section>
+          <section aria-hidden="true">
+            <div id="aria-hidden" contenteditable="true" role="textbox"
+                 data-composer-markdown=""></div>
+          </section>
+          <section inert>
+            <div id="inert" contenteditable="true" role="textbox"
+                 data-composer-markdown=""></div>
+          </section>
+          <section style="content-visibility:hidden">
+            <div id="content-hidden" contenteditable="true" role="textbox"
+                 data-composer-markdown=""></div>
+          </section>
+          <div id="live" contenteditable="true" role="textbox"
+               data-composer-markdown="" style="width:0;height:0"></div>
+        </main>
+        """
+    )
+
+    composer = await driver._hydrated_composer(page)
+
+    assert composer is not None
+    assert await composer.get_attribute("id") == "live"
+
+
+@pytest.mark.asyncio
 async def test_focus_composer_survives_main_landmark_removal(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(

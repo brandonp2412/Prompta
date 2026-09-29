@@ -394,7 +394,10 @@ class PlaywrightDriver(BrowserDriverBase):
             for index in range(min(count, 12)):
                 candidate = hydrated.nth(index)
                 try:
-                    if (await candidate.get_attribute("aria-hidden") or "").casefold() == "true":
+                    active = await candidate.evaluate(
+                        load_browser_script("is_active_composed_node.js")
+                    )
+                    if not active:
                         continue
                     if await candidate.is_enabled():
                         return candidate

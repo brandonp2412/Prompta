@@ -167,6 +167,57 @@ def test_react_fallback_accepts_changed_private_property_suffix() -> None:
     assert result["messages"][0]["id"] == "assistant-1"
 
 
+def test_react_fallback_discovers_renamed_private_fiber_by_structure() -> None:
+    result = _react_fallback_from_html(
+        "<main id='root'></main>",
+        """() => {
+          const root=document.querySelector('#root');
+          root['__uiTree$renamed-private-key']={
+            tag:5,
+            stateNode:root,
+            memoizedProps:{
+              messages:[{
+                id:'assistant-structural',
+                author:{role:'assistant'},
+                content:{content_type:'text',parts:['Recovered after private prefix churn']},
+                create_time:1
+              }]
+            }
+          };
+        }""",
+    )
+
+    assert result["available"] is True
+    assert "__uiTree$renamed-private-key" in result["property_names"]
+    assert result["messages"][0]["id"] == "assistant-structural"
+
+
+def test_react_fallback_discovers_symbol_backed_private_fiber() -> None:
+    result = _react_fallback_from_html(
+        "<main id='root'></main>",
+        """() => {
+          const root=document.querySelector('#root');
+          const key=Symbol('future-ui-tree');
+          root[key]={
+            tag:5,
+            stateNode:root,
+            memoizedProps:{
+              messages:[{
+                id:'assistant-symbol',
+                author:{role:'assistant'},
+                content:{content_type:'text',parts:['Recovered from symbol-backed fallback']},
+                create_time:1
+              }]
+            }
+          };
+        }""",
+    )
+
+    assert result["available"] is True
+    assert "Symbol(future-ui-tree)" in result["property_names"]
+    assert result["messages"][0]["id"] == "assistant-symbol"
+
+
 def test_react_fallback_introspection_failure_returns_structured_error() -> None:
     result = _react_fallback_from_html(
         "<main></main>",

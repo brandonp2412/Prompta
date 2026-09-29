@@ -104,7 +104,15 @@
       if(namePattern.test(name))return String(attribute.value||'');
       if(!tokenGroups.length)continue;
       const tokens=new Set(name.split('-').filter(Boolean));
-      if(tokenGroups.every(group=>group.some(token=>tokens.has(token)))){
+      const compact=name.replace(/-/g,'');
+      const tokenMatches=token=>{
+        const normalised=normaliseAttributeName(token).replace(/-/g,'');
+        if(!normalised)return false;
+        if(tokens.has(normalised))return true;
+        if(normalised.length<=2)return compact.endsWith(normalised);
+        return compact.includes(normalised);
+      };
+      if(tokenGroups.every(group=>group.some(tokenMatches))){
         return String(attribute.value||'');
       }
     }

@@ -71,17 +71,60 @@
           }
         };
         collect(root);
+        const reactLikeCarrier=value=>{
+          if(!value||(typeof value!=='object'&&typeof value!=='function'))return false;
+          try{
+            const fiberState=(
+              'memoizedProps' in value
+              &&(
+                'pendingProps' in value
+                ||'memoizedState' in value
+                ||'stateNode' in value
+                ||'return' in value
+                ||'child' in value
+                ||'tag' in value
+              )
+            )||('pendingProps' in value&&'memoizedState' in value);
+            if(fiberState)return true;
+            const messages=value.messages;
+            return Array.isArray(messages)&&messages.some(message=>
+              message
+              &&typeof message==='object'
+              &&message.content
+              &&message.author
+            );
+          }catch{return false;}
+        };
+        const privateEntries=node=>{
+          const entries=[];
+          try{
+            const names=Object.getOwnPropertyNames(node).slice(0,maxKeys);
+            for(const name of names){
+              if(performance.now()>=deadline){result.truncated=true;break;}
+              let value;
+              try{value=node[name];}catch{continue;}
+              if(prefixes.some(prefix=>name.startsWith(prefix))||reactLikeCarrier(value)){
+                entries.push([name,value]);
+              }
+            }
+            const symbols=(Object.getOwnPropertySymbols?.(node)||[]).slice(0,maxKeys);
+            for(const symbol of symbols){
+              if(performance.now()>=deadline){result.truncated=true;break;}
+              let value;
+              try{value=node[symbol];}catch{continue;}
+              const label=String(symbol);
+              if(reactLikeCarrier(value)||/(?:react|fiber|props|container|renderer)/i.test(label)){
+                entries.push([label,value]);
+              }
+            }
+          }catch{}
+          return entries;
+        };
         for(const node of [root,...descendants]){
           if(budgetExhausted()){result.truncated=true;break;}
           result.scanned_nodes+=1;
-          let keys=[];
-          try{
-            keys=Object.getOwnPropertyNames(node).filter(name=>prefixes.some(prefix=>name.startsWith(prefix)));
-          }catch{continue;}
-          for(const key of keys){
+          for(const [key,value] of privateEntries(node)){
             propertyNames.add(key);
-            let value;
-            try{value=node[key];}catch{continue;}
             walk(value,0);
           }
         }

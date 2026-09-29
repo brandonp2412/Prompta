@@ -2494,6 +2494,37 @@ def test_message_identity_survives_turn_id_attribute_churn(browser_page) -> None
     ]
 
 
+def test_semantic_attributes_survive_separator_removal(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-messageauthorrole="human" data-turnuuid="u-compact">
+              <p>Compact user metadata.</p>
+            </section>
+            <section data-messageauthorrole="model" data-turnuuid="a-compact"
+                     data-isstreaming="true">
+              <p>Before compact tool metadata.</p>
+              <section data-toolcallid="future-compact" data-toolname="Glass Serena">
+                <button aria-label="Show tool details">Inspect result</button>
+              </section>
+            </section>
+            """
+        ),
+    )
+
+    assert [
+        (message["role"], message["id"]) for message in snapshot["messages"]
+    ] == [
+        ("user", "u-compact"),
+        ("assistant", "a-compact"),
+    ]
+    assistant = next(message for message in snapshot["messages"] if message["role"] == "assistant")
+    assert "Before compact tool metadata." in assistant["content"]
+    assert chr(96) * 3 + "tool:Glass Serena" in assistant["content"]
+    assert snapshot["streaming"] is True
+
+
 def test_semantic_message_attributes_survive_separator_churn(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
