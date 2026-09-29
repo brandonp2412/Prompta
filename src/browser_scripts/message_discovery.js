@@ -50,6 +50,36 @@
     }
     return null;
   };
+  const isComposedRenderedWithin=(root,node)=>{
+    const start=node?.nodeType===Node.TEXT_NODE?composedParent(node):node;
+    if(!start)return false;
+    for(
+      let current=start;
+      current&&current!==root&&current.nodeType===Node.ELEMENT_NODE;
+      current=composedParent(current)
+    ){
+      if(
+        current.hidden
+        ||(current.getAttribute?.('aria-hidden')||'').trim().toLowerCase()==='true'
+      )return false;
+      const style=getComputedStyle(current);
+      if(
+        style.display==='none'
+        ||style.visibility==='hidden'
+        ||style.visibility==='collapse'
+        ||Number(style.opacity)===0
+        ||style.contentVisibility==='hidden'
+      )return false;
+    }
+    return true;
+  };
+  const composedRenderedTextContent=(root,node=root)=>{
+    if(!node||!isComposedRenderedWithin(root,node))return '';
+    if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
+    return composedChildNodes(node)
+      .map(child=>composedRenderedTextContent(root,child))
+      .join('');
+  };
   const referencedElement=(node,id)=>{
     const seenRoots=new Set();
     for(let current=node;current;current=composedParent(current)){
@@ -131,7 +161,7 @@
     node?.getAttribute?.('alt')||'',
     node?.getAttribute?.('value')||'',
     node?.getAttribute?.('placeholder')||'',
-    composedTextContent(node)
+    composedRenderedTextContent(node)
   ].join(' ').replace(/\s+/g,' ').trim();
   const accessibleName=node=>String(
     node?.getAttribute?.('aria-label')
@@ -148,7 +178,7 @@
     'input:not([type="hidden"])',
     'select',
     'textarea',
-    '[contenteditable="true"]',
+    '[contenteditable]:not([contenteditable="false"])',
     '[role="button"]',
     '[role="checkbox"]',
     '[role="combobox"]',
@@ -159,6 +189,7 @@
     '[role="option"]',
     '[role="radio"]',
     '[role="searchbox"]',
+    '[role="textbox"]',
     '[role="slider"]',
     '[role="spinbutton"]',
     '[role="switch"]',
@@ -234,7 +265,7 @@
     ?deepQueryAll(root,semanticHeadingSelector)
     :[];
   const headingAccessibleRole=heading=>accessibleNodeRole(heading)
-    ||accessibleRole(composedTextContent(heading));
+    ||accessibleRole(composedRenderedTextContent(heading));
   const headingRole=node=>{
     for(const heading of headingNodes(node)){
       const role=headingAccessibleRole(heading);
@@ -261,7 +292,7 @@
   const isHeadingNode=node=>Boolean(node?.matches?.(semanticHeadingSelector));
   const semanticMessageText=root=>{
     const walk=node=>{
-      if(!node)return '';
+      if(!node||!isComposedRenderedWithin(root,node))return '';
       if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
       if(node!==root&&isSemanticInteractiveControl(node))return '';
       if(node!==root&&isHeadingNode(node)&&headingAccessibleRole(node))return '';

@@ -193,6 +193,32 @@ async def test_focus_composer_survives_textbox_role_removal(live_driver) -> None
     assert await composer.get_attribute("aria-label") == "Ask ChatGPT"
 
 
+@pytest.mark.parametrize("editable_value", ["", "plaintext-only"])
+@pytest.mark.asyncio
+async def test_focus_composer_survives_contenteditable_value_churn(
+    live_driver,
+    editable_value: str,
+) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        f"""
+        <main>
+          <div
+            contenteditable="{editable_value}"
+            role="textbox"
+            aria-label="Ask ChatGPT"
+            data-renamed-composer-contract=""
+            style="width:0;height:100px"
+          ></div>
+        </main>
+        """
+    )
+
+    composer = await driver._focus_composer()
+
+    assert await composer.get_attribute("contenteditable") == editable_value
+
+
 @pytest.mark.asyncio
 async def test_focus_composer_survives_main_landmark_removal(live_driver) -> None:
     driver, page = live_driver

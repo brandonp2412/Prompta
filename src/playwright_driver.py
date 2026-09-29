@@ -362,17 +362,27 @@ class PlaywrightDriver(BrowserDriverBase):
         main = page.get_by_role("main")
         candidates = (
             (
-                main.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
+                main.locator(
+                    '[contenteditable]:not([contenteditable="false"])[role="textbox"][data-composer-markdown]'
+                ),
                 False,
             ),
-            (main.locator('[contenteditable="true"][role="textbox"]'), False),
-            (main.locator('[contenteditable="true"]'), True),
             (
-                page.locator('[contenteditable="true"][role="textbox"][data-composer-markdown]'),
+                main.locator('[contenteditable]:not([contenteditable="false"])[role="textbox"]'),
+                False,
+            ),
+            (main.locator('[contenteditable]:not([contenteditable="false"])'), True),
+            (
+                page.locator(
+                    '[contenteditable]:not([contenteditable="false"])[role="textbox"][data-composer-markdown]'
+                ),
                 True,
             ),
-            (page.locator('[contenteditable="true"][role="textbox"]'), True),
-            (page.locator('[contenteditable="true"]'), True),
+            (
+                page.locator('[contenteditable]:not([contenteditable="false"])[role="textbox"]'),
+                True,
+            ),
+            (page.locator('[contenteditable]:not([contenteditable="false"])'), True),
         )
         for hydrated, require_unique in candidates:
             try:
@@ -500,7 +510,9 @@ class PlaywrightDriver(BrowserDriverBase):
                 # A generic, unlabeled submit is only safe when the structural
                 # owner contains a single editor. This prevents a broad wrapper
                 # (or the whole app shell) from donating an unrelated submit.
-                editors = owner.locator('textarea,[contenteditable="true"],[role="textbox"]')
+                editors = owner.locator(
+                    'textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]'
+                )
                 if await editors.count() != 1:
                     continue
 

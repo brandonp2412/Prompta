@@ -21,6 +21,36 @@ el => {
     if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
     return composedChildNodes(node).map(composedTextContent).join('');
   };
+  const isRenderedWithin = (root, node) => {
+    const start = node?.nodeType === Node.TEXT_NODE ? composedParent(node) : node;
+    if (!start) return false;
+    for (
+      let current = start;
+      current && current !== root && current.nodeType === Node.ELEMENT_NODE;
+      current = composedParent(current)
+    ) {
+      if (
+        current.hidden
+        || normalise(current.getAttribute?.('aria-hidden')).toLowerCase() === 'true'
+      ) return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === 'none'
+        || style.visibility === 'hidden'
+        || style.visibility === 'collapse'
+        || Number(style.opacity) === 0
+        || style.contentVisibility === 'hidden'
+      ) return false;
+    }
+    return true;
+  };
+  const renderedTextContent = (root, node = root) => {
+    if (!node || !isRenderedWithin(root, node)) return '';
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+    return composedChildNodes(node)
+      .map(child => renderedTextContent(root, child))
+      .join('');
+  };
   const referencedElement = id => {
     const seenRoots = new Set();
     for (let current = el; current; current = composedParent(current)) {
@@ -49,7 +79,7 @@ el => {
     el?.getAttribute?.('alt') || '',
     el?.getAttribute?.('value') || '',
     el?.getAttribute?.('placeholder') || '',
-    composedTextContent(el),
+    renderedTextContent(el),
   ].map(normalise).filter(Boolean);
   return [...new Set(labels)];
 }

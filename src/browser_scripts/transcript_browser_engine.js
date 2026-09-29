@@ -24,7 +24,7 @@ const promptaTranscriptEngine=(()=>{
   const reactMessages=(root,reason,options={})=>inspectReact(root,reason,options).messages;
   const hasVisibleAssistantText=(agent,messages)=>{
     const normalise=value=>(value||'').replace(/\s+/g,' ').trim();
-    const visibleAgentText=normalise(composedTextContent(agent));
+    const visibleAgentText=normalise(semanticMessageText(agent));
     if(!visibleAgentText)return false;
     return messages.some(message=>{
       const role=String(message?.author?.role||message?.role||'');
@@ -106,7 +106,7 @@ const promptaTranscriptEngine=(()=>{
   const isActionControl=isSemanticActionControl;
   const semanticMetadataText=node=>[
     node,
-    ...deepQueryAll(node,'*')
+    ...deepQueryAll(node,'*').filter(candidate=>isComposedRenderedWithin(node,candidate))
   ].filter(Boolean).flatMap(candidate=>
     [...(candidate.attributes||[])]
       .filter(attribute=>{
@@ -146,7 +146,7 @@ const promptaTranscriptEngine=(()=>{
       describedByText(node),
       node.getAttribute?.('title')||'',
       semanticControlText(node),
-      composedTextContent(node),
+      composedRenderedTextContent(node),
       semanticMetadataText(node)
     ].join(' ').replace(/[-_]+/g,' ');
     return /\b(?:stop(?:\s+(?:answering|generating|generation|response|responding))?|cancel\s+(?:generation|response))\b/i.test(label);
@@ -189,7 +189,7 @@ const promptaTranscriptEngine=(()=>{
       describedByText(node),
       node.getAttribute?.('title')||'',
       semanticControlText(node),
-      composedTextContent(node),
+      composedRenderedTextContent(node),
       semanticMetadataText(node)
     ].some(actionLabel);
   };

@@ -34,6 +34,7 @@ JSON.stringify((()=>{
   };
   const markdownText=root=>{
     const walk=node=>{
+      if(!isComposedRenderedWithin(root,node))return '';
       if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
       if(node.nodeType!==Node.ELEMENT_NODE)return '';
       if(node!==root&&isSemanticInteractiveControl(node))return '';
@@ -68,7 +69,7 @@ JSON.stringify((()=>{
           language=className.match(/(?:^|\s)(?:language|lang)-([\w.+#-]+)/i)?.[1]||'';
           if(language)break;
         }
-        return '```'+language+'\n'+composedTextContent(code).replace(/\n$/,'')+'\n```\n\n';
+        return '```'+language+'\n'+renderedTextContent(code).replace(/\n$/,'')+'\n```\n\n';
       }
       if(tag==='a'){
         const href=node.getAttribute('href')||'';
@@ -133,7 +134,7 @@ JSON.stringify((()=>{
       toolDescribedByText(node),
       node.getAttribute('title'),
       semanticControlText(node),
-      composedTextContent(node),
+      composedRenderedTextContent(node),
       promptaTranscriptEngine.semanticMetadataText(node)
     ].some(toolTriggerLabel);
   };
@@ -328,7 +329,7 @@ JSON.stringify((()=>{
       const marker=toolDataNode(node)||isToolTrigger(node)
         ?node
         :deepQueryAll(node,'*').find(toolDataNode)||toolTriggerNodes(node)[0]||null;
-      const lines=composedTextContent(node).split(/\n+/)
+      const lines=renderedTextContent(node).split(/\n+/)
         .map(line=>line.trim())
         .filter(Boolean);
       const name=[
@@ -533,7 +534,7 @@ JSON.stringify((()=>{
     const rows=toolRows(agent);
     const prose=proseRows(agent,rows);
     const richText=prose.map(markdownText).filter(Boolean);
-    const richPlain=prose.map(node=>composedTextContent(node).trim()).filter(Boolean);
+    const richPlain=prose.map(node=>renderedTextContent(node).trim()).filter(Boolean);
     const explicitAssistant=authorNode(agent,'assistant');
     const domTools=toolBlocks(agent);
     const rawVisible=renderedTextContent(agent).replace(networkErrorNoise,'').trim();

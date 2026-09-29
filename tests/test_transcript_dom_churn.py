@@ -106,6 +106,8 @@ def test_role_churned_controls_do_not_leak_into_transcript_text(browser_page) ->
                 <div tabindex="0" aria-label="Edit message">Edit</div>
                 <div role="switch">Temporary action</div>
                 <input type="button" value="Retry">
+                <div contenteditable="" aria-label="Edit prompt">Edit draft</div>
+                <div role="textbox" aria-label="Edit prompt">Textbox draft</div>
               </div>
             </section>
             <section data-testid="conversation-turn-a1">
@@ -116,6 +118,7 @@ def test_role_churned_controls_do_not_leak_into_transcript_text(browser_page) ->
                   <div role="option">Read aloud</div>
                   <div role="combobox">Model picker</div>
                   <select><option>Internal UI choice</option></select>
+                  <div contenteditable="plaintext-only" aria-label="Copy response">Copy draft</div>
                 </div>
               </div>
             </section>
@@ -908,6 +911,72 @@ def test_reordered_non_content_controls_do_not_change_message_text(
     ]
 
 
+def test_hidden_descendants_do_not_leak_into_visible_message_content(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">
+                Visible prompt.
+                <span hidden>Stale hidden prompt.</span>
+                <span aria-hidden="true">Stale accessibility prompt.</span>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>
+                  Visible answer.
+                  <span style="display:none">Stale hidden answer.</span>
+                  <span style="visibility:hidden">Stale invisible answer.</span>
+                  <span style="opacity:0">Stale transparent answer.</span>
+                  <span style="content-visibility:hidden">Stale skipped answer.</span>
+                  <span aria-hidden="true">Stale accessibility answer.</span>
+                </p>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Visible prompt."),
+        ("assistant", "Visible answer."),
+    ]
+
+
+def test_hidden_control_descendants_do_not_change_turn_state(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Answer without a final action yet.</p>
+                <button>
+                  Continue
+                  <span hidden>Stop answering</span>
+                </button>
+                <button>
+                  Details
+                  <span aria-hidden="true">Copy response</span>
+                </button>
+              </div>
+            </section>
+            """
+        )
+    )
+    activity_script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector='button[aria-label*="stop" i]',
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(activity_script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is False
+
+
 def test_display_contents_turn_wrapper_remains_visible(browser_page) -> None:
     browser_page.set_content(
         _conversation(
@@ -1204,6 +1273,27 @@ def test_semantic_tool_rows_survive_wrapper_and_class_churn(browser_page) -> Non
     assert "execute_python" in content
     assert "status completed" in content
     assert content.index("Inspecting.") < content.index("```tool:Glass") < content.index("Done.")
+
+
+def test_hidden_tool_trigger_text_does_not_create_false_tool_block(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <p>Visible answer.</p>
+                <button aria-label="Details">
+                  Details
+                  <span hidden>Tool call</span>
+                </button>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [("assistant", "Visible answer.")]
 
 
 def test_unknown_tool_attribute_namespace_preserves_tool_capture(browser_page) -> None:
