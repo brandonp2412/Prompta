@@ -154,63 +154,55 @@
   <div class="section-heading">
     <div>
       <h1 id="jobs-title">Scheduled jobs</h1>
-      <p>Create, edit, pause, resume, and remove jobs. Every run starts a fresh ChatGPT chat and is discarded after dispatch.</p>
+      <p>{jobs.length} configured</p>
     </div>
-    <button class="secondary-button" type="button" disabled={saving} onclick={() => void load()}>
-      Refresh
-    </button>
+    <div class="heading-actions">
+      <span class="status-line" role="status" aria-live="polite">{status}</span>
+      <button class="text-button" type="button" disabled={saving} onclick={() => void load()}>
+        Refresh
+      </button>
+    </div>
   </div>
-
-  <div class="status-line" role="status" aria-live="polite">{status}</div>
 
   <div class="jobs-list">
     {#if jobs.length === 0}
-      <div class="empty-card">No scheduled jobs.</div>
+      <div class="empty-row">No scheduled jobs.</div>
     {/if}
 
     {#each jobs as job (job.name)}
-      <article class="job-card">
-        <div class="job-card-header">
-          <div>
+      <article class="job-row">
+        <div class="job-content">
+          <div class="job-title-line">
             <h2>{job.name}</h2>
-            <p class="muted">{scheduleText(job)}</p>
+            <span class:error={job.status === "failing"} class:paused={job.paused} class="job-status">
+              {job.paused ? "paused" : job.status || "pending"}
+            </span>
+            <span class="job-schedule">{scheduleText(job)}</span>
           </div>
-          <span class:paused={job.paused} class:error={job.status === "failing"} class="status-pill">
-            {job.paused ? "paused" : job.status || "pending"}
-          </span>
-        </div>
 
-        <pre class="job-prompt">{job.prompt}</pre>
+          <div class="job-prompt">{job.prompt}</div>
 
-        <dl class="job-facts">
-          <div>
-            <dt>Next run</dt>
-            <dd>{job.paused ? "Paused" : formatDate(job.next_due_at_epoch)}</dd>
+          <div class="job-meta">
+            <span><strong>Next</strong> {job.paused ? "Paused" : formatDate(job.next_due_at_epoch)}</span>
+            <span><strong>Last sent</strong> {formatDate(job.last_sent_at)}</span>
+            {#if job.source_revision}
+              <span title={job.source_revision}><strong>Rev</strong> {job.source_revision.slice(0, 8)}</span>
+            {/if}
           </div>
-          <div>
-            <dt>Last sent</dt>
-            <dd>{formatDate(job.last_sent_at)}</dd>
-          </div>
-          {#if job.source_revision}
-            <div>
-              <dt>Created at rev</dt>
-              <dd title={job.source_revision}>{job.source_revision.slice(0, 8)}</dd>
-            </div>
+
+          {#if job.status_message}
+            <p class="job-message">{job.status_message}</p>
           {/if}
-        </dl>
-
-        {#if job.status_message}
-          <p class="job-message">{job.status_message}</p>
-        {/if}
+        </div>
 
         <div class="job-actions">
           {#if !job.run_at_epoch}
-            <button class="secondary-button" type="button" disabled={saving} onclick={() => edit(job)}>
+            <button class="text-button" type="button" disabled={saving} onclick={() => edit(job)}>
               Edit
             </button>
           {/if}
           <button
-            class="secondary-button"
+            class="text-button"
             type="button"
             disabled={saving}
             onclick={() =>
@@ -221,7 +213,7 @@
           >
             {job.paused ? "Resume" : "Pause"}
           </button>
-          <button class="danger-button" type="button" disabled={saving} onclick={() => void remove(job)}>
+          <button class="text-button danger-text" type="button" disabled={saving} onclick={() => void remove(job)}>
             Remove
           </button>
         </div>
@@ -236,24 +228,24 @@
       void submit();
     }}
   >
-    <div class="section-heading">
+    <div class="form-heading">
       <div>
         <h2>{editing ? "Edit " + editing : "Add job"}</h2>
         <p>{editing ? "Update the prompt or schedule." : "Create a recurring scheduled prompt."}</p>
       </div>
     </div>
 
-    <label>
-      <span>Name</span>
-      <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
-    </label>
+    <div class="form-fields">
+      <label class="name-field">
+        <span>Name</span>
+        <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+      </label>
 
-    <label>
-      <span>Prompt</span>
-      <textarea bind:value={prompt} rows="6" required></textarea>
-    </label>
+      <label class="prompt-field">
+        <span>Prompt</span>
+        <textarea bind:value={prompt} rows="4" required></textarea>
+      </label>
 
-    <div class="form-grid">
       <label>
         <span>Schedule</span>
         <select bind:value={schedule}>
@@ -275,23 +267,27 @@
       {/if}
     </div>
 
-    {#if schedule === "interval"}
-      <label class="checkbox-row">
-        <input bind:checked={exact} type="checkbox" />
-        <span>Use exact interval (disable schedule jitter)</span>
-      </label>
-    {/if}
+    <div class="form-footer">
+      {#if schedule === "interval"}
+        <label class="checkbox-row">
+          <input bind:checked={exact} type="checkbox" />
+          <span>Exact interval</span>
+        </label>
+      {:else}
+        <span></span>
+      {/if}
 
-    <div class="form-actions">
-      <button class="secondary-button" type="button" disabled={saving} onclick={reset}>
-        {editing ? "Cancel edit" : "Reset"}
-      </button>
-      <button class="primary-button" type="submit" disabled={saving}>Save job</button>
+      <div class="form-actions">
+        <button class="text-button" type="button" disabled={saving} onclick={reset}>
+          {editing ? "Cancel" : "Reset"}
+        </button>
+        <button class="primary-button" type="submit" disabled={saving}>Save job</button>
+      </div>
     </div>
   </form>
 
   <div class="danger-zone">
-    <button class="danger-button" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
+    <button class="text-button danger-text" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
       Clear all jobs
     </button>
   </div>
