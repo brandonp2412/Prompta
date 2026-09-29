@@ -201,7 +201,7 @@ const promptaTranscriptEngine=(()=>{
   const latestAssistantRoot=()=>{
     const latestAssistant=authorNodes('assistant').at(-1)||null;
     return turnRoot(latestAssistant)
-      ||document.querySelector('main,[role="main"]')
+      ||transcriptRoot()
       ||document.body;
   };
   const reactSnapshot=(root,reason,options={})=>{

@@ -1496,16 +1496,10 @@ class PlaywrightDriver(BrowserDriverBase):
                 popup = (await control.get_attribute("aria-haspopup") or "").casefold()
                 if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
                     continue
-                label = " ".join(
-                    filter(
-                        None,
-                        (
-                            await control.get_attribute("aria-label"),
-                            await control.get_attribute("title"),
-                            await control.inner_text(),
-                        ),
-                    )
-                )
+                labels = await control.evaluate(load_browser_script("semantic_control_labels.js"))
+                if not isinstance(labels, list):
+                    continue
+                label = " ".join(str(value) for value in labels if value)
                 if _EFFORT_TRIGGER_RE.search(label) or _EFFORT_RE.search(label):
                     return control
             except PlaywrightError:
@@ -1520,16 +1514,8 @@ class PlaywrightDriver(BrowserDriverBase):
                 await asyncio.sleep(0.15)
                 continue
             try:
-                label = " ".join(
-                    filter(
-                        None,
-                        (
-                            await button.get_attribute("aria-label"),
-                            await button.get_attribute("title"),
-                            await button.inner_text(),
-                        ),
-                    )
-                )
+                labels = await button.evaluate(load_browser_script("semantic_control_labels.js"))
+                label = " ".join(str(value) for value in labels) if isinstance(labels, list) else ""
                 box = await button.bounding_box()
                 if box is None:
                     await asyncio.sleep(0.1)

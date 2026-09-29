@@ -69,6 +69,10 @@
     node?.getAttribute?.('aria-roledescription')||'',
     node?.getAttribute?.('title')||''
   ].map(accessibleRole).find(Boolean)||'';
+  const transcriptLandmarkSelector='main,[role="main"],[role="log"],[role="feed"]';
+  const isTranscriptLandmark=node=>Boolean(node&&(
+    node.tagName==='MAIN'||['main','log','feed'].includes(String(node.getAttribute?.('role')||'').toLowerCase())
+  ));
   const headingNodes=root=>root?.querySelectorAll
     ?[...root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
     :[];
@@ -88,7 +92,7 @@
     return roleHeadings.map(heading=>{
       let candidate=heading.parentElement||heading;
       for(let parent=candidate.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
-        if(parent.tagName==='MAIN'||parent.getAttribute?.('role')==='main')break;
+        if(isTranscriptLandmark(parent))break;
         const headings=headingNodes(parent)
           .filter(node=>headingAccessibleRole(node));
         if(headings.length!==1||headings[0]!==heading)break;
@@ -182,25 +186,75 @@
       if(root&&root!==pageRoot&&root!==document.documentElement)candidates.push(root);
     }
     if(!candidates.length)return pageRoot;
-    const countRoles=root=>roleNodes.filter(node=>root.contains(node)).length;
+    const profile=root=>{
+      const roles=roleNodes.filter(node=>root.contains(node)).map(messageRole);
+      let pairs=0;
+      let unmatched=0;
+      let pendingUser=false;
+      for(const role of roles){
+        if(role==='user'){
+          if(pendingUser)unmatched+=1;
+          pendingUser=true;
+          continue;
+        }
+        if(role==='assistant'){
+          if(pendingUser){pairs+=1;pendingUser=false;}
+          else unmatched+=1;
+        }
+      }
+      if(pendingUser)unmatched+=1;
+      return {
+        root,
+        pairs,
+        unmatched,
+        startsUser:roles[0]==='user'?1:0,
+        count:roles.length,
+        depth:nodeDepth(root)
+      };
+    };
     return [...new Set(candidates)]
-      .map(root=>({root,count:countRoles(root),depth:nodeDepth(root)}))
-      .sort((left,right)=>right.count-left.count||right.depth-left.depth)[0]?.root
+      .map(profile)
+      .sort((left,right)=>
+        right.pairs-left.pairs
+        ||left.unmatched-right.unmatched
+        ||right.startsUser-left.startsUser
+        ||right.count-left.count
+        ||right.depth-left.depth
+      )[0]?.root
       ||pageRoot;
   };
   const transcriptRoot=()=>{
-    const landmarks=[...document.querySelectorAll('main,[role="main"]')];
-    if(!landmarks.length)return inferredTranscriptRoot();
     const score=root=>{
       const semantic=root.querySelectorAll(messageRoleSelector+','+semanticTurnSelector).length;
       const structural=[...root.querySelectorAll('*')].filter(node=>directMessageRole(node)).length;
       const headings=headingNodes(root).filter(node=>headingAccessibleRole(node)).length;
       return semantic*4+structural*2+headings;
     };
-    return landmarks
+    const landmarks=[...document.querySelectorAll(transcriptLandmarkSelector)];
+    if(!landmarks.length)return inferredTranscriptRoot();
+    const best=landmarks
       .map((root,index)=>({root,index,score:score(root)}))
-      .sort((left,right)=>right.score-left.score||left.index-right.index)[0]?.root
-      ||landmarks[0];
+      .sort((left,right)=>right.score-left.score||left.index-right.index)[0];
+    const inferred=inferredTranscriptRoot();
+    if(
+      inferred
+      &&inferred!==document.body
+      &&inferred!==document.documentElement
+      &&inferred!==best.root
+    ){
+      const inferredRoles=new Set([
+        inferred,
+        ...inferred.querySelectorAll(messageRoleSelector),
+        ...inferred.querySelectorAll(semanticTurnSelector),
+        ...[...inferred.querySelectorAll('*')].filter(node=>directMessageRole(node)),
+        ...headingMessageNodes(inferred)
+      ].map(node=>messageRole(node)).filter(Boolean));
+      const coherentDescendant=best.root.contains(inferred)
+        &&inferredRoles.has('user')
+        &&inferredRoles.has('assistant');
+      if(coherentDescendant||score(inferred)>best.score)return inferred;
+    }
+    return best.root;
   };
   const messageNodes=()=>{
     const root=transcriptRoot();
@@ -260,7 +314,7 @@
     if(!node)return null;
     let candidate=null;
     for(let parent=node.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
-      if(parent.tagName==='MAIN'||parent.getAttribute?.('role')==='main')break;
+      if(isTranscriptLandmark(parent))break;
       const authors=descendantAuthorNodes(parent);
       if(authors.length!==1||authors[0]!==node)break;
       candidate=parent;

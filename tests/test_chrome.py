@@ -512,6 +512,21 @@ async def test_stop_survives_role_and_tag_churn_with_labelledby(live_driver) -> 
 
 
 @pytest.mark.asyncio
+async def test_stop_survives_role_and_tag_churn_with_describedby(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <span id="stop-description" hidden>Stop generating</span>
+        <div tabindex="0" aria-describedby="stop-description"
+             onclick="window.stopped=true">square</div>
+        """
+    )
+
+    assert await driver.click_stop(driver.context, timeout=0.2) is True
+    assert await page.evaluate("Boolean(window.stopped)") is True
+
+
+@pytest.mark.asyncio
 async def test_retry_survives_role_and_tag_churn(live_driver) -> None:
     driver, page = live_driver
     await page.set_content(
@@ -1120,6 +1135,23 @@ async def test_effort_trigger_accepts_popup_owner_without_role(live_driver) -> N
     trigger = await driver.effort_trigger_info(timeout=0.2)
 
     assert trigger["text"] == "Medium"
+
+
+@pytest.mark.asyncio
+async def test_effort_trigger_accepts_roleless_popup_owner_with_describedby(live_driver) -> None:
+    driver, page = live_driver
+    await page.set_content(
+        """
+        <span id="effort-description" hidden>Thinking effort</span>
+        <div aria-describedby="effort-description" aria-haspopup="menu"
+             tabindex="0">Adaptive</div>
+        """
+    )
+
+    trigger = await driver.effort_trigger_info(timeout=0.2)
+
+    assert trigger["text"] == "Thinking effort"
+    assert "Thinking effort" in trigger["label"]
 
 
 @pytest.mark.asyncio

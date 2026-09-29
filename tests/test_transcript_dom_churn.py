@@ -289,6 +289,27 @@ def test_latest_assistant_root_uses_structural_role_discovery_after_namespace_ch
     assert latest == "future-wrapper"
 
 
+def test_latest_assistant_root_uses_semantic_transcript_landmark_when_assistant_is_not_in_dom(
+    browser_page,
+) -> None:
+    browser_page.set_content(
+        """
+        <main><p>Unrelated shell content.</p></main>
+        <div role="feed">
+          <section data-sender="human" data-turn-id="u-pending">Pending question.</section>
+        </div>
+        """
+    )
+    latest = browser_page.evaluate(
+        "() => {" + TRANSCRIPT_BROWSER_ENGINE_SCRIPT + ";"
+        "const root=promptaTranscriptEngine.latestAssistantRoot();"
+        "return root?.getAttribute('role')||root?.tagName||'';"
+        "}"
+    )
+
+    assert latest == "feed"
+
+
 def test_accessible_turn_heading_recovers_role_when_author_attribute_disappears(
     browser_page,
 ) -> None:
@@ -1578,7 +1599,9 @@ def test_stop_control_detection_survives_label_and_wrapper_churn(browser_page) -
     assert snapshot["streaming"] is True
 
 
-def test_streaming_marker_outside_selected_transcript_does_not_keep_chat_active(browser_page) -> None:
+def test_streaming_marker_outside_selected_transcript_does_not_keep_chat_active(
+    browser_page,
+) -> None:
     browser_page.set_content(
         """
         <main>
@@ -1720,6 +1743,52 @@ def test_structural_discovery_uses_chat_landmark_when_first_main_is_unrelated(br
     ]
 
 
+def test_unrelated_main_does_not_block_inferred_transcript_after_landmark_churn(
+    browser_page,
+) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <main>
+          <section data-sender="model" data-message-id="decoy">Unrelated main content.</section>
+        </main>
+        <div class="future-chat-shell">
+          <section data-sender="human" data-turn-id="u1"><p>First question.</p></section>
+          <section data-sender="model" data-turn-id="a1"><p>First answer.</p></section>
+          <section data-sender="human" data-turn-id="u2"><p>Second question.</p></section>
+          <section data-sender="model" data-turn-id="a2"><p>Second answer.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "First question."),
+        ("assistant", "First answer."),
+        ("user", "Second question."),
+        ("assistant", "Second answer."),
+    ]
+
+
+def test_feed_landmark_outranks_unrelated_main_after_landmark_churn(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <main>
+          <section data-sender="model" data-message-id="decoy">Unrelated main content.</section>
+        </main>
+        <div role="feed">
+          <section data-sender="human" data-turn-id="u-feed"><p>Feed question.</p></section>
+          <section data-sender="model" data-turn-id="a-feed"><p>Feed answer.</p></section>
+        </div>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "Feed question."),
+        ("assistant", "Feed answer."),
+    ]
+
+
 def test_role_main_landmark_bounds_structural_message_discovery(browser_page) -> None:
     snapshot = _snapshot(
         browser_page,
@@ -1735,6 +1804,30 @@ def test_role_main_landmark_bounds_structural_message_discovery(browser_page) ->
     assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
         ("user", "Main user."),
         ("assistant", "Main assistant."),
+    ]
+
+
+def test_inferred_transcript_excludes_role_noise_inside_chat_landmark(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        """
+        <main>
+          <aside data-sender="model" data-message-id="status-noise">Sidebar status.</aside>
+          <div class="future-chat-shell">
+            <section data-sender="human" data-turn-id="u1"><p>First question.</p></section>
+            <section data-sender="model" data-turn-id="a1"><p>First answer.</p></section>
+            <section data-sender="human" data-turn-id="u2"><p>Second question.</p></section>
+            <section data-sender="model" data-turn-id="a2"><p>Second answer.</p></section>
+          </div>
+        </main>
+        """,
+    )
+
+    assert [(message["role"], message["content"]) for message in snapshot["messages"]] == [
+        ("user", "First question."),
+        ("assistant", "First answer."),
+        ("user", "Second question."),
+        ("assistant", "Second answer."),
     ]
 
 
