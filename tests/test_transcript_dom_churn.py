@@ -1054,6 +1054,47 @@ def test_completion_action_discovery_survives_action_id_churn(browser_page) -> N
     assert activity["complete"] is True
 
 
+def test_completion_action_discovery_uses_turn_key_container_for_actions(browser_page) -> None:
+    browser_page.set_content(
+        _conversation(
+            """
+            <div data-turn-key="turn-a1">
+              <div data-content-search-turn-key="fallback-turn-1">
+                <div data-chatgpt-search-unit-key="fallback-turn-1:0:user"
+                     data-chatgpt-search-message-ids="u1">
+                  <h4>You said:</h4>
+                  <p>Question.</p>
+                </div>
+                <div>
+                  <div data-content-search-unit-key="fallback-turn-1:2:assistant"
+                       data-chatgpt-search-unit-key="fallback-turn-1:2:assistant"
+                       data-chatgpt-search-message-ids="a1 a1">
+                    <h4>ChatGPT said:</h4>
+                    <p>Complete answer.</p>
+                  </div>
+                </div>
+                <div>
+                  <button aria-label="Copy">Copy</button>
+                  <button aria-label="Regenerate response">Regenerate</button>
+                </div>
+              </div>
+            </div>
+            """
+        )
+    )
+    script = render_browser_script(
+        "conversation_activity.js",
+        stop_selector="button[aria-label*=stop i]",
+        streaming_selector='[data-streaming="active"]',
+    ).replace("/*__TRANSCRIPT_BROWSER_ENGINE__*/", TRANSCRIPT_BROWSER_ENGINE_SCRIPT)
+
+    activity = json.loads(browser_page.evaluate(script))
+
+    assert activity["streaming"] is False
+    assert activity["complete"] is True
+    assert activity["turn_ended"] is None
+
+
 def test_completion_action_discovery_survives_attribute_namespace_churn(browser_page) -> None:
     browser_page.set_content(
         _conversation(

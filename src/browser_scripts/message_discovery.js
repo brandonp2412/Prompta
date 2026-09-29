@@ -386,7 +386,21 @@
     return descendantAuthorNodes(root)
       .find(node=>!role||messageRole(node)===role)||null;
   };
-  const semanticTurnRoot=node=>node?.closest?.(semanticTurnSelector)||null;
+  const semanticTurnContainer=node=>{
+    for(let candidate=node;candidate&&candidate!==document.body;candidate=candidate.parentElement){
+      const turnKey=semanticAttribute(
+        candidate,
+        /(?:^|-)turn-key$/i,
+        [['turn'],['key']]
+      );
+      if(turnKey)return candidate;
+      if(candidate!==node&&isTranscriptLandmark(candidate))break;
+    }
+    return null;
+  };
+  const semanticTurnRoot=node=>semanticTurnContainer(node)
+    ||node?.closest?.(semanticTurnSelector)
+    ||null;
   const structuralTurnRoot=node=>{
     if(!node)return null;
     let candidate=null;
