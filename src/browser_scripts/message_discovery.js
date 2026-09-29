@@ -65,24 +65,47 @@
   const semanticInteractiveControlSelector=[
     'button',
     'summary',
-    'input[type="button"]',
-    'input[type="submit"]',
+    'input:not([type="hidden"])',
+    'select',
+    'textarea',
+    '[contenteditable="true"]',
     '[role="button"]',
+    '[role="checkbox"]',
+    '[role="combobox"]',
+    '[role="listbox"]',
     '[role="menuitem"]',
+    '[role="menuitemcheckbox"]',
     '[role="menuitemradio"]',
     '[role="option"]',
     '[role="radio"]',
+    '[role="searchbox"]',
+    '[role="slider"]',
+    '[role="spinbutton"]',
+    '[role="switch"]',
     '[role="tab"]',
+    '[role="treeitem"]',
     '[aria-controls]',
     '[aria-expanded]',
     '[aria-pressed]',
-    '[tabindex]:not([tabindex="-1"])'
+    '[aria-checked]'
   ].join(',');
-  const semanticInteractiveControls=root=>root?.querySelectorAll
-    ?[...root.querySelectorAll(semanticInteractiveControlSelector)]
-    :[];
+  const focusableInteractiveSelector='[tabindex]:not([tabindex="-1"])';
+  const isFocusableInteractiveControl=node=>{
+    if(!node?.matches?.(focusableInteractiveSelector))return false;
+    const name=accessibleName(node);
+    return Boolean(name&&!accessibleRole(name));
+  };
+  const semanticInteractiveControls=root=>{
+    if(!root?.querySelectorAll)return [];
+    return [...new Set([
+      ...root.querySelectorAll(semanticInteractiveControlSelector),
+      ...[...root.querySelectorAll(focusableInteractiveSelector)]
+        .filter(isFocusableInteractiveControl)
+    ])];
+  };
   const isSemanticInteractiveControl=node=>Boolean(
     node?.matches?.(semanticInteractiveControlSelector)
+    ||isFocusableInteractiveControl(node)
   );
   // Action-state discovery must tolerate more tag/role churn than transcript
   // stripping. Keep ordinary answer links out of the stripping selector while

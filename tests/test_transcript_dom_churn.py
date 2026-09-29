@@ -91,6 +91,8 @@ def test_role_churned_controls_do_not_leak_into_transcript_text(browser_page) ->
                 <p>Prompt body.</p>
                 <summary>Show more</summary>
                 <div tabindex="0" aria-label="Edit message">Edit</div>
+                <div role="switch">Temporary action</div>
+                <input type="button" value="Retry">
               </div>
             </section>
             <section data-testid="conversation-turn-a1">
@@ -99,6 +101,8 @@ def test_role_churned_controls_do_not_leak_into_transcript_text(browser_page) ->
                   <p>Answer body.</p>
                   <div role="menuitem">Copy response</div>
                   <div role="option">Read aloud</div>
+                  <div role="combobox">Model picker</div>
+                  <select><option>Internal UI choice</option></select>
                 </div>
               </div>
             </section>
@@ -109,6 +113,35 @@ def test_role_churned_controls_do_not_leak_into_transcript_text(browser_page) ->
     assert _semantic_messages(snapshot) == [
         ("user", "Prompt body."),
         ("assistant", "Answer body."),
+    ]
+
+
+def test_focusable_message_content_is_not_mistaken_for_ui_control(browser_page) -> None:
+    snapshot = _snapshot(
+        browser_page,
+        _conversation(
+            """
+            <section data-testid="conversation-turn-u1">
+              <div data-message-author-role="user" data-message-id="u1">
+                <div tabindex="0" aria-label="User message">
+                  Question inside focusable message content
+                </div>
+              </div>
+            </section>
+            <section data-testid="conversation-turn-a1">
+              <div data-message-author-role="assistant" data-message-id="a1">
+                <div tabindex="0" aria-label="Assistant response">
+                  Answer inside focusable message content.
+                </div>
+              </div>
+            </section>
+            """
+        ),
+    )
+
+    assert _semantic_messages(snapshot) == [
+        ("user", "Question inside focusable message content"),
+        ("assistant", "Answer inside focusable message content."),
     ]
 
 
