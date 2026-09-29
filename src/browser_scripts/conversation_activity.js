@@ -2,30 +2,48 @@ JSON.stringify((()=>{
 /*__TRANSCRIPT_BROWSER_ENGINE__*/
           const stopSelector=__STOP_SELECTOR__;
           const streamingSelector=__STREAMING_SELECTOR__;
-          const visible=e=>{
+          const rendered=e=>{
             if(!e)return false;
+            for(let current=e;current&&current.nodeType===Node.ELEMENT_NODE;current=composedParent(current)){
+              if(current.hidden)return false;
+              const style=getComputedStyle(current);
+              if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+            }
+            return true;
+          };
+          const visible=e=>{
+            if(!rendered(e))return false;
             const s=getComputedStyle(e);
-            if(s.display==='none'||s.visibility==='hidden'||s.opacity==='0')return false;
             const r=e.getBoundingClientRect();
             if((r.width>0||r.height>1)&&r.height>0)return true;
             if(s.display!=='contents')return false;
             return deepQueryAll(e,'*').some(node=>{
-              const style=getComputedStyle(node);
-              if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+              if(!rendered(node))return false;
               const box=node.getBoundingClientRect();
               return (box.width>0||box.height>1)&&box.height>0;
             });
           };
+          const renderedTextContent=node=>{
+            if(!node)return '';
+            if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
+            if(node.nodeType===Node.ELEMENT_NODE&&!rendered(node))return '';
+            return composedChildNodes(node).map(renderedTextContent).join('');
+          };
           const semanticStop=promptaTranscriptEngine.actionControls(document)
             .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
           const stop=deepQueryAll(document,stopSelector).some(visible)||semanticStop;
-          const assistant=authorNodes('assistant').at(-1)||null;
+          const assistantNodes=authorNodes('assistant');
+          const assistant=[...assistantNodes].reverse()
+            .find(node=>visible(turnRoot(node)||node))
+            ||assistantNodes.at(-1)
+            ||null;
           const transcript=transcriptRoot();
           const semanticTurns=deepQueryAll(transcript,semanticTurnSelector).filter(visible);
           const legacyTurns=deepQueryAll(transcript,legacyTurnSelector).filter(visible);
           const turn=turnRoot(assistant)||semanticTurns.at(-1)||legacyTurns.at(-1)||null;
           const streamRoot=turn||assistant;
           const semanticStreamActive=Boolean(streamRoot&&[streamRoot,...deepQueryAll(streamRoot,'*')].some(node=>{
+            if(!rendered(node))return false;
             const state=semanticAttribute(
               node,
               /(?:^|-)(?:is-)?streaming$/i,
@@ -55,11 +73,11 @@ JSON.stringify((()=>{
             if(states.includes(false))return false;
             return null;
           };
-          const turnText=composedTextContent(turn).trim();
+          const turnText=renderedTextContent(turn).trim();
           const transientText=/(?:Connection interrupted|Waiting for the complete answer|A network error occurred\.?\s*Please check your connection and try again\.?\s*If this issue persists please contact us through our help center at help\.openai\.com\.?)/i.test(turnText);
           const deliveryFailed=/Message delivery timed out\.?\s*Please try again/i.test(turnText);
           const finalAction=Boolean(turn&&promptaTranscriptEngine.actionControls(turn)
-            .some(control=>promptaTranscriptEngine.isTurnActionControl(control)));
+            .some(control=>visible(control)&&promptaTranscriptEngine.isTurnActionControl(control)));
           const needsReactEndState=Boolean(turn&&!stop&&!streamActive&&!finalAction);
           const turnEnded=needsReactEndState?reactTurnEnd():null;
           const streaming=stop||streamActive||turnEnded===false;

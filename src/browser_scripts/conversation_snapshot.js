@@ -1,18 +1,31 @@
 JSON.stringify((()=>{
-  const visible=e=>{
+  const rendered=e=>{
     if(!e)return false;
+    for(let current=e;current&&current.nodeType===Node.ELEMENT_NODE;current=composedParent(current)){
+      if(current.hidden)return false;
+      const style=getComputedStyle(current);
+      if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+    }
+    return true;
+  };
+  const visible=e=>{
+    if(!rendered(e))return false;
     const s=getComputedStyle(e);
-    if(s.display==='none'||s.visibility==='hidden'||s.opacity==='0')return false;
     const r=e.getBoundingClientRect();
     if((r.width>0||r.height>1)&&r.height>0)return true;
     if(s.display!=='contents')return false;
     const descendants=deepQueryAll(e,'*');
     return descendants.some(node=>{
-      const style=getComputedStyle(node);
-      if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+      if(!rendered(node))return false;
       const box=node.getBoundingClientRect();
       return (box.width>0||box.height>1)&&box.height>0;
     });
+  };
+  const renderedTextContent=node=>{
+    if(!node)return '';
+    if(node.nodeType===Node.TEXT_NODE)return node.nodeValue||'';
+    if(node.nodeType===Node.ELEMENT_NODE&&!rendered(node))return '';
+    return composedChildNodes(node).map(renderedTextContent).join('');
   };
   const normalise=value=>(value||'').replace(/\s+/g,' ').trim();
   const hash=value=>{let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
@@ -53,7 +66,8 @@ JSON.stringify((()=>{
         let language='';
         for(const candidate of languageCandidates){
           for(const attribute of candidate.attributes||[]){
-            if(!/(?:^|[-_:])(?:code[-_:]?)?(?:language|lang)$/i.test(attribute.name))continue;
+            const attributeName=normaliseAttributeName(attribute.name);
+            if(!/(?:^|-)(?:code-)?(?:language|lang)$/i.test(attributeName))continue;
             const value=String(attribute.value||'').trim();
             if(/^[\w.+#-]{1,32}$/.test(value)){language=value;break;}
           }
@@ -530,7 +544,7 @@ JSON.stringify((()=>{
     const richPlain=prose.map(node=>composedTextContent(node).trim()).filter(Boolean);
     const explicitAssistant=authorNode(agent,'assistant');
     const domTools=toolBlocks(agent);
-    const rawVisible=composedTextContent(agent).replace(networkErrorNoise,'').trim();
+    const rawVisible=renderedTextContent(agent).replace(networkErrorNoise,'').trim();
     const uiNoise=/^(?:copy|copy code|edit|good response|bad response|read aloud|regenerate|share|open tool call list|close tool call list|cot-v5-tool-icon-pile|connection interrupted\.?(?:\s*waiting for (?:the )?complete answer\.?)?|waiting for (?:the )?complete answer\.?|message delivery timed out\.?\s*please try again\.?|a network error occurred\.?(?:\s*please check your connection and try again\.?(?:\s*if this issue persists please contact us through our help center at help\.openai\.com\.?)?)?)$/i;
     const activityLines=[...new Set(rawVisible.split(/\n+/).map(line=>line.trim()).filter(line=>(
       line
@@ -658,7 +672,7 @@ JSON.stringify((()=>{
     ordinal:index
   }));
   const latestAgent=candidates.at(-1)||null;
-  const visibleAgentText=normalise(composedTextContent(latestAgent));
+  const visibleAgentText=normalise(renderedTextContent(latestAgent));
   const latestHasToolDom=Boolean(latestAgent&&toolRows(latestAgent).length);
   let latestTurnReactMessages=(latestAgent&&latestHasToolDom)
     ?reactMessages(latestAgent,'source-events')
@@ -693,9 +707,14 @@ JSON.stringify((()=>{
     .some(node=>visible(node)&&promptaTranscriptEngine.isStopControl(node));
   const stop=deepQueryAll(document,stopSelector).some(visible)||semanticStop;
   const streamActive=deepQueryAll(transcript,streamingSelector).some(visible);
-  const latestAssistant=assistantNodes.at(-1)||authorNode(latestAgent,'assistant')||null;
+  const latestAssistant=[...assistantNodes].reverse()
+    .find(node=>visible(turnRoot(node)||node))
+    ||authorNode(latestAgent,'assistant')
+    ||assistantNodes.at(-1)
+    ||null;
   const latestTurn=latestAssistant?turnRoot(latestAssistant):latestAgent;
   const semanticStreamActive=Boolean(latestTurn&&[latestTurn,...deepQueryAll(latestTurn,'*')].some(node=>{
+    if(!rendered(node))return false;
     const state=semanticAttribute(
       node,
       /(?:^|-)(?:is-)?streaming$/i,

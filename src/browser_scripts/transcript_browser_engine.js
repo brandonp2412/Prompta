@@ -193,8 +193,20 @@ const promptaTranscriptEngine=(()=>{
       semanticMetadataText(node)
     ].some(actionLabel);
   };
+  const isRenderedNode=node=>{
+    for(let current=node;current&&current.nodeType===Node.ELEMENT_NODE;current=composedParent(current)){
+      if(current.hidden)return false;
+      const style=getComputedStyle(current);
+      if(style.display==='none'||style.visibility==='hidden'||style.opacity==='0')return false;
+    }
+    return Boolean(node);
+  };
   const latestAssistantRoot=()=>{
-    const latestAssistant=authorNodes('assistant').at(-1)||null;
+    const assistants=authorNodes('assistant');
+    const latestAssistant=[...assistants].reverse()
+      .find(node=>isRenderedNode(turnRoot(node)||node))
+      ||assistants.at(-1)
+      ||null;
     return turnRoot(latestAssistant)
       ||transcriptRoot()
       ||document.body;

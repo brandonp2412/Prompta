@@ -260,7 +260,8 @@ def test_merge_tool_blocks_does_not_end_on_embedded_backticks() -> None:
 
 
 def test_react_tool_script_scopes_to_latest_assistant_turn() -> None:
-    assert "const latestAssistant=authorNodes('assistant').at(-1)||null" in _REACT_TOOL_SCRIPT
+    assert "const assistants=authorNodes('assistant');" in _REACT_TOOL_SCRIPT
+    assert ".find(node=>isRenderedNode(turnRoot(node)||node))" in _REACT_TOOL_SCRIPT
     assert "create_time:Number.isFinite(Number(message?.create_time))" in _REACT_TOOL_SCRIPT
     assert "reasoning_title:clipString(String(" in _REACT_TOOL_SCRIPT
     assert "metadata?.reasoning_title||reasoningTitles.at(-1)" in _REACT_TOOL_SCRIPT
