@@ -102,3 +102,67 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
     assert driver.closed is True
     assert driver.probe_armed is False
     assert driver.composer == ""
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_detection_uses_semantic_active_surfaces(tmp_path: Path) -> None:
+    class Candidate:
+        def __init__(self, text: str, *, visible: bool = True, active: bool = True) -> None:
+            self.text = text
+            self.visible = visible
+            self.active = active
+
+        async def is_visible(self) -> bool:
+            return self.visible
+
+        async def evaluate(self, _script: str) -> bool:
+            return self.active
+
+        async def inner_text(self) -> str:
+            return self.text
+
+    class Collection:
+        def __init__(self, candidates: list[Candidate]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Candidate:
+            return self.candidates[index]
+
+        def get_by_text(self, pattern: Any) -> Collection:
+            return Collection(
+                [candidate for candidate in self.candidates if pattern.search(candidate.text)]
+            )
+
+    class Page:
+        def __init__(self) -> None:
+            self.roles = {
+                "alert": Collection(
+                    [
+                        Candidate("You've reached your usage limit"),
+                        Candidate("Rate limit", active=False),
+                    ]
+                ),
+                "status": Collection([]),
+                "dialog": Collection([]),
+                "main": Collection([Candidate("Normal fresh chat")]),
+            }
+
+        def get_by_role(self, role: str) -> Collection:
+            return self.roles.get(role, Collection([]))
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection([Candidate("Too many requests", visible=False)])
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    texts = await driver._rate_limit_texts(cast(Any, Page()))
+
+    assert texts == ["You've reached your usage limit"]
+
+
+def test_active_delivery_driver_avoids_private_chatgpt_dom_hooks() -> None:
+    source = Path("src/playwright_driver.py").read_text()
+    assert "data-testid" not in source
+    assert "data-composer-markdown" not in source

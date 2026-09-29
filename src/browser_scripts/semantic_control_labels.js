@@ -31,6 +31,7 @@ el => {
     ) {
       if (
         current.hidden
+        || current.inert
         || normalise(current.getAttribute?.('aria-hidden')).toLowerCase() === 'true'
       ) return false;
       const style = getComputedStyle(current);

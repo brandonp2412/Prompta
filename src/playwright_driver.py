@@ -52,7 +52,7 @@ def _normalise_composer_text(text: str) -> str:
 
 
 _RATE_LIMIT_RE = re.compile(
-    r"(?:too many requests|temporarily limited access|requests too quickly|rate limit)",
+    r"(?:too many requests|temporarily limited access|requests too quickly|rate limit|usage limit|limit (?:has been )?reached|reached (?:your|the) (?:usage )?limit)",
     re.IGNORECASE,
 )
 _LOGIN_RE = re.compile(r"^(?:log ?in|sign ?in)$", re.IGNORECASE)
@@ -82,8 +82,8 @@ class PlaywrightDriver(BrowserDriverBase):
     """Playwright-backed ChatGPT browser driver.
 
     Interactions intentionally prefer accessibility semantics (role/name/label/
-    placeholder) and only fall back to stable test IDs or CSS when ChatGPT does
-    not expose a useful semantic contract.
+    placeholder) and stable browser/HTML capabilities. Private classes and test IDs
+    are deliberately excluded from the active delivery path.
     """
 
     def __init__(
@@ -326,6 +326,10 @@ class PlaywrightDriver(BrowserDriverBase):
                 try:
                     if not await candidate.is_visible():
                         continue
+                    if not await candidate.evaluate(
+                        load_browser_script("is_active_composed_node.js")
+                    ):
+                        continue
                     if enabled and not await candidate.is_enabled():
                         continue
                     return candidate
@@ -334,29 +338,18 @@ class PlaywrightDriver(BrowserDriverBase):
         return None
 
     async def _hydrated_composer(self, page: Page) -> Locator | None:
-        # ChatGPT hydrates its initial textarea into a ProseMirror editor. The
+        # ChatGPT hydrates its initial textarea into a contenteditable editor. The
         # empty editor can have no rendered box even though it is focusable, so
-        # Playwright visibility is not a useful signal. Prefer the main landmark,
-        # but tolerate landmark/wrapper churn when the page-wide editor is unique.
+        # Playwright visibility is not a useful signal. Prefer semantic textbox
+        # capability in the main landmark, then a unique contenteditable fallback.
+        # Do not depend on ChatGPT-private data attributes or wrapper classes.
         main = page.get_by_role("main")
         candidates = (
-            (
-                main.locator(
-                    '[contenteditable]:not([contenteditable="false"])[role="textbox"][data-composer-markdown]'
-                ),
-                False,
-            ),
             (
                 main.locator('[contenteditable]:not([contenteditable="false"])[role="textbox"]'),
                 False,
             ),
             (main.locator('[contenteditable]:not([contenteditable="false"])'), True),
-            (
-                page.locator(
-                    '[contenteditable]:not([contenteditable="false"])[role="textbox"][data-composer-markdown]'
-                ),
-                True,
-            ),
             (
                 page.locator('[contenteditable]:not([contenteditable="false"])[role="textbox"]'),
                 True,
@@ -486,6 +479,10 @@ class PlaywrightDriver(BrowserDriverBase):
                 candidate = candidates.nth(index)
                 try:
                     if not await candidate.is_visible() or not await candidate.is_enabled():
+                        continue
+                    if not await candidate.evaluate(
+                        load_browser_script("is_active_composed_node.js")
+                    ):
                         continue
                     labels = await candidate.evaluate(
                         load_browser_script("semantic_control_labels.js")
@@ -940,30 +937,45 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT send button did not become enabled")
 
+    async def _rate_limit_texts(self, page: Page) -> list[str]:
+        # Rate-limit UI has changed wrappers and private test IDs repeatedly.
+        # Search durable accessibility surfaces first, then matching text inside
+        # the current chat/dialog surface. The fresh-chat main landmark avoids
+        # mistaking sidebar history for an active rate-limit notice.
+        sources: tuple[Locator, ...] = (
+            page.get_by_role("alert"),
+            page.get_by_role("status"),
+            page.locator('[aria-live]:not([aria-live="off"])'),
+            page.get_by_role("dialog").get_by_text(_RATE_LIMIT_RE),
+            page.get_by_role("main").get_by_text(_RATE_LIMIT_RE),
+        )
+        texts: list[str] = []
+        for source in sources:
+            try:
+                count = min(await source.count(), 24)
+            except PlaywrightError:
+                continue
+            for index in range(count):
+                candidate = source.nth(index)
+                try:
+                    if not await candidate.is_visible():
+                        continue
+                    if not await candidate.evaluate(
+                        load_browser_script("is_active_composed_node.js")
+                    ):
+                        continue
+                    text = (await candidate.inner_text()).strip()
+                except PlaywrightError:
+                    continue
+                if text and _RATE_LIMIT_RE.search(text) and text not in texts:
+                    texts.append(text)
+        return texts
+
     async def dom_state(self) -> dict[str, Any]:
         page = self._page()
         composer = await self._composer(page)
         composer_text = await self._composer_text(composer) if composer is not None else ""
-
-        rate_limit_texts: list[str] = []
-        matches = page.locator('[data-testid*="rate-limit" i]')
-        try:
-            count = min(await matches.count(), 12)
-        except PlaywrightError:
-            count = 0
-        for index in range(count):
-            candidate = matches.nth(index)
-            try:
-                test_id = str(await candidate.get_attribute("data-testid") or "")
-                if "conversation-history" in test_id.casefold():
-                    continue
-                if not await candidate.is_visible():
-                    continue
-                text = (await candidate.inner_text()).strip()
-            except PlaywrightError:
-                continue
-            if text and _RATE_LIMIT_RE.search(text) and text not in rate_limit_texts:
-                rate_limit_texts.append(text)
+        rate_limit_texts = await self._rate_limit_texts(page)
 
         return {
             "composer_text": composer_text,
@@ -1002,6 +1014,10 @@ class PlaywrightDriver(BrowserDriverBase):
                     candidate = interactive.nth(index)
                     try:
                         if not await candidate.is_visible() or not await candidate.is_enabled():
+                            continue
+                        if not await candidate.evaluate(
+                            load_browser_script("is_active_composed_node.js")
+                        ):
                             continue
                         labels = await candidate.evaluate(
                             load_browser_script("semantic_control_labels.js")
