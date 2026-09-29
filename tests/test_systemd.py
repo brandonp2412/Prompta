@@ -64,6 +64,7 @@ def test_browser_has_independent_restart_and_resource_boundaries() -> None:
     assert "MemoryHigh=3G" in unit
     assert "MemoryMax=6G" in unit
     assert "TasksMax=768" in unit
+    assert "--disable-component-update" in unit
     assert "PartOf=prompta-ui.service" not in unit
     assert "Requires=prompta-ui.service" not in unit
 
