@@ -1,75 +1,53 @@
 # Prompta
 
-Prompta is a scheduled-job dispatcher for ChatGPT. It intentionally does not act as a ChatGPT client.
+Prompta schedules one-off and recurring prompts for ChatGPT. Jobs can be managed from the CLI or the mobile-friendly web UI; each run opens a fresh ChatGPT chat, submits the prompt, and leaves the response to ChatGPT.
 
-## Scope
+<p align="center">
+  <img src="docs/prompta-cli.png" alt="Prompta CLI" width="900">
+</p>
 
-Prompta does four things:
+<p align="center">
+  <img src="docs/prompta-ui-mobile.png" alt="Prompta web UI on mobile" width="360">
+</p>
 
-1. Stores scheduled jobs.
-2. Enqueues due job runs durably.
-3. Opens a fresh ChatGPT chat for each run and submits the job prompt.
-4. Closes the Prompta-owned tab as soon as submission is confirmed.
+## Run
 
-Assistant responses are not read, cached, parsed, rendered, recovered, or reconciled. Prompta does not reply to existing chats, retain conversation IDs, expose a chat history UI, or provide Machine Gun Mode.
+```bash
+git clone https://github.com/brandonp2412/Prompta.git ~/prompta
+cd ~/prompta
+uv sync --locked
+bun install --frozen-lockfile
+bun run build
 
-## Services
+mkdir -p ~/.config/systemd/user
+cp systemd/prompta-*.service systemd/prompta.target ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now prompta.target
+```
 
-| Service | Responsibility |
-| --- | --- |
-| prompta-ui.service | Jobs-only web UI and jobs API |
-| prompta-scheduler.service | Decides when jobs are due and enqueues one delivery per occurrence |
-| prompta-delivery-worker.service | Claims queued deliveries, submits each in a new ChatGPT tab, then closes it |
-| prompta-browser.service | Authenticated Chromium instance used only for prompt submission |
+The UI is at `http://127.0.0.1:8765`. The CLI is available as `uv run prompta`, for example:
 
-The services are grouped by prompta.target. There is no conversation worker.
+```bash
+uv run prompta add nightly-review "Review the project and improve it" --daily-at 21:00
+uv run prompta list
+```
 
-## Web UI
+## Login to ChatGPT
 
-The web UI exposes only:
+Prompta uses a dedicated Chromium profile. Stop the background browser, open that same profile visibly, and log in at ChatGPT:
 
-- GET / — jobs manager
-- GET /api/jobs — configured jobs and scheduler state
-- POST /api/jobs — add, edit, pause, resume, remove, or clear jobs
-- GET /api/health — service/browser/queue health
+```bash
+systemctl --user stop prompta-browser.service
 
-There are no chat, transcript, message, reply, attachment, pin, read-state, or result endpoints.
+/opt/brave-bin/brave \
+  --user-data-dir="$HOME/.local/state/prompta/chrome-profile" \
+  --profile-directory=Default \
+  --remote-debugging-port=9222 \
+  https://chatgpt.com
+```
 
-## Delivery semantics
+After login, close that browser window and start Prompta's browser again:
 
-Each scheduled occurrence becomes a durable job_deliveries row. The delivery worker opens a new ChatGPT tab, verifies the composer, enters the scheduled prompt, submits it, confirms only that ChatGPT accepted the submission, and closes the Prompta-owned tab immediately.
-
-The worker never waits for or inspects the assistant response.
-
-If a failure is known to occur before dispatch, the job can be retried. If submission may have happened but Prompta cannot prove the outcome, the delivery is marked outcome_unknown instead of automatically resending and risking a duplicate.
-
-
-## Job CLI
-
-    prompta add nightly-review "Review the project and improve it" --daily-at 21:00
-    prompta add frequent-check "Run the configured check" --interval-minutes 40
-    prompta list
-    prompta pause nightly-review
-    prompta resume nightly-review
-    prompta remove nightly-review
-    prompta clear
-
---exact-interval disables scheduler jitter for interval jobs.
-
-## Development
-
-Python:
-
-    uv sync --locked
-    uv run ruff check src tests
-    uv run ty check src
-    uv run pytest -q
-
-UI:
-
-    bun install --frozen-lockfile
-    bun run check
-
-Build the UI with:
-
-    bun run build
+```bash
+systemctl --user start prompta-browser.service
+```
