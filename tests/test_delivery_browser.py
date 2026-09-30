@@ -206,25 +206,46 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
         async def get_attribute(self, name: str) -> str | None:
             return "true" if name == "aria-pressed" else None
 
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return True
+
         async def click(self) -> None:
             self.clicks += 1
 
+    class Collection:
+        def __init__(self, candidates: list[Control]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Control:
+            return self.candidates[index]
+
     class Page:
-        def get_by_role(self, _role: str, **_kwargs: Any) -> object:
-            return object()
+        def __init__(self, control: Control) -> None:
+            self.control = control
+
+        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
+            name = kwargs.get("name")
+            if role == "button" and name is not None and name.search("Chat"):
+                return Collection([self.control])
+            return Collection([])
 
     control = Control()
-    page = Page()
+    page = Page(control)
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: cast(Any, page))
-
-    async def first_usable(_locators: Any, **_kwargs: Any) -> Any:
-        return control
 
     async def no_ready_composer(_page: Any) -> Any:
         return None
 
-    monkeypatch.setattr(driver, "_first_usable", first_usable)
     monkeypatch.setattr(driver, "_composer", no_ready_composer)
 
     await driver.ensure_chat_surface(timeout=0.1)
@@ -322,6 +343,46 @@ async def test_effort_trigger_accepts_explicit_label_without_popup_metadata(
 
 
 @pytest.mark.asyncio
+async def test_model_selector_matches_current_public_label(tmp_path: Path) -> None:
+    class Control:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return True
+
+    class Collection:
+        def __init__(self, candidates: list[Control]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Control:
+            return self.candidates[index]
+
+    class Page:
+        def __init__(self, control: Control) -> None:
+            self.control = control
+
+        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
+            name = kwargs.get("name")
+            if role == "button" and name is not None and name.search("Select ChatGPT model"):
+                return Collection([self.control])
+            return Collection([])
+
+    control = Control()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    found = await driver._model_selector_control(cast(Any, Page(control)))
+
+    assert found is control
+
+
+@pytest.mark.asyncio
 async def test_model_selection_accepts_menuitem_and_aria_selected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -371,7 +432,8 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
             self.keyboard = Keyboard()
 
         def get_by_role(self, role: str, **kwargs: Any) -> Collection:
-            if role == "menuitem" and kwargs.get("name") is not None:
+            name = kwargs.get("name")
+            if role == "menuitem" and name is not None and name.search("GPT-5.6 Sol"):
                 return Collection([self.option])
             return Collection([])
 

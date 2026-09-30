@@ -1300,7 +1300,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _model_selector_control(self, page: Page) -> Locator | None:
         model_menu_name = re.compile(
-            r"(?:select|choose|change)\s+(?:chatgpt\s+)?(?:model|engine)",
+            r"\b(?:select|choose|change)\s+(?:chatgpt\s+)?(?:model|engine)\b",
             re.IGNORECASE,
         )
         selectable_roles = (
