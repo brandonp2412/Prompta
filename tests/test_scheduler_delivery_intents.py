@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from prompta.jobs import PromptJob, add_job, load_jobs
-from prompta.scheduler_runtime import SchedulerRuntime
+from prompta.jobs import add_job, load_jobs
 from prompta.scheduler_service import DurableSchedulerProducer
 
 
@@ -74,29 +73,3 @@ def test_scheduler_reconciles_worker_success_and_advances_recurring_job(tmp_path
 
     assert restarted.tick(now=1006.0) == 0
     assert len(restarted.queue.records()) == 1
-
-
-def test_legacy_pending_intent_is_migrated_to_shared_delivery_queue(tmp_path: Path) -> None:
-    runtime_path = tmp_path / "runtime.sqlite3"
-    queue_path = tmp_path / "ui-send-jobs.sqlite3"
-    runtime = SchedulerRuntime(runtime_path, runtime_path)
-    job = PromptJob("legacy", "Legacy scheduled work", 1800, exact_interval=True)
-
-    intent_id, created = runtime.enqueue_delivery_intent(
-        job,
-        prompt=job.prompt,
-        job_prompt_sha256="hash",
-        idempotency_key="legacy-key",
-        queued_at=1000.0,
-    )
-    assert created is True
-    assert intent_id > 0
-
-    producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
-    assert producer.migrate_legacy_pending_intents() == 1
-    assert producer.migrate_legacy_pending_intents() == 0
-
-    rows = producer.queue.records()
-    assert len(rows) == 1
-    assert rows[0]["send_id"] == "scheduled-legacy-key"
-    assert rows[0]["message"] == "Legacy scheduled work"

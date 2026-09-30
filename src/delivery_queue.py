@@ -66,53 +66,7 @@ class DeliveryQueueStore:
                 ON job_deliveries(status, retry_at, lease_expires_at, sequence)
                 """
             )
-            self._migrate_legacy_send_jobs(connection)
 
-    @staticmethod
-    def _migrate_legacy_send_jobs(connection: sqlite3.Connection) -> None:
-        exists = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'send_jobs'"
-        ).fetchone()
-        if exists is None:
-            return
-        columns = {
-            str(row["name"])
-            for row in connection.execute("PRAGMA table_info(send_jobs)").fetchall()
-        }
-        required = {
-            "send_id",
-            "operation",
-            "message",
-            "client_id",
-            "status",
-            "error",
-            "last_error",
-            "created_at",
-            "updated_at",
-            "retry_at",
-            "retry_attempt",
-            "finished_at",
-        }
-        if required.issubset(columns):
-            lease_owner = "lease_owner" if "lease_owner" in columns else "''"
-            lease_acquired_at = "lease_acquired_at" if "lease_acquired_at" in columns else "0"
-            lease_expires_at = "lease_expires_at" if "lease_expires_at" in columns else "0"
-            connection.execute(
-                f"""
-                INSERT OR IGNORE INTO job_deliveries(
-                    send_id, message, client_id, status, error, last_error,
-                    created_at, updated_at, retry_at, retry_attempt, finished_at,
-                    lease_owner, lease_acquired_at, lease_expires_at
-                )
-                SELECT
-                    send_id, message, client_id, status, error, last_error,
-                    created_at, updated_at, retry_at, retry_attempt, finished_at,
-                    {lease_owner}, {lease_acquired_at}, {lease_expires_at}
-                FROM send_jobs
-                WHERE operation = 'once'
-                """
-            )
-        connection.execute("DROP TABLE send_jobs")
 
     @staticmethod
     def record_from_row(row: sqlite3.Row) -> dict[str, Any]:

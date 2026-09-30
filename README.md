@@ -43,7 +43,6 @@ The worker never waits for or inspects the assistant response.
 
 If a failure is known to occur before dispatch, the job can be retried. If submission may have happened but Prompta cannot prove the outcome, the delivery is marked outcome_unknown instead of automatically resending and risking a duplicate.
 
-Legacy generic queue rows are migrated only when they represent once/fresh-chat deliveries. Legacy reply rows are discarded.
 
 ## Job CLI
 

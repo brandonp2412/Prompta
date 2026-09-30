@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import sqlite3
 from pathlib import Path
 
 from prompta.delivery_queue import DeliveryQueueStore
@@ -135,64 +134,3 @@ def test_retry_backoff_controls_claim_eligibility(tmp_path: Path) -> None:
     assert claimed is not None
     assert claimed["retry_attempt"] == 2
     assert claimed["lease_owner"] == "worker-b"
-
-
-def test_legacy_generic_queue_migrates_only_fresh_job_deliveries(tmp_path: Path) -> None:
-    path = tmp_path / "delivery.sqlite3"
-    connection = sqlite3.connect(path)
-    connection.executescript(
-        """
-        CREATE TABLE send_jobs (
-            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-            send_id TEXT NOT NULL UNIQUE,
-            operation TEXT NOT NULL,
-            message TEXT NOT NULL,
-            conversation_id TEXT NOT NULL DEFAULT '',
-            attachments_json TEXT NOT NULL DEFAULT '[]',
-            client_id TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL,
-            error TEXT NOT NULL DEFAULT '',
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            retry_at REAL NOT NULL DEFAULT 0,
-            retry_attempt INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT NOT NULL DEFAULT '',
-            finished_at REAL NOT NULL DEFAULT 0
-        );
-        INSERT INTO send_jobs (
-            send_id, operation, message, client_id, status, created_at, updated_at
-        ) VALUES (
-            'old-queued', 'once', 'queued payload', 'old-client-q', 'queued', 1, 1
-        );
-        INSERT INTO send_jobs (
-            send_id, operation, message, client_id, status, created_at, updated_at,
-            retry_at, retry_attempt, last_error
-        ) VALUES (
-            'old-reply', 'reply', 'reply payload', 'old-client-r', 'retrying', 2, 2,
-            50, 3, 'temporary'
-        );
-        """
-    )
-    connection.commit()
-    connection.close()
-
-    store = DeliveryQueueStore(path)
-    connection = store.connect()
-    try:
-        legacy = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'send_jobs'"
-        ).fetchone()
-        jobs_only = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'job_deliveries'"
-        ).fetchone()
-    finally:
-        connection.close()
-
-    assert legacy is None
-    assert jobs_only is not None
-    assert [record["send_id"] for record in store.records()] == ["old-queued"]
-
-    claimed = store.claim_next("worker-a", now=100.0, lease_seconds=30.0)
-    assert claimed is not None
-    assert claimed["send_id"] == "old-queued"
-    assert store.complete_claim("old-queued", "worker-a", now=101.0)

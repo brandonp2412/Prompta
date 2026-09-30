@@ -40,9 +40,6 @@ A Prompta job run is complete when prompt submission is confirmed. The assistant
 
 Pre-dispatch failures are retryable. A post-dispatch outcome that cannot be proven is terminal outcome_unknown, preventing an automatic duplicate.
 
-## Legacy migration
-
-On first access to an older delivery database, Prompta copies only legacy queue rows whose operation was once into job_deliveries and drops the old generic send_jobs table. Legacy reply/manual-send rows are intentionally discarded.
 
 ## Service control
 

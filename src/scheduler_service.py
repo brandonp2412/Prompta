@@ -174,51 +174,10 @@ class DurableSchedulerProducer:
                 reconciled += 1
         return reconciled
 
-    def migrate_legacy_pending_intents(self) -> int:
-        migrated = 0
-        for intent in self.runtime.delivery_intents():
-            if str(intent.get("status") or "") != "queued":
-                continue
-            idempotency_key = str(intent["idempotency_key"])
-            send_id = self._send_id(idempotency_key)
-            receipt, created = self.queue.enqueue_idempotent(
-                {
-                    "send_id": send_id,
-                    "operation": "once",
-                    "message": str(intent["prompt"]),
-                    "client_id": f"scheduled:{idempotency_key}",
-                    "status": "queued",
-                    "created_at": float(intent.get("queued_at") or time.time()),
-                    "updated_at": float(intent.get("queued_at") or time.time()),
-                }
-            )
-            if receipt_is_terminal(receipt):
-                continue
-            self.runtime.update_job_state(
-                str(intent["job_name"]),
-                {
-                    "last_delivery_send_id": str(receipt["send_id"]),
-                    "last_delivery_idempotency_key": idempotency_key,
-                    "pending_delivery_prompt_sha256": str(intent["job_prompt_sha256"]),
-                    "pending_delivery_interval_seconds": float(intent["interval_seconds"]),
-                    "pending_delivery_daily_at": str(intent.get("daily_at") or ""),
-                    "pending_delivery_exact_interval": bool(intent["exact_interval"]),
-                    "pending_delivery_one_time": bool(intent["one_time"]),
-                    "last_enqueued_at": float(intent.get("queued_at") or time.time()),
-                    "status": "queued",
-                    "status_message": "",
-                },
-            )
-            if created:
-                migrated += 1
-        if migrated:
-            logger.info("Migrated %d legacy scheduled delivery intent(s)", migrated)
-        return migrated
 
     def tick(self, *, now: float | None = None) -> int:
         current = time.time() if now is None else float(now)
-        work = self.migrate_legacy_pending_intents()
-        work += self.reconcile_terminal_receipts()
+        work = self.reconcile_terminal_receipts()
 
         jobs = list(self.runtime.read_jobs().values())
         self.runtime.ensure_initial_schedules(jobs, current)

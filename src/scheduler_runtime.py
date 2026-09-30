@@ -7,17 +7,10 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from .jobs import PromptJob, load_jobs
-from .persistence import (
-    DEFAULT_RUNTIME_PATH,
-    LEGACY_STATE_PATH,
-    connect_sqlite,
-    is_sqlite_file,
-    read_legacy_json,
-    remove_legacy_json,
-)
+from .persistence import connect_sqlite
 from .rate_limit import RateLimitBackoff, RateLimitError
 from .scheduler_policy import (
     due_in as calculate_due_in,
@@ -39,19 +32,6 @@ from .scheduler_policy import (
 logger = logging.getLogger(__name__)
 
 
-class DeliveryIntent(TypedDict):
-    id: int
-    idempotency_key: str
-    job_name: str
-    prompt: str
-    job_prompt_sha256: str
-    interval_seconds: float
-    daily_at: str | None
-    exact_interval: bool
-    one_time: bool
-    queued_at: float
-    attempt_count: int
-
 
 _SEND_GAP_SECONDS = 10.0
 
@@ -65,27 +45,9 @@ class SchedulerRuntime:
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
 
-    def _migration_candidates(self) -> list[Path]:
-        target = self.state_path.expanduser()
-        candidates: list[Path] = []
-        if target.exists() and not is_sqlite_file(target):
-            candidates.append(target)
-        if target == DEFAULT_RUNTIME_PATH and LEGACY_STATE_PATH not in candidates:
-            candidates.append(LEGACY_STATE_PATH)
-        return candidates
 
     def _connect_state(self) -> sqlite3.Connection:
-        target = self.state_path.expanduser()
-        legacy_payloads: list[tuple[Path, object]] = []
-        for candidate in self._migration_candidates():
-            payload = read_legacy_json(candidate)
-            if payload is not None:
-                legacy_payloads.append((candidate, payload))
-
-        if target.exists() and not is_sqlite_file(target):
-            target.unlink(missing_ok=True)
-
-        connection = connect_sqlite(target)
+        connection = connect_sqlite(self.state_path.expanduser())
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS scheduler_state (
@@ -114,51 +76,6 @@ class SchedulerRuntime:
             ON CONFLICT(key) DO NOTHING
             """
         )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS delivery_intents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                idempotency_key TEXT NOT NULL UNIQUE,
-                job_name TEXT NOT NULL,
-                prompt TEXT NOT NULL,
-                job_prompt_sha256 TEXT NOT NULL,
-                interval_seconds REAL NOT NULL,
-                daily_at TEXT,
-                exact_interval INTEGER NOT NULL DEFAULT 0,
-                one_time INTEGER NOT NULL DEFAULT 0,
-                status TEXT NOT NULL DEFAULT 'queued',
-                queued_at REAL NOT NULL,
-                attempt_count INTEGER NOT NULL DEFAULT 0,
-                last_attempt_at REAL NOT NULL DEFAULT 0,
-                available_at REAL NOT NULL DEFAULT 0,
-                last_error TEXT NOT NULL DEFAULT '',
-                completed_at REAL NOT NULL DEFAULT 0
-            )
-            """
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS delivery_intents_pending "
-            "ON delivery_intents(status, available_at, id)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS delivery_intents_job_status "
-            "ON delivery_intents(job_name, status, id)"
-        )
-        existing = int(connection.execute("SELECT COUNT(*) FROM scheduler_state").fetchone()[0])
-        if existing == 0:
-            for _legacy_path, payload in legacy_payloads:
-                if not isinstance(payload, dict):
-                    continue
-                self._write_state_to_connection(connection, payload)
-                existing = int(
-                    connection.execute("SELECT COUNT(*) FROM scheduler_state").fetchone()[0]
-                )
-                if existing:
-                    logger.info("Migrated Prompta scheduler state into SQLite")
-                    break
-
-        for legacy_path, _payload in legacy_payloads:
-            remove_legacy_json(legacy_path)
         connection.commit()
         return connection
 
@@ -457,168 +374,6 @@ class SchedulerRuntime:
             ],
         )
 
-    def enqueue_delivery_intent(
-        self,
-        job: PromptJob,
-        *,
-        prompt: str,
-        job_prompt_sha256: str,
-        idempotency_key: str,
-        queued_at: float,
-    ) -> tuple[int, bool]:
-        """Persist one scheduled delivery and its scheduler decision atomically."""
-        with self._connect_state() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            existing = connection.execute(
-                "SELECT id FROM delivery_intents WHERE idempotency_key = ?",
-                (idempotency_key,),
-            ).fetchone()
-            if existing is not None:
-                return int(existing["id"]), False
-            cursor = connection.execute(
-                """
-                INSERT INTO delivery_intents(
-                    idempotency_key, job_name, prompt, job_prompt_sha256,
-                    interval_seconds, daily_at, exact_interval, one_time, queued_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    idempotency_key,
-                    job.name,
-                    prompt,
-                    job_prompt_sha256,
-                    float(job.interval_seconds),
-                    job.daily_at,
-                    int(job.exact_interval),
-                    int(job.run_at_epoch is not None),
-                    queued_at,
-                ),
-            )
-            if cursor.lastrowid is None:
-                raise sqlite3.DatabaseError("delivery intent insert did not return an id")
-            intent_id = int(cursor.lastrowid)
-            self._write_job_updates(
-                connection,
-                job.name,
-                {
-                    "last_enqueued_at": queued_at,
-                    "last_delivery_intent_id": intent_id,
-                    "status": "queued",
-                    "status_message": "",
-                    "status_at": queued_at,
-                },
-            )
-            return intent_id, True
-
-    def has_queued_delivery(self, job_name: str) -> bool:
-        with self._connect_state() as connection:
-            row = connection.execute(
-                "SELECT 1 FROM delivery_intents WHERE job_name = ? AND status = 'queued' LIMIT 1",
-                (job_name,),
-            ).fetchone()
-        return row is not None
-
-    def pending_delivery_intents(self, now: float, *, limit: int = 50) -> list[DeliveryIntent]:
-        with self._connect_state() as connection:
-            rows = connection.execute(
-                """
-                SELECT id, idempotency_key, job_name, prompt, job_prompt_sha256,
-                       interval_seconds, daily_at, exact_interval, one_time, queued_at, attempt_count
-                FROM delivery_intents
-                WHERE status = 'queued' AND available_at <= ?
-                ORDER BY id
-                LIMIT ?
-                """,
-                (now, max(1, limit)),
-            ).fetchall()
-        return [
-            DeliveryIntent(
-                id=int(row["id"]),
-                idempotency_key=str(row["idempotency_key"]),
-                job_name=str(row["job_name"]),
-                prompt=str(row["prompt"]),
-                job_prompt_sha256=str(row["job_prompt_sha256"]),
-                interval_seconds=float(row["interval_seconds"]),
-                daily_at=str(row["daily_at"]) if row["daily_at"] is not None else None,
-                exact_interval=bool(row["exact_interval"]),
-                one_time=bool(row["one_time"]),
-                queued_at=float(row["queued_at"]),
-                attempt_count=int(row["attempt_count"]),
-            )
-            for row in rows
-        ]
-
-    def next_delivery_intent(self, now: float) -> DeliveryIntent | None:
-        pending = self.pending_delivery_intents(now, limit=1)
-        return pending[0] if pending else None
-
-    def mark_delivery_attempt(self, intent_id: int, attempted_at: float) -> None:
-        with self._connect_state() as connection:
-            connection.execute(
-                """
-                UPDATE delivery_intents
-                SET attempt_count = attempt_count + 1, last_attempt_at = ?
-                WHERE id = ? AND status = 'queued'
-                """,
-                (attempted_at, intent_id),
-            )
-
-    def defer_delivery(
-        self,
-        intent_id: int,
-        *,
-        error: str,
-        available_at: float,
-    ) -> None:
-        with self._connect_state() as connection:
-            connection.execute(
-                """
-                UPDATE delivery_intents
-                SET last_error = ?, available_at = ?
-                WHERE id = ? AND status = 'queued'
-                """,
-                (error, available_at, intent_id),
-            )
-
-    def mark_delivery_uncertain(
-        self,
-        intent_id: int,
-        job_name: str,
-        *,
-        attempted_at: float,
-        error: str,
-    ) -> None:
-        with self._connect_state() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                UPDATE delivery_intents
-                SET status = 'uncertain', last_error = ?, completed_at = ?
-                WHERE id = ? AND status = 'queued'
-                """,
-                (error, attempted_at, intent_id),
-            )
-            self._write_job_updates(
-                connection,
-                job_name,
-                {
-                    "last_uncertain_send_at": attempted_at,
-                    "status": "failing",
-                    "status_message": error,
-                    "status_at": attempted_at,
-                },
-            )
-
-    def delivery_intents(self, job_name: str | None = None) -> list[dict[str, Any]]:
-        with self._connect_state() as connection:
-            if job_name is None:
-                rows = connection.execute("SELECT * FROM delivery_intents ORDER BY id").fetchall()
-            else:
-                rows = connection.execute(
-                    "SELECT * FROM delivery_intents WHERE job_name = ? ORDER BY id",
-                    (job_name,),
-                ).fetchall()
-        return [dict(row) for row in rows]
 
     def restore_backoffs(self) -> None:
         state = self.load_state()

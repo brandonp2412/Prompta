@@ -96,7 +96,6 @@ class PlaywrightDriver(BrowserDriverBase):
         debugger_address: str | None = None,
         flaresolverr_url: str | None = None,
         ownership_prefix: str = OWNED_WINDOW_PREFIX,
-        **_legacy: Any,
     ) -> None:
         super().__init__("")
         self.profile = profile.expanduser().resolve()
@@ -250,8 +249,8 @@ class PlaywrightDriver(BrowserDriverBase):
                 continue
             owner_id = await self._owned_page_owner_id(page)
             if owner_id is None:
-                # Legacy ownership markers cannot prove that another live process
-                # does not still own the page, so fail safe and leave them alone.
+                # Ownerless markers cannot prove that another live process still
+                # owns the page, so fail safe and leave them alone.
                 continue
             if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
                 continue
@@ -765,7 +764,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
         # Prefer user-facing challenge semantics so DOM IDs/classes can change
         # without making Cloudflare detection disappear. Keep provider-specific
-        # attributes below as compatibility fallbacks for challenge pages that
+        # attributes below as structural fallbacks for challenge pages that
         # render little or no visible text.
         semantic = await self._first_usable(
             [

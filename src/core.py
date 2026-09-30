@@ -162,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage Prompta scheduled jobs")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    add = subparsers.add_parser("add", aliases=["push"], help="Add or replace a named job")
+    add = subparsers.add_parser("add", help="Add or replace a named job")
     add.add_argument("name")
     add.add_argument("prompt")
     schedule = add.add_mutually_exclusive_group()
@@ -172,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     add.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
-    remove = subparsers.add_parser("remove", aliases=["rm"], help="Remove a named job")
+    remove = subparsers.add_parser("remove", help="Remove a named job")
     remove.add_argument("name")
     remove.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     remove.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
@@ -183,12 +183,12 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     show.add_argument("--json", action="store_true")
 
-    list_parser = subparsers.add_parser("list", aliases=["ls"], help="List configured jobs")
+    list_parser = subparsers.add_parser("list", help="List configured jobs")
     list_parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     list_parser.add_argument("--json", action="store_true")
 
-    clear = subparsers.add_parser("clear", aliases=["cls"], help="Remove all jobs")
+    clear = subparsers.add_parser("clear", help="Remove all jobs")
     clear.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     clear.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
@@ -213,7 +213,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command in {"add", "push"}:
+    if args.command == "add":
         if args.daily_at is not None and args.exact_interval:
             parser.error("--exact-interval cannot be combined with --daily-at")
         interval_minutes = (
@@ -240,7 +240,7 @@ def main() -> None:
         _print_notice("✓", f"Saved {args.name}", detail, tone="32")
         return
 
-    if args.command in {"remove", "rm"}:
+    if args.command == "remove":
         existed = args.name in load_jobs(args.jobs_file)
         remove_job(args.jobs_file, args.name)
         SchedulerRuntime(args.state, args.jobs_file).clear_job_state(args.name)
@@ -281,7 +281,7 @@ def main() -> None:
         print(f"{_paint('Prompt', '2')}    {job.prompt}")
         return
 
-    if args.command in {"list", "ls"}:
+    if args.command == "list":
         if args.json:
             print(
                 json.dumps(_jobs_payload(args.jobs_file, args.state), indent=2, ensure_ascii=False)
@@ -291,7 +291,7 @@ def main() -> None:
         _print_job_table(runtime, load_jobs(args.jobs_file))
         return
 
-    if args.command in {"clear", "cls"}:
+    if args.command == "clear":
         count = len(load_jobs(args.jobs_file))
         clear_jobs(args.jobs_file)
         SchedulerRuntime(args.state, args.jobs_file).clear_all_job_state()

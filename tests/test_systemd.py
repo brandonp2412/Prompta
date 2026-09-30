@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-def test_legacy_services_are_removed() -> None:
+def test_obsolete_services_are_removed() -> None:
     assert not Path("systemd/prompta.service").exists()
     assert not Path("systemd/prompta-conversation-worker.service").exists()
 

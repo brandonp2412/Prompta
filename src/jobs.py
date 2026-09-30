@@ -9,14 +9,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from .persistence import (
-    DEFAULT_RUNTIME_PATH,
-    LEGACY_JOBS_PATH,
-    connect_sqlite,
-    is_sqlite_file,
-    read_legacy_json,
-    remove_legacy_json,
-)
+from .persistence import connect_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -71,90 +64,9 @@ class PromptJob:
     source_revision: str = ""
 
 
-def _job_from_legacy(name: object, value: object) -> PromptJob | None:
-    if isinstance(value, str):
-        prompt = value
-        interval = DEFAULT_INTERVAL_SECONDS
-    elif isinstance(value, dict):
-        prompt = str(value.get("prompt") or "")
-        try:
-            raw_interval = value.get("interval_seconds")
-            interval = DEFAULT_INTERVAL_SECONDS if raw_interval is None else float(raw_interval)
-        except (TypeError, ValueError):
-            interval = DEFAULT_INTERVAL_SECONDS
-    else:
-        return None
-
-    daily_at = None
-    exact_interval = False
-    run_at_epoch: float | None = None
-    source_revision = ""
-    if isinstance(value, dict):
-        exact_interval = value.get("exact_interval") is True
-        source_revision = str(value.get("source_revision") or "").strip().lower()
-        if value.get("run_at_epoch") is not None:
-            try:
-                run_at_epoch = float(value["run_at_epoch"])
-            except (TypeError, ValueError):
-                logger.warning("Ignoring invalid run_at_epoch for Prompta job=%s", name)
-        if value.get("daily_at") is not None:
-            try:
-                daily_at = _normalise_daily_at(str(value["daily_at"]))
-            except ValueError:
-                logger.warning("Ignoring invalid daily_at for Prompta job=%s", name)
-
-    normalized_name = str(name).strip()
-    if not normalized_name or not prompt.strip():
-        return None
-    return PromptJob(
-        normalized_name,
-        prompt,
-        max(0.0, interval),
-        daily_at,
-        exact_interval,
-        run_at_epoch,
-        source_revision,
-    )
-
-
-def _legacy_jobs(payload: object) -> dict[str, PromptJob]:
-    if not isinstance(payload, dict):
-        return {}
-    jobs_raw = payload.get("jobs", payload)
-    if not isinstance(jobs_raw, dict):
-        return {}
-    jobs: dict[str, PromptJob] = {}
-    for name, value in jobs_raw.items():
-        job = _job_from_legacy(name, value)
-        if job is not None:
-            jobs[job.name] = job
-    return jobs
-
-
-def _migration_candidates(path: Path) -> list[Path]:
-    target = path.expanduser()
-    candidates: list[Path] = []
-    if target.exists() and not is_sqlite_file(target):
-        candidates.append(target)
-    if target == DEFAULT_RUNTIME_PATH and LEGACY_JOBS_PATH not in candidates:
-        candidates.append(LEGACY_JOBS_PATH)
-    return candidates
-
 
 def _connect(path: Path) -> sqlite3.Connection:
-    target = path.expanduser()
-    legacy_payloads: list[tuple[Path, object]] = []
-    for candidate in _migration_candidates(target):
-        payload = read_legacy_json(candidate)
-        if payload is not None:
-            legacy_payloads.append((candidate, payload))
-
-    # A caller may still pass a historical *.json path. Convert that file in-place
-    # to SQLite after capturing its legacy payload.
-    if target.exists() and not is_sqlite_file(target):
-        target.unlink(missing_ok=True)
-
-    connection = connect_sqlite(target)
+    connection = connect_sqlite(path.expanduser())
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS scheduled_jobs (
@@ -176,39 +88,6 @@ def _connect(path: Path) -> sqlite3.Connection:
         connection.execute(
             "ALTER TABLE scheduled_jobs ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''"
         )
-    existing = int(connection.execute("SELECT COUNT(*) FROM scheduled_jobs").fetchone()[0])
-    if existing == 0:
-        for _legacy_path, payload in legacy_payloads:
-            jobs = _legacy_jobs(payload)
-            if not jobs:
-                continue
-            connection.executemany(
-                """
-                INSERT INTO scheduled_jobs (
-                    name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
-                    source_revision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        job.name,
-                        job.prompt,
-                        job.interval_seconds,
-                        job.daily_at,
-                        int(job.exact_interval),
-                        job.run_at_epoch,
-                        job.source_revision,
-                    )
-                    for job in jobs.values()
-                ],
-            )
-            connection.commit()
-            existing = len(jobs)
-            logger.info("Migrated %d Prompta scheduled job(s) into SQLite", existing)
-            break
-
-    for legacy_path, _payload in legacy_payloads:
-        remove_legacy_json(legacy_path)
     return connection
 
 
