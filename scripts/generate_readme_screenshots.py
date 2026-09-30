@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import io
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -29,6 +30,14 @@ FIXED_NOW = datetime(
     0,
     tzinfo=timezone(timedelta(hours=13)),
 ).timestamp()
+ANSI_RE = re.compile(r"\x1b\[([0-9;]*)m")
+ANSI_COLORS = {
+    31: "#f85149",
+    32: "#3fb950",
+    33: "#d29922",
+    34: "#58a6ff",
+    36: "#39c5cf",
+}
 
 
 def _set_timezone() -> str | None:
@@ -102,8 +111,13 @@ def _create_demo_runtime(root: Path) -> Path:
     return runtime_path
 
 
+class TtyBuffer(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
 def _capture_cli(runtime_path: Path) -> str:
-    output = io.StringIO()
+    output = TtyBuffer()
     argv = [
         "prompta",
         "list",
@@ -112,12 +126,23 @@ def _capture_cli(runtime_path: Path) -> str:
         "--state",
         str(runtime_path),
     ]
-    with (
-        redirect_stdout(output),
-        patch.object(core.time, "time", return_value=FIXED_NOW),
-        patch.object(sys, "argv", argv),
-    ):
-        core.main()
+    previous_term = os.environ.get("TERM")
+    previous_no_color = os.environ.pop("NO_COLOR", None)
+    os.environ["TERM"] = "xterm-256color"
+    try:
+        with (
+            redirect_stdout(output),
+            patch.object(core.time, "time", return_value=FIXED_NOW),
+            patch.object(sys, "argv", argv),
+        ):
+            core.main()
+    finally:
+        if previous_term is None:
+            os.environ.pop("TERM", None)
+        else:
+            os.environ["TERM"] = previous_term
+        if previous_no_color is not None:
+            os.environ["NO_COLOR"] = previous_no_color
     return "$ prompta list\n" + output.getvalue()
 
 
@@ -138,6 +163,54 @@ def _browser(playwright: Playwright) -> Browser:
     return playwright.chromium.launch(headless=True)
 
 
+def _ansi_html(text: str) -> str:
+    parts: list[str] = []
+    bold = False
+    dim = False
+    foreground: int | None = None
+    position = 0
+
+    def append_segment(segment: str) -> None:
+        if not segment:
+            return
+        escaped = html.escape(segment)
+        styles: list[str] = []
+        if bold:
+            styles.append("font-weight:700")
+        if dim:
+            styles.append("opacity:.6")
+        if foreground in ANSI_COLORS:
+            styles.append(f"color:{ANSI_COLORS[foreground]}")
+        if styles:
+            parts.append(f'<span style="{";".join(styles)}">{escaped}</span>')
+        else:
+            parts.append(escaped)
+
+    for match in ANSI_RE.finditer(text):
+        append_segment(text[position : match.start()])
+        codes = [int(value) if value else 0 for value in match.group(1).split(";")]
+        for code in codes:
+            if code == 0:
+                bold = False
+                dim = False
+                foreground = None
+            elif code == 1:
+                bold = True
+            elif code == 2:
+                dim = True
+            elif code == 22:
+                bold = False
+                dim = False
+            elif 30 <= code <= 37:
+                foreground = code
+            elif code == 39:
+                foreground = None
+        position = match.end()
+
+    append_segment(text[position:])
+    return "".join(parts)
+
+
 def _render_cli(browser: Browser, output: str) -> None:
     context = browser.new_context(
         viewport={"width": 1200, "height": 520},
@@ -148,7 +221,7 @@ def _render_cli(browser: Browser, output: str) -> None:
     )
     try:
         page = context.new_page()
-        escaped = html.escape(output)
+        rendered = _ansi_html(output)
         page.set_content(
             f"""
             <!doctype html>
@@ -203,7 +276,7 @@ def _render_cli(browser: Browser, output: str) -> None:
                 <span class="dot"></span>
                 <span class="title">Prompta CLI</span>
               </div>
-              <pre>{escaped}</pre>
+              <pre>{rendered}</pre>
             </div>
             """
         )
