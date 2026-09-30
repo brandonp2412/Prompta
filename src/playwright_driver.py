@@ -337,56 +337,82 @@ class PlaywrightDriver(BrowserDriverBase):
                     continue
         return None
 
-    async def _hydrated_composer(self, page: Page) -> Locator | None:
-        # ChatGPT hydrates its initial textarea into a contenteditable editor. The
-        # empty editor can have no rendered box even though it is focusable, so
-        # Playwright visibility is not a useful signal. Prefer semantic textbox
-        # capability in the main landmark, then a unique contenteditable fallback.
-        # Do not depend on ChatGPT-private data attributes or wrapper classes.
-        main = page.get_by_role("main")
-        candidates = (
-            (
-                main.locator('[contenteditable]:not([contenteditable="false"])[role="textbox"]'),
-                False,
-            ),
-            (main.locator('[contenteditable]:not([contenteditable="false"])'), True),
-            (
-                page.locator('[contenteditable]:not([contenteditable="false"])[role="textbox"]'),
-                True,
-            ),
-            (page.locator('[contenteditable]:not([contenteditable="false"])'), True),
-        )
-        for hydrated, require_unique in candidates:
+    async def _unique_usable(
+        self,
+        locator: Locator,
+        *,
+        enabled: bool = True,
+        limit: int = 24,
+    ) -> Locator | None:
+        """Return one usable match, refusing to guess when several are active."""
+
+        try:
+            count = min(await locator.count(), limit)
+        except PlaywrightError:
+            return None
+
+        matched: list[Locator] = []
+        for index in range(count):
+            candidate = locator.nth(index)
             try:
-                count = await hydrated.count()
+                if not await candidate.is_visible():
+                    continue
+                if not await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
+                    continue
+                if enabled and not await candidate.is_enabled():
+                    continue
+                matched.append(candidate)
             except PlaywrightError:
                 continue
-            if require_unique and count != 1:
-                continue
-            for index in range(min(count, 12)):
-                candidate = hydrated.nth(index)
-                try:
-                    active = await candidate.evaluate(
-                        load_browser_script("is_active_composed_node.js")
-                    )
-                    # Browser visibility is authoritative for the composer when our
-                    # conservative composed-tree guard disagrees with Chromium.
-                    # ChatGPT can transiently wrap its live editor in containers
-                    # whose computed visibility makes the guard false-negative.
-                    if not active and not await candidate.is_visible():
-                        continue
-                    if await candidate.is_enabled():
-                        return candidate
-                except PlaywrightError:
+        return matched[0] if len(matched) == 1 else None
+
+    async def _hydrated_composer(self, page: Page) -> Locator | None:
+        # ChatGPT hydrates its initial textarea into a contenteditable editor. The
+        # editor can briefly have no rendered box, so accessibility/visibility APIs
+        # alone are not sufficient. Discover by editable capability, then prefer a
+        # unique public accessible name and finally a single active editor.
+        editables = page.locator('[contenteditable]:not([contenteditable="false"])')
+        try:
+            count = min(await editables.count(), 24)
+        except PlaywrightError:
+            return None
+
+        named: list[Locator] = []
+        active: list[Locator] = []
+        for index in range(count):
+            candidate = editables.nth(index)
+            try:
+                composed_active = await candidate.evaluate(
+                    load_browser_script("is_active_composed_node.js")
+                )
+                # Preserve the newer main behavior: Chromium visibility is
+                # authoritative when the conservative composed-tree guard has a
+                # transient false negative around the live ChatGPT editor.
+                if not composed_active and not await candidate.is_visible():
                     continue
+                if not await candidate.is_enabled():
+                    continue
+                active.append(candidate)
+                labels = await candidate.evaluate(load_browser_script("semantic_control_labels.js"))
+                if isinstance(labels, list) and any(
+                    _COMPOSER_NAME_RE.search(str(label)) for label in labels
+                ):
+                    named.append(candidate)
+            except PlaywrightError:
+                continue
+
+        if len(named) == 1:
+            return named[0]
+        if len(active) == 1:
+            return active[0]
         return None
 
     async def _composer(self, page: Page) -> Locator | None:
         main = page.get_by_role("main")
 
-        # The chat composer is normally in the main landmark. Prefer its public
-        # accessible name, then any textbox there, before looking at the
-        # whole page (which can also contain search and dialog textboxes).
+        # Prefer the public accessible name. Structural fallbacks are deliberately
+        # conservative: when more than one active textbox exists, do not guess which
+        # one is the prompt composer.
         def named(scope: Page | Locator) -> list[Locator]:
             return [
                 scope.get_by_role("textbox", name=_COMPOSER_NAME_RE),
@@ -398,17 +424,12 @@ class PlaywrightDriver(BrowserDriverBase):
         if hydrated is not None:
             return hydrated
 
-        for candidates in (named(main), [main.get_by_role("textbox")], named(page)):
+        for candidates in (named(main), named(page)):
             found = await self._first_usable(candidates)
             if found is not None:
                 return found
-        # An unnamed page-wide textbox is only safe when it is unique.
-        textboxes = page.get_by_role("textbox")
-        if await textboxes.count() == 1:
-            found = await self._first_usable([textboxes])
-            if found is not None:
-                return found
-        return None
+
+        return await self._unique_usable(page.get_by_role("textbox"))
 
     async def _composer_submit_button(self, composer: Locator) -> Locator | None:
         # Prefer an actual form when present, but do not make the wrapper tag part
@@ -452,12 +473,22 @@ class PlaywrightDriver(BrowserDriverBase):
         name: re.Pattern[str],
     ) -> Locator | None:
         # Resolve controls by meaning rather than by one specific element/role.
-        # ChatGPT has moved actions between native buttons, ARIA menu items, and
-        # roleless focusable wrappers while keeping their accessible labels.
-        # Prefer the chat landmark before the whole page so a toolbar action with
-        # the same name cannot steal the click from the composer.
+        # ChatGPT has moved actions between native buttons, ARIA menu items, tabs,
+        # switches, and roleless focusable wrappers while keeping public labels.
+        # Prefer the chat landmark before the whole page so similarly named sidebar
+        # actions cannot steal the click.
         scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
-        action_roles = ("button", "menuitem", "option", "link", "radio")
+        action_roles = (
+            "button",
+            "menuitem",
+            "menuitemradio",
+            "option",
+            "link",
+            "radio",
+            "tab",
+            "switch",
+            "combobox",
+        )
 
         for scope in scopes:
             semantic = await self._first_usable(
@@ -467,11 +498,13 @@ class PlaywrightDriver(BrowserDriverBase):
                 return semantic
 
             # If the ARIA role itself churned, inspect only elements that carry
-            # some interaction/accessibility signal. Match public labels/text,
-            # never CSS classes or private test IDs, and require an unambiguous
+            # interaction/accessibility signals. Match public labels/text, never
+            # styling classes or private test IDs, and require an unambiguous
             # fallback within the current scope before clicking it.
             candidates = scope.locator(
-                "button,a,input,select,[role],[tabindex],[aria-label],[aria-labelledby],[title]"
+                "button,a,input,select,summary,[role],[tabindex],[aria-label],"
+                "[aria-labelledby],[aria-pressed],[aria-selected],[aria-checked],"
+                "[data-state],[title]"
             )
             try:
                 count = min(await candidates.count(), 80)
@@ -501,6 +534,40 @@ class PlaywrightDriver(BrowserDriverBase):
                 return matched[0]
 
         return None
+
+    async def _selection_state(self, control: Locator) -> bool | None:
+        """Return semantic selected state without depending on one widget role."""
+
+        saw_false = False
+        for attribute in ("aria-checked", "aria-selected", "aria-pressed"):
+            try:
+                value = (await control.get_attribute(attribute) or "").strip().casefold()
+            except PlaywrightError:
+                continue
+            if value == "true":
+                return True
+            if value == "false":
+                saw_false = True
+
+        try:
+            current = (await control.get_attribute("aria-current") or "").strip().casefold()
+        except PlaywrightError:
+            current = ""
+        if current and current != "false":
+            return True
+        if current == "false":
+            saw_false = True
+
+        try:
+            state = (await control.get_attribute("data-state") or "").strip().casefold()
+        except PlaywrightError:
+            state = ""
+        if state in {"active", "checked", "selected", "on", "open"}:
+            return True
+        if state in {"inactive", "unchecked", "unselected", "off", "closed"}:
+            saw_false = True
+
+        return False if saw_false else None
 
     def _page(self, context: str | None = None) -> Page:
         target = context or self.context
@@ -994,7 +1061,15 @@ class PlaywrightDriver(BrowserDriverBase):
         async def chat_control() -> Locator | None:
             candidates = [
                 page.get_by_role(role, name=chat_name)
-                for role in ("radio", "tab", "button", "menuitemradio", "option")
+                for role in (
+                    "radio",
+                    "tab",
+                    "button",
+                    "menuitemradio",
+                    "menuitem",
+                    "option",
+                    "switch",
+                )
             ]
             found = await self._first_usable(candidates, enabled=True)
             if found is not None:
@@ -1007,7 +1082,8 @@ class PlaywrightDriver(BrowserDriverBase):
             for scope in scopes:
                 interactive = scope.locator(
                     "button,input,summary,[role],[tabindex],[aria-label],"
-                    "[aria-labelledby],[title],[aria-checked],[aria-selected],[data-state]"
+                    "[aria-labelledby],[title],[aria-checked],[aria-selected],"
+                    "[aria-pressed],[aria-current],[data-state]"
                 )
                 try:
                     count = min(await interactive.count(), 40)
@@ -1036,20 +1112,6 @@ class PlaywrightDriver(BrowserDriverBase):
                     return matched[0]
             return None
 
-        async def selected(control: Locator) -> bool:
-            for attribute in ("aria-checked", "aria-selected"):
-                value = (await control.get_attribute(attribute) or "").strip().casefold()
-                if value == "true":
-                    return True
-                if value == "false":
-                    return False
-            state = (await control.get_attribute("data-state") or "").strip().casefold()
-            if state in {"active", "checked", "selected", "on"}:
-                return True
-            if state in {"inactive", "unchecked", "unselected", "off"}:
-                return False
-            return False
-
         while asyncio.get_running_loop().time() < deadline:
             # A usable composer is sufficient evidence that the page is already on
             # the normal chat surface. Do not interact with a redundant Chat/Work
@@ -1063,11 +1125,11 @@ class PlaywrightDriver(BrowserDriverBase):
                 await asyncio.sleep(0.1)
                 continue
             try:
-                if await selected(chat):
+                if await self._selection_state(chat) is True:
                     return
                 await chat.click()
                 while asyncio.get_running_loop().time() < deadline:
-                    if await selected(chat):
+                    if await self._selection_state(chat) is True:
                         return
                     # Some implementations switch the surface without exposing a
                     # selected-state attribute. The composer is the semantic success
@@ -1081,12 +1143,26 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _effort_trigger_locator(self) -> Locator | None:
         page = self._page()
-        trigger_roles = ("button", "combobox", "menuitem", "option", "radio")
-        semantic_candidates = [
-            page.get_by_role(role, name=name)
-            for name in (_EFFORT_TRIGGER_RE, _EFFORT_RE)
-            for role in trigger_roles
-        ]
+
+        # A durable public label is sufficient for an explicit model/effort trigger.
+        # Do not require aria-haspopup: popup metadata has changed independently of
+        # the control label and _open_effort_menu verifies success structurally.
+        direct = await self._semantic_button(page, _EFFORT_TRIGGER_RE)
+        if direct is not None:
+            return direct
+
+        # Short state labels such as "High" are less specific, so retain popup
+        # semantics for those to avoid matching unrelated controls.
+        trigger_roles = (
+            "button",
+            "combobox",
+            "menuitem",
+            "menuitemradio",
+            "option",
+            "radio",
+            "tab",
+        )
+        semantic_candidates = [page.get_by_role(role, name=_EFFORT_RE) for role in trigger_roles]
         for controls in semantic_candidates:
             try:
                 count = min(await controls.count(), 12)
@@ -1224,10 +1300,18 @@ class PlaywrightDriver(BrowserDriverBase):
 
     async def _model_selector_control(self, page: Page) -> Locator | None:
         model_menu_name = re.compile(
-            r"\b(?:select|choose|change)\s+(?:model|engine)\b",
+            r"(?:select|choose|change)\s+(?:chatgpt\s+)?(?:model|engine)",
             re.IGNORECASE,
         )
-        selectable_roles = ("menuitem", "button", "combobox", "option", "radio")
+        selectable_roles = (
+            "menuitem",
+            "menuitemradio",
+            "button",
+            "combobox",
+            "option",
+            "radio",
+            "tab",
+        )
         named = await self._first_usable(
             [page.get_by_role(role, name=model_menu_name) for role in selectable_roles],
             enabled=True,
@@ -1257,9 +1341,10 @@ class PlaywrightDriver(BrowserDriverBase):
                         or await item.text_content()
                         or ""
                     )
-                    if key in seen:
+                    if key and key in seen:
                         continue
-                    seen.add(key)
+                    if key:
+                        seen.add(key)
                     submenu_candidates.append(item)
                 except PlaywrightError:
                     continue
@@ -1290,24 +1375,24 @@ class PlaywrightDriver(BrowserDriverBase):
 
         async def find_option() -> Locator | None:
             # Menus have changed role structure before. Prefer accessible role/name
-            # semantics, but accept the equivalent selectable roles rather than
-            # coupling model discovery to one private menu implementation.
-            named_roles = [
-                page.get_by_role(role, name=model_name_re)
-                for role in ("menuitemradio", "radio", "option")
-            ]
+            # semantics across common selectable roles, then an unambiguous semantic
+            # control fallback if the role disappears entirely.
+            option_roles = ("menuitemradio", "radio", "option", "menuitem", "button", "tab")
+            named_roles = [page.get_by_role(role, name=model_name_re) for role in option_roles]
             text_roles = [
-                page.get_by_role(role).filter(has_text=model_name_re)
-                for role in ("menuitemradio", "radio", "option")
+                page.get_by_role(role).filter(has_text=model_name_re) for role in option_roles
             ]
-            return await self._first_usable(named_roles + text_roles, enabled=True)
+            found = await self._first_usable(named_roles + text_roles, enabled=True)
+            if found is not None:
+                return found
+            return await self._semantic_button(page, model_name_re)
 
         deadline = asyncio.get_running_loop().time() + 5.0
         while asyncio.get_running_loop().time() < deadline:
             option = await find_option()
             if option is not None:
                 try:
-                    if (await option.get_attribute("aria-checked") or "").casefold() == "true":
+                    if await self._selection_state(option) is True:
                         await page.keyboard.press("Escape")
                         return
                     await option.click()
