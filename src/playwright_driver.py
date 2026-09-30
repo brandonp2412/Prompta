@@ -1051,13 +1051,15 @@ class PlaywrightDriver(BrowserDriverBase):
             return False
 
         while asyncio.get_running_loop().time() < deadline:
+            # A usable composer is sufficient evidence that the page is already on
+            # the normal chat surface. Do not interact with a redundant Chat/Work
+            # mode control merely because ChatGPT happens to render one.
+            if await self._composer(page) is not None:
+                return
             chat = await chat_control()
             if chat is None:
                 # ChatGPT no longer always exposes explicit Chat/Work mode controls.
-                # A usable composer is sufficient evidence that the page is on the
-                # normal chat surface.
-                if await self._composer(page) is not None:
-                    return
+                # Keep waiting for the semantic success signal above.
                 await asyncio.sleep(0.1)
                 continue
             try:
