@@ -174,7 +174,6 @@ class DurableSchedulerProducer:
                 reconciled += 1
         return reconciled
 
-
     def tick(self, *, now: float | None = None) -> int:
         current = time.time() if now is None else float(now)
         work = self.reconcile_terminal_receipts()

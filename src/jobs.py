@@ -64,7 +64,6 @@ class PromptJob:
     source_revision: str = ""
 
 
-
 def _connect(path: Path) -> sqlite3.Connection:
     connection = connect_sqlite(path.expanduser())
     connection.execute(

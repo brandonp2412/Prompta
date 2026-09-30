@@ -67,7 +67,6 @@ class DeliveryQueueStore:
                 """
             )
 
-
     @staticmethod
     def record_from_row(row: sqlite3.Row) -> dict[str, Any]:
         return {

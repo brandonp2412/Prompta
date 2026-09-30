@@ -32,7 +32,6 @@ from .scheduler_policy import (
 logger = logging.getLogger(__name__)
 
 
-
 _SEND_GAP_SECONDS = 10.0
 
 
@@ -44,7 +43,6 @@ class SchedulerRuntime:
         self.global_backoff = RateLimitBackoff()
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
-
 
     def _connect_state(self) -> sqlite3.Connection:
         connection = connect_sqlite(self.state_path.expanduser())
@@ -373,7 +371,6 @@ class SchedulerRuntime:
                 for key, value in updates.items()
             ],
         )
-
 
     def restore_backoffs(self) -> None:
         state = self.load_state()
