@@ -13,13 +13,6 @@ node=>{
       ||current.inert
       ||(current.getAttribute?.('aria-hidden')||'').trim().toLowerCase()==='true'
     )return false;
-    try{
-      if(current.checkVisibility?.({
-        checkOpacity:true,
-        checkVisibilityCSS:true,
-        contentVisibilityAuto:true
-      })===false)return false;
-    }catch{}
     const style=getComputedStyle(current);
     if(
       style.display==='none'
