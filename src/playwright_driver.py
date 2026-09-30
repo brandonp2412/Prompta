@@ -369,7 +369,11 @@ class PlaywrightDriver(BrowserDriverBase):
                     active = await candidate.evaluate(
                         load_browser_script("is_active_composed_node.js")
                     )
-                    if not active:
+                    # Browser visibility is authoritative for the composer when our
+                    # conservative composed-tree guard disagrees with Chromium.
+                    # ChatGPT can transiently wrap its live editor in containers
+                    # whose computed visibility makes the guard false-negative.
+                    if not active and not await candidate.is_visible():
                         continue
                     if await candidate.is_enabled():
                         return candidate
