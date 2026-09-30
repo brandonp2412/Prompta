@@ -195,6 +195,69 @@ async def test_selection_state_accepts_accessibility_role_churn(
 
 
 @pytest.mark.asyncio
+async def test_first_usable_accepts_unique_visible_candidate_when_composed_guard_false(
+    tmp_path: Path,
+) -> None:
+    class Candidate:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return False
+
+    class Collection:
+        def __init__(self, candidates: list[Candidate]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Candidate:
+            return self.candidates[index]
+
+    candidate = Candidate()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    found = await driver._first_usable([cast(Any, Collection([candidate]))])
+
+    assert found is candidate
+
+
+@pytest.mark.asyncio
+async def test_first_usable_refuses_ambiguous_visible_candidates_when_guard_false(
+    tmp_path: Path,
+) -> None:
+    class Candidate:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return False
+
+    class Collection:
+        def __init__(self, candidates: list[Candidate]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Candidate:
+            return self.candidates[index]
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    found = await driver._first_usable([cast(Any, Collection([Candidate(), Candidate()]))])
+
+    assert found is None
+
+
+@pytest.mark.asyncio
 async def test_chat_surface_recognises_pressed_chat_without_click(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -383,6 +446,55 @@ async def test_model_selector_matches_current_public_label(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_model_selector_prefers_visible_submenu_when_composed_guard_false(
+    tmp_path: Path,
+) -> None:
+    class Control:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return False
+
+    class Collection:
+        def __init__(self, candidates: list[Control]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Control:
+            return self.candidates[index]
+
+    class Page:
+        def __init__(self, inner: Control, outer: Control) -> None:
+            self.inner = inner
+            self.outer = outer
+
+        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
+            name = kwargs.get("name")
+            if role == "menuitem" and name is not None and name.search(self.inner.label):
+                return Collection([self.inner])
+            if role == "button" and name is not None and name.search(self.outer.label):
+                return Collection([self.outer])
+            return Collection([])
+
+    inner = Control("Select model")
+    outer = Control("Select ChatGPT model")
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    found = await driver._model_selector_control(cast(Any, Page(inner, outer)))
+
+    assert found is inner
+
+
+@pytest.mark.asyncio
 async def test_model_selection_accepts_menuitem_and_aria_selected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -398,7 +510,7 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
             return True
 
         async def evaluate(self, _script: str) -> bool:
-            return True
+            return False
 
         async def get_attribute(self, name: str) -> str | None:
             return "true" if name == "aria-selected" else None

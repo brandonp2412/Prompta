@@ -316,25 +316,33 @@ class PlaywrightDriver(BrowserDriverBase):
         enabled: bool = True,
         limit: int = 12,
     ) -> Locator | None:
+        # Prefer the conservative composed-tree signal, but do not make it a
+        # single point of failure. ChatGPT popovers can be visibly interactive
+        # while a wrapper's transient CSS makes that guard report false. For a
+        # semantic locator with exactly one browser-visible candidate, Chromium's
+        # visibility/enabled state is a safe fallback.
         for locator in locators:
             try:
                 count = min(await locator.count(), limit)
             except PlaywrightError:
                 continue
+
+            browser_usable: list[Locator] = []
             for index in range(count):
                 candidate = locator.nth(index)
                 try:
                     if not await candidate.is_visible():
                         continue
-                    if not await candidate.evaluate(
-                        load_browser_script("is_active_composed_node.js")
-                    ):
-                        continue
                     if enabled and not await candidate.is_enabled():
                         continue
-                    return candidate
+                    browser_usable.append(candidate)
+                    if await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
+                        return candidate
                 except PlaywrightError:
                     continue
+
+            if len(browser_usable) == 1:
+                return browser_usable[0]
         return None
 
     async def _unique_usable(
@@ -351,20 +359,26 @@ class PlaywrightDriver(BrowserDriverBase):
         except PlaywrightError:
             return None
 
-        matched: list[Locator] = []
+        browser_usable: list[Locator] = []
+        composed_active: list[Locator] = []
         for index in range(count):
             candidate = locator.nth(index)
             try:
                 if not await candidate.is_visible():
                     continue
-                if not await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
-                    continue
                 if enabled and not await candidate.is_enabled():
                     continue
-                matched.append(candidate)
+                browser_usable.append(candidate)
+                if await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
+                    composed_active.append(candidate)
             except PlaywrightError:
                 continue
-        return matched[0] if len(matched) == 1 else None
+
+        if len(composed_active) == 1:
+            return composed_active[0]
+        if not composed_active and len(browser_usable) == 1:
+            return browser_usable[0]
+        return None
 
     async def _hydrated_composer(self, page: Page) -> Locator | None:
         # ChatGPT hydrates its initial textarea into a contenteditable editor. The
