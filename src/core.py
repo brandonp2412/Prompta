@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +58,42 @@ def _format_duration(seconds: float) -> str:
     if hours:
         return f"{hours}h {minutes}m" if minutes else f"{hours}h"
     return f"{minutes}m"
+
+
+def _parse_run_at(value: str, *, now: float | None = None) -> float:
+    candidate = value.strip()
+    current = (
+        datetime.now().astimezone() if now is None else datetime.fromtimestamp(now).astimezone()
+    )
+
+    try:
+        parsed_time = datetime.strptime(candidate, "%H:%M")
+    except ValueError:
+        parsed_time = None
+
+    if parsed_time is not None:
+        scheduled = current.replace(
+            hour=parsed_time.hour,
+            minute=parsed_time.minute,
+            second=0,
+            microsecond=0,
+        )
+        if scheduled <= current:
+            scheduled += timedelta(days=1)
+        return scheduled.timestamp()
+
+    try:
+        scheduled = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise ValueError(
+            "time must be HH:MM or an ISO local datetime like 2026-10-02T13:00"
+        ) from exc
+
+    if scheduled.tzinfo is None:
+        scheduled = scheduled.replace(tzinfo=current.tzinfo)
+    if scheduled.timestamp() <= current.timestamp():
+        raise ValueError("scheduled time must be in the future")
+    return scheduled.timestamp()
 
 
 def _format_next_due(runtime: SchedulerRuntime, job: PromptJob, now: float | None = None) -> str:
@@ -172,6 +208,13 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     add.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
+    at = subparsers.add_parser("at", help="Run a one-shot job at a specific local time")
+    at.add_argument("when", metavar="TIME", help="HH:MM or ISO local datetime")
+    at.add_argument("name")
+    at.add_argument("prompt")
+    at.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    at.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+
     remove = subparsers.add_parser("remove", aliases=["rm"], help="Remove a named job")
     remove.add_argument("name")
     remove.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
@@ -212,6 +255,24 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "at":
+        try:
+            run_at_epoch = _parse_run_at(args.when)
+        except ValueError as exc:
+            parser.error(str(exc))
+        add_job(
+            args.jobs_file,
+            args.name,
+            args.prompt,
+            0.0,
+            exact_interval=True,
+            run_at_epoch=run_at_epoch,
+        )
+        SchedulerRuntime(args.state, args.jobs_file).clear_job_state(args.name)
+        scheduled = datetime.fromtimestamp(run_at_epoch).astimezone().strftime("%Y-%m-%d %H:%M")
+        _print_notice("✓", f"Scheduled {args.name}", f"once at {scheduled} local time", tone="32")
+        return
 
     if args.command in {"add", "push"}:
         if args.daily_at is not None and args.exact_interval:
@@ -268,7 +329,12 @@ def main() -> None:
         state = runtime.job_state(job.name)
         print(f"{icon} {_paint(job.name, '1')}  {_status_text(status)}")
         print(_paint("─" * max(24, len(job.name) + len(status) + 4), "2"))
-        if job.daily_at is not None:
+        if job.run_at_epoch is not None:
+            scheduled = (
+                datetime.fromtimestamp(job.run_at_epoch).astimezone().strftime("%Y-%m-%d %H:%M")
+            )
+            print(f"{_paint('Schedule', '2')}  once at {scheduled} local time")
+        elif job.daily_at is not None:
             print(f"{_paint('Schedule', '2')}  daily at {job.daily_at} local time")
         else:
             interval = _format_duration(job.interval_seconds)

@@ -1,8 +1,9 @@
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
-from prompta.core import build_parser, main
+from prompta.core import _parse_run_at, build_parser, main
 from prompta.jobs import load_jobs
 from prompta.scheduler_runtime import SchedulerRuntime
 
@@ -22,6 +23,7 @@ def test_parser_restores_job_management_surface() -> None:
 
     assert parser.parse_args(["add", "audit", "Run audit"]).command == "add"
     assert parser.parse_args(["push", "audit", "Run audit"]).command == "push"
+    assert parser.parse_args(["at", "13:00", "audit", "Run audit"]).command == "at"
     assert parser.parse_args(["remove", "audit"]).command == "remove"
     assert parser.parse_args(["rm", "audit"]).command == "rm"
     assert parser.parse_args(["show", "audit"]).command == "show"
@@ -81,6 +83,41 @@ def test_cli_restores_human_readable_list_show_and_json(
             "status": "pending",
         }
     ]
+
+
+def test_cli_at_schedules_one_time_job(tmp_path: Path, monkeypatch, capsys) -> None:
+    runtime = tmp_path / "runtime.sqlite3"
+    paths = _paths(runtime)
+
+    output = _run_cli(
+        monkeypatch,
+        capsys,
+        "at",
+        "2099-01-01T13:00",
+        "translation-hi",
+        "Finish Hindi translation",
+        *paths,
+    )
+    assert "Scheduled translation-hi" in output
+    assert "once at 2099-01-01 13:00 local time" in output
+
+    job = load_jobs(runtime)["translation-hi"]
+    assert job.interval_seconds == 0.0
+    assert job.exact_interval is True
+    assert job.daily_at is None
+    assert job.run_at_epoch is not None
+
+    output = _run_cli(monkeypatch, capsys, "show", "translation-hi", *paths)
+    assert "Schedule" in output
+    assert "once at 2099-01-01 13:00 local time" in output
+
+
+def test_parse_run_at_rolls_time_only_to_next_day() -> None:
+    current = datetime(2026, 10, 2, 14, 0).astimezone()
+    scheduled = datetime.fromtimestamp(_parse_run_at("13:00", now=current.timestamp())).astimezone()
+
+    assert scheduled.date().isoformat() == "2026-10-03"
+    assert (scheduled.hour, scheduled.minute) == (13, 0)
 
 
 def test_cli_pause_and_resume_without_name_apply_to_all_jobs(
