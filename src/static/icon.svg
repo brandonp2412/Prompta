@@ -1,6 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Prompta">
-  <rect width="512" height="512" rx="120" fill="#141218"/>
-  <rect x="64" y="64" width="384" height="384" rx="104" fill="#6750A4"/>
-  <path d="M170 169 257 256 170 343" fill="none" stroke="#FFFFFF" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M286 343h67" fill="none" stroke="#EADDFF" stroke-width="40" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="54" x2="450" y2="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1020"/>
+      <stop offset="0.52" stop-color="#15112A"/>
+      <stop offset="1" stop-color="#090A12"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="96" y1="86" x2="424" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#41D9FF"/>
+      <stop offset="0.48" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#FF4FD8"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="164" y1="145" x2="364" y2="370" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7DE7FF"/>
+      <stop offset="0.45" stop-color="#6A63FF"/>
+      <stop offset="1" stop-color="#FF6BCB"/>
+    </linearGradient>
+    <linearGradient id="mark2" x1="284" y1="334" x2="363" y2="365" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6B58FF"/>
+      <stop offset="1" stop-color="#FF82D8"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="118" fill="url(#bg)"/>
+  <rect x="48" y="48" width="416" height="416" rx="104" fill="none" stroke="url(#rim)" stroke-width="5" opacity=".9"/>
+  <rect x="58" y="58" width="396" height="396" rx="94" fill="none" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="2"/>
+  <g filter="url(#glow)">
+    <path d="M177 157 276 256 177 355" fill="none" stroke="url(#mark)" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M302 355h70" fill="none" stroke="url(#mark2)" stroke-width="42" stroke-linecap="round"/>
+  </g>
+  <path d="M173 150 273 250" fill="none" stroke="#FFFFFF" stroke-opacity=".42" stroke-width="8" stroke-linecap="round"/>
+  <path d="M300 347h58" fill="none" stroke="#FFFFFF" stroke-opacity=".34" stroke-width="7" stroke-linecap="round"/>
 </svg>

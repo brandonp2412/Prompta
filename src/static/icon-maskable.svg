@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Prompta">
-  <rect width="512" height="512" fill="#141218"/>
-  <rect x="96" y="96" width="320" height="320" rx="88" fill="#6750A4"/>
-  <path d="M185 184 257 256 185 328" fill="none" stroke="#FFFFFF" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M282 328h56" fill="none" stroke="#EADDFF" stroke-width="36" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="50" y1="40" x2="462" y2="472" gradientUnits="userSpaceOnUse"><stop stop-color="#0B1020"/><stop offset=".55" stop-color="#15112A"/><stop offset="1" stop-color="#090A12"/></linearGradient>
+    <linearGradient id="mark" x1="170" y1="150" x2="350" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#7DE7FF"/><stop offset=".45" stop-color="#6A63FF"/><stop offset="1" stop-color="#FF6BCB"/></linearGradient>
+    <linearGradient id="mark2" x1="286" y1="330" x2="360" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#6B58FF"/><stop offset="1" stop-color="#FF82D8"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect x="104" y="104" width="304" height="304" rx="78" fill="#111225" stroke="#6A63FF" stroke-opacity=".5" stroke-width="4"/>
+  <path d="M183 176 263 256 183 336" fill="none" stroke="url(#mark)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M286 336h60" fill="none" stroke="url(#mark2)" stroke-width="34" stroke-linecap="round"/>
 </svg>
