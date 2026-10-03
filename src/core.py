@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
+import socket
+import subprocess
 import sys
 import time
 from collections.abc import Mapping
@@ -16,6 +19,52 @@ from .scheduler_runtime import SchedulerRuntime
 
 DEFAULT_JOBS_PATH = DEFAULT_RUNTIME_PATH
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
+PROMPTA_HOST_ENV = "PROMPTA_HOST"
+PROMPTA_REMOTE_CLI_ENV = "PROMPTA_REMOTE_CLI"
+DEFAULT_REMOTE_CLI = "/home/brandon/.local/bin/prompta"
+HOST_CONFIG_PATH = Path.home() / ".config" / "prompta" / "host"
+
+
+def _configured_host() -> str:
+    configured = os.environ.get(PROMPTA_HOST_ENV)
+    if configured is not None:
+        return configured.strip()
+    try:
+        return HOST_CONFIG_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _is_local_target(host: str) -> bool:
+    normalized = host.strip().casefold()
+    if normalized in {"", "local", "localhost", "127.0.0.1", "::1"}:
+        return True
+    hostname = socket.gethostname().casefold()
+    return normalized in {hostname, hostname.split(".", 1)[0]}
+
+
+def _dispatch_remote(argv: list[str]) -> int | None:
+    if "--jobs-file" in argv or "--state" in argv:
+        return None
+
+    host = _configured_host()
+    if _is_local_target(host):
+        return None
+
+    remote_cli = os.environ.get(PROMPTA_REMOTE_CLI_ENV, DEFAULT_REMOTE_CLI).strip()
+    if not remote_cli:
+        remote_cli = DEFAULT_REMOTE_CLI
+
+    remote_command = shlex.join(
+        ["env", f"{PROMPTA_HOST_ENV}=local", remote_cli, *argv]
+    )
+    try:
+        completed = subprocess.run(["ssh", host, remote_command], check=False)
+    except FileNotFoundError:
+        print("prompta: ssh is required for remote job management", file=sys.stderr)
+        return 127
+    return completed.returncode
+
 
 
 def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
@@ -253,6 +302,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    remote_status = _dispatch_remote(sys.argv[1:])
+    if remote_status is not None:
+        raise SystemExit(remote_status)
+
     parser = build_parser()
     args = parser.parse_args()
 

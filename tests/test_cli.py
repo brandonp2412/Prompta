@@ -1,8 +1,10 @@
 import json
+import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
 
+import prompta.core as core
 from prompta.core import _parse_run_at, build_parser, main
 from prompta.jobs import load_jobs
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -16,6 +18,70 @@ def _run_cli(monkeypatch, capsys, *args: str) -> str:
 
 def _paths(runtime: Path) -> tuple[str, str, str, str]:
     return ("--jobs-file", str(runtime), "--state", str(runtime))
+
+
+def test_remote_cli_dispatches_to_configured_host(monkeypatch) -> None:
+    calls: list[tuple[list[str], bool]] = []
+
+    class Result:
+        returncode = 0
+
+    def fake_run(argv: list[str], *, check: bool):
+        calls.append((argv, check))
+        return Result()
+
+    monkeypatch.setenv("PROMPTA_HOST", "nox")
+    monkeypatch.setattr(core.socket, "gethostname", lambda: "glass")
+    monkeypatch.setattr(core.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "prompta",
+            "add",
+            "audit",
+            "Run the audit with 'quotes' and\na newline",
+            "--interval-minutes",
+            "40",
+        ],
+    )
+
+    try:
+        main()
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:
+        raise AssertionError("remote dispatch should exit with the ssh command status")
+
+    assert len(calls) == 1
+    ssh_argv, check = calls[0]
+    assert ssh_argv[:2] == ["ssh", "nox"]
+    assert check is False
+    assert shlex.split(ssh_argv[2]) == [
+        "env",
+        "PROMPTA_HOST=local",
+        "/home/brandon/.local/bin/prompta",
+        "add",
+        "audit",
+        "Run the audit with 'quotes' and\na newline",
+        "--interval-minutes",
+        "40",
+    ]
+
+
+def test_host_config_is_used_when_env_is_unset(tmp_path: Path, monkeypatch) -> None:
+    host_file = tmp_path / "host"
+    host_file.write_text("nox\n", encoding="utf-8")
+    monkeypatch.delenv("PROMPTA_HOST", raising=False)
+    monkeypatch.setattr(core, "HOST_CONFIG_PATH", host_file)
+
+    assert core._configured_host() == "nox"
+
+
+def test_explicit_runtime_paths_stay_local(monkeypatch) -> None:
+    monkeypatch.setenv("PROMPTA_HOST", "nox")
+    assert core._dispatch_remote(["list", "--jobs-file", "/tmp/jobs.sqlite3"]) is None
+    assert core._dispatch_remote(["list", "--state", "/tmp/state.sqlite3"]) is None
 
 
 def test_parser_restores_job_management_surface() -> None:
