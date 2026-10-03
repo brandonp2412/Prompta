@@ -5141,6 +5141,14 @@ function App($$anchor, $$props) {
 }
 //#endregion
 //#region src/ui/main.ts
+window.addEventListener("beforeinstallprompt", (event) => {
+	event.preventDefault();
+});
+if ("serviceWorker" in navigator && window.isSecureContext) window.addEventListener("load", () => {
+	navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch((error) => {
+		console.warn("Prompta service worker registration failed", error);
+	});
+});
 var target = document.querySelector("#app");
 if (!target) throw new Error("Missing #app mount target");
 mount(App, {

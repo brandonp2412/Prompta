@@ -1,7 +1,17 @@
 const BUILD_ID = "__PROMPTA_UI_HEAD__";
 const CACHE_NAME = "prompta-jobs-shell-" + (BUILD_ID || "dev");
 const assetUrl = (path) => new URL(path, self.location.href).toString();
-const SHELL = ["./", "./app.css", "./app.js", "./manifest.webmanifest", "./icon.svg"].map(assetUrl);
+const SHELL = [
+  "./",
+  "./app.css",
+  "./app.js",
+  "./manifest.webmanifest",
+  "./icon.svg",
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png",
+  "./apple-touch-icon.png",
+].map(assetUrl);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));

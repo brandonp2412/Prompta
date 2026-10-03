@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Prompta">
+  <rect width="512" height="512" fill="#141218"/>
+  <rect x="96" y="96" width="320" height="320" rx="88" fill="#6750A4"/>
+  <path d="M185 184 257 256 185 328" fill="none" stroke="#FFFFFF" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M282 328h56" fill="none" stroke="#EADDFF" stroke-width="36" stroke-linecap="round"/>
+</svg>

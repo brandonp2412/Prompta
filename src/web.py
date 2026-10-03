@@ -23,7 +23,20 @@ from .web_jobs import WebJobService
 
 logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
-_ALLOWED_STATIC = {"app.js", "app.css", "icon.svg", "manifest.webmanifest", "sw.js"}
+_ALLOWED_STATIC = {
+    "app.js",
+    "app.css",
+    "icon.svg",
+    "icon-maskable.svg",
+    "icon-192.png",
+    "icon-512.png",
+    "icon-maskable-512.png",
+    "apple-touch-icon.png",
+    "screenshot-mobile.png",
+    "screenshot-wide.png",
+    "manifest.webmanifest",
+    "sw.js",
+}
 
 
 def _git_short_head() -> str:
