@@ -8,9 +8,9 @@ def test_pwa_manifest_has_complete_metadata_and_served_assets() -> None:
 
     assert manifest["name"] == "Prompta Job Manager"
     assert manifest["short_name"] == "Prompta"
-    assert manifest["id"] == "/"
-    assert manifest["start_url"] == "/"
-    assert manifest["scope"] == "/"
+    assert manifest["id"] == "./"
+    assert manifest["start_url"] == "./"
+    assert manifest["scope"] == "./"
     assert manifest["display"] == "standalone"
     assert manifest["prefer_related_applications"] is False
     assert {"productivity", "utilities"} <= set(manifest["categories"])
