@@ -32,6 +32,23 @@ uv run prompta add nightly-review "Review the project and improve it" --daily-at
 uv run prompta list
 ```
 
+## Working hours
+
+To prevent Prompta from starting ChatGPT delivery work outside a local-time window, create
+`~/.config/prompta/config.toml`:
+
+```toml
+[working_hours]
+enabled = true
+start = "22:30"
+end = "08:00"
+timezone = "Pacific/Auckland"
+```
+
+The start time is inclusive and the end time is exclusive. Overnight windows are supported.
+Queued jobs remain durable while delivery is blocked and resume when the window opens. If
+`working_hours` is omitted or disabled, Prompta can deliver at any time.
+
 ## Login to ChatGPT
 
 Prompta uses a dedicated Chromium profile. Stop the background browser, open that same profile visibly, and log in at ChatGPT:

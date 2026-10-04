@@ -1,11 +1,40 @@
+from datetime import time
 from pathlib import Path
 from typing import cast
 
+from prompta.config import WorkingHours
 from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
-from prompta.delivery_worker import _deliver_one
+from prompta.delivery_worker import DeliveryAdmission, _deliver_one
 from prompta.scheduler_runtime import SchedulerRuntime
 from prompta.service_health import ServiceHealthStore
+
+
+def test_delivery_admission_blocks_outside_working_hours(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    working_hours = WorkingHours(
+        enabled=True,
+        start=time(22, 30),
+        end=time(8, 0),
+        timezone="Pacific/Auckland",
+    )
+    midday = 1791154800.0
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: midday)
+
+    admission = DeliveryAdmission(
+        runtime,
+        resource_admission=lambda: (True, ""),
+        working_hours=working_hours,
+    )
+
+    allowed, reason, retry_after = admission()
+
+    assert allowed is False
+    assert "Outside Prompta working hours" in reason
+    assert retry_after > 0
 
 
 def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> None:
