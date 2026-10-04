@@ -186,6 +186,30 @@ class DeliveryQueueStore:
         assert row is not None
         return self.record_from_row(row), True
 
+    def cancel_pending(
+        self,
+        send_id: str,
+        *,
+        error: str = "scheduled job cancelled",
+        now: float | None = None,
+    ) -> bool:
+        cancelled_at = time.time() if now is None else float(now)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            updated = connection.execute(
+                """
+                UPDATE job_deliveries
+                SET status = 'cancelled', error = ?, last_error = ?, retry_at = 0,
+                    finished_at = ?, updated_at = ?, lease_owner = '',
+                    lease_acquired_at = 0, lease_expires_at = 0
+                WHERE send_id = ?
+                  AND status IN ('queued', 'retrying', 'rate_limited')
+                """,
+                (error, error, cancelled_at, cancelled_at, send_id),
+            )
+            connection.commit()
+            return updated.rowcount == 1
+
     def upsert(self, record: dict[str, Any]) -> None:
         send_id = str(record.get("send_id") or "")
         message = str(record.get("message") or "")

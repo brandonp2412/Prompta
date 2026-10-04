@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from prompta.delivery_queue import DeliveryQueueStore
+from prompta.jobs import add_job
+from prompta.scheduler_service import DurableSchedulerProducer
 from prompta.web_jobs import WebJobService
 
 
@@ -61,3 +64,25 @@ def test_web_job_service_manages_daily_jobs_and_clear(tmp_path: Path) -> None:
 
     cleared = service.apply("clear", {})
     assert cleared["jobs"] == []
+
+
+def test_removing_job_cancels_already_queued_delivery(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "scheduler.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    add_job(jobs, "audit", "Run the audit", 60.0, exact_interval=True, source_revision="test")
+    producer = DurableSchedulerProducer(state, jobs, queue_path)
+    producer.runtime.update_job_state("audit", {"initial_due_at_epoch": 1000.0})
+    assert producer.tick(now=1000.0) == 1
+
+    queue = DeliveryQueueStore(queue_path)
+    queued = queue.records()
+    assert len(queued) == 1
+    assert queued[0]["status"] == "queued"
+
+    WebJobService(jobs, state, "test-host").apply("remove", {"name": "audit"})
+
+    cancelled = queue.get(str(queued[0]["send_id"]))
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+    assert queue.claim_next("worker", now=1001.0, lease_seconds=30.0) is None

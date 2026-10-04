@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .delivery_queue import DeliveryQueueStore
 from .jobs import DEFAULT_INTERVAL_SECONDS, PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
 from .scheduler_runtime import SchedulerRuntime
@@ -73,6 +74,21 @@ def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> boo
 
 def set_all_jobs_paused(path: Path, state_path: Path, paused: bool) -> int:
     return SchedulerRuntime(state_path, path).set_all_jobs_paused(paused)
+
+
+def _cancel_pending_delivery(
+    jobs_path: Path,
+    state_path: Path,
+    name: str,
+    *,
+    error: str,
+) -> bool:
+    state = SchedulerRuntime(state_path, jobs_path).job_state(name)
+    send_id = str(state.get("last_delivery_send_id") or "")
+    if not send_id:
+        return False
+    queue = DeliveryQueueStore(state_path.expanduser().parent / "ui-send-jobs.sqlite3")
+    return queue.cancel_pending(send_id, error=error)
 
 
 def _jobs_payload(path: Path, state_path: Path) -> list[dict[str, object]]:
@@ -357,6 +373,12 @@ def main() -> None:
     if args.command in {"remove", "rm"}:
         existed = args.name in load_jobs(args.jobs_file)
         remove_job(args.jobs_file, args.name)
+        _cancel_pending_delivery(
+            args.jobs_file,
+            args.state,
+            args.name,
+            error="scheduled job removed",
+        )
         SchedulerRuntime(args.state, args.jobs_file).clear_job_state(args.name)
         if existed:
             _print_notice("✓", f"Removed {args.name}", tone="32")
@@ -411,8 +433,16 @@ def main() -> None:
         return
 
     if args.command in {"clear", "cls"}:
-        count = len(load_jobs(args.jobs_file))
+        names = list(load_jobs(args.jobs_file))
+        count = len(names)
         clear_jobs(args.jobs_file)
+        for name in names:
+            _cancel_pending_delivery(
+                args.jobs_file,
+                args.state,
+                name,
+                error="scheduled job cleared",
+            )
         SchedulerRuntime(args.state, args.jobs_file).clear_all_job_state()
         _print_notice("✓", f"Cleared {count} job{'s' if count != 1 else ''}", tone="32")
         return

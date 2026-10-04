@@ -134,3 +134,18 @@ def test_retry_backoff_controls_claim_eligibility(tmp_path: Path) -> None:
     assert claimed is not None
     assert claimed["retry_attempt"] == 2
     assert claimed["lease_owner"] == "worker-b"
+
+
+def test_cancel_pending_makes_delivery_unclaimable(tmp_path: Path) -> None:
+    path = tmp_path / "delivery.sqlite3"
+    queue = DeliveryQueueStore(path)
+    queue.upsert(_queued_record())
+
+    assert queue.cancel_pending("send-1", error="scheduled job removed", now=20.0) is True
+
+    record = queue.get("send-1")
+    assert record is not None
+    assert record["status"] == "cancelled"
+    assert record["last_error"] == "scheduled job removed"
+    assert record["finished_at"] == 20.0
+    assert queue.claim_next("worker", now=21.0, lease_seconds=30.0) is None

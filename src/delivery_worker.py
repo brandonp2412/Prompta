@@ -120,6 +120,15 @@ def _retry(
     )
 
 
+def _scheduled_job_name(record: dict[str, object]) -> str:
+    client_id = str(record.get("client_id") or "")
+    prefix = "scheduled:"
+    if not client_id.startswith(prefix):
+        return ""
+    _idempotency_key, separator, job_name = client_id[len(prefix) :].partition(":")
+    return job_name if separator else ""
+
+
 def _deliver_one(
     queue: DeliveryQueueStore,
     sender: BrowserDeliverySender,
@@ -130,6 +139,20 @@ def _deliver_one(
 ) -> None:
     send_id = str(record["send_id"])
     message = str(record.get("message") or "")
+    job_name = _scheduled_job_name(record)
+    if job_name and job_name not in runtime.read_jobs():
+        error = f"scheduled job {job_name!r} was removed before delivery"
+        if queue.fail_claim(send_id, owner, status="cancelled", error=error):
+            logger.info(
+                "Cancelled removed scheduled job before delivery send_id=%s job=%s",
+                send_id,
+                job_name,
+            )
+        else:
+            logger.warning(
+                "Could not cancel removed scheduled job send_id=%s job=%s", send_id, job_name
+            )
+        return
 
     activity = "dispatch:" + send_id
     health.begin_activity("delivery_worker", activity)

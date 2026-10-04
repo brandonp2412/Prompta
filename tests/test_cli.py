@@ -6,8 +6,10 @@ from pathlib import Path
 
 import prompta.core as core
 from prompta.core import _parse_run_at, build_parser, main
-from prompta.jobs import load_jobs
+from prompta.delivery_queue import DeliveryQueueStore
+from prompta.jobs import add_job, load_jobs
 from prompta.scheduler_runtime import SchedulerRuntime
+from prompta.scheduler_service import DurableSchedulerProducer
 
 
 def _run_cli(monkeypatch, capsys, *args: str) -> str:
@@ -219,3 +221,33 @@ def test_cli_aliases_remove_and_clear_jobs(tmp_path: Path, monkeypatch, capsys) 
     output = _run_cli(monkeypatch, capsys, "cls", *paths)
     assert "Cleared 1 job" in output
     assert load_jobs(runtime) == {}
+
+
+def test_cli_remove_cancels_pending_delivery(tmp_path: Path, monkeypatch, capsys) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "scheduler.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    add_job(jobs, "audit", "Run the audit", 60.0, exact_interval=True, source_revision="test")
+    producer = DurableSchedulerProducer(state, jobs, queue_path)
+    producer.runtime.update_job_state("audit", {"initial_due_at_epoch": 1000.0})
+    assert producer.tick(now=1000.0) == 1
+
+    queue = DeliveryQueueStore(queue_path)
+    queued = queue.records()
+    assert len(queued) == 1
+
+    output = _run_cli(
+        monkeypatch,
+        capsys,
+        "rm",
+        "audit",
+        "--jobs-file",
+        str(jobs),
+        "--state",
+        str(state),
+    )
+
+    assert "Removed audit" in output
+    cancelled = queue.get(str(queued[0]["send_id"]))
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"

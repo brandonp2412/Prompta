@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .scheduler_runtime import SchedulerRuntime
 
@@ -80,6 +81,14 @@ class WebJobService:
     def runtime(self) -> SchedulerRuntime:
         return SchedulerRuntime(self.state_path, self.jobs_path)
 
+    def _cancel_pending_delivery(self, name: str, *, error: str) -> bool:
+        state = self.runtime.job_state(name)
+        send_id = str(state.get("last_delivery_send_id") or "")
+        if not send_id:
+            return False
+        queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
+        return queue.cancel_pending(send_id, error=error)
+
     def scheduled_jobs(self) -> dict[str, Any]:
         state_payload = self.runtime.load_state()
         state_jobs = state_payload.get("jobs") if isinstance(state_payload, dict) else {}
@@ -131,6 +140,7 @@ class WebJobService:
             if not name:
                 raise ValueError("Job name is required")
             remove_job(self.jobs_path, name)
+            self._cancel_pending_delivery(name, error="scheduled job removed")
             runtime.clear_job_state(name)
 
         elif normalized_action in {"pause", "resume"}:
@@ -148,7 +158,10 @@ class WebJobService:
                 self._wake_scheduler()
 
         elif normalized_action == "clear":
+            names = list(load_jobs(self.jobs_path))
             clear_jobs(self.jobs_path)
+            for name in names:
+                self._cancel_pending_delivery(name, error="scheduled job cleared")
             runtime.clear_all_job_state()
 
         else:
