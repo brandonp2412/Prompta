@@ -42,6 +42,7 @@ systemctl --user stop prompta-browser.service
 /opt/brave-bin/brave \
   --user-data-dir="$HOME/.local/state/prompta/chrome-profile" \
   --profile-directory=Default \
+  --password-store=basic \
   --remote-debugging-port=9222 \
   https://chatgpt.com
 ```
