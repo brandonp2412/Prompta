@@ -26,7 +26,7 @@ def test_scheduler_restart_with_worker_stopped_records_one_pending_delivery(tmp_
     rows = first.queue.records()
     assert len(rows) == 1
     assert rows[0]["status"] == "queued"
-    assert rows[0]["message"].startswith("Run exactly once\n\nPrompta job context:")
+    assert rows[0]["message"] == "Run exactly once"
     assert "one-time" not in load_jobs(runtime_path)
 
     restarted = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)

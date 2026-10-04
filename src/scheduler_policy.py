@@ -28,14 +28,7 @@ def prompt_hash(prompt: str) -> str:
 
 
 def scheduled_job_prompt(job: PromptJob) -> str:
-    if not job.source_revision:
-        return job.prompt
-    return (
-        f"{job.prompt}\n\n"
-        "Prompta job context: the Prompta source revision when this job was created was "
-        f"{job.source_revision}. Use this revision when checking whether a reported bug predates "
-        "later code changes."
-    )
+    return job.prompt
 
 
 def _state_float(state: Mapping[str, Any], key: str) -> float:
