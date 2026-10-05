@@ -1312,18 +1312,21 @@ class PlaywrightDriver(BrowserDriverBase):
         raise RuntimeError("ChatGPT Power control did not become available")
 
     async def _model_selector_control(self, page: Page) -> Locator | None:
+        # Require model meaning, not merely popup ownership. A lone unrelated popup
+        # (for example Plugins) must never become the model selector just because
+        # ChatGPT has not hydrated the real control yet.
         model_menu_name = re.compile(
-            r"\b(?:select|choose|change)\s+(?:chatgpt\s+)?(?:model|engine)\b",
+            r" *(?:(?:select|choose|change) +)?(?:chatgpt +)?(?:model|engine) *",
             re.IGNORECASE,
         )
         selectable_roles = (
             "menuitem",
             "menuitemradio",
-            "button",
-            "combobox",
             "option",
             "radio",
             "tab",
+            "combobox",
+            "button",
         )
         named = await self._first_usable(
             [page.get_by_role(role, name=model_menu_name) for role in selectable_roles],
@@ -1332,65 +1335,61 @@ class PlaywrightDriver(BrowserDriverBase):
         if named is not None:
             return named
 
-        submenu_candidates: list[Locator] = []
-        seen: set[str] = set()
-        for role in selectable_roles:
-            controls = page.get_by_role(role)
+        # Tolerate role/tag churn only when one interactive control has a public
+        # semantic label that still means model selection. Do not fall back to
+        # arbitrary aria-haspopup elements.
+        scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
+        for scope in scopes:
+            controls = scope.locator(
+                "button,input,select,summary,[role],[tabindex],[aria-label],"
+                "[aria-labelledby],[title]"
+            )
             try:
-                count = min(await controls.count(), 40)
+                count = min(await controls.count(), 60)
             except PlaywrightError:
                 continue
+
+            matched: list[Locator] = []
             for index in range(count):
                 item = controls.nth(index)
                 try:
                     if not await item.is_visible() or not await item.is_enabled():
                         continue
-                    popup = (await item.get_attribute("aria-haspopup") or "").casefold()
-                    if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
+                    labels = await item.evaluate(load_browser_script("semantic_control_labels.js"))
+                    if not isinstance(labels, list):
                         continue
-                    key = (
-                        await item.get_attribute("id")
-                        or await item.get_attribute("aria-label")
-                        or await item.text_content()
-                        or ""
-                    )
-                    if key and key in seen:
-                        continue
-                    if key:
-                        seen.add(key)
-                    submenu_candidates.append(item)
+                    if any(
+                        model_menu_name.fullmatch(str(label).strip())
+                        for label in labels
+                        if str(label).strip()
+                    ):
+                        matched.append(item)
                 except PlaywrightError:
                     continue
+            if len(matched) == 1:
+                return matched[0]
 
-        # If the owner has lost its ARIA role but still advertises popup semantics,
-        # use it only when there is one unambiguous visible candidate on the page.
-        if not submenu_candidates:
-            popup_controls = page.locator("[aria-haspopup]")
-            try:
-                count = min(await popup_controls.count(), 24)
-            except PlaywrightError:
-                count = 0
-            for index in range(count):
-                item = popup_controls.nth(index)
-                try:
-                    if not await item.is_visible() or not await item.is_enabled():
-                        continue
-                    popup = (await item.get_attribute("aria-haspopup") or "").casefold()
-                    if popup in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
-                        submenu_candidates.append(item)
-                except PlaywrightError:
-                    continue
-        return submenu_candidates[0] if len(submenu_candidates) == 1 else None
+        return None
 
     async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
         page = self._page()
-        model_name_re = re.compile(rf"^\s*{re.escape(model_name)}(?:\s|$)", re.IGNORECASE)
+        model_name_re = re.compile(
+            rf"^ *{re.escape(model_name)}(?: |$)",
+            re.IGNORECASE,
+        )
 
         async def find_option() -> Locator | None:
             # Menus have changed role structure before. Prefer accessible role/name
             # semantics across common selectable roles, then an unambiguous semantic
             # control fallback if the role disappears entirely.
-            option_roles = ("menuitemradio", "radio", "option", "menuitem", "button", "tab")
+            option_roles = (
+                "menuitemradio",
+                "radio",
+                "option",
+                "menuitem",
+                "button",
+                "tab",
+            )
             named_roles = [page.get_by_role(role, name=model_name_re) for role in option_roles]
             text_roles = [
                 page.get_by_role(role).filter(has_text=model_name_re) for role in option_roles
@@ -1400,6 +1399,17 @@ class PlaywrightDriver(BrowserDriverBase):
                 return found
             return await self._semantic_button(page, model_name_re)
 
+        async def expanded(control: Locator) -> bool:
+            try:
+                return (
+                    await control.get_attribute("aria-expanded") or ""
+                ).strip().casefold() == "true"
+            except PlaywrightError:
+                return False
+
+        # Drive the menu as a semantic state machine. Never guess at unrelated popup
+        # controls and never re-click an already-expanded trigger while waiting for
+        # the next submenu to hydrate.
         deadline = asyncio.get_running_loop().time() + 5.0
         while asyncio.get_running_loop().time() < deadline:
             option = await find_option()
@@ -1415,16 +1425,32 @@ class PlaywrightDriver(BrowserDriverBase):
                     continue
 
             selector = await self._model_selector_control(page)
-            if selector is None:
-                await self._open_effort_menu()
-                selector = await self._model_selector_control(page)
             if selector is not None:
                 try:
+                    if await expanded(selector):
+                        await asyncio.sleep(0.05)
+                        continue
                     await selector.click()
-                except PlaywrightError as exc:
-                    raise RuntimeError("ChatGPT model selector could not be opened") from exc
+                    await asyncio.sleep(0.08)
+                    continue
+                except PlaywrightError:
+                    await asyncio.sleep(0.1)
+                    continue
 
-            await asyncio.sleep(0.05)
+            trigger = await self._effort_trigger_locator()
+            if trigger is not None:
+                try:
+                    if await expanded(trigger):
+                        await asyncio.sleep(0.05)
+                        continue
+                    await trigger.click()
+                    await asyncio.sleep(0.08)
+                    continue
+                except PlaywrightError:
+                    await asyncio.sleep(0.1)
+                    continue
+
+            await asyncio.sleep(0.1)
 
         raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
 

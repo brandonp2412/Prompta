@@ -495,6 +495,155 @@ async def test_model_selector_prefers_visible_submenu_when_composed_guard_false(
 
 
 @pytest.mark.asyncio
+async def test_model_selector_ignores_unrelated_visible_popup(tmp_path: Path) -> None:
+    class Control:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> list[str]:
+            return ["Plugins"]
+
+    class Collection:
+        def __init__(self, candidates: list[Control]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Control:
+            return self.candidates[index]
+
+    class Scope:
+        def __init__(self, control: Control) -> None:
+            self.control = control
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection([self.control])
+
+    class Page(Scope):
+        def get_by_role(self, role: str, **kwargs: Any) -> Any:
+            if role == "main" and not kwargs:
+                return Scope(self.control)
+            name = kwargs.get("name")
+            if role == "button" and name is not None and name.search("Plugins"):
+                return Collection([self.control])
+            return Collection([])
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    found = await driver._model_selector_control(cast(Any, Page(Control())))
+
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_model_selection_walks_outer_and_submenu_before_option(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class State:
+        stage = 0
+
+    class Control:
+        def __init__(self, state: State) -> None:
+            self.state = state
+
+        async def get_attribute(self, name: str) -> str | None:
+            return "false" if name == "aria-expanded" else None
+
+        async def click(self) -> None:
+            self.state.stage += 1
+
+    class Option:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return False
+
+        async def get_attribute(self, name: str) -> str | None:
+            return "true" if name == "aria-checked" else None
+
+    class Collection:
+        def __init__(self, candidates: list[Option]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Option:
+            return self.candidates[index]
+
+        def filter(self, **_kwargs: Any) -> Collection:
+            return self
+
+        def get_by_role(self, _role: str, **_kwargs: Any) -> Collection:
+            return Collection([])
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
+    class Keyboard:
+        def __init__(self) -> None:
+            self.pressed: list[str] = []
+
+        async def press(self, key: str) -> None:
+            self.pressed.append(key)
+
+    class Page:
+        def __init__(self, state: State, option: Option) -> None:
+            self.state = state
+            self.option = option
+            self.keyboard = Keyboard()
+
+        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
+            name = kwargs.get("name")
+            if (
+                self.state.stage >= 2
+                and role == "menuitemradio"
+                and name is not None
+                and name.search("GPT-5.6 Sol")
+            ):
+                return Collection([self.option])
+            return Collection([])
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
+    state = State()
+    outer = Control(state)
+    inner = Control(state)
+    option = Option()
+    page = Page(state, option)
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: cast(Any, page))
+
+    async def selector(_page: Any) -> Any:
+        if state.stage == 0:
+            return outer
+        if state.stage == 1:
+            return inner
+        return None
+
+    async def unexpected_trigger() -> Any:
+        raise AssertionError("semantic model selectors should be sufficient")
+
+    monkeypatch.setattr(driver, "_model_selector_control", selector)
+    monkeypatch.setattr(driver, "_effort_trigger_locator", unexpected_trigger)
+
+    await driver.select_effort_model("GPT-5.6 Sol")
+
+    assert state.stage == 2
+    assert page.keyboard.pressed == ["Escape"]
+
+
+@pytest.mark.asyncio
 async def test_model_selection_accepts_menuitem_and_aria_selected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
