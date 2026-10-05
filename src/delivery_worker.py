@@ -61,12 +61,13 @@ class DeliveryAdmission:
     ) -> None:
         self.runtime = runtime
         self.resource_admission = resource_admission or ResourceAdmission()
-        self.working_hours = working_hours or WorkingHours()
+        self.working_hours = working_hours
         self._last_resource_state: tuple[bool, str] | None = None
 
     def __call__(self) -> tuple[bool, str, float]:
         current = time.time()
-        allowed, reason, retry_after = self.working_hours.admission(now=current)
+        working_hours = self.working_hours or WorkingHours.load()
+        allowed, reason, retry_after = working_hours.admission(now=current)
         if not allowed:
             return False, reason, retry_after
 
@@ -302,7 +303,7 @@ def run(
     queue = DeliveryQueueStore(state_dir / "ui-send-jobs.sqlite3")
     runtime = SchedulerRuntime(state_path, state_path)
     health = ServiceHealthStore(state_path)
-    admission = DeliveryAdmission(runtime, working_hours=WorkingHours.load())
+    admission = DeliveryAdmission(runtime)
     sender = BrowserDeliverySender(
         state_path,
         profile=chrome_profile,

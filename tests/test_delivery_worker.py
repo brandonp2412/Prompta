@@ -36,6 +36,37 @@ def test_delivery_admission_blocks_outside_working_hours(
     assert "Outside Prompta working hours" in reason
     assert retry_after > 0
 
+def test_delivery_admission_reloads_working_hours_config(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    midday = 1791154800.0
+    current_hours = [
+        WorkingHours(
+            enabled=True,
+            start=time(22, 30),
+            end=time(8, 0),
+            timezone="Pacific/Auckland",
+        )
+    ]
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: midday)
+    monkeypatch.setattr(
+        WorkingHours,
+        "load",
+        classmethod(lambda cls: current_hours[0]),
+    )
+    admission = DeliveryAdmission(
+        runtime,
+        resource_admission=lambda: (True, ""),
+    )
+
+    assert admission()[0] is False
+
+    current_hours[0] = WorkingHours()
+
+    assert admission() == (True, "", 0.0)
+
 
 def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> None:
     state = tmp_path / "scheduler.sqlite3"
