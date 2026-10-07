@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from .persistence import connect_sqlite
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import SQLAlchemyError
+
+from .persistence import create_database, scheduled_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -65,51 +68,20 @@ class PromptJob:
     mutex_group: str = ""
 
 
-def _connect(path: Path) -> sqlite3.Connection:
-    connection = connect_sqlite(path.expanduser())
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS scheduled_jobs (
-            name TEXT PRIMARY KEY,
-            prompt TEXT NOT NULL,
-            interval_seconds REAL NOT NULL,
-            daily_at TEXT,
-            exact_interval INTEGER NOT NULL DEFAULT 0 CHECK (exact_interval IN (0, 1)),
-            run_at_epoch REAL,
-            source_revision TEXT NOT NULL DEFAULT '',
-            mutex_group TEXT NOT NULL DEFAULT ''
-        )
-        """
-    )
-    columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(scheduled_jobs)").fetchall()
-    }
-    if "source_revision" not in columns:
-        connection.execute(
-            "ALTER TABLE scheduled_jobs ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''"
-        )
-    if "mutex_group" not in columns:
-        connection.execute(
-            "ALTER TABLE scheduled_jobs ADD COLUMN mutex_group TEXT NOT NULL DEFAULT ''"
-        )
-    return connection
-
-
 def load_jobs(path: Path) -> dict[str, PromptJob]:
+    engine = create_database(path)
     try:
-        with _connect(path) as connection:
-            rows = connection.execute(
-                """
-                SELECT name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
-                       source_revision, mutex_group
-                FROM scheduled_jobs
-                ORDER BY name
-                """
-            ).fetchall()
-    except (OSError, sqlite3.DatabaseError):
+        with engine.connect() as connection:
+            rows = (
+                connection.execute(select(scheduled_jobs).order_by(scheduled_jobs.c.name))
+                .mappings()
+                .all()
+            )
+    except (OSError, SQLAlchemyError):
         logger.warning("Could not read Prompta scheduled jobs from %s", path, exc_info=True)
         return {}
+    finally:
+        engine.dispose()
 
     return {
         str(row["name"]): PromptJob(
@@ -179,32 +151,31 @@ def add_job(
         mutex_group,
     )
 
-    with _connect(path) as connection:
-        connection.execute(
-            """
-            INSERT INTO scheduled_jobs (
-                name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
-                source_revision, mutex_group
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                prompt = excluded.prompt,
-                interval_seconds = excluded.interval_seconds,
-                daily_at = excluded.daily_at,
-                exact_interval = excluded.exact_interval,
-                run_at_epoch = excluded.run_at_epoch,
-                mutex_group = excluded.mutex_group
-            """,
-            (
-                job.name,
-                job.prompt,
-                job.interval_seconds,
-                job.daily_at,
-                int(job.exact_interval),
-                job.run_at_epoch,
-                job.source_revision,
-                job.mutex_group,
-            ),
+    engine = create_database(path)
+    try:
+        values = {
+            "name": job.name,
+            "prompt": job.prompt,
+            "interval_seconds": job.interval_seconds,
+            "daily_at": job.daily_at,
+            "exact_interval": job.exact_interval,
+            "run_at_epoch": job.run_at_epoch,
+            "source_revision": job.source_revision,
+            "mutex_group": job.mutex_group,
+        }
+        statement = insert(scheduled_jobs).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[scheduled_jobs.c.name],
+            set_={
+                key: getattr(statement.excluded, key)
+                for key in values
+                if key not in {"name", "source_revision"}
+            },
         )
+        with engine.begin() as connection:
+            connection.execute(statement)
+    finally:
+        engine.dispose()
 
 
 def update_job_prompt(path: Path, name: str, prompt: str) -> bool:
@@ -214,19 +185,32 @@ def update_job_prompt(path: Path, name: str, prompt: str) -> bool:
     if not prompt.strip():
         raise ValueError("prompta prompt is empty")
 
-    with _connect(path) as connection:
-        cursor = connection.execute(
-            "UPDATE scheduled_jobs SET prompt = ? WHERE name = ?",
-            (prompt, normalized_name),
-        )
-        return cursor.rowcount > 0
+    engine = create_database(path)
+    try:
+        with engine.begin() as connection:
+            result = connection.execute(
+                update(scheduled_jobs)
+                .where(scheduled_jobs.c.name == normalized_name)
+                .values(prompt=prompt)
+            )
+            return result.rowcount > 0
+    finally:
+        engine.dispose()
 
 
 def remove_job(path: Path, name: str) -> None:
-    with _connect(path) as connection:
-        connection.execute("DELETE FROM scheduled_jobs WHERE name = ?", (name,))
+    engine = create_database(path)
+    try:
+        with engine.begin() as connection:
+            connection.execute(delete(scheduled_jobs).where(scheduled_jobs.c.name == name))
+    finally:
+        engine.dispose()
 
 
 def clear_jobs(path: Path) -> None:
-    with _connect(path) as connection:
-        connection.execute("DELETE FROM scheduled_jobs")
+    engine = create_database(path)
+    try:
+        with engine.begin() as connection:
+            connection.execute(delete(scheduled_jobs))
+    finally:
+        engine.dispose()

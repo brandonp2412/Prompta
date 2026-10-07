@@ -3,13 +3,19 @@ from __future__ import annotations
 import json
 import logging
 import random
-import sqlite3
 import time
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import Table, delete, select
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql.elements import ColumnElement
+
 from .jobs import PromptJob, load_jobs
-from .persistence import connect_sqlite
+from .persistence import account_state, create_database, scheduler_state
 from .rate_limit import RateLimitBackoff, RateLimitError
 from .scheduler_policy import (
     due_in as calculate_due_in,
@@ -44,145 +50,130 @@ class SchedulerRuntime:
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
 
-    def _connect_state(self) -> sqlite3.Connection:
-        connection = connect_sqlite(self.state_path.expanduser())
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scheduler_state (
-                scope TEXT NOT NULL,
-                name TEXT NOT NULL DEFAULT '',
-                key TEXT NOT NULL,
-                value_json TEXT NOT NULL,
-                PRIMARY KEY (scope, name, key)
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS account_state (
-                key TEXT PRIMARY KEY,
-                value_json TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO account_state(key, value_json)
-            SELECT 'rate_limit_backoff', value_json
-            FROM scheduler_state
-            WHERE scope = 'scheduler' AND name = '' AND key = 'rate_limit_backoff'
-            ON CONFLICT(key) DO NOTHING
-            """
-        )
-        connection.commit()
-        return connection
+    def _connect_state(self) -> Engine:
+        return create_database(self.state_path)
 
     @staticmethod
-    def _write_state_to_connection(
-        connection: sqlite3.Connection,
-        state: dict[str, object],
-    ) -> None:
-        rows: list[tuple[str, str, str, str]] = []
-        scheduler = state.get("scheduler")
-        if isinstance(scheduler, dict):
-            rows.extend(
-                ("scheduler", "", str(key), json.dumps(value, ensure_ascii=False))
-                for key, value in scheduler.items()
+    def _upsert_state(connection: Connection, table: Table, rows: list[dict[str, str]]) -> None:
+        if not rows:
+            return
+        statement = insert(table).values(rows)
+        if table is scheduler_state:
+            statement = statement.on_conflict_do_update(
+                index_elements=[
+                    scheduler_state.c.scope,
+                    scheduler_state.c.name,
+                    scheduler_state.c.key,
+                ],
+                set_={"value_json": statement.excluded.value_json},
             )
-        jobs = state.get("jobs")
-        if isinstance(jobs, dict):
-            for name, raw_state in jobs.items():
-                if not isinstance(raw_state, dict):
-                    continue
-                rows.extend(
-                    ("job", str(name), str(key), json.dumps(value, ensure_ascii=False))
-                    for key, value in raw_state.items()
-                )
-        if rows:
-            connection.executemany(
-                """
-                INSERT INTO scheduler_state(scope, name, key, value_json)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(scope, name, key) DO UPDATE SET
-                    value_json = excluded.value_json
-                """,
-                rows,
+        else:
+            statement = statement.on_conflict_do_update(
+                index_elements=[account_state.c.key],
+                set_={"value_json": statement.excluded.value_json},
             )
-        connection.commit()
+        connection.execute(statement)
+
+    @staticmethod
+    def _state_rows(scope: str, name: str, updates: Mapping[str, object]) -> list[dict[str, str]]:
+        return [
+            {
+                "scope": scope,
+                "name": name,
+                "key": str(key),
+                "value_json": json.dumps(value, ensure_ascii=False),
+            }
+            for key, value in updates.items()
+        ]
 
     def load_state(self) -> dict[str, object]:
+        engine = self._connect_state()
         try:
-            with self._connect_state() as connection:
-                rows = connection.execute(
-                    "SELECT scope, name, key, value_json FROM scheduler_state"
-                ).fetchall()
-        except (OSError, sqlite3.DatabaseError):
+            with engine.connect() as connection:
+                rows = connection.execute(select(scheduler_state)).mappings().all()
+        except (OSError, SQLAlchemyError):
             logger.warning("Could not read Prompta scheduler state", exc_info=True)
             return {}
-
-        scheduler_state: dict[str, object] = {}
-        job_states: dict[str, dict[str, object]] = {}
+        finally:
+            engine.dispose()
+        scheduler: dict[str, object] = {}
+        jobs: dict[str, dict[str, object]] = {}
         for row in rows:
             try:
                 value: object = json.loads(str(row["value_json"]))
             except (TypeError, json.JSONDecodeError):
                 continue
-            scope = str(row["scope"])
-            key = str(row["key"])
-            if scope == "scheduler":
-                scheduler_state[key] = value
-            elif scope == "job":
-                job_states.setdefault(str(row["name"]), {})[key] = value
-
-        state: dict[str, object] = {}
-        if scheduler_state:
-            state["scheduler"] = scheduler_state
-        if job_states:
-            state["jobs"] = job_states
-        return state
+            if row["scope"] == "scheduler":
+                scheduler[str(row["key"])] = value
+            elif row["scope"] == "job":
+                jobs.setdefault(str(row["name"]), {})[str(row["key"])] = value
+        result: dict[str, object] = {}
+        if scheduler:
+            result["scheduler"] = scheduler
+        if jobs:
+            result["jobs"] = jobs
+        return result
 
     def write_state(self, state: dict[str, object]) -> None:
-        with self._connect_state() as connection:
-            connection.execute("DELETE FROM scheduler_state")
-            self._write_state_to_connection(connection, state)
-
-    def job_state(self, name: str) -> dict[str, object]:
+        rows: list[dict[str, str]] = []
+        raw_scheduler = state.get("scheduler")
+        if isinstance(raw_scheduler, dict):
+            scheduler_updates = {str(key): value for key, value in raw_scheduler.items()}
+            rows.extend(self._state_rows("scheduler", "", scheduler_updates))
+        raw_jobs = state.get("jobs")
+        if isinstance(raw_jobs, dict):
+            for name, values in raw_jobs.items():
+                if isinstance(values, dict):
+                    job_updates = {str(key): value for key, value in values.items()}
+                    rows.extend(self._state_rows("job", str(name), job_updates))
+        engine = self._connect_state()
         try:
-            with self._connect_state() as connection:
-                rows = connection.execute(
-                    """
-                    SELECT key, value_json
-                    FROM scheduler_state
-                    WHERE scope = 'job' AND name = ?
-                    """,
-                    (name,),
-                ).fetchall()
-        except (OSError, sqlite3.DatabaseError):
+            with engine.begin() as connection:
+                connection.execute(delete(scheduler_state))
+                self._upsert_state(connection, scheduler_state, rows)
+        finally:
+            engine.dispose()
+
+    def _read_state(
+        self, table: Table, conditions: Sequence[ColumnElement[bool]] = ()
+    ) -> dict[str, object]:
+        engine = self._connect_state()
+        try:
+            with engine.connect() as connection:
+                rows = (
+                    connection.execute(select(table.c.key, table.c.value_json).where(*conditions))
+                    .mappings()
+                    .all()
+                )
+        except (OSError, SQLAlchemyError):
             return {}
-        result: dict[str, object] = {}
+        finally:
+            engine.dispose()
+        values: dict[str, object] = {}
         for row in rows:
             try:
-                result[str(row["key"])] = json.loads(str(row["value_json"]))
+                values[str(row["key"])] = json.loads(str(row["value_json"]))
             except (TypeError, json.JSONDecodeError):
                 continue
-        return result
+        return values
+
+    def job_state(self, name: str) -> dict[str, object]:
+        return self._read_state(
+            scheduler_state,
+            (scheduler_state.c.scope == "job", scheduler_state.c.name == name),
+        )
 
     def update_job_state(self, name: str, updates: dict[str, object]) -> None:
         if not updates:
             return
-        with self._connect_state() as connection:
-            connection.executemany(
-                """
-                INSERT INTO scheduler_state(scope, name, key, value_json)
-                VALUES ('job', ?, ?, ?)
-                ON CONFLICT(scope, name, key) DO UPDATE SET
-                    value_json = excluded.value_json
-                """,
-                [
-                    (name, str(key), json.dumps(value, ensure_ascii=False))
-                    for key, value in updates.items()
-                ],
-            )
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                self._upsert_state(
+                    connection, scheduler_state, self._state_rows("job", name, updates)
+                )
+        finally:
+            engine.dispose()
 
     def set_job_paused(self, name: str, paused: bool) -> bool:
         if name not in load_jobs(self.jobs_file):
@@ -192,98 +183,64 @@ class SchedulerRuntime:
 
     def set_all_jobs_paused(self, paused: bool) -> int:
         names = list(load_jobs(self.jobs_file))
-        if not names:
-            return 0
-        value_json = json.dumps(paused, ensure_ascii=False)
-        with self._connect_state() as connection:
-            connection.executemany(
-                """
-                INSERT INTO scheduler_state(scope, name, key, value_json)
-                VALUES ('job', ?, 'paused', ?)
-                ON CONFLICT(scope, name, key) DO UPDATE SET
-                    value_json = excluded.value_json
-                """,
-                [(name, value_json) for name in names],
-            )
+        for name in names:
+            self.update_job_state(name, {"paused": paused})
         return len(names)
 
     def clear_job_state(self, name: str) -> None:
-        with self._connect_state() as connection:
-            connection.execute(
-                "DELETE FROM scheduler_state WHERE scope = 'job' AND name = ?",
-                (name,),
-            )
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    delete(scheduler_state).where(
+                        scheduler_state.c.scope == "job", scheduler_state.c.name == name
+                    )
+                )
+        finally:
+            engine.dispose()
 
     def clear_all_job_state(self) -> None:
-        with self._connect_state() as connection:
-            connection.execute("DELETE FROM scheduler_state WHERE scope = 'job'")
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                connection.execute(delete(scheduler_state).where(scheduler_state.c.scope == "job"))
+        finally:
+            engine.dispose()
 
     def scheduler_state(self) -> dict[str, object]:
-        try:
-            with self._connect_state() as connection:
-                rows = connection.execute(
-                    """
-                    SELECT key, value_json
-                    FROM scheduler_state
-                    WHERE scope = 'scheduler' AND name = ''
-                    """
-                ).fetchall()
-        except (OSError, sqlite3.DatabaseError):
-            return {}
-        result: dict[str, object] = {}
-        for row in rows:
-            try:
-                result[str(row["key"])] = json.loads(str(row["value_json"]))
-            except (TypeError, json.JSONDecodeError):
-                continue
-        return result
+        return self._read_state(
+            scheduler_state,
+            (scheduler_state.c.scope == "scheduler", scheduler_state.c.name == ""),
+        )
 
     def update_scheduler_state(self, updates: dict[str, object]) -> None:
         if not updates:
             return
-        with self._connect_state() as connection:
-            connection.executemany(
-                """
-                INSERT INTO scheduler_state(scope, name, key, value_json)
-                VALUES ('scheduler', '', ?, ?)
-                ON CONFLICT(scope, name, key) DO UPDATE SET
-                    value_json = excluded.value_json
-                """,
-                [
-                    (str(key), json.dumps(value, ensure_ascii=False))
-                    for key, value in updates.items()
-                ],
-            )
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                self._upsert_state(
+                    connection, scheduler_state, self._state_rows("scheduler", "", updates)
+                )
+        finally:
+            engine.dispose()
 
     def account_state(self) -> dict[str, object]:
-        try:
-            with self._connect_state() as connection:
-                rows = connection.execute("SELECT key, value_json FROM account_state").fetchall()
-        except (OSError, sqlite3.DatabaseError):
-            return {}
-        result: dict[str, object] = {}
-        for row in rows:
-            try:
-                result[str(row["key"])] = json.loads(str(row["value_json"]))
-            except (TypeError, json.JSONDecodeError):
-                continue
-        return result
+        return self._read_state(account_state)
 
     def update_account_state(self, updates: dict[str, object]) -> None:
         if not updates:
             return
-        with self._connect_state() as connection:
-            connection.executemany(
-                """
-                INSERT INTO account_state(key, value_json)
-                VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json
-                """,
-                [
-                    (str(key), json.dumps(value, ensure_ascii=False))
-                    for key, value in updates.items()
-                ],
-            )
+        rows = [
+            {"key": str(key), "value_json": json.dumps(value, ensure_ascii=False)}
+            for key, value in updates.items()
+        ]
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                self._upsert_state(connection, account_state, rows)
+        finally:
+            engine.dispose()
 
     def _durable_global_backoff(self) -> RateLimitBackoff:
         backoff = RateLimitBackoff()
@@ -358,27 +315,6 @@ class SchedulerRuntime:
             "retry_at_epoch": 0.0,
         }
 
-    @staticmethod
-    def _write_job_updates(
-        connection: sqlite3.Connection,
-        name: str,
-        updates: dict[str, object],
-    ) -> None:
-        if not updates:
-            return
-        connection.executemany(
-            """
-            INSERT INTO scheduler_state(scope, name, key, value_json)
-            VALUES ('job', ?, ?, ?)
-            ON CONFLICT(scope, name, key) DO UPDATE SET
-                value_json = excluded.value_json
-            """,
-            [
-                (name, str(key), json.dumps(value, ensure_ascii=False))
-                for key, value in updates.items()
-            ],
-        )
-
     def restore_backoffs(self) -> None:
         state = self.load_state()
         scheduler = state.get("scheduler")
@@ -410,37 +346,38 @@ class SchedulerRuntime:
 
     def record_global_rate_limit(self, exc: RateLimitError) -> float:
         wall_time = time.time()
-        with self._connect_state() as connection:
-            connection.commit()
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT value_json FROM account_state WHERE key = 'rate_limit_backoff'"
-            ).fetchone()
-            backoff = RateLimitBackoff()
-            if row is not None:
-                try:
-                    decoded: object = json.loads(str(row["value_json"]))
-                except (TypeError, json.JSONDecodeError):
-                    decoded = {}
-                snapshot = string_object_dict(decoded) or {}
-                backoff.restore(snapshot, wall_time=wall_time)
-            remaining = backoff.remaining()
-            if remaining <= 0:
-                remaining = backoff.record(float(exc.retry_after))
-            snapshot = backoff.snapshot(wall_time=wall_time)
-            updates = {
-                "rate_limit_backoff": snapshot,
-                "rate_limit_reason": str(exc),
-                "rate_limit_updated_at": wall_time,
-            }
-            connection.executemany(
-                """
-                INSERT INTO account_state(key, value_json)
-                VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json
-                """,
-                [(key, json.dumps(value, ensure_ascii=False)) for key, value in updates.items()],
-            )
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                value_json = connection.execute(
+                    select(account_state.c.value_json).where(
+                        account_state.c.key == "rate_limit_backoff"
+                    )
+                ).scalar_one_or_none()
+                backoff = RateLimitBackoff()
+                if value_json is not None:
+                    try:
+                        decoded: object = json.loads(str(value_json))
+                    except (TypeError, json.JSONDecodeError):
+                        decoded = {}
+                    snapshot = string_object_dict(decoded) or {}
+                    backoff.restore(snapshot, wall_time=wall_time)
+                remaining = backoff.remaining()
+                if remaining <= 0:
+                    remaining = backoff.record(float(exc.retry_after))
+                snapshot = backoff.snapshot(wall_time=wall_time)
+                updates = {
+                    "rate_limit_backoff": snapshot,
+                    "rate_limit_reason": str(exc),
+                    "rate_limit_updated_at": wall_time,
+                }
+                rows = [
+                    {"key": key, "value_json": json.dumps(value, ensure_ascii=False)}
+                    for key, value in updates.items()
+                ]
+                self._upsert_state(connection, account_state, rows)
+        finally:
+            engine.dispose()
         self.global_backoff.restore(snapshot)
         self.update_scheduler_state({"rate_limit_backoff": snapshot})
         return remaining

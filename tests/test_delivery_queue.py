@@ -3,6 +3,8 @@ from __future__ import annotations
 import concurrent.futures
 from pathlib import Path
 
+from sqlalchemy import inspect
+
 from prompta.delivery_queue import DeliveryQueueStore
 
 
@@ -76,12 +78,7 @@ def test_health_metrics_cover_pending_and_last_success(tmp_path: Path) -> None:
 
 def test_delivery_queue_creates_jobs_only_lookup_indexes(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
-    connection = store.connect()
-    indexes = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA index_list(job_deliveries)").fetchall()
-    }
-    connection.close()
+    indexes = {str(index["name"]) for index in inspect(store.engine).get_indexes("job_deliveries")}
 
     assert "job_deliveries_claimable" in indexes
     assert "job_deliveries_client_id" in indexes

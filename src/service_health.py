@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import os
 import socket
-import sqlite3
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from .persistence import connect_sqlite
+from sqlalchemy import case, select
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import SQLAlchemyError
+
+from .persistence import create_database, service_health
 from .strict_types import float_value
 
 SERVICE_STALE_AFTER_SECONDS = {
@@ -22,7 +25,7 @@ SERVICE_STALE_AFTER_SECONDS = {
 
 
 def build_service_health_snapshot(
-    rows: Iterable[sqlite3.Row],
+    rows: Iterable[Mapping[str, object]],
     *,
     now: float,
     stale_after_seconds: Mapping[str, float] = SERVICE_STALE_AFTER_SECONDS,
@@ -53,36 +56,24 @@ class ServiceHealthStore:
         self.path = path.expanduser()
         self._initialize()
 
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.path)
-
     def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS service_health (
-                    service TEXT PRIMARY KEY,
-                    heartbeat_at REAL NOT NULL DEFAULT 0,
-                    activity TEXT NOT NULL DEFAULT '',
-                    activity_started_at REAL NOT NULL DEFAULT 0
-                )
-                """
-            )
+        engine = create_database(self.path)
+        engine.dispose()
 
     def beat(self, service: str, *, now: float | None = None) -> bool:
         at = time.time() if now is None else float(now)
         try:
-            with self._connect() as connection:
+            engine = create_database(self.path)
+            statement = insert(service_health).values(service=service, heartbeat_at=at)
+            with engine.begin() as connection:
                 connection.execute(
-                    """
-                    INSERT INTO service_health(service, heartbeat_at)
-                    VALUES (?, ?)
-                    ON CONFLICT(service) DO UPDATE SET heartbeat_at = excluded.heartbeat_at
-                    """,
-                    (service, at),
+                    statement.on_conflict_do_update(
+                        index_elements=[service_health.c.service],
+                        set_={"heartbeat_at": statement.excluded.heartbeat_at},
+                    )
                 )
             return True
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, SQLAlchemyError):
             return False
 
     def begin_activity(
@@ -94,25 +85,22 @@ class ServiceHealthStore:
     ) -> bool:
         at = time.time() if now is None else float(now)
         try:
-            with self._connect() as connection:
+            engine = create_database(self.path)
+            statement = insert(service_health).values(
+                service=service, heartbeat_at=at, activity=activity, activity_started_at=at
+            )
+            with engine.begin() as connection:
                 connection.execute(
-                    """
-                    INSERT INTO service_health(
-                        service,
-                        heartbeat_at,
-                        activity,
-                        activity_started_at
+                    statement.on_conflict_do_update(
+                        index_elements=[service_health.c.service],
+                        set_={
+                            key: getattr(statement.excluded, key)
+                            for key in ("heartbeat_at", "activity", "activity_started_at")
+                        },
                     )
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(service) DO UPDATE SET
-                        heartbeat_at = excluded.heartbeat_at,
-                        activity = excluded.activity,
-                        activity_started_at = excluded.activity_started_at
-                    """,
-                    (service, at, activity, at),
                 )
             return True
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, SQLAlchemyError):
             return False
 
     def end_activity(
@@ -124,36 +112,36 @@ class ServiceHealthStore:
     ) -> bool:
         at = time.time() if now is None else float(now)
         try:
-            with self._connect() as connection:
+            engine = create_database(self.path)
+            statement = insert(service_health).values(service=service, heartbeat_at=at)
+            with engine.begin() as connection:
                 connection.execute(
-                    """
-                    INSERT INTO service_health(service, heartbeat_at)
-                    VALUES (?, ?)
-                    ON CONFLICT(service) DO UPDATE SET
-                        heartbeat_at = excluded.heartbeat_at,
-                        activity = CASE
-                            WHEN service_health.activity = ? THEN ''
-                            ELSE service_health.activity
-                        END,
-                        activity_started_at = CASE
-                            WHEN service_health.activity = ? THEN 0
-                            ELSE service_health.activity_started_at
-                        END
-                    """,
-                    (service, at, activity, activity),
+                    statement.on_conflict_do_update(
+                        index_elements=[service_health.c.service],
+                        set_={
+                            "heartbeat_at": statement.excluded.heartbeat_at,
+                            "activity": case(
+                                (service_health.c.activity == activity, ""),
+                                else_=service_health.c.activity,
+                            ),
+                            "activity_started_at": case(
+                                (service_health.c.activity == activity, 0),
+                                else_=service_health.c.activity_started_at,
+                            ),
+                        },
+                    )
                 )
             return True
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, SQLAlchemyError):
             return False
 
     def snapshot(self, *, now: float | None = None) -> dict[str, dict[str, object]]:
         current = time.time() if now is None else float(now)
         try:
-            with self._connect() as connection:
-                rows = connection.execute(
-                    "SELECT service, heartbeat_at, activity, activity_started_at FROM service_health"
-                ).fetchall()
-        except (OSError, sqlite3.DatabaseError):
+            engine = create_database(self.path)
+            with engine.connect() as connection:
+                rows = connection.execute(select(service_health)).mappings().all()
+        except (OSError, SQLAlchemyError):
             rows = []
 
         return build_service_health_snapshot(rows, now=current)

@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
+    "alembic>=1.13",
     "playwright>=1.55.0",
+    "sqlalchemy>=2.0",
 ]
 
 [project.scripts]
