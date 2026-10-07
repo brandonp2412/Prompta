@@ -4683,6 +4683,7 @@ var root_11 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labell
 function JobsPage($$anchor, $$props) {
 	push($$props, true);
 	const pageSize = 10;
+	const refreshIntervalMs = 5e3;
 	let jobs = /* @__PURE__ */ state(proxy([]));
 	let page = /* @__PURE__ */ state(1);
 	let pageCount = /* @__PURE__ */ user_derived(() => Math.max(1, Math.ceil(get(jobs).length / pageSize)));
@@ -4701,6 +4702,8 @@ function JobsPage($$anchor, $$props) {
 	let dailyAt = /* @__PURE__ */ state("09:00");
 	let exact = /* @__PURE__ */ state(false);
 	let editorOpen = /* @__PURE__ */ state(false);
+	let loadInFlight = false;
+	let dataGeneration = 0;
 	function reset$1() {
 		set(editing, "");
 		set(name, "");
@@ -4741,6 +4744,14 @@ function JobsPage($$anchor, $$props) {
 		const minutes = Number(job.interval_minutes);
 		return "every " + (minutes >= 60 && minutes % 60 === 0 ? String(minutes / 60) + " hour" + (minutes === 60 ? "" : "s") : String(minutes) + " minute" + (minutes === 1 ? "" : "s")) + (job.exact_interval ? " · exact" : "");
 	}
+	function sameJob(left, right) {
+		return left.name === right.name && left.prompt === right.prompt && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at;
+	}
+	function applyJobs(nextJobs) {
+		if (get(jobs).length === nextJobs.length && get(jobs).every((job, index) => sameJob(job, nextJobs[index]))) return;
+		set(jobs, nextJobs, true);
+		clampPage();
+	}
 	function clampPage() {
 		set(page, Math.max(1, Math.min(get(page), Math.max(1, Math.ceil(get(jobs).length / pageSize)))), true);
 	}
@@ -4752,20 +4763,26 @@ function JobsPage($$anchor, $$props) {
 		});
 	}
 	async function load({ quiet = false } = {}) {
+		if (loadInFlight || quiet && document.visibilityState !== "visible") return;
+		loadInFlight = true;
+		const requestGeneration = dataGeneration;
 		if (!quiet) set(status, "Loading jobs…");
 		try {
 			const response = await fetch("./api/jobs", { cache: "no-store" });
 			if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
 			const result = await response.json();
-			set(jobs, Array.isArray(result.jobs) ? result.jobs : [], true);
-			clampPage();
+			if (requestGeneration !== dataGeneration) return;
+			applyJobs(Array.isArray(result.jobs) ? result.jobs : []);
 			if (!quiet) set(status, String(get(jobs).length) + " configured job" + (get(jobs).length === 1 ? "" : "s") + ".");
 		} catch (error) {
-			set(status, "Could not load jobs: " + String(error).replace(/^Error:\s*/, ""));
+			if (!quiet) set(status, "Could not load jobs: " + String(error).replace(/^Error:\s*/, ""));
+		} finally {
+			loadInFlight = false;
 		}
 	}
 	async function command(payload, success) {
 		set(saving, true);
+		dataGeneration += 1;
 		set(status, "Saving…");
 		try {
 			const response = await fetch("./api/jobs", {
@@ -4775,8 +4792,7 @@ function JobsPage($$anchor, $$props) {
 			});
 			const result = await response.json();
 			if (!response.ok) throw new Error(String(result.error || String(response.status) + " " + response.statusText));
-			set(jobs, Array.isArray(result.jobs) ? result.jobs : [], true);
-			clampPage();
+			applyJobs(Array.isArray(result.jobs) ? result.jobs : []);
 			set(status, success, true);
 			return true;
 		} catch (error) {
@@ -4835,7 +4851,7 @@ function JobsPage($$anchor, $$props) {
 	}
 	onMount(() => {
 		load();
-		const timer = window.setInterval(() => void load({ quiet: true }), 5e3);
+		const timer = window.setInterval(() => void load({ quiet: true }), refreshIntervalMs);
 		return () => window.clearInterval(timer);
 	});
 	var section = root_11();

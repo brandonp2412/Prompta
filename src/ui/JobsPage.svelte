@@ -17,6 +17,7 @@
   };
 
   const pageSize = 10;
+  const refreshIntervalMs = 5000;
   let jobs = $state<Job[]>([]);
   let page = $state(1);
   let pageCount = $derived(Math.max(1, Math.ceil(jobs.length / pageSize)));
@@ -35,6 +36,8 @@
   let dailyAt = $state("09:00");
   let exact = $state(false);
   let editorOpen = $state(false);
+  let loadInFlight = false;
+  let dataGeneration = 0;
 
   function reset() {
     editing = "";
@@ -83,6 +86,31 @@
     return "every " + amount + (job.exact_interval ? " · exact" : "");
   }
 
+  function sameJob(left: Job, right: Job) {
+    return (
+      left.name === right.name &&
+      left.prompt === right.prompt &&
+      left.status === right.status &&
+      left.status_message === right.status_message &&
+      left.paused === right.paused &&
+      left.run_at_epoch === right.run_at_epoch &&
+      left.daily_at === right.daily_at &&
+      left.interval_minutes === right.interval_minutes &&
+      left.exact_interval === right.exact_interval &&
+      left.source_revision === right.source_revision &&
+      left.next_due_at_epoch === right.next_due_at_epoch &&
+      left.last_sent_at === right.last_sent_at
+    );
+  }
+
+  function applyJobs(nextJobs: Job[]) {
+    const unchanged = jobs.length === nextJobs.length && jobs.every((job, index) => sameJob(job, nextJobs[index]));
+    if (unchanged) return;
+
+    jobs = nextJobs;
+    clampPage();
+  }
+
   function clampPage() {
     page = Math.max(1, Math.min(page, Math.max(1, Math.ceil(jobs.length / pageSize))));
   }
@@ -93,6 +121,10 @@
   }
 
   async function load({ quiet = false }: { quiet?: boolean } = {}) {
+    if (loadInFlight || (quiet && document.visibilityState !== "visible")) return;
+
+    loadInFlight = true;
+    const requestGeneration = dataGeneration;
     if (!quiet) status = "Loading jobs…";
 
     try {
@@ -100,16 +132,21 @@
       if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
 
       const result = await response.json();
-      jobs = Array.isArray(result.jobs) ? result.jobs : [];
-      clampPage();
+      if (requestGeneration !== dataGeneration) return;
+
+      const nextJobs: Job[] = Array.isArray(result.jobs) ? result.jobs : [];
+      applyJobs(nextJobs);
       if (!quiet) status = String(jobs.length) + " configured job" + (jobs.length === 1 ? "" : "s") + ".";
     } catch (error) {
-      status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
+      if (!quiet) status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
+    } finally {
+      loadInFlight = false;
     }
   }
 
   async function command(payload: Record<string, unknown>, success: string) {
     saving = true;
+    dataGeneration += 1;
     status = "Saving…";
 
     try {
@@ -123,8 +160,8 @@
         throw new Error(String(result.error || String(response.status) + " " + response.statusText));
       }
 
-      jobs = Array.isArray(result.jobs) ? result.jobs : [];
-      clampPage();
+      const nextJobs: Job[] = Array.isArray(result.jobs) ? result.jobs : [];
+      applyJobs(nextJobs);
       status = success;
       return true;
     } catch (error) {
@@ -189,7 +226,7 @@
 
   onMount(() => {
     void load();
-    const timer = window.setInterval(() => void load({ quiet: true }), 5000);
+    const timer = window.setInterval(() => void load({ quiet: true }), refreshIntervalMs);
     return () => window.clearInterval(timer);
   });
 </script>
