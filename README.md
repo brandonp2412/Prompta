@@ -29,6 +29,7 @@ The UI is at `http://127.0.0.1:8765`. The CLI is available as `uv run prompta`, 
 
 ```bash
 uv run prompta add nightly-review "Review the project and improve it" --daily-at 21:00
+uv run prompta edit nightly-review "Review the project, improve it, and update the ledger"
 uv run prompta list
 ```
 

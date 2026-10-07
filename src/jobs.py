@@ -194,6 +194,21 @@ def add_job(
         )
 
 
+def update_job_prompt(path: Path, name: str, prompt: str) -> bool:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("prompta job name is empty")
+    if not prompt.strip():
+        raise ValueError("prompta prompt is empty")
+
+    with _connect(path) as connection:
+        cursor = connection.execute(
+            "UPDATE scheduled_jobs SET prompt = ? WHERE name = ?",
+            (prompt, normalized_name),
+        )
+        return cursor.rowcount > 0
+
+
 def remove_job(path: Path, name: str) -> None:
     with _connect(path) as connection:
         connection.execute("DELETE FROM scheduled_jobs WHERE name = ?", (name,))

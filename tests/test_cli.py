@@ -91,6 +91,7 @@ def test_parser_restores_job_management_surface() -> None:
 
     assert parser.parse_args(["add", "audit", "Run audit"]).command == "add"
     assert parser.parse_args(["push", "audit", "Run audit"]).command == "push"
+    assert parser.parse_args(["edit", "audit", "Rewrite audit"]).command == "edit"
     assert parser.parse_args(["at", "13:00", "audit", "Run audit"]).command == "at"
     assert parser.parse_args(["remove", "audit"]).command == "remove"
     assert parser.parse_args(["rm", "audit"]).command == "rm"
@@ -101,6 +102,54 @@ def test_parser_restores_job_management_surface() -> None:
     assert parser.parse_args(["cls"]).command == "cls"
     assert parser.parse_args(["pause"]).name is None
     assert parser.parse_args(["resume"]).name is None
+
+
+def test_cli_edit_updates_prompt_without_resetting_schedule_or_state(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    paths = _paths(runtime_path)
+
+    _run_cli(
+        monkeypatch,
+        capsys,
+        "add",
+        "audit",
+        "Run the original audit",
+        "--interval-minutes",
+        "40",
+        "--exact-interval",
+        *paths,
+    )
+    runtime = SchedulerRuntime(runtime_path, runtime_path)
+    runtime.update_job_state(
+        "audit",
+        {
+            "paused": True,
+            "last_run_at_epoch": 1234.0,
+            "status_message": "keep me",
+        },
+    )
+    before_state = runtime.job_state("audit")
+
+    output = _run_cli(
+        monkeypatch,
+        capsys,
+        "edit",
+        "audit",
+        "Run the rewritten audit",
+        *paths,
+    )
+
+    assert "Updated audit" in output
+    assert "prompt text only" in output
+    job = load_jobs(runtime_path)["audit"]
+    assert job.prompt == "Run the rewritten audit"
+    assert job.interval_seconds == 2400.0
+    assert job.exact_interval is True
+    assert job.daily_at is None
+    assert job.run_at_epoch is None
+    assert runtime.job_state("audit") == before_state
 
 
 def test_cli_restores_human_readable_list_show_and_json(

@@ -14,7 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from .delivery_queue import DeliveryQueueStore
-from .jobs import DEFAULT_INTERVAL_SECONDS, PromptJob, add_job, clear_jobs, load_jobs, remove_job
+from .jobs import (
+    DEFAULT_INTERVAL_SECONDS,
+    PromptJob,
+    add_job,
+    clear_jobs,
+    load_jobs,
+    remove_job,
+    update_job_prompt,
+)
 from .persistence import DEFAULT_RUNTIME_PATH
 from .scheduler_runtime import SchedulerRuntime
 
@@ -273,6 +281,12 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     add.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
+    edit = subparsers.add_parser("edit", help="Edit the prompt text of a named job")
+    edit.add_argument("name")
+    edit.add_argument("prompt")
+    edit.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+    edit.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+
     at = subparsers.add_parser("at", help="Run a one-shot job at a specific local time")
     at.add_argument("when", metavar="TIME", help="HH:MM or ISO local datetime")
     at.add_argument("name")
@@ -368,6 +382,16 @@ def main() -> None:
             if job.exact_interval:
                 detail += " exactly"
         _print_notice("✓", f"Saved {args.name}", detail, tone="32")
+        return
+
+    if args.command == "edit":
+        try:
+            updated = update_job_prompt(args.jobs_file, args.name, args.prompt)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if not updated:
+            parser.error(f"unknown job: {args.name}")
+        _print_notice("✓", f"Updated {args.name}", "prompt text only", tone="32")
         return
 
     if args.command in {"remove", "rm"}:
