@@ -112,6 +112,7 @@ def _jobs_payload(path: Path, state_path: Path) -> list[dict[str, object]]:
                 "interval_seconds": job.interval_seconds,
                 "daily_at": job.daily_at,
                 "exact_interval": job.exact_interval,
+                "mutex_group": job.mutex_group,
                 "run_at_epoch": job.run_at_epoch,
                 "paused": state.get("paused") is True,
                 "status": state.get("status") or "pending",
@@ -278,6 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--interval-minutes", type=float)
     schedule.add_argument("--daily-at", metavar="HH:MM")
     add.add_argument("--exact-interval", action="store_true")
+    add.add_argument("--mutex-group", default="", help="Serialize jobs sharing this group")
     add.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     add.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
@@ -372,6 +374,7 @@ def main() -> None:
             max(0.0, interval_minutes * 60.0),
             daily_at=args.daily_at,
             exact_interval=args.exact_interval,
+            mutex_group=args.mutex_group,
         )
         SchedulerRuntime(args.state, args.jobs_file).clear_job_state(args.name)
         job = load_jobs(args.jobs_file)[args.name]
@@ -441,6 +444,8 @@ def main() -> None:
                 interval += " exactly"
             print(f"{_paint('Interval', '2')}  {interval}")
         print(f"{_paint('Next due', '2')}  {_format_next_due(runtime, job)}")
+        if job.mutex_group:
+            print(f"{_paint('Mutex group', '2')}  {job.mutex_group}")
         if state.get("status_message"):
             print(f"{_paint('Issue', '2')}     {_paint(str(state['status_message']), '31')}")
         print(f"{_paint('Prompt', '2')}    {job.prompt}")

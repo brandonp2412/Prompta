@@ -167,6 +167,8 @@ def test_cli_restores_human_readable_list_show_and_json(
         "--interval-minutes",
         "40",
         "--exact-interval",
+        "--mutex-group",
+        "ibkr-refactor",
         *paths,
     )
     assert "Saved audit" in output
@@ -184,6 +186,8 @@ def test_cli_restores_human_readable_list_show_and_json(
     assert "Interval" in output
     assert "40m exactly" in output
     assert "Next due" in output
+    assert "Mutex group" in output
+    assert "ibkr-refactor" in output
     assert "Prompt" in output
     assert "Run the audit" in output
 
@@ -195,6 +199,7 @@ def test_cli_restores_human_readable_list_show_and_json(
             "interval_seconds": 2400.0,
             "daily_at": None,
             "exact_interval": True,
+            "mutex_group": "ibkr-refactor",
             "run_at_epoch": None,
             "paused": False,
             "status": "pending",

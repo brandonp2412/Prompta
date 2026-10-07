@@ -52,6 +52,7 @@ def serialize_scheduled_jobs(
                 "daily_at": job.daily_at,
                 "run_at_epoch": job.run_at_epoch,
                 "exact_interval": job.exact_interval,
+                "mutex_group": job.mutex_group,
                 "source_revision": job.source_revision,
                 "paused": paused,
                 "status": status,
@@ -113,6 +114,12 @@ class WebJobService:
             if not prompt:
                 raise ValueError("Job prompt is required")
 
+            existing = load_jobs(self.jobs_path).get(name)
+            mutex_group = str(
+                payload.get("mutex_group")
+                if "mutex_group" in payload
+                else (existing.mutex_group if existing is not None else "")
+            ).strip()
             daily_at = str(payload.get("daily_at") or "").strip() or None
             if daily_at is not None:
                 if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at) is None:
@@ -131,6 +138,7 @@ class WebJobService:
                 interval_seconds,
                 daily_at=daily_at,
                 exact_interval=exact_interval,
+                mutex_group=mutex_group,
             )
             runtime.clear_job_state(name)
             self._wake_scheduler()

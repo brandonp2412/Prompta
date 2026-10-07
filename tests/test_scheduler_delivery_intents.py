@@ -73,3 +73,39 @@ def test_scheduler_reconciles_worker_success_and_advances_recurring_job(tmp_path
 
     assert restarted.tick(now=1006.0) == 0
     assert len(restarted.queue.records()) == 1
+
+
+def test_scheduler_serializes_due_jobs_in_same_mutex_group(tmp_path: Path) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    for name in ("first", "second"):
+        add_job(
+            runtime_path,
+            name,
+            f"Run {name}",
+            60,
+            exact_interval=True,
+            mutex_group="ibkr-refactor",
+        )
+
+    producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
+    for name in ("first", "second"):
+        producer.runtime.update_job_state(name, {"initial_due_at_epoch": 1000.0})
+
+    assert producer.tick(now=1000.0) == 1
+    records = producer.queue.records()
+    assert len(records) == 1
+    assert records[0]["message"] == "Run first"
+
+    claimed = producer.queue.claim_next("test-worker", now=1001.0, lease_seconds=30.0)
+    assert claimed is not None
+    assert producer.queue.complete_claim(
+        claimed["send_id"],
+        "test-worker",
+        now=1005.0,
+    )
+
+    assert producer.tick(now=1005.0) == 2
+    records = producer.queue.records()
+    assert len(records) == 2
+    assert records[1]["message"] == "Run second"

@@ -62,6 +62,7 @@ class PromptJob:
     exact_interval: bool = False
     run_at_epoch: float | None = None
     source_revision: str = ""
+    mutex_group: str = ""
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -75,7 +76,8 @@ def _connect(path: Path) -> sqlite3.Connection:
             daily_at TEXT,
             exact_interval INTEGER NOT NULL DEFAULT 0 CHECK (exact_interval IN (0, 1)),
             run_at_epoch REAL,
-            source_revision TEXT NOT NULL DEFAULT ''
+            source_revision TEXT NOT NULL DEFAULT '',
+            mutex_group TEXT NOT NULL DEFAULT ''
         )
         """
     )
@@ -87,6 +89,10 @@ def _connect(path: Path) -> sqlite3.Connection:
         connection.execute(
             "ALTER TABLE scheduled_jobs ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''"
         )
+    if "mutex_group" not in columns:
+        connection.execute(
+            "ALTER TABLE scheduled_jobs ADD COLUMN mutex_group TEXT NOT NULL DEFAULT ''"
+        )
     return connection
 
 
@@ -96,7 +102,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             rows = connection.execute(
                 """
                 SELECT name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
-                       source_revision
+                       source_revision, mutex_group
                 FROM scheduled_jobs
                 ORDER BY name
                 """
@@ -114,6 +120,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             bool(row["exact_interval"]),
             float(row["run_at_epoch"]) if row["run_at_epoch"] is not None else None,
             str(row["source_revision"] or ""),
+            str(row["mutex_group"] or ""),
         )
         for row in rows
     }
@@ -127,6 +134,7 @@ def normalise_job_definition(
     exact_interval: bool = False,
     run_at_epoch: float | None = None,
     source_revision: str = "",
+    mutex_group: str = "",
 ) -> PromptJob:
     normalized_name = name.strip()
     if not normalized_name:
@@ -145,6 +153,7 @@ def normalise_job_definition(
         bool(exact_interval),
         normalised_run_at,
         source_revision.strip().lower(),
+        mutex_group.strip(),
     )
 
 
@@ -157,6 +166,7 @@ def add_job(
     exact_interval: bool = False,
     run_at_epoch: float | None = None,
     source_revision: str | None = None,
+    mutex_group: str = "",
 ) -> None:
     job = normalise_job_definition(
         name,
@@ -166,6 +176,7 @@ def add_job(
         exact_interval,
         run_at_epoch,
         source_revision if source_revision is not None else current_source_revision(),
+        mutex_group,
     )
 
     with _connect(path) as connection:
@@ -173,14 +184,15 @@ def add_job(
             """
             INSERT INTO scheduled_jobs (
                 name, prompt, interval_seconds, daily_at, exact_interval, run_at_epoch,
-                source_revision
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                source_revision, mutex_group
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 prompt = excluded.prompt,
                 interval_seconds = excluded.interval_seconds,
                 daily_at = excluded.daily_at,
                 exact_interval = excluded.exact_interval,
-                run_at_epoch = excluded.run_at_epoch
+                run_at_epoch = excluded.run_at_epoch,
+                mutex_group = excluded.mutex_group
             """,
             (
                 job.name,
@@ -190,6 +202,7 @@ def add_job(
                 int(job.exact_interval),
                 job.run_at_epoch,
                 job.source_revision,
+                job.mutex_group,
             ),
         )
 

@@ -55,6 +55,16 @@ class DurableSchedulerProducer:
         receipt = self.queue.get(send_id)
         return receipt if receipt_is_pending(receipt) else None
 
+    def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob]) -> bool:
+        if not job.mutex_group:
+            return False
+        return any(
+            other.name != job.name
+            and other.mutex_group == job.mutex_group
+            and self._pending_receipt(other.name) is not None
+            for other in jobs
+        )
+
     def _record_pending_metadata(
         self,
         job: PromptJob,
@@ -73,9 +83,18 @@ class DurableSchedulerProducer:
             ),
         )
 
-    def enqueue_if_due(self, job: PromptJob, *, now: float) -> bool:
+    def enqueue_if_due(
+        self,
+        job: PromptJob,
+        *,
+        now: float,
+        jobs: list[PromptJob] | None = None,
+    ) -> bool:
         state = self.runtime.job_state(job.name)
         pending_receipt = self._pending_receipt(job.name)
+        all_jobs = jobs if jobs is not None else list(self.runtime.read_jobs().values())
+        if self._mutex_group_busy(job, all_jobs):
+            return False
         if not should_enqueue_job(
             job,
             state,
@@ -181,7 +200,7 @@ class DurableSchedulerProducer:
         jobs = list(self.runtime.read_jobs().values())
         self.runtime.ensure_initial_schedules(jobs, current)
         for job in jobs:
-            if self.enqueue_if_due(job, now=current):
+            if self.enqueue_if_due(job, now=current, jobs=jobs):
                 work += 1
         return work
 
