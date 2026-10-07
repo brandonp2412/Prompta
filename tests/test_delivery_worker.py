@@ -1,9 +1,7 @@
 from datetime import time
 from pathlib import Path
-from typing import cast
 
 from prompta.config import WorkingHours
-from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.delivery_worker import DeliveryAdmission, _deliver_one
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -35,6 +33,7 @@ def test_delivery_admission_blocks_outside_working_hours(
     assert allowed is False
     assert "Outside Prompta working hours" in reason
     assert retry_after > 0
+
 
 def test_delivery_admission_reloads_working_hours_config(
     tmp_path: Path,
@@ -91,7 +90,7 @@ def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> Non
 
     _deliver_one(
         queue,
-        cast(BrowserDeliverySender, sender),
+        sender,
         SchedulerRuntime(state, jobs),
         ServiceHealthStore(tmp_path / "health.sqlite3"),
         "worker",

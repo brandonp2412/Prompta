@@ -140,7 +140,7 @@ def _scheduled_job_name(record: dict[str, object]) -> str:
 
 def _deliver_one(
     queue: DeliveryQueueStore,
-    sender: BrowserDeliverySender,
+    sender: Callable[[str], None],
     runtime: SchedulerRuntime,
     health: ServiceHealthStore,
     owner: str,

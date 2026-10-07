@@ -10,15 +10,16 @@ import os
 import socket
 import subprocess
 import time
+from collections.abc import Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
+from .strict_types import json_object
 from .web_jobs import WebJobService
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         notify_watchdog()
         self._last_health_beat = now
 
-    def health_payload(self) -> dict[str, Any]:
+    def health_payload(self) -> dict[str, object]:
         now = time.time()
         debugger_address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
         browser_reachable, page_count = browser_page_count(debugger_address)
@@ -121,7 +122,7 @@ class PromptaJobServer(ThreadingHTTPServer):
 class PromptaJobHandler(BaseHTTPRequestHandler):
     server: PromptaJobServer
 
-    def log_message(self, format: str, *args: Any) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         logger.info("%s - %s", self.address_string(), format % args)
 
     def _headers(self, status: HTTPStatus, content_type: str, length: int) -> None:
@@ -137,7 +138,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _json(self, payload: Mapping[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self._write(status, "application/json; charset=utf-8", body)
 
@@ -162,7 +163,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             content_type += "; charset=utf-8"
         self._write(HTTPStatus.OK, content_type, content)
 
-    def _json_body(self) -> dict[str, Any]:
+    def _json_body(self) -> dict[str, object]:
         try:
             length = int(self.headers.get("content-length") or "0")
         except ValueError as exc:
@@ -170,11 +171,9 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         if length <= 0 or length > 1024 * 1024:
             raise ValueError("Request body must be between 1 byte and 1 MiB")
         try:
-            payload = json.loads(self.rfile.read(length))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload = json_object(self.rfile.read(length), label="request body")
+        except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("Request body must be valid JSON") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("Request body must be a JSON object")
         return payload
 
     def do_HEAD(self) -> None:

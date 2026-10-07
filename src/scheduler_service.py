@@ -5,7 +5,6 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Any
 
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
@@ -22,6 +21,7 @@ from .scheduler_policy import (
 )
 from .scheduler_runtime import SchedulerRuntime
 from .service_health import ServiceHealthStore, notify_watchdog
+from .strict_types import float_value, string_object_dict
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class DurableSchedulerProducer:
     def _send_id(idempotency_key: str) -> str:
         return f"scheduled-{idempotency_key}"
 
-    def _pending_receipt(self, job_name: str) -> dict[str, Any] | None:
+    def _pending_receipt(self, job_name: str) -> dict[str, object] | None:
         state = self.runtime.job_state(job_name)
         send_id = str(state.get("last_delivery_send_id") or "")
         if not send_id:
@@ -119,7 +119,7 @@ class DurableSchedulerProducer:
             job,
             send_id=str(receipt["send_id"]),
             idempotency_key=idempotency_key,
-            queued_at=float(receipt.get("created_at") or now),
+            queued_at=float_value(receipt.get("created_at"), default=now),
         )
         if job.run_at_epoch is not None:
             remove_job(self.jobs_path, job.name)
@@ -134,8 +134,8 @@ class DurableSchedulerProducer:
     def _advance_after_terminal(
         self,
         job_name: str,
-        state: dict[str, Any],
-        receipt: dict[str, Any],
+        state: dict[str, object],
+        receipt: dict[str, object],
     ) -> None:
         send_id = str(receipt.get("send_id") or "")
         if str(state.get("last_completed_delivery_send_id") or "") == send_id:
@@ -144,7 +144,7 @@ class DurableSchedulerProducer:
         one_time = bool(state.get("pending_delivery_one_time"))
         daily_at = str(state.get("pending_delivery_daily_at") or "") or None
         try:
-            interval_seconds = float(state.get("pending_delivery_interval_seconds") or 0.0)
+            interval_seconds = float_value(state.get("pending_delivery_interval_seconds"))
         except (TypeError, ValueError):
             interval_seconds = 0.0
         exact_interval = bool(state.get("pending_delivery_exact_interval"))
@@ -171,14 +171,16 @@ class DurableSchedulerProducer:
 
     def reconcile_terminal_receipts(self) -> int:
         payload = self.runtime.load_state()
-        states = payload.get("jobs") if isinstance(payload, dict) else None
-        if not isinstance(states, dict):
+        states = string_object_dict(payload.get("jobs"))
+        if states is None:
             return 0
 
         reconciled = 0
         for job_name, state in states.items():
-            if not isinstance(state, dict):
+            state_mapping = string_object_dict(state)
+            if state_mapping is None:
                 continue
+            state = state_mapping
             send_id = str(state.get("last_delivery_send_id") or "")
             if not send_id:
                 continue

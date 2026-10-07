@@ -3,8 +3,10 @@ from __future__ import annotations
 import random
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+
+from .strict_types import float_value, int_value
 
 DEFAULT_RETRY_AFTER = 5 * 60
 _RATE_LIMIT_BACKOFF_CAP_SECONDS = 30 * 60.0
@@ -82,14 +84,14 @@ def snapshot_rate_limit_backoff(
 
 
 def restore_rate_limit_backoff(
-    snapshot: dict[str, Any],
+    snapshot: Mapping[str, object],
     *,
     now: float,
     wall_time: float,
 ) -> RateLimitState:
-    attempts = max(0, int(snapshot.get("attempts") or 0))
-    blocked_until_epoch = float(snapshot.get("blocked_until_epoch") or 0.0)
-    last_limited_epoch = float(snapshot.get("last_limited_at_epoch") or 0.0)
+    attempts = max(0, int_value(snapshot.get("attempts")))
+    blocked_until_epoch = float_value(snapshot.get("blocked_until_epoch"))
+    last_limited_epoch = float_value(snapshot.get("last_limited_at_epoch"))
     remaining = max(0.0, blocked_until_epoch - wall_time)
     limited_age = max(0.0, wall_time - last_limited_epoch) if last_limited_epoch else 0.0
     if not attempts or (remaining <= 0 and limited_age >= _RATE_LIMIT_RESET_SECONDS):
@@ -163,7 +165,7 @@ class RateLimitBackoff:
 
     def restore(
         self,
-        snapshot: dict[str, Any],
+        snapshot: Mapping[str, object],
         *,
         now: float | None = None,
         wall_time: float | None = None,

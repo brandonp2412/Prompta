@@ -35,7 +35,9 @@ def test_scheduler_restart_with_worker_stopped_records_one_pending_delivery(tmp_
     rows = restarted.queue.records()
     assert len(rows) == 1
     assert rows[0]["status"] == "queued"
-    assert rows[0]["send_id"].startswith("scheduled-")
+    send_id = rows[0]["send_id"]
+    assert isinstance(send_id, str)
+    assert send_id.startswith("scheduled-")
 
 
 def test_scheduler_reconciles_worker_success_and_advances_recurring_job(tmp_path: Path) -> None:
@@ -56,8 +58,10 @@ def test_scheduler_reconciles_worker_success_and_advances_recurring_job(tmp_path
 
     claimed = producer.queue.claim_next("test-worker", now=1001.0, lease_seconds=30.0)
     assert claimed is not None
+    send_id = claimed["send_id"]
+    assert isinstance(send_id, str)
     assert producer.queue.complete_claim(
-        claimed["send_id"],
+        send_id,
         "test-worker",
         now=1005.0,
     )
@@ -99,8 +103,10 @@ def test_scheduler_serializes_due_jobs_in_same_mutex_group(tmp_path: Path) -> No
 
     claimed = producer.queue.claim_next("test-worker", now=1001.0, lease_seconds=30.0)
     assert claimed is not None
+    send_id = claimed["send_id"]
+    assert isinstance(send_id, str)
     assert producer.queue.complete_claim(
-        claimed["send_id"],
+        send_id,
         "test-worker",
         now=1005.0,
     )

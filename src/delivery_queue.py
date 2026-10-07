@@ -3,7 +3,6 @@ from __future__ import annotations
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any
 
 from .delivery_state import (
     RETRY_DELIVERY_STATUSES,
@@ -14,6 +13,7 @@ from .delivery_state import (
     owned_running_delivery,
     renewable_delivery_lease,
 )
+from .strict_types import float_value, int_value
 
 
 class DeliveryQueueStore:
@@ -68,7 +68,7 @@ class DeliveryQueueStore:
             )
 
     @staticmethod
-    def record_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    def record_from_row(row: sqlite3.Row) -> dict[str, object]:
         return {
             "send_id": str(row["send_id"]),
             "message": str(row["message"]),
@@ -86,12 +86,12 @@ class DeliveryQueueStore:
             "lease_expires_at": float(row["lease_expires_at"] or 0.0),
         }
 
-    def records(self) -> list[dict[str, Any]]:
+    def records(self) -> list[dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM job_deliveries ORDER BY sequence").fetchall()
         return [self.record_from_row(row) for row in rows]
 
-    def health_metrics(self, *, now: float | None = None) -> dict[str, Any]:
+    def health_metrics(self, *, now: float | None = None) -> dict[str, object]:
         at = time.time() if now is None else float(now)
         with self.connect() as connection:
             counts = {
@@ -135,7 +135,7 @@ class DeliveryQueueStore:
             ),
         }
 
-    def get(self, send_id: str) -> dict[str, Any] | None:
+    def get(self, send_id: str) -> dict[str, object] | None:
         with self.connect() as connection:
             row = connection.execute(
                 "SELECT * FROM job_deliveries WHERE send_id = ?",
@@ -143,7 +143,7 @@ class DeliveryQueueStore:
             ).fetchone()
         return self.record_from_row(row) if row is not None else None
 
-    def enqueue_idempotent(self, record: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def enqueue_idempotent(self, record: dict[str, object]) -> tuple[dict[str, object], bool]:
         send_id = str(record.get("send_id") or "")
         message = str(record.get("message") or "")
         client_id = str(record.get("client_id") or "")
@@ -152,7 +152,7 @@ class DeliveryQueueStore:
         if not message:
             raise ValueError("delivery message is required")
 
-        now = float(record.get("created_at") or time.time())
+        now = float_value(record.get("created_at"), default=time.time())
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
@@ -210,7 +210,7 @@ class DeliveryQueueStore:
             connection.commit()
             return updated.rowcount == 1
 
-    def upsert(self, record: dict[str, Any]) -> None:
+    def upsert(self, record: dict[str, object]) -> None:
         send_id = str(record.get("send_id") or "")
         message = str(record.get("message") or "")
         if not send_id:
@@ -218,8 +218,8 @@ class DeliveryQueueStore:
         if not message:
             raise ValueError("delivery message is required")
 
-        created_at = float(record.get("created_at") or time.time())
-        updated_at = float(record.get("updated_at") or created_at)
+        created_at = float_value(record.get("created_at"), default=time.time())
+        updated_at = float_value(record.get("updated_at"), default=created_at)
         values = (
             send_id,
             message,
@@ -229,12 +229,12 @@ class DeliveryQueueStore:
             str(record.get("last_error") or ""),
             created_at,
             updated_at,
-            float(record.get("retry_at") or 0.0),
-            int(record.get("retry_attempt") or 0),
-            float(record.get("finished_at") or 0.0),
+            float_value(record.get("retry_at")),
+            int_value(record.get("retry_attempt")),
+            float_value(record.get("finished_at")),
             str(record.get("lease_owner") or ""),
-            float(record.get("lease_acquired_at") or 0.0),
-            float(record.get("lease_expires_at") or 0.0),
+            float_value(record.get("lease_acquired_at")),
+            float_value(record.get("lease_expires_at")),
         )
         with self.connect() as connection:
             connection.execute(
@@ -269,7 +269,7 @@ class DeliveryQueueStore:
         *,
         lease_seconds: float,
         now: float | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         claimed_at = time.time() if now is None else float(now)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")

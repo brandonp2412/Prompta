@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any
+
+from .strict_types import float_value
 
 RETRY_DELIVERY_STATUSES = frozenset({"retrying", "rate_limited"})
 TERMINAL_DELIVERY_STATUSES = frozenset(
@@ -16,19 +17,19 @@ class CompletionAction(StrEnum):
     REJECT = "reject"
 
 
-def claimable_delivery(record: Mapping[str, Any], *, now: float) -> bool:
+def claimable_delivery(record: Mapping[str, object], *, now: float) -> bool:
     status = str(record.get("status") or "")
     if status == "queued":
         return True
     if status in RETRY_DELIVERY_STATUSES:
-        return float(record.get("retry_at") or 0.0) <= now
+        return float_value(record.get("retry_at")) <= now
     if status == "running":
-        return float(record.get("lease_expires_at") or 0.0) <= now
+        return float_value(record.get("lease_expires_at")) <= now
     return False
 
 
 def renewable_delivery_lease(
-    record: Mapping[str, Any],
+    record: Mapping[str, object],
     *,
     owner: str,
     now: float,
@@ -36,18 +37,18 @@ def renewable_delivery_lease(
     return (
         str(record.get("status") or "") == "running"
         and str(record.get("lease_owner") or "") == owner
-        and float(record.get("lease_expires_at") or 0.0) > now
+        and float_value(record.get("lease_expires_at")) > now
     )
 
 
-def owned_running_delivery(record: Mapping[str, Any], *, owner: str) -> bool:
+def owned_running_delivery(record: Mapping[str, object], *, owner: str) -> bool:
     return (
         str(record.get("status") or "") == "running"
         and str(record.get("lease_owner") or "") == owner
     )
 
 
-def completion_action(record: Mapping[str, Any], *, owner: str) -> CompletionAction:
+def completion_action(record: Mapping[str, object], *, owner: str) -> CompletionAction:
     status = str(record.get("status") or "")
     if status == "succeeded":
         return CompletionAction.ACKNOWLEDGE

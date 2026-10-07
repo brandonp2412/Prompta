@@ -7,7 +7,6 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from .jobs import PromptJob, load_jobs
 from .persistence import connect_sqlite
@@ -28,6 +27,7 @@ from .scheduler_policy import (
 from .scheduler_policy import (
     send_gap_remaining as calculate_send_gap_remaining,
 )
+from .strict_types import string_object_dict
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class SchedulerRuntime:
     @staticmethod
     def _write_state_to_connection(
         connection: sqlite3.Connection,
-        state: dict[str, Any],
+        state: dict[str, object],
     ) -> None:
         rows: list[tuple[str, str, str, str]] = []
         scheduler = state.get("scheduler")
@@ -110,7 +110,7 @@ class SchedulerRuntime:
             )
         connection.commit()
 
-    def load_state(self) -> dict[str, Any]:
+    def load_state(self) -> dict[str, object]:
         try:
             with self._connect_state() as connection:
                 rows = connection.execute(
@@ -120,26 +120,33 @@ class SchedulerRuntime:
             logger.warning("Could not read Prompta scheduler state", exc_info=True)
             return {}
 
-        state: dict[str, Any] = {}
+        scheduler_state: dict[str, object] = {}
+        job_states: dict[str, dict[str, object]] = {}
         for row in rows:
             try:
-                value = json.loads(str(row["value_json"]))
+                value: object = json.loads(str(row["value_json"]))
             except (TypeError, json.JSONDecodeError):
                 continue
             scope = str(row["scope"])
             key = str(row["key"])
             if scope == "scheduler":
-                state.setdefault("scheduler", {})[key] = value
+                scheduler_state[key] = value
             elif scope == "job":
-                state.setdefault("jobs", {}).setdefault(str(row["name"]), {})[key] = value
+                job_states.setdefault(str(row["name"]), {})[key] = value
+
+        state: dict[str, object] = {}
+        if scheduler_state:
+            state["scheduler"] = scheduler_state
+        if job_states:
+            state["jobs"] = job_states
         return state
 
-    def write_state(self, state: dict[str, Any]) -> None:
+    def write_state(self, state: dict[str, object]) -> None:
         with self._connect_state() as connection:
             connection.execute("DELETE FROM scheduler_state")
             self._write_state_to_connection(connection, state)
 
-    def job_state(self, name: str) -> dict[str, Any]:
+    def job_state(self, name: str) -> dict[str, object]:
         try:
             with self._connect_state() as connection:
                 rows = connection.execute(
@@ -152,7 +159,7 @@ class SchedulerRuntime:
                 ).fetchall()
         except (OSError, sqlite3.DatabaseError):
             return {}
-        result: dict[str, Any] = {}
+        result: dict[str, object] = {}
         for row in rows:
             try:
                 result[str(row["key"])] = json.loads(str(row["value_json"]))
@@ -160,7 +167,7 @@ class SchedulerRuntime:
                 continue
         return result
 
-    def update_job_state(self, name: str, updates: dict[str, Any]) -> None:
+    def update_job_state(self, name: str, updates: dict[str, object]) -> None:
         if not updates:
             return
         with self._connect_state() as connection:
@@ -211,7 +218,7 @@ class SchedulerRuntime:
         with self._connect_state() as connection:
             connection.execute("DELETE FROM scheduler_state WHERE scope = 'job'")
 
-    def scheduler_state(self) -> dict[str, Any]:
+    def scheduler_state(self) -> dict[str, object]:
         try:
             with self._connect_state() as connection:
                 rows = connection.execute(
@@ -223,7 +230,7 @@ class SchedulerRuntime:
                 ).fetchall()
         except (OSError, sqlite3.DatabaseError):
             return {}
-        result: dict[str, Any] = {}
+        result: dict[str, object] = {}
         for row in rows:
             try:
                 result[str(row["key"])] = json.loads(str(row["value_json"]))
@@ -231,7 +238,7 @@ class SchedulerRuntime:
                 continue
         return result
 
-    def update_scheduler_state(self, updates: dict[str, Any]) -> None:
+    def update_scheduler_state(self, updates: dict[str, object]) -> None:
         if not updates:
             return
         with self._connect_state() as connection:
@@ -248,13 +255,13 @@ class SchedulerRuntime:
                 ],
             )
 
-    def account_state(self) -> dict[str, Any]:
+    def account_state(self) -> dict[str, object]:
         try:
             with self._connect_state() as connection:
                 rows = connection.execute("SELECT key, value_json FROM account_state").fetchall()
         except (OSError, sqlite3.DatabaseError):
             return {}
-        result: dict[str, Any] = {}
+        result: dict[str, object] = {}
         for row in rows:
             try:
                 result[str(row["key"])] = json.loads(str(row["value_json"]))
@@ -262,7 +269,7 @@ class SchedulerRuntime:
                 continue
         return result
 
-    def update_account_state(self, updates: dict[str, Any]) -> None:
+    def update_account_state(self, updates: dict[str, object]) -> None:
         if not updates:
             return
         with self._connect_state() as connection:
@@ -280,8 +287,8 @@ class SchedulerRuntime:
 
     def _durable_global_backoff(self) -> RateLimitBackoff:
         backoff = RateLimitBackoff()
-        snapshot = self.account_state().get("rate_limit_backoff")
-        if isinstance(snapshot, dict):
+        snapshot = string_object_dict(self.account_state().get("rate_limit_backoff"))
+        if snapshot is not None:
             backoff.restore(snapshot)
         return backoff
 
@@ -319,11 +326,11 @@ class SchedulerRuntime:
             }
         )
 
-    def account_admission_status(self) -> dict[str, Any]:
+    def account_admission_status(self) -> dict[str, object]:
         state = self.account_state()
         backoff = RateLimitBackoff()
-        snapshot = state.get("rate_limit_backoff")
-        if isinstance(snapshot, dict):
+        snapshot = string_object_dict(state.get("rate_limit_backoff"))
+        if snapshot is not None:
             backoff.restore(snapshot)
         remaining = backoff.remaining()
         if remaining > 0:
@@ -355,7 +362,7 @@ class SchedulerRuntime:
     def _write_job_updates(
         connection: sqlite3.Connection,
         name: str,
-        updates: dict[str, Any],
+        updates: dict[str, object],
     ) -> None:
         if not updates:
             return
@@ -376,8 +383,8 @@ class SchedulerRuntime:
         state = self.load_state()
         scheduler = state.get("scheduler")
         if isinstance(scheduler, dict):
-            snapshot = scheduler.get("rate_limit_backoff")
-            if isinstance(snapshot, dict):
+            snapshot = string_object_dict(scheduler.get("rate_limit_backoff"))
+            if snapshot is not None:
                 self.global_backoff.restore(snapshot)
         jobs = state.get("jobs")
         if not isinstance(jobs, dict):
@@ -385,8 +392,8 @@ class SchedulerRuntime:
         for name, job_state in jobs.items():
             if not isinstance(job_state, dict):
                 continue
-            snapshot = job_state.get("rate_limit_backoff")
-            if not isinstance(snapshot, dict):
+            snapshot = string_object_dict(job_state.get("rate_limit_backoff"))
+            if snapshot is None:
                 continue
             backoff = RateLimitBackoff()
             backoff.restore(snapshot)
@@ -412,11 +419,11 @@ class SchedulerRuntime:
             backoff = RateLimitBackoff()
             if row is not None:
                 try:
-                    snapshot = json.loads(str(row["value_json"]))
+                    decoded: object = json.loads(str(row["value_json"]))
                 except (TypeError, json.JSONDecodeError):
-                    snapshot = {}
-                if isinstance(snapshot, dict):
-                    backoff.restore(snapshot, wall_time=wall_time)
+                    decoded = {}
+                snapshot = string_object_dict(decoded) or {}
+                backoff.restore(snapshot, wall_time=wall_time)
             remaining = backoff.remaining()
             if remaining <= 0:
                 remaining = backoff.record(float(exc.retry_after))

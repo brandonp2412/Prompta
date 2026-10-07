@@ -11,7 +11,6 @@ import time
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 from .delivery_queue import DeliveryQueueStore
 from .jobs import (
@@ -25,6 +24,7 @@ from .jobs import (
 )
 from .persistence import DEFAULT_RUNTIME_PATH
 from .scheduler_runtime import SchedulerRuntime
+from .strict_types import int_value
 
 DEFAULT_JOBS_PATH = DEFAULT_RUNTIME_PATH
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
@@ -73,7 +73,6 @@ def _dispatch_remote(argv: list[str]) -> int | None:
         print("prompta: ssh is required for remote job management", file=sys.stderr)
         return 127
     return completed.returncode
-
 
 
 def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
@@ -177,7 +176,7 @@ def _format_next_due(runtime: SchedulerRuntime, job: PromptJob, now: float | Non
     return f"now ({when})" if remaining <= 0 else f"in {_format_duration(remaining)} ({when})"
 
 
-def _job_status_from_state(state: Mapping[str, Any]) -> tuple[str, str]:
+def _job_status_from_state(state: Mapping[str, object]) -> tuple[str, str]:
     if state.get("paused") is True:
         return "Ⅱ", "paused"
     status = str(state.get("status") or "pending")
@@ -190,7 +189,7 @@ def _job_status_from_state(state: Mapping[str, Any]) -> tuple[str, str]:
         return "●", "healthy"
     backoff = state.get("rate_limit_backoff")
     try:
-        backoff_attempts = int(backoff.get("attempts") or 0) if isinstance(backoff, dict) else 0
+        backoff_attempts = int_value(backoff.get("attempts")) if isinstance(backoff, dict) else 0
     except (TypeError, ValueError):
         backoff_attempts = 0
     if state.get("last_uncertain_send_at") or backoff_attempts > 0:
@@ -205,7 +204,7 @@ def _prompt_preview(prompt: str, width: int = 52) -> str:
     return single_line if len(single_line) <= width else single_line[: width - 1].rstrip() + "…"
 
 
-def _uses_color(stream: Any = None) -> bool:
+def _uses_color(stream: object = None) -> bool:
     stream = sys.stdout if stream is None else stream
     return bool(
         os.environ.get("NO_COLOR") is None
@@ -214,7 +213,7 @@ def _uses_color(stream: Any = None) -> bool:
     )
 
 
-def _paint(text: str, code: str, *, stream: Any = None) -> str:
+def _paint(text: str, code: str, *, stream: object = None) -> str:
     return f"\033[{code}m{text}\033[0m" if _uses_color(stream) else text
 
 

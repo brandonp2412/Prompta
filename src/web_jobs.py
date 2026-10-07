@@ -4,11 +4,21 @@ import math
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .scheduler_runtime import SchedulerRuntime
+from .strict_types import float_value, string_object_dict
+
+
+class ScheduledJobsPayload(TypedDict):
+    jobs: list[dict[str, object]]
+    server: str
+
+
+class WebJobActionResult(ScheduledJobsPayload):
+    ok: bool
 
 
 def _validated_interval_minutes(value: object) -> float:
@@ -27,9 +37,9 @@ def _validated_interval_minutes(value: object) -> float:
 
 def serialize_scheduled_jobs(
     jobs: list[PromptJob],
-    state_jobs: dict[str, Any],
-) -> list[dict[str, Any]]:
-    serialized: list[dict[str, Any]] = []
+    state_jobs: dict[str, object],
+) -> list[dict[str, object]]:
+    serialized: list[dict[str, object]] = []
     for job in jobs:
         raw_state = state_jobs.get(job.name)
         job_state = raw_state if isinstance(raw_state, dict) else {}
@@ -40,7 +50,7 @@ def serialize_scheduled_jobs(
 
         def state_float(key: str) -> float:
             try:
-                return float(job_state.get(key) or 0.0)
+                return float_value(job_state.get(key))
             except (TypeError, ValueError):
                 return 0.0
 
@@ -90,11 +100,9 @@ class WebJobService:
         queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
         return queue.cancel_pending(send_id, error=error)
 
-    def scheduled_jobs(self) -> dict[str, Any]:
+    def scheduled_jobs(self) -> ScheduledJobsPayload:
         state_payload = self.runtime.load_state()
-        state_jobs = state_payload.get("jobs") if isinstance(state_payload, dict) else {}
-        if not isinstance(state_jobs, dict):
-            state_jobs = {}
+        state_jobs = string_object_dict(state_payload.get("jobs")) or {}
         jobs = serialize_scheduled_jobs(list(load_jobs(self.jobs_path).values()), state_jobs)
         return {"jobs": jobs, "server": self.server_name}
 
@@ -102,7 +110,7 @@ class WebJobService:
         if self.start_scheduler is not None:
             self.start_scheduler()
 
-    def apply(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def apply(self, action: str, payload: dict[str, object]) -> WebJobActionResult:
         normalized_action = action.strip().lower()
         runtime = self.runtime
 
@@ -175,4 +183,5 @@ class WebJobService:
         else:
             raise ValueError("Unsupported jobs action: " + normalized_action)
 
-        return {"ok": True, **self.scheduled_jobs()}
+        scheduled = self.scheduled_jobs()
+        return {"ok": True, "jobs": scheduled["jobs"], "server": scheduled["server"]}

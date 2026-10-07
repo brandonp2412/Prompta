@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from typing import Any
 
 from .jobs import PromptJob, _next_daily_epoch
+from .strict_types import float_value
 
 INITIAL_DELAY_CAP_SECONDS = 30 * 60.0
 RECURRING_JITTER_FRACTION = 0.20
@@ -31,9 +31,9 @@ def scheduled_job_prompt(job: PromptJob) -> str:
     return job.prompt
 
 
-def _state_float(state: Mapping[str, Any], key: str) -> float:
+def _state_float(state: Mapping[str, object], key: str) -> float:
     try:
-        return float(state.get(key) or 0.0)
+        return float_value(state.get(key))
     except (TypeError, ValueError):
         return 0.0
 
@@ -44,7 +44,7 @@ def initial_jitter_window(job: PromptJob) -> float:
 
 def initial_due_at(
     job: PromptJob,
-    state: Mapping[str, Any],
+    state: Mapping[str, object],
     *,
     now: float,
     jitter_seconds: float = 0.0,
@@ -96,12 +96,12 @@ def next_due_at(
     )
 
 
-def due_in(job: PromptJob, state: Mapping[str, Any], *, now: float) -> float:
+def due_in(job: PromptJob, state: Mapping[str, object], *, now: float) -> float:
     try:
-        last_sent_at = float(state.get("last_sent_at") or 0.0)
-        last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
-        next_due = float(state.get("next_due_at_epoch") or 0.0)
-        initial_due = float(state.get("initial_due_at_epoch") or 0.0)
+        last_sent_at = float_value(state.get("last_sent_at"))
+        last_uncertain_send_at = float_value(state.get("last_uncertain_send_at"))
+        next_due = float_value(state.get("next_due_at_epoch"))
+        initial_due = float_value(state.get("initial_due_at_epoch"))
     except (TypeError, ValueError):
         return 0.0
     last_attempt_at = max(last_sent_at, last_uncertain_send_at)
@@ -122,10 +122,10 @@ def due_in(job: PromptJob, state: Mapping[str, Any], *, now: float) -> float:
     return 0.0
 
 
-def occurrence_marker(job: PromptJob, state: Mapping[str, Any]) -> float:
+def occurrence_marker(job: PromptJob, state: Mapping[str, object]) -> float:
     try:
-        last_sent_at = float(state.get("last_sent_at") or 0.0)
-        last_uncertain_send_at = float(state.get("last_uncertain_send_at") or 0.0)
+        last_sent_at = float_value(state.get("last_sent_at"))
+        last_uncertain_send_at = float_value(state.get("last_uncertain_send_at"))
     except (TypeError, ValueError):
         last_sent_at = 0.0
         last_uncertain_send_at = 0.0
@@ -145,19 +145,19 @@ def occurrence_marker(job: PromptJob, state: Mapping[str, Any]) -> float:
     return marker
 
 
-def occurrence_key(job: PromptJob, state: Mapping[str, Any]) -> str:
+def occurrence_key(job: PromptJob, state: Mapping[str, object]) -> str:
     marker = occurrence_marker(job, state)
     raw = f"{job.name}\0{prompt_hash(job.prompt)}\0{marker:.6f}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def receipt_is_pending(receipt: Mapping[str, Any] | None) -> bool:
+def receipt_is_pending(receipt: Mapping[str, object] | None) -> bool:
     if receipt is None:
         return False
     return str(receipt.get("status") or "") in _PENDING_DELIVERY_STATES
 
 
-def receipt_is_terminal(receipt: Mapping[str, Any] | None) -> bool:
+def receipt_is_terminal(receipt: Mapping[str, object] | None) -> bool:
     if receipt is None:
         return False
     return str(receipt.get("status") or "") in _TERMINAL_DELIVERY_STATES
@@ -165,7 +165,7 @@ def receipt_is_terminal(receipt: Mapping[str, Any] | None) -> bool:
 
 def should_enqueue_job(
     job: PromptJob,
-    state: Mapping[str, Any],
+    state: Mapping[str, object],
     *,
     now: float,
     pending_delivery: bool,
@@ -177,9 +177,9 @@ def should_enqueue_job(
     )
 
 
-def send_gap_remaining(*, last_attempt_at: Any, gap_seconds: float, now: float) -> float:
+def send_gap_remaining(*, last_attempt_at: object, gap_seconds: float, now: float) -> float:
     try:
-        last_attempt = float(last_attempt_at or 0.0)
+        last_attempt = float_value(last_attempt_at)
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, last_attempt + max(0.0, float(gap_seconds)) - now)
@@ -187,12 +187,12 @@ def send_gap_remaining(*, last_attempt_at: Any, gap_seconds: float, now: float) 
 
 def failure_retry_remaining(
     *,
-    persisted_retry_until: Any,
+    persisted_retry_until: object,
     in_memory_retry_until: float,
     now: float,
 ) -> float:
     try:
-        persisted = float(persisted_retry_until or 0.0)
+        persisted = float_value(persisted_retry_until)
     except (TypeError, ValueError):
         persisted = 0.0
     return max(0.0, max(persisted, float(in_memory_retry_until)) - now)
@@ -207,8 +207,8 @@ def failure_state_updates(
     *,
     status_at: float,
     retry_until: float | None = None,
-) -> dict[str, Any]:
-    updates: dict[str, Any] = {
+) -> dict[str, object]:
+    updates: dict[str, object] = {
         "status": "failing",
         "status_message": message,
         "status_at": float(status_at),
@@ -224,7 +224,7 @@ def pending_delivery_updates(
     send_id: str,
     idempotency_key: str,
     queued_at: float,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     return {
         "last_enqueued_at": float(queued_at),
         "last_delivery_send_id": send_id,
@@ -241,21 +241,21 @@ def pending_delivery_updates(
 
 
 def terminal_reconciliation_updates(
-    state: Mapping[str, Any],
-    receipt: Mapping[str, Any],
+    state: Mapping[str, object],
+    receipt: Mapping[str, object],
     *,
     fallback_completed_at: float,
     jitter_seconds: float = 0.0,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     send_id = str(receipt.get("send_id") or "")
     if not send_id or str(state.get("last_completed_delivery_send_id") or "") == send_id:
         return None
 
-    completed_at = float(
+    completed_at = float_value(
         receipt.get("finished_at")
         or receipt.get("updated_at")
-        or receipt.get("created_at")
-        or fallback_completed_at
+        or receipt.get("created_at"),
+        default=fallback_completed_at,
     )
     one_time = bool(state.get("pending_delivery_one_time"))
     daily_at = str(state.get("pending_delivery_daily_at") or "") or None
@@ -263,7 +263,7 @@ def terminal_reconciliation_updates(
     exact_interval = bool(state.get("pending_delivery_exact_interval"))
     status = str(receipt.get("status") or "")
 
-    updates: dict[str, Any] = {
+    updates: dict[str, object] = {
         "initial_due_at_epoch": 0.0,
         "next_due_at_epoch": next_due_at(
             completed_at=completed_at,

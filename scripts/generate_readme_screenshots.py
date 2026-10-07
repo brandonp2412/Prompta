@@ -179,7 +179,7 @@ def _ansi_html(text: str) -> str:
             styles.append("font-weight:700")
         if dim:
             styles.append("opacity:.6")
-        if foreground in ANSI_COLORS:
+        if foreground is not None and foreground in ANSI_COLORS:
             styles.append(f"color:{ANSI_COLORS[foreground]}")
         if styles:
             parts.append(f'<span style="{";".join(styles)}">{escaped}</span>')

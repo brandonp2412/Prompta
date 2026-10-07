@@ -1,4 +1,4 @@
-- Do not disable lint/type-check rules, add blanket suppression comments, or weaken compiler settings to make `bun check` pass. Fix the underlying types and behavior instead.
+- Do not disable lint/type-check rules, add blanket suppression comments, use `Any`/`cast`/`no_type_check` escape hatches, or weaken compiler settings to make checks pass. Fix the underlying types and behavior instead. Python must pass full-repo Ruff and Ty strictness; TypeScript must remain in strict mode.
 - At the end of every work session, integrate validated work into `main`, push `main`, and leave no completed work stranded only in a worktree.
 - Serialize all `main` integration with the shared lock file `/home/brandon/prompta/.git/prompta-main-merge.lock`. Acquire it with `flock` before updating/rebasing against `main`, fast-forwarding or merging `main`, or pushing `main`, and hold it until the push completes.
 - If the main-merge lock is already held, wait for it instead of attempting concurrent integration. Never delete the lock file to bypass another worker; lock ownership is released when the owning process exits.

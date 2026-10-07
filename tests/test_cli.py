@@ -15,7 +15,9 @@ from prompta.scheduler_service import DurableSchedulerProducer
 def _run_cli(monkeypatch, capsys, *args: str) -> str:
     monkeypatch.setattr(sys, "argv", ["prompta", *args])
     main()
-    return capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert isinstance(output, str)
+    return output
 
 
 def _paths(runtime: Path) -> tuple[str, str, str, str]:

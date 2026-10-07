@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
 from urllib.parse import urlsplit
 
 from .browser_script_loader import load_browser_script
+from .strict_types import int_value, json_object
 
 
 class BrowsingContextUnavailableError(RuntimeError):
@@ -21,7 +20,7 @@ class BrowserDriverBase:
         self.url = url
         self.context = ""
         self._network_subscribed = False
-        self._send_capture: dict[str, Any] | None = None
+        self._send_capture: dict[str, object] | None = None
         self.needs_browser_restart = False
 
     @staticmethod
@@ -31,23 +30,23 @@ class BrowserDriverBase:
     async def arm_page_send_probe(self) -> None:
         await self.eval(load_browser_script("arm_page_send_probe.js"))
 
-    async def page_send_probe(self) -> dict[str, Any]:
+    async def page_send_probe(self) -> dict[str, object]:
         raw = await self.eval(load_browser_script("page_send_probe.js"))
-        return json.loads(raw or "{}")
+        return json_object(raw, label="page send probe")
 
-    async def clear_page_send_probe(self) -> dict[str, Any]:
+    async def clear_page_send_probe(self) -> dict[str, object]:
         raw = await self.eval(load_browser_script("clear_page_send_probe.js"))
-        return json.loads(raw or "{}")
+        return json_object(raw, label="cleared page send probe")
 
     @staticmethod
-    def captured_send_response(capture: dict[str, Any]) -> tuple[str, int] | None:
+    def captured_send_response(capture: dict[str, object]) -> tuple[str, int] | None:
         request_id = str(capture.get("request_id") or "")
-        status = int(capture.get("status") or 0)
+        status = int_value(capture.get("status"))
         if request_id and bool(capture.get("response_started")) and 200 <= status < 400:
             return request_id, status
         return None
 
-    def clear_send_capture(self, capture: dict[str, Any]) -> None:
+    def clear_send_capture(self, capture: dict[str, object]) -> None:
         if self._send_capture is capture:
             self._send_capture = None
 
@@ -57,12 +56,12 @@ class BrowserDriverBase:
         *,
         await_promise: bool = False,
         context: str | None = None,
-    ) -> Any:
+    ) -> object:
         raise NotImplementedError
 
     async def ensure_token(self) -> str:
         raw = await self.eval(load_browser_script("ensure_token.js"), await_promise=True)
-        payload = json.loads(raw or "{}")
+        payload = json_object(raw, label="token probe")
         token = str(payload.get("token") or "")
         if not payload.get("ok") or not token:
             raise RuntimeError("Prompta browser profile is not logged into ChatGPT")

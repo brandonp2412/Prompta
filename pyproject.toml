@@ -33,10 +33,53 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+extend-select = [
+    "ANN",
+    "PYI",
+    "PGH003",
+    "PGH004",
+    "TID251",
+]
 ignore = ["E501"]
+preview = true
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = false
+ignore-fully-untyped = false
+suppress-none-returning = false
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typing.Any".msg = "Model the type or use object and narrow it."
+"typing.cast".msg = "Prove or narrow the type instead of using cast()."
+"typing.no_type_check".msg = "Do not disable type checking."
+"typing_extensions.Any".msg = "Model the type or use object and narrow it."
+"typing_extensions.cast".msg = "Prove or narrow the type instead of using cast()."
+"typing_extensions.no_type_check".msg = "Do not disable type checking."
 
 [tool.ruff.lint.isort]
 known-first-party = ["prompta"]
+
+[tool.ty.rules]
+missing-type-argument = "error"
+unsound-assignment = "error"
+unsound-return-statement = "error"
+unsound-yield = "error"
+disjoint-cast = "error"
+redundant-cast = "error"
+dynamic-function-decorator-return = "error"
+blanket-ignore-comment = "error"
+unused-ignore-comment = "error"
+unused-type-ignore-comment = "error"
+ignore-comment-unknown-rule = "error"
+possibly-unresolved-reference = "error"
+unsupported-dynamic-base = "error"
+
+[tool.ty.analysis]
+strict-equality-semantics = true
+strict-generic-narrowing = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -48,6 +91,6 @@ config-settings = { editable_mode = "strict" }
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "ruff>=0.16.6",
-    "ty>=0.0.79",
+    "ruff>=0.16.10",
+    "ty>=0.0.84",
 ]

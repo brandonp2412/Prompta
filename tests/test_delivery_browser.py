@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 
@@ -18,7 +18,7 @@ class FakeDriver:
         self.closed_contexts: list[str] = []
         self.closed = False
         self.probe_armed = False
-        self.capture: dict[str, Any] = {
+        self.capture: dict[str, object] = {
             "status": 200,
             "response_started": True,
             "request_id": "request-1",
@@ -40,13 +40,13 @@ class FakeDriver:
     async def select_effort_model(self, _model: str) -> None:
         return None
 
-    async def set_effort_power_position(self, _position: int) -> dict[str, Any]:
+    async def set_effort_power_position(self, _position: int) -> dict[str, object]:
         return {"text": "High", "description": ""}
 
     async def dismiss_transient_controls(self) -> None:
         return None
 
-    async def dom_state(self) -> dict[str, Any]:
+    async def dom_state(self) -> dict[str, object]:
         return {"composer_text": self.composer, "rate_limit_text": ""}
 
     async def eval(self, _script: str) -> str:
@@ -58,7 +58,7 @@ class FakeDriver:
     async def arm_page_send_probe(self) -> None:
         self.probe_armed = True
 
-    def arm_send_capture(self) -> dict[str, Any]:
+    def arm_send_capture(self) -> dict[str, object]:
         return self.capture
 
     async def type_message(self, message: str) -> None:
@@ -67,13 +67,13 @@ class FakeDriver:
     async def click_send(self) -> None:
         self.composer = ""
 
-    async def page_send_probe(self) -> dict[str, Any]:
+    async def page_send_probe(self) -> dict[str, object]:
         return {"committed": True, "response_status": 200}
 
-    def captured_send_response(self, _capture: dict[str, Any]) -> tuple[str, int]:
+    def captured_send_response(self, _capture: dict[str, object]) -> tuple[str, int]:
         return ("request-1", 200)
 
-    def clear_send_capture(self, capture: dict[str, Any]) -> None:
+    def clear_send_capture(self, capture: dict[str, object]) -> None:
         assert capture is self.capture
 
     async def clear_page_send_probe(self) -> None:
@@ -93,7 +93,7 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
     driver = FakeDriver()
     sender = BrowserDeliverySender(
         tmp_path / "runtime.sqlite3",
-        driver_factory=lambda: cast(PlaywrightDriver, driver),
+        driver_factory=lambda: driver,
     )
 
     await sender._send_browser("Do the scheduled work")
@@ -131,7 +131,7 @@ async def test_rate_limit_detection_uses_semantic_active_surfaces(tmp_path: Path
         def nth(self, index: int) -> Candidate:
             return self.candidates[index]
 
-        def get_by_text(self, pattern: Any) -> Collection:
+        def get_by_text(self, pattern: re.Pattern[str]) -> Collection:
             return Collection(
                 [candidate for candidate in self.candidates if pattern.search(candidate.text)]
             )
@@ -157,7 +157,7 @@ async def test_rate_limit_detection_uses_semantic_active_surfaces(tmp_path: Path
             return Collection([Candidate("Too many requests", visible=False)])
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
-    texts = await driver._rate_limit_texts(cast(Any, Page()))
+    texts = await driver._rate_limit_texts(Page())
 
     assert texts == ["You've reached your usage limit"]
 
@@ -191,7 +191,7 @@ async def test_selection_state_accepts_accessibility_role_churn(
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    assert await driver._selection_state(cast(Any, Control())) is expected
+    assert await driver._selection_state(Control()) is expected
 
 
 @pytest.mark.asyncio
@@ -221,7 +221,7 @@ async def test_first_usable_accepts_unique_visible_candidate_when_composed_guard
     candidate = Candidate()
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    found = await driver._first_usable([cast(Any, Collection([candidate]))])
+    found = await driver._first_usable([Collection([candidate])])
 
     assert found is candidate
 
@@ -252,7 +252,7 @@ async def test_first_usable_refuses_ambiguous_visible_candidates_when_guard_fals
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    found = await driver._first_usable([cast(Any, Collection([Candidate(), Candidate()]))])
+    found = await driver._first_usable([Collection([Candidate(), Candidate()])])
 
     assert found is None
 
@@ -291,12 +291,22 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
         def nth(self, index: int) -> Control:
             return self.candidates[index]
 
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
     class Page:
         def __init__(self, control: Control) -> None:
             self.control = control
 
-        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
-            name = kwargs.get("name")
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Collection:
             if role == "button" and name is not None and name.search("Chat"):
                 return Collection([self.control])
             return Collection([])
@@ -304,9 +314,9 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
     control = Control()
     page = Page(control)
     driver = PlaywrightDriver(profile=tmp_path / "profile")
-    monkeypatch.setattr(driver, "_page", lambda _context=None: cast(Any, page))
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
-    async def no_ready_composer(_page: Any) -> Any:
+    async def no_ready_composer(_page: object) -> object:
         return None
 
     monkeypatch.setattr(driver, "_composer", no_ready_composer)
@@ -324,9 +334,12 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
         def __init__(self, labels: list[str]) -> None:
             self.labels = labels
 
-        async def evaluate(self, script: str) -> Any:
+        async def evaluate(self, script: str) -> object:
             if "new Set(labels)" in script:
                 return self.labels
+            return True
+
+        async def is_visible(self) -> bool:
             return True
 
         async def is_enabled(self) -> bool:
@@ -353,7 +366,7 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
     composer = Candidate(["Ask ChatGPT"])
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    found = await driver._hydrated_composer(cast(Any, Page([unrelated, composer])))
+    found = await driver._hydrated_composer(Page([unrelated, composer]))
 
     assert found is composer
 
@@ -361,8 +374,11 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
 @pytest.mark.asyncio
 async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Path) -> None:
     class Candidate:
-        async def evaluate(self, script: str) -> Any:
+        async def evaluate(self, script: str) -> object:
             return [] if "new Set(labels)" in script else True
+
+        async def is_visible(self) -> bool:
+            return True
 
         async def is_enabled(self) -> bool:
             return True
@@ -383,7 +399,7 @@ async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Pat
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    assert await driver._hydrated_composer(cast(Any, Page())) is None
+    assert await driver._hydrated_composer(Page()) is None
 
 
 @pytest.mark.asyncio
@@ -394,9 +410,9 @@ async def test_effort_trigger_accepts_explicit_label_without_popup_metadata(
     marker = object()
     page = object()
     driver = PlaywrightDriver(profile=tmp_path / "profile")
-    monkeypatch.setattr(driver, "_page", lambda _context=None: cast(Any, page))
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
-    async def semantic_button(candidate_page: Any, _name: Any) -> Any:
+    async def semantic_button(candidate_page: object, _name: object) -> object:
         assert candidate_page is page
         return marker
 
@@ -427,12 +443,22 @@ async def test_model_selector_matches_current_public_label(tmp_path: Path) -> No
         def nth(self, index: int) -> Control:
             return self.candidates[index]
 
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
     class Page:
         def __init__(self, control: Control) -> None:
             self.control = control
 
-        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
-            name = kwargs.get("name")
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Collection:
             if role == "button" and name is not None and name.search("Select ChatGPT model"):
                 return Collection([self.control])
             return Collection([])
@@ -440,7 +466,7 @@ async def test_model_selector_matches_current_public_label(tmp_path: Path) -> No
     control = Control()
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    found = await driver._model_selector_control(cast(Any, Page(control)))
+    found = await driver._model_selector_control(Page(control))
 
     assert found is control
 
@@ -472,13 +498,23 @@ async def test_model_selector_prefers_visible_submenu_when_composed_guard_false(
         def nth(self, index: int) -> Control:
             return self.candidates[index]
 
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
     class Page:
         def __init__(self, inner: Control, outer: Control) -> None:
             self.inner = inner
             self.outer = outer
 
-        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
-            name = kwargs.get("name")
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Collection:
             if role == "menuitem" and name is not None and name.search(self.inner.label):
                 return Collection([self.inner])
             if role == "button" and name is not None and name.search(self.outer.label):
@@ -489,7 +525,7 @@ async def test_model_selector_prefers_visible_submenu_when_composed_guard_false(
     outer = Control("Select ChatGPT model")
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    found = await driver._model_selector_control(cast(Any, Page(inner, outer)))
+    found = await driver._model_selector_control(Page(inner, outer))
 
     assert found is inner
 
@@ -516,25 +552,38 @@ async def test_model_selector_ignores_unrelated_visible_popup(tmp_path: Path) ->
         def nth(self, index: int) -> Control:
             return self.candidates[index]
 
+        def locator(self, _selector: str) -> Collection:
+            return Collection([])
+
     class Scope:
         def __init__(self, control: Control) -> None:
             self.control = control
+
+        async def count(self) -> int:
+            return 0
+
+        def nth(self, index: int) -> Control:
+            raise IndexError(index)
 
         def locator(self, _selector: str) -> Collection:
             return Collection([self.control])
 
     class Page(Scope):
-        def get_by_role(self, role: str, **kwargs: Any) -> Any:
-            if role == "main" and not kwargs:
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Scope | Collection:
+            if role == "main" and name is None:
                 return Scope(self.control)
-            name = kwargs.get("name")
             if role == "button" and name is not None and name.search("Plugins"):
                 return Collection([self.control])
             return Collection([])
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
-    found = await driver._model_selector_control(cast(Any, Page(Control())))
+    found = await driver._model_selector_control(Page(Control()))
 
     assert found is None
 
@@ -580,10 +629,10 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
         def nth(self, index: int) -> Option:
             return self.candidates[index]
 
-        def filter(self, **_kwargs: Any) -> Collection:
+        def filter(self, **_kwargs: object) -> Collection:
             return self
 
-        def get_by_role(self, _role: str, **_kwargs: Any) -> Collection:
+        def get_by_role(self, _role: str, **_kwargs: object) -> Collection:
             return Collection([])
 
         def locator(self, _selector: str) -> Collection:
@@ -602,8 +651,12 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
             self.option = option
             self.keyboard = Keyboard()
 
-        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
-            name = kwargs.get("name")
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Collection:
             if (
                 self.state.stage >= 2
                 and role == "menuitemradio"
@@ -622,16 +675,16 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
     option = Option()
     page = Page(state, option)
     driver = PlaywrightDriver(profile=tmp_path / "profile")
-    monkeypatch.setattr(driver, "_page", lambda _context=None: cast(Any, page))
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
-    async def selector(_page: Any) -> Any:
+    async def selector(_page: object) -> object:
         if state.stage == 0:
             return outer
         if state.stage == 1:
             return inner
         return None
 
-    async def unexpected_trigger() -> Any:
+    async def unexpected_trigger() -> object:
         raise AssertionError("semantic model selectors should be sufficient")
 
     monkeypatch.setattr(driver, "_model_selector_control", selector)
@@ -677,7 +730,7 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
         def nth(self, index: int) -> Option:
             return self.candidates[index]
 
-        def filter(self, **_kwargs: Any) -> Collection:
+        def filter(self, **_kwargs: object) -> Collection:
             return self
 
     class Keyboard:
@@ -692,8 +745,12 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
             self.option = option
             self.keyboard = Keyboard()
 
-        def get_by_role(self, role: str, **kwargs: Any) -> Collection:
-            name = kwargs.get("name")
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Collection:
             if role == "menuitem" and name is not None and name.search("GPT-5.6 Sol"):
                 return Collection([self.option])
             return Collection([])
@@ -701,7 +758,7 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
     option = Option()
     page = Page(option)
     driver = PlaywrightDriver(profile=tmp_path / "profile")
-    monkeypatch.setattr(driver, "_page", lambda _context=None: cast(Any, page))
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
     await driver.select_effort_model("GPT-5.6 Sol")
 

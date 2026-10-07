@@ -7,11 +7,11 @@ import sqlite3
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
 from .persistence import connect_sqlite
+from .strict_types import float_value
 
 SERVICE_STALE_AFTER_SECONDS = {
     "ui": 20.0,
@@ -22,18 +22,18 @@ SERVICE_STALE_AFTER_SECONDS = {
 
 
 def build_service_health_snapshot(
-    rows: Iterable[Any],
+    rows: Iterable[sqlite3.Row],
     *,
     now: float,
     stale_after_seconds: Mapping[str, float] = SERVICE_STALE_AFTER_SECONDS,
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, dict[str, object]]:
     stored = {str(row["service"]): row for row in rows}
-    services: dict[str, dict[str, Any]] = {}
+    services: dict[str, dict[str, object]] = {}
     for service, stale_after in stale_after_seconds.items():
         row = stored.get(service)
-        heartbeat_at = float(row["heartbeat_at"] or 0.0) if row is not None else 0.0
+        heartbeat_at = float_value(row["heartbeat_at"]) if row is not None else 0.0
         activity = str(row["activity"] or "") if row is not None else ""
-        activity_started_at = float(row["activity_started_at"] or 0.0) if row is not None else 0.0
+        activity_started_at = float_value(row["activity_started_at"]) if row is not None else 0.0
         heartbeat_age = max(0.0, now - heartbeat_at) if heartbeat_at > 0 else None
         activity_age = max(0.0, now - activity_started_at) if activity_started_at > 0 else None
         services[service] = {
@@ -146,7 +146,7 @@ class ServiceHealthStore:
         except (OSError, sqlite3.DatabaseError):
             return False
 
-    def snapshot(self, *, now: float | None = None) -> dict[str, dict[str, Any]]:
+    def snapshot(self, *, now: float | None = None) -> dict[str, dict[str, object]]:
         current = time.time() if now is None else float(now)
         try:
             with self._connect() as connection:

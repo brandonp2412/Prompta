@@ -7,14 +7,14 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from .browser_script_loader import load_browser_script
-from .browser_session import BrowserSession
+from .browser_session import BrowserDriver, BrowserSession
 from .playwright_driver import PlaywrightDriver
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .scheduler_runtime import SchedulerRuntime
 from .send_outcome import SendOutcomeUnknownError
+from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class BrowserDeliverySender:
         debugger_address: str | None = None,
         flaresolverr_url: str | None = None,
         auth_timeout_seconds: float = 30.0,
-        driver_factory: Callable[[], PlaywrightDriver] | None = None,
+        driver_factory: Callable[[], BrowserDriver] | None = None,
         send_timeout_seconds: float = _DEFAULT_SEND_TIMEOUT_SECONDS,
     ) -> None:
         self.state_path = state_path.expanduser()
@@ -65,7 +65,7 @@ class BrowserDeliverySender:
         self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
 
-    def _new_driver(self) -> PlaywrightDriver:
+    def _new_driver(self) -> BrowserDriver:
         if self.driver_factory is not None:
             return self.driver_factory()
         return PlaywrightDriver(
@@ -117,9 +117,9 @@ class BrowserDeliverySender:
 
     async def _send_browser(self, message: str) -> None:
         browser = BrowserSession("https://chatgpt.com", self._new_driver)
-        driver: PlaywrightDriver | None = None
+        driver: BrowserDriver | None = None
         context = ""
-        capture: dict[str, Any] | None = None
+        capture: dict[str, object] | None = None
         probe_armed = False
         send_attempted = False
 
@@ -173,8 +173,8 @@ class BrowserDeliverySender:
                     self._record_send_attempt()
                     send_attempted = True
 
-                last_state: dict[str, Any] = {}
-                last_probe: dict[str, Any] = {}
+                last_state: dict[str, object] = {}
+                last_probe: dict[str, object] = {}
                 last_path = baseline_path
                 last_transport_confirmed = False
                 deadline = asyncio.get_running_loop().time() + self.send_timeout_seconds
@@ -200,7 +200,7 @@ class BrowserDeliverySender:
                     if is_rate_limited_text(rate_limit_text):
                         raise RateLimitError.from_text(rate_limit_text)
 
-                    status = int(probe.get("response_status") or (capture or {}).get("status") or 0)
+                    status = int_value(probe.get("response_status") or (capture or {}).get("status"))
                     transport_confirmed = bool(probe.get("committed")) or (
                         capture is not None and driver.captured_send_response(capture) is not None
                     )
@@ -249,7 +249,7 @@ class BrowserDeliverySender:
                     "prompta could not prove the fresh-chat prompt was accepted "
                     + f"(composer_empty={not bool(final_composer)}, "
                     + f"transport_confirmed={last_transport_confirmed}, "
-                    + f"probe_status={int(last_probe.get('response_status') or 0)}, "
+                    + f"probe_status={int_value(last_probe.get('response_status'))}, "
                     + f"path={last_path or '/'})"
                 )
                 if dispatch_error is not None:

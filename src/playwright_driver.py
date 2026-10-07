@@ -6,12 +6,14 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Literal, Protocol, TypeVar
 from urllib.parse import urlsplit
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
+from playwright._impl._api_structures import SetCookieParam
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -39,6 +41,7 @@ from .browser_ownership import (
 )
 from .browser_script_loader import load_browser_script
 from .send_outcome import SendOutcomeUnknownError
+from .strict_types import int_value
 from .webdriver import BrowserDriverBase, BrowsingContextUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -72,6 +75,85 @@ _CLOUDFLARE_CHALLENGE_RE = re.compile(
     re.IGNORECASE,
 )
 _CLOUDFLARE_FRAME_RE = re.compile(r"(?:cloudflare|security verification|challenge)", re.IGNORECASE)
+
+
+class _UsableCandidate(Protocol):
+    async def is_visible(self) -> bool: ...
+    async def is_enabled(self) -> bool: ...
+    async def evaluate(self, expression: str, /) -> object: ...
+
+
+_UsableT = TypeVar("_UsableT", bound=_UsableCandidate)
+_UsableT_co = TypeVar("_UsableT_co", bound=_UsableCandidate, covariant=True)
+
+
+class _UsableCollection(Protocol[_UsableT_co]):
+    async def count(self) -> int: ...
+    def nth(self, index: int, /) -> _UsableT_co: ...
+
+
+class _LocatorPage(Protocol[_UsableT_co]):
+    def locator(self, selector: str, /) -> _UsableCollection[_UsableT_co]: ...
+
+
+class _AttributeControl(Protocol):
+    async def get_attribute(self, name: str, /) -> str | None: ...
+
+
+class _RateLimitCandidate(Protocol):
+    async def is_visible(self) -> bool: ...
+    async def evaluate(self, expression: str, /) -> object: ...
+    async def inner_text(self) -> str: ...
+
+
+_RateT = TypeVar("_RateT", bound=_RateLimitCandidate)
+_RateT_co = TypeVar("_RateT_co", bound=_RateLimitCandidate, covariant=True)
+_RateRole = Literal["alert", "status", "dialog", "main"]
+
+
+class _RateLimitCollection(Protocol[_RateT_co]):
+    async def count(self) -> int: ...
+    def nth(self, index: int, /) -> _RateT_co: ...
+    def get_by_text(self, pattern: re.Pattern[str], /) -> _RateLimitCollection[_RateT_co]: ...
+
+
+class _RateLimitPage(Protocol[_RateT_co]):
+    def get_by_role(self, role: _RateRole, /) -> _RateLimitCollection[_RateT_co]: ...
+    def locator(self, selector: str, /) -> _RateLimitCollection[_RateT_co]: ...
+
+
+_ModelRole = Literal[
+    "menuitem",
+    "menuitemradio",
+    "option",
+    "radio",
+    "tab",
+    "combobox",
+    "button",
+    "main",
+]
+
+
+class _LocatorScope(Protocol[_UsableT_co]):
+    def locator(self, selector: str, /) -> _UsableCollection[_UsableT_co]: ...
+
+
+class _ModelCollection(
+    _UsableCollection[_UsableT_co],
+    _LocatorScope[_UsableT_co],
+    Protocol[_UsableT_co],
+):
+    pass
+
+
+class _ModelPage(_LocatorScope[_UsableT_co], Protocol[_UsableT_co]):
+    def get_by_role(
+        self,
+        role: _ModelRole,
+        /,
+        *,
+        name: re.Pattern[str] | None = None,
+    ) -> _ModelCollection[_UsableT_co]: ...
 
 
 class ChromeDebuggerUnavailableError(RuntimeError):
@@ -289,10 +371,10 @@ class PlaywrightDriver(BrowserDriverBase):
         if capture is not None and capture.get("request_obj") is request:
             capture["fetch_error"] = str(request.failure or "request failed")
 
-    def arm_send_capture(self) -> dict[str, Any]:
+    def arm_send_capture(self) -> dict[str, object]:
         if not self.is_connected:
             raise RuntimeError("Playwright browser is not connected")
-        capture: dict[str, Any] = {
+        capture: dict[str, object] = {
             "request_id": "",
             "request_obj": None,
             "status": 0,
@@ -303,18 +385,18 @@ class PlaywrightDriver(BrowserDriverBase):
         self._send_capture = capture
         return capture
 
-    def clear_send_capture(self, capture: dict[str, Any]) -> None:
+    def clear_send_capture(self, capture: dict[str, object]) -> None:
         if self._send_capture is capture:
             self._send_capture = None
         capture.pop("request_obj", None)
 
     async def _first_usable(
         self,
-        locators: list[Locator],
+        locators: Sequence[_UsableCollection[_UsableT]],
         *,
         enabled: bool = True,
         limit: int = 12,
-    ) -> Locator | None:
+    ) -> _UsableT | None:
         # Prefer the conservative composed-tree signal, but do not make it a
         # single point of failure. ChatGPT popovers can be visibly interactive
         # while a wrapper's transient CSS makes that guard report false. For a
@@ -326,7 +408,7 @@ class PlaywrightDriver(BrowserDriverBase):
             except PlaywrightError:
                 continue
 
-            browser_usable: list[Locator] = []
+            browser_usable: list[_UsableT] = []
             for index in range(count):
                 candidate = locator.nth(index)
                 try:
@@ -379,7 +461,7 @@ class PlaywrightDriver(BrowserDriverBase):
             return browser_usable[0]
         return None
 
-    async def _hydrated_composer(self, page: Page) -> Locator | None:
+    async def _hydrated_composer(self, page: _LocatorPage[_UsableT]) -> _UsableT | None:
         # ChatGPT hydrates its initial textarea into a contenteditable editor. The
         # editor can briefly have no rendered box, so accessibility/visibility APIs
         # alone are not sufficient. Discover by editable capability, then prefer a
@@ -390,8 +472,8 @@ class PlaywrightDriver(BrowserDriverBase):
         except PlaywrightError:
             return None
 
-        named: list[Locator] = []
-        active: list[Locator] = []
+        named: list[_UsableT] = []
+        active: list[_UsableT] = []
         for index in range(count):
             candidate = editables.nth(index)
             try:
@@ -548,7 +630,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
         return None
 
-    async def _selection_state(self, control: Locator) -> bool | None:
+    async def _selection_state(self, control: _AttributeControl) -> bool | None:
         """Return semantic selected state without depending on one widget role."""
 
         saw_false = False
@@ -673,7 +755,7 @@ class PlaywrightDriver(BrowserDriverBase):
         *,
         await_promise: bool = False,
         context: str | None = None,
-    ) -> Any:
+    ) -> object:
         del await_promise  # Playwright awaits returned promises automatically.
         page = self._page(context)
         try:
@@ -787,7 +869,7 @@ class PlaywrightDriver(BrowserDriverBase):
         self,
         url: str,
         browser_user_agent: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, object]]:
         if not self.flaresolverr_url:
             return []
         body = json.dumps(
@@ -841,9 +923,9 @@ class PlaywrightDriver(BrowserDriverBase):
         browser_context = self._browser_context
         if browser_context is None:
             raise RuntimeError("Playwright browser context is not connected")
-        converted: list[dict[str, Any]] = []
+        converted: list[SetCookieParam] = []
         for raw_cookie in cookies:
-            cookie: dict[str, Any] = {
+            cookie: SetCookieParam = {
                 "name": str(raw_cookie["name"]),
                 "value": str(raw_cookie.get("value") or ""),
             }
@@ -854,18 +936,24 @@ class PlaywrightDriver(BrowserDriverBase):
                 cookie["path"] = str(path or "/")
             else:
                 cookie["url"] = url
-            if isinstance(raw_cookie.get("secure"), bool):
-                cookie["secure"] = raw_cookie["secure"]
-            if isinstance(raw_cookie.get("httpOnly"), bool):
-                cookie["httpOnly"] = raw_cookie["httpOnly"]
+            secure = raw_cookie.get("secure")
+            if isinstance(secure, bool):
+                cookie["secure"] = secure
+            http_only = raw_cookie.get("httpOnly")
+            if isinstance(http_only, bool):
+                cookie["httpOnly"] = http_only
             expiry = raw_cookie.get("expires")
             if isinstance(expiry, (int, float)) and expiry > 0:
                 cookie["expires"] = float(expiry)
             same_site = raw_cookie.get("sameSite")
-            if same_site in {"Lax", "Strict", "None"}:
-                cookie["sameSite"] = same_site
+            if same_site == "Lax":
+                cookie["sameSite"] = "Lax"
+            elif same_site == "Strict":
+                cookie["sameSite"] = "Strict"
+            elif same_site == "None":
+                cookie["sameSite"] = "None"
             converted.append(cookie)
-        await browser_context.add_cookies(cast(Any, converted))
+        await browser_context.add_cookies(converted)
         await page.reload(wait_until="domcontentloaded")
         logger.info("Applied %d Cloudflare clearance cookie(s) from FlareSolverr", len(converted))
 
@@ -1021,12 +1109,12 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.15)
         raise RuntimeError("ChatGPT send button did not become enabled")
 
-    async def _rate_limit_texts(self, page: Page) -> list[str]:
+    async def _rate_limit_texts(self, page: _RateLimitPage[_RateT]) -> list[str]:
         # Rate-limit UI has changed wrappers and private test IDs repeatedly.
         # Search durable accessibility surfaces first, then matching text inside
         # the current chat/dialog surface. The fresh-chat main landmark avoids
         # mistaking sidebar history for an active rate-limit notice.
-        sources: tuple[Locator, ...] = (
+        sources: tuple[_RateLimitCollection[_RateT], ...] = (
             page.get_by_role("alert"),
             page.get_by_role("status"),
             page.locator('[aria-live]:not([aria-live="off"])'),
@@ -1055,7 +1143,7 @@ class PlaywrightDriver(BrowserDriverBase):
                     texts.append(text)
         return texts
 
-    async def dom_state(self) -> dict[str, Any]:
+    async def dom_state(self) -> dict[str, object]:
         page = self._page()
         composer = await self._composer(page)
         composer_text = await self._composer_text(composer) if composer is not None else ""
@@ -1311,7 +1399,7 @@ class PlaywrightDriver(BrowserDriverBase):
             await asyncio.sleep(0.05)
         raise RuntimeError("ChatGPT Power control did not become available")
 
-    async def _model_selector_control(self, page: Page) -> Locator | None:
+    async def _model_selector_control(self, page: _ModelPage[_UsableT]) -> _UsableT | None:
         # Require model meaning, not merely popup ownership. A lone unrelated popup
         # (for example Plugins) must never become the model selector just because
         # ChatGPT has not hydrated the real control yet.
@@ -1338,7 +1426,7 @@ class PlaywrightDriver(BrowserDriverBase):
         # Tolerate role/tag churn only when one interactive control has a public
         # semantic label that still means model selection. Do not fall back to
         # arbitrary aria-haspopup elements.
-        scopes: tuple[Page | Locator, ...] = (page.get_by_role("main"), page)
+        scopes: tuple[_LocatorScope[_UsableT], ...] = (page.get_by_role("main"), page)
         for scope in scopes:
             controls = scope.locator(
                 "button,input,select,summary,[role],[tabindex],[aria-label],"
@@ -1349,7 +1437,7 @@ class PlaywrightDriver(BrowserDriverBase):
             except PlaywrightError:
                 continue
 
-            matched: list[Locator] = []
+            matched: list[_UsableT] = []
             for index in range(count):
                 item = controls.nth(index)
                 try:
@@ -1454,7 +1542,7 @@ class PlaywrightDriver(BrowserDriverBase):
 
         raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
 
-    async def effort_power_info(self) -> dict[str, Any]:
+    async def effort_power_info(self) -> dict[str, object]:
         page = self._page()
         power = await self._power_control(page)
         if power is None:
@@ -1497,7 +1585,7 @@ class PlaywrightDriver(BrowserDriverBase):
             "description": description,
         }
 
-    async def set_effort_power_position(self, position: int) -> dict[str, Any]:
+    async def set_effort_power_position(self, position: int) -> dict[str, object]:
         await self._open_effort_menu()
         page = self._page()
         power = await self._power_control(page)
@@ -1505,8 +1593,8 @@ class PlaywrightDriver(BrowserDriverBase):
             raise RuntimeError("ChatGPT Power control did not become available")
 
         info = await self.effort_power_info()
-        current = int(info.get("position") or 0)
-        total = int(info.get("total") or 0)
+        current = int_value(info.get("position"))
+        total = int_value(info.get("total"))
         if current < 1 or total < 1 or position < 1 or position > total:
             raise RuntimeError(f"ChatGPT Power control has invalid state: {info!r}")
 
@@ -1521,7 +1609,7 @@ class PlaywrightDriver(BrowserDriverBase):
         deadline = asyncio.get_running_loop().time() + 2.0
         while asyncio.get_running_loop().time() < deadline:
             info = await self.effort_power_info()
-            if int(info.get("position") or 0) == position:
+            if int_value(info.get("position")) == position:
                 return info
             await asyncio.sleep(0.05)
         raise RuntimeError(f"ChatGPT Power control did not reach position {position}")
