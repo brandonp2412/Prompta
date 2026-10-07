@@ -8,8 +8,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from .browser_driver import BrowserDriver
 from .browser_script_loader import load_browser_script
-from .browser_session import BrowserDriver, BrowserSession
 from .playwright_driver import PlaywrightDriver
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .scheduler_runtime import SchedulerRuntime
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
+_EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
 
 
 class DeliveryBackendUnavailableError(RuntimeError):
@@ -64,6 +65,7 @@ class BrowserDeliverySender:
         self.driver_factory = driver_factory
         self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
+        self._next_effort_preference_retry_at = 0.0
 
     def _new_driver(self) -> BrowserDriver:
         if self.driver_factory is not None:
@@ -83,6 +85,33 @@ class BrowserDeliverySender:
 
     def _record_send_attempt(self) -> None:
         self.runtime.update_scheduler_state({"last_attempt_at": time.time()})
+
+    async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
+        await driver.ensure_chat_surface()
+        now = asyncio.get_running_loop().time()
+        if now < self._next_effort_preference_retry_at:
+            return
+        try:
+            await driver.select_effort_model("GPT-5.6 Sol")
+            power = await driver.set_effort_power_position(3)
+            if str(power.get("text") or "").strip().casefold() != "high":
+                raise RuntimeError(f"ChatGPT High effort verification failed: {power!r}")
+            if "upgrade required" in str(power.get("description") or "").casefold():
+                raise RuntimeError("ChatGPT High effort unexpectedly requires an upgrade")
+        except RuntimeError as exc:
+            if driver.needs_browser_restart:
+                raise
+            self._next_effort_preference_retry_at = now + _EFFORT_PREFERENCE_RETRY_SECONDS
+            await driver.dismiss_transient_controls()
+            logger.warning(
+                "Prompta could not set preferred model/effort; continuing with the "
+                "current Chat setting and retrying later: %s",
+                exc,
+            )
+            return
+        self._next_effort_preference_retry_at = 0.0
+        await driver.dismiss_transient_controls()
+        logger.info("Prompta set and verified model=GPT-5.6 Sol effort=High")
 
     @staticmethod
     def _normalise(text: str) -> str:
@@ -116,8 +145,7 @@ class BrowserDeliverySender:
             ) from exc
 
     async def _send_browser(self, message: str) -> None:
-        browser = BrowserSession("https://chatgpt.com", self._new_driver)
-        driver: BrowserDriver | None = None
+        driver = self._new_driver()
         context = ""
         capture: dict[str, object] | None = None
         probe_armed = False
@@ -125,11 +153,11 @@ class BrowserDeliverySender:
 
         try:
             try:
-                driver = await browser.ensure_driver()
+                if not driver.is_connected:
+                    await driver.connect()
                 context = await driver.new_tab()
                 await driver.wait_for_composer()
-                await driver.ensure_chat_surface()
-                await browser.ensure_high_effort(driver)
+                await self._ensure_high_effort(driver)
 
                 baseline = await driver.dom_state()
                 baseline_path = str(
@@ -268,17 +296,16 @@ class BrowserDeliverySender:
                     stage="post_dispatch",
                 ) from exc
         finally:
-            if driver is not None:
-                if capture is not None:
-                    driver.clear_send_capture(capture)
-                if probe_armed:
-                    try:
-                        await driver.clear_page_send_probe()
-                    except Exception:
-                        logger.debug("Could not clear page send probe", exc_info=True)
-                if context:
-                    try:
-                        await driver.close_context(context)
-                    except Exception:
-                        logger.debug("Could not discard Prompta fresh-chat tab", exc_info=True)
-                await driver.close()
+            if capture is not None:
+                driver.clear_send_capture(capture)
+            if probe_armed:
+                try:
+                    await driver.clear_page_send_probe()
+                except Exception:
+                    logger.debug("Could not clear page send probe", exc_info=True)
+            if context:
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.debug("Could not discard Prompta fresh-chat tab", exc_info=True)
+            await driver.close()
