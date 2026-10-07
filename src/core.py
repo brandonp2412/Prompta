@@ -280,6 +280,11 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--daily-at", metavar="HH:MM")
     add.add_argument("--exact-interval", action="store_true")
     add.add_argument("--mutex-group", default="", help="Serialize jobs sharing this group")
+    add.add_argument(
+        "--start-in-minutes",
+        type=float,
+        help="Delay the first recurring run while preserving the interval thereafter",
+    )
     add.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     add.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
@@ -362,6 +367,10 @@ def main() -> None:
     if args.command in {"add", "push"}:
         if args.daily_at is not None and args.exact_interval:
             parser.error("--exact-interval cannot be combined with --daily-at")
+        if args.daily_at is not None and args.start_in_minutes is not None:
+            parser.error("--start-in-minutes cannot be combined with --daily-at")
+        if args.start_in_minutes is not None and args.start_in_minutes < 0:
+            parser.error("--start-in-minutes must be non-negative")
         interval_minutes = (
             DEFAULT_INTERVAL_SECONDS / 60.0
             if args.interval_minutes is None and args.daily_at is None
@@ -376,7 +385,13 @@ def main() -> None:
             exact_interval=args.exact_interval,
             mutex_group=args.mutex_group,
         )
-        SchedulerRuntime(args.state, args.jobs_file).clear_job_state(args.name)
+        runtime = SchedulerRuntime(args.state, args.jobs_file)
+        runtime.clear_job_state(args.name)
+        if args.start_in_minutes is not None:
+            runtime.update_job_state(
+                args.name,
+                {"initial_due_at_epoch": time.time() + args.start_in_minutes * 60.0},
+            )
         job = load_jobs(args.jobs_file)[args.name]
         if job.daily_at is not None:
             detail = f"daily at {job.daily_at} local time"

@@ -207,6 +207,32 @@ def test_cli_restores_human_readable_list_show_and_json(
     ]
 
 
+def test_cli_start_in_minutes_sets_first_due_without_changing_interval(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    monkeypatch.setattr(core.time, "time", lambda: 1000.0)
+
+    _run_cli(
+        monkeypatch,
+        capsys,
+        "add",
+        "staggered",
+        "Run later",
+        "--interval-minutes",
+        "30",
+        "--exact-interval",
+        "--start-in-minutes",
+        "10",
+        *_paths(runtime_path),
+    )
+
+    job = load_jobs(runtime_path)["staggered"]
+    state = SchedulerRuntime(runtime_path, runtime_path).job_state("staggered")
+    assert job.interval_seconds == 1800.0
+    assert state["initial_due_at_epoch"] == 1600.0
+
+
 def test_cli_at_schedules_one_time_job(tmp_path: Path, monkeypatch, capsys) -> None:
     runtime = tmp_path / "runtime.sqlite3"
     paths = _paths(runtime)
