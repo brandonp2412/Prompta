@@ -403,6 +403,41 @@ async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_new_tab_sets_actionable_viewport_before_navigation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Page:
+        viewport: dict[str, int] | None = None
+
+        async def set_viewport_size(self, size: dict[str, int]) -> None:
+            self.viewport = size
+
+        def set_default_timeout(self, _timeout: int) -> None:
+            pass
+
+        def on(self, _event: str, _callback: object) -> None:
+            pass
+
+    class Context:
+        async def new_page(self) -> Page:
+            return page
+
+    page = Page()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_browser_context", Context())
+
+    async def navigate(_url: str, *, context: str | None = None) -> None:
+        assert context is not None
+        assert page.viewport == {"width": 1280, "height": 960}
+
+    monkeypatch.setattr(driver, "navigate", navigate)
+    context = await driver.new_tab()
+    assert driver.context == context
+    assert page.viewport == {"width": 1280, "height": 960}
+
+
+@pytest.mark.asyncio
 async def test_effort_trigger_accepts_explicit_label_without_popup_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

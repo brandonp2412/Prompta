@@ -766,6 +766,9 @@ class PlaywrightDriver:
                 browser_context = self._browser_context
 
             page = await browser_context.new_page()
+            # CDP-attached Brave may start with a 0x0 browser viewport.
+            # Give each owned tab an actionable viewport before navigation.
+            await page.set_viewport_size({"width": 1280, "height": 960})
             self.context = self._register_page(page, owned=True)
             self._network_subscribed = True
             self._connected = True
@@ -838,6 +841,7 @@ class PlaywrightDriver:
         if browser_context is None:
             raise RuntimeError("Playwright browser context is not connected")
         page = await browser_context.new_page()
+        await page.set_viewport_size({"width": 1280, "height": 960})
         context_id = self._register_page(page, owned=True)
         self.context = context_id
         try:
@@ -1542,7 +1546,7 @@ class PlaywrightDriver:
         # Drive the menu as a semantic state machine. Never guess at unrelated popup
         # controls and never re-click an already-expanded trigger while waiting for
         # the next submenu to hydrate.
-        deadline = asyncio.get_running_loop().time() + 5.0
+        deadline = asyncio.get_running_loop().time() + 15.0
         while asyncio.get_running_loop().time() < deadline:
             option = await find_option()
             if option is not None:
