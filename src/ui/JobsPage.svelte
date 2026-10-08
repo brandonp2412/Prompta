@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { sortJobs } from "./jobSorting";
 
   type Job = {
     name: string;
+    created_order: number;
     prompt: string;
     status: string;
     status_message: string;
@@ -89,6 +91,7 @@
   function sameJob(left: Job, right: Job) {
     return (
       left.name === right.name &&
+      left.created_order === right.created_order &&
       left.prompt === right.prompt &&
       left.status === right.status &&
       left.status_message === right.status_message &&
@@ -104,10 +107,11 @@
   }
 
   function applyJobs(nextJobs: Job[]) {
-    const unchanged = jobs.length === nextJobs.length && jobs.every((job, index) => sameJob(job, nextJobs[index]));
+    const sortedJobs = sortJobs(nextJobs);
+    const unchanged = jobs.length === sortedJobs.length && jobs.every((job, index) => sameJob(job, sortedJobs[index]));
     if (unchanged) return;
 
-    jobs = nextJobs;
+    jobs = sortedJobs;
     clampPage();
   }
 

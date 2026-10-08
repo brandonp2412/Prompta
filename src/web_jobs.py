@@ -57,6 +57,7 @@ def serialize_scheduled_jobs(
         serialized.append(
             {
                 "name": job.name,
+                "created_order": job.created_order,
                 "prompt": job.prompt,
                 "interval_minutes": job.interval_seconds / 60.0,
                 "daily_at": job.daily_at,

@@ -4667,6 +4667,22 @@ function init_update_callbacks(context) {
 //#region node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
+//#region src/ui/jobSorting.ts
+function frequencyMinutes(job) {
+	if (job.run_at_epoch) return Number.POSITIVE_INFINITY;
+	if (job.daily_at) return 1440;
+	return job.interval_minutes;
+}
+function compareJobs(left, right) {
+	const leftFrequency = frequencyMinutes(left);
+	const rightFrequency = frequencyMinutes(right);
+	if (leftFrequency !== rightFrequency) return leftFrequency < rightFrequency ? -1 : 1;
+	return right.created_order - left.created_order || left.name.localeCompare(right.name);
+}
+function sortJobs(jobs) {
+	return [...jobs].sort(compareJobs);
+}
+//#endregion
 //#region src/ui/JobsPage.svelte
 var root$1 = /* @__PURE__ */ from_html(`<span> </span>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div class="empty-row">No scheduled jobs.</div>`);
@@ -4745,11 +4761,12 @@ function JobsPage($$anchor, $$props) {
 		return "every " + (minutes >= 60 && minutes % 60 === 0 ? String(minutes / 60) + " hour" + (minutes === 60 ? "" : "s") : String(minutes) + " minute" + (minutes === 1 ? "" : "s")) + (job.exact_interval ? " · exact" : "");
 	}
 	function sameJob(left, right) {
-		return left.name === right.name && left.prompt === right.prompt && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at;
+		return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at;
 	}
 	function applyJobs(nextJobs) {
-		if (get(jobs).length === nextJobs.length && get(jobs).every((job, index) => sameJob(job, nextJobs[index]))) return;
-		set(jobs, nextJobs, true);
+		const sortedJobs = sortJobs(nextJobs);
+		if (get(jobs).length === sortedJobs.length && get(jobs).every((job, index) => sameJob(job, sortedJobs[index]))) return;
+		set(jobs, sortedJobs, true);
 		clampPage();
 	}
 	function clampPage() {

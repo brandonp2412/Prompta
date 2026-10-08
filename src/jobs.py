@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import Integer, delete, literal_column, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -66,6 +66,8 @@ class PromptJob:
     run_at_epoch: float | None = None
     source_revision: str = ""
     mutex_group: str = ""
+    # Existing SQLite rowid tracks insertion order even when a job is edited.
+    created_order: int = field(default=0, compare=False)
 
 
 def load_jobs(path: Path) -> dict[str, PromptJob]:
@@ -73,7 +75,12 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
     try:
         with engine.connect() as connection:
             rows = (
-                connection.execute(select(scheduled_jobs).order_by(scheduled_jobs.c.name))
+                connection.execute(
+                    select(
+                        scheduled_jobs,
+                        literal_column("rowid", Integer).label("created_order"),
+                    ).order_by(scheduled_jobs.c.name)
+                )
                 .mappings()
                 .all()
             )
@@ -93,6 +100,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             float(row["run_at_epoch"]) if row["run_at_epoch"] is not None else None,
             str(row["source_revision"] or ""),
             str(row["mutex_group"] or ""),
+            int(row["created_order"]),
         )
         for row in rows
     }

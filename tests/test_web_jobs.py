@@ -66,6 +66,31 @@ def test_web_job_service_manages_daily_jobs_and_clear(tmp_path: Path) -> None:
     assert cleared["jobs"] == []
 
 
+def test_job_creation_order_tracks_insertions_not_edits(tmp_path: Path) -> None:
+    database = tmp_path / "jobs.sqlite3"
+    service = WebJobService(database, database, "test-host")
+    add_job(database, "z-old", "First", 2400, source_revision="test")
+    add_job(database, "a-new", "Second", 2400, source_revision="test")
+
+    initial = {job["name"]: job["created_order"] for job in service.scheduled_jobs()["jobs"]}
+    older_order = initial["z-old"]
+    newer_order = initial["a-new"]
+    assert isinstance(older_order, int) and isinstance(newer_order, int)
+    assert newer_order > older_order
+
+    add_job(database, "z-old", "Edited", 2400, source_revision="test")
+    edited = {job["name"]: job["created_order"] for job in service.scheduled_jobs()["jobs"]}
+    assert edited == initial
+
+    service.apply("remove", {"name": "z-old"})
+    add_job(database, "z-old", "Recreated", 2400, source_revision="test")
+    recreated = {job["name"]: job["created_order"] for job in service.scheduled_jobs()["jobs"]}
+    recreated_old = recreated["z-old"]
+    recreated_new = recreated["a-new"]
+    assert isinstance(recreated_old, int) and isinstance(recreated_new, int)
+    assert recreated_old > recreated_new
+
+
 def test_removing_job_cancels_already_queued_delivery(tmp_path: Path) -> None:
     jobs = tmp_path / "jobs.sqlite3"
     state = tmp_path / "scheduler.sqlite3"

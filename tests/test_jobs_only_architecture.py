@@ -21,6 +21,7 @@ def test_ui_contains_only_jobs_surface() -> None:
     assert {path.name for path in Path("src/ui").glob("*")} == {
         "App.svelte",
         "JobsPage.svelte",
+        "jobSorting.ts",
         "main.ts",
     }
     app = Path("src/ui/App.svelte").read_text()
