@@ -31,6 +31,8 @@ The UI is at `http://127.0.0.1:8765`. The CLI is available as `uv run prompta`, 
 uv run prompta add nightly-review "Review the project and improve it" --daily-at 21:00
 uv run prompta edit nightly-review "Review the project, improve it, and update the ledger"
 uv run prompta list
+uv run prompta once "Run this immediately in a fresh chat"
+uv run prompta once --job nightly-review  # fire an existing job without resetting its schedule
 ```
 
 ## Working hours
@@ -47,7 +49,10 @@ timezone = "Pacific/Auckland"
 ```
 
 The start time is inclusive and the end time is exclusive. Overnight windows are supported.
-Queued jobs remain durable while delivery is blocked and resume when the window opens. If
+Scheduled jobs remain durable while delivery is blocked and resume when the window opens.
+Explicit `once` and UI **Fire now** sends bypass the working-hours window, but still obey
+account backoff, resource constraints, and the global send gap. These one-off sends do
+not change the next scheduled run. If
 `working_hours` is omitted or disabled, Prompta can deliver at any time.
 
 ## Login to ChatGPT

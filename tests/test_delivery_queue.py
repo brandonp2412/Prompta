@@ -146,3 +146,24 @@ def test_cancel_pending_makes_delivery_unclaimable(tmp_path: Path) -> None:
     assert record["last_error"] == "scheduled job removed"
     assert record["finished_at"] == 20.0
     assert queue.claim_next("worker", now=21.0, lease_seconds=30.0) is None
+
+
+def test_manual_claim_prioritized_and_restricted_during_closed_hours(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    queue.upsert(_queued_record("scheduled-1", client_id="scheduled:key:job"))
+    assert queue.claim_next("worker", now=15.0, lease_seconds=30, manual_only=True) is None
+    first = queue.enqueue_manual("Just once", now=11.0)
+    manual = queue.claim_next("worker", now=15.0, lease_seconds=30, manual_only=True)
+    assert manual is not None and manual["send_id"] == first["send_id"]
+    scheduled = queue.claim_next("worker", now=15.0, lease_seconds=30, manual_only=True)
+    assert scheduled is None
+    scheduled = queue.claim_next("worker", now=15.0, lease_seconds=30)
+    assert scheduled is not None and scheduled["send_id"] == "scheduled-1"
+
+
+def test_manual_claim_has_priority_over_old_scheduled_backlog(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    queue.upsert(_queued_record("scheduled-old", client_id="scheduled:key:job"))
+    manual = queue.enqueue_manual("Now", now=12.0)
+    claimed = queue.claim_next("worker", now=12.0, lease_seconds=30)
+    assert claimed is not None and claimed["send_id"] == manual["send_id"]

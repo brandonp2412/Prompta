@@ -151,7 +151,7 @@
   async function command(payload: Record<string, unknown>, success: string) {
     saving = true;
     dataGeneration += 1;
-    status = "Saving…";
+    status = payload.action === "fire_now" ? "Queuing fresh chat…" : "Saving…";
 
     try {
       const response = await fetch("./api/jobs", {
@@ -320,6 +320,13 @@
         </div>
 
         <div class="job-actions" role="cell">
+          <button
+            class="row-action"
+            type="button"
+            disabled={saving}
+            title="Launch one fresh chat without changing the schedule"
+            onclick={() => void command({ action: "fire_now", name: job.name }, "Queued one fresh chat for " + job.name + ".")}
+          >Fire now</button>
           {#if !job.run_at_epoch}
             <button class="row-action" type="button" disabled={saving} onclick={() => edit(job)}>Edit</button>
           {/if}

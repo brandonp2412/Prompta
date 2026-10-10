@@ -287,6 +287,12 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     add.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
+    once = subparsers.add_parser("once", help="Send a prompt in one fresh chat immediately")
+    once.add_argument("prompt", nargs="?", help="Prompt text for an unscheduled chat")
+    once.add_argument("--job", help="Use an existing job's prompt without changing its schedule")
+    once.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    once.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
+
     edit = subparsers.add_parser("edit", help="Edit the prompt text of a named job")
     edit.add_argument("name")
     edit.add_argument("prompt")
@@ -344,6 +350,23 @@ def main() -> None:
 
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "once":
+        if bool(args.prompt) == bool(args.job):
+            parser.error("provide a prompt or --job NAME, but not both")
+        prompt = args.prompt
+        detail = "fresh chat"
+        if args.job:
+            job = load_jobs(args.jobs_file).get(args.job)
+            if job is None:
+                parser.error(f"unknown job: {args.job}")
+            prompt = job.prompt
+            detail = f"from {job.name}, schedule unchanged"
+        receipt = DeliveryQueueStore(
+            args.state.expanduser().parent / "ui-send-jobs.sqlite3"
+        ).enqueue_manual(prompt)
+        _print_notice("▶", "Queued one chat", f"{detail} · {receipt['send_id']}", tone="32")
+        return
 
     if args.command == "at":
         try:

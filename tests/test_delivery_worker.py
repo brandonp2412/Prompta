@@ -101,3 +101,36 @@ def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> Non
     cancelled = queue.get("scheduled-send")
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
+
+
+def test_manual_delivery_bypasses_working_hours_but_keeps_other_limits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    hours = WorkingHours(enabled=True, start=time(22, 30), end=time(8), timezone="Pacific/Auckland")
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: 1791154800.0)
+    admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""), working_hours=hours)
+    assert admission()[0] is False
+    assert admission(manual=True) == (True, "", 0.0)
+    blocked = DeliveryAdmission(runtime, resource_admission=lambda: (False, "busy"), working_hours=hours)
+    assert blocked(manual=True) == (False, "busy", 0.0)
+
+
+def test_manual_queued_prompt_uses_standard_delivery_path(tmp_path: Path) -> None:
+    state = tmp_path / "scheduler.sqlite3"
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    receipt = queue.enqueue_manual("Deliver one chat", now=10.0)
+    claimed = queue.claim_next("worker", now=20.0, lease_seconds=30.0)
+    assert claimed is not None
+    messages: list[str] = []
+    _deliver_one(
+        queue,
+        messages.append,
+        SchedulerRuntime(state, state),
+        ServiceHealthStore(tmp_path / "health.sqlite3"),
+        "worker",
+        claimed,
+    )
+    assert messages == ["Deliver one chat"]
+    finished = queue.get(str(receipt["send_id"]))
+    assert finished is not None and finished["status"] == "succeeded"

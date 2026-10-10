@@ -4688,7 +4688,7 @@ var root$1 = /* @__PURE__ */ from_html(`<span> </span>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div class="empty-row">No scheduled jobs.</div>`);
 var root_2 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
 var root_3 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
-var root_4 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
+var root_4 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button" title="Launch one fresh chat without changing the schedule">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
 var root_5 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
 var root_6 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1" required=""/></label>`);
 var root_7 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time" required=""/></label>`);
@@ -4800,7 +4800,7 @@ function JobsPage($$anchor, $$props) {
 	async function command(payload, success) {
 		set(saving, true);
 		dataGeneration += 1;
-		set(status, "Saving…");
+		set(status, payload.action === "fire_now" ? "Queuing fresh chat…" : "Saving…", true);
 		try {
 			const response = await fetch("./api/jobs", {
 				method: "POST",
@@ -4959,19 +4959,20 @@ function JobsPage($$anchor, $$props) {
 		});
 		reset(div_13);
 		var div_14 = sibling(div_13, 2);
-		var node_5 = child(div_14);
+		var button_3 = child(div_14);
+		var node_5 = sibling(button_3, 2);
 		var consequent_4 = ($$anchor) => {
-			var button_3 = root_3();
-			template_effect(() => button_3.disabled = get(saving));
-			delegated("click", button_3, () => edit(get(job)));
-			append($$anchor, button_3);
+			var button_4 = root_3();
+			template_effect(() => button_4.disabled = get(saving));
+			delegated("click", button_4, () => edit(get(job)));
+			append($$anchor, button_4);
 		};
 		if_block(node_5, ($$render) => {
 			if (!get(job).run_at_epoch) $$render(consequent_4);
 		});
-		var button_4 = sibling(node_5, 2);
-		var text_14 = only_child(button_4, true);
-		var button_5 = sibling(button_4, 2);
+		var button_5 = sibling(node_5, 2);
+		var text_14 = only_child(button_5, true);
+		var button_6 = sibling(button_5, 2);
 		reset(div_14);
 		reset(div_6);
 		template_effect(($0, $1, $2) => {
@@ -4983,19 +4984,24 @@ function JobsPage($$anchor, $$props) {
 			set_text(text_11, $2);
 			classes_1 = set_class(span_10, 1, "state-value", null, classes_1, { error: get(job).status === "failing" });
 			set_text(text_12, ` ${(get(job).paused ? "paused" : get(job).status || "pending") ?? ""}`);
-			button_4.disabled = get(saving);
-			set_text(text_14, get(job).paused ? "Resume" : "Pause");
+			button_3.disabled = get(saving);
 			button_5.disabled = get(saving);
+			set_text(text_14, get(job).paused ? "Resume" : "Pause");
+			button_6.disabled = get(saving);
 		}, [
 			() => formatDate(get(job).last_sent_at),
 			() => scheduleText(get(job)),
 			() => get(job).paused ? "Paused" : formatDate(get(job).next_due_at_epoch)
 		]);
-		delegated("click", button_4, () => void command({
+		delegated("click", button_3, () => void command({
+			action: "fire_now",
+			name: get(job).name
+		}, "Queued one fresh chat for " + get(job).name + "."));
+		delegated("click", button_5, () => void command({
 			action: get(job).paused ? "resume" : "pause",
 			name: get(job).name
 		}, (get(job).paused ? "Resumed " : "Paused ") + get(job).name + "."));
-		delegated("click", button_5, () => void remove(get(job)));
+		delegated("click", button_6, () => void remove(get(job)));
 		append($$anchor, div_6);
 	});
 	reset(div_4);
@@ -5005,17 +5011,17 @@ function JobsPage($$anchor, $$props) {
 		var span_12 = child(nav);
 		var text_15 = only_child(span_12);
 		var div_15 = sibling(span_12, 2);
-		var button_6 = child(div_15);
-		var button_7 = sibling(button_6, 2);
+		var button_7 = child(div_15);
+		var button_8 = sibling(button_7, 2);
 		reset(div_15);
 		reset(nav);
 		template_effect(() => {
 			set_text(text_15, `Page ${get(page) ?? ""} of ${get(pageCount) ?? ""}`);
-			button_6.disabled = get(page) <= 1;
-			button_7.disabled = get(page) >= get(pageCount);
+			button_7.disabled = get(page) <= 1;
+			button_8.disabled = get(page) >= get(pageCount);
 		});
-		delegated("click", button_6, () => changePage(get(page) - 1));
-		delegated("click", button_7, () => changePage(get(page) + 1));
+		delegated("click", button_7, () => changePage(get(page) - 1));
+		delegated("click", button_8, () => changePage(get(page) + 1));
 		append($$anchor, nav);
 	};
 	if_block(node_6, ($$render) => {
@@ -5039,7 +5045,7 @@ function JobsPage($$anchor, $$props) {
 			if (get(editing)) $$render(consequent_6);
 		});
 		reset(div_17);
-		var button_8 = sibling(div_17, 2);
+		var button_9 = sibling(div_17, 2);
 		reset(div_16);
 		var div_18 = sibling(div_16, 2);
 		var label = child(div_18);
@@ -5100,33 +5106,33 @@ function JobsPage($$anchor, $$props) {
 			else $$render(alternate_1, -1);
 		});
 		var div_20 = sibling(node_10, 2);
-		var button_9 = child(div_20);
-		var button_10 = sibling(button_9, 2);
+		var button_10 = child(div_20);
+		var button_11 = sibling(button_10, 2);
 		reset(div_20);
 		reset(div_19);
 		reset(form);
 		template_effect(($0) => {
 			set_text(text_16, get(editing) ? "Edit job" : "New job");
-			button_8.disabled = get(saving);
-			input.readOnly = $0;
 			button_9.disabled = get(saving);
+			input.readOnly = $0;
 			button_10.disabled = get(saving);
+			button_11.disabled = get(saving);
 		}, [() => Boolean(get(editing))]);
 		event("submit", form, (event) => {
 			event.preventDefault();
 			submit();
 		});
-		delegated("click", button_8, closeEditor);
+		delegated("click", button_9, closeEditor);
 		bind_value(input, () => get(name), ($$value) => set(name, $$value));
 		bind_select_value(select, () => get(schedule), ($$value) => set(schedule, $$value));
 		bind_value(textarea, () => get(prompt), ($$value) => set(prompt, $$value));
-		delegated("click", button_9, closeEditor);
+		delegated("click", button_10, closeEditor);
 		append($$anchor, form);
 	};
 	if_block(node_7, ($$render) => {
 		if (get(editorOpen)) $$render(consequent_9);
 	});
-	var button_11 = only_child(sibling(node_7, 2));
+	var button_12 = only_child(sibling(node_7, 2));
 	reset(section);
 	template_effect(() => {
 		set_text(text, get(jobs).length);
@@ -5140,12 +5146,12 @@ function JobsPage($$anchor, $$props) {
 		button_2.disabled = get(saving);
 		set_text(text_3, `${get(jobs).length - get(pausedCount)} running`);
 		set_text(text_4, `${get(pausedCount) ?? ""} paused`);
-		button_11.disabled = !get(jobs).length || get(saving);
+		button_12.disabled = !get(jobs).length || get(saving);
 	});
 	delegated("click", button, () => void toggleAll());
 	delegated("click", button_1, () => void load());
 	delegated("click", button_2, beginNew);
-	delegated("click", button_11, () => void clearAll());
+	delegated("click", button_12, () => void clearAll());
 	append($$anchor, section);
 	pop();
 }

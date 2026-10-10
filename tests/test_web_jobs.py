@@ -111,3 +111,32 @@ def test_removing_job_cancels_already_queued_delivery(tmp_path: Path) -> None:
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
     assert queue.claim_next("worker", now=1001.0, lease_seconds=30.0) is None
+
+
+def test_fire_now_queues_separate_chat_without_changing_schedule(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    add_job(jobs, "audit", "Check the code", 2400, exact_interval=True)
+    service = WebJobService(jobs, state, "test-host")
+    service.runtime.update_job_state("audit", {"paused": True, "next_due_at_epoch": 9000.0})
+    original_state = service.runtime.job_state("audit")
+    original_jobs = service.scheduled_jobs()["jobs"]
+
+    assert service.apply("fire_now", {"name": "audit"})["ok"] is True
+    assert service.apply("fire_now", {"name": "audit"})["ok"] is True
+    deliveries = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert len(deliveries) == 2
+    assert all(item["message"] == "Check the code" for item in deliveries)
+    assert all(str(item["client_id"]).startswith("manual:") for item in deliveries)
+    assert deliveries[0]["send_id"] != deliveries[1]["send_id"]
+    assert service.runtime.job_state("audit") == original_state
+    assert service.scheduled_jobs()["jobs"] == original_jobs
+
+
+def test_fire_now_rejects_unknown_job_without_queuing(tmp_path: Path) -> None:
+    import pytest
+
+    service = WebJobService(tmp_path / "jobs.sqlite3", tmp_path / "state.sqlite3", "test")
+    with pytest.raises(ValueError, match="Unknown job"):
+        service.apply("fire_now", {"name": "not-found"})
+    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []

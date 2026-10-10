@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -145,6 +146,21 @@ class DeliveryQueueStore:
                 raise RuntimeError("delivery insert completed without a matching queue record")
             return self.record_from_row(row), result.rowcount == 1
 
+    def enqueue_manual(self, prompt: str, *, now: float | None = None) -> dict[str, object]:
+        """Queue an independent fresh chat without touching any job's schedule."""
+        if not prompt.strip():
+            raise ValueError("Prompt is required")
+        request_id = uuid.uuid4().hex
+        receipt, _created = self.enqueue_idempotent(
+            {
+                "send_id": f"manual-{request_id}",
+                "client_id": f"manual:{request_id}",
+                "message": prompt,
+                "created_at": time.time() if now is None else now,
+            }
+        )
+        return receipt
+
     def cancel_pending(
         self, send_id: str, *, error: str = "scheduled job cancelled", now: float | None = None
     ) -> bool:
@@ -205,7 +221,12 @@ class DeliveryQueueStore:
             )
 
     def claim_next(
-        self, owner: str, *, lease_seconds: float, now: float | None = None
+        self,
+        owner: str,
+        *,
+        lease_seconds: float,
+        now: float | None = None,
+        manual_only: bool = False,
     ) -> dict[str, object] | None:
         at = time.time() if now is None else float(now)
         with self.engine.begin() as connection:
@@ -215,10 +236,11 @@ class DeliveryQueueStore:
                 & (job_deliveries.c.retry_at <= at),
                 (job_deliveries.c.status == "running") & (job_deliveries.c.lease_expires_at <= at),
             )
+            manual = job_deliveries.c.client_id.like("manual:%")
             sequence = (
                 select(job_deliveries.c.sequence)
-                .where(claimable)
-                .order_by(job_deliveries.c.sequence)
+                .where(claimable & manual if manual_only else claimable)
+                .order_by(case((manual, 0), else_=1), job_deliveries.c.sequence)
                 .limit(1)
                 .scalar_subquery()
             )

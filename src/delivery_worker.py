@@ -64,12 +64,13 @@ class DeliveryAdmission:
         self.working_hours = working_hours
         self._last_resource_state: tuple[bool, str] | None = None
 
-    def __call__(self) -> tuple[bool, str, float]:
+    def __call__(self, *, manual: bool = False) -> tuple[bool, str, float]:
         current = time.time()
-        working_hours = self.working_hours or WorkingHours.load()
-        allowed, reason, retry_after = working_hours.admission(now=current)
-        if not allowed:
-            return False, reason, retry_after
+        if not manual:
+            working_hours = self.working_hours or WorkingHours.load()
+            allowed, reason, retry_after = working_hours.admission(now=current)
+            if not allowed:
+                return False, reason, retry_after
 
         remaining, _attempts = self.runtime.global_backoff_status()
         if remaining > 0:
@@ -323,7 +324,8 @@ def run(
             health.beat("delivery_worker")
             notify_watchdog()
 
-            allowed, reason, retry_after = admission()
+            hours_allowed, _reason, _retry_after = WorkingHours.load().admission()
+            allowed, reason, retry_after = admission(manual=not hours_allowed)
             if not allowed:
                 if reason:
                     logger.debug("Delivery admission blocked: %s", reason)
@@ -333,6 +335,7 @@ def run(
             record = queue.claim_next(
                 owner,
                 lease_seconds=_LEASE_SECONDS,
+                manual_only=not hours_allowed,
             )
             if record is None:
                 time.sleep(0.5)

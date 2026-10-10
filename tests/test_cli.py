@@ -333,3 +333,28 @@ def test_cli_remove_cancels_pending_delivery(tmp_path: Path, monkeypatch, capsys
     cancelled = queue.get(str(queued[0]["send_id"]))
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
+
+
+def test_once_queues_unscheduled_chat_without_creating_job(tmp_path: Path, monkeypatch, capsys) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    output = _run_cli(monkeypatch, capsys, "once", "Inspect once", *_paths(state))
+    assert "Queued one chat" in output
+    assert load_jobs(state) == {}
+    records = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert len(records) == 1
+    assert records[0]["message"] == "Inspect once"
+    assert str(records[0]["client_id"]).startswith("manual:")
+
+
+def test_once_existing_job_leaves_schedule_untouched(tmp_path: Path, monkeypatch, capsys) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "audit", "Inspect job", 600, source_revision="test")
+    runtime = SchedulerRuntime(state, state)
+    runtime.update_job_state("audit", {"paused": True, "next_due_at_epoch": 4200.0})
+    before = runtime.job_state("audit")
+    output = _run_cli(monkeypatch, capsys, "once", "--job", "audit", *_paths(state))
+    assert "schedule unchanged" in output
+    assert runtime.job_state("audit") == before
+    assert load_jobs(state)["audit"].interval_seconds == 600
+    records = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert len(records) == 1 and records[0]["message"] == "Inspect job"

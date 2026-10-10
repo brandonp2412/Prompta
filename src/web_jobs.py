@@ -152,6 +152,15 @@ class WebJobService:
             runtime.clear_job_state(name)
             self._wake_scheduler()
 
+        elif normalized_action == "fire_now":
+            name = str(payload.get("name") or "").strip()
+            job = load_jobs(self.jobs_path).get(name)
+            if job is None:
+                raise ValueError("Unknown job: " + name)
+            DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
+                job.prompt
+            )
+
         elif normalized_action == "remove":
             name = str(payload.get("name") or "").strip()
             if not name:
