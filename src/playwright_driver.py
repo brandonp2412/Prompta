@@ -570,7 +570,12 @@ class PlaywrightDriver:
 
         return await self._unique_usable(page.get_by_role("textbox"))
 
-    async def _composer_submit_button(self, composer: Locator) -> Locator | None:
+    async def _composer_submit_button(
+        self,
+        composer: Locator,
+        *,
+        enabled: bool = True,
+    ) -> Locator | None:
         # Prefer an actual form when present, but do not make the wrapper tag part
         # of the fallback contract. ChatGPT has changed composer wrappers before.
         owners = (
@@ -599,7 +604,7 @@ class PlaywrightDriver:
                 if await editors.count() != 1:
                     continue
 
-                button = await self._first_usable([submits])
+                button = await self._first_usable([submits], enabled=enabled)
                 if button is not None:
                     return button
             except PlaywrightError:
@@ -610,6 +615,8 @@ class PlaywrightDriver:
         self,
         page: Page,
         name: re.Pattern[str],
+        *,
+        enabled: bool = True,
     ) -> Locator | None:
         # Resolve controls by meaning rather than by one specific element/role.
         # ChatGPT has moved actions between native buttons, ARIA menu items, tabs,
@@ -631,7 +638,8 @@ class PlaywrightDriver:
 
         for scope in scopes:
             semantic = await self._first_usable(
-                [scope.get_by_role(role, name=name) for role in action_roles]
+                [scope.get_by_role(role, name=name) for role in action_roles],
+                enabled=enabled,
             )
             if semantic is not None:
                 return semantic
@@ -654,7 +662,9 @@ class PlaywrightDriver:
             for index in range(count):
                 candidate = candidates.nth(index)
                 try:
-                    if not await candidate.is_visible() or not await candidate.is_enabled():
+                    if not await candidate.is_visible():
+                        continue
+                    if enabled and not await candidate.is_enabled():
                         continue
                     if not await candidate.evaluate(
                         load_browser_script("is_active_composed_node.js")
@@ -1128,8 +1138,48 @@ class PlaywrightDriver:
         except PlaywrightError:
             return ""
 
+    async def _send_control(
+        self,
+        page: Page,
+        *,
+        enabled: bool = True,
+    ) -> Locator | None:
+        button = await self._semantic_button(page, _SEND_RE, enabled=enabled)
+        if button is not None:
+            return button
+        composer = await self._composer(page)
+        if composer is None:
+            return None
+        return await self._composer_submit_button(composer, enabled=enabled)
+
+    async def wait_for_send_ready(self, timeout: float = 3.0) -> None:
+        # KudoAI/chatgpt.js 79d9a0f waits for the send control to become enabled
+        # before dispatch. Preserve that useful behavior without importing its
+        # private test-id selector: Prompta only uses public semantics or a
+        # composer-scoped native submit control.
+        page = self._page()
+        control = await self._send_control(page, enabled=False)
+        if control is None:
+            return
+
+        deadline = asyncio.get_running_loop().time() + max(0.1, timeout)
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                if await control.is_enabled():
+                    return
+            except PlaywrightError:
+                pass
+
+            await asyncio.sleep(0.05)
+            current = await self._send_control(page, enabled=False)
+            if current is not None:
+                control = current
+
+        raise RuntimeError("ChatGPT send control remained disabled")
+
     async def click_send(self) -> None:
         await self._focus_composer()
+        await self.wait_for_send_ready()
         try:
             await self._page().keyboard.press("Enter")
         except Exception as exc:
@@ -1141,11 +1191,7 @@ class PlaywrightDriver:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
         while asyncio.get_running_loop().time() < deadline:
-            button = await self._semantic_button(page, _SEND_RE)
-            if button is None:
-                composer = await self._composer(page)
-                if composer is not None:
-                    button = await self._composer_submit_button(composer)
+            button = await self._send_control(page)
             if button is not None:
                 try:
                     await button.click()

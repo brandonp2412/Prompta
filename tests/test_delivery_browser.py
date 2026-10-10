@@ -105,6 +105,31 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_stale_fresh_chat_composer_is_cleared_before_dispatch(tmp_path: Path) -> None:
+    class StaleDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.composer = "stale draft"
+            self.clear_calls = 0
+
+        async def clear_composer(self) -> None:
+            self.clear_calls += 1
+            await super().clear_composer()
+
+    driver = StaleDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+    )
+
+    await sender._send_browser("Do the scheduled work")
+
+    assert driver.clear_calls == 1
+    assert driver.composer == ""
+    assert driver.closed_contexts == ["fresh-tab"]
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_detection_uses_semantic_active_surfaces(tmp_path: Path) -> None:
     class Candidate:
         def __init__(self, text: str, *, visible: bool = True, active: bool = True) -> None:
@@ -799,3 +824,83 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
 
     assert option.clicks == 0
     assert page.keyboard.pressed == ["Escape"]
+
+
+@pytest.mark.asyncio
+async def test_send_readiness_recovers_when_disabled_control_is_replaced(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Control:
+        def __init__(self, ready: bool) -> None:
+            self.ready = ready
+            self.checks = 0
+
+        async def is_enabled(self) -> bool:
+            self.checks += 1
+            return self.ready
+
+    stale = Control(False)
+    replacement = Control(True)
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    discoveries = 0
+
+    async def send_control(_page: object, *, enabled: bool = True) -> object:
+        nonlocal discoveries
+        discoveries += 1
+        assert enabled is False
+        return stale if discoveries == 1 else replacement
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    monkeypatch.setattr(driver, "_send_control", send_control)
+
+    await driver.wait_for_send_ready(timeout=0.5)
+
+    assert stale.checks == 1
+    assert replacement.checks == 1
+    assert discoveries >= 2
+
+
+@pytest.mark.asyncio
+async def test_send_readiness_fails_closed_when_known_control_stays_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Control:
+        async def is_enabled(self) -> bool:
+            return False
+
+    control = Control()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    async def send_control(_page: object, *, enabled: bool = True) -> object:
+        assert enabled is False
+        return control
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    monkeypatch.setattr(driver, "_send_control", send_control)
+
+    with pytest.raises(RuntimeError, match="send control remained disabled"):
+        await driver.wait_for_send_ready(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_send_readiness_preserves_keyboard_fallback_without_known_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    calls = 0
+
+    async def send_control(_page: object, *, enabled: bool = True) -> None:
+        nonlocal calls
+        calls += 1
+        assert enabled is False
+        return None
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    monkeypatch.setattr(driver, "_send_control", send_control)
+
+    await driver.wait_for_send_ready(timeout=0.1)
+
+    assert calls == 1
