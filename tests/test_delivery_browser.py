@@ -389,6 +389,38 @@ async def test_wait_for_composer_fails_closed_on_security_challenge(
 
 
 @pytest.mark.asyncio
+async def test_wait_for_composer_rejects_logged_out_page_with_visible_composer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = object()
+    login_checks = 0
+
+    async def composer_ready(_page: object) -> object:
+        return object()
+
+    async def login_required() -> bool:
+        nonlocal login_checks
+        login_checks += 1
+        return True
+
+    async def no_challenge(*, context: str | None = None) -> bool:
+        del context
+        return False
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_composer", composer_ready)
+    monkeypatch.setattr(driver, "login_required", login_required)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_challenge)
+
+    with pytest.raises(RuntimeError, match="login required; composer unavailable"):
+        await driver.wait_for_composer(timeout=0.1)
+
+    assert login_checks == 1
+
+
+@pytest.mark.asyncio
 async def test_wait_for_composer_reports_challenge_after_readiness_timeout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

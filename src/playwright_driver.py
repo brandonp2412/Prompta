@@ -962,6 +962,12 @@ class PlaywrightDriver:
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             if await self._composer(page) is not None:
+                # stufently/gpt-web-gateway documents that ChatGPT can render a
+                # usable anonymous composer alongside Log in / Sign up controls.
+                # A composer is therefore readiness evidence, not authentication
+                # evidence: fail closed if public login semantics are also present.
+                if await self.login_required():
+                    raise RuntimeError("ChatGPT login required; composer unavailable")
                 return
             # A challenge can replace the editor while hydration is in flight.
             # Fail closed before another wait rather than mistaking it for a stall.
