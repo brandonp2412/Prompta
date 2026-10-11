@@ -1348,8 +1348,12 @@ class PlaywrightDriver:
                     "[aria-pressed],[aria-current],[data-state]"
                 )
                 try:
-                    count = min(await interactive.count(), 40)
+                    count = await interactive.count()
                 except PlaywrightError:
+                    continue
+                # A prefix cannot establish uniqueness: a second Chat control
+                # after index 39 would make the first match ambiguous.
+                if count > 40:
                     continue
                 matched: list[Locator] = []
                 for index in range(count):

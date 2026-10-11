@@ -918,6 +918,71 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
 
 
 @pytest.mark.asyncio
+async def test_chat_surface_skips_truncated_semantic_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Candidate:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self.clicks = 0
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, script: str) -> bool | list[str]:
+            if "semantic_control_labels" in script:
+                return [self.label]
+            return True
+
+        async def click(self) -> None:
+            self.clicks += 1
+
+    class Collection:
+        def __init__(self, items: list[Candidate]) -> None:
+            self.items = items
+
+        async def count(self) -> int:
+            return len(self.items)
+
+        def nth(self, index: int) -> Candidate:
+            return self.items[index]
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection(self.items)
+
+    candidates = [Candidate("Other") for _ in range(41)]
+    candidates[0].label = "Chat"
+    candidates[40].label = "Chat"
+
+    class Page:
+        def get_by_role(self, role: str, *, name: re.Pattern[str] | None = None) -> Collection:
+            if role == "main":
+                return Collection(candidates)
+            return Collection([])
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection(candidates)
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+
+    async def no_composer(_page: object) -> None:
+        return None
+
+    async def no_challenge(*, context: str | None = None) -> bool:
+        return False
+
+    monkeypatch.setattr(driver, "_composer", no_composer)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_challenge)
+    with pytest.raises(RuntimeError, match="ChatGPT Chat surface did not become active"):
+        await driver.ensure_chat_surface(timeout=0.02)
+    assert all(candidate.clicks == 0 for candidate in candidates)
+
+
+@pytest.mark.asyncio
 async def test_wait_for_composer_fails_closed_on_security_challenge(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
