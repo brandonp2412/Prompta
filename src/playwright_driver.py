@@ -1149,9 +1149,19 @@ class PlaywrightDriver:
             raise RuntimeError("ChatGPT login required; send control unavailable")
         raise RuntimeError("ChatGPT send control remained disabled")
 
-    async def click_send(self) -> None:
+    async def click_send(self, expected_message: str, /) -> None:
         await self._focus_composer()
         await self.wait_for_send_ready()
+
+        # stufently/gpt-web-gateway 82e7858 re-focuses and re-reads the
+        # composer before its keyboard fallback. Adapt that fail-closed guard
+        # without importing private selectors or any response/history logic.
+        composer = await self._focus_composer()
+        actual = _normalise_composer_text(await self._composer_text(composer))
+        expected = _normalise_composer_text(expected_message)
+        if actual != expected:
+            raise RuntimeError("ChatGPT composer changed before submit")
+
         try:
             await self._page().keyboard.press("Enter")
         except Exception as exc:

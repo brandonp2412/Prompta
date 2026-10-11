@@ -65,7 +65,8 @@ class FakeDriver:
     async def type_message(self, message: str) -> None:
         self.composer = message
 
-    async def click_send(self) -> None:
+    async def click_send(self, expected_message: str) -> None:
+        assert _normalise_composer_text(self.composer) == _normalise_composer_text(expected_message)
         self.composer = ""
 
     def captured_send_response(self, _capture: dict[str, object]) -> tuple[str, int] | None:
@@ -161,7 +162,8 @@ async def test_conversation_redirect_after_typing_prevents_send(tmp_path: Path) 
         async def eval(self, _script: str) -> str:
             return "/c/existing" if self.redirected else "/"
 
-        async def click_send(self) -> None:
+        async def click_send(self, expected_message: str) -> None:
+            assert _normalise_composer_text(expected_message) == _normalise_composer_text(self.composer)
             self.send_clicked = True
             pytest.fail("must not submit into a redirected existing chat")
 
@@ -232,7 +234,8 @@ async def test_generation_start_confirms_send_when_transport_and_route_are_unava
                 "send_in_progress": self.generation_active,
             }
 
-        async def click_send(self) -> None:
+        async def click_send(self, expected_message: str) -> None:
+            assert _normalise_composer_text(expected_message) == _normalise_composer_text(self.composer)
             self.composer = ""
             self.generation_active = True
 
@@ -267,7 +270,8 @@ async def test_preexisting_generation_control_does_not_confirm_send(tmp_path: Pa
                 "send_in_progress": self.generation_active,
             }
 
-        async def click_send(self) -> None:
+        async def click_send(self, expected_message: str) -> None:
+            assert _normalise_composer_text(expected_message) == _normalise_composer_text(self.composer)
             self.composer = ""
 
         def captured_send_response(self, _capture: dict[str, object]) -> None:
@@ -1346,6 +1350,98 @@ async def test_send_readiness_recovers_when_disabled_control_is_replaced(
     assert stale.checks == 1
     assert replacement.checks == 1
     assert discoveries >= 2
+
+
+@pytest.mark.asyncio
+async def test_click_send_rechecks_composer_after_readiness_before_enter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Keyboard:
+        def __init__(self) -> None:
+            self.pressed: list[str] = []
+
+        async def press(self, key: str) -> None:
+            self.pressed.append(key)
+
+    class Page:
+        def __init__(self) -> None:
+            self.keyboard = Keyboard()
+
+    class Composer:
+        pass
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = Page()
+    composer = Composer()
+    composer_text = "Scheduled work"
+    focus_calls = 0
+
+    async def focus_composer() -> Composer:
+        nonlocal focus_calls
+        focus_calls += 1
+        return composer
+
+    async def wait_for_send_ready(timeout: float = 3.0) -> None:
+        nonlocal composer_text
+        assert timeout == 3.0
+        composer_text = "Different prompt"
+
+    async def read_composer_text(_composer: object) -> str:
+        return composer_text
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_focus_composer", focus_composer)
+    monkeypatch.setattr(driver, "wait_for_send_ready", wait_for_send_ready)
+    monkeypatch.setattr(driver, "_composer_text", read_composer_text)
+
+    with pytest.raises(RuntimeError, match="composer changed before submit"):
+        await driver.click_send("Scheduled work")
+
+    assert focus_calls == 2
+    assert page.keyboard.pressed == []
+
+
+@pytest.mark.asyncio
+async def test_click_send_accepts_normalised_prompt_on_final_recheck(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Keyboard:
+        def __init__(self) -> None:
+            self.pressed: list[str] = []
+
+        async def press(self, key: str) -> None:
+            self.pressed.append(key)
+
+    class Page:
+        def __init__(self) -> None:
+            self.keyboard = Keyboard()
+
+    class Composer:
+        pass
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = Page()
+    composer = Composer()
+
+    async def focus_composer() -> Composer:
+        return composer
+
+    async def wait_for_send_ready(timeout: float = 3.0) -> None:
+        assert timeout == 3.0
+
+    async def read_composer_text(_composer: object) -> str:
+        return "Inspect upstream ( https://github.com/stufently/gpt-web-gateway)."
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_focus_composer", focus_composer)
+    monkeypatch.setattr(driver, "wait_for_send_ready", wait_for_send_ready)
+    monkeypatch.setattr(driver, "_composer_text", read_composer_text)
+
+    await driver.click_send("Inspect upstream (https://github.com/stufently/gpt-web-gateway).")
+
+    assert page.keyboard.pressed == ["Enter"]
 
 
 @pytest.mark.asyncio

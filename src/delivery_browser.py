@@ -205,7 +205,7 @@ class BrowserDeliverySender:
 
                 dispatch_error: SendOutcomeUnknownError | None = None
                 try:
-                    await driver.click_send()
+                    await driver.click_send(message)
                 except SendOutcomeUnknownError as exc:
                     self._record_send_attempt()
                     send_attempted = True
