@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -2196,3 +2197,29 @@ async def test_unique_usable_refuses_truncated_candidate_scan(tmp_path: Path) ->
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     assert await driver._unique_usable(Collection()) is None
+
+
+@pytest.mark.asyncio
+async def test_power_control_does_not_trust_truncated_slider_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Collection:
+        def __init__(self, count: int) -> None:
+            self.size = count
+
+        async def count(self) -> int:
+            return self.size
+
+        def nth(self, index: int) -> Collection:
+            raise AssertionError(f"partial scan selected index {index}")
+
+    page = MagicMock()
+    page.get_by_role.return_value = Collection(41)
+    page.locator.return_value = Collection(13)
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    async def no_named_control(candidates: object, *, enabled: bool) -> None:
+        assert enabled
+        assert candidates
+        return None
+
+    monkeypatch.setattr(driver, "_first_usable", no_named_control)
+    assert await driver._power_control(page) is None

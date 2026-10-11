@@ -1436,8 +1436,11 @@ class PlaywrightDriver:
         for role in ("menuitem", "menuitemradio", "radio", "option", "button", "group"):
             controls = page.get_by_role(role)
             try:
-                count = min(await controls.count(), 40)
+                count = await controls.count()
             except PlaywrightError:
+                continue
+            # A partial scan cannot prove which control owns the effort slider.
+            if count > 40:
                 continue
             for index in range(count):
                 item = controls.nth(index)
@@ -1458,9 +1461,11 @@ class PlaywrightDriver:
         # unique structural owner, avoiding assumptions about classes or test IDs.
         sliders = page.locator('[role="slider"],[aria-valuenow][aria-valuemin][aria-valuemax]')
         try:
-            slider_count = min(await sliders.count(), 12)
+            slider_count = await sliders.count()
         except PlaywrightError:
             slider_count = 0
+        if slider_count > 12:
+            slider_count = 0  # Fall back to the explicitly named Power control.
         owners: list[Locator] = []
         for index in range(slider_count):
             slider = sliders.nth(index)
