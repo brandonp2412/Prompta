@@ -360,10 +360,12 @@ class BrowserDeliverySender:
                         )
                         return
 
+                    path = last_path
                     try:
-                        # Inspect the fresh-chat URL first: it is an inexpensive,
-                        # response-free acceptance signal. The heavier composer
-                        # selector can stall while React hydrates after dispatch.
+                        # A transient CDP failure in one probe must not turn a
+                        # still-running, one-shot confirmation window into an
+                        # immediate unknown result. Check the independent UI
+                        # signal and keep polling for transport/route recovery.
                         path = str(
                             await _timed_stage(
                                 "send_confirmation_route",
@@ -379,14 +381,22 @@ class BrowserDeliverySender:
                                 "generation_confirmed=false"
                             )
                             return
+                    except Exception as exc:
+                        logger.info(
+                            "Prompta send confirmation probe unavailable probe=route error_type=%s",
+                            type(exc).__name__,
+                        )
+
+                    try:
                         state = await _timed_stage(
                             "send_confirmation_state",
                             driver.send_confirmation_state(),
                             timeout=_SEND_CONFIRM_STATE_TIMEOUT_SECONDS,
                         )
                     except Exception as exc:
-                        # A slow or unresponsive DOM must not hide a transport
-                        # acknowledgement already captured for this one-shot send.
+                        # Transport callbacks remain live while browser probes
+                        # time out; re-check on the next bounded poll instead of
+                        # classifying one transient probe failure as terminal.
                         status = int_value((capture or {}).get("status"))
                         if status == 429:
                             raise RateLimitError("prompta send rate limited") from exc
@@ -410,13 +420,16 @@ class BrowserDeliverySender:
                                 "generation_confirmed=false after UI confirmation timeout"
                             )
                             return
-                        raise SendOutcomeUnknownError(
-                            "Prompta lost send confirmation after dispatch",
-                            stage="send_confirmation",
-                        ) from exc
+                        logger.info(
+                            "Prompta send confirmation probe unavailable probe=state error_type=%s",
+                            type(exc).__name__,
+                        )
+                        await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+                        continue
 
                     last_state = state
-                    last_path = path
+                    if path:
+                        last_path = path
 
                     rate_limit_text = str(state.get("rate_limit_text") or "")
                     if is_rate_limited_text(rate_limit_text):

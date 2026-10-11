@@ -458,6 +458,50 @@ async def test_route_confirmation_does_not_wait_for_slow_composer_after_send(tmp
 
 
 @pytest.mark.asyncio
+async def test_transient_route_probe_timeout_falls_through_to_generation_signal(
+    tmp_path: Path,
+) -> None:
+    class RouteProbeTimeoutDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.dispatched = False
+            self.generation_active = False
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.dispatched = True
+            self.generation_active = True
+
+        async def eval(self, _script: str) -> str:
+            if self.dispatched:
+                raise TimeoutError("transient route probe timeout")
+            return "/"
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            return {
+                "composer_text": self.composer,
+                "send_in_progress": self.generation_active,
+            }
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    driver = RouteProbeTimeoutDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.05,
+    )
+
+    await sender._send_browser("Scheduled work")
+
+    assert driver.dispatched
+    assert driver.generation_active
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
 async def test_generation_start_confirms_send_when_transport_and_route_are_unavailable(
     tmp_path: Path,
 ) -> None:
