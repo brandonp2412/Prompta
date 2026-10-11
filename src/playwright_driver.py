@@ -887,6 +887,15 @@ class PlaywrightDriver:
         path = parsed.path.casefold().rstrip("/")
         return path in {"/login", "/auth/login", "/auth/signin", "/auth/sign-in"}
 
+    @staticmethod
+    def _mfa_authentication_route(url: str) -> bool:
+        """Recognise OpenAI MFA routes without reading authentication form contents."""
+        parsed = urlsplit(url)
+        if (parsed.hostname or "").casefold() != "auth.openai.com":
+            return False
+        path = parsed.path.casefold()
+        return re.search(r"/mfa(?:-challenge)?(?:/|$)", path) is not None
+
     async def login_required(self) -> bool:
         page = self._page()
         if self._authentication_route(page.url):
@@ -963,6 +972,8 @@ class PlaywrightDriver:
         # FirstWari/chatgpt-web classifies authentication redirects separately
         # from hydration failures. Check only after exhausting the normal wait,
         # retaining Prompta's existing browser and authentication ownership.
+        if self._mfa_authentication_route(page.url):
+            raise RuntimeError("ChatGPT multi-factor authentication required; composer unavailable")
         if await self.login_required():
             raise RuntimeError("ChatGPT login required; composer unavailable")
         raise RuntimeError("ChatGPT composer did not become ready")
@@ -1100,6 +1111,8 @@ class PlaywrightDriver:
             # A challenge/login replacement must never receive the prompt.
             if await self._cloudflare_challenge_present():
                 raise RuntimeError("ChatGPT security challenge is blocking send readiness")
+            if self._mfa_authentication_route(page.url):
+                raise RuntimeError("ChatGPT multi-factor authentication required; send control unavailable")
             if await self.login_required():
                 raise RuntimeError("ChatGPT login required; send control unavailable")
             return
@@ -1123,6 +1136,9 @@ class PlaywrightDriver:
         # This is pre-dispatch only: never retry after a possible send mutation.
         if await self._cloudflare_challenge_present():
             raise RuntimeError("ChatGPT security challenge is blocking send readiness")
+        page = self._page()
+        if self._mfa_authentication_route(page.url):
+            raise RuntimeError("ChatGPT multi-factor authentication required; send control unavailable")
         if await self.login_required():
             raise RuntimeError("ChatGPT login required; send control unavailable")
         raise RuntimeError("ChatGPT send control remained disabled")
@@ -1597,6 +1613,9 @@ class PlaywrightDriver:
         # is hydrating. Do not change selection or authentication ownership.
         if await self._cloudflare_challenge_present():
             raise RuntimeError("ChatGPT security challenge is blocking model selection")
+        page = self._page()
+        if self._mfa_authentication_route(page.url):
+            raise RuntimeError("ChatGPT multi-factor authentication required; model selection unavailable")
         if await self.login_required():
             raise RuntimeError("ChatGPT login required; model selection unavailable")
         raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")

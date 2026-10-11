@@ -948,7 +948,10 @@ async def test_send_readiness_recovers_when_disabled_control_is_replaced(
         assert enabled is False
         return stale if discoveries == 1 else replacement
 
-    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    class PageStub:
+        url = "https://chatgpt.com/"
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: PageStub())
     monkeypatch.setattr(driver, "_send_control", send_control)
 
     await driver.wait_for_send_ready(timeout=0.5)
@@ -974,7 +977,10 @@ async def test_send_readiness_fails_closed_when_known_control_stays_disabled(
         assert enabled is False
         return control
 
-    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    class PageStub:
+        url = "https://chatgpt.com/"
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: PageStub())
     monkeypatch.setattr(driver, "_send_control", send_control)
 
     async def no_challenge(*, context: str | None = None) -> bool:
@@ -1004,7 +1010,10 @@ async def test_send_readiness_preserves_keyboard_fallback_without_known_control(
         assert enabled is False
         return None
 
-    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    class PageStub:
+        url = "https://chatgpt.com/"
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: PageStub())
     monkeypatch.setattr(driver, "_send_control", send_control)
 
     async def no_challenge(*, context: str | None = None) -> bool:
@@ -1022,22 +1031,27 @@ async def test_send_readiness_preserves_keyboard_fallback_without_known_control(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("challenge", "login", "expected", "login_calls"),
+    ("challenge", "mfa", "login", "expected", "login_calls"),
     [
-        (True, True, "security challenge is blocking send readiness", 0),
-        (False, True, "login required; send control unavailable", 1),
+        (True, True, True, "security challenge is blocking send readiness", 0),
+        (False, True, True, "multi-factor authentication required; send control unavailable", 0),
+        (False, False, True, "login required; send control unavailable", 1),
     ],
 )
 async def test_missing_send_control_rejects_session_interruptions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     challenge: bool,
+    mfa: bool,
     login: bool,
     expected: str,
     login_calls: int,
 ) -> None:
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     calls: list[str] = []
+
+    class PageStub:
+        url = "https://auth.openai.com/mfa-challenge" if mfa else "https://chatgpt.com/"
 
     async def no_control(_page: object, *, enabled: bool = True) -> None:
         calls.append("control")
@@ -1051,7 +1065,7 @@ async def test_missing_send_control_rejects_session_interruptions(
         calls.append("login")
         return login
 
-    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    monkeypatch.setattr(driver, "_page", lambda _context=None: PageStub())
     monkeypatch.setattr(driver, "_send_control", no_control)
     monkeypatch.setattr(driver, "_cloudflare_challenge_present", security_challenge)
     monkeypatch.setattr(driver, "login_required", login_required)
@@ -1095,6 +1109,48 @@ def test_composer_normalisation_accounts_for_chatgpt_autolink_spacing() -> None:
 )
 def test_firstwari_authentication_redirect_classification(url: str, required: bool) -> None:
     assert PlaywrightDriver._authentication_route(url) is required
+
+
+@pytest.mark.parametrize(
+    ("url", "required"),
+    [
+        ("https://auth.openai.com/mfa", True),
+        ("https://auth.openai.com/mfa/", True),
+        ("https://auth.openai.com/mfa-challenge?error=totp", True),
+        ("https://auth.openai.com/api/mfa-challenge/verify", True),
+        ("https://auth.openai.com/mfa-settings", False),
+        ("https://chatgpt.com/?next=/mfa-challenge", False),
+        ("https://auth.openai.com.evil.test/mfa-challenge", False),
+        ("https://auth.openai.com/log-in", False),
+    ],
+)
+def test_gateway_mfa_authentication_route_classification(url: str, required: bool) -> None:
+    assert PlaywrightDriver._mfa_authentication_route(url) is required
+
+
+@pytest.mark.asyncio
+async def test_composer_timeout_classifies_mfa_without_inspecting_login_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PageStub:
+        url = "https://auth.openai.com/mfa-challenge?error=totp"
+
+    driver = PlaywrightDriver(profile=Path("/unused-test-profile"))
+
+    async def no_security_challenge(*, context: str | None = None) -> bool:
+        del context
+        return False
+
+    async def unexpected_login_check() -> bool:
+        pytest.fail("MFA route classification must precede generic login inspection")
+
+    monkeypatch.setattr(driver, "_page", lambda context=None: PageStub())
+    monkeypatch.setattr(driver, "_composer", async_no_composer)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_security_challenge)
+    monkeypatch.setattr(driver, "login_required", unexpected_login_check)
+
+    with pytest.raises(RuntimeError, match="multi-factor authentication required; composer unavailable"):
+        await driver.wait_for_composer(timeout=0)
 
 
 @pytest.mark.asyncio
@@ -1204,22 +1260,27 @@ async def test_composer_fallback_rejects_stolen_focus(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("challenge", "login", "expected"),
+    ("challenge", "mfa", "login", "expected"),
     [
-        (True, True, "security challenge is blocking model selection"),
-        (False, True, "login required; model selection unavailable"),
-        (False, False, "model 'GPT-5.6 Sol' is unavailable"),
+        (True, True, True, "security challenge is blocking model selection"),
+        (False, True, True, "multi-factor authentication required; model selection unavailable"),
+        (False, False, True, "login required; model selection unavailable"),
+        (False, False, False, "model 'GPT-5.6 Sol' is unavailable"),
     ],
 )
 async def test_firstwari_picker_timeout_classifies_pre_dispatch_blockers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     challenge: bool,
+    mfa: bool,
     login: bool,
     expected: str,
 ) -> None:
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     checks: list[str] = []
+
+    class PageStub:
+        url = "https://auth.openai.com/mfa-challenge" if mfa else "https://chatgpt.com/"
 
     async def security_challenge(*, context: str | None = None) -> bool:
         assert context is None
@@ -1230,11 +1291,12 @@ async def test_firstwari_picker_timeout_classifies_pre_dispatch_blockers(
         checks.append("login")
         return login
 
+    monkeypatch.setattr(driver, "_page", lambda _context=None: PageStub())
     monkeypatch.setattr(driver, "_cloudflare_challenge_present", security_challenge)
     monkeypatch.setattr(driver, "login_required", login_required)
     with pytest.raises(RuntimeError, match=re.escape(expected)):
         await driver._raise_model_selection_unavailable("GPT-5.6 Sol")
-    assert checks == (["challenge"] if challenge else ["challenge", "login"])
+    assert checks == (["challenge"] if challenge or mfa else ["challenge", "login"])
 
 
 @pytest.mark.asyncio
@@ -1258,23 +1320,28 @@ async def test_chat_surface_fails_closed_before_interacting_with_challenge(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("challenge", "login", "expected", "login_calls"),
+    ("challenge", "mfa", "login", "expected", "login_calls"),
     [
-        (True, True, "security challenge is blocking send readiness", 0),
-        (False, True, "login required; send control unavailable", 1),
-        (False, False, "send control remained disabled", 1),
+        (True, True, True, "security challenge is blocking send readiness", 0),
+        (False, True, True, "multi-factor authentication required; send control unavailable", 0),
+        (False, False, True, "login required; send control unavailable", 1),
+        (False, False, False, "send control remained disabled", 1),
     ],
 )
 async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     challenge: bool,
+    mfa: bool,
     login: bool,
     expected: str,
     login_calls: int,
 ) -> None:
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     calls = 0
+
+    class PageStub:
+        url = "https://auth.openai.com/mfa-challenge" if mfa else "https://chatgpt.com/"
 
     async def challenge_present(*, context: str | None = None) -> bool:
         return challenge
@@ -1284,6 +1351,7 @@ async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
         calls += 1
         return login
 
+    monkeypatch.setattr(driver, "_page", lambda _context=None: PageStub())
     monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge_present)
     monkeypatch.setattr(driver, "login_required", login_required)
     with pytest.raises(RuntimeError, match=expected):
