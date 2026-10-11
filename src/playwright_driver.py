@@ -1091,6 +1091,12 @@ class PlaywrightDriver:
         page = self._page()
         control = await self._send_control(page, enabled=False)
         if control is None:
+            # The keyboard fallback is valid only on an ordinary composer.
+            # A challenge/login replacement must never receive the prompt.
+            if await self._cloudflare_challenge_present():
+                raise RuntimeError("ChatGPT security challenge is blocking send readiness")
+            if await self.login_required():
+                raise RuntimeError("ChatGPT login required; send control unavailable")
             return
 
         deadline = asyncio.get_running_loop().time() + max(0.1, timeout)

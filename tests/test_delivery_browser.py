@@ -1007,9 +1007,59 @@ async def test_send_readiness_preserves_keyboard_fallback_without_known_control(
     monkeypatch.setattr(driver, "_page", lambda _context=None: object())
     monkeypatch.setattr(driver, "_send_control", send_control)
 
+    async def no_challenge(*, context: str | None = None) -> bool:
+        return False
+
+    async def no_login() -> bool:
+        return False
+
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_challenge)
+    monkeypatch.setattr(driver, "login_required", no_login)
     await driver.wait_for_send_ready(timeout=0.1)
 
     assert calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("challenge", "login", "expected", "login_calls"),
+    [
+        (True, True, "security challenge is blocking send readiness", 0),
+        (False, True, "login required; send control unavailable", 1),
+    ],
+)
+async def test_missing_send_control_rejects_session_interruptions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    challenge: bool,
+    login: bool,
+    expected: str,
+    login_calls: int,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    calls: list[str] = []
+
+    async def no_control(_page: object, *, enabled: bool = True) -> None:
+        calls.append("control")
+        return None
+
+    async def security_challenge(*, context: str | None = None) -> bool:
+        calls.append("challenge")
+        return challenge
+
+    async def login_required() -> bool:
+        calls.append("login")
+        return login
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: object())
+    monkeypatch.setattr(driver, "_send_control", no_control)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", security_challenge)
+    monkeypatch.setattr(driver, "login_required", login_required)
+
+    with pytest.raises(RuntimeError, match=expected):
+        await driver.wait_for_send_ready(timeout=0.1)
+    assert calls.count("control") == 1
+    assert calls.count("login") == login_calls
 
 
 def test_composer_normalisation_accounts_for_chatgpt_autolink_spacing() -> None:
