@@ -939,3 +939,35 @@ def test_composer_normalisation_accounts_for_chatgpt_autolink_spacing() -> None:
     assert _normalise_composer_text("preserve unrelated words") != _normalise_composer_text(
         "preserve altered words"
     )
+
+
+@pytest.mark.parametrize(
+    ("url", "required"),
+    [
+        ("https://auth.openai.com/authorize?state=secret", True),
+        ("https://chatgpt.com/auth/login?next=/", True),
+        ("https://chatgpt.com/login", True),
+        ("https://chatgpt.com/", False),
+        ("https://chatgpt.com/c/example", False),
+        ("https://notchatgpt.com/auth/login", False),
+        ("https://chatgpt.com.evil.test/login", False),
+    ],
+)
+def test_firstwari_authentication_redirect_classification(url: str, required: bool) -> None:
+    assert PlaywrightDriver._authentication_route(url) is required
+
+
+@pytest.mark.asyncio
+async def test_composer_timeout_classifies_expired_login_without_submitting(monkeypatch: pytest.MonkeyPatch) -> None:
+    class PageStub:
+        url = "https://auth.openai.com/authorize"
+
+    driver = PlaywrightDriver(profile=Path("/unused-test-profile"))
+    monkeypatch.setattr(driver, "_page", lambda context=None: PageStub())
+    monkeypatch.setattr(driver, "_composer", async_no_composer)
+    with pytest.raises(RuntimeError, match="login required"):
+        await driver.wait_for_composer(timeout=0)
+
+
+async def async_no_composer(_page: object) -> None:
+    return None

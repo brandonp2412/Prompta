@@ -874,8 +874,22 @@ class PlaywrightDriver:
                 pass
         self._forget_page(page)
 
+    @staticmethod
+    def _authentication_route(url: str) -> bool:
+        """Recognise explicit authentication redirects without inspecting account data."""
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").casefold()
+        if host == "auth.openai.com":
+            return True
+        if host not in {"chatgpt.com", "www.chatgpt.com"}:
+            return False
+        path = parsed.path.casefold().rstrip("/")
+        return path in {"/login", "/auth/login", "/auth/signin", "/auth/sign-in"}
+
     async def login_required(self) -> bool:
         page = self._page()
+        if self._authentication_route(page.url):
+            return True
         direct = await self._semantic_button(page, _LOGIN_RE)
         if direct is not None:
             return True
@@ -1036,6 +1050,11 @@ class PlaywrightDriver:
                 if await self._composer(page) is not None:
                     return
                 await asyncio.sleep(0.15)
+        # FirstWari/chatgpt-web classifies authentication redirects separately
+        # from hydration failures. Check only after exhausting the normal wait,
+        # retaining Prompta's existing browser and authentication ownership.
+        if await self.login_required():
+            raise RuntimeError("ChatGPT login required; composer unavailable")
         raise RuntimeError("ChatGPT composer did not become ready")
 
     async def _focus_composer(self) -> Locator:
