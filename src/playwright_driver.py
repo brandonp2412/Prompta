@@ -1095,9 +1095,10 @@ class PlaywrightDriver:
 
         try:
             keyboard = self._page().keyboard
-            await composer.focus()
-            await keyboard.press("Control+A")
-            await keyboard.press("Backspace")
+            # Target selection and clearing at the composer, not whichever
+            # element happens to own page-wide keyboard focus.
+            await composer.press("ControlOrMeta+A")
+            await composer.press("Backspace")
             if text:
                 await keyboard.insert_text(text)
         except PlaywrightError as exc:

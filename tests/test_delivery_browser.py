@@ -971,3 +971,44 @@ async def test_composer_timeout_classifies_expired_login_without_submitting(monk
 
 async def async_no_composer(_page: object) -> None:
     return None
+
+
+@pytest.mark.asyncio
+async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from playwright.async_api import Error as PlaywrightError
+
+    class Composer:
+        def __init__(self) -> None:
+            self.presses: list[str] = []
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def fill(self, _text: str) -> None:
+            raise PlaywrightError("contenteditable fill unsupported")
+
+        async def press(self, key: str) -> None:
+            self.presses.append(key)
+
+    class Keyboard:
+        def __init__(self) -> None:
+            self.insertions: list[str] = []
+
+        async def insert_text(self, text: str) -> None:
+            self.insertions.append(text)
+
+        async def press(self, _key: str) -> None:
+            pytest.fail("Fallback must never select text in a different focused element")
+
+    class Page:
+        def __init__(self) -> None:
+            self.keyboard = Keyboard()
+
+    composer = Composer()
+    page = Page()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    await getattr(driver, "_replace_composer_text")(composer, "one-shot prompt")
+    assert composer.presses == ["ControlOrMeta+A", "Backspace"]
+    assert page.keyboard.insertions == ["one-shot prompt"]
+
