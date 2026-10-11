@@ -1008,8 +1008,14 @@ async def test_composer_timeout_classifies_expired_login_without_submitting(monk
         url = "https://auth.openai.com/authorize"
 
     driver = PlaywrightDriver(profile=Path("/unused-test-profile"))
+
+    async def no_security_challenge(*, context: str | None = None) -> bool:
+        del context
+        return False
+
     monkeypatch.setattr(driver, "_page", lambda context=None: PageStub())
     monkeypatch.setattr(driver, "_composer", async_no_composer)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_security_challenge)
     with pytest.raises(RuntimeError, match="login required"):
         await driver.wait_for_composer(timeout=0)
 
