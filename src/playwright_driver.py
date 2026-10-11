@@ -513,7 +513,10 @@ class PlaywrightDriver:
         # unique public accessible name and finally a single active editor.
         editables = page.locator('[contenteditable]:not([contenteditable="false"])')
         try:
-            count = min(await editables.count(), 24)
+            count = await editables.count()
+            if count > 24:
+                # Scanning a prefix cannot rule out another active editor.
+                return None
         except PlaywrightError:
             return None
 

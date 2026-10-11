@@ -781,6 +781,33 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
 
 
 @pytest.mark.asyncio
+async def test_hydrated_composer_refuses_truncated_editable_scan(tmp_path: Path) -> None:
+    class Candidate:
+        async def evaluate(self, _script: str) -> object:
+            raise AssertionError("oversized set must not be scanned")
+
+        async def is_visible(self) -> bool:
+            raise AssertionError("oversized set must not be scanned")
+
+        async def is_enabled(self) -> bool:
+            raise AssertionError("oversized set must not be scanned")
+
+    class Collection:
+        async def count(self) -> int:
+            return 25
+
+        def nth(self, _index: int) -> Candidate:
+            raise AssertionError("must fail closed before inspecting any candidate")
+
+    class Page:
+        def locator(self, _selector: str) -> Collection:
+            return Collection()
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    assert await driver._hydrated_composer(Page()) is None
+
+
+@pytest.mark.asyncio
 async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Path) -> None:
     class Candidate:
         async def evaluate(self, script: str) -> object:
