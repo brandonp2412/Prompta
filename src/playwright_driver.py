@@ -1005,6 +1005,7 @@ class PlaywrightDriver:
             await composer.press("ControlOrMeta+A")
             await composer.press("Backspace")
             if text:
+                await composer.focus()
                 await keyboard.insert_text(text)
         except PlaywrightError as exc:
             raise RuntimeError("ChatGPT composer could not accept text") from exc

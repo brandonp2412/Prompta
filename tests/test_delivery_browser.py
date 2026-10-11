@@ -1073,6 +1073,9 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
         async def press(self, key: str) -> None:
             self.presses.append(key)
 
+        async def focus(self) -> None:
+            self.presses.append("focus")
+
     class Keyboard:
         def __init__(self) -> None:
             self.insertions: list[str] = []
@@ -1092,7 +1095,7 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
     await getattr(driver, "_replace_composer_text")(composer, "one-shot prompt")
-    assert composer.presses == ["ControlOrMeta+A", "Backspace"]
+    assert composer.presses == ["ControlOrMeta+A", "Backspace", "focus"]
     assert page.keyboard.insertions == ["one-shot prompt"]
 
 
