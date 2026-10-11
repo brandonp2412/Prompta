@@ -837,10 +837,22 @@ class PlaywrightDriver:
                 ) from exc
             raise
 
+    @staticmethod
+    def _navigation_response_is_security_challenge(response: Response | None) -> bool:
+        if response is None:
+            return False
+        try:
+            verdict = response.headers.get("cf-mitigated", "")
+        except PlaywrightError:
+            return False
+        return verdict.casefold() == "challenge"
+
     async def navigate(self, url: str, *, context: str | None = None) -> None:
         page = self._page(context)
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
+            if self._navigation_response_is_security_challenge(response):
+                raise RuntimeError("ChatGPT security challenge blocked navigation")
             context_id = self._page_contexts.get(page)
             if context_id in self._owned_contexts:
                 await self._mark_owned(page)

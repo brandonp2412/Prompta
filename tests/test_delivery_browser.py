@@ -949,6 +949,28 @@ async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_navigation_fails_closed_on_cloudflare_mitigation_header(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class NavigationResponse:
+        headers = {"cf-mitigated": "challenge"}
+
+    class Page:
+        async def goto(self, _url: str, *, wait_until: str, timeout: int) -> NavigationResponse:
+            assert wait_until == "domcontentloaded"
+            assert timeout > 0
+            return NavigationResponse()
+
+    page = Page()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+
+    with pytest.raises(RuntimeError, match="security challenge"):
+        await driver.navigate("https://chatgpt.com/")
+
+
+@pytest.mark.asyncio
 async def test_new_tab_sets_actionable_viewport_before_navigation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
