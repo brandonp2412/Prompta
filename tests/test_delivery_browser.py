@@ -362,6 +362,10 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
 
     monkeypatch.setattr(driver, "_composer", no_ready_composer)
 
+    async def no_challenge(*, context: str | None = None) -> bool:
+        return False
+
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_challenge)
     await driver.ensure_chat_surface(timeout=0.1)
 
     assert control.clicks == 0
@@ -1132,3 +1136,22 @@ async def test_firstwari_picker_timeout_classifies_pre_dispatch_blockers(
     with pytest.raises(RuntimeError, match=re.escape(expected)):
         await driver._raise_model_selection_unavailable("GPT-5.6 Sol")
     assert checks == (["challenge"] if challenge else ["challenge", "login"])
+
+
+@pytest.mark.asyncio
+async def test_chat_surface_fails_closed_before_interacting_with_challenge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    class ChallengePage:
+        def get_by_role(self, _role: str, *, name: object = None) -> object:
+            raise AssertionError("Must not inspect chat controls during a challenge")
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: ChallengePage())
+
+    async def challenge(*, context: str | None = None) -> bool:
+        return True
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge)
+    with pytest.raises(RuntimeError, match="security challenge is blocking Chat surface"):
+        await driver.ensure_chat_surface(timeout=0.1)

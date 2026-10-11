@@ -1234,6 +1234,10 @@ class PlaywrightDriver:
             return None
 
         while asyncio.get_running_loop().time() < deadline:
+            # Do not interact with Chat/Work controls if a security challenge
+            # replaces the chat surface during initial navigation.
+            if await self._cloudflare_challenge_present():
+                raise RuntimeError("ChatGPT security challenge is blocking Chat surface readiness")
             # A usable composer is sufficient evidence that the page is already on
             # the normal chat surface. Do not interact with a redundant Chat/Work
             # mode control merely because ChatGPT happens to render one.
@@ -1260,6 +1264,8 @@ class PlaywrightDriver:
                     await asyncio.sleep(0.05)
             except PlaywrightError:
                 await asyncio.sleep(0.1)
+        if await self._cloudflare_challenge_present():
+            raise RuntimeError("ChatGPT security challenge is blocking Chat surface readiness")
         raise RuntimeError("ChatGPT Chat surface did not become active")
 
     async def _effort_trigger_locator(self) -> Locator | None:
