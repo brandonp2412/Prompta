@@ -390,6 +390,32 @@ async def test_first_usable_refuses_ambiguous_visible_candidates_when_guard_fals
 
 
 @pytest.mark.asyncio
+async def test_first_usable_refuses_two_composed_active_controls(tmp_path: Path) -> None:
+    class Candidate:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return True
+
+    class Collection:
+        def __init__(self) -> None:
+            self.candidates = [Candidate(), Candidate()]
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Candidate:
+            return self.candidates[index]
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    assert await driver._first_usable([Collection()]) is None
+
+
+@pytest.mark.asyncio
 async def test_chat_surface_recognises_pressed_chat_without_click(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

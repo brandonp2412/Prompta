@@ -444,6 +444,7 @@ class PlaywrightDriver:
                 continue
 
             browser_usable: list[_UsableT] = []
+            composed_active: list[_UsableT] = []
             for index in range(count):
                 candidate = locator.nth(index)
                 try:
@@ -453,11 +454,13 @@ class PlaywrightDriver:
                         continue
                     browser_usable.append(candidate)
                     if await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
-                        return candidate
+                        composed_active.append(candidate)
                 except PlaywrightError:
                     continue
 
-            if len(browser_usable) == 1:
+            if len(composed_active) == 1:
+                return composed_active[0]
+            if not composed_active and len(browser_usable) == 1:
                 return browser_usable[0]
         return None
 
