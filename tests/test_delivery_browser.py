@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import prompta.delivery_browser as delivery_browser
+import prompta.playwright_driver as playwright_driver
 from prompta.delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -54,6 +55,9 @@ class FakeDriver:
 
     async def dom_state(self) -> dict[str, object]:
         return {"composer_text": self.composer, "rate_limit_text": ""}
+
+    async def send_confirmation_state(self) -> dict[str, object]:
+        return {"composer_text": self.composer, "send_in_progress": False}
 
     async def eval(self, _script: str) -> str:
         return "/"
@@ -146,6 +150,99 @@ async def test_slow_model_picker_falls_back_with_a_bounded_timeout(
     assert "stage=model_selection" in caplog.text
     assert "outcome=failed" in caplog.text
     assert "Do the scheduled work" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_transport_confirmation_precedes_slow_dom_inspection(tmp_path: Path) -> None:
+    import asyncio
+
+    class SlowDomAfterDispatchDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.send_dispatched = False
+            self.dom_state_calls = 0
+
+        async def dom_state(self) -> dict[str, object]:
+            self.dom_state_calls += 1
+            if self.send_dispatched:
+                await asyncio.Event().wait()
+            return await super().dom_state()
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.send_dispatched = True
+
+        def captured_send_response(
+            self, _capture: dict[str, object]
+        ) -> tuple[str, int] | None:
+            if self.send_dispatched:
+                return ("request-1", 200)
+            return None
+
+    driver = SlowDomAfterDispatchDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.05,
+    )
+
+    await sender._send_browser("Scheduled work")
+
+    assert driver.dom_state_calls == 2
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
+async def test_transport_arriving_during_slow_dom_check_confirms_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    class DelayedTransportDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.send_dispatched = False
+            self.transport_ready = False
+            self.transport_checks = 0
+            self.confirmation_dom_calls = 0
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            if self.send_dispatched:
+                self.confirmation_dom_calls += 1
+                self.transport_ready = True
+                await asyncio.Event().wait()
+            return await super().send_confirmation_state()
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.send_dispatched = True
+
+        def captured_send_response(
+            self, _capture: dict[str, object]
+        ) -> tuple[str, int] | None:
+            self.transport_checks += 1
+            if self.transport_ready:
+                return ("request-1", 200)
+            return None
+
+    monkeypatch.setattr(
+        delivery_browser, "_SEND_CONFIRM_STATE_TIMEOUT_SECONDS", 0.01
+    )
+    driver = DelayedTransportDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.05,
+    )
+
+    await sender._send_browser("Scheduled work")
+
+    assert driver.confirmation_dom_calls == 1
+    assert driver.transport_checks == 2
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
 
 
 @pytest.mark.asyncio
@@ -338,10 +435,9 @@ async def test_generation_start_confirms_send_when_transport_and_route_are_unava
             super().__init__()
             self.generation_active = False
 
-        async def dom_state(self) -> dict[str, object]:
+        async def send_confirmation_state(self) -> dict[str, object]:
             return {
                 "composer_text": self.composer,
-                "rate_limit_text": "",
                 "send_in_progress": self.generation_active,
             }
 
@@ -378,6 +474,12 @@ async def test_preexisting_generation_control_does_not_confirm_send(tmp_path: Pa
             return {
                 "composer_text": self.composer,
                 "rate_limit_text": "",
+                "send_in_progress": self.generation_active,
+            }
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            return {
+                "composer_text": self.composer,
                 "send_in_progress": self.generation_active,
             }
 
@@ -442,6 +544,84 @@ async def test_dom_state_uses_public_stop_generating_semantics(
     assert not pattern.fullmatch("Stop")
     assert observed_enabled[0] is False
     assert state["send_in_progress"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_confirmation_state_never_scans_page_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = object()
+    composer = object()
+    observed: list[re.Pattern[str]] = []
+
+    async def get_composer(_page: object) -> object:
+        return composer
+
+    async def composer_text(_composer: object) -> str:
+        return "the submitted user prompt"
+
+    async def semantic_button(
+        _page: object,
+        name: re.Pattern[str],
+        *,
+        enabled: bool = True,
+    ) -> object:
+        assert enabled is False
+        observed.append(name)
+        return object()
+
+    async def forbidden_rate_limit_scan(_page: object) -> list[str]:
+        pytest.fail("post-send confirmation must not scan page or response text")
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_composer", get_composer)
+    monkeypatch.setattr(driver, "_composer_text", composer_text)
+    monkeypatch.setattr(driver, "_semantic_button", semantic_button)
+    monkeypatch.setattr(driver, "_rate_limit_texts", forbidden_rate_limit_scan)
+
+    state = await driver.send_confirmation_state()
+
+    assert state == {"composer_text": "the submitted user prompt", "send_in_progress": True}
+    assert len(observed) == 1
+    assert observed[0].fullmatch("Stop generating")
+
+
+@pytest.mark.asyncio
+async def test_model_picker_bounds_and_names_slow_option_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import asyncio
+
+    class Candidate:
+        def filter(self, **_kwargs: object) -> Candidate:
+            return self
+
+    class Page:
+        def get_by_role(self, _role: str, **_kwargs: object) -> Candidate:
+            return Candidate()
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+
+    async def slow_scan(_candidates: object, *, enabled: bool = True) -> None:
+        del enabled
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(driver, "_first_usable", slow_scan)
+    monkeypatch.setattr(
+        playwright_driver, "_MODEL_PICKER_STEP_TIMEOUT_SECONDS", 0.01
+    )
+
+    with pytest.raises(TimeoutError):
+        await driver.select_effort_model("GPT-5.6 Sol")
+
+    assert "stage=option_discovery" in caplog.text
+    assert "outcome=failed" in caplog.text
+    assert "GPT-5.6 Sol" not in caplog.text
 
 
 @pytest.mark.asyncio

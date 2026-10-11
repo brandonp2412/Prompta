@@ -6,7 +6,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 from urllib.parse import urlsplit
@@ -51,6 +51,36 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TIMEOUT_MS = 30_000
 _MODEL_SELECTION_VERIFY_ATTEMPTS = 40
 _MODEL_SELECTION_VERIFY_INTERVAL_SECONDS = 0.05
+_MODEL_PICKER_STEP_TIMEOUT_SECONDS = 3.0
+
+
+_PickerResult = TypeVar("_PickerResult")
+
+
+async def _timed_model_picker_step(
+    stage: str,
+    operation: Awaitable[_PickerResult],
+    *,
+    timeout: float,
+) -> _PickerResult:
+    started = time.monotonic()
+    try:
+        result = await asyncio.wait_for(operation, timeout=max(0.1, timeout))
+    except BaseException as exc:
+        logger.warning(
+            "ChatGPT model picker stage finished stage=%s duration_ms=%d "
+            "outcome=failed error_type=%s",
+            stage,
+            round((time.monotonic() - started) * 1000),
+            type(exc).__name__,
+        )
+        raise
+    logger.debug(
+        "ChatGPT model picker stage finished stage=%s duration_ms=%d outcome=ok",
+        stage,
+        round((time.monotonic() - started) * 1000),
+    )
+    return result
 
 
 def _normalise_composer_text(text: str) -> str:
@@ -1269,6 +1299,17 @@ class PlaywrightDriver:
             "send_in_progress": send_in_progress,
         }
 
+    async def send_confirmation_state(self) -> dict[str, object]:
+        """Read only the user composer and send control after one-shot dispatch."""
+        page = self._page()
+        composer = await self._composer(page)
+        composer_text = await self._composer_text(composer) if composer is not None else ""
+        send_in_progress = (
+            await self._semantic_button(page, _STOP_GENERATING_RE, enabled=False)
+            is not None
+        )
+        return {"composer_text": composer_text, "send_in_progress": send_in_progress}
+
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:
         page = self._page()
         deadline = asyncio.get_running_loop().time() + timeout
@@ -1664,15 +1705,36 @@ class PlaywrightDriver:
         # controls and never re-click an already-expanded trigger while waiting for
         # the next submenu to hydrate.
         deadline = asyncio.get_running_loop().time() + 15.0
+
+        def step_timeout() -> float:
+            remaining = deadline - asyncio.get_running_loop().time()
+            return max(0.1, min(_MODEL_PICKER_STEP_TIMEOUT_SECONDS, remaining))
+
+        option_seen = False
+        selector_seen = False
+        trigger_seen = False
         while asyncio.get_running_loop().time() < deadline:
-            option = await find_option()
+            option = await _timed_model_picker_step(
+                "option_discovery", find_option(), timeout=step_timeout()
+            )
+            option_seen = option_seen or option is not None
             if option is not None:
                 try:
-                    if await self._model_selection_verified(page, option, model_name_re):
+                    if await _timed_model_picker_step(
+                        "selection_state_check",
+                        self._model_selection_verified(page, option, model_name_re),
+                        timeout=step_timeout(),
+                    ):
                         await page.keyboard.press("Escape")
                         return
-                    await option.click()
-                    if await self._verify_model_selection_after_click(page, option, model_name_re):
+                    await _timed_model_picker_step(
+                        "model_option_click", option.click(), timeout=step_timeout()
+                    )
+                    if await _timed_model_picker_step(
+                        "selection_verification",
+                        self._verify_model_selection_after_click(page, option, model_name_re),
+                        timeout=step_timeout(),
+                    ):
                         await page.keyboard.press("Escape")
                         return
                     await self._raise_model_selection_unavailable(model_name)
@@ -1680,26 +1742,46 @@ class PlaywrightDriver:
                     await asyncio.sleep(0.1)
                     continue
 
-            selector = await self._model_selector_control(page)
+            selector = await _timed_model_picker_step(
+                "selector_discovery",
+                self._model_selector_control(page),
+                timeout=step_timeout(),
+            )
+            selector_seen = selector_seen or selector is not None
             if selector is not None:
                 try:
-                    if await expanded(selector):
+                    if await _timed_model_picker_step(
+                        "selector_expansion_state", expanded(selector), timeout=step_timeout()
+                    ):
                         await asyncio.sleep(0.05)
                         continue
-                    await selector.click()
+                    await _timed_model_picker_step(
+                        "selector_open", selector.click(), timeout=step_timeout()
+                    )
                     await asyncio.sleep(0.08)
                     continue
                 except PlaywrightError:
                     await asyncio.sleep(0.1)
                     continue
 
-            trigger = await self._effort_trigger_locator()
+            trigger = await _timed_model_picker_step(
+                "effort_trigger_discovery",
+                self._effort_trigger_locator(),
+                timeout=step_timeout(),
+            )
+            trigger_seen = trigger_seen or trigger is not None
             if trigger is not None:
                 try:
-                    if await expanded(trigger):
+                    if await _timed_model_picker_step(
+                        "effort_trigger_expansion_state",
+                        expanded(trigger),
+                        timeout=step_timeout(),
+                    ):
                         await asyncio.sleep(0.05)
                         continue
-                    await trigger.click()
+                    await _timed_model_picker_step(
+                        "effort_trigger_open", trigger.click(), timeout=step_timeout()
+                    )
                     await asyncio.sleep(0.08)
                     continue
                 except PlaywrightError:
@@ -1708,6 +1790,13 @@ class PlaywrightDriver:
 
             await asyncio.sleep(0.1)
 
+        logger.warning(
+            "ChatGPT model picker exhausted semantic search model_option_seen=%s "
+            "selector_control_seen=%s effort_trigger_seen=%s",
+            option_seen,
+            selector_seen,
+            trigger_seen,
+        )
         await self._raise_model_selection_unavailable(model_name)
 
     async def _raise_model_selection_unavailable(self, model_name: str) -> None:

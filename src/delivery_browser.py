@@ -28,6 +28,7 @@ _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
 _MODEL_SELECTION_TIMEOUT_SECONDS = 20.0
 _EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
 _SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
+_SEND_CONFIRM_STATE_TIMEOUT_SECONDS = 8.0
 
 
 def _is_conversation_path(path: str) -> bool:
@@ -331,9 +332,39 @@ class BrowserDeliverySender:
                 deadline = asyncio.get_running_loop().time() + self.send_timeout_seconds
 
                 while asyncio.get_running_loop().time() < deadline:
+                    status = int_value((capture or {}).get("status"))
+                    if status == 429:
+                        raise RateLimitError("prompta send rate limited")
+                    if status >= 500:
+                        raise SendOutcomeUnknownError(
+                            f"prompta send returned HTTP {status} after dispatch",
+                            stage="send_response",
+                        )
+                    if status >= 400:
+                        raise SendNotAcceptedError(f"prompta send failed with HTTP {status}")
+                    if capture is not None and capture.get("fetch_error"):
+                        raise SendOutcomeUnknownError(
+                            "prompta send transport failed after dispatch",
+                            stage="send_transport",
+                        )
+
+                    transport_confirmed = (
+                        capture is not None and driver.captured_send_response(capture) is not None
+                    )
+                    last_transport_confirmed = transport_confirmed
+                    if transport_confirmed:
+                        logger.info(
+                            "Prompta dispatched fresh-chat prompt "
+                            "transport_confirmed=true route_confirmed=false "
+                            "generation_confirmed=false"
+                        )
+                        return
+
                     try:
                         state = await _timed_stage(
-                            "send_confirmation_state", driver.dom_state(), timeout=8.0
+                            "send_confirmation_state",
+                            driver.send_confirmation_state(),
+                            timeout=_SEND_CONFIRM_STATE_TIMEOUT_SECONDS,
                         )
                         path = str(
                             await _timed_stage(
@@ -344,6 +375,31 @@ class BrowserDeliverySender:
                             or ""
                         )
                     except Exception as exc:
+                        # A slow or unresponsive DOM must not hide a transport
+                        # acknowledgement already captured for this one-shot send.
+                        status = int_value((capture or {}).get("status"))
+                        if status == 429:
+                            raise RateLimitError("prompta send rate limited") from exc
+                        if status >= 500:
+                            raise SendOutcomeUnknownError(
+                                f"prompta send returned HTTP {status} after dispatch",
+                                stage="send_response",
+                            ) from exc
+                        if status >= 400:
+                            raise SendNotAcceptedError(
+                                f"prompta send failed with HTTP {status}"
+                            ) from exc
+                        transport_confirmed = (
+                            capture is not None
+                            and driver.captured_send_response(capture) is not None
+                        )
+                        if transport_confirmed:
+                            logger.info(
+                                "Prompta dispatched fresh-chat prompt "
+                                "transport_confirmed=true route_confirmed=false "
+                                "generation_confirmed=false after UI confirmation timeout"
+                            )
+                            return
                         raise SendOutcomeUnknownError(
                             "Prompta lost send confirmation after dispatch",
                             stage="send_confirmation",
@@ -356,28 +412,6 @@ class BrowserDeliverySender:
                     if is_rate_limited_text(rate_limit_text):
                         raise RateLimitError.from_text(rate_limit_text)
 
-                    status = int_value((capture or {}).get("status"))
-                    transport_confirmed = (
-                        capture is not None and driver.captured_send_response(capture) is not None
-                    )
-                    last_transport_confirmed = transport_confirmed
-
-                    if status == 429:
-                        raise RateLimitError("prompta send rate limited")
-                    if status >= 500:
-                        raise SendOutcomeUnknownError(
-                            f"prompta send returned HTTP {status} after dispatch",
-                            stage="send_response",
-                        )
-                    if status >= 400:
-                        raise SendNotAcceptedError(f"prompta send failed with HTTP {status}")
-                    if capture is not None and capture.get("fetch_error"):
-                        raise SendOutcomeUnknownError(
-                            "prompta send transport failed after dispatch: "
-                            + str(capture["fetch_error"]),
-                            stage="send_transport",
-                        )
-
                     route_confirmed = _is_conversation_path(path) and path != baseline_path
                     composer_now = _normalise_composer_text(
                         str(state.get("composer_text") or "")
@@ -388,11 +422,10 @@ class BrowserDeliverySender:
                         and not composer_now
                     )
 
-                    if transport_confirmed or route_confirmed or generation_confirmed:
+                    if route_confirmed or generation_confirmed:
                         logger.info(
-                            "Prompta dispatched fresh-chat prompt transport_confirmed=%s "
+                            "Prompta dispatched fresh-chat prompt transport_confirmed=false "
                             "route_confirmed=%s generation_confirmed=%s",
-                            transport_confirmed,
                             route_confirmed,
                             generation_confirmed,
                         )
