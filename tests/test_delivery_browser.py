@@ -1165,6 +1165,7 @@ async def test_chat_surface_fails_closed_before_interacting_with_challenge(
     with pytest.raises(RuntimeError, match="security challenge is blocking Chat surface"):
         await driver.ensure_chat_surface(timeout=0.1)
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("challenge", "login", "expected", "login_calls"),
