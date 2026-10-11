@@ -141,7 +141,6 @@ class BrowserDeliverySender:
         driver = self._new_driver()
         context = ""
         capture: dict[str, object] | None = None
-        probe_armed = False
         send_attempted = False
 
         try:
@@ -168,8 +167,6 @@ class BrowserDeliverySender:
                 if is_rate_limited_text(rate_limit_text):
                     raise RateLimitError.from_text(rate_limit_text)
 
-                await driver.arm_page_send_probe()
-                probe_armed = True
                 capture = driver.arm_send_capture()
                 await driver.type_message(message)
 
@@ -195,7 +192,6 @@ class BrowserDeliverySender:
                     send_attempted = True
 
                 last_state: dict[str, object] = {}
-                last_probe: dict[str, object] = {}
                 last_path = baseline_path
                 last_transport_confirmed = False
                 deadline = asyncio.get_running_loop().time() + self.send_timeout_seconds
@@ -203,7 +199,6 @@ class BrowserDeliverySender:
                 while asyncio.get_running_loop().time() < deadline:
                     try:
                         state = await driver.dom_state()
-                        probe = await driver.page_send_probe()
                         path = str(
                             await driver.eval(load_browser_script("location_pathname.js")) or ""
                         )
@@ -214,15 +209,14 @@ class BrowserDeliverySender:
                         ) from exc
 
                     last_state = state
-                    last_probe = probe
                     last_path = path
 
                     rate_limit_text = str(state.get("rate_limit_text") or "")
                     if is_rate_limited_text(rate_limit_text):
                         raise RateLimitError.from_text(rate_limit_text)
 
-                    status = int_value(probe.get("response_status") or (capture or {}).get("status"))
-                    transport_confirmed = bool(probe.get("committed")) or (
+                    status = int_value((capture or {}).get("status"))
+                    transport_confirmed = (
                         capture is not None and driver.captured_send_response(capture) is not None
                     )
                     last_transport_confirmed = transport_confirmed
@@ -270,7 +264,6 @@ class BrowserDeliverySender:
                     "prompta could not prove the fresh-chat prompt was accepted "
                     + f"(composer_empty={not bool(final_composer)}, "
                     + f"transport_confirmed={last_transport_confirmed}, "
-                    + f"probe_status={int_value(last_probe.get('response_status'))}, "
                     + f"path={last_path or '/'})"
                 )
                 if dispatch_error is not None:
@@ -291,11 +284,6 @@ class BrowserDeliverySender:
         finally:
             if capture is not None:
                 driver.clear_send_capture(capture)
-            if probe_armed:
-                try:
-                    await driver.clear_page_send_probe()
-                except Exception:
-                    logger.debug("Could not clear page send probe", exc_info=True)
             if context:
                 try:
                     await driver.close_context(context)

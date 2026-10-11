@@ -7,6 +7,7 @@ import pytest
 
 from prompta.delivery_browser import BrowserDeliverySender
 from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
+from prompta.send_outcome import SendOutcomeUnknownError
 
 
 class FakeDriver:
@@ -17,7 +18,6 @@ class FakeDriver:
         self.composer = ""
         self.closed_contexts: list[str] = []
         self.closed = False
-        self.probe_armed = False
         self.capture: dict[str, object] = {
             "status": 200,
             "response_started": True,
@@ -55,9 +55,6 @@ class FakeDriver:
     async def clear_composer(self) -> None:
         self.composer = ""
 
-    async def arm_page_send_probe(self) -> None:
-        self.probe_armed = True
-
     def arm_send_capture(self) -> dict[str, object]:
         return self.capture
 
@@ -67,17 +64,11 @@ class FakeDriver:
     async def click_send(self) -> None:
         self.composer = ""
 
-    async def page_send_probe(self) -> dict[str, object]:
-        return {"committed": True, "response_status": 200}
-
-    def captured_send_response(self, _capture: dict[str, object]) -> tuple[str, int]:
+    def captured_send_response(self, _capture: dict[str, object]) -> tuple[str, int] | None:
         return ("request-1", 200)
 
     def clear_send_capture(self, capture: dict[str, object]) -> None:
         assert capture is self.capture
-
-    async def clear_page_send_probe(self) -> None:
-        self.probe_armed = False
 
     async def close_context(self, context: str) -> None:
         self.closed_contexts.append(context)
@@ -100,8 +91,25 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
 
     assert driver.closed_contexts == ["fresh-tab"]
     assert driver.closed is True
-    assert driver.probe_armed is False
     assert driver.composer == ""
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_send_fails_closed_without_stream_probe(tmp_path: Path) -> None:
+    class UnconfirmedDriver(FakeDriver):
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    driver = UnconfirmedDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.01,
+    )
+    with pytest.raises(SendOutcomeUnknownError):
+        await sender._send_browser("Scheduled work")
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed is True
 
 
 @pytest.mark.asyncio

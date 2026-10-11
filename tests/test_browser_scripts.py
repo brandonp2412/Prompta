@@ -79,20 +79,6 @@ def test_browser_script_is_valid_javascript(script_path: Path) -> None:
     )
 
 
-def test_send_probe_protocol_and_cleanup() -> None:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node is unavailable")
-    subprocess.run(
-        [node, "--test", "tests/send_probe.test.cjs"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-
 def test_composer_focus_contract() -> None:
     node = shutil.which("node")
     if node is None:

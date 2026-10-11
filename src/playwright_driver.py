@@ -216,18 +216,6 @@ class PlaywrightDriver:
             }
         )
 
-    async def arm_page_send_probe(self) -> None:
-        await self.eval(load_browser_script("arm_page_send_probe.js"))
-
-    async def page_send_probe(self) -> dict[str, object]:
-        return json_object(await self.eval(load_browser_script("page_send_probe.js")), label="page send probe")
-
-    async def clear_page_send_probe(self) -> dict[str, object]:
-        return json_object(
-            await self.eval(load_browser_script("clear_page_send_probe.js")),
-            label="cleared page send probe",
-        )
-
     @staticmethod
     def captured_send_response(capture: dict[str, object]) -> tuple[str, int] | None:
         request_id = str(capture.get("request_id") or "")
