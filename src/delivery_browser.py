@@ -300,7 +300,7 @@ class BrowserDeliverySender:
                     "prompta could not prove the fresh-chat prompt was accepted "
                     + f"(composer_empty={not bool(final_composer)}, "
                     + f"transport_confirmed={last_transport_confirmed}, "
-                    + f"path={last_path or '/'})"
+                    + f"conversation_route={_is_conversation_path(last_path)})"
                 )
                 if dispatch_error is not None:
                     raise SendOutcomeUnknownError(

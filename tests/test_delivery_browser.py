@@ -196,6 +196,27 @@ async def test_unconfirmed_send_fails_closed_without_stream_probe(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_unconfirmed_send_diagnostic_never_logs_raw_path(tmp_path: Path) -> None:
+    class UnconfirmedPathDriver(FakeDriver):
+        async def eval(self, _script: str) -> str:
+            return "/temporary/opaque-sensitive-route-token"
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    driver = UnconfirmedPathDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, send_timeout_seconds=0.01
+    )
+    with pytest.raises(SendOutcomeUnknownError) as exc:
+        await sender._send_browser("Scheduled work")
+    assert "conversation_route=False" in str(exc.value)
+    assert "opaque-sensitive-route-token" not in str(exc.value)
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
 async def test_generation_start_confirms_send_when_transport_and_route_are_unavailable(
     tmp_path: Path,
 ) -> None:
