@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from prompta.delivery_browser import BrowserDeliverySender
-from prompta.playwright_driver import PlaywrightDriver
+from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
 
 
 class FakeDriver:
@@ -904,3 +904,22 @@ async def test_send_readiness_preserves_keyboard_fallback_without_known_control(
     await driver.wait_for_send_ready(timeout=0.1)
 
     assert calls == 1
+
+
+def test_composer_normalisation_accounts_for_chatgpt_autolink_spacing() -> None:
+    # ChatGPT's ProseMirror editor inserts a space after the opening
+    # parenthesis when linking URLs, even though Playwright filled the
+    # original exact string. This must not strand the delivery queue.
+    requested = "Inspect upstream (https://github.com/stufently/gpt-web-gateway)."
+    editor_text = "Inspect upstream ( https://github.com/stufently/gpt-web-gateway)."
+
+    assert _normalise_composer_text(requested) == _normalise_composer_text(editor_text)
+    assert _normalise_composer_text("a=https://github.com/test") == _normalise_composer_text(
+        "a= https://github.com/test"
+    )
+    assert _normalise_composer_text("a=https://github.com/good") != _normalise_composer_text(
+        "a=https://github.com/bad"
+    )
+    assert _normalise_composer_text("preserve unrelated words") != _normalise_composer_text(
+        "preserve altered words"
+    )

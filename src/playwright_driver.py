@@ -55,7 +55,7 @@ _DEFAULT_TIMEOUT_MS = 30_000
 
 def _normalise_composer_text(text: str) -> str:
     normalized = " ".join(text.split()).strip()
-    return re.sub(r"(?<==)\s+(?=https?://)", "", normalized)
+    return re.sub(r"(?<=[=(])\s+(?=https?://)", "", normalized)
 
 
 _RATE_LIMIT_RE = re.compile(
