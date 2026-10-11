@@ -427,6 +427,37 @@ async def test_unconfirmed_send_diagnostic_never_logs_raw_path(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_route_confirmation_does_not_wait_for_slow_composer_after_send(tmp_path: Path) -> None:
+    class RouteConfirmedSlowComposer(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.dispatched = False
+            self.confirmation_dom_calls = 0
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.dispatched = True
+
+        async def eval(self, _script: str) -> str:
+            return "/c/new-fresh-chat" if self.dispatched else "/"
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            self.confirmation_dom_calls += 1
+            raise TimeoutError("composer blocked while UI hydrates")
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    driver = RouteConfirmedSlowComposer()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+    await sender._send_browser("Do the scheduled work")
+    assert driver.dispatched
+    assert driver.confirmation_dom_calls == 0
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
 async def test_generation_start_confirms_send_when_transport_and_route_are_unavailable(
     tmp_path: Path,
 ) -> None:

@@ -361,11 +361,9 @@ class BrowserDeliverySender:
                         return
 
                     try:
-                        state = await _timed_stage(
-                            "send_confirmation_state",
-                            driver.send_confirmation_state(),
-                            timeout=_SEND_CONFIRM_STATE_TIMEOUT_SECONDS,
-                        )
+                        # Inspect the fresh-chat URL first: it is an inexpensive,
+                        # response-free acceptance signal. The heavier composer
+                        # selector can stall while React hydrates after dispatch.
                         path = str(
                             await _timed_stage(
                                 "send_confirmation_route",
@@ -373,6 +371,18 @@ class BrowserDeliverySender:
                                 timeout=5.0,
                             )
                             or ""
+                        )
+                        if _is_conversation_path(path) and path != baseline_path:
+                            logger.info(
+                                "Prompta dispatched fresh-chat prompt "
+                                "transport_confirmed=false route_confirmed=true "
+                                "generation_confirmed=false"
+                            )
+                            return
+                        state = await _timed_stage(
+                            "send_confirmation_state",
+                            driver.send_confirmation_state(),
+                            timeout=_SEND_CONFIRM_STATE_TIMEOUT_SECONDS,
                         )
                     except Exception as exc:
                         # A slow or unresponsive DOM must not hide a transport
