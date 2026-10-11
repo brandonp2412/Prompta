@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const test = require('node:test');
 const isFocused = eval(fs.readFileSync('src/browser_scripts/composer_has_focus.js', 'utf8'));
-const node = (parentElement = null) => ({parentElement, getRootNode: () => ({host: null})});
+const node = (parentElement = null) => ({parentElement, isContentEditable: true, getRootNode: () => ({host: null})});
 test('direct editor focus succeeds', () => {
   const editor = node(); global.document = {activeElement: editor};
   assert.equal(isFocused(editor), true);
@@ -30,4 +30,10 @@ test('shadow root focus in unrelated popup fails closed', () => {
 });
 test('missing focused element fails closed', () => {
   global.document = {activeElement: null}; assert.equal(isFocused(node()), false);
+});
+
+test('non-editable focused child fails closed', () => {
+  const editor = node(); const child = node(editor); child.isContentEditable = false;
+  global.document = {activeElement: child};
+  assert.equal(isFocused(editor), false);
 });
