@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .browser_driver import BrowserDriver
 from .browser_script_loader import load_browser_script
-from .playwright_driver import PlaywrightDriver
+from .playwright_driver import PlaywrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .scheduler_runtime import SchedulerRuntime
 from .send_outcome import SendOutcomeUnknownError
@@ -113,10 +113,6 @@ class BrowserDeliverySender:
         await driver.dismiss_transient_controls()
         logger.info("Prompta set and verified model=GPT-5.6 Sol effort=High")
 
-    @staticmethod
-    def _normalise(text: str) -> str:
-        return " ".join(text.split()).strip()
-
     def __call__(self, message: str) -> None:
         if not message.strip():
             raise ValueError("prompta prompt is empty")
@@ -163,12 +159,12 @@ class BrowserDeliverySender:
                 baseline_path = str(
                     await driver.eval(load_browser_script("location_pathname.js")) or ""
                 )
-                stale_text = self._normalise(str(baseline.get("composer_text") or ""))
+                stale_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
                 if stale_text:
                     logger.warning("Prompta found stale text in a fresh-chat composer; clearing it")
                     await driver.clear_composer()
                     baseline = await driver.dom_state()
-                    if self._normalise(str(baseline.get("composer_text") or "")):
+                    if _normalise_composer_text(str(baseline.get("composer_text") or "")):
                         raise RuntimeError("ChatGPT stale new-chat composer could not be cleared")
 
                 rate_limit_text = str(baseline.get("rate_limit_text") or "")
@@ -181,7 +177,7 @@ class BrowserDeliverySender:
                 await driver.type_message(message)
 
                 typed = await driver.dom_state()
-                if self._normalise(str(typed.get("composer_text") or "")) != self._normalise(
+                if _normalise_composer_text(str(typed.get("composer_text") or "")) != _normalise_composer_text(
                     message
                 ):
                     raise RuntimeError("ChatGPT composer did not contain the configured prompt")
@@ -263,9 +259,9 @@ class BrowserDeliverySender:
 
                     await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
 
-                final_composer = self._normalise(str(last_state.get("composer_text") or ""))
+                final_composer = _normalise_composer_text(str(last_state.get("composer_text") or ""))
                 if (
-                    final_composer == self._normalise(message)
+                    final_composer == _normalise_composer_text(message)
                     and not last_transport_confirmed
                     and last_path == baseline_path
                 ):

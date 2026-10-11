@@ -105,6 +105,22 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_url_autolink_spacing_does_not_block_real_send(tmp_path: Path) -> None:
+    class AutolinkingEditorDriver(FakeDriver):
+        async def type_message(self, message: str) -> None:
+            # Reproduced on ChatGPT's current live ProseMirror composer.
+            self.composer = message.replace("(https://", "( https://")
+
+    driver = AutolinkingEditorDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+
+    await sender._send_browser("Inspect upstream (https://github.com/stufently/gpt-web-gateway).")
+
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.composer == ""
+
+
+@pytest.mark.asyncio
 async def test_stale_fresh_chat_composer_is_cleared_before_dispatch(tmp_path: Path) -> None:
     class StaleDriver(FakeDriver):
         def __init__(self) -> None:
