@@ -780,10 +780,7 @@ class PlaywrightDriver:
                 browser_context = self._browser_context
 
             page = await browser_context.new_page()
-            # CDP-attached Brave may start with a 0x0 browser viewport.
-            # Give each owned tab an actionable viewport before navigation.
-            await page.set_viewport_size({"width": 1280, "height": 960})
-            self.context = self._register_page(page, owned=True)
+            self.context = await self._prepare_owned_page(page)
             self._network_subscribed = True
             self._connected = True
 
@@ -850,13 +847,31 @@ class PlaywrightDriver:
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(f"Playwright navigation timed out for {url}") from exc
 
+    async def _prepare_owned_page(self, page: Page) -> str:
+        """Register a new Prompta tab before any setup that can fail."""
+        try:
+            context_id = self._register_page(page, owned=True)
+            # CDP-attached Brave may start with a 0x0 browser viewport.
+            # Give each owned tab an actionable viewport before navigation.
+            await page.set_viewport_size({"width": 1280, "height": 960})
+            return context_id
+        except BaseException:
+            context_id = self._page_contexts.get(page)
+            if context_id is not None:
+                await self.close_context(context_id)
+            else:
+                try:
+                    await page.close()
+                except PlaywrightError:
+                    pass
+            raise
+
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         browser_context = self._browser_context
         if browser_context is None:
             raise RuntimeError("Playwright browser context is not connected")
         page = await browser_context.new_page()
-        await page.set_viewport_size({"width": 1280, "height": 960})
-        context_id = self._register_page(page, owned=True)
+        context_id = await self._prepare_owned_page(page)
         self.context = context_id
         try:
             await self.navigate(url, context=context_id)

@@ -874,6 +874,46 @@ async def test_new_tab_sets_actionable_viewport_before_navigation(
 
 
 @pytest.mark.asyncio
+async def test_new_tab_closes_half_created_page_when_viewport_setup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Page:
+        closed = False
+
+        async def set_viewport_size(self, _size: dict[str, int]) -> None:
+            raise RuntimeError("viewport unavailable")
+
+        def set_default_timeout(self, _timeout: int) -> None:
+            pass
+
+        def on(self, _event: str, _callback: object) -> None:
+            pass
+
+        def is_closed(self) -> bool:
+            return self.closed
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class Context:
+        async def new_page(self) -> Page:
+            return page
+
+    page = Page()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_browser_context", Context())
+
+    with pytest.raises(RuntimeError, match="viewport unavailable"):
+        await driver.new_tab()
+
+    assert page.closed
+    assert driver._pages == {}
+    assert driver._page_contexts == {}
+    assert driver._owned_contexts == set()
+
+
+@pytest.mark.asyncio
 async def test_effort_trigger_accepts_explicit_label_without_popup_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
