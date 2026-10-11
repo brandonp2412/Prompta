@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import prompta.delivery_browser as delivery_browser
 from prompta.delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -119,6 +120,69 @@ def test_delivery_deadline_before_dispatch_is_retryable_and_closes_tab(tmp_path:
     assert driver.closed_contexts == ["fresh-tab"]
     assert driver.closed is True
     assert driver.composer == ""
+
+
+@pytest.mark.asyncio
+async def test_slow_model_picker_falls_back_with_a_bounded_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import asyncio
+
+    class SlowModelPickerDriver(FakeDriver):
+        async def select_effort_model(self, _model: str) -> None:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(delivery_browser, "_MODEL_SELECTION_TIMEOUT_SECONDS", 0.01)
+    driver = SlowModelPickerDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+
+    await sender._send_browser("Do the scheduled work")
+
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+    assert "stage=model_selection" in caplog.text
+    assert "outcome=failed" in caplog.text
+    assert "Do the scheduled work" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_timeout_inside_dispatch_stays_ambiguous_without_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    class HungDispatchDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.dispatch_calls = 0
+
+        async def click_send(self, expected_message: str) -> None:
+            del expected_message
+            self.dispatch_calls += 1
+            await asyncio.Event().wait()
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    monkeypatch.setattr(delivery_browser, "_SEND_DISPATCH_TIMEOUT_SECONDS", 0.01)
+    driver = HungDispatchDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.01,
+    )
+
+    with pytest.raises(SendOutcomeUnknownError) as error:
+        await sender._send_browser("Do the scheduled work")
+
+    assert error.value.stage == "send_dispatch"
+    assert driver.dispatch_calls == 1
+    assert driver.composer == "Do the scheduled work"
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
 
 
 def test_delivery_deadline_during_dispatch_fails_closed_without_resend(tmp_path: Path) -> None:

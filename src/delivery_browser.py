@@ -5,8 +5,9 @@ import logging
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TypeVar
 
 from .browser_driver import BrowserDriver
 from .browser_script_loader import load_browser_script
@@ -17,18 +18,47 @@ from .send_outcome import SendOutcomeUnknownError
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
 _DELIVERY_HARD_TIMEOUT_SECONDS = 120.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
 _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
+_MODEL_SELECTION_TIMEOUT_SECONDS = 20.0
+_EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
+_SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
 
 
 def _is_conversation_path(path: str) -> bool:
     """Detect a permanent ChatGPT conversation route without reading its identifier."""
 
     return "/c/" in path
+
+
+async def _timed_stage(
+    stage: str,
+    operation: Awaitable[_T],
+    *,
+    timeout: float,
+) -> _T:
+    started = time.monotonic()
+    try:
+        result = await asyncio.wait_for(operation, timeout=max(0.1, timeout))
+    except BaseException as exc:
+        logger.warning(
+            "Prompta delivery stage finished stage=%s duration_ms=%d outcome=failed error_type=%s",
+            stage,
+            round((time.monotonic() - started) * 1000),
+            type(exc).__name__,
+        )
+        raise
+    logger.info(
+        "Prompta delivery stage finished stage=%s duration_ms=%d outcome=ok",
+        stage,
+        round((time.monotonic() - started) * 1000),
+    )
+    return result
 
 
 class DeliveryBackendUnavailableError(RuntimeError):
@@ -94,31 +124,50 @@ class BrowserDeliverySender:
         self.runtime.update_scheduler_state({"last_attempt_at": time.time()})
 
     async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
-        await driver.ensure_chat_surface()
+        await _timed_stage("chat_surface_ready", driver.ensure_chat_surface(), timeout=12.0)
         now = asyncio.get_running_loop().time()
         if now < self._next_effort_preference_retry_at:
             return
+        stage = "model_selection"
         try:
-            await driver.select_effort_model("GPT-5.6 Sol")
-            power = await driver.set_effort_power_position(3)
+            await _timed_stage(
+                stage,
+                driver.select_effort_model("GPT-5.6 Sol"),
+                timeout=_MODEL_SELECTION_TIMEOUT_SECONDS,
+            )
+            stage = "effort_selection"
+            power = await _timed_stage(
+                stage,
+                driver.set_effort_power_position(3),
+                timeout=_EFFORT_SELECTION_TIMEOUT_SECONDS,
+            )
             if str(power.get("text") or "").strip().casefold() != "high":
-                raise RuntimeError(f"ChatGPT High effort verification failed: {power!r}")
+                raise RuntimeError("ChatGPT High effort verification failed")
             if "upgrade required" in str(power.get("description") or "").casefold():
                 raise RuntimeError("ChatGPT High effort unexpectedly requires an upgrade")
-        except RuntimeError as exc:
+        except (RuntimeError, TimeoutError) as exc:
             if driver.needs_browser_restart:
                 raise
             self._next_effort_preference_retry_at = now + _EFFORT_PREFERENCE_RETRY_SECONDS
-            await driver.dismiss_transient_controls()
             logger.warning(
-                "Prompta could not set preferred model/effort; continuing with the "
-                "current Chat setting and retrying later: %s",
-                exc,
+                "Prompta preferred model/effort stage failed stage=%s error_type=%s; "
+                "continuing with current Chat settings and retrying later",
+                stage,
+                type(exc).__name__,
+            )
+            await _timed_stage(
+                "transient_controls_dismiss",
+                driver.dismiss_transient_controls(),
+                timeout=4.0,
             )
             return
         self._next_effort_preference_retry_at = 0.0
-        await driver.dismiss_transient_controls()
-        logger.info("Prompta set and verified model=GPT-5.6 Sol effort=High")
+        await _timed_stage(
+            "transient_controls_dismiss",
+            driver.dismiss_transient_controls(),
+            timeout=4.0,
+        )
+        logger.info("Prompta set and verified preferred model and High effort")
 
     def __call__(self, message: str) -> None:
         if not message.strip():
@@ -166,11 +215,20 @@ class BrowserDeliverySender:
         try:
             try:
                 if not driver.is_connected:
-                    await driver.connect()
-                context = await driver.new_tab()
-                await driver.wait_for_composer()
+                    await _timed_stage("cdp_connect", driver.connect(), timeout=45.0)
+                context = await _timed_stage(
+                    "fresh_tab_navigation", driver.new_tab(), timeout=40.0
+                )
+                await _timed_stage(
+                    "composer_readiness", driver.wait_for_composer(), timeout=25.0
+                )
                 initial_path = str(
-                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                    await _timed_stage(
+                        "fresh_chat_route_check",
+                        driver.eval(load_browser_script("location_pathname.js")),
+                        timeout=5.0,
+                    )
+                    or ""
                 )
                 if _is_conversation_path(initial_path):
                     raise RuntimeError(
@@ -179,9 +237,16 @@ class BrowserDeliverySender:
 
                 await self._ensure_high_effort(driver)
 
-                baseline = await driver.dom_state()
+                baseline = await _timed_stage(
+                    "composer_baseline", driver.dom_state(), timeout=15.0
+                )
                 baseline_path = str(
-                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                    await _timed_stage(
+                        "baseline_route_check",
+                        driver.eval(load_browser_script("location_pathname.js")),
+                        timeout=5.0,
+                    )
+                    or ""
                 )
                 if _is_conversation_path(baseline_path):
                     raise RuntimeError(
@@ -190,8 +255,12 @@ class BrowserDeliverySender:
                 stale_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
                 if stale_text:
                     logger.warning("Prompta found stale text in a fresh-chat composer; clearing it")
-                    await driver.clear_composer()
-                    baseline = await driver.dom_state()
+                    await _timed_stage(
+                        "stale_draft_clear", driver.clear_composer(), timeout=10.0
+                    )
+                    baseline = await _timed_stage(
+                        "stale_draft_verify_clear", driver.dom_state(), timeout=10.0
+                    )
                     if _normalise_composer_text(str(baseline.get("composer_text") or "")):
                         raise RuntimeError("ChatGPT stale new-chat composer could not be cleared")
 
@@ -201,16 +270,23 @@ class BrowserDeliverySender:
                 baseline_send_in_progress = bool(baseline.get("send_in_progress"))
 
                 capture = driver.arm_send_capture()
-                await driver.type_message(message)
+                await _timed_stage("prompt_insertion", driver.type_message(message), timeout=30.0)
 
-                typed = await driver.dom_state()
+                typed = await _timed_stage(
+                    "prompt_verification", driver.dom_state(), timeout=15.0
+                )
                 if _normalise_composer_text(str(typed.get("composer_text") or "")) != _normalise_composer_text(
                     message
                 ):
                     raise RuntimeError("ChatGPT composer did not contain the configured prompt")
 
                 predispatch_path = str(
-                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                    await _timed_stage(
+                        "predispatch_route_check",
+                        driver.eval(load_browser_script("location_pathname.js")),
+                        timeout=5.0,
+                    )
+                    or ""
                 )
                 if _is_conversation_path(predispatch_path):
                     raise RuntimeError(
@@ -222,18 +298,32 @@ class BrowserDeliverySender:
                     # A timeout during the send control itself is ambiguous.
                     # Never automatically retry unless dispatch was never entered.
                     self._dispatch_started = True
-                    await driver.click_send(message)
-                except SendOutcomeUnknownError as exc:
-                    self._record_send_attempt()
                     send_attempted = True
+                    self._record_send_attempt()
+                    await _timed_stage(
+                        "send_dispatch",
+                        driver.click_send(message),
+                        timeout=_SEND_DISPATCH_TIMEOUT_SECONDS,
+                    )
+                except SendOutcomeUnknownError as exc:
                     dispatch_error = exc
                     logger.warning(
                         "Prompta send outcome became ambiguous during dispatch; "
                         "checking only whether the prompt was accepted"
                     )
-                else:
-                    self._record_send_attempt()
-                    send_attempted = True
+                except TimeoutError as exc:
+                    dispatch_error = SendOutcomeUnknownError(
+                        "Prompta send dispatch exceeded its bound; acceptance is unknown",
+                        stage="send_dispatch",
+                    )
+                    logger.warning(
+                        "Prompta send dispatch timed out; automatic resend disabled"
+                    )
+                    if exc.__cause__ is not None:
+                        logger.debug(
+                            "Prompta send dispatch timeout cause type=%s",
+                            type(exc.__cause__).__name__,
+                        )
 
                 last_state: dict[str, object] = {}
                 last_path = baseline_path
@@ -242,9 +332,16 @@ class BrowserDeliverySender:
 
                 while asyncio.get_running_loop().time() < deadline:
                     try:
-                        state = await driver.dom_state()
+                        state = await _timed_stage(
+                            "send_confirmation_state", driver.dom_state(), timeout=8.0
+                        )
                         path = str(
-                            await driver.eval(load_browser_script("location_pathname.js")) or ""
+                            await _timed_stage(
+                                "send_confirmation_route",
+                                driver.eval(load_browser_script("location_pathname.js")),
+                                timeout=5.0,
+                            )
+                            or ""
                         )
                     except Exception as exc:
                         raise SendOutcomeUnknownError(
@@ -305,7 +402,8 @@ class BrowserDeliverySender:
 
                 final_composer = _normalise_composer_text(str(last_state.get("composer_text") or ""))
                 if (
-                    final_composer == _normalise_composer_text(message)
+                    dispatch_error is None
+                    and final_composer == _normalise_composer_text(message)
                     and not last_transport_confirmed
                     and last_path == baseline_path
                 ):
@@ -339,7 +437,16 @@ class BrowserDeliverySender:
                 driver.clear_send_capture(capture)
             if context:
                 try:
-                    await driver.close_context(context)
-                except Exception:
-                    logger.debug("Could not discard Prompta fresh-chat tab", exc_info=True)
-            await driver.close()
+                    await _timed_stage(
+                        "owned_tab_cleanup", driver.close_context(context), timeout=5.0
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Prompta owned-tab cleanup failed error_type=%s", type(exc).__name__
+                    )
+            try:
+                await _timed_stage("browser_disconnect", driver.close(), timeout=5.0)
+            except Exception as exc:
+                logger.warning(
+                    "Prompta browser disconnect failed error_type=%s", type(exc).__name__
+                )
