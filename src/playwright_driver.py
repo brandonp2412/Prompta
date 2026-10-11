@@ -1310,8 +1310,26 @@ class PlaywrightDriver:
         }
 
     async def send_confirmation_state(self) -> dict[str, object]:
-        """Read only the user composer and send control after one-shot dispatch."""
+        """Read only the active user composer and Stop generating control after dispatch."""
         page = self._page()
+        # A single, bounded page evaluation avoids an expensive Playwright
+        # accessibility/role scan while the fresh-chat UI is rehydrating. Read
+        # only the user's textbox and explicit control labels, never messages.
+        try:
+            quick = await page.evaluate(load_browser_script("send_confirmation_state.js"))
+            if (
+                isinstance(quick, dict)
+                and isinstance(quick.get("composer_text"), str)
+                and isinstance(quick.get("send_in_progress"), bool)
+            ):
+                return {
+                    "composer_text": str(quick["composer_text"]),
+                    "send_in_progress": bool(quick["send_in_progress"]),
+                }
+        except (PlaywrightError, AttributeError):
+            pass
+        # Preserve semantic fallback for ChatGPT UI variants with no unique
+        # visible composer, including shadow DOM/accessibility changes.
         composer = await self._composer(page)
         composer_text = await self._composer_text(composer) if composer is not None else ""
         send_in_progress = (

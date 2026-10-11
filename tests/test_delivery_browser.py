@@ -620,6 +620,27 @@ async def test_send_confirmation_state_never_scans_page_text(
 
 
 @pytest.mark.asyncio
+async def test_confirmation_uses_fast_composer_and_control_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    class Page:
+        async def evaluate(self, script: str) -> dict[str, object]:
+            assert "querySelector('main')" in script
+            assert "send_in_progress" in script
+            assert "querySelectorAll('button" in script
+            assert "message" not in script.casefold()
+            return {"composer_text": "", "send_in_progress": True}
+
+    async def forbidden_semantic_fallback(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("fast confirmation must not scan hydrated accessibility tree")
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+    monkeypatch.setattr(driver, "_composer", forbidden_semantic_fallback)
+    monkeypatch.setattr(driver, "_semantic_button", forbidden_semantic_fallback)
+    assert await driver.send_confirmation_state() == {"composer_text": "", "send_in_progress": True}
+
+
+@pytest.mark.asyncio
 async def test_model_picker_bounds_and_names_slow_option_discovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
