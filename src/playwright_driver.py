@@ -947,6 +947,10 @@ class PlaywrightDriver:
         while asyncio.get_running_loop().time() < deadline:
             if await self._composer(page) is not None:
                 return
+            # A challenge can replace the editor while hydration is in flight.
+            # Fail closed before another wait rather than mistaking it for a stall.
+            if await self._cloudflare_challenge_present(context=context):
+                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
             await asyncio.sleep(0.15)
 
         if await self._cloudflare_challenge_present(context=context):

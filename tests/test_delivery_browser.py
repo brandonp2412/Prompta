@@ -413,6 +413,38 @@ async def test_wait_for_composer_reports_challenge_after_readiness_timeout(
 
 
 @pytest.mark.asyncio
+async def test_wait_for_composer_detects_challenge_during_hydration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = object()
+    probes = 0
+    composer_checks = 0
+
+    async def challenge_present(*, context: str | None = None) -> bool:
+        nonlocal probes
+        del context
+        probes += 1
+        return probes == 2
+
+    async def no_composer(_page: object) -> object | None:
+        nonlocal composer_checks
+        composer_checks += 1
+        return None
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge_present)
+    monkeypatch.setattr(driver, "_composer", no_composer)
+
+    with pytest.raises(RuntimeError, match="security challenge"):
+        await driver.wait_for_composer(timeout=1)
+
+    assert probes == 2
+    assert composer_checks == 1
+
+
+@pytest.mark.asyncio
 async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
     tmp_path: Path,
 ) -> None:
