@@ -19,6 +19,7 @@ from .strict_types import int_value
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
+_DELIVERY_HARD_TIMEOUT_SECONDS = 120.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
 _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
@@ -51,6 +52,7 @@ class BrowserDeliverySender:
         auth_timeout_seconds: float = 30.0,
         driver_factory: Callable[[], BrowserDriver] | None = None,
         send_timeout_seconds: float = _DEFAULT_SEND_TIMEOUT_SECONDS,
+        delivery_hard_timeout_seconds: float = _DELIVERY_HARD_TIMEOUT_SECONDS,
     ) -> None:
         self.state_path = state_path.expanduser()
         state_dir = self.state_path.parent
@@ -68,6 +70,8 @@ class BrowserDeliverySender:
         self.auth_timeout_seconds = max(0.1, float(auth_timeout_seconds))
         self.driver_factory = driver_factory
         self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
+        self.delivery_hard_timeout_seconds = max(0.01, float(delivery_hard_timeout_seconds))
+        self._dispatch_started = False
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
         self._next_effort_preference_retry_at = 0.0
 
@@ -134,8 +138,18 @@ class BrowserDeliverySender:
                 + f"{max(1, math.ceil(gap))} seconds"
             )
 
+        self._dispatch_started = False
         try:
-            asyncio.run(self._send_browser(message))
+            asyncio.run(asyncio.wait_for(self._send_browser(message), self.delivery_hard_timeout_seconds))
+        except TimeoutError as exc:
+            if self._dispatch_started:
+                raise SendOutcomeUnknownError(
+                    "Prompta delivery deadline expired during or after dispatch; send acceptance is unknown",
+                    stage="delivery_timeout",
+                ) from exc
+            raise DeliveryBackendUnavailableError(
+                "Prompta delivery deadline expired before dispatch"
+            ) from exc
         except RateLimitError as exc:
             delay = self.runtime.record_global_rate_limit(exc)
             raise RateLimitError(
@@ -205,6 +219,9 @@ class BrowserDeliverySender:
 
                 dispatch_error: SendOutcomeUnknownError | None = None
                 try:
+                    # A timeout during the send control itself is ambiguous.
+                    # Never automatically retry unless dispatch was never entered.
+                    self._dispatch_started = True
                     await driver.click_send(message)
                 except SendOutcomeUnknownError as exc:
                     self._record_send_attempt()

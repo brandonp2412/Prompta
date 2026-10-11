@@ -99,6 +99,52 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
     assert driver.composer == ""
 
 
+def test_delivery_deadline_before_dispatch_is_retryable_and_closes_tab(tmp_path: Path) -> None:
+    import asyncio
+
+    class HungPreparationDriver(FakeDriver):
+        async def select_effort_model(self, _model: str) -> None:
+            await asyncio.Event().wait()
+
+    driver = HungPreparationDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        delivery_hard_timeout_seconds=0.02,
+    )
+
+    with pytest.raises(DeliveryBackendUnavailableError, match="deadline expired before dispatch"):
+        sender("Do the scheduled work")
+
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed is True
+    assert driver.composer == ""
+
+
+def test_delivery_deadline_during_dispatch_fails_closed_without_resend(tmp_path: Path) -> None:
+    import asyncio
+
+    class HungSendDriver(FakeDriver):
+        async def click_send(self, expected_message: str) -> None:
+            assert self.composer == expected_message
+            await asyncio.Event().wait()
+
+    driver = HungSendDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        delivery_hard_timeout_seconds=0.02,
+    )
+
+    with pytest.raises(SendOutcomeUnknownError, match="send acceptance is unknown") as error:
+        sender("Do the scheduled work")
+
+    assert error.value.stage == "delivery_timeout"
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed is True
+    assert driver.composer == "Do the scheduled work"
+
+
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
