@@ -71,6 +71,7 @@ def serialize_scheduled_jobs(
                 "next_due_at_epoch": state_float("next_due_at_epoch")
                 or state_float("initial_due_at_epoch"),
                 "last_sent_at": state_float("last_sent_at"),
+                "last_uncertain_send_at": state_float("last_uncertain_send_at"),
             }
         )
     return serialized

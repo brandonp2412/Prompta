@@ -16,11 +16,19 @@
     source_revision: string;
     next_due_at_epoch: number;
     last_sent_at: number;
+    last_uncertain_send_at: number;
+  };
+
+  type DeliveryCounts = {
+    succeeded: number;
+    dead_lettered: number;
+    outcome_unknown: number;
   };
 
   const pageSize = 10;
   const refreshIntervalMs = 5000;
   let jobs = $state<Job[]>([]);
+  let deliveryCounts = $state<DeliveryCounts>({ succeeded: 0, dead_lettered: 0, outcome_unknown: 0 });
   let page = $state(1);
   let pageCount = $derived(Math.max(1, Math.ceil(jobs.length / pageSize)));
   let pageStart = $derived((page - 1) * pageSize);
@@ -39,6 +47,7 @@
   let exact = $state(false);
   let editorOpen = $state(false);
   let loadInFlight = false;
+  let healthLoadInFlight = false;
   let dataGeneration = 0;
 
   function reset() {
@@ -88,6 +97,15 @@
     return "every " + amount + (job.exact_interval ? " · exact" : "");
   }
 
+  function jobStateText(job: Job) {
+    if (job.paused) return "paused";
+    if (
+      job.last_uncertain_send_at > job.last_sent_at ||
+      (job.status === "failing" && /lost send confirmation after dispatch/i.test(job.status_message))
+    ) return "unconfirmed";
+    return job.status || "pending";
+  }
+
   function sameJob(left: Job, right: Job) {
     return (
       left.name === right.name &&
@@ -102,7 +120,8 @@
       left.exact_interval === right.exact_interval &&
       left.source_revision === right.source_revision &&
       left.next_due_at_epoch === right.next_due_at_epoch &&
-      left.last_sent_at === right.last_sent_at
+      left.last_sent_at === right.last_sent_at &&
+      left.last_uncertain_send_at === right.last_uncertain_send_at
     );
   }
 
@@ -176,6 +195,28 @@
     }
   }
 
+  async function loadDeliveryCounts() {
+    if (healthLoadInFlight || document.visibilityState !== "visible") return;
+    healthLoadInFlight = true;
+    try {
+      const response = await fetch("./api/health", { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
+      const result = await response.json();
+      const queue = result.queue;
+      if (queue && typeof queue === "object") {
+        deliveryCounts = {
+          succeeded: Number.isSafeInteger(queue.succeeded) ? queue.succeeded : 0,
+          dead_lettered: Number.isSafeInteger(queue.dead_lettered) ? queue.dead_lettered : 0,
+          outcome_unknown: Number.isSafeInteger(queue.outcome_unknown) ? queue.outcome_unknown : 0,
+        };
+      }
+    } catch {
+      // Keep the latest counts visible if a background health refresh fails.
+    } finally {
+      healthLoadInFlight = false;
+    }
+  }
+
   async function submit() {
     const jobName = name.trim();
     const jobPrompt = prompt.trim();
@@ -230,7 +271,11 @@
 
   onMount(() => {
     void load();
-    const timer = window.setInterval(() => void load({ quiet: true }), refreshIntervalMs);
+    void loadDeliveryCounts();
+    const timer = window.setInterval(() => {
+      void load({ quiet: true });
+      void loadDeliveryCounts();
+    }, refreshIntervalMs);
     return () => window.clearInterval(timer);
   });
 </script>
@@ -267,6 +312,9 @@
   <div class="jobs-summary">
     <span>{jobs.length - pausedCount} running</span>
     <span>{pausedCount} paused</span>
+    <span>{deliveryCounts.succeeded} succeeded</span>
+    <span>{deliveryCounts.dead_lettered} failed</span>
+    <span>{deliveryCounts.outcome_unknown} unconfirmed</span>
     {#if jobs.length > pageSize}
       <span>{pageStart + 1}–{pageEnd} shown</span>
     {/if}
@@ -312,7 +360,7 @@
           <span class="cell-label">State</span>
           <span class:error={job.status === "failing"} class="state-value">
             <span class="state-dot"></span>
-            {job.paused ? "paused" : job.status || "pending"}
+            {jobStateText(job)}
           </span>
           {#if job.status_message}
             <span class="job-message">{job.status_message}</span>

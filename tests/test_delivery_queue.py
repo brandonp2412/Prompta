@@ -76,6 +76,31 @@ def test_health_metrics_cover_pending_and_last_success(tmp_path: Path) -> None:
     assert completed["last_successful_delivery_at"] == 30.0
 
 
+def test_health_metrics_separate_confirmed_failures_from_unknown_outcomes(
+    tmp_path: Path,
+) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    for send_id, status in (
+        ("successful", "succeeded"),
+        ("failed", "dead_lettered"),
+        ("unknown", "outcome_unknown"),
+        ("cancelled", "cancelled"),
+    ):
+        store.upsert(
+            {
+                **_queued_record(send_id, client_id=f"client-{send_id}"),
+                "status": status,
+            }
+        )
+
+    metrics = store.health_metrics(now=20.0)
+
+    assert metrics["succeeded"] == 1
+    assert metrics["dead_lettered"] == 1
+    assert metrics["outcome_unknown"] == 1
+    assert metrics["cancelled"] == 1
+
+
 def test_delivery_queue_creates_jobs_only_lookup_indexes(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     indexes = {str(index["name"]) for index in inspect(store.engine).get_indexes("job_deliveries")}

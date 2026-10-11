@@ -80,12 +80,14 @@ class DeliveryQueueStore:
         count_by_status = {str(status): int(count) for status, count in counts}
         oldest = float(oldest_at or 0.0)
         return {
+            "succeeded": count_by_status.get("succeeded", 0),
             "queued": count_by_status.get("queued", 0),
             "running": count_by_status.get("running", 0),
             "retrying": count_by_status.get("retrying", 0),
             "rate_limited": count_by_status.get("rate_limited", 0),
             "dead_lettered": count_by_status.get("dead_lettered", 0),
             "outcome_unknown": count_by_status.get("outcome_unknown", 0),
+            "cancelled": count_by_status.get("cancelled", 0),
             "oldest_pending_age_seconds": max(0.0, at - oldest) if oldest else 0.0,
             "last_successful_delivery_at": float(last_success or 0.0),
         }
