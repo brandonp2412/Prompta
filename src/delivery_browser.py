@@ -194,6 +194,14 @@ class BrowserDeliverySender:
                 ):
                     raise RuntimeError("ChatGPT composer did not contain the configured prompt")
 
+                predispatch_path = str(
+                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                )
+                if _is_conversation_path(predispatch_path):
+                    raise RuntimeError(
+                        "ChatGPT fresh-chat navigation changed to an existing conversation before dispatch"
+                    )
+
                 dispatch_error: SendOutcomeUnknownError | None = None
                 try:
                     await driver.click_send()

@@ -147,6 +147,37 @@ async def test_existing_conversation_route_is_rejected_before_dispatch(
 
 
 @pytest.mark.asyncio
+async def test_conversation_redirect_after_typing_prevents_send(tmp_path: Path) -> None:
+    class RedirectOnTypingDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.redirected = False
+            self.send_clicked = False
+
+        async def type_message(self, message: str) -> None:
+            await super().type_message(message)
+            self.redirected = True
+
+        async def eval(self, _script: str) -> str:
+            return "/c/existing" if self.redirected else "/"
+
+        async def click_send(self) -> None:
+            self.send_clicked = True
+            pytest.fail("must not submit into a redirected existing chat")
+
+    driver = RedirectOnTypingDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+    with pytest.raises(
+        DeliveryBackendUnavailableError,
+        match="existing conversation before dispatch",
+    ):
+        await sender._send_browser("Do the scheduled work")
+    assert not driver.send_clicked
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
 async def test_unconfirmed_send_fails_closed_without_stream_probe(tmp_path: Path) -> None:
     class UnconfirmedDriver(FakeDriver):
         def captured_send_response(self, _capture: dict[str, object]) -> None:
