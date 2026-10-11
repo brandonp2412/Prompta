@@ -1089,6 +1089,10 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
         async def focus(self) -> None:
             self.presses.append("focus")
 
+        async def evaluate(self, expression: str) -> bool:
+            assert "document.activeElement" in expression
+            return True
+
     class Keyboard:
         def __init__(self) -> None:
             self.insertions: list[str] = []
@@ -1110,6 +1114,42 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
     await getattr(driver, "_replace_composer_text")(composer, "one-shot prompt")
     assert composer.presses == ["ControlOrMeta+A", "Backspace", "focus"]
     assert page.keyboard.insertions == ["one-shot prompt"]
+
+
+@pytest.mark.asyncio
+async def test_composer_fallback_rejects_stolen_focus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from playwright.async_api import Error as PlaywrightError
+
+    class Composer:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def fill(self, _text: str) -> None:
+            raise PlaywrightError("fill unavailable")
+
+        async def press(self, _key: str) -> None:
+            pass
+
+        async def focus(self) -> None:
+            pass
+
+        async def evaluate(self, expression: str) -> bool:
+            assert "document.activeElement" in expression
+            return False
+
+    class Keyboard:
+        async def insert_text(self, _text: str) -> None:
+            pytest.fail("Must not insert into an unrelated focused field")
+
+    class Page:
+        keyboard = Keyboard()
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+    with pytest.raises(RuntimeError, match="lost focus before text insertion"):
+        await getattr(driver, "_replace_composer_text")(Composer(), "one-shot prompt")
 
 
 @pytest.mark.asyncio

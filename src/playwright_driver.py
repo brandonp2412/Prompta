@@ -1006,6 +1006,11 @@ class PlaywrightDriver:
             await composer.press("Backspace")
             if text:
                 await composer.focus()
+                # The keyboard is page-wide. Fail closed if hydration or a
+                # popup stole focus before insertion; never type into it.
+                focused = await composer.evaluate(load_browser_script("composer_has_focus.js"))
+                if focused is not True:
+                    raise RuntimeError("ChatGPT composer lost focus before text insertion")
                 await keyboard.insert_text(text)
         except PlaywrightError as exc:
             raise RuntimeError("ChatGPT composer could not accept text") from exc
