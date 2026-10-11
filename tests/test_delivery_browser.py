@@ -1137,6 +1137,41 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
 
 
 @pytest.mark.asyncio
+async def test_hydrated_composer_fails_closed_on_partial_inspection(tmp_path: Path) -> None:
+    class Candidate:
+        def __init__(self, broken: bool) -> None:
+            self.broken = broken
+
+        async def evaluate(self, script: str) -> object:
+            if self.broken:
+                raise playwright_driver.PlaywrightError("detached editor")
+            return ["Ask ChatGPT"] if "new Set(labels)" in script else True
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+    class Collection:
+        def __init__(self) -> None:
+            self.candidates = [Candidate(False), Candidate(True)]
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Candidate:
+            return self.candidates[index]
+
+    class Page:
+        def locator(self, _selector: str) -> Collection:
+            return Collection()
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    assert await driver._hydrated_composer(Page()) is None
+
+
+@pytest.mark.asyncio
 async def test_hydrated_composer_refuses_truncated_editable_scan(tmp_path: Path) -> None:
     class Candidate:
         async def evaluate(self, _script: str) -> object:

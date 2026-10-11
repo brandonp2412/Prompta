@@ -552,6 +552,7 @@ class PlaywrightDriver:
 
         named: list[_UsableT] = []
         active: list[_UsableT] = []
+        inspection_failed = False
         for index in range(count):
             candidate = editables.nth(index)
             try:
@@ -572,7 +573,11 @@ class PlaywrightDriver:
                 ):
                     named.append(candidate)
             except PlaywrightError:
-                continue
+                # A failed inspection may conceal a second matching editor.
+                # Never infer uniqueness from a partially inspected set.
+                inspection_failed = True
+        if inspection_failed:
+            return None
 
         if len(named) == 1:
             return named[0]
