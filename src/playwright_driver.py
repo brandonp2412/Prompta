@@ -1101,6 +1101,14 @@ class PlaywrightDriver:
             if current is not None:
                 control = current
 
+        await self._raise_send_readiness_unavailable()
+
+    async def _raise_send_readiness_unavailable(self) -> None:
+        # This is pre-dispatch only: never retry after a possible send mutation.
+        if await self._cloudflare_challenge_present():
+            raise RuntimeError("ChatGPT security challenge is blocking send readiness")
+        if await self.login_required():
+            raise RuntimeError("ChatGPT login required; send control unavailable")
         raise RuntimeError("ChatGPT send control remained disabled")
 
     async def click_send(self) -> None:

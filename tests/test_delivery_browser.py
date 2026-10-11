@@ -977,6 +977,15 @@ async def test_send_readiness_fails_closed_when_known_control_stays_disabled(
     monkeypatch.setattr(driver, "_page", lambda _context=None: object())
     monkeypatch.setattr(driver, "_send_control", send_control)
 
+    async def no_challenge(*, context: str | None = None) -> bool:
+        return False
+
+    async def no_login() -> bool:
+        return False
+
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", no_challenge)
+    monkeypatch.setattr(driver, "login_required", no_login)
+
     with pytest.raises(RuntimeError, match="send control remained disabled"):
         await driver.wait_for_send_ready(timeout=0.1)
 
@@ -1155,3 +1164,37 @@ async def test_chat_surface_fails_closed_before_interacting_with_challenge(
     monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge)
     with pytest.raises(RuntimeError, match="security challenge is blocking Chat surface"):
         await driver.ensure_chat_surface(timeout=0.1)
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("challenge", "login", "expected", "login_calls"),
+    [
+        (True, True, "security challenge is blocking send readiness", 0),
+        (False, True, "login required; send control unavailable", 1),
+        (False, False, "send control remained disabled", 1),
+    ],
+)
+async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    challenge: bool,
+    login: bool,
+    expected: str,
+    login_calls: int,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    calls = 0
+
+    async def challenge_present(*, context: str | None = None) -> bool:
+        return challenge
+
+    async def login_required() -> bool:
+        nonlocal calls
+        calls += 1
+        return login
+
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge_present)
+    monkeypatch.setattr(driver, "login_required", login_required)
+    with pytest.raises(RuntimeError, match=expected):
+        await driver._raise_send_readiness_unavailable()
+    assert calls == login_calls
