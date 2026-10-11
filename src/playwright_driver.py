@@ -440,7 +440,10 @@ class PlaywrightDriver:
         # visibility/enabled state is a safe fallback.
         for locator in locators:
             try:
-                count = min(await locator.count(), limit)
+                count = await locator.count()
+                if count > limit:
+                    # A truncated scan cannot establish a unique active control.
+                    continue
             except PlaywrightError:
                 continue
 
@@ -467,20 +470,23 @@ class PlaywrightDriver:
 
     async def _unique_usable(
         self,
-        locator: Locator,
+        locator: _UsableCollection[_UsableT],
         *,
         enabled: bool = True,
         limit: int = 24,
-    ) -> Locator | None:
+    ) -> _UsableT | None:
         """Return one usable match, refusing to guess when several are active."""
 
         try:
-            count = min(await locator.count(), limit)
+            count = await locator.count()
+            if count > limit:
+                # Refuse a guessed control when matching nodes exceed the scan cap.
+                return None
         except PlaywrightError:
             return None
 
-        browser_usable: list[Locator] = []
-        composed_active: list[Locator] = []
+        browser_usable: list[_UsableT] = []
+        composed_active: list[_UsableT] = []
         for index in range(count):
             candidate = locator.nth(index)
             try:

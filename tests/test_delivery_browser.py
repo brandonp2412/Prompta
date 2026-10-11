@@ -1740,3 +1740,52 @@ async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
 )
 def test_send_capture_requires_chatgpt_origin(url: str, expected: bool) -> None:
     assert PlaywrightDriver._is_send_endpoint(url) is expected
+
+
+@pytest.mark.asyncio
+async def test_first_usable_refuses_truncated_candidate_scan(tmp_path: Path) -> None:
+    class Candidate:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return True
+
+    class Collection:
+        def __init__(self) -> None:
+            self.candidates = [Candidate(), *[Candidate() for _ in range(12)]]
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Candidate:
+            return self.candidates[index]
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    assert await driver._first_usable([Collection()]) is None
+
+
+@pytest.mark.asyncio
+async def test_unique_usable_refuses_truncated_candidate_scan(tmp_path: Path) -> None:
+    class Candidate:
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return True
+
+    class Collection:
+        async def count(self) -> int:
+            return 25
+
+        def nth(self, _index: int) -> Candidate:
+            raise AssertionError("Oversized ambiguous collection must not be scanned")
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    assert await driver._unique_usable(Collection()) is None
