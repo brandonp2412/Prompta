@@ -1095,3 +1095,37 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
     assert composer.presses == ["ControlOrMeta+A", "Backspace"]
     assert page.keyboard.insertions == ["one-shot prompt"]
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("challenge", "login", "expected"),
+    [
+        (True, True, "security challenge is blocking model selection"),
+        (False, True, "login required; model selection unavailable"),
+        (False, False, "model 'GPT-5.6 Sol' is unavailable"),
+    ],
+)
+async def test_firstwari_picker_timeout_classifies_pre_dispatch_blockers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    challenge: bool,
+    login: bool,
+    expected: str,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    checks: list[str] = []
+
+    async def security_challenge(*, context: str | None = None) -> bool:
+        assert context is None
+        checks.append("challenge")
+        return challenge
+
+    async def login_required() -> bool:
+        checks.append("login")
+        return login
+
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", security_challenge)
+    monkeypatch.setattr(driver, "login_required", login_required)
+    with pytest.raises(RuntimeError, match=re.escape(expected)):
+        await driver._raise_model_selection_unavailable("GPT-5.6 Sol")
+    assert checks == (["challenge"] if challenge else ["challenge", "login"])

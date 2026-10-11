@@ -1559,6 +1559,15 @@ class PlaywrightDriver:
 
             await asyncio.sleep(0.1)
 
+        await self._raise_model_selection_unavailable(model_name)
+
+    async def _raise_model_selection_unavailable(self, model_name: str) -> None:
+        # A session can expire or encounter a security challenge while the picker
+        # is hydrating. Do not change selection or authentication ownership.
+        if await self._cloudflare_challenge_present():
+            raise RuntimeError("ChatGPT security challenge is blocking model selection")
+        if await self.login_required():
+            raise RuntimeError("ChatGPT login required; model selection unavailable")
         raise RuntimeError(f"ChatGPT model {model_name!r} is unavailable")
 
     async def effort_power_info(self) -> dict[str, object]:
