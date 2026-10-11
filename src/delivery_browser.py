@@ -24,6 +24,12 @@ _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
 _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
 
 
+def _is_conversation_path(path: str) -> bool:
+    """Detect a permanent ChatGPT conversation route without reading its identifier."""
+
+    return "/c/" in path
+
+
 class DeliveryBackendUnavailableError(RuntimeError):
     """A pre-dispatch browser failure that is safe to retry."""
 
@@ -149,12 +155,24 @@ class BrowserDeliverySender:
                     await driver.connect()
                 context = await driver.new_tab()
                 await driver.wait_for_composer()
+                initial_path = str(
+                    await driver.eval(load_browser_script("location_pathname.js")) or ""
+                )
+                if _is_conversation_path(initial_path):
+                    raise RuntimeError(
+                        "ChatGPT fresh-chat navigation landed on an existing conversation"
+                    )
+
                 await self._ensure_high_effort(driver)
 
                 baseline = await driver.dom_state()
                 baseline_path = str(
                     await driver.eval(load_browser_script("location_pathname.js")) or ""
                 )
+                if _is_conversation_path(baseline_path):
+                    raise RuntimeError(
+                        "ChatGPT fresh-chat navigation changed to an existing conversation"
+                    )
                 stale_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
                 if stale_text:
                     logger.warning("Prompta found stale text in a fresh-chat composer; clearing it")
@@ -237,7 +255,7 @@ class BrowserDeliverySender:
                             stage="send_transport",
                         )
 
-                    route_confirmed = path.startswith("/c/") and path != baseline_path
+                    route_confirmed = _is_conversation_path(path) and path != baseline_path
 
                     if transport_confirmed or route_confirmed:
                         logger.info(

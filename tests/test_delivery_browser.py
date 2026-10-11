@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from prompta.delivery_browser import BrowserDeliverySender
+from prompta.delivery_browser import (
+    BrowserDeliverySender,
+    DeliveryBackendUnavailableError,
+    _is_conversation_path,
+)
 from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
 from prompta.send_outcome import SendOutcomeUnknownError
 
@@ -92,6 +96,54 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
     assert driver.closed_contexts == ["fresh-tab"]
     assert driver.closed is True
     assert driver.composer == ""
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("/", False),
+        ("/?model=gpt", False),
+        ("/c/example", True),
+        ("/g/g-p-example/c/example", True),
+    ],
+)
+def test_conversation_route_detection_does_not_parse_identifiers(path: str, expected: bool) -> None:
+    assert _is_conversation_path(path) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_path", ["/c/existing", "/g/g-p-example/c/existing"])
+async def test_existing_conversation_route_is_rejected_before_dispatch(
+    tmp_path: Path,
+    existing_path: str,
+) -> None:
+    class ExistingConversationDriver(FakeDriver):
+        async def eval(self, _script: str) -> str:
+            return existing_path
+
+        async def select_effort_model(self, _model: str) -> None:
+            pytest.fail("model selection must not run on an existing conversation")
+
+        def arm_send_capture(self) -> dict[str, object]:
+            pytest.fail("send capture must not arm on an existing conversation")
+
+        async def type_message(self, message: str) -> None:
+            pytest.fail(f"must not type into an existing conversation: {message}")
+
+    driver = ExistingConversationDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+    )
+
+    with pytest.raises(
+        DeliveryBackendUnavailableError,
+        match="fresh-chat navigation landed on an existing conversation",
+    ):
+        await sender._send_browser("Do the scheduled work")
+
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed is True
 
 
 @pytest.mark.asyncio
