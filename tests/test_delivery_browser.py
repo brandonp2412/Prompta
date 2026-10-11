@@ -196,6 +196,119 @@ async def test_unconfirmed_send_fails_closed_without_stream_probe(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_generation_start_confirms_send_when_transport_and_route_are_unavailable(
+    tmp_path: Path,
+) -> None:
+    class GenerationConfirmedDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.generation_active = False
+
+        async def dom_state(self) -> dict[str, object]:
+            return {
+                "composer_text": self.composer,
+                "rate_limit_text": "",
+                "send_in_progress": self.generation_active,
+            }
+
+        async def click_send(self) -> None:
+            self.composer = ""
+            self.generation_active = True
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    driver = GenerationConfirmedDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.05,
+    )
+
+    await sender._send_browser("Scheduled work")
+
+    assert driver.generation_active is True
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed is True
+
+
+@pytest.mark.asyncio
+async def test_preexisting_generation_control_does_not_confirm_send(tmp_path: Path) -> None:
+    class StaleGenerationDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.generation_active = True
+
+        async def dom_state(self) -> dict[str, object]:
+            return {
+                "composer_text": self.composer,
+                "rate_limit_text": "",
+                "send_in_progress": self.generation_active,
+            }
+
+        async def click_send(self) -> None:
+            self.composer = ""
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    driver = StaleGenerationDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.05,
+    )
+
+    with pytest.raises(SendOutcomeUnknownError):
+        await sender._send_browser("Scheduled work")
+
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed is True
+
+
+@pytest.mark.asyncio
+async def test_dom_state_uses_public_stop_generating_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = object()
+    observed_patterns: list[re.Pattern[str]] = []
+    observed_enabled: list[bool] = []
+
+    async def no_composer(_page: object) -> None:
+        return None
+
+    async def no_rate_limit(_page: object) -> list[str]:
+        return []
+
+    async def semantic_button(
+        _page: object,
+        name: re.Pattern[str],
+        *,
+        enabled: bool = True,
+    ) -> object:
+        observed_patterns.append(name)
+        observed_enabled.append(enabled)
+        return object()
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_composer", no_composer)
+    monkeypatch.setattr(driver, "_rate_limit_texts", no_rate_limit)
+    monkeypatch.setattr(driver, "_semantic_button", semantic_button)
+
+    state = await driver.dom_state()
+
+    assert len(observed_patterns) == 1
+    assert len(observed_enabled) == 1
+    pattern = observed_patterns[0]
+    assert pattern.fullmatch("Stop generating")
+    assert not pattern.fullmatch("Stop")
+    assert observed_enabled[0] is False
+    assert state["send_in_progress"] is True
+
+
+@pytest.mark.asyncio
 async def test_url_autolink_spacing_does_not_block_real_send(tmp_path: Path) -> None:
     class AutolinkingEditorDriver(FakeDriver):
         async def type_message(self, message: str) -> None:

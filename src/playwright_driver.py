@@ -68,6 +68,7 @@ _COMPOSER_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 _SEND_RE = re.compile(r"^(?:send|send prompt)$", re.IGNORECASE)
+_STOP_GENERATING_RE = re.compile(r"^stop generating$", re.IGNORECASE)
 _EFFORT_RE = re.compile(r"\b(max|extra\s+high|instant|medium|high)\b", re.IGNORECASE)
 _EFFORT_TRIGGER_RE = re.compile(
     r"\b(?:thinking\s+effort|select\s+(?:chatgpt\s+)?model|model\s+selector)\b",
@@ -1207,10 +1208,15 @@ class PlaywrightDriver:
         composer = await self._composer(page)
         composer_text = await self._composer_text(composer) if composer is not None else ""
         rate_limit_texts = await self._rate_limit_texts(page)
+        send_in_progress = (
+            await self._semantic_button(page, _STOP_GENERATING_RE, enabled=False)
+            is not None
+        )
 
         return {
             "composer_text": composer_text,
             "rate_limit_text": "\n".join(rate_limit_texts),
+            "send_in_progress": send_in_progress,
         }
 
     async def ensure_chat_surface(self, timeout: float = 5.0) -> None:

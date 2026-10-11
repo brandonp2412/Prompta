@@ -184,6 +184,7 @@ class BrowserDeliverySender:
                 rate_limit_text = str(baseline.get("rate_limit_text") or "")
                 if is_rate_limited_text(rate_limit_text):
                     raise RateLimitError.from_text(rate_limit_text)
+                baseline_send_in_progress = bool(baseline.get("send_in_progress"))
 
                 capture = driver.arm_send_capture()
                 await driver.type_message(message)
@@ -264,13 +265,22 @@ class BrowserDeliverySender:
                         )
 
                     route_confirmed = _is_conversation_path(path) and path != baseline_path
+                    composer_now = _normalise_composer_text(
+                        str(state.get("composer_text") or "")
+                    )
+                    generation_confirmed = (
+                        not baseline_send_in_progress
+                        and bool(state.get("send_in_progress"))
+                        and not composer_now
+                    )
 
-                    if transport_confirmed or route_confirmed:
+                    if transport_confirmed or route_confirmed or generation_confirmed:
                         logger.info(
                             "Prompta dispatched fresh-chat prompt transport_confirmed=%s "
-                            "route_confirmed=%s",
+                            "route_confirmed=%s generation_confirmed=%s",
                             transport_confirmed,
                             route_confirmed,
+                            generation_confirmed,
                         )
                         return
 
