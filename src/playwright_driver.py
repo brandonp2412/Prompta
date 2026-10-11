@@ -10,10 +10,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 from urllib.parse import urlsplit
-from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
-from playwright._impl._api_structures import SetCookieParam
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -180,7 +178,6 @@ class PlaywrightDriver:
         headless: bool = True,
         auth_timeout_seconds: float = 30.0,
         debugger_address: str | None = None,
-        flaresolverr_url: str | None = None,
         ownership_prefix: str = OWNED_WINDOW_PREFIX,
     ) -> None:
         self.context = ""
@@ -192,7 +189,6 @@ class PlaywrightDriver:
         self.headless = headless
         self.auth_timeout_seconds = max(0.1, auth_timeout_seconds)
         self.debugger_address = debugger_address.strip() if debugger_address else None
-        self.flaresolverr_url = flaresolverr_url.rstrip("/") if flaresolverr_url else None
         self.ownership_prefix = ownership_prefix
         self.page_owner_id = new_page_owner_id()
         self._playwright: Playwright | None = None
@@ -937,119 +933,24 @@ class PlaywrightDriver:
         )
         return await self._first_usable([challenge], enabled=False) is not None
 
-    def _request_flaresolverr(
-        self,
-        url: str,
-        browser_user_agent: str,
-    ) -> list[dict[str, object]]:
-        if not self.flaresolverr_url:
-            return []
-        body = json.dumps(
-            {
-                "cmd": "request.get",
-                "url": url,
-                "maxTimeout": 60_000,
-            }
-        ).encode("utf-8")
-        request = UrlRequest(
-            f"{self.flaresolverr_url}/v1",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urlopen(request, timeout=65.0) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        if not isinstance(payload, dict) or payload.get("status") != "ok":
-            message = payload.get("message") if isinstance(payload, dict) else None
-            raise RuntimeError(
-                f"FlareSolverr failed to solve ChatGPT: {message or 'invalid response'}"
-            )
-        solution = payload.get("solution")
-        if not isinstance(solution, dict):
-            raise RuntimeError("FlareSolverr returned no solution for ChatGPT")
-        solver_user_agent = str(solution.get("userAgent") or "")
-        if browser_user_agent and solver_user_agent and solver_user_agent != browser_user_agent:
-            raise RuntimeError(
-                "FlareSolverr browser fingerprint does not match Prompta's attached browser"
-            )
-        raw_cookies = solution.get("cookies")
-        if not isinstance(raw_cookies, list):
-            return []
-        return [
-            cookie
-            for cookie in raw_cookies
-            if isinstance(cookie, dict)
-            and str(cookie.get("name") or "").casefold().startswith(("cf_", "__cf", "_cf"))
-        ]
-
-    async def _recover_cloudflare(self, *, context: str | None = None) -> None:
-        if not self.flaresolverr_url:
-            raise RuntimeError("FlareSolverr is not configured")
-        page = self._page(context)
-        url = page.url
-        user_agent = str(await page.evaluate(load_browser_script("get_user_agent.js")))
-        logger.warning("Cloudflare challenge detected; requesting clearance from FlareSolverr")
-        cookies = await asyncio.to_thread(self._request_flaresolverr, url, user_agent)
-        if not cookies:
-            raise RuntimeError("FlareSolverr solved ChatGPT without returning Cloudflare cookies")
-        browser_context = self._browser_context
-        if browser_context is None:
-            raise RuntimeError("Playwright browser context is not connected")
-        converted: list[SetCookieParam] = []
-        for raw_cookie in cookies:
-            cookie: SetCookieParam = {
-                "name": str(raw_cookie["name"]),
-                "value": str(raw_cookie.get("value") or ""),
-            }
-            domain = raw_cookie.get("domain")
-            path = raw_cookie.get("path")
-            if isinstance(domain, str) and domain:
-                cookie["domain"] = domain
-                cookie["path"] = str(path or "/")
-            else:
-                cookie["url"] = url
-            secure = raw_cookie.get("secure")
-            if isinstance(secure, bool):
-                cookie["secure"] = secure
-            http_only = raw_cookie.get("httpOnly")
-            if isinstance(http_only, bool):
-                cookie["httpOnly"] = http_only
-            expiry = raw_cookie.get("expires")
-            if isinstance(expiry, (int, float)) and expiry > 0:
-                cookie["expires"] = float(expiry)
-            same_site = raw_cookie.get("sameSite")
-            if same_site == "Lax":
-                cookie["sameSite"] = "Lax"
-            elif same_site == "Strict":
-                cookie["sameSite"] = "Strict"
-            elif same_site == "None":
-                cookie["sameSite"] = "None"
-            converted.append(cookie)
-        await browser_context.add_cookies(converted)
-        await page.reload(wait_until="domcontentloaded")
-        logger.info("Applied %d Cloudflare clearance cookie(s) from FlareSolverr", len(converted))
-
     async def wait_for_composer(
         self,
         timeout: float = 20.0,
         *,
         context: str | None = None,
     ) -> None:
-        if self.flaresolverr_url and await self._cloudflare_challenge_present(context=context):
-            await self._recover_cloudflare(context=context)
+        if await self._cloudflare_challenge_present(context=context):
+            raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+
         page = self._page(context)
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             if await self._composer(page) is not None:
                 return
             await asyncio.sleep(0.15)
-        if self.flaresolverr_url and await self._cloudflare_challenge_present(context=context):
-            await self._recover_cloudflare(context=context)
-            deadline = asyncio.get_running_loop().time() + timeout
-            while asyncio.get_running_loop().time() < deadline:
-                if await self._composer(page) is not None:
-                    return
-                await asyncio.sleep(0.15)
+
+        if await self._cloudflare_challenge_present(context=context):
+            raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
         # FirstWari/chatgpt-web classifies authentication redirects separately
         # from hydration failures. Check only after exhausting the normal wait,
         # retaining Prompta's existing browser and authentication ownership.

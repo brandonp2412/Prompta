@@ -368,6 +368,51 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
 
 
 @pytest.mark.asyncio
+async def test_wait_for_composer_fails_closed_on_security_challenge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    async def challenge_present(*, context: str | None = None) -> bool:
+        del context
+        return True
+
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge_present)
+
+    with pytest.raises(RuntimeError, match="security challenge"):
+        await driver.wait_for_composer(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_composer_reports_challenge_after_readiness_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = object()
+    probes = 0
+
+    async def challenge_present(*, context: str | None = None) -> bool:
+        nonlocal probes
+        del context
+        probes += 1
+        return probes > 1
+
+    async def no_composer(_page: object) -> object | None:
+        return None
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_cloudflare_challenge_present", challenge_present)
+    monkeypatch.setattr(driver, "_composer", no_composer)
+
+    with pytest.raises(RuntimeError, match="security challenge"):
+        await driver.wait_for_composer(timeout=0.01)
+
+    assert probes == 2
+
+
+@pytest.mark.asyncio
 async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
     tmp_path: Path,
 ) -> None:

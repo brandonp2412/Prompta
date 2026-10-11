@@ -296,7 +296,6 @@ def run(
     chrome_profile: Path | None = None,
     chrome_path: str = "/usr/bin/chromium",
     chrome_debugger_address: str | None = None,
-    flaresolverr_url: str | None = None,
     chrome_auth_timeout_seconds: float = 30.0,
 ) -> None:
     state_path = state_path.expanduser()
@@ -310,7 +309,6 @@ def run(
         profile=chrome_profile,
         chrome_path=chrome_path,
         debugger_address=chrome_debugger_address,
-        flaresolverr_url=flaresolverr_url,
         auth_timeout_seconds=chrome_auth_timeout_seconds,
     )
     owner = socket.gethostname() + ":" + str(os.getpid()) + ":" + uuid.uuid4().hex[:8]
@@ -367,10 +365,6 @@ def main() -> None:
         default=os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222"),
     )
     parser.add_argument(
-        "--flaresolverr-url",
-        default=os.environ.get("PROMPTA_FLARESOLVERR_URL"),
-    )
-    parser.add_argument(
         "--chrome-auth-timeout-seconds",
         type=float,
         default=float(os.environ.get("PROMPTA_CHROME_AUTH_TIMEOUT_SECONDS", "30")),
@@ -382,7 +376,6 @@ def main() -> None:
         chrome_profile=args.chrome_profile,
         chrome_path=args.chrome_path,
         chrome_debugger_address=args.chrome_debugger_address,
-        flaresolverr_url=args.flaresolverr_url,
         chrome_auth_timeout_seconds=args.chrome_auth_timeout_seconds,
     )
 

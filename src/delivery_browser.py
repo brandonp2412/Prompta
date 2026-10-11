@@ -42,7 +42,6 @@ class BrowserDeliverySender:
         profile: Path | None = None,
         chrome_path: str = "/usr/bin/chromium",
         debugger_address: str | None = None,
-        flaresolverr_url: str | None = None,
         auth_timeout_seconds: float = 30.0,
         driver_factory: Callable[[], BrowserDriver] | None = None,
         send_timeout_seconds: float = _DEFAULT_SEND_TIMEOUT_SECONDS,
@@ -60,7 +59,6 @@ class BrowserDeliverySender:
         ).expanduser()
         self.chrome_path = chrome_path
         self.debugger_address = debugger_address
-        self.flaresolverr_url = flaresolverr_url
         self.auth_timeout_seconds = max(0.1, float(auth_timeout_seconds))
         self.driver_factory = driver_factory
         self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
@@ -76,7 +74,6 @@ class BrowserDeliverySender:
             headless=True,
             auth_timeout_seconds=self.auth_timeout_seconds,
             debugger_address=self.debugger_address,
-            flaresolverr_url=self.flaresolverr_url,
             ownership_prefix=_DELIVERY_WINDOW_PREFIX,
         )
 
