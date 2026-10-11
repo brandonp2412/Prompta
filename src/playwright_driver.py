@@ -688,8 +688,13 @@ class PlaywrightDriver:
                 "[data-state],[title]"
             )
             try:
-                count = min(await candidates.count(), 80)
+                count = await candidates.count()
             except PlaywrightError:
+                continue
+
+            # A truncated scan cannot establish uniqueness. Do not match a
+            # control ahead of unseen candidates when the role lookup failed.
+            if count > 80:
                 continue
 
             matched: list[Locator] = []

@@ -2451,3 +2451,36 @@ async def test_model_selector_does_not_trust_truncated_control_scan(tmp_path: Pa
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     assert await driver._model_selector_control(Page()) is None
+
+
+@pytest.mark.asyncio
+async def test_semantic_button_does_not_select_from_truncated_candidate_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    class Candidates:
+        async def count(self) -> int:
+            return 81
+
+        def nth(self, _index: int) -> object:
+            raise AssertionError("an oversized candidate set must not be scanned")
+
+    class Scope:
+        def get_by_role(self, _role: str, *, name: re.Pattern[str] | None = None) -> object:
+            return self
+
+        def locator(self, _selector: str) -> Candidates:
+            return Candidates()
+
+    class Page(Scope):
+        pass
+
+    async def no_role_matches(_candidates: object, *, enabled: bool = True) -> None:
+        return None
+
+    monkeypatch.setattr(driver, "_first_usable", no_role_matches)
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+    monkeypatch.setattr(driver, "_composer", no_role_matches)
+    state = await driver.send_confirmation_state()
+    assert state == {"composer_text": "", "send_in_progress": False}
