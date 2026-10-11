@@ -33,6 +33,34 @@ def test_delivery_activity_age_survives_process_replacement(tmp_path) -> None:
     assert restarted.snapshot(now=216.0)["delivery_worker"]["activity"] == ""
 
 
+def test_bounded_delivery_activity_is_not_reported_stale(tmp_path) -> None:
+    store = ServiceHealthStore(tmp_path / "runtime.sqlite3")
+    assert store.begin_activity("delivery_worker", "dispatch:opaque", now=200.0)
+
+    during_delivery = store.snapshot(now=250.0)["delivery_worker"]
+    after_delivery_deadline = store.snapshot(now=326.0)["delivery_worker"]
+
+    assert during_delivery["heartbeat_age_seconds"] == 50.0
+    assert during_delivery["activity_age_seconds"] == 50.0
+    assert during_delivery["active"] is True
+    assert during_delivery["stale"] is False
+    assert after_delivery_deadline["active"] is False
+    assert after_delivery_deadline["stale"] is True
+
+
+def test_worker_start_clears_orphaned_delivery_activity(tmp_path) -> None:
+    store = ServiceHealthStore(tmp_path / "runtime.sqlite3")
+    assert store.begin_activity("delivery_worker", "dispatch:opaque", now=200.0)
+
+    assert store.reset_activity("delivery_worker", now=300.0)
+    snapshot = store.snapshot(now=301.0)["delivery_worker"]
+
+    assert snapshot["activity"] == ""
+    assert snapshot["activity_age_seconds"] is None
+    assert snapshot["active"] is False
+    assert snapshot["stale"] is False
+
+
 def test_browser_page_count_counts_only_pages() -> None:
     payload = io.BytesIO(b'[{"type":"page"},{"type":"service_worker"},{"type":"page"}]')
     with patch("prompta.service_health.urlopen", return_value=payload):

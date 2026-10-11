@@ -22,6 +22,7 @@ SERVICE_STALE_AFTER_SECONDS = {
     "delivery_worker": 20.0,
     "browser": 30.0,
 }
+ACTIVE_DELIVERY_ACTIVITY_MAX_AGE_SECONDS = 125.0
 
 
 def build_service_health_snapshot(
@@ -39,11 +40,19 @@ def build_service_health_snapshot(
         activity_started_at = float_value(row["activity_started_at"]) if row is not None else 0.0
         heartbeat_age = max(0.0, now - heartbeat_at) if heartbeat_at > 0 else None
         activity_age = max(0.0, now - activity_started_at) if activity_started_at > 0 else None
+        active_delivery = (
+            service == "delivery_worker"
+            and activity.startswith("dispatch:")
+            and activity_age is not None
+            and activity_age <= ACTIVE_DELIVERY_ACTIVITY_MAX_AGE_SECONDS
+        )
+        stale = heartbeat_age is None or heartbeat_age > stale_after
         services[service] = {
             "heartbeat_at": heartbeat_at,
             "heartbeat_age_seconds": heartbeat_age,
             "stale_after_seconds": stale_after,
-            "stale": heartbeat_age is None or heartbeat_age > stale_after,
+            "stale": stale and not active_delivery,
+            "active": active_delivery,
             "activity": activity,
             "activity_started_at": activity_started_at,
             "activity_age_seconds": activity_age,
@@ -88,6 +97,31 @@ class ServiceHealthStore:
             engine = create_database(self.path)
             statement = insert(service_health).values(
                 service=service, heartbeat_at=at, activity=activity, activity_started_at=at
+            )
+            with engine.begin() as connection:
+                connection.execute(
+                    statement.on_conflict_do_update(
+                        index_elements=[service_health.c.service],
+                        set_={
+                            key: getattr(statement.excluded, key)
+                            for key in ("heartbeat_at", "activity", "activity_started_at")
+                        },
+                    )
+                )
+            return True
+        except (OSError, SQLAlchemyError):
+            return False
+
+    def reset_activity(self, service: str, *, now: float | None = None) -> bool:
+        """Clear persisted in-flight state when its owning service starts."""
+        at = time.time() if now is None else float(now)
+        try:
+            engine = create_database(self.path)
+            statement = insert(service_health).values(
+                service=service,
+                heartbeat_at=at,
+                activity="",
+                activity_started_at=0,
             )
             with engine.begin() as connection:
                 connection.execute(

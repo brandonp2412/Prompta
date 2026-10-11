@@ -314,7 +314,7 @@ def run(
     owner = socket.gethostname() + ":" + str(os.getpid()) + ":" + uuid.uuid4().hex[:8]
 
     logger.info("Prompta jobs delivery worker consuming %s", queue.path)
-    health.beat("delivery_worker")
+    health.reset_activity("delivery_worker")
     notify_watchdog()
 
     try:
