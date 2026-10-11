@@ -1108,7 +1108,7 @@ class PlaywrightDriver:
             return None
         return await self._composer_submit_button(composer, enabled=enabled)
 
-    async def wait_for_send_ready(self, timeout: float = 3.0) -> None:
+    async def wait_for_send_ready(self, timeout: float = 3.0) -> Locator | None:
         # KudoAI/chatgpt.js 79d9a0f waits for the send control to become enabled
         # before dispatch. Preserve that useful behavior without importing its
         # private test-id selector: Prompta only uses public semantics or a
@@ -1124,13 +1124,13 @@ class PlaywrightDriver:
                 raise RuntimeError("ChatGPT multi-factor authentication required; send control unavailable")
             if await self.login_required():
                 raise RuntimeError("ChatGPT login required; send control unavailable")
-            return
+            return None
 
         deadline = asyncio.get_running_loop().time() + max(0.1, timeout)
         while asyncio.get_running_loop().time() < deadline:
             try:
                 if await control.is_enabled():
-                    return
+                    return control
             except PlaywrightError:
                 pass
 
@@ -1154,7 +1154,7 @@ class PlaywrightDriver:
 
     async def click_send(self, expected_message: str, /) -> None:
         await self._focus_composer()
-        await self.wait_for_send_ready()
+        control = await self.wait_for_send_ready()
 
         # stufently/gpt-web-gateway 82e7858 re-focuses and re-reads the
         # composer before its keyboard fallback. Adapt that fail-closed guard
@@ -1166,10 +1166,14 @@ class PlaywrightDriver:
             raise RuntimeError("ChatGPT composer changed before submit")
 
         try:
-            await self._page().keyboard.press("Enter")
+            if control is not None:
+                await control.click()
+            else:
+                await self._page().keyboard.press("Enter")
         except Exception as exc:
+            mutation = "clicking the send control" if control is not None else "pressing Enter"
             raise SendOutcomeUnknownError(
-                "ChatGPT send mutation failed while pressing Enter; the prompt may have been submitted"
+                f"ChatGPT send mutation failed while {mutation}; the prompt may have been submitted"
             ) from exc
 
     async def click_send_button(self, timeout: float = 120.0) -> None:

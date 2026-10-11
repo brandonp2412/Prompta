@@ -1430,6 +1430,97 @@ async def test_click_send_rechecks_composer_after_readiness_before_enter(
 
 
 @pytest.mark.asyncio
+async def test_click_send_prefers_ready_send_control_over_enter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Keyboard:
+        async def press(self, key: str) -> None:
+            pytest.fail(f"Enter fallback must not run when send control is ready: {key}")
+
+    class Page:
+        def __init__(self) -> None:
+            self.keyboard = Keyboard()
+
+    class Composer:
+        pass
+
+    class Control:
+        def __init__(self) -> None:
+            self.clicks = 0
+
+        async def click(self) -> None:
+            self.clicks += 1
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = Page()
+    composer = Composer()
+    control = Control()
+
+    async def focus_composer() -> Composer:
+        return composer
+
+    async def wait_for_send_ready(timeout: float = 3.0) -> Control:
+        assert timeout == 3.0
+        return control
+
+    async def read_composer_text(_composer: object) -> str:
+        return "Scheduled work"
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_focus_composer", focus_composer)
+    monkeypatch.setattr(driver, "wait_for_send_ready", wait_for_send_ready)
+    monkeypatch.setattr(driver, "_composer_text", read_composer_text)
+
+    await driver.click_send("Scheduled work")
+
+    assert control.clicks == 1
+
+
+@pytest.mark.asyncio
+async def test_click_send_button_failure_keeps_outcome_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Keyboard:
+        async def press(self, key: str) -> None:
+            pytest.fail(f"Enter fallback must not run after a ready send control was selected: {key}")
+
+    class Page:
+        def __init__(self) -> None:
+            self.keyboard = Keyboard()
+
+    class Composer:
+        pass
+
+    class Control:
+        async def click(self) -> None:
+            raise RuntimeError("detached while dispatching")
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = Page()
+    composer = Composer()
+
+    async def focus_composer() -> Composer:
+        return composer
+
+    async def wait_for_send_ready(timeout: float = 3.0) -> Control:
+        assert timeout == 3.0
+        return Control()
+
+    async def read_composer_text(_composer: object) -> str:
+        return "Scheduled work"
+
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr(driver, "_focus_composer", focus_composer)
+    monkeypatch.setattr(driver, "wait_for_send_ready", wait_for_send_ready)
+    monkeypatch.setattr(driver, "_composer_text", read_composer_text)
+
+    with pytest.raises(SendOutcomeUnknownError, match="clicking the send control"):
+        await driver.click_send("Scheduled work")
+
+
+@pytest.mark.asyncio
 async def test_click_send_accepts_normalised_prompt_on_final_recheck(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
