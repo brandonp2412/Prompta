@@ -1,1 +1,12 @@
-(element) => element === document.activeElement || element.contains(document.activeElement)
+(element) => {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  if (!active) return false;
+  for (let current = active; current; ) {
+    if (current === element) return true;
+    current = current.assignedSlot || current.parentElement || current.getRootNode?.().host || null;
+  }
+  return false;
+}
