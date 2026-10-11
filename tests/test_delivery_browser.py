@@ -2223,3 +2223,51 @@ async def test_power_control_does_not_trust_truncated_slider_scan(tmp_path: Path
 
     monkeypatch.setattr(driver, "_first_usable", no_named_control)
     assert await driver._power_control(page) is None
+
+
+@pytest.mark.asyncio
+async def test_model_selector_does_not_trust_truncated_control_scan(tmp_path: Path) -> None:
+    class Control:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> list[str]:
+            return [self.label]
+
+    class Collection:
+        def __init__(self, controls: list[Control]) -> None:
+            self.controls = controls
+
+        async def count(self) -> int:
+            return len(self.controls)
+
+        def nth(self, index: int) -> Control:
+            return self.controls[index]
+
+        def locator(self, _selector: str) -> Collection:
+            return self
+
+    class Page:
+        def __init__(self) -> None:
+            self.controls = [Control("Select model")] + [
+                Control("Other") for _ in range(59)
+            ] + [Control("Select model")]
+
+        def get_by_role(
+            self, role: str, *, name: re.Pattern[str] | None = None
+        ) -> Collection:
+            if role == "main" and name is None:
+                return Collection(self.controls)
+            return Collection([])
+
+        def locator(self, _selector: str) -> Collection:
+            return Collection(self.controls)
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    assert await driver._model_selector_control(Page()) is None

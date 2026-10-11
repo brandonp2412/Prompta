@@ -1559,7 +1559,10 @@ class PlaywrightDriver:
                 "[aria-labelledby],[title]"
             )
             try:
-                count = min(await controls.count(), 60)
+                count = await controls.count()
+                if count > 60:
+                    # Prefix scans cannot establish uniqueness across all controls.
+                    continue
             except PlaywrightError:
                 continue
 
