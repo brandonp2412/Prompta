@@ -204,10 +204,15 @@ class PlaywrightDriver:
 
     @staticmethod
     def _is_send_endpoint(url: str) -> bool:
-        return urlsplit(url).path.rstrip("/") in {
-            "/backend-api/f/conversation",
-            "/backend-api/conversation",
-        }
+        parsed = urlsplit(url)
+        return (
+            parsed.scheme == "https"
+            and (parsed.hostname or "").casefold() in {"chatgpt.com", "chat.openai.com"}
+            and parsed.path.rstrip("/") in {
+                "/backend-api/f/conversation",
+                "/backend-api/conversation",
+            }
+        )
 
     async def arm_page_send_probe(self) -> None:
         await self.eval(load_browser_script("arm_page_send_probe.js"))

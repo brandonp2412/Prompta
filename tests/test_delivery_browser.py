@@ -1289,3 +1289,20 @@ async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
     with pytest.raises(RuntimeError, match=expected):
         await driver._raise_send_readiness_unavailable()
     assert calls == login_calls
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://chatgpt.com/backend-api/f/conversation", True),
+        ("https://chatgpt.com/backend-api/conversation/", True),
+        ("https://chat.openai.com/backend-api/conversation", True),
+        ("https://example.org/backend-api/f/conversation", False),
+        ("https://chatgpt.com.evil.test/backend-api/conversation", False),
+        ("http://chatgpt.com/backend-api/conversation", False),
+        ("https://auth.openai.com/backend-api/conversation", False),
+        ("https://chatgpt.com/backend-api/conversation/extra", False),
+    ],
+)
+def test_send_capture_requires_chatgpt_origin(url: str, expected: bool) -> None:
+    assert PlaywrightDriver._is_send_endpoint(url) is expected
