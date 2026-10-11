@@ -49,6 +49,8 @@ class BrowsingContextUnavailableError(RuntimeError):
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
+_MODEL_SELECTION_VERIFY_ATTEMPTS = 40
+_MODEL_SELECTION_VERIFY_INTERVAL_SECONDS = 0.05
 
 
 def _normalise_composer_text(text: str) -> str:
@@ -1525,6 +1527,42 @@ class PlaywrightDriver:
 
         return None
 
+    async def _model_selection_verified(
+        self,
+        page: Page,
+        option: Locator,
+        model_name_re: re.Pattern[str],
+    ) -> bool:
+        if await self._selection_state(option) is True:
+            return True
+
+        selector = await self._model_selector_control(page)
+        if selector is None:
+            return False
+        try:
+            labels = await selector.evaluate(load_browser_script("semantic_control_labels.js"))
+        except PlaywrightError:
+            return False
+        if not isinstance(labels, list):
+            return False
+        return any(
+            model_name_re.search(label)
+            for value in labels
+            if (label := str(value).strip())
+        )
+
+    async def _verify_model_selection_after_click(
+        self,
+        page: Page,
+        option: Locator,
+        model_name_re: re.Pattern[str],
+    ) -> bool:
+        for _ in range(_MODEL_SELECTION_VERIFY_ATTEMPTS):
+            if await self._model_selection_verified(page, option, model_name_re):
+                return True
+            await asyncio.sleep(_MODEL_SELECTION_VERIFY_INTERVAL_SECONDS)
+        return False
+
     async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
         page = self._page()
         model_name_re = re.compile(
@@ -1569,11 +1607,14 @@ class PlaywrightDriver:
             option = await find_option()
             if option is not None:
                 try:
-                    if await self._selection_state(option) is True:
+                    if await self._model_selection_verified(page, option, model_name_re):
                         await page.keyboard.press("Escape")
                         return
                     await option.click()
-                    return
+                    if await self._verify_model_selection_after_click(page, option, model_name_re):
+                        await page.keyboard.press("Escape")
+                        return
+                    await self._raise_model_selection_unavailable(model_name)
                 except PlaywrightError:
                     await asyncio.sleep(0.1)
                     continue

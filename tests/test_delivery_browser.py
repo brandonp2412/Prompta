@@ -923,6 +923,110 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
     assert page.keyboard.pressed == ["Escape"]
 
 
+@pytest.mark.parametrize(
+    ("current_label", "should_fail"),
+    [
+        ("GPT-5.6 Sol", False),
+        (None, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_model_selection_verifies_click_before_reporting_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    current_label: str | None,
+    should_fail: bool,
+) -> None:
+    class Option:
+        def __init__(self) -> None:
+            self.clicks = 0
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def evaluate(self, _script: str) -> bool:
+            return False
+
+        async def get_attribute(self, name: str) -> str | None:
+            return "false" if name == "aria-selected" else None
+
+        async def click(self) -> None:
+            self.clicks += 1
+
+    class Selector:
+        async def evaluate(self, _script: str) -> list[str]:
+            return ["Select ChatGPT model", current_label or "GPT-5.6 Luna"]
+
+    class Collection:
+        def __init__(self, candidates: list[Option]) -> None:
+            self.candidates = candidates
+
+        async def count(self) -> int:
+            return len(self.candidates)
+
+        def nth(self, index: int) -> Option:
+            return self.candidates[index]
+
+        def filter(self, **_kwargs: object) -> Collection:
+            return self
+
+    class Keyboard:
+        def __init__(self) -> None:
+            self.pressed: list[str] = []
+
+        async def press(self, key: str) -> None:
+            self.pressed.append(key)
+
+    class Page:
+        def __init__(self, option: Option) -> None:
+            self.option = option
+            self.keyboard = Keyboard()
+
+        def get_by_role(
+            self,
+            role: str,
+            *,
+            name: re.Pattern[str] | None = None,
+        ) -> Collection:
+            if role == "menuitem" and name is not None and name.search("GPT-5.6 Sol"):
+                return Collection([self.option])
+            return Collection([])
+
+    option = Option()
+    page = Page(option)
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: page)
+    monkeypatch.setattr("prompta.playwright_driver._MODEL_SELECTION_VERIFY_ATTEMPTS", 1)
+    monkeypatch.setattr("prompta.playwright_driver._MODEL_SELECTION_VERIFY_INTERVAL_SECONDS", 0.0)
+
+    selector_calls = 0
+
+    async def selector(_page: object) -> Selector | None:
+        nonlocal selector_calls
+        selector_calls += 1
+        if selector_calls == 1 or current_label is None:
+            return None
+        return Selector()
+
+    async def unavailable(model_name: str) -> None:
+        raise RuntimeError(f"selection for {model_name} was not verified")
+
+    monkeypatch.setattr(driver, "_model_selector_control", selector)
+    monkeypatch.setattr(driver, "_raise_model_selection_unavailable", unavailable)
+
+    if should_fail:
+        with pytest.raises(RuntimeError, match="was not verified"):
+            await driver.select_effort_model("GPT-5.6 Sol")
+    else:
+        await driver.select_effort_model("GPT-5.6 Sol")
+
+    assert option.clicks == 1
+    assert page.keyboard.pressed == ([] if should_fail else ["Escape"])
+
+
 @pytest.mark.asyncio
 async def test_send_readiness_recovers_when_disabled_control_is_replaced(
     tmp_path: Path,
