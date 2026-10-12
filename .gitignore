@@ -12,3 +12,6 @@ node_modules/
 
 # Local agent workflow instructions may contain machine-specific paths.
 AGENTS.md
+
+# Machine-local Serena configuration and cache
+.serena/
