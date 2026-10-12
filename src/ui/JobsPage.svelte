@@ -372,7 +372,7 @@
             class="row-action"
             type="button"
             disabled={saving}
-            title="Launch one fresh chat without changing the schedule"
+            title={job.daily_at || job.run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown"}
             onclick={() => void command({ action: "fire_now", name: job.name }, "Queued one fresh chat for " + job.name + ".")}
           >Fire now</button>
           {#if !job.run_at_epoch}

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from prompta.jobs import add_job, load_jobs
+from prompta.manual_fire import fire_job_now
 from prompta.scheduler_service import DurableSchedulerProducer
 
 
@@ -160,3 +161,71 @@ def test_scheduler_ignores_missing_external_mutex_file(tmp_path: Path) -> None:
     producer.runtime.update_job_state("plain", {"initial_due_at_epoch": 1000.0})
 
     assert producer.tick(now=1000.0) == 1
+
+
+def test_manual_fire_deadline_survives_late_scheduled_receipt_reconciliation(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    add_job(state, "recurring", "Do work", 600, exact_interval=True)
+    producer = DurableSchedulerProducer(state, state, queue_path)
+    producer.runtime.update_job_state("recurring", {"initial_due_at_epoch": 1000.0})
+    assert producer.tick(now=1000.0) == 1
+    scheduled = producer.queue.claim_next("worker", now=1001.0, lease_seconds=90.0)
+    assert scheduled is not None
+    assert producer.queue.complete_claim(str(scheduled["send_id"]), "worker", now=1050.0)
+
+    fire_job_now(
+        load_jobs(state)["recurring"],
+        runtime=producer.runtime,
+        queue=producer.queue,
+        now=1100.0,
+    )
+    assert producer.tick(now=1100.0) == 1
+    assert producer.runtime.job_state("recurring")["next_due_at_epoch"] == 1700.0
+    assert producer.tick(now=1699.0) == 0
+    assert producer.tick(now=1700.0) == 1
+
+
+def test_manual_fire_deadline_survives_uncertain_scheduled_attempt(tmp_path: Path) -> None:
+    from prompta.scheduler_policy import due_in
+
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "recurring", "Do work", 600, exact_interval=True)
+    producer = DurableSchedulerProducer(state, state)
+    producer.runtime.update_job_state(
+        "recurring",
+        {"last_sent_at": 100.0, "last_uncertain_send_at": 105.0},
+    )
+    fire_job_now(
+        load_jobs(state)["recurring"],
+        runtime=producer.runtime,
+        queue=producer.queue,
+        now=1100.0,
+    )
+    job = load_jobs(state)["recurring"]
+    assert due_in(job, producer.runtime.job_state("recurring"), now=1699.0) == 1.0
+    assert due_in(job, producer.runtime.job_state("recurring"), now=1700.0) == 0.0
+
+
+def test_manual_fire_replaces_queued_scheduled_send(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "recurring", "Do work", 600, exact_interval=True)
+    producer = DurableSchedulerProducer(state, state)
+    producer.runtime.update_job_state("recurring", {"initial_due_at_epoch": 1000.0})
+    assert producer.tick(now=1000.0) == 1
+    scheduled_id = str(producer.queue.records()[0]["send_id"])
+
+    fire_job_now(
+        load_jobs(state)["recurring"],
+        runtime=producer.runtime,
+        queue=producer.queue,
+        now=1100.0,
+    )
+    cancelled = producer.queue.get(scheduled_id)
+    assert cancelled is not None and cancelled["status"] == "cancelled"
+    state_after = producer.runtime.job_state("recurring")
+    assert state_after["last_completed_delivery_send_id"] == scheduled_id
+    assert state_after["next_due_at_epoch"] == 1700.0
+    assert producer.tick(now=1100.0) == 0
+    assert producer.tick(now=1699.0) == 0
+    assert producer.tick(now=1700.0) == 1

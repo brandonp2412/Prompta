@@ -22,6 +22,7 @@ from .jobs import (
     remove_job,
     update_job_prompt,
 )
+from .manual_fire import fire_job_now
 from .persistence import DEFAULT_RUNTIME_PATH
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
@@ -289,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     once = subparsers.add_parser("once", help="Send a prompt in one fresh chat immediately")
     once.add_argument("prompt", nargs="?", help="Prompt text for an unscheduled chat")
-    once.add_argument("--job", help="Use an existing job's prompt without changing its schedule")
+    once.add_argument("--job", help="Use an existing job's prompt and restart its interval")
     once.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     once.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
 
@@ -356,15 +357,23 @@ def main() -> None:
             parser.error("provide a prompt or --job NAME, but not both")
         prompt = args.prompt
         detail = "fresh chat"
+        queue = DeliveryQueueStore(args.state.expanduser().parent / "ui-send-jobs.sqlite3")
         if args.job:
             job = load_jobs(args.jobs_file).get(args.job)
             if job is None:
                 parser.error(f"unknown job: {args.job}")
-            prompt = job.prompt
-            detail = f"from {job.name}, schedule unchanged"
-        receipt = DeliveryQueueStore(
-            args.state.expanduser().parent / "ui-send-jobs.sqlite3"
-        ).enqueue_manual(prompt)
+            receipt = fire_job_now(
+                job,
+                runtime=SchedulerRuntime(args.state, args.jobs_file),
+                queue=queue,
+            )
+            detail = (
+                f"from {job.name}, interval restarted"
+                if job.interval_seconds > 0
+                else f"from {job.name}, fixed schedule unchanged"
+            )
+        else:
+            receipt = queue.enqueue_manual(prompt)
         _print_notice("▶", "Queued one chat", f"{detail} · {receipt['send_id']}", tone="32")
         return
 

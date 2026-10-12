@@ -105,6 +105,12 @@ def due_in(job: PromptJob, state: Mapping[str, object], *, now: float) -> float:
     except (TypeError, ValueError):
         return 0.0
     last_attempt_at = max(last_sent_at, last_uncertain_send_at)
+    manual_fire_at = _state_float(state, "last_manual_fire_at_epoch")
+    manual_floor = (
+        manual_fire_at + job.interval_seconds
+        if manual_fire_at > 0 and job.run_at_epoch is None and job.daily_at is None
+        else 0.0
+    )
 
     if job.run_at_epoch is not None:
         if last_attempt_at > 0:
@@ -112,14 +118,14 @@ def due_in(job: PromptJob, state: Mapping[str, object], *, now: float) -> float:
         due_at = initial_due if initial_due > 0 else float(job.run_at_epoch)
         return max(0.0, due_at - now)
     if next_due > 0 and last_sent_at >= last_uncertain_send_at:
-        return max(0.0, next_due - now)
+        return max(0.0, next_due - now, manual_floor - now)
     if last_attempt_at > 0:
         if job.daily_at is not None:
             return max(0.0, _next_daily_epoch(job.daily_at, last_attempt_at) - now)
-        return max(0.0, last_attempt_at + max(0.0, float(job.interval_seconds)) - now)
+        return max(0.0, last_attempt_at + max(0.0, float(job.interval_seconds)) - now, manual_floor - now)
     if initial_due > 0:
-        return max(0.0, initial_due - now)
-    return 0.0
+        return max(0.0, initial_due - now, manual_floor - now)
+    return max(0.0, manual_floor - now)
 
 
 def occurrence_marker(job: PromptJob, state: Mapping[str, object]) -> float:
@@ -263,16 +269,21 @@ def terminal_reconciliation_updates(
     exact_interval = bool(state.get("pending_delivery_exact_interval"))
     status = str(receipt.get("status") or "")
 
+    manual_fire_at = _state_float(state, "last_manual_fire_at_epoch")
+    scheduled_due = next_due_at(
+        completed_at=completed_at,
+        one_time=one_time,
+        daily_at=daily_at,
+        interval_seconds=interval_seconds,
+        exact_interval=exact_interval,
+        jitter_seconds=jitter_seconds,
+    )
+    if not one_time and daily_at is None and manual_fire_at > 0:
+        scheduled_due = max(scheduled_due, manual_fire_at + interval_seconds)
+
     updates: dict[str, object] = {
         "initial_due_at_epoch": 0.0,
-        "next_due_at_epoch": next_due_at(
-            completed_at=completed_at,
-            one_time=one_time,
-            daily_at=daily_at,
-            interval_seconds=interval_seconds,
-            exact_interval=exact_interval,
-            jitter_seconds=jitter_seconds,
-        ),
+        "next_due_at_epoch": scheduled_due,
         "last_completed_delivery_send_id": send_id,
         "status_at": completed_at,
     }

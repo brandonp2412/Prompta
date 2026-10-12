@@ -4688,7 +4688,7 @@ var root$1 = /* @__PURE__ */ from_html(`<span> </span>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div class="empty-row">No scheduled jobs.</div>`);
 var root_2 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
 var root_3 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
-var root_4 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button" title="Launch one fresh chat without changing the schedule">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
+var root_4 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
 var root_5 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
 var root_6 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" step="0.1" required=""/></label>`);
 var root_7 = /* @__PURE__ */ from_html(`<label><span>At</span> <input type="time" required=""/></label>`);
@@ -5022,6 +5022,7 @@ function JobsPage($$anchor, $$props) {
 			classes_1 = set_class(span_13, 1, "state-value", null, classes_1, { error: get(job).status === "failing" });
 			set_text(text_15, ` ${$3 ?? ""}`);
 			button_3.disabled = get(saving);
+			set_attribute(button_3, "title", get(job).daily_at || get(job).run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown");
 			button_5.disabled = get(saving);
 			set_text(text_17, get(job).paused ? "Resume" : "Pause");
 			button_6.disabled = get(saving);

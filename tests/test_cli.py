@@ -346,15 +346,20 @@ def test_once_queues_unscheduled_chat_without_creating_job(tmp_path: Path, monke
     assert str(records[0]["client_id"]).startswith("manual:")
 
 
-def test_once_existing_job_leaves_schedule_untouched(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_once_existing_job_restarts_interval(tmp_path: Path, monkeypatch, capsys) -> None:
+    from types import SimpleNamespace
+
+    import prompta.manual_fire as manual_fire
+
     state = tmp_path / "runtime.sqlite3"
     add_job(state, "audit", "Inspect job", 600, source_revision="test")
     runtime = SchedulerRuntime(state, state)
     runtime.update_job_state("audit", {"paused": True, "next_due_at_epoch": 4200.0})
-    before = runtime.job_state("audit")
+    monkeypatch.setattr(manual_fire, "time", SimpleNamespace(time=lambda: 1000.0))
     output = _run_cli(monkeypatch, capsys, "once", "--job", "audit", *_paths(state))
-    assert "schedule unchanged" in output
-    assert runtime.job_state("audit") == before
+    assert "interval restarted" in output
+    assert runtime.job_state("audit")["next_due_at_epoch"] == 1600.0
+    assert runtime.job_state("audit")["paused"] is True
     assert load_jobs(state)["audit"].interval_seconds == 600
     records = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
     assert len(records) == 1 and records[0]["message"] == "Inspect job"

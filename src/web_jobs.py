@@ -8,6 +8,7 @@ from typing import TypedDict
 
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
+from .manual_fire import fire_job_now
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import float_value, string_object_dict
 
@@ -158,8 +159,10 @@ class WebJobService:
             job = load_jobs(self.jobs_path).get(name)
             if job is None:
                 raise ValueError("Unknown job: " + name)
-            DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
-                job.prompt
+            fire_job_now(
+                job,
+                runtime=runtime,
+                queue=DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3"),
             )
 
         elif normalized_action == "remove":

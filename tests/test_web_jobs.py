@@ -113,24 +113,55 @@ def test_removing_job_cancels_already_queued_delivery(tmp_path: Path) -> None:
     assert queue.claim_next("worker", now=1001.0, lease_seconds=30.0) is None
 
 
-def test_fire_now_queues_separate_chat_without_changing_schedule(tmp_path: Path) -> None:
+def test_fire_now_restarts_interval_and_preserves_pause(tmp_path: Path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import prompta.manual_fire as manual_fire
+
     jobs = tmp_path / "jobs.sqlite3"
     state = tmp_path / "state.sqlite3"
     add_job(jobs, "audit", "Check the code", 2400, exact_interval=True)
     service = WebJobService(jobs, state, "test-host")
-    service.runtime.update_job_state("audit", {"paused": True, "next_due_at_epoch": 9000.0})
-    original_state = service.runtime.job_state("audit")
-    original_jobs = service.scheduled_jobs()["jobs"]
+    service.runtime.update_job_state(
+        "audit", {"paused": True, "initial_due_at_epoch": 900.0, "next_due_at_epoch": 9000.0}
+    )
+    times = iter([1000.0, 1200.0])
+    monkeypatch.setattr(manual_fire, "time", SimpleNamespace(time=lambda: next(times)))
 
-    assert service.apply("fire_now", {"name": "audit"})["ok"] is True
-    assert service.apply("fire_now", {"name": "audit"})["ok"] is True
+    first = service.apply("fire_now", {"name": "audit"})
+    assert first["jobs"][0]["next_due_at_epoch"] == 3400.0
+    second = service.apply("fire_now", {"name": "audit"})
+    assert second["jobs"][0]["next_due_at_epoch"] == 3600.0
+
     deliveries = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
     assert len(deliveries) == 2
     assert all(item["message"] == "Check the code" for item in deliveries)
     assert all(str(item["client_id"]).startswith("manual:") for item in deliveries)
     assert deliveries[0]["send_id"] != deliveries[1]["send_id"]
-    assert service.runtime.job_state("audit") == original_state
-    assert service.scheduled_jobs()["jobs"] == original_jobs
+    persisted = service.runtime.job_state("audit")
+    assert persisted["paused"] is True
+    assert persisted["initial_due_at_epoch"] == 0.0
+    assert persisted["next_due_at_epoch"] == 3600.0
+    assert persisted["last_manual_fire_at_epoch"] == 1200.0
+
+    service.apply("resume", {"name": "audit"})
+    producer = DurableSchedulerProducer(state, jobs)
+    assert producer.tick(now=3599.0) == 0
+    assert producer.tick(now=3600.0) == 1
+    assert len(DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()) == 3
+
+
+def test_fire_now_preserves_fixed_daily_and_one_time_schedules(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    add_job(jobs, "daily", "Daily work", 0, daily_at="09:00")
+    add_job(jobs, "once", "At a fixed time", 0, run_at_epoch=10000.0)
+    service = WebJobService(jobs, state, "test-host")
+    for name in ("daily", "once"):
+        service.runtime.update_job_state(name, {"next_due_at_epoch": 8000.0})
+        before = service.runtime.job_state(name)
+        service.apply("fire_now", {"name": name})
+        assert service.runtime.job_state(name) == before
 
 
 def test_fire_now_rejects_unknown_job_without_queuing(tmp_path: Path) -> None:

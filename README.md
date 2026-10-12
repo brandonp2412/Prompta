@@ -32,7 +32,7 @@ uv run prompta add nightly-review "Review the project and improve it" --daily-at
 uv run prompta edit nightly-review "Review the project, improve it, and update the ledger"
 uv run prompta list
 uv run prompta once "Run this immediately in a fresh chat"
-uv run prompta once --job nightly-review  # fire an existing job without resetting its schedule
+uv run prompta once --job nightly-review  # fire an existing job and restart its interval
 ```
 
 ## Working hours
@@ -51,8 +51,11 @@ timezone = "Pacific/Auckland"
 The start time is inclusive and the end time is exclusive. Overnight windows are supported.
 Scheduled jobs remain durable while delivery is blocked and resume when the window opens.
 Explicit `once` and UI **Fire now** sends bypass the working-hours window, but still obey
-account backoff, resource constraints, and the global send gap. These one-off sends do
-not change the next scheduled run. If
+account backoff, resource constraints, and the global send gap. Firing an interval job
+restarts its countdown from the manual trigger time, replacing any pending scheduled
+send that has not started. Already-running sends cannot be interrupted. Fixed-time
+daily and one-time schedules are unchanged. An ad-hoc `once` prompt has no schedule
+to reset. If
 `working_hours` is omitted or disabled, Prompta can deliver at any time.
 
 ## Login to ChatGPT
