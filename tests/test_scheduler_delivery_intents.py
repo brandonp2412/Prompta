@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,47 @@ def test_scheduler_serializes_due_jobs_in_same_mutex_group(tmp_path: Path) -> No
     records = producer.queue.records()
     assert len(records) == 2
     assert records[1]["message"] == "Run second"
+
+
+def test_scheduler_defers_due_job_while_external_mutex_is_locked(tmp_path: Path) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    add_job(
+        runtime_path,
+        "sloppa",
+        "Run playback soak",
+        60,
+        exact_interval=True,
+        mutex_group="sloppatv-remux-e2e",
+    )
+    producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
+    producer.runtime.update_job_state("sloppa", {"initial_due_at_epoch": 1000.0})
+
+    lock_path = tmp_path / "sloppatv-remux-e2e.lock"
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert producer.tick(now=1000.0) == 0
+        assert producer.queue.records() == []
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    assert producer.tick(now=1001.0) == 1
+    records = producer.queue.records()
+    assert len(records) == 1
+    assert records[0]["message"] == "Run playback soak"
+
+
+def test_scheduler_ignores_missing_external_mutex_file(tmp_path: Path) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    add_job(
+        runtime_path,
+        "plain",
+        "Run plain job",
+        60,
+        exact_interval=True,
+        mutex_group="no-external-lock",
+    )
+    producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
+    producer.runtime.update_job_state("plain", {"initial_due_at_epoch": 1000.0})
+
+    assert producer.tick(now=1000.0) == 1

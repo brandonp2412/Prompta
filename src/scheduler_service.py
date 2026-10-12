@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import logging
 import random
 import time
@@ -65,6 +66,20 @@ class DurableSchedulerProducer:
             for other in jobs
         )
 
+    def _external_mutex_group_busy(self, job: PromptJob) -> bool:
+        if not job.mutex_group:
+            return False
+        lock_path = self.state_path.parent / f"{job.mutex_group}.lock"
+        if not lock_path.exists():
+            return False
+        with lock_path.open("a+") as lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return False
+
     def _record_pending_metadata(
         self,
         job: PromptJob,
@@ -93,7 +108,7 @@ class DurableSchedulerProducer:
         state = self.runtime.job_state(job.name)
         pending_receipt = self._pending_receipt(job.name)
         all_jobs = jobs if jobs is not None else list(self.runtime.read_jobs().values())
-        if self._mutex_group_busy(job, all_jobs):
+        if self._mutex_group_busy(job, all_jobs) or self._external_mutex_group_busy(job):
             return False
         if not should_enqueue_job(
             job,
