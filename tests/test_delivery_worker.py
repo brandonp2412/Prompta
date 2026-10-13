@@ -1,9 +1,13 @@
+import sqlite3
 from datetime import time
 from pathlib import Path
 
+import pytest
+from sqlalchemy.exc import OperationalError
+
 from prompta.config import WorkingHours
 from prompta.delivery_queue import DeliveryQueueStore
-from prompta.delivery_worker import DeliveryAdmission, _deliver_one
+from prompta.delivery_worker import DeliveryAdmission, _deliver_one, _sqlite_busy
 from prompta.scheduler_runtime import SchedulerRuntime
 from prompta.service_health import ServiceHealthStore
 
@@ -134,3 +138,101 @@ def test_manual_queued_prompt_uses_standard_delivery_path(tmp_path: Path) -> Non
     assert messages == ["Deliver one chat"]
     finished = queue.get(str(receipt["send_id"]))
     assert finished is not None and finished["status"] == "succeeded"
+
+
+def _locked_error(message: str = "database is locked") -> OperationalError:
+    return OperationalError("INSERT INTO account_state ...", (), sqlite3.OperationalError(message))
+
+
+def test_admission_defers_sends_when_resource_state_write_is_locked(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
+    original = runtime.set_resource_admission
+    attempts = 0
+
+    def intermittently_locked(allowed: bool, reason: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _locked_error()
+        original(allowed, reason)
+
+    monkeypatch.setattr(runtime, "set_resource_admission", intermittently_locked)
+    assert admission(manual=True) == (False, "SQLite database busy; retrying admission", 1.0)
+    assert runtime.account_state().get("resource_updated_at") is None
+    assert admission(manual=True) == (True, "", 0.0)
+    assert runtime.account_state()["resource_blocked"] is False
+    assert attempts == 2
+
+
+def test_admission_does_not_hide_nonlocking_database_failures(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
+    monkeypatch.setattr(
+        runtime,
+        "set_resource_admission",
+        lambda allowed, reason: (_ for _ in ()).throw(_locked_error("no such table")),
+    )
+    with pytest.raises(OperationalError):
+        admission(manual=True)
+    assert _sqlite_busy(_locked_error("database table is locked"))
+    assert not _sqlite_busy(_locked_error("no such table"))
+
+
+def test_admission_reads_fail_closed_when_runtime_database_is_locked(tmp_path: Path) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    runtime.update_account_state({"rate_limit_backoff": {}})
+    with sqlite3.connect(tmp_path / "state.sqlite3", timeout=1) as blocker:
+        blocker.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(OperationalError) as exc:
+            runtime.global_backoff_status()
+        assert _sqlite_busy(exc.value)
+        blocker.rollback()
+    assert runtime.global_backoff_status()[0] == 0
+
+
+def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkeypatch) -> None:
+    from prompta import delivery_worker
+
+    class HealthWithTransientLock:
+        beats = 0
+
+        def __init__(self, path: Path) -> None:
+            pass
+
+        def reset_activity(self, service: str) -> None:
+            pass
+
+        def beat(self, service: str) -> None:
+            self.beats += 1
+            if self.beats == 1:
+                raise _locked_error()
+
+    class EmptyQueue:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        def claim_next(self, *args, **kwargs):
+            return None
+
+    health = HealthWithTransientLock(tmp_path)
+    monkeypatch.setattr(delivery_worker, "ServiceHealthStore", lambda path: health)
+    monkeypatch.setattr(delivery_worker, "DeliveryQueueStore", EmptyQueue)
+    monkeypatch.setattr(delivery_worker, "BrowserDeliverySender", lambda *a, **kw: object())
+    monkeypatch.setattr(delivery_worker, "notify_watchdog", lambda: None)
+    sleeps = 0
+
+    def halt_after_retry(seconds: float) -> None:
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(delivery_worker.time, "sleep", halt_after_retry)
+    delivery_worker.run(state_path=tmp_path / "runtime.sqlite3")
+    assert health.beats == 2
+    assert sleeps == 2

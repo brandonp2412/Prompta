@@ -135,7 +135,11 @@ class SchedulerRuntime:
             engine.dispose()
 
     def _read_state(
-        self, table: Table, conditions: Sequence[ColumnElement[bool]] = ()
+        self,
+        table: Table,
+        conditions: Sequence[ColumnElement[bool]] = (),
+        *,
+        strict: bool = False,
     ) -> dict[str, object]:
         engine = self._connect_state()
         try:
@@ -146,6 +150,8 @@ class SchedulerRuntime:
                     .all()
                 )
         except (OSError, SQLAlchemyError):
+            if strict:
+                raise
             return {}
         finally:
             engine.dispose()
@@ -207,10 +213,11 @@ class SchedulerRuntime:
         finally:
             engine.dispose()
 
-    def scheduler_state(self) -> dict[str, object]:
+    def scheduler_state(self, *, strict: bool = False) -> dict[str, object]:
         return self._read_state(
             scheduler_state,
             (scheduler_state.c.scope == "scheduler", scheduler_state.c.name == ""),
+            strict=strict,
         )
 
     def update_scheduler_state(self, updates: dict[str, object]) -> None:
@@ -225,8 +232,8 @@ class SchedulerRuntime:
         finally:
             engine.dispose()
 
-    def account_state(self) -> dict[str, object]:
-        return self._read_state(account_state)
+    def account_state(self, *, strict: bool = False) -> dict[str, object]:
+        return self._read_state(account_state, strict=strict)
 
     def update_account_state(self, updates: dict[str, object]) -> None:
         if not updates:
@@ -244,7 +251,7 @@ class SchedulerRuntime:
 
     def _durable_global_backoff(self) -> RateLimitBackoff:
         backoff = RateLimitBackoff()
-        snapshot = string_object_dict(self.account_state().get("rate_limit_backoff"))
+        snapshot = string_object_dict(self.account_state(strict=True).get("rate_limit_backoff"))
         if snapshot is not None:
             backoff.restore(snapshot)
         return backoff
@@ -384,7 +391,7 @@ class SchedulerRuntime:
 
     def send_gap_remaining(self, now: float) -> float:
         return calculate_send_gap_remaining(
-            last_attempt_at=self.scheduler_state().get("last_attempt_at"),
+            last_attempt_at=self.scheduler_state(strict=True).get("last_attempt_at"),
             gap_seconds=_SEND_GAP_SECONDS,
             now=now,
         )

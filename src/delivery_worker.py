@@ -5,11 +5,14 @@ import logging
 import math
 import os
 import socket
+import sqlite3
 import threading
 import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+
+from sqlalchemy.exc import OperationalError
 
 from .config import WorkingHours
 from .delivery_browser import (
@@ -26,6 +29,14 @@ from .send_outcome import SendOutcomeUnknownError
 from .service_health import ServiceHealthStore, notify_watchdog
 
 logger = logging.getLogger(__name__)
+
+
+def _sqlite_busy(exc: OperationalError) -> bool:
+    return isinstance(exc.orig, sqlite3.OperationalError) and (
+        "database is locked" in str(exc.orig).lower()
+        or "database table is locked" in str(exc.orig).lower()
+    )
+
 
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
 _LEASE_SECONDS = 300.0
@@ -88,7 +99,13 @@ class DeliveryAdmission:
         allowed, reason = self.resource_admission()
         state = (allowed, reason)
         if state != self._last_resource_state:
-            self.runtime.set_resource_admission(allowed, reason)
+            try:
+                self.runtime.set_resource_admission(allowed, reason)
+            except OperationalError as exc:
+                if not _sqlite_busy(exc):
+                    raise
+                logger.warning("Resource admission persistence busy; delaying delivery")
+                return False, "SQLite database busy; retrying admission", 1.0
             self._last_resource_state = state
         return allowed, reason, 0.0
 
@@ -319,27 +336,33 @@ def run(
 
     try:
         while True:
-            health.beat("delivery_worker")
-            notify_watchdog()
+            try:
+                health.beat("delivery_worker")
+                notify_watchdog()
 
-            hours_allowed, _reason, _retry_after = WorkingHours.load().admission()
-            allowed, reason, retry_after = admission(manual=not hours_allowed)
-            if not allowed:
-                if reason:
-                    logger.debug("Delivery admission blocked: %s", reason)
-                time.sleep(min(1.0, max(0.1, retry_after)) if retry_after > 0 else 1.0)
-                continue
+                hours_allowed, _reason, _retry_after = WorkingHours.load().admission()
+                allowed, reason, retry_after = admission(manual=not hours_allowed)
+                if not allowed:
+                    if reason:
+                        logger.debug("Delivery admission blocked: %s", reason)
+                    time.sleep(min(1.0, max(0.1, retry_after)) if retry_after > 0 else 1.0)
+                    continue
 
-            record = queue.claim_next(
-                owner,
-                lease_seconds=_LEASE_SECONDS,
-                manual_only=not hours_allowed,
-            )
-            if record is None:
-                time.sleep(0.5)
-                continue
+                record = queue.claim_next(
+                    owner,
+                    lease_seconds=_LEASE_SECONDS,
+                    manual_only=not hours_allowed,
+                )
+                if record is None:
+                    time.sleep(0.5)
+                    continue
 
-            _deliver_one(queue, sender, runtime, health, owner, record)
+                _deliver_one(queue, sender, runtime, health, owner, record)
+            except OperationalError as exc:
+                if not _sqlite_busy(exc):
+                    raise
+                logger.warning("SQLite busy in delivery worker; will retry without dispatching", exc_info=True)
+                time.sleep(1.0)
     except KeyboardInterrupt:
         pass
 
