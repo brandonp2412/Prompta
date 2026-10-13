@@ -1,0 +1,12 @@
+[Unit]
+Description=Monitor Prompta Brave browser responsiveness
+PartOf=prompta.target
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=prompta-browser-watchdog.service
+
+[Install]
+WantedBy=prompta.target

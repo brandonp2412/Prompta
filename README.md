@@ -20,9 +20,9 @@ bun install --frozen-lockfile
 bun run build
 
 mkdir -p ~/.config/systemd/user
-cp systemd/prompta-*.service systemd/prompta.target ~/.config/systemd/user/
+cp systemd/prompta-*.service systemd/prompta-*.timer systemd/prompta.target ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now prompta.target
+systemctl --user enable --now prompta.target prompta-browser-watchdog.timer
 ```
 
 The UI is at `http://127.0.0.1:8765`. The CLI is available as `uv run prompta`, for example:

@@ -1,0 +1,9 @@
+[Unit]
+Description=Check and recover Prompta Brave CDP endpoint
+After=prompta-browser.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/prompta/.venv/bin/python -m prompta.browser_watchdog
+TimeoutStartSec=90
+Slice=prompta.slice
