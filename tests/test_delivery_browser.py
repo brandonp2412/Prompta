@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -2680,3 +2681,136 @@ async def test_semantic_button_does_not_select_from_truncated_candidate_scan(
     monkeypatch.setattr(driver, "_composer", no_role_matches)
     state = await driver.send_confirmation_state()
     assert state == {"composer_text": "", "send_in_progress": False}
+
+
+@pytest.mark.asyncio
+async def test_model_selection_uses_semantic_event_when_slider_obscures_click(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Option:
+        def __init__(self) -> None:
+            self.selected = False
+            self.events = 0
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def get_attribute(self, name: str) -> str | None:
+            return ("true" if self.selected else "false") if name == "aria-checked" else None
+
+        async def click(self) -> None:
+            # Simulate Playwright waiting for a pointer-intercepting overlay.
+            await asyncio.sleep(5)
+
+        async def dispatch_event(self, name: str) -> None:
+            assert name == "click"
+            self.events += 1
+            self.selected = True
+
+    class Collection:
+        def filter(self, **_kwargs: object) -> Collection:
+            return self
+
+    class Keyboard:
+        async def press(self, _key: str) -> None:
+            return None
+
+    class Page:
+        keyboard = Keyboard()
+
+        def get_by_role(self, _role: str, **_kwargs: object) -> Collection:
+            return Collection()
+
+    option = Option()
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+
+    async def usable(_candidates: object, *, enabled: bool = False) -> Option:
+        return option
+
+    async def no_selector(_page: object) -> None:
+        return None
+
+    monkeypatch.setattr(driver, "_first_usable", usable)
+    monkeypatch.setattr(driver, "_model_selector_control", no_selector)
+    await driver.select_effort_model("GPT-5.6 Sol")
+    assert option.selected is True
+    assert option.events == 1
+
+
+@pytest.mark.asyncio
+async def test_model_selection_verifies_selector_after_option_unmount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class UnmountedOption:
+        async def is_visible(self) -> bool:
+            return False
+
+        async def get_attribute(self, _name: str) -> str | None:
+            raise AssertionError("unmounted locator must not be read")
+
+    class Selector:
+        async def evaluate(self, _script: str) -> list[str]:
+            return ["Select ChatGPT model", "GPT-5.6 Sol"]
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    async def selector(_page: object) -> Selector:
+        return Selector()
+
+    monkeypatch.setattr(driver, "_model_selector_control", selector)
+
+    class NoSelectedItems:
+        def filter(self, **_kwargs: object) -> NoSelectedItems:
+            return self
+
+        async def count(self) -> int:
+            return 0
+
+    class Page:
+        def locator(self, _selector: str) -> NoSelectedItems:
+            return NoSelectedItems()
+
+    assert await driver._model_selection_verified(
+        Page(), UnmountedOption(), re.compile(r"GPT-5\.6 Sol")
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("checked", [True, False])
+async def test_model_selection_verifies_hidden_checked_menu_option(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, checked: bool
+) -> None:
+    class HiddenRoleOption:
+        async def is_visible(self) -> bool:
+            return False
+
+        async def get_attribute(self, _name: str) -> str | None:
+            raise AssertionError("hidden inaccessible role locator must not be read")
+
+    class SelectedCandidates:
+        def filter(self, *, has_text: re.Pattern[str]) -> SelectedCandidates:
+            assert has_text.search("GPT-5.6 Sol")
+            return self
+
+        async def count(self) -> int:
+            return 1 if checked else 0
+
+    class Page:
+        def locator(self, selector: str) -> SelectedCandidates:
+            assert '[role="menuitemradio"][aria-checked="true"]' in selector
+            return SelectedCandidates()
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+
+    async def no_selector(_page: object) -> None:
+        return None
+
+    monkeypatch.setattr(driver, "_model_selector_control", no_selector)
+    result = await driver._model_selection_verified(
+        Page(), HiddenRoleOption(), re.compile(r"^GPT-5\.6 Sol")
+    )
+    assert result is checked

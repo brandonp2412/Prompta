@@ -1667,8 +1667,28 @@ class PlaywrightDriver:
         option: Locator,
         model_name_re: re.Pattern[str],
     ) -> bool:
-        if await self._selection_state(option) is True:
-            return True
+        # After a model click the menu option can disappear immediately.
+        # Reading attributes from a missing Playwright locator waits for its
+        # default timeout, starving the bounded post-click verification.
+        if await option.is_visible():
+            if await self._selection_state(option) is True:
+                return True
+        else:
+            # Radix hides its submenu after a selection but retains the
+            # checked option in the DOM. get_by_role() excludes hidden options;
+            # a role/checked-state CSS query still sees the committed choice.
+            # count() is immediate, unlike waiting on the hidden role locator.
+            selected_options = page.locator(
+                '[role="menuitemradio"][aria-checked="true"], '
+                '[role="radio"][aria-checked="true"], '
+                '[role="option"][aria-selected="true"], '
+                '[role="tab"][aria-selected="true"]'
+            ).filter(has_text=model_name_re)
+            try:
+                if await selected_options.count() == 1:
+                    return True
+            except PlaywrightError:
+                pass
 
         selector = await self._model_selector_control(page)
         if selector is None:
@@ -1759,8 +1779,26 @@ class PlaywrightDriver:
                     ):
                         await page.keyboard.press("Escape")
                         return
+
+                    async def click_model_option() -> None:
+                        try:
+                            # ChatGPT's effort slider can overlap the centre of
+                            # a model menu item and intercept pointer clicks.
+                            await asyncio.wait_for(option.click(), timeout=1.25)
+                        except (TimeoutError, PlaywrightError):
+                            # Never send a second click if the first one took.
+                            if await self._model_selection_verified(
+                                page, option, model_name_re
+                            ):
+                                return
+                            logger.info(
+                                "ChatGPT model menu pointer click blocked; "
+                                "trying the same semantic control's click event"
+                            )
+                            await option.dispatch_event("click")
+
                     await _timed_model_picker_step(
-                        "model_option_click", option.click(), timeout=step_timeout()
+                        "model_option_click", click_model_option(), timeout=step_timeout()
                     )
                     if await _timed_model_picker_step(
                         "selection_verification",
