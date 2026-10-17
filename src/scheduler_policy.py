@@ -97,18 +97,19 @@ def next_due_at(
 
 
 def due_in(job: PromptJob, state: Mapping[str, object], *, now: float) -> float:
-    try:
-        last_sent_at = float_value(state.get("last_sent_at"))
-        last_uncertain_send_at = float_value(state.get("last_uncertain_send_at"))
-        next_due = float_value(state.get("next_due_at_epoch"))
-        initial_due = float_value(state.get("initial_due_at_epoch"))
-    except (TypeError, ValueError):
-        return 0.0
+    last_sent_at = _state_float(state, "last_sent_at")
+    last_uncertain_send_at = _state_float(state, "last_uncertain_send_at")
+    next_due = _state_float(state, "next_due_at_epoch")
+    initial_due = _state_float(state, "initial_due_at_epoch")
     last_attempt_at = max(last_sent_at, last_uncertain_send_at)
     manual_fire_at = _state_float(state, "last_manual_fire_at_epoch")
-    manual_floor = (
-        manual_fire_at + job.interval_seconds
-        if manual_fire_at > 0 and job.run_at_epoch is None and job.daily_at is None
+    last_enqueued_at = _state_float(state, "last_enqueued_at")
+    # A stale next-due marker (or an edited job) must never start a new
+    # interval less than its configured duration after the last dispatch.
+    latest_dispatch = max(last_attempt_at, last_enqueued_at, manual_fire_at)
+    interval_floor = (
+        latest_dispatch + max(0.0, float(job.interval_seconds))
+        if latest_dispatch > 0 and job.run_at_epoch is None and job.daily_at is None
         else 0.0
     )
 
@@ -118,14 +119,14 @@ def due_in(job: PromptJob, state: Mapping[str, object], *, now: float) -> float:
         due_at = initial_due if initial_due > 0 else float(job.run_at_epoch)
         return max(0.0, due_at - now)
     if next_due > 0 and last_sent_at >= last_uncertain_send_at:
-        return max(0.0, next_due - now, manual_floor - now)
+        return max(0.0, next_due - now, interval_floor - now)
     if last_attempt_at > 0:
         if job.daily_at is not None:
             return max(0.0, _next_daily_epoch(job.daily_at, last_attempt_at) - now)
-        return max(0.0, last_attempt_at + max(0.0, float(job.interval_seconds)) - now, manual_floor - now)
+        return max(0.0, interval_floor - now)
     if initial_due > 0:
-        return max(0.0, initial_due - now, manual_floor - now)
-    return max(0.0, manual_floor - now)
+        return max(0.0, initial_due - now, interval_floor - now)
+    return max(0.0, interval_floor - now)
 
 
 def occurrence_marker(job: PromptJob, state: Mapping[str, object]) -> float:
@@ -258,9 +259,7 @@ def terminal_reconciliation_updates(
         return None
 
     completed_at = float_value(
-        receipt.get("finished_at")
-        or receipt.get("updated_at")
-        or receipt.get("created_at"),
+        receipt.get("finished_at") or receipt.get("updated_at") or receipt.get("created_at"),
         default=fallback_completed_at,
     )
     one_time = bool(state.get("pending_delivery_one_time"))

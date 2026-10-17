@@ -151,7 +151,20 @@ class WebJobService:
                 exact_interval=exact_interval,
                 mutex_group=mutex_group,
             )
-            runtime.clear_job_state(name)
+            if existing is None:
+                # A newly created job must not inherit state from an older deleted job.
+                runtime.clear_job_state(name)
+            elif (
+                existing.interval_seconds != interval_seconds
+                or existing.daily_at != daily_at
+                or existing.exact_interval != exact_interval
+            ):
+                # Rebase a changed cadence from the last actual dispatch, without
+                # discarding delivery history, manual-fire timing, or pause state.
+                runtime.update_job_state(
+                    name, {"next_due_at_epoch": 0.0, "initial_due_at_epoch": 0.0}
+                )
+            # Editing only the prompt must not restart the schedule.
             self._wake_scheduler()
 
         elif normalized_action == "fire_now":

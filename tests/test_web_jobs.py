@@ -171,3 +171,83 @@ def test_fire_now_rejects_unknown_job_without_queuing(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unknown job"):
         service.apply("fire_now", {"name": "not-found"})
     assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
+
+
+def test_editing_prompt_preserves_schedule_pause_and_delivery_history(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    service = WebJobService(jobs, state, "test-host")
+    service.apply(
+        "add",
+        {"name": "soak", "prompt": "Original", "interval_minutes": 45, "exact_interval": True},
+    )
+    service.runtime.update_job_state(
+        "soak",
+        {
+            "last_sent_at": 1000.0,
+            "last_enqueued_at": 990.0,
+            "next_due_at_epoch": 3700.0,
+            "paused": True,
+        },
+    )
+    before = service.runtime.job_state("soak")
+    edited = service.apply(
+        "add", {"name": "soak", "prompt": "Updated", "interval_minutes": 45, "exact_interval": True}
+    )
+    assert edited["jobs"][0]["prompt"] == "Updated"
+    assert service.runtime.job_state("soak") == before
+    producer = DurableSchedulerProducer(state, jobs, queue_path)
+    assert producer.tick(now=3700.0) == 0  # still paused after editing
+    service.apply("resume", {"name": "soak"})
+    assert producer.tick(now=3699.0) == 0
+    assert producer.tick(now=3700.0) == 1
+    assert DeliveryQueueStore(queue_path).records()[0]["message"] == "Updated"
+
+
+def test_editing_interval_rebases_from_last_dispatch_without_firing_early(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    service = WebJobService(jobs, state, "test-host")
+    service.apply(
+        "add", {"name": "soak", "prompt": "Run", "interval_minutes": 60, "exact_interval": True}
+    )
+    service.runtime.update_job_state(
+        "soak",
+        {
+            "last_sent_at": 1000.0,
+            "last_enqueued_at": 999.0,
+            "next_due_at_epoch": 4600.0,
+            "paused": True,
+        },
+    )
+    service.apply(
+        "add",
+        {"name": "soak", "prompt": "Run revised", "interval_minutes": 45, "exact_interval": True},
+    )
+    recorded = service.runtime.job_state("soak")
+    assert recorded["last_sent_at"] == 1000.0
+    assert recorded["paused"] is True
+    assert recorded["next_due_at_epoch"] == 0.0
+    service.apply("resume", {"name": "soak"})
+    producer = DurableSchedulerProducer(state, jobs)
+    assert producer.tick(now=3699.0) == 0
+    assert producer.tick(now=3700.0) == 1
+
+
+def test_editing_while_delivery_pending_never_sends_second_copy(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    service = WebJobService(jobs, state, "test-host")
+    service.apply(
+        "add", {"name": "soak", "prompt": "Run", "interval_minutes": 45, "exact_interval": True}
+    )
+    producer = DurableSchedulerProducer(state, jobs, queue_path)
+    producer.runtime.update_job_state("soak", {"initial_due_at_epoch": 1000.0})
+    assert producer.tick(now=1000.0) == 1
+    service.apply(
+        "add", {"name": "soak", "prompt": "Revised", "interval_minutes": 45, "exact_interval": True}
+    )
+    assert producer.tick(now=1001.0) == 0
+    assert len(DeliveryQueueStore(queue_path).records()) == 1

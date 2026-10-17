@@ -101,25 +101,22 @@ def test_due_in_prefers_next_due_after_confirmed_send_and_uncertain_marker_other
         "next_due_at_epoch": 5000.0,
     }
 
-    assert due_in(job, confirmed, now=1500.0) == pytest.approx(1000.0)
+    assert due_in(job, confirmed, now=1500.0) == pytest.approx(1300.0)
     assert due_in(job, uncertain, now=1300.0) == pytest.approx(1500.0)
 
 
-def test_due_in_preserves_immediately_due_behavior_for_corrupt_schedule_state() -> None:
+def test_due_in_does_not_run_early_for_corrupt_next_due_state() -> None:
     job = PromptJob("job", "work", 1800)
-    assert (
-        due_in(
-            job,
-            {
-                "last_sent_at": 1000.0,
-                "last_uncertain_send_at": 0.0,
-                "next_due_at_epoch": "corrupt",
-                "initial_due_at_epoch": 0.0,
-            },
-            now=1100.0,
-        )
-        == 0.0
-    )
+    assert due_in(
+        job,
+        {
+            "last_sent_at": 1000.0,
+            "last_uncertain_send_at": 0.0,
+            "next_due_at_epoch": "corrupt",
+            "initial_due_at_epoch": 0.0,
+        },
+        now=1100.0,
+    ) == pytest.approx(1700.0)
 
 
 def test_occurrence_key_uses_same_duplicate_protection_marker_as_scheduler() -> None:
@@ -334,3 +331,27 @@ def test_retry_and_send_gap_windows_use_explicit_time() -> None:
         )
         == 0.0
     )
+
+
+def test_interval_never_dispatches_before_last_sent_plus_full_cadence() -> None:
+    job = PromptJob("soak", "play", 2700, exact_interval=True)
+    state = {
+        "last_sent_at": 1000.0,
+        "last_enqueued_at": 980.0,
+        "next_due_at_epoch": 2800.0,  # stale early schedule
+    }
+    assert due_in(job, state, now=3699.0) == pytest.approx(1.0)
+    assert due_in(job, state, now=3700.0) == 0.0
+
+
+def test_interval_uses_last_queue_time_if_completion_marker_missing() -> None:
+    job = PromptJob("soak", "play", 2700, exact_interval=True)
+    state = {"last_enqueued_at": 1000.0, "next_due_at_epoch": 1050.0}
+    assert due_in(job, state, now=3500.0) == pytest.approx(200.0)
+    assert due_in(job, state, now=3700.0) == 0.0
+
+
+def test_bad_next_due_marker_does_not_erase_valid_send_time_floor() -> None:
+    job = PromptJob("soak", "play", 2700, exact_interval=True)
+    state = {"last_sent_at": 1000.0, "next_due_at_epoch": "corrupt"}
+    assert due_in(job, state, now=2000.0) == pytest.approx(1700.0)
