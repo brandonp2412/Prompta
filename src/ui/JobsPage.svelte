@@ -46,6 +46,14 @@
   let dailyAt = $state("09:00");
   let exact = $state(false);
   let editorOpen = $state(false);
+  let editorDialog = $state<HTMLDialogElement>();
+  let editorError = $state("");
+  let confirmDiscard = $state(false);
+  let initialForm = $state("");
+  let dirty = $derived(editorOpen && formSnapshot() !== initialForm);
+  let duplicateName = $derived(!editing && jobs.some((job) => job.name === name.trim()));
+  let promptCharacters = $derived(prompt.length);
+  let promptLines = $derived(prompt ? prompt.split("\n").length : 0);
   let loadInFlight = false;
   let healthLoadInFlight = false;
   let dataGeneration = 0;
@@ -60,18 +68,57 @@
     exact = false;
   }
 
+  function formSnapshot() {
+    return JSON.stringify({ name, prompt, schedule, interval, dailyAt, exact });
+  }
+
   function closeEditor() {
-    reset();
+    editorDialog?.close();
     editorOpen = false;
+    confirmDiscard = false;
+    editorError = "";
+    reset();
+  }
+
+  function requestClose() {
+    if (saving) return;
+    if (dirty) {
+      confirmDiscard = true;
+      return;
+    }
+    closeEditor();
+  }
+
+  function openEditor(focusName: boolean) {
+    editorError = "";
+    confirmDiscard = false;
+    initialForm = formSnapshot();
+    editorOpen = true;
+    requestAnimationFrame(() => {
+      editorDialog?.showModal();
+      if (focusName) {
+        editorDialog?.querySelector<HTMLInputElement>(".name-field input")?.focus();
+      } else if (window.matchMedia("(pointer: coarse)").matches) {
+        editorDialog?.focus();
+      } else {
+        const textarea = editorDialog?.querySelector<HTMLTextAreaElement>(".prompt-field textarea");
+        textarea?.focus();
+        textarea?.setSelectionRange(0, 0);
+      }
+    });
   }
 
   function beginNew() {
     reset();
-    editorOpen = true;
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLInputElement>(".name-field input")?.focus();
-      document.getElementById("job-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    openEditor(true);
+  }
+
+  function onEditorKeydown(event: KeyboardEvent) {
+    if (!editorOpen || saving || !dirty || duplicateName) return;
+    if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
+    if (!(event.target instanceof Node) || !editorDialog?.contains(event.target)) return;
+    event.preventDefault();
+    editorDialog.querySelector<HTMLFormElement>("#job-editor")?.requestSubmit();
   }
 
   function formatDate(epoch: number) {
@@ -218,6 +265,8 @@
   }
 
   async function submit() {
+    if (saving || !dirty || duplicateName) return;
+    editorError = "";
     const jobName = name.trim();
     const jobPrompt = prompt.trim();
     if (!jobName || !jobPrompt) return;
@@ -235,6 +284,7 @@
       "Saved " + jobName + ".",
     );
     if (saved) closeEditor();
+    else editorError = status;
   }
 
   function edit(job: Job) {
@@ -245,10 +295,7 @@
     dailyAt = job.daily_at || "09:00";
     interval = String(job.interval_minutes || 40);
     exact = job.exact_interval;
-    editorOpen = true;
-    requestAnimationFrame(() => {
-      document.getElementById("job-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    openEditor(false);
   }
 
   async function remove(job: Job) {
@@ -270,15 +317,26 @@
   }
 
   onMount(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
     void load();
     void loadDeliveryCounts();
     const timer = window.setInterval(() => {
       void load({ quiet: true });
       void loadDeliveryCounts();
     }, refreshIntervalMs);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
   });
 </script>
+
+<svelte:window onkeydown={onEditorKeydown} />
 
 <section class="jobs-panel" aria-labelledby="jobs-title">
   <div class="jobs-toolbar">
@@ -412,76 +470,106 @@
     </nav>
   {/if}
 
-  {#if editorOpen}
-    <form
-      id="job-editor"
-      class="job-editor"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
-      <div class="editor-heading">
-        <div>
-          <h2>{editing ? "Edit job" : "New job"}</h2>
-          {#if editing}<span>{editing}</span>{/if}
-        </div>
-        <button class="toolbar-button" type="button" disabled={saving} onclick={closeEditor}>Close</button>
-      </div>
-
-      <div class="editor-grid">
-        <label class="name-field">
-          <span>Name</span>
-          <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
-        </label>
-
-        <label>
-          <span>Schedule</span>
-          <select bind:value={schedule}>
-            <option value="interval">Interval</option>
-            <option value="daily">Daily</option>
-          </select>
-        </label>
-
-        {#if schedule === "interval"}
-          <label>
-            <span>Every (minutes)</span>
-            <input bind:value={interval} type="number" min="0.1" step="0.1" required />
-          </label>
-        {:else}
-          <label>
-            <span>At</span>
-            <input bind:value={dailyAt} type="time" required />
-          </label>
-        {/if}
-
-        <label class="prompt-field">
-          <span>Prompt</span>
-          <textarea bind:value={prompt} rows="7" required></textarea>
-        </label>
-      </div>
-
-      <div class="editor-footer">
-        {#if schedule === "interval"}
-          <label class="checkbox-row">
-            <input bind:checked={exact} type="checkbox" />
-            <span>Exact interval</span>
-          </label>
-        {:else}
-          <span></span>
-        {/if}
-
-        <div class="editor-actions">
-          <button class="toolbar-button" type="button" disabled={saving} onclick={closeEditor}>Cancel</button>
-          <button class="primary-button" type="submit" disabled={saving}>Save</button>
-        </div>
-      </div>
-    </form>
-  {/if}
-
   <footer class="jobs-footer">
     <button class="row-action danger-text" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
       Clear all jobs
     </button>
   </footer>
+
+  {#if editorOpen}
+    <dialog
+      bind:this={editorDialog}
+      class="job-dialog"
+      aria-labelledby="editor-title"
+      tabindex="-1"
+      oncancel={(event) => {
+        event.preventDefault();
+        requestClose();
+      }}
+    >
+      <form
+        id="job-editor"
+        class="job-editor"
+        onsubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <div class="editor-heading">
+          <div class="editor-title">
+            <h2 id="editor-title">{editing ? "Edit job" : "New job"}</h2>
+            {#if editing}<span title={editing}>{editing}</span>{/if}
+          </div>
+          <button class="toolbar-button editor-close" type="button" disabled={saving} aria-label="Close editor" onclick={requestClose}>✕</button>
+        </div>
+
+        <div class="editor-body">
+          <div class="editor-settings">
+            <label class="name-field">
+              <span>Name</span>
+              <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+            </label>
+
+            <label>
+              <span>Schedule</span>
+              <select bind:value={schedule}>
+                <option value="interval">Interval</option>
+                <option value="daily">Daily</option>
+              </select>
+            </label>
+
+            {#if schedule === "interval"}
+              <label>
+                <span>Every (minutes)</span>
+                <input bind:value={interval} type="number" min="0.1" max="43200" step="0.1" required />
+              </label>
+            {:else}
+              <label>
+                <span>At (local time)</span>
+                <input bind:value={dailyAt} type="time" required />
+              </label>
+            {/if}
+          </div>
+
+          {#if schedule === "interval"}
+            <label class="checkbox-row">
+              <input bind:checked={exact} type="checkbox" />
+              <span>Exact interval</span>
+            </label>
+          {/if}
+
+          <label class="prompt-field">
+            <span>Prompt</span>
+            <textarea bind:value={prompt} rows="14" required></textarea>
+          </label>
+          <div class="prompt-counter">{promptCharacters.toLocaleString()} characters · {promptLines.toLocaleString()} lines</div>
+        </div>
+
+        <div class="editor-footer">
+          <div class="editor-feedback" role="status" aria-live="polite">
+            {#if confirmDiscard}
+              <span>Discard unsaved changes?</span>
+              <button class="toolbar-button" type="button" onclick={() => (confirmDiscard = false)}>Keep editing</button>
+              <button class="toolbar-button danger-text" type="button" onclick={closeEditor}>Discard</button>
+            {:else if editorError}
+              <span class="editor-error">{editorError}</span>
+            {:else if duplicateName}
+              <span class="editor-error">This job already exists. Choose another name.</span>
+            {:else if dirty}
+              <span>Unsaved changes</span>
+            {:else if editing}
+              <span>No changes</span>
+            {/if}
+          </div>
+          <div class="editor-actions">
+            <span class="keyboard-hint">Ctrl/⌘ + Enter to save</span>
+            <button class="toolbar-button" type="button" disabled={saving} onclick={requestClose}>Cancel</button>
+            <button class="primary-button" type="submit" disabled={saving || !dirty || duplicateName}>
+              {saving ? "Saving…" : editing ? "Save changes" : "Create job"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+  {/if}
 </section>
