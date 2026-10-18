@@ -1739,6 +1739,64 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
 
 
 @pytest.mark.asyncio
+async def test_gpt6_uses_live_high_menu_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clicks: list[str] = []
+
+    class Control:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def get_attribute(self, attr: str) -> str | None:
+            if attr == "data-selected-reasoning-effort":
+                return "high"
+            if attr == "aria-checked":
+                return "true" if "GPT-6" in clicks else "false"
+            return None
+
+        async def inner_text(self) -> str:
+            return self.name
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def dispatch_event(self, event: str) -> None:
+            assert event == "click"
+            clicks.append(self.name)
+
+    class Collection:
+        def __init__(self, items: list[Control]) -> None:
+            self.items = items
+
+        async def count(self) -> int:
+            return len(self.items)
+
+        @property
+        def first(self) -> Control:
+            return self.items[0]
+
+    class Keyboard:
+        async def press(self, key: str) -> None:
+            assert key == "Escape"
+
+    class Page:
+        keyboard = Keyboard()
+
+        def get_by_role(self, role: str, *, name: re.Pattern[str]) -> Collection:
+            if role == "button" and name.search("Select ChatGPT model"):
+                return Collection([Control("High")])
+            if clicks and role == "menuitem" and name.search("Select model"):
+                return Collection([Control("High")])
+            if len(clicks) >= 2 and role == "menuitemradio" and name.search("GPT-6"):
+                return Collection([Control("GPT-6")])
+            return Collection([])
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+    await driver.select_effort_model("GPT-6")
+    assert clicks == ["High", "High", "GPT-6"]
+
+
+@pytest.mark.asyncio
 async def test_model_picker_opens_high_row_before_gpt6(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

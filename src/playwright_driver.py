@@ -1724,6 +1724,31 @@ class PlaywrightDriver:
             re.IGNORECASE,
         )
 
+        # The current High menu has a direct, stable three-control path.
+        # Avoid the broad fallback discovery when its exact controls exist.
+        if model_name.casefold() == "gpt-6":
+            trigger = page.get_by_role("button", name=re.compile(r"^select chatgpt model$", re.I))
+            try:
+                if (
+                    await trigger.count() == 1
+                    and await trigger.first.get_attribute("data-selected-reasoning-effort") == "high"
+                ):
+                    await trigger.first.dispatch_event("click")
+                    row = page.get_by_role("menuitem", name=re.compile(r"^select model$", re.I))
+                    if await row.count() == 1 and (await row.first.inner_text()).strip() == "High":
+                        await row.first.dispatch_event("click")
+                        option = page.get_by_role("menuitemradio", name=model_name_re)
+                        if await option.count() == 1 and await option.first.is_visible():
+                            if await option.first.get_attribute("aria-checked") != "true":
+                                await option.first.dispatch_event("click")
+                            if await self._verify_model_selection_after_click(
+                                page, option.first, model_name_re
+                            ):
+                                await page.keyboard.press("Escape")
+                                return
+            except PlaywrightError:
+                pass
+
         async def find_option() -> Locator | None:
             # Menus have changed role structure before. Prefer accessible role/name
             # semantics across common selectable roles, then an unambiguous semantic
