@@ -1736,16 +1736,21 @@ class PlaywrightDriver:
                     await trigger.first.dispatch_event("click")
                     row = page.get_by_role("menuitem", name=re.compile(r"^select model$", re.I))
                     if await row.count() == 1 and (await row.first.inner_text()).strip() == "High":
-                        await row.first.dispatch_event("click")
+                        # This Radix view toggle requires keyboard activation;
+                        # a synthetic click can dismiss the entire menu.
+                        await row.first.focus()
+                        await page.keyboard.press("Enter")
                         option = page.get_by_role("menuitemradio", name=model_name_re)
-                        if await option.count() == 1 and await option.first.is_visible():
-                            if await option.first.get_attribute("aria-checked") != "true":
-                                await option.first.dispatch_event("click")
-                            if await self._verify_model_selection_after_click(
-                                page, option.first, model_name_re
-                            ):
-                                await page.keyboard.press("Escape")
-                                return
+                        for _ in range(10):
+                            if await option.count() == 1 and await option.first.is_visible():
+                                if await option.first.get_attribute("aria-checked") != "true":
+                                    await option.first.dispatch_event("click")
+                                if await self._verify_model_selection_after_click(
+                                    page, option.first, model_name_re
+                                ):
+                                    await page.keyboard.press("Escape")
+                                    return
+                            await asyncio.sleep(0.1)
             except PlaywrightError:
                 pass
 

@@ -1759,6 +1759,9 @@ async def test_gpt6_uses_live_high_menu_path(tmp_path: Path, monkeypatch: pytest
         async def is_visible(self) -> bool:
             return True
 
+        async def focus(self) -> None:
+            assert self.name == "High"
+
         async def dispatch_event(self, event: str) -> None:
             assert event == "click"
             clicks.append(self.name)
@@ -1776,7 +1779,9 @@ async def test_gpt6_uses_live_high_menu_path(tmp_path: Path, monkeypatch: pytest
 
     class Keyboard:
         async def press(self, key: str) -> None:
-            assert key == "Escape"
+            assert key in {"Enter", "Escape"}
+            if key == "Enter":
+                clicks.append("High")
 
     class Page:
         keyboard = Keyboard()
