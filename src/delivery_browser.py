@@ -129,14 +129,8 @@ class BrowserDeliverySender:
         now = asyncio.get_running_loop().time()
         if now < self._next_effort_preference_retry_at:
             return
-        stage = "model_selection"
+        stage = "effort_selection"
         try:
-            await _timed_stage(
-                stage,
-                driver.select_effort_model("GPT-5.6 Sol"),
-                timeout=_MODEL_SELECTION_TIMEOUT_SECONDS,
-            )
-            stage = "effort_selection"
             power = await _timed_stage(
                 stage,
                 driver.set_effort_power_position(3),
@@ -146,6 +140,15 @@ class BrowserDeliverySender:
                 raise RuntimeError("ChatGPT High effort verification failed")
             if "upgrade required" in str(power.get("description") or "").casefold():
                 raise RuntimeError("ChatGPT High effort unexpectedly requires an upgrade")
+            await _timed_stage(
+                "effort_menu_dismiss", driver.dismiss_transient_controls(), timeout=4.0
+            )
+            stage = "model_selection"
+            await _timed_stage(
+                stage,
+                driver.select_effort_model("GPT-6"),
+                timeout=_MODEL_SELECTION_TIMEOUT_SECONDS,
+            )
         except (RuntimeError, TimeoutError) as exc:
             if driver.needs_browser_restart:
                 raise

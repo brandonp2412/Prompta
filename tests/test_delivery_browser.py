@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -151,6 +151,27 @@ async def test_slow_model_picker_falls_back_with_a_bounded_timeout(
     assert "stage=model_selection" in caplog.text
     assert "outcome=failed" in caplog.text
     assert "Do the scheduled work" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_high_effort_is_selected_before_gpt6(tmp_path: Path) -> None:
+    actions: list[str] = []
+
+    class TrackingDriver(FakeDriver):
+        async def set_effort_power_position(self, _position: int) -> dict[str, object]:
+            actions.append(f"power:{_position}")
+            return await super().set_effort_power_position(_position)
+
+        async def select_effort_model(self, _model: str) -> None:
+            actions.append(f"model:{_model}")
+
+        async def dismiss_transient_controls(self) -> None:
+            actions.append("dismiss")
+
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3")
+    await sender._ensure_high_effort(TrackingDriver())
+
+    assert actions == ["power:3", "dismiss", "model:GPT-6", "dismiss"]
 
 
 @pytest.mark.asyncio
@@ -1718,6 +1739,89 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
 
 
 @pytest.mark.asyncio
+async def test_model_picker_opens_high_row_before_gpt6(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clicks: list[str] = []
+
+    class Control:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        async def is_visible(self) -> bool:
+            return True
+
+        async def is_enabled(self) -> bool:
+            return True
+
+        async def inner_text(self) -> str:
+            return self.label
+
+        async def evaluate(self, _script: str) -> bool:
+            return True
+
+        async def get_attribute(self, name: str) -> str | None:
+            if name == "aria-expanded":
+                return "false"
+            if name == "aria-checked" and self.label == "GPT-6":
+                return "true" if len(clicks) == 3 else "false"
+            return None
+
+        async def click(self) -> None:
+            clicks.append(self.label)
+
+    class Collection:
+        def __init__(self, items: list[Control]) -> None:
+            self.items = items
+
+        async def count(self) -> int:
+            return len(self.items)
+
+        @property
+        def first(self) -> Control:
+            return self.items[0]
+
+        def nth(self, index: int) -> Control:
+            return self.items[index]
+
+        def filter(self, **_kwargs: object) -> Collection:
+            return self
+
+    class Keyboard:
+        async def press(self, _key: str) -> None:
+            pass
+
+    class Page:
+        keyboard = Keyboard()
+
+        def get_by_role(
+            self, role: str, *, name: re.Pattern[str] | None = None
+        ) -> Collection:
+            if not clicks or name is None:
+                return Collection([])
+            if role == "menuitem" and name.search("Select model"):
+                return Collection([Control("High")])
+            if role == "menuitemradio" and name.search("GPT-6"):
+                return Collection([Control("GPT-6")])
+            return Collection([])
+
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
+
+    async def selector(_page: object) -> Control | None:
+        return Control("High") if not clicks else None
+
+    monkeypatch.setattr(driver, "_model_selector_control", selector)
+
+    async def missing_button(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(driver, "_semantic_button", missing_button)
+    await driver.select_effort_model("GPT-6")
+    assert clicks == ["High", "High", "GPT-6"]
+
+
+@pytest.mark.asyncio
 async def test_model_selection_accepts_menuitem_and_aria_selected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2745,13 +2849,6 @@ async def test_model_selection_uses_semantic_event_when_slider_obscures_click(
 async def test_model_selection_verifies_selector_after_option_unmount(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class UnmountedOption:
-        async def is_visible(self) -> bool:
-            return False
-
-        async def get_attribute(self, _name: str) -> str | None:
-            raise AssertionError("unmounted locator must not be read")
-
     class Selector:
         async def evaluate(self, _script: str) -> list[str]:
             return ["Select ChatGPT model", "GPT-5.6 Sol"]
@@ -2770,12 +2867,13 @@ async def test_model_selection_verifies_selector_after_option_unmount(
         async def count(self) -> int:
             return 0
 
-    class Page:
-        def locator(self, _selector: str) -> NoSelectedItems:
-            return NoSelectedItems()
-
+    page = MagicMock(spec=playwright_driver.Page)
+    page.locator.return_value = NoSelectedItems()
+    option = MagicMock(spec=playwright_driver.Locator)
+    option.is_visible = AsyncMock(return_value=False)
+    option.get_attribute = AsyncMock(side_effect=AssertionError("unmounted locator must not be read"))
     assert await driver._model_selection_verified(
-        Page(), UnmountedOption(), re.compile(r"GPT-5\.6 Sol")
+        page, option, re.compile(r"GPT-5\.6 Sol")
     )
 
 
@@ -2784,13 +2882,6 @@ async def test_model_selection_verifies_selector_after_option_unmount(
 async def test_model_selection_verifies_hidden_checked_menu_option(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, checked: bool
 ) -> None:
-    class HiddenRoleOption:
-        async def is_visible(self) -> bool:
-            return False
-
-        async def get_attribute(self, _name: str) -> str | None:
-            raise AssertionError("hidden inaccessible role locator must not be read")
-
     class SelectedCandidates:
         def filter(self, *, has_text: re.Pattern[str]) -> SelectedCandidates:
             assert has_text.search("GPT-5.6 Sol")
@@ -2799,10 +2890,9 @@ async def test_model_selection_verifies_hidden_checked_menu_option(
         async def count(self) -> int:
             return 1 if checked else 0
 
-    class Page:
-        def locator(self, selector: str) -> SelectedCandidates:
-            assert '[role="menuitemradio"][aria-checked="true"]' in selector
-            return SelectedCandidates()
+    def selected_candidates(selector: str) -> SelectedCandidates:
+        assert '[role="menuitemradio"][aria-checked="true"]' in selector
+        return SelectedCandidates()
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
@@ -2810,7 +2900,14 @@ async def test_model_selection_verifies_hidden_checked_menu_option(
         return None
 
     monkeypatch.setattr(driver, "_model_selector_control", no_selector)
+    page = MagicMock(spec=playwright_driver.Page)
+    page.locator.side_effect = selected_candidates
+    option = MagicMock(spec=playwright_driver.Locator)
+    option.is_visible = AsyncMock(return_value=False)
+    option.get_attribute = AsyncMock(
+        side_effect=AssertionError("hidden inaccessible role locator must not be read")
+    )
     result = await driver._model_selection_verified(
-        Page(), HiddenRoleOption(), re.compile(r"^GPT-5\.6 Sol")
+        page, option, re.compile(r"^GPT-5\.6 Sol")
     )
     assert result is checked

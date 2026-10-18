@@ -1717,7 +1717,7 @@ class PlaywrightDriver:
             await asyncio.sleep(_MODEL_SELECTION_VERIFY_INTERVAL_SECONDS)
         return False
 
-    async def select_effort_model(self, model_name: str = "GPT-5.6 Sol") -> None:
+    async def select_effort_model(self, model_name: str = "GPT-6") -> None:
         page = self._page()
         model_name_re = re.compile(
             rf"^ *{re.escape(model_name)}(?: |$)",
@@ -1765,12 +1765,27 @@ class PlaywrightDriver:
         option_seen = False
         selector_seen = False
         trigger_seen = False
+        model_row_opened = False
         while asyncio.get_running_loop().time() < deadline:
             option = await _timed_model_picker_step(
                 "option_discovery", find_option(), timeout=step_timeout()
             )
             option_seen = option_seen or option is not None
             if option is not None:
+                # ChatGPT's High picker exposes a second High row labelled
+                # "Select model" before its GPT model choices.
+                if model_name.casefold() == "gpt-6" and not model_row_opened:
+                    row = page.get_by_role("menuitem", name=re.compile(r"^select model$", re.I))
+                    if await row.count() == 1:
+                        item = row.first
+                        if await item.is_visible() and (await item.inner_text()).strip() == "High":
+                            await _timed_model_picker_step(
+                                "high_model_row_open",
+                                item.click(),
+                                timeout=step_timeout(),
+                            )
+                            model_row_opened = True
+                            continue
                 try:
                     if await _timed_model_picker_step(
                         "selection_state_check",
