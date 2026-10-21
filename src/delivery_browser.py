@@ -243,7 +243,9 @@ class BrowserDeliverySender:
                     timeout=min(5.0, remaining),
                 )
                 if approved is True:
-                    logger.info("Prompta selected Always allow for a connector permission")
+                    logger.info("Prompta confirmed Always allow permission control dismissed")
+                elif approved == "stuck":
+                    logger.warning("Connector permission control remained after Always allow click")
             except Exception as exc:
                 logger.info("Connector permission check unavailable error_type=%s", type(exc).__name__)
             await asyncio.sleep(min(1.0, max(0.0, deadline - asyncio.get_running_loop().time())))
