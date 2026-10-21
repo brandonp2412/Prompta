@@ -25,6 +25,8 @@
     outcome_unknown: number;
   };
 
+  type EditorRoute = { kind: "new" } | { kind: "edit"; name: string };
+
   const pageSize = 10;
   const refreshIntervalMs = 5000;
   let jobs = $state<Job[]>([]);
@@ -46,7 +48,9 @@
   let dailyAt = $state("09:00");
   let exact = $state(false);
   let editorOpen = $state(false);
-  let editorDialog = $state<HTMLDialogElement>();
+  let editorPage = $state<HTMLElement>();
+  let activeEditorRoute = "";
+  let listScrollY = 0;
   let editorError = $state("");
   let confirmDiscard = $state(false);
   let initialForm = $state("");
@@ -72,12 +76,40 @@
     return JSON.stringify({ name, prompt, schedule, interval, dailyAt, exact });
   }
 
-  function closeEditor() {
-    editorDialog?.close();
+  function closeEditorState() {
     editorOpen = false;
+    activeEditorRoute = "";
     confirmDiscard = false;
     editorError = "";
     reset();
+  }
+
+  function editorRouteFromUrl(): EditorRoute | null {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("new")) return { kind: "new" };
+    const jobName = url.searchParams.get("edit");
+    return jobName === null ? null : { kind: "edit", name: jobName };
+  }
+
+  function routeKey(route: EditorRoute | null) {
+    return route?.kind === "new" ? "new" : route?.kind === "edit" ? "edit:" + route.name : "";
+  }
+
+  function jobsUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("new");
+    url.searchParams.delete("edit");
+    return url;
+  }
+
+  function leaveEditor() {
+    if (window.history.state?.promptaEditor === true) {
+      window.history.back();
+    } else {
+      window.history.replaceState(null, "", jobsUrl());
+      closeEditorState();
+      requestAnimationFrame(() => window.scrollTo(0, listScrollY));
+    }
   }
 
   function requestClose() {
@@ -86,7 +118,12 @@
       confirmDiscard = true;
       return;
     }
-    closeEditor();
+    leaveEditor();
+  }
+
+  function discardEditor() {
+    initialForm = formSnapshot();
+    leaveEditor();
   }
 
   function openEditor(focusName: boolean) {
@@ -95,30 +132,81 @@
     initialForm = formSnapshot();
     editorOpen = true;
     requestAnimationFrame(() => {
-      editorDialog?.showModal();
+      window.scrollTo(0, 0);
       if (focusName) {
-        editorDialog?.querySelector<HTMLInputElement>(".name-field input")?.focus();
+        editorPage?.querySelector<HTMLInputElement>(".name-field input")?.focus();
       } else if (window.matchMedia("(pointer: coarse)").matches) {
-        editorDialog?.focus();
+        editorPage?.focus();
       } else {
-        const textarea = editorDialog?.querySelector<HTMLTextAreaElement>(".prompt-field textarea");
+        const textarea = editorPage?.querySelector<HTMLTextAreaElement>(".prompt-field textarea");
         textarea?.focus();
         textarea?.setSelectionRange(0, 0);
       }
     });
   }
 
+  function showEditor(route: EditorRoute) {
+    if (route.kind === "new") {
+      reset();
+    } else {
+      const job = jobs.find((item) => item.name === route.name);
+      if (!job) {
+        status = "Job not found: " + route.name;
+        window.history.replaceState(null, "", jobsUrl());
+        closeEditorState();
+        return;
+      }
+      editing = job.name;
+      name = job.name;
+      prompt = job.prompt;
+      schedule = job.daily_at ? "daily" : "interval";
+      dailyAt = job.daily_at || "09:00";
+      interval = String(job.interval_minutes || 40);
+      exact = job.exact_interval;
+    }
+    activeEditorRoute = routeKey(route);
+    openEditor(route.kind === "new");
+  }
+
+  function pushEditor(route: EditorRoute) {
+    listScrollY = window.scrollY;
+    const url = jobsUrl();
+    if (route.kind === "new") url.searchParams.set("new", "1");
+    else url.searchParams.set("edit", route.name);
+    window.history.pushState({ promptaEditor: true }, "", url);
+    showEditor(route);
+  }
+
+  function syncEditorFromUrl() {
+    const route = editorRouteFromUrl();
+    if (routeKey(route) === activeEditorRoute) return;
+    if (saving || (dirty && !window.confirm("Discard unsaved job changes?"))) {
+      window.history.forward();
+      return;
+    }
+    if (route) showEditor(route);
+    else {
+      closeEditorState();
+      requestAnimationFrame(() => window.scrollTo(0, listScrollY));
+    }
+  }
+
   function beginNew() {
-    reset();
-    openEditor(true);
+    pushEditor({ kind: "new" });
   }
 
   function onEditorKeydown(event: KeyboardEvent) {
-    if (!editorOpen || saving || !dirty || duplicateName) return;
+    if (!editorOpen || saving) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      requestClose();
+      return;
+    }
+    if (!dirty || duplicateName) return;
     if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
-    if (!(event.target instanceof Node) || !editorDialog?.contains(event.target)) return;
+    if (!(event.target instanceof Node) || !editorPage?.contains(event.target)) return;
     event.preventDefault();
-    editorDialog.querySelector<HTMLFormElement>("#job-editor")?.requestSubmit();
+    editorPage.querySelector<HTMLFormElement>("#job-editor")?.requestSubmit();
   }
 
   function formatDate(epoch: number) {
@@ -283,25 +371,20 @@
       },
       "Saved " + jobName + ".",
     );
-    if (saved) closeEditor();
-    else editorError = status;
+    if (saved) {
+      initialForm = formSnapshot();
+      leaveEditor();
+    } else editorError = status;
   }
 
   function edit(job: Job) {
-    editing = job.name;
-    name = job.name;
-    prompt = job.prompt;
-    schedule = job.daily_at ? "daily" : "interval";
-    dailyAt = job.daily_at || "09:00";
-    interval = String(job.interval_minutes || 40);
-    exact = job.exact_interval;
-    openEditor(false);
+    pushEditor({ kind: "edit", name: job.name });
   }
 
   async function remove(job: Job) {
     if (!window.confirm("Remove “" + job.name + "”?")) return;
     const removed = await command({ action: "remove", name: job.name }, "Removed " + job.name + ".");
-    if (removed && editing === job.name) closeEditor();
+    if (removed && editing === job.name) leaveEditor();
   }
 
   async function toggleAll() {
@@ -313,7 +396,7 @@
 
   async function clearAll() {
     if (!jobs.length || !window.confirm("Remove all " + String(jobs.length) + " configured jobs?")) return;
-    if (await command({ action: "clear" }, "Cleared all scheduled jobs.")) closeEditor();
+    if (await command({ action: "clear" }, "Cleared all scheduled jobs.") && editorOpen) leaveEditor();
   }
 
   onMount(() => {
@@ -323,8 +406,9 @@
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-    void load();
+    void load().then(syncEditorFromUrl);
     void loadDeliveryCounts();
+    window.addEventListener("popstate", syncEditorFromUrl);
     const timer = window.setInterval(() => {
       void load({ quiet: true });
       void loadDeliveryCounts();
@@ -332,12 +416,14 @@
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("popstate", syncEditorFromUrl);
     };
   });
 </script>
 
 <svelte:window onkeydown={onEditorKeydown} />
 
+{#if !editorOpen}
 <section class="jobs-panel" aria-labelledby="jobs-title">
   <div class="jobs-toolbar">
     <div class="toolbar-title">
@@ -476,17 +562,11 @@
     </button>
   </footer>
 
-  {#if editorOpen}
-    <dialog
-      bind:this={editorDialog}
-      class="job-dialog"
-      aria-labelledby="editor-title"
-      tabindex="-1"
-      oncancel={(event) => {
-        event.preventDefault();
-        requestClose();
-      }}
-    >
+</section>
+{/if}
+
+{#if editorOpen}
+  <section bind:this={editorPage} class="editor-page" aria-labelledby="editor-title" tabindex="-1">
       <form
         id="job-editor"
         class="job-editor"
@@ -496,11 +576,11 @@
         }}
       >
         <div class="editor-heading">
+          <button class="toolbar-button editor-back" type="button" disabled={saving} onclick={requestClose}>← Jobs</button>
           <div class="editor-title">
             <h2 id="editor-title">{editing ? "Edit job" : "New job"}</h2>
             {#if editing}<span title={editing}>{editing}</span>{/if}
           </div>
-          <button class="toolbar-button editor-close" type="button" disabled={saving} aria-label="Close editor" onclick={requestClose}>✕</button>
         </div>
 
         <div class="editor-body">
@@ -550,7 +630,7 @@
             {#if confirmDiscard}
               <span>Discard unsaved changes?</span>
               <button class="toolbar-button" type="button" onclick={() => (confirmDiscard = false)}>Keep editing</button>
-              <button class="toolbar-button danger-text" type="button" onclick={closeEditor}>Discard</button>
+              <button class="toolbar-button danger-text" type="button" onclick={discardEditor}>Discard</button>
             {:else if editorError}
               <span class="editor-error">{editorError}</span>
             {:else if duplicateName}
@@ -570,6 +650,5 @@
           </div>
         </div>
       </form>
-    </dialog>
-  {/if}
-</section>
+  </section>
+{/if}

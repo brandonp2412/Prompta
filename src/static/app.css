@@ -314,33 +314,22 @@ button:disabled { cursor: default; opacity: 0.45; }
 
 .pagination-actions { gap: 4px; }
 
-.job-dialog {
-  width: min(980px, calc(100vw - 32px));
-  max-width: none;
-  max-height: min(94dvh, 1000px);
-  margin: auto;
-  padding: 0;
-  border: 1px solid #343434;
-  border-radius: 12px;
-  background: #171717;
-  color: #f3f3f3;
-  box-shadow: 0 24px 80px #000b;
+.editor-page {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  min-width: 0;
 }
-
-.job-dialog::backdrop { background: #000b; }
 
 .job-editor {
   display: flex;
   flex-direction: column;
-  min-height: min(720px, 88dvh);
-  max-height: 94dvh;
+  min-height: calc(100dvh - 54px);
 }
 
 .editor-heading {
   flex: none;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 24px;
+  gap: 18px;
+  padding: 18px 0;
   border-bottom: 1px solid #303030;
 }
 
@@ -366,7 +355,7 @@ button:disabled { cursor: default; opacity: 0.45; }
   white-space: nowrap;
 }
 
-.editor-close { font-size: 1rem; }
+.editor-back { flex: none; margin-left: -9px; color: #eee; }
 
 .editor-body {
   display: flex;
@@ -374,8 +363,7 @@ button:disabled { cursor: default; opacity: 0.45; }
   flex-direction: column;
   gap: 15px;
   min-height: 0;
-  overflow-y: auto;
-  padding: 20px 24px 12px;
+  padding: 20px 0 12px;
 }
 
 .editor-settings {
@@ -406,7 +394,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 }
 
 .editor-body textarea {
-  min-height: 250px;
+  min-height: min(52dvh, 580px);
   flex: 1;
   resize: vertical;
   line-height: 1.5;
@@ -446,8 +434,12 @@ button:disabled { cursor: default; opacity: 0.45; }
   flex: none;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 24px;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 14px 0;
   border-top: 1px solid #303030;
+  background: #111;
 }
 
 .editor-feedback, .editor-actions {
@@ -558,15 +550,14 @@ button:disabled { cursor: default; opacity: 0.45; }
     min-height: 50px;
   }
 
-  .job-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
-  .job-editor { min-height: calc(100dvh - 18px); max-height: calc(100dvh - 18px); }
-  .editor-heading { padding: 14px 16px; }
+  .job-editor { min-height: calc(100dvh - 48px); }
+  .editor-heading { padding: 14px 0; gap: 12px; }
   .editor-title { gap: 8px; }
-  .editor-body { padding: 16px 16px 10px; }
+  .editor-body { padding: 16px 0 10px; }
   .editor-settings { grid-template-columns: 1fr 1fr; gap: 12px; }
   .name-field { grid-column: 1 / -1; }
   .editor-body .prompt-field { min-height: 240px; }
-  .editor-footer { padding: 12px 16px; align-items: stretch; flex-direction: column; }
+  .editor-footer { padding: 12px 0; align-items: stretch; flex-direction: column; }
   .editor-actions { justify-content: flex-end; }
   .keyboard-hint { display: none; }
 
