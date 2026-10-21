@@ -78,3 +78,14 @@ After login, close that browser window and start Prompta's browser again:
 ```bash
 systemctl --user start prompta-browser.service
 ```
+
+## Connector permissions
+
+By default tabs close after prompt acceptance. To keep them open for five minutes and automatically select “Always allow” on permission dialogs, add to `~/.config/prompta/config.toml`:
+
+```toml
+[connector_approval]
+enabled = true
+```
+
+Restart `prompta-delivery-worker` after changing this setting. Delivery is acknowledged immediately; permission handling runs in the background without reading assistant output.

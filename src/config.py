@@ -89,3 +89,22 @@ class WorkingHours:
             f"{self.end.strftime('%H:%M')} {self.timezone})",
             retry_after,
         )
+
+
+@dataclass(frozen=True)
+class ConnectorApproval:
+    enabled: bool = False
+
+    @classmethod
+    def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> ConnectorApproval:
+        try:
+            with path.expanduser().open("rb") as config_file:
+                section = tomllib.load(config_file).get("connector_approval", {})
+        except FileNotFoundError:
+            return cls()
+        if not isinstance(section, dict):
+            raise ValueError("[connector_approval] must be a table")
+        enabled = section.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise ValueError("connector_approval.enabled must be true or false")
+        return cls(enabled)

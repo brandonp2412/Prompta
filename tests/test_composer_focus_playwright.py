@@ -37,3 +37,31 @@ async def test_browser_composer_focus_rejects_embedded_button_and_focus_steal() 
             assert await editor.evaluate(script) is True
         finally:
             await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_connector_permission_controls() -> None:
+    chromium = shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("System Chromium is unavailable")
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(executable_path=chromium, headless=True,
+                                                   args=["--no-sandbox"])
+        try:
+            page = await browser.new_page()
+            script = load_browser_script("approve_connector.js")
+            await page.set_content('<button onclick="window.clicked=true">Always allow</button>')
+            assert await page.evaluate(script) is False
+            assert await page.evaluate('window.clicked === true') is False
+            await page.set_content('<div role="dialog"><button onclick="window.clicked=true">Always allow</button></div>')
+            assert await page.evaluate(script) is True
+            assert await page.evaluate('window.clicked') is True
+            await page.set_content('<section><button onclick="window.clicked=true">Always allow</button><button>Allow once</button></section>')
+            assert await page.evaluate(script) is True
+            await page.set_content('<div role="dialog"><label><input type="checkbox">Always allow</label><button onclick="window.checked=document.querySelector(\'input\').checked">Allow</button></div>')
+            assert await page.evaluate(script) is True
+            assert await page.evaluate('window.checked') is True
+            await page.set_content('<div role="dialog"><button disabled>Always allow</button></div>')
+            assert await page.evaluate(script) is False
+        finally:
+            await browser.close()

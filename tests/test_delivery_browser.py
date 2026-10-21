@@ -2974,3 +2974,74 @@ async def test_model_selection_verifies_hidden_checked_menu_option(
         page, option, re.compile(r"^GPT-5\.6 Sol")
     )
     assert result is checked
+
+
+@pytest.mark.asyncio
+async def test_connector_grace_keeps_tab_until_deadline_and_signals_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    monkeypatch.setattr(delivery_browser, "_CONNECTOR_APPROVAL_SECONDS", 0.03)
+    accepted = threading.Event()
+
+    class PermissionDriver(FakeDriver):
+        checks = 0
+
+        async def eval(self, _script: str) -> str:
+            if "always allow" in _script:
+                assert accepted.is_set()
+                assert not self.closed_contexts
+                self.checks += 1
+            return "/"
+
+    driver = PermissionDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver,
+                                   connector_approval=True, delivery_hard_timeout_seconds=0.02)
+    await sender._send_browser("Work", accepted=accepted)
+    assert driver.checks > 0
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
+async def test_failed_dispatch_has_no_connector_grace(tmp_path: Path) -> None:
+    class RejectedDriver(FakeDriver):
+        async def type_message(self, message: str) -> None:
+            raise RuntimeError("not ready")
+
+    driver = RejectedDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver,
+                                   connector_approval=True)
+    sender._handle_connector_approvals = AsyncMock()
+    with pytest.raises(DeliveryBackendUnavailableError):
+        await sender._send_browser("Work")
+    sender._handle_connector_approvals.assert_not_awaited()
+    assert driver.closed
+
+
+def test_connector_supervision_does_not_block_next_delivery(tmp_path: Path) -> None:
+    import threading
+
+    release = threading.Event()
+    closed = threading.Event()
+    driver = FakeDriver()
+
+    class Sender(BrowserDeliverySender):
+        async def _handle_connector_approvals(self, driver: delivery_browser.BrowserDriver) -> None:
+            await asyncio.to_thread(release.wait)
+
+    class Driver(FakeDriver):
+        async def close(self) -> None:
+            await super().close()
+            closed.set()
+
+    driver = Driver()
+    sender = Sender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver,
+                    connector_approval=True)
+    try:
+        sender("Work")
+        assert not driver.closed
+    finally:
+        release.set()
+    assert closed.wait(2)

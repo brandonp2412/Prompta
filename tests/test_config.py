@@ -68,3 +68,15 @@ timezone = "Pacific/Auckland"
 
     with pytest.raises(ValueError, match="working_hours.start"):
         WorkingHours.load(path)
+
+
+def test_connector_approval_defaults_off_and_requires_boolean(tmp_path: Path) -> None:
+    from prompta.config import ConnectorApproval
+
+    config = tmp_path / "config.toml"
+    assert not ConnectorApproval.load(config).enabled
+    config.write_text('[connector_approval]\nenabled = true\n')
+    assert ConnectorApproval.load(config).enabled
+    config.write_text('[connector_approval]\nenabled = "true"\n')
+    with pytest.raises(ValueError, match="true or false"):
+        ConnectorApproval.load(config)

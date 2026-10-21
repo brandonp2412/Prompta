@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import os
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import TypeVar
 
 from .browser_driver import BrowserDriver
 from .browser_script_loader import load_browser_script
+from .config import ConnectorApproval
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .scheduler_runtime import SchedulerRuntime
@@ -22,6 +24,7 @@ _T = TypeVar("_T")
 
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
 _DELIVERY_HARD_TIMEOUT_SECONDS = 120.0
+_CONNECTOR_APPROVAL_SECONDS = 300.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
 _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
@@ -84,6 +87,7 @@ class BrowserDeliverySender:
         driver_factory: Callable[[], BrowserDriver] | None = None,
         send_timeout_seconds: float = _DEFAULT_SEND_TIMEOUT_SECONDS,
         delivery_hard_timeout_seconds: float = _DELIVERY_HARD_TIMEOUT_SECONDS,
+        connector_approval: bool | None = None,
     ) -> None:
         self.state_path = state_path.expanduser()
         state_dir = self.state_path.parent
@@ -102,6 +106,9 @@ class BrowserDeliverySender:
         self.driver_factory = driver_factory
         self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
         self.delivery_hard_timeout_seconds = max(0.01, float(delivery_hard_timeout_seconds))
+        self.connector_approval = (
+            ConnectorApproval.load().enabled if connector_approval is None else connector_approval
+        )
         self._dispatch_started = False
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
         self._next_effort_preference_retry_at = 0.0
@@ -193,7 +200,24 @@ class BrowserDeliverySender:
 
         self._dispatch_started = False
         try:
-            asyncio.run(asyncio.wait_for(self._send_browser(message), self.delivery_hard_timeout_seconds))
+            if self.connector_approval:
+                finished = threading.Event()
+                errors: list[BaseException] = []
+
+                def deliver() -> None:
+                    try:
+                        asyncio.run(self._send_browser(message, accepted=finished))
+                    except BaseException as exc:
+                        errors.append(exc)
+                    finally:
+                        finished.set()
+
+                threading.Thread(target=deliver, name="prompta-connector-approval", daemon=True).start()
+                finished.wait()
+                if errors:
+                    raise errors[0]
+            else:
+                asyncio.run(self._send_browser(message))
         except TimeoutError as exc:
             if self._dispatch_started:
                 raise SendOutcomeUnknownError(
@@ -210,13 +234,30 @@ class BrowserDeliverySender:
                 retry_after=max(1, math.ceil(delay)),
             ) from exc
 
-    async def _send_browser(self, message: str) -> None:
+    async def _handle_connector_approvals(self, driver: BrowserDriver) -> None:
+        deadline = asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS
+        while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+            try:
+                approved = await asyncio.wait_for(
+                    driver.eval(load_browser_script("approve_connector.js")),
+                    timeout=min(5.0, remaining),
+                )
+                if approved is True:
+                    logger.info("Prompta selected Always allow for a connector permission")
+            except Exception as exc:
+                logger.info("Connector permission check unavailable error_type=%s", type(exc).__name__)
+            await asyncio.sleep(min(1.0, max(0.0, deadline - asyncio.get_running_loop().time())))
+
+    async def _send_browser(
+        self, message: str, *, accepted: threading.Event | None = None
+    ) -> None:
         driver = self._new_driver()
         context = ""
         capture: dict[str, object] | None = None
         send_attempted = False
 
-        try:
+        async def dispatch() -> None:
+            nonlocal context, capture, send_attempted
             try:
                 if not driver.is_connected:
                     await _timed_stage("cdp_connect", driver.connect(), timeout=45.0)
@@ -491,6 +532,15 @@ class BrowserDeliverySender:
                     "Prompta failed after dispatch and cannot prove send acceptance",
                     stage="post_dispatch",
                 ) from exc
+        try:
+            await asyncio.wait_for(dispatch(), timeout=self.delivery_hard_timeout_seconds)
+            if capture is not None:
+                driver.clear_send_capture(capture)
+                capture = None
+            if accepted is not None:
+                accepted.set()
+            if self.connector_approval:
+                await self._handle_connector_approvals(driver)
         finally:
             if capture is not None:
                 driver.clear_send_capture(capture)
