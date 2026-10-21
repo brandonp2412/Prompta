@@ -61,6 +61,15 @@ async def test_connector_permission_controls() -> None:
             await page.set_content('<div role="dialog"><label><input type="checkbox">Always allow</label><button onclick="window.checked=document.querySelector(\'input\').checked">Allow</button></div>')
             assert await page.evaluate(script) is True
             assert await page.evaluate('window.checked') is True
+            await page.set_content(
+                '<div><form><button type="button" onclick="window.approved=true">'
+                '<span>Always allow</span></button>'
+                '<button>Deny<kbd aria-hidden="true">Esc</kbd></button>'
+                '<button><span>Allow once</span><kbd aria-hidden="true">⏎</kbd></button>'
+                '</form></div>'
+            )
+            assert await page.evaluate(script) is True
+            assert await page.evaluate('window.approved') is True
             await page.set_content('<div role="dialog"><button disabled>Always allow</button></div>')
             assert await page.evaluate(script) is False
         finally:
