@@ -71,6 +71,17 @@ async def test_connector_permission_controls() -> None:
             assert await page.evaluate(script) is True
             assert await page.evaluate('window.approved') is True
             await page.set_content(
+                '<div role="dialog" id="first"><button onclick="window.grants=(window.grants||0)+1;'
+                'this.parentElement.remove();document.getElementById(\'second\').hidden=false">'
+                'Always allow</button></div>'
+                '<div role="dialog" id="second" hidden><button onclick="window.grants++;'
+                'this.parentElement.remove()">Always allow</button></div>'
+            )
+            assert await page.evaluate(script) is True
+            assert await page.evaluate(script) is True
+            assert await page.evaluate(script) is False
+            assert await page.evaluate('window.grants') == 2
+            await page.set_content(
                 '<section><div><div><button aria-labelledby="choice" '
                 'onclick="this.remove()"><span id="choice">Always&nbsp; allow</span>'
                 '</button></div></div><aside><button>Deny</button></aside></section>'

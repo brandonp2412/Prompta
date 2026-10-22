@@ -60,7 +60,7 @@ class FakeDriver:
     async def send_confirmation_state(self) -> dict[str, object]:
         return {"composer_text": self.composer, "send_in_progress": False}
 
-    async def eval(self, _script: str) -> str:
+    async def eval(self, _script: str) -> str | bool:
         return "/"
 
     async def clear_composer(self) -> None:
@@ -3000,6 +3000,42 @@ async def test_connector_grace_keeps_tab_until_deadline_and_signals_acceptance(
                                    connector_approval=True, delivery_hard_timeout_seconds=0.02)
     await sender._send_browser("Work", accepted=accepted)
     assert driver.checks > 0
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
+async def test_connector_grace_approves_multiple_dialogs_before_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    assert delivery_browser._CONNECTOR_APPROVAL_SECONDS == 2700.0
+    monkeypatch.setattr(delivery_browser, "_CONNECTOR_APPROVAL_SECONDS", 0.04)
+    accepted = threading.Event()
+
+    class PermissionDriver(FakeDriver):
+        checks = 0
+        approvals = 0
+
+        async def eval(self, _script: str) -> str | bool:
+            if "always allow" in _script:
+                assert accepted.is_set()
+                assert not self.closed_contexts
+                self.checks += 1
+                if self.approvals < 2:
+                    self.approvals += 1
+                    return True
+                return False
+            return "/"
+
+    driver = PermissionDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, connector_approval=True,
+    )
+    await sender._send_browser("Work", accepted=accepted)
+    assert driver.approvals == 2
+    assert driver.checks >= 3
     assert driver.closed_contexts == ["fresh-tab"]
     assert driver.closed
 

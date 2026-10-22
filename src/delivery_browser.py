@@ -24,7 +24,7 @@ _T = TypeVar("_T")
 
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
 _DELIVERY_HARD_TIMEOUT_SECONDS = 120.0
-_CONNECTOR_APPROVAL_SECONDS = 300.0
+_CONNECTOR_APPROVAL_SECONDS = 45 * 60.0
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
 _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0
@@ -236,6 +236,7 @@ class BrowserDeliverySender:
 
     async def _handle_connector_approvals(self, driver: BrowserDriver) -> None:
         deadline = asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS
+        approved_count = 0
         while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
             try:
                 approved = await asyncio.wait_for(
@@ -243,7 +244,10 @@ class BrowserDeliverySender:
                     timeout=min(5.0, remaining),
                 )
                 if approved is True:
-                    logger.info("Prompta confirmed Always allow permission control dismissed")
+                    approved_count += 1
+                    logger.info("Prompta confirmed Always allow permission dismissed count=%d", approved_count)
+                    # A grant may immediately reveal another permission dialog.
+                    continue
                 elif approved == "stuck":
                     logger.warning("Connector permission control remained after Always allow click")
             except Exception as exc:

@@ -4,7 +4,7 @@
 - If the main-merge lock is already held, wait for it instead of attempting concurrent integration. Never delete the lock file to bypass another worker; lock ownership is released when the owning process exits.
 - When you finish working, deploy to nox.
 - Prompta is jobs-only. The browser UI and backend exist only to configure, schedule, dispatch, retry, and report operational status for jobs.
-- Every job run must start a fresh ChatGPT chat. Confirm only that prompt submission was accepted, then close/discard the Prompta-owned tab. When connector_approval.enabled is true, retain the tab for five minutes and handle only Always allow permission controls before closing it.
+- Every job run must start a fresh ChatGPT chat. Confirm only that prompt submission was accepted, then close/discard the Prompta-owned tab. When connector_approval.enabled is true, retain the tab for 45 minutes and handle successive Always allow permission controls before closing it.
 - Never read, cache, parse, render, reconcile, poll, recover, or otherwise consume assistant responses or chat transcripts.
 - Do not add replies to existing chats, conversation-history UI, conversation IDs, attachments, pinned/read state, result notifications, Machine Gun Mode, or unattended chat-running modes.
 - Keep the web surface limited to jobs management and operational health.

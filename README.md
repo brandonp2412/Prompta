@@ -81,7 +81,7 @@ systemctl --user start prompta-browser.service
 
 ## Connector permissions
 
-By default tabs close after prompt acceptance. To keep them open for five minutes and automatically select “Always allow” on permission dialogs, add to `~/.config/prompta/config.toml`:
+By default tabs close after prompt acceptance. To keep them open for 45 minutes and automatically select “Always allow” on successive permission dialogs, add to `~/.config/prompta/config.toml`:
 
 ```toml
 [connector_approval]
