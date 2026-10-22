@@ -77,3 +77,35 @@ def test_watchdog_does_not_revive_stopped_service(monkeypatch, tmp_path) -> None
     watchdog.main()
     assert len(commands) == 1
     assert commands[0][3] == "--quiet"
+
+
+def test_tab_lease_records_earliest_timestamp_and_removes_only_targets(tmp_path) -> None:
+    from prompta.browser_ownership import forget_owned_tabs, owned_tab_records, record_owned_tab
+
+    path = tmp_path / "leases.sqlite3"
+    record_owned_tab("expired", 100, path)
+    record_owned_tab("expired", 200, path)
+    record_owned_tab("recent", 250, path)
+    assert owned_tab_records(path) == {"expired": 100, "recent": 250}
+    forget_owned_tabs({"expired"}, path)
+    assert owned_tab_records(path) == {"recent": 250}
+
+
+def test_watchdog_uses_http_expiry_if_cdp_session_fails(monkeypatch, tmp_path) -> None:
+    import prompta.browser_watchdog as watchdog
+
+    monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(watchdog, "debugger_responding", lambda: True)
+
+    async def fail_cdp(*, now: float) -> None:
+        raise RuntimeError("CDP websocket unavailable")
+
+    attempts: list[float] = []
+    monkeypatch.setattr(watchdog, "reap_expired_owned_tabs", fail_cdp)
+    monkeypatch.setattr(
+        watchdog, "reap_expired_leases_http", lambda *, now: attempts.append(now),
+    )
+    monkeypatch.setattr(watchdog.time, "time", lambda: 2000.0)
+    watchdog.main()
+    assert attempts == [2000.0]

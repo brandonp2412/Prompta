@@ -4,8 +4,8 @@ PartOf=prompta.target
 
 [Timer]
 OnBootSec=60s
-OnUnitActiveSec=60s
-AccuracySec=10s
+OnUnitActiveSec=20s
+AccuracySec=1s
 Unit=prompta-browser-watchdog.service
 
 [Install]

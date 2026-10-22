@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from .browser_driver import BrowserDriver
+from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
@@ -24,7 +25,7 @@ _T = TypeVar("_T")
 
 _DEFAULT_SEND_TIMEOUT_SECONDS = 20.0
 _DELIVERY_HARD_TIMEOUT_SECONDS = 120.0
-_CONNECTOR_APPROVAL_SECONDS = 45 * 60.0
+_CONNECTOR_APPROVAL_SECONDS = float(MAX_OWNED_TAB_AGE_SECONDS)
 _SEND_CONFIRM_POLL_SECONDS = 0.2
 _DELIVERY_WINDOW_PREFIX = "prompta-delivery:"
 _EFFORT_PREFERENCE_RETRY_SECONDS = 5 * 60.0

@@ -30,12 +30,14 @@ from playwright.async_api import (
 )
 
 from .browser_ownership import (
+    MAX_OWNED_TAB_AGE_SECONDS,
     OWNED_WINDOW_PREFIX,
     new_owned_window_marker,
     new_page_owner_id,
     owned_window_owner_alive,
     owned_window_owner_id,
     owned_window_started_at,
+    record_owned_tab,
 )
 from .browser_script_loader import load_browser_script
 from .send_outcome import SendOutcomeUnknownError
@@ -354,13 +356,25 @@ class PlaywrightDriver:
         return owned_window_owner_id(name, prefix=self.ownership_prefix)
 
     async def _mark_owned(self, page: Page) -> None:
-        await page.evaluate(
-            load_browser_script("set_window_name.js"),
-            new_owned_window_marker(
-                prefix=self.ownership_prefix,
-                owner_id=self.page_owner_id,
-            ),
+        marker = new_owned_window_marker(
+            prefix=self.ownership_prefix,
+            owner_id=self.page_owner_id,
         )
+        await page.evaluate(load_browser_script("set_window_name.js"), marker)
+        try:
+            session = await page.context.new_cdp_session(page)
+            try:
+                info = await session.send("Target.getTargetInfo")
+            finally:
+                await session.detach()
+            target_info = info.get("targetInfo")
+            if isinstance(target_info, dict):
+                target_id = target_info.get("targetId")
+                if isinstance(target_id, str) and target_id:
+                    record_owned_tab(target_id, time.time())
+        except Exception as exc:
+            # The independent reaper can still discover the window.name marker.
+            logger.warning("Prompta tab lease registration failed error_type=%s", type(exc).__name__)
 
     async def _is_owned_page(self, page: Page) -> bool:
         return await self._owned_page_owner_id(page) == self.page_owner_id
@@ -387,7 +401,9 @@ class PlaywrightDriver:
             return 0
         self._next_orphan_cleanup_at = now_monotonic + max(1.0, interval_seconds)
 
-        cutoff = time.time() - max(1.0, minimum_age_seconds)
+        now = time.time()
+        cutoff = now - max(1.0, minimum_age_seconds)
+        hard_cutoff = now - MAX_OWNED_TAB_AGE_SECONDS
         closed = 0
         for page in list(browser_context.pages):
             if page in self._page_contexts:
@@ -400,7 +416,11 @@ class PlaywrightDriver:
                 # Ownerless markers cannot prove that another live process still
                 # owns the page, so fail safe and leave them alone.
                 continue
-            if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
+            if (
+                started_at > hard_cutoff
+                and owner_id != self.page_owner_id
+                and owned_window_owner_alive(owner_id)
+            ):
                 continue
             try:
                 await page.close()

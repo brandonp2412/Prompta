@@ -36,7 +36,7 @@ The durable queue stores job-delivery metadata only. It does not store conversat
 
 ## Completion rule
 
-A Prompta job run is complete when prompt submission is confirmed. The assistant may continue producing a response on ChatGPT's servers after the Prompta-owned browser tab has been closed; Prompta does not observe that response. With `connector_approval.enabled = true`, a background supervisor keeps the owned tab open for 45 minutes, selects successive Always allow permission controls, then closes it. This does not delay queue completion.
+A Prompta job run is complete when prompt submission is confirmed. The assistant may continue producing a response on ChatGPT's servers after the Prompta-owned browser tab has been closed; Prompta does not observe that response. With `connector_approval.enabled = true`, a background supervisor keeps the owned tab open for 45 minutes, selects successive Always allow permission controls, then closes it. An independent 20-second watchdog closes expired owned browser targets even after worker failures. This does not delay queue completion.
 
 Pre-dispatch failures are retryable. A post-dispatch outcome that cannot be proven is terminal outcome_unknown, preventing an automatic duplicate.
 

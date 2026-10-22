@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import os
 import shutil
+import socket
+import time
+from pathlib import Path
 
 import pytest
 from playwright.async_api import async_playwright
@@ -114,3 +119,79 @@ async def test_connector_permission_controls() -> None:
             assert await page.evaluate(script) is False
         finally:
             await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import prompta.browser_watchdog as watchdog
+    from prompta.browser_ownership import (
+        MAX_OWNED_TAB_AGE_SECONDS,
+        forget_owned_tabs,
+        new_owned_window_marker,
+        owned_tab_records,
+        record_owned_tab,
+    )
+
+    chromium = shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("System Chromium is unavailable")
+    ledger = tmp_path / "leases.sqlite3"
+    monkeypatch.setattr(watchdog, "owned_tab_records", lambda: owned_tab_records(ledger))
+    monkeypatch.setattr(watchdog, "forget_owned_tabs", lambda ids: forget_owned_tabs(ids, ledger))
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    async with async_playwright() as playwright:
+        context = await playwright.chromium.launch_persistent_context(
+            str(tmp_path / "profile"),
+            executable_path=chromium,
+            headless=True,
+            args=["--no-sandbox", f"--remote-debugging-port={port}"],
+        )
+        try:
+            expired = await context.new_page()
+            old_marker = new_owned_window_marker(
+                now=time.time() - MAX_OWNED_TAB_AGE_SECONDS - 5,
+                owner_id=f"{os.getpid()}-test",
+            )
+            await expired.evaluate("marker => window.name = marker", old_marker)
+            hung_lease = await context.new_page()
+            session = await context.new_cdp_session(hung_lease)
+            try:
+                info = await session.send("Target.getTargetInfo")
+            finally:
+                await session.detach()
+            target_id = info["targetInfo"]["targetId"]
+            record_owned_tab(target_id, time.time() - MAX_OWNED_TAB_AGE_SECONDS - 5, ledger)
+            # The durable target ID must work even without a readable ownership marker.
+            await hung_lease.evaluate("window.name = ''")
+            recent = await context.new_page()
+            await recent.evaluate(
+                "marker => window.name = marker",
+                new_owned_window_marker(owner_id=f"{os.getpid()}-test"),
+            )
+            user_tab = await context.new_page()
+            await user_tab.evaluate("window.name = 'user-owned'")
+            assert await watchdog.reap_expired_owned_tabs(f"127.0.0.1:{port}") == 2
+            assert expired.is_closed()
+            assert hung_lease.is_closed()
+            assert not recent.is_closed()
+            assert not user_tab.is_closed()
+            assert owned_tab_records(ledger) == {}
+            http_expired = await context.new_page()
+            session = await context.new_cdp_session(http_expired)
+            try:
+                http_info = await session.send("Target.getTargetInfo")
+            finally:
+                await session.detach()
+            http_target = http_info["targetInfo"]["targetId"]
+            record_owned_tab(http_target, time.time() - MAX_OWNED_TAB_AGE_SECONDS - 5, ledger)
+            assert watchdog.reap_expired_leases_http(f"127.0.0.1:{port}") == 1
+            await asyncio.sleep(0.1)
+            assert http_expired.is_closed()
+            assert not user_tab.is_closed()
+        finally:
+            await context.close()
