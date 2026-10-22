@@ -19,25 +19,41 @@
     last_uncertain_send_at: number;
   };
 
-  type DeliveryCounts = {
-    succeeded: number;
-    dead_lettered: number;
-    outcome_unknown: number;
-  };
+  type JobFilter = "pending" | "healthy" | "paused" | "unhealthy";
+  const filterOptions: { key: JobFilter; label: string; title: string }[] = [
+    { key: "pending", label: "Pending", title: "Pending or queued jobs" },
+    { key: "healthy", label: "Healthy", title: "Jobs whose last dispatch succeeded" },
+    { key: "paused", label: "Paused", title: "Paused jobs" },
+    { key: "unhealthy", label: "Unhealthy", title: "Failing, rate-limited, or unconfirmed jobs" },
+  ];
 
   type EditorRoute = { kind: "new" } | { kind: "edit"; name: string };
 
   const pageSize = 10;
   const refreshIntervalMs = 5000;
   let jobs = $state<Job[]>([]);
-  let deliveryCounts = $state<DeliveryCounts>({ succeeded: 0, dead_lettered: 0, outcome_unknown: 0 });
+  let activeFilters = $state<Record<JobFilter, boolean>>({
+    pending: true,
+    healthy: true,
+    paused: true,
+    unhealthy: true,
+  });
+  let filteredJobs = $derived(jobs.filter((job) => activeFilters[jobFilter(job)]));
+  let filterCounts = $derived(
+    jobs.reduce<Record<JobFilter, number>>(
+      (counts, job) => {
+        counts[jobFilter(job)] += 1;
+        return counts;
+      },
+      { pending: 0, healthy: 0, paused: 0, unhealthy: 0 },
+    ),
+  );
   let page = $state(1);
-  let pageCount = $derived(Math.max(1, Math.ceil(jobs.length / pageSize)));
+  let pageCount = $derived(Math.max(1, Math.ceil(filteredJobs.length / pageSize)));
   let pageStart = $derived((page - 1) * pageSize);
-  let pageEnd = $derived(Math.min(pageStart + pageSize, jobs.length));
-  let visibleJobs = $derived(jobs.slice(pageStart, pageEnd));
+  let pageEnd = $derived(Math.min(pageStart + pageSize, filteredJobs.length));
+  let visibleJobs = $derived(filteredJobs.slice(pageStart, pageEnd));
   let allPaused = $derived(jobs.length > 0 && jobs.every((job) => job.paused));
-  let pausedCount = $derived(jobs.filter((job) => job.paused).length);
   let status = $state("");
   let saving = $state(false);
   let editing = $state("");
@@ -59,7 +75,6 @@
   let promptCharacters = $derived(prompt.length);
   let promptLines = $derived(prompt ? prompt.split("\n").length : 0);
   let loadInFlight = false;
-  let healthLoadInFlight = false;
   let dataGeneration = 0;
 
   function reset() {
@@ -232,6 +247,22 @@
     return "every " + amount + (job.exact_interval ? " · exact" : "");
   }
 
+  function jobFilter(job: Job): JobFilter {
+    if (job.paused) return "paused";
+    if (
+      job.last_uncertain_send_at > job.last_sent_at ||
+      job.status === "failing" ||
+      job.status === "rate-limited"
+    ) return "unhealthy";
+    if (job.status === "healthy") return "healthy";
+    return "pending";
+  }
+
+  function toggleFilter(filter: JobFilter) {
+    activeFilters = { ...activeFilters, [filter]: !activeFilters[filter] };
+    page = 1;
+  }
+
   function jobStateText(job: Job) {
     if (job.paused) return "paused";
     if (
@@ -270,7 +301,7 @@
   }
 
   function clampPage() {
-    page = Math.max(1, Math.min(page, Math.max(1, Math.ceil(jobs.length / pageSize))));
+    page = Math.max(1, Math.min(page, pageCount));
   }
 
   function changePage(nextPage: number) {
@@ -330,28 +361,6 @@
     }
   }
 
-  async function loadDeliveryCounts() {
-    if (healthLoadInFlight || document.visibilityState !== "visible") return;
-    healthLoadInFlight = true;
-    try {
-      const response = await fetch("./api/health", { cache: "no-store" });
-      if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
-      const result = await response.json();
-      const queue = result.queue;
-      if (queue && typeof queue === "object") {
-        deliveryCounts = {
-          succeeded: Number.isSafeInteger(queue.succeeded) ? queue.succeeded : 0,
-          dead_lettered: Number.isSafeInteger(queue.dead_lettered) ? queue.dead_lettered : 0,
-          outcome_unknown: Number.isSafeInteger(queue.outcome_unknown) ? queue.outcome_unknown : 0,
-        };
-      }
-    } catch {
-      // Keep the latest counts visible if a background health refresh fails.
-    } finally {
-      healthLoadInFlight = false;
-    }
-  }
-
   async function submit() {
     if (saving || !dirty || duplicateName) return;
     editorError = "";
@@ -407,11 +416,9 @@
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     void load().then(syncEditorFromUrl);
-    void loadDeliveryCounts();
     window.addEventListener("popstate", syncEditorFromUrl);
     const timer = window.setInterval(() => {
       void load({ quiet: true });
-      void loadDeliveryCounts();
     }, refreshIntervalMs);
     return () => {
       window.clearInterval(timer);
@@ -453,15 +460,18 @@
     </div>
   </div>
 
-  <div class="jobs-summary">
-    <span>{jobs.length - pausedCount} running</span>
-    <span>{pausedCount} paused</span>
-    <span>{deliveryCounts.succeeded} succeeded</span>
-    <span>{deliveryCounts.dead_lettered} failed</span>
-    <span>{deliveryCounts.outcome_unknown} unconfirmed</span>
-    {#if jobs.length > pageSize}
-      <span>{pageStart + 1}–{pageEnd} shown</span>
-    {/if}
+  <div class="jobs-summary" role="group" aria-label="Filter jobs by status">
+    {#each filterOptions as option (option.key)}
+      <button
+        class:chosen={activeFilters[option.key]}
+        class="filter-chip"
+        type="button"
+        aria-pressed={activeFilters[option.key]}
+        title={option.title}
+        onclick={() => toggleFilter(option.key)}
+      >{option.label} <span>{filterCounts[option.key]}</span></button>
+    {/each}
+    <span class="filter-count">{filteredJobs.length} shown</span>
   </div>
 
   <div class="jobs-table" role="table" aria-label="Scheduled jobs">
@@ -473,8 +483,8 @@
       <span role="columnheader" class="actions-heading">Actions</span>
     </div>
 
-    {#if jobs.length === 0}
-      <div class="empty-row">No scheduled jobs.</div>
+    {#if filteredJobs.length === 0}
+      <div class="empty-row">{jobs.length ? "No jobs match these filters." : "No scheduled jobs."}</div>
     {/if}
 
     {#each visibleJobs as job (job.name)}
@@ -542,7 +552,7 @@
     {/each}
   </div>
 
-  {#if jobs.length > pageSize}
+  {#if filteredJobs.length > pageSize}
     <nav class="pagination" aria-label="Job pages">
       <span>Page {page} of {pageCount}</span>
       <div class="pagination-actions">
