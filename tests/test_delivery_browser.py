@@ -90,6 +90,29 @@ class FakeDriver:
 
 
 @pytest.mark.asyncio
+async def test_owned_tab_lease_precedes_failing_viewport_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    page = MagicMock(spec=playwright_driver.Page)
+    session = MagicMock()
+    session.send = AsyncMock(return_value={"targetInfo": {"targetId": "owned-target"}})
+    session.detach = AsyncMock()
+    page.context.new_cdp_session = AsyncMock(return_value=session)
+    page.set_viewport_size = AsyncMock(side_effect=RuntimeError("viewport unavailable"))
+    page.is_closed.return_value = False
+    page.close = AsyncMock()
+    registered: list[str] = []
+    monkeypatch.setattr(
+        playwright_driver, "record_owned_tab", lambda target_id, _time: registered.append(target_id),
+    )
+    with pytest.raises(RuntimeError, match="viewport unavailable"):
+        await driver._prepare_owned_page(page)
+    assert registered == ["owned-target"]
+    page.close.assert_awaited()
+
+
+@pytest.mark.asyncio
 async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
     tmp_path: Path,
 ) -> None:

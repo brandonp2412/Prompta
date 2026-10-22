@@ -355,26 +355,33 @@ class PlaywrightDriver:
             return None
         return owned_window_owner_id(name, prefix=self.ownership_prefix)
 
+    async def _lease_owned_page(self, page: Page) -> None:
+        try:
+            session = await asyncio.wait_for(page.context.new_cdp_session(page), timeout=3.0)
+            try:
+                info = await asyncio.wait_for(session.send("Target.getTargetInfo"), timeout=3.0)
+                target_info = info.get("targetInfo")
+                target_id = target_info.get("targetId") if isinstance(target_info, dict) else None
+                if isinstance(target_id, str) and target_id:
+                    record_owned_tab(target_id, time.time())
+                else:
+                    logger.warning("Prompta CDP target lacked an ID for expiry registration")
+            finally:
+                try:
+                    await asyncio.wait_for(session.detach(), timeout=2.0)
+                except Exception as exc:
+                    logger.debug("Prompta CDP lease session detach failed type=%s", type(exc).__name__)
+        except Exception as exc:
+            logger.warning("Prompta tab lease registration failed error_type=%s", type(exc).__name__)
+
     async def _mark_owned(self, page: Page) -> None:
+        # Retry a failed lease before setting the marker, which can require page JavaScript.
+        await self._lease_owned_page(page)
         marker = new_owned_window_marker(
             prefix=self.ownership_prefix,
             owner_id=self.page_owner_id,
         )
         await page.evaluate(load_browser_script("set_window_name.js"), marker)
-        try:
-            session = await page.context.new_cdp_session(page)
-            try:
-                info = await session.send("Target.getTargetInfo")
-            finally:
-                await session.detach()
-            target_info = info.get("targetInfo")
-            if isinstance(target_info, dict):
-                target_id = target_info.get("targetId")
-                if isinstance(target_id, str) and target_id:
-                    record_owned_tab(target_id, time.time())
-        except Exception as exc:
-            # The independent reaper can still discover the window.name marker.
-            logger.warning("Prompta tab lease registration failed error_type=%s", type(exc).__name__)
 
     async def _is_owned_page(self, page: Page) -> bool:
         return await self._owned_page_owner_id(page) == self.page_owner_id
@@ -923,6 +930,8 @@ class PlaywrightDriver:
         """Register a new Prompta tab before any setup that can fail."""
         try:
             context_id = self._register_page(page, owned=True)
+            # Register the target before viewport or page JavaScript can hang or fail.
+            await self._lease_owned_page(page)
             # CDP-attached Brave may start with a 0x0 browser viewport.
             # Give each owned tab an actionable viewport before navigation.
             await page.set_viewport_size({"width": 1280, "height": 960})
