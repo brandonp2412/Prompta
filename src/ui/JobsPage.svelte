@@ -471,7 +471,6 @@
         onclick={() => toggleFilter(option.key)}
       >{option.label} <span>{filterCounts[option.key]}</span></button>
     {/each}
-    <span class="filter-count">{filteredJobs.length} shown</span>
   </div>
 
   <div class="jobs-table" role="table" aria-label="Scheduled jobs">

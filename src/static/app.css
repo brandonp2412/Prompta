@@ -192,7 +192,6 @@ button:disabled { cursor: default; opacity: 0.45; }
 .filter-chip:hover { border-color: #737373; color: #eee; }
 .filter-chip.chosen { border-color: #707070; background: #343434; color: #fff; }
 .filter-chip:focus-visible { outline: 2px solid #ededed; outline-offset: 2px; }
-.filter-count { margin-left: auto; color: #777; font-size: 0.75rem; }
 
 .jobs-table { width: 100%; }
 

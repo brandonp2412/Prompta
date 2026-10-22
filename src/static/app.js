@@ -4766,7 +4766,7 @@ var root_3 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
 var root_4 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
 var root_5 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
 var root_6 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
-var root_7 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button type="button" role="switch"><span class="switch-track"><span class="switch-knob"></span></span> <span> </span></button> <button class="toolbar-button" type="button">Refresh</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs by status"><!> <span class="filter-count"> </span></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
+var root_7 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button type="button" role="switch"><span class="switch-track"><span class="switch-knob"></span></span> <span> </span></button> <button class="toolbar-button" type="button">Refresh</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs by status"></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
 var root_8 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" max="43200" step="0.1" required=""/></label>`);
 var root_9 = /* @__PURE__ */ from_html(`<label><span>At (local time)</span> <input type="time" required=""/></label>`);
 var root_10 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Exact interval</span></label>`);
@@ -5160,8 +5160,7 @@ function JobsPage($$anchor, $$props) {
 		reset(div_2);
 		reset(div);
 		var div_3 = sibling(div, 2);
-		var node_1 = child(div_3);
-		each(node_1, 17, () => filterOptions, (option) => option.key, ($$anchor, option) => {
+		each(div_3, 21, () => filterOptions, (option) => option.key, ($$anchor, option) => {
 			var button_3 = root$1();
 			let classes_1;
 			var text_3 = child(button_3);
@@ -5177,96 +5176,95 @@ function JobsPage($$anchor, $$props) {
 			delegated("click", button_3, () => toggleFilter(get(option).key));
 			append($$anchor, button_3);
 		});
-		var text_5 = only_child(sibling(node_1, 2));
 		reset(div_3);
 		var div_4 = sibling(div_3, 2);
-		var node_2 = sibling(child(div_4), 2);
+		var node_1 = sibling(child(div_4), 2);
 		var consequent = ($$anchor) => {
 			var div_5 = root_1$1();
-			var text_6 = only_child(div_5, true);
-			template_effect(() => set_text(text_6, get(jobs).length ? "No jobs match these filters." : "No scheduled jobs."));
+			var text_5 = only_child(div_5, true);
+			template_effect(() => set_text(text_5, get(jobs).length ? "No jobs match these filters." : "No scheduled jobs."));
 			append($$anchor, div_5);
 		};
-		if_block(node_2, ($$render) => {
+		if_block(node_1, ($$render) => {
 			if (get(filteredJobs).length === 0) $$render(consequent);
 		});
-		each(sibling(node_2, 2), 17, () => get(visibleJobs), (job) => job.name, ($$anchor, job) => {
+		each(sibling(node_1, 2), 17, () => get(visibleJobs), (job) => job.name, ($$anchor, job) => {
 			var div_6 = root_5();
 			var div_7 = child(div_6);
 			var div_8 = child(div_7);
-			var text_7 = only_child(div_8, true);
+			var text_6 = only_child(div_8, true);
 			var div_9 = sibling(div_8, 2);
-			var text_8 = only_child(div_9, true);
+			var text_7 = only_child(div_9, true);
 			var div_10 = sibling(div_9, 2);
-			var span_5 = child(div_10);
-			var text_9 = only_child(span_5);
-			var node_4 = sibling(span_5, 2);
+			var span_4 = child(div_10);
+			var text_8 = only_child(span_4);
+			var node_3 = sibling(span_4, 2);
 			var consequent_1 = ($$anchor) => {
-				var span_6 = root_2();
-				var text_10 = only_child(span_6);
+				var span_5 = root_2();
+				var text_9 = only_child(span_5);
 				template_effect(($0) => {
-					set_attribute(span_6, "title", get(job).source_revision);
-					set_text(text_10, `rev ${$0 ?? ""}`);
+					set_attribute(span_5, "title", get(job).source_revision);
+					set_text(text_9, `rev ${$0 ?? ""}`);
 				}, [() => get(job).source_revision.slice(0, 8)]);
-				append($$anchor, span_6);
+				append($$anchor, span_5);
 			};
-			if_block(node_4, ($$render) => {
+			if_block(node_3, ($$render) => {
 				if (get(job).source_revision) $$render(consequent_1);
 			});
 			reset(div_10);
 			reset(div_7);
 			var div_11 = sibling(div_7, 2);
-			var text_11 = only_child(sibling(child(div_11), 2), true);
+			var text_10 = only_child(sibling(child(div_11), 2), true);
 			reset(div_11);
 			var div_12 = sibling(div_11, 2);
-			var text_12 = only_child(sibling(child(div_12), 2), true);
+			var text_11 = only_child(sibling(child(div_12), 2), true);
 			reset(div_12);
 			var div_13 = sibling(div_12, 2);
-			var span_9 = sibling(child(div_13), 2);
+			var span_8 = sibling(child(div_13), 2);
 			let classes_2;
-			var text_13 = sibling(child(span_9));
-			reset(span_9);
-			var node_5 = sibling(span_9, 2);
+			var text_12 = sibling(child(span_8));
+			reset(span_8);
+			var node_4 = sibling(span_8, 2);
 			var consequent_2 = ($$anchor) => {
-				var span_10 = root_3();
-				var text_14 = only_child(span_10, true);
-				template_effect(() => set_text(text_14, get(job).status_message));
-				append($$anchor, span_10);
+				var span_9 = root_3();
+				var text_13 = only_child(span_9, true);
+				template_effect(() => set_text(text_13, get(job).status_message));
+				append($$anchor, span_9);
 			};
-			if_block(node_5, ($$render) => {
+			if_block(node_4, ($$render) => {
 				if (get(job).status_message) $$render(consequent_2);
 			});
 			reset(div_13);
 			var div_14 = sibling(div_13, 2);
 			var button_4 = child(div_14);
-			var node_6 = sibling(button_4, 2);
+			var node_5 = sibling(button_4, 2);
 			var consequent_3 = ($$anchor) => {
 				var button_5 = root_4();
 				template_effect(() => button_5.disabled = get(saving));
 				delegated("click", button_5, () => edit(get(job)));
 				append($$anchor, button_5);
 			};
-			if_block(node_6, ($$render) => {
+			if_block(node_5, ($$render) => {
 				if (!get(job).run_at_epoch) $$render(consequent_3);
 			});
-			var button_6 = sibling(node_6, 2);
-			var text_15 = only_child(button_6, true);
+			var button_6 = sibling(node_5, 2);
+			var text_14 = only_child(button_6, true);
 			var button_7 = sibling(button_6, 2);
 			reset(div_14);
 			reset(div_6);
 			template_effect(($0, $1, $2, $3) => {
-				set_text(text_7, get(job).name);
+				set_text(text_6, get(job).name);
 				set_attribute(div_9, "title", get(job).prompt);
-				set_text(text_8, get(job).prompt);
-				set_text(text_9, `Last sent ${$0 ?? ""}`);
-				set_text(text_11, $1);
-				set_text(text_12, $2);
-				classes_2 = set_class(span_9, 1, "state-value", null, classes_2, { error: get(job).status === "failing" });
-				set_text(text_13, ` ${$3 ?? ""}`);
+				set_text(text_7, get(job).prompt);
+				set_text(text_8, `Last sent ${$0 ?? ""}`);
+				set_text(text_10, $1);
+				set_text(text_11, $2);
+				classes_2 = set_class(span_8, 1, "state-value", null, classes_2, { error: get(job).status === "failing" });
+				set_text(text_12, ` ${$3 ?? ""}`);
 				button_4.disabled = get(saving);
 				set_attribute(button_4, "title", get(job).daily_at || get(job).run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown");
 				button_6.disabled = get(saving);
-				set_text(text_15, get(job).paused ? "Resume" : "Pause");
+				set_text(text_14, get(job).paused ? "Resume" : "Pause");
 				button_7.disabled = get(saving);
 			}, [
 				() => formatDate(get(job).last_sent_at),
@@ -5286,18 +5284,18 @@ function JobsPage($$anchor, $$props) {
 			append($$anchor, div_6);
 		});
 		reset(div_4);
-		var node_7 = sibling(div_4, 2);
+		var node_6 = sibling(div_4, 2);
 		var consequent_4 = ($$anchor) => {
 			var nav = root_6();
-			var span_11 = child(nav);
-			var text_16 = only_child(span_11);
-			var div_15 = sibling(span_11, 2);
+			var span_10 = child(nav);
+			var text_15 = only_child(span_10);
+			var div_15 = sibling(span_10, 2);
 			var button_8 = child(div_15);
 			var button_9 = sibling(button_8, 2);
 			reset(div_15);
 			reset(nav);
 			template_effect(() => {
-				set_text(text_16, `Page ${get(page) ?? ""} of ${get(pageCount) ?? ""}`);
+				set_text(text_15, `Page ${get(page) ?? ""} of ${get(pageCount) ?? ""}`);
 				button_8.disabled = get(page) <= 1;
 				button_9.disabled = get(page) >= get(pageCount);
 			});
@@ -5305,10 +5303,10 @@ function JobsPage($$anchor, $$props) {
 			delegated("click", button_9, () => changePage(get(page) + 1));
 			append($$anchor, nav);
 		};
-		if_block(node_7, ($$render) => {
+		if_block(node_6, ($$render) => {
 			if (get(filteredJobs).length > pageSize) $$render(consequent_4);
 		});
-		var button_10 = only_child(sibling(node_7, 2));
+		var button_10 = only_child(sibling(node_6, 2));
 		reset(section);
 		template_effect(() => {
 			set_text(text, get(jobs).length);
@@ -5320,7 +5318,6 @@ function JobsPage($$anchor, $$props) {
 			set_text(text_2, get(allPaused) ? "Resume all" : "Pause all");
 			button_1.disabled = get(saving);
 			button_2.disabled = get(saving);
-			set_text(text_5, `${get(filteredJobs).length ?? ""} shown`);
 			button_10.disabled = !get(jobs).length || get(saving);
 		});
 		delegated("click", button, () => void toggleAll());
@@ -5332,7 +5329,7 @@ function JobsPage($$anchor, $$props) {
 	if_block(node, ($$render) => {
 		if (!get(editorOpen)) $$render(consequent_5);
 	});
-	var node_8 = sibling(node, 2);
+	var node_7 = sibling(node, 2);
 	var consequent_14 = ($$anchor) => {
 		var section_1 = root_16();
 		var form = child(section_1);
@@ -5340,18 +5337,18 @@ function JobsPage($$anchor, $$props) {
 		var button_11 = child(div_16);
 		var div_17 = sibling(button_11, 2);
 		var h2 = child(div_17);
-		var text_17 = only_child(h2, true);
-		var node_9 = sibling(h2, 2);
+		var text_16 = only_child(h2, true);
+		var node_8 = sibling(h2, 2);
 		var consequent_6 = ($$anchor) => {
-			var span_12 = root_2();
-			var text_18 = only_child(span_12, true);
+			var span_11 = root_2();
+			var text_17 = only_child(span_11, true);
 			template_effect(() => {
-				set_attribute(span_12, "title", get(editing));
-				set_text(text_18, get(editing));
+				set_attribute(span_11, "title", get(editing));
+				set_text(text_17, get(editing));
 			});
-			append($$anchor, span_12);
+			append($$anchor, span_11);
 		};
-		if_block(node_9, ($$render) => {
+		if_block(node_8, ($$render) => {
 			if (get(editing)) $$render(consequent_6);
 		});
 		reset(div_17);
@@ -5371,7 +5368,7 @@ function JobsPage($$anchor, $$props) {
 		reset(select);
 		init_select(select);
 		reset(label_1);
-		var node_10 = sibling(label_1, 2);
+		var node_9 = sibling(label_1, 2);
 		var consequent_7 = ($$anchor) => {
 			var label_2 = root_8();
 			var input_1 = sibling(child(label_2), 2);
@@ -5388,12 +5385,12 @@ function JobsPage($$anchor, $$props) {
 			bind_value(input_2, () => get(dailyAt), ($$value) => set(dailyAt, $$value));
 			append($$anchor, label_3);
 		};
-		if_block(node_10, ($$render) => {
+		if_block(node_9, ($$render) => {
 			if (get(schedule) === "interval") $$render(consequent_7);
 			else $$render(alternate, -1);
 		});
 		reset(div_19);
-		var node_11 = sibling(div_19, 2);
+		var node_10 = sibling(div_19, 2);
 		var consequent_8 = ($$anchor) => {
 			var label_4 = root_10();
 			var input_3 = child(label_4);
@@ -5403,18 +5400,18 @@ function JobsPage($$anchor, $$props) {
 			bind_checked(input_3, () => get(exact), ($$value) => set(exact, $$value));
 			append($$anchor, label_4);
 		};
-		if_block(node_11, ($$render) => {
+		if_block(node_10, ($$render) => {
 			if (get(schedule) === "interval") $$render(consequent_8);
 		});
-		var label_5 = sibling(node_11, 2);
+		var label_5 = sibling(node_10, 2);
 		var textarea_1 = sibling(child(label_5), 2);
 		remove_textarea_child(textarea_1);
 		reset(label_5);
-		var text_19 = only_child(sibling(label_5, 2));
+		var text_18 = only_child(sibling(label_5, 2));
 		reset(div_18);
 		var div_21 = sibling(div_18, 2);
 		var div_22 = child(div_21);
-		var node_12 = child(div_22);
+		var node_11 = child(div_22);
 		var consequent_9 = ($$anchor) => {
 			var fragment_1 = root_11();
 			var button_12 = sibling(first_child(fragment_1), 2);
@@ -5424,10 +5421,10 @@ function JobsPage($$anchor, $$props) {
 			append($$anchor, fragment_1);
 		};
 		var consequent_10 = ($$anchor) => {
-			var span_13 = root_12();
-			var text_20 = only_child(span_13, true);
-			template_effect(() => set_text(text_20, get(editorError)));
-			append($$anchor, span_13);
+			var span_12 = root_12();
+			var text_19 = only_child(span_12, true);
+			template_effect(() => set_text(text_19, get(editorError)));
+			append($$anchor, span_12);
 		};
 		var consequent_11 = ($$anchor) => {
 			append($$anchor, root_13());
@@ -5438,7 +5435,7 @@ function JobsPage($$anchor, $$props) {
 		var consequent_13 = ($$anchor) => {
 			append($$anchor, root_15());
 		};
-		if_block(node_12, ($$render) => {
+		if_block(node_11, ($$render) => {
 			if (get(confirmDiscard)) $$render(consequent_9);
 			else if (get(editorError)) $$render(consequent_10, 1);
 			else if (get(duplicateName)) $$render(consequent_11, 2);
@@ -5449,7 +5446,7 @@ function JobsPage($$anchor, $$props) {
 		var div_23 = sibling(div_22, 2);
 		var button_14 = sibling(child(div_23), 2);
 		var button_15 = sibling(button_14, 2);
-		var text_21 = only_child(button_15, true);
+		var text_20 = only_child(button_15, true);
 		reset(div_23);
 		reset(div_21);
 		reset(form);
@@ -5457,12 +5454,12 @@ function JobsPage($$anchor, $$props) {
 		bind_this(section_1, ($$value) => set(editorPage, $$value), () => get(editorPage));
 		template_effect(($0, $1, $2) => {
 			button_11.disabled = get(saving);
-			set_text(text_17, get(editing) ? "Edit job" : "New job");
+			set_text(text_16, get(editing) ? "Edit job" : "New job");
 			input.readOnly = $0;
-			set_text(text_19, `${$1 ?? ""} characters · ${$2 ?? ""} lines`);
+			set_text(text_18, `${$1 ?? ""} characters · ${$2 ?? ""} lines`);
 			button_14.disabled = get(saving);
 			button_15.disabled = get(saving) || !get(dirty) || get(duplicateName);
-			set_text(text_21, get(saving) ? "Saving…" : get(editing) ? "Save changes" : "Create job");
+			set_text(text_20, get(saving) ? "Saving…" : get(editing) ? "Save changes" : "Create job");
 		}, [
 			() => Boolean(get(editing)),
 			() => get(promptCharacters).toLocaleString(),
@@ -5479,7 +5476,7 @@ function JobsPage($$anchor, $$props) {
 		delegated("click", button_14, requestClose);
 		append($$anchor, section_1);
 	};
-	if_block(node_8, ($$render) => {
+	if_block(node_7, ($$render) => {
 		if (get(editorOpen)) $$render(consequent_14);
 	});
 	append($$anchor, fragment);
