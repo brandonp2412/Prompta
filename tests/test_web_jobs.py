@@ -50,6 +50,39 @@ def test_web_job_service_manages_interval_job_lifecycle(tmp_path: Path) -> None:
     assert removed["jobs"] == []
 
 
+def test_bulk_pause_only_affects_selected_jobs_and_resumes_them(tmp_path: Path) -> None:
+    database = tmp_path / "jobs.sqlite3"
+    wakeups: list[bool] = []
+    service = WebJobService(database, database, "test-host", start_scheduler=lambda: wakeups.append(True) or True)
+    for name in ("visible-a", "visible-b", "hidden-long"):
+        add_job(database, name, "Work", 2400)
+
+    paused = service.apply("pause_many", {"names": ["visible-a", "visible-b"]})
+    states = {job["name"]: job["paused"] for job in paused["jobs"]}
+    assert states == {"visible-a": True, "visible-b": True, "hidden-long": False}
+    assert wakeups == []
+
+    resumed = service.apply("resume_many", {"names": ["visible-a"]})
+    states = {job["name"]: job["paused"] for job in resumed["jobs"]}
+    assert states == {"visible-a": False, "visible-b": True, "hidden-long": False}
+    assert wakeups == [True]
+
+
+def test_bulk_pause_validates_full_selection_before_mutating(tmp_path: Path) -> None:
+    import pytest
+
+    database = tmp_path / "jobs.sqlite3"
+    add_job(database, "known", "Work", 2400)
+    service = WebJobService(database, database, "test-host")
+    with pytest.raises(ValueError, match="Unknown job"):
+        service.apply("pause_many", {"names": ["known", "unknown"]})
+    assert service.runtime.job_state("known").get("paused") is not True
+    with pytest.raises(ValueError, match="nonempty list"):
+        service.apply("pause_many", {"names": []})
+    with pytest.raises(ValueError, match="nonempty list"):
+        service.apply("pause_many", {"names": ["known", 10]})
+
+
 def test_web_job_service_manages_daily_jobs_and_clear(tmp_path: Path) -> None:
     runtime = tmp_path / "runtime.sqlite3"
     service = WebJobService(runtime, runtime, "test-host")

@@ -127,49 +127,6 @@ button:disabled { cursor: default; opacity: 0.45; }
 
 .primary-button:hover:not(:disabled) { background: #fff; }
 
-.master-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  background: transparent;
-  color: #aaa;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-}
-
-.master-toggle:hover:not(:disabled) {
-  background: #1c1c1c;
-  color: #eee;
-}
-
-.switch-track {
-  width: 28px;
-  height: 16px;
-  padding: 2px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  background: #3a3a3a;
-  transition: background 120ms ease;
-}
-
-.switch-knob {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #aaa;
-  transform: translateX(0);
-  transition: transform 120ms ease, background 120ms ease;
-}
-
-.master-toggle.active .switch-track { background: #e5e5e5; }
-.master-toggle.active .switch-knob {
-  background: #111;
-  transform: translateX(12px);
-}
-
 .jobs-summary {
   min-height: 54px;
   gap: 8px;
@@ -536,7 +493,7 @@ button:disabled { cursor: default; opacity: 0.45; }
     max-width: none;
   }
 
-  .master-toggle { margin-right: auto; }
+  .visible-toggle { margin-right: auto; }
 
   .jobs-summary { min-height: 44px; }
 

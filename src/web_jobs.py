@@ -203,6 +203,19 @@ class WebJobService:
             if normalized_action == "resume":
                 self._wake_scheduler()
 
+        elif normalized_action in {"pause_many", "resume_many"}:
+            names = payload.get("names")
+            if not isinstance(names, list) or not names:
+                raise ValueError("Job names must be a nonempty list")
+            selected: list[str] = []
+            for name in names:
+                if not isinstance(name, str) or not name.strip():
+                    raise ValueError("Job names must be a nonempty list")
+                selected.append(name.strip())
+            runtime.set_jobs_paused(selected, normalized_action == "pause_many")
+            if normalized_action == "resume_many":
+                self._wake_scheduler()
+
         elif normalized_action in {"pause_all", "resume_all"}:
             runtime.set_all_jobs_paused(normalized_action == "pause_all")
             if normalized_action == "resume_all":

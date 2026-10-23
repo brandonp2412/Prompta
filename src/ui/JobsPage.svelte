@@ -56,7 +56,7 @@
   let pageStart = $derived((page - 1) * pageSize);
   let pageEnd = $derived(Math.min(pageStart + pageSize, filteredJobs.length));
   let visibleJobs = $derived(filteredJobs.slice(pageStart, pageEnd));
-  let allPaused = $derived(jobs.length > 0 && jobs.every((job) => job.paused));
+  let allVisiblePaused = $derived(visibleJobs.length > 0 && visibleJobs.every((job) => job.paused));
   let status = $state("");
   let saving = $state(false);
   let editing = $state("");
@@ -413,11 +413,12 @@
     if (removed && editing === job.name) leaveEditor();
   }
 
-  async function toggleAll() {
-    if (!jobs.length) return;
-    const action = allPaused ? "resume_all" : "pause_all";
-    const success = allPaused ? "Resumed all jobs." : "Paused all jobs.";
-    await command({ action }, success);
+  async function toggleVisible() {
+    const names = visibleJobs.map((job) => job.name);
+    if (!names.length) return;
+    const action = allVisiblePaused ? "resume_many" : "pause_many";
+    const success = allVisiblePaused ? "Resumed visible jobs." : "Paused visible jobs.";
+    await command({ action, names }, success);
   }
 
   async function clearAll() {
@@ -459,18 +460,12 @@
       <span class="status-line" role="status" aria-live="polite">{status}</span>
 
       <button
-        class:active={!allPaused}
-        class="master-toggle"
+        class="toolbar-button visible-toggle"
         type="button"
-        role="switch"
-        aria-checked={!allPaused}
-        disabled={!jobs.length || saving}
-        title={allPaused ? "Resume all jobs" : "Pause all jobs"}
-        onclick={() => void toggleAll()}
-      >
-        <span class="switch-track"><span class="switch-knob"></span></span>
-        <span>{allPaused ? "Resume all" : "Pause all"}</span>
-      </button>
+        disabled={!visibleJobs.length || saving}
+        title={allVisiblePaused ? "Resume the jobs shown on this page" : "Pause the jobs shown on this page"}
+        onclick={() => void toggleVisible()}
+      >{allVisiblePaused ? "Resume visible" : "Pause visible"} ({visibleJobs.length})</button>
 
       <button class="toolbar-button" type="button" disabled={saving} onclick={() => void load()}>Refresh</button>
       <button class="toolbar-button" type="button" disabled={saving} onclick={beginOnce}>Run once</button>

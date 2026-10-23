@@ -187,11 +187,27 @@ class SchedulerRuntime:
         self.update_job_state(name, {"paused": paused})
         return True
 
+    def set_jobs_paused(self, names: Sequence[str], paused: bool) -> int:
+        unique_names = list(dict.fromkeys(names))
+        if not unique_names:
+            return 0
+        existing = load_jobs(self.jobs_file)
+        unknown = [name for name in unique_names if name not in existing]
+        if unknown:
+            raise ValueError("Unknown job: " + unknown[0])
+        rows: list[dict[str, str]] = []
+        for name in unique_names:
+            rows.extend(self._state_rows("job", name, {"paused": paused}))
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                self._upsert_state(connection, scheduler_state, rows)
+        finally:
+            engine.dispose()
+        return len(unique_names)
+
     def set_all_jobs_paused(self, paused: bool) -> int:
-        names = list(load_jobs(self.jobs_file))
-        for name in names:
-            self.update_job_state(name, {"paused": paused})
-        return len(names)
+        return self.set_jobs_paused(list(load_jobs(self.jobs_file)), paused)
 
     def clear_job_state(self, name: str) -> None:
         engine = self._connect_state()

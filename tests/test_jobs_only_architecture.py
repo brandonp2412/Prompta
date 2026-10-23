@@ -46,13 +46,16 @@ def test_jobs_ui_is_paginated() -> None:
     assert "Next" in page
 
 
-def test_jobs_ui_has_global_pause_resume_toggle() -> None:
+def test_jobs_ui_pause_resume_targets_only_visible_page() -> None:
     page = Path("src/ui/JobsPage.svelte").read_text()
-    assert 'role="switch"' in page
-    assert '"pause_all"' in page
-    assert '"resume_all"' in page
-    assert "Pause all" in page
-    assert "Resume all" in page
+    assert 'role="switch"' not in page
+    assert 'visibleJobs.map((job) => job.name)' in page
+    assert '"pause_many"' in page
+    assert '"resume_many"' in page
+    assert "Pause visible" in page
+    assert "Resume visible" in page
+    assert '"pause_all"' not in page
+    assert '"resume_all"' not in page
 
 
 def test_web_server_exposes_no_chat_or_result_routes() -> None:
