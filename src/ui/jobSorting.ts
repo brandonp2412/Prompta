@@ -6,6 +6,10 @@ export type SortableJob = {
   run_at_epoch: number | null;
 };
 
+export function isLongJob(job: SortableJob): boolean {
+  return job.run_at_epoch !== null || (!job.daily_at && job.interval_minutes > 24 * 60);
+}
+
 function frequencyMinutes(job: SortableJob): number {
   if (job.run_at_epoch) return Number.POSITIVE_INFINITY;
   if (job.daily_at) return 24 * 60;

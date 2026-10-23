@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sortJobs, type SortableJob } from "../src/ui/jobSorting";
+import { isLongJob, sortJobs, type SortableJob } from "../src/ui/jobSorting";
 
 function job(
   name: string,
@@ -33,6 +33,13 @@ test("sorts by highest recurrence frequency, then newest creation first", () => 
     "one-off-old",
   ]);
   expect(original[0]?.name).toBe("daily-new");
+});
+
+test("long jobs exclude daily and faster cadences, but include scheduled one-offs", () => {
+  expect(isLongJob(job("daily", 1, 0, "09:00"))).toBe(false);
+  expect(isLongJob(job("exactly-day", 2, 1440))).toBe(false);
+  expect(isLongJob(job("long", 3, 1440.1))).toBe(true);
+  expect(isLongJob(job("once", 4, 0, null, 2000))).toBe(true);
 });
 
 test("uses name to break otherwise identical ties", () => {

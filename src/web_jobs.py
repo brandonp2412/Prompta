@@ -178,6 +178,14 @@ class WebJobService:
                 queue=DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3"),
             )
 
+        elif normalized_action == "run_once":
+            prompt = payload.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("Job prompt is required")
+            DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
+                prompt.strip()
+            )
+
         elif normalized_action == "remove":
             name = str(payload.get("name") or "").strip()
             if not name:

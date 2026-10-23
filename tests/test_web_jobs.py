@@ -173,6 +173,31 @@ def test_fire_now_rejects_unknown_job_without_queuing(tmp_path: Path) -> None:
     assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
 
 
+def test_run_once_queues_prompt_without_scheduling_or_changing_existing_jobs(tmp_path: Path) -> None:
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    add_job(jobs, "audit", "Recurring work", 2400)
+    service = WebJobService(jobs, state, "test-host")
+    service.runtime.update_job_state("audit", {"next_due_at_epoch": 5000.0})
+
+    result = service.apply("run_once", {"prompt": "  Investigate now  "})
+    assert [job["name"] for job in result["jobs"]] == ["audit"]
+    assert service.runtime.job_state("audit")["next_due_at_epoch"] == 5000.0
+    deliveries = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert len(deliveries) == 1
+    assert deliveries[0]["message"] == "Investigate now"
+    assert str(deliveries[0]["client_id"]).startswith("manual:")
+
+
+def test_run_once_rejects_empty_prompt(tmp_path: Path) -> None:
+    import pytest
+
+    service = WebJobService(tmp_path / "jobs.sqlite3", tmp_path / "state.sqlite3", "test-host")
+    with pytest.raises(ValueError, match="Job prompt is required"):
+        service.apply("run_once", {"prompt": "   "})
+    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
+
+
 def test_editing_prompt_preserves_schedule_pause_and_delivery_history(tmp_path: Path) -> None:
     jobs = tmp_path / "jobs.sqlite3"
     state = tmp_path / "state.sqlite3"

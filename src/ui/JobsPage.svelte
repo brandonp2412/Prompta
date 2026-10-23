@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { sortJobs } from "./jobSorting";
+  import { isLongJob, sortJobs } from "./jobSorting";
 
   type Job = {
     name: string;
@@ -27,7 +27,7 @@
     { key: "unhealthy", label: "Unhealthy", title: "Failing, rate-limited, or unconfirmed jobs" },
   ];
 
-  type EditorRoute = { kind: "new" } | { kind: "edit"; name: string };
+  type EditorRoute = { kind: "new"; once?: boolean } | { kind: "edit"; name: string };
 
   const pageSize = 10;
   const refreshIntervalMs = 5000;
@@ -38,9 +38,12 @@
     paused: true,
     unhealthy: true,
   });
-  let filteredJobs = $derived(jobs.filter((job) => activeFilters[jobFilter(job)]));
+  let showLongJobs = $state(false);
+  let longJobsCount = $derived(jobs.filter(isLongJob).length);
+  let cadenceJobs = $derived(jobs.filter((job) => showLongJobs || !isLongJob(job)));
+  let filteredJobs = $derived(cadenceJobs.filter((job) => activeFilters[jobFilter(job)]));
   let filterCounts = $derived(
-    jobs.reduce<Record<JobFilter, number>>(
+    cadenceJobs.reduce<Record<JobFilter, number>>(
       (counts, job) => {
         counts[jobFilter(job)] += 1;
         return counts;
@@ -59,7 +62,7 @@
   let editing = $state("");
   let name = $state("");
   let prompt = $state("");
-  let schedule = $state<"interval" | "daily">("interval");
+  let schedule = $state<"interval" | "daily" | "once">("interval");
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
@@ -71,7 +74,8 @@
   let confirmDiscard = $state(false);
   let initialForm = $state("");
   let dirty = $derived(editorOpen && formSnapshot() !== initialForm);
-  let duplicateName = $derived(!editing && jobs.some((job) => job.name === name.trim()));
+  let runOnce = $derived(!editing && schedule === "once");
+  let duplicateName = $derived(!runOnce && !editing && jobs.some((job) => job.name === name.trim()));
   let promptCharacters = $derived(prompt.length);
   let promptLines = $derived(prompt ? prompt.split("\n").length : 0);
   let loadInFlight = false;
@@ -101,13 +105,13 @@
 
   function editorRouteFromUrl(): EditorRoute | null {
     const url = new URL(window.location.href);
-    if (url.searchParams.has("new")) return { kind: "new" };
+    if (url.searchParams.has("new")) return { kind: "new", once: url.searchParams.get("new") === "once" };
     const jobName = url.searchParams.get("edit");
     return jobName === null ? null : { kind: "edit", name: jobName };
   }
 
   function routeKey(route: EditorRoute | null) {
-    return route?.kind === "new" ? "new" : route?.kind === "edit" ? "edit:" + route.name : "";
+    return route?.kind === "new" ? (route.once ? "new:once" : "new") : route?.kind === "edit" ? "edit:" + route.name : "";
   }
 
   function jobsUrl() {
@@ -163,6 +167,7 @@
   function showEditor(route: EditorRoute) {
     if (route.kind === "new") {
       reset();
+      if (route.once) schedule = "once";
     } else {
       const job = jobs.find((item) => item.name === route.name);
       if (!job) {
@@ -180,13 +185,13 @@
       exact = job.exact_interval;
     }
     activeEditorRoute = routeKey(route);
-    openEditor(route.kind === "new");
+    openEditor(route.kind === "new" && !route.once);
   }
 
   function pushEditor(route: EditorRoute) {
     listScrollY = window.scrollY;
     const url = jobsUrl();
-    if (route.kind === "new") url.searchParams.set("new", "1");
+    if (route.kind === "new") url.searchParams.set("new", route.once ? "once" : "1");
     else url.searchParams.set("edit", route.name);
     window.history.pushState({ promptaEditor: true }, "", url);
     showEditor(route);
@@ -208,6 +213,10 @@
 
   function beginNew() {
     pushEditor({ kind: "new" });
+  }
+
+  function beginOnce() {
+    pushEditor({ kind: "new", once: true });
   }
 
   function onEditorKeydown(event: KeyboardEvent) {
@@ -336,7 +345,7 @@
   async function command(payload: Record<string, unknown>, success: string) {
     saving = true;
     dataGeneration += 1;
-    status = payload.action === "fire_now" ? "Queuing fresh chat…" : "Saving…";
+    status = payload.action === "fire_now" || payload.action === "run_once" ? "Queuing fresh chat…" : "Saving…";
 
     try {
       const response = await fetch("./api/jobs", {
@@ -366,8 +375,16 @@
     editorError = "";
     const jobName = name.trim();
     const jobPrompt = prompt.trim();
-    if (!jobName || !jobPrompt) return;
+    if (!jobPrompt || (!runOnce && !jobName)) return;
 
+    if (runOnce) {
+      const queued = await command({ action: "run_once", prompt: jobPrompt }, "Queued one fresh chat.");
+      if (queued) {
+        initialForm = formSnapshot();
+        leaveEditor();
+      } else editorError = status;
+      return;
+    }
     const daily = schedule === "daily";
     const saved = await command(
       {
@@ -435,7 +452,7 @@
   <div class="jobs-toolbar">
     <div class="toolbar-title">
       <h1 id="jobs-title">Jobs</h1>
-      <span>{jobs.length}</span>
+      <span>{cadenceJobs.length}</span>
     </div>
 
     <div class="toolbar-actions">
@@ -456,11 +473,12 @@
       </button>
 
       <button class="toolbar-button" type="button" disabled={saving} onclick={() => void load()}>Refresh</button>
+      <button class="toolbar-button" type="button" disabled={saving} onclick={beginOnce}>Run once</button>
       <button class="primary-button" type="button" disabled={saving} onclick={beginNew}>New job</button>
     </div>
   </div>
 
-  <div class="jobs-summary" role="group" aria-label="Filter jobs by status">
+  <div class="jobs-summary" role="group" aria-label="Filter jobs">
     {#each filterOptions as option (option.key)}
       <button
         class:chosen={activeFilters[option.key]}
@@ -471,6 +489,14 @@
         onclick={() => toggleFilter(option.key)}
       >{option.label} <span>{filterCounts[option.key]}</span></button>
     {/each}
+    <button
+      class:chosen={showLongJobs}
+      class="filter-chip"
+      type="button"
+      aria-pressed={showLongJobs}
+      title="Include jobs running less often than daily and scheduled one-time jobs"
+      onclick={() => { showLongJobs = !showLongJobs; page = 1; }}
+    >Long jobs <span>{longJobsCount}</span></button>
   </div>
 
   <div class="jobs-table" role="table" aria-label="Scheduled jobs">
@@ -587,23 +613,26 @@
         <div class="editor-heading">
           <button class="toolbar-button editor-back" type="button" disabled={saving} onclick={requestClose}>← Jobs</button>
           <div class="editor-title">
-            <h2 id="editor-title">{editing ? "Edit job" : "New job"}</h2>
+            <h2 id="editor-title">{editing ? "Edit job" : runOnce ? "Run once" : "New job"}</h2>
             {#if editing}<span title={editing}>{editing}</span>{/if}
           </div>
         </div>
 
         <div class="editor-body">
           <div class="editor-settings">
-            <label class="name-field">
-              <span>Name</span>
-              <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
-            </label>
+            {#if !runOnce}
+              <label class="name-field">
+                <span>Name</span>
+                <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+              </label>
+            {/if}
 
             <label>
               <span>Schedule</span>
               <select bind:value={schedule}>
                 <option value="interval">Interval</option>
                 <option value="daily">Daily</option>
+                {#if !editing}<option value="once">Once (now)</option>{/if}
               </select>
             </label>
 
@@ -612,7 +641,7 @@
                 <span>Every (minutes)</span>
                 <input bind:value={interval} type="number" min="0.1" max="43200" step="0.1" required />
               </label>
-            {:else}
+            {:else if schedule === "daily"}
               <label>
                 <span>At (local time)</span>
                 <input bind:value={dailyAt} type="time" required />
@@ -651,10 +680,10 @@
             {/if}
           </div>
           <div class="editor-actions">
-            <span class="keyboard-hint">Ctrl/⌘ + Enter to save</span>
+            <span class="keyboard-hint">Ctrl/⌘ + Enter to {runOnce ? "run" : "save"}</span>
             <button class="toolbar-button" type="button" disabled={saving} onclick={requestClose}>Cancel</button>
-            <button class="primary-button" type="submit" disabled={saving || !dirty || duplicateName}>
-              {saving ? "Saving…" : editing ? "Save changes" : "Create job"}
+            <button class="primary-button" type="submit" disabled={saving || !dirty || duplicateName || !prompt.trim() || (!runOnce && !name.trim())}>
+              {saving ? (runOnce ? "Queuing…" : "Saving…") : editing ? "Save changes" : runOnce ? "Run once" : "Create job"}
             </button>
           </div>
         </div>
