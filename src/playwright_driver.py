@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import threading
 import time
 import uuid
 from collections.abc import Awaitable, Sequence
@@ -40,6 +42,7 @@ from .browser_ownership import (
     record_owned_tab,
 )
 from .browser_script_loader import load_browser_script
+from .flaresolverr_client import solve_cloudflare
 from .response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
 from .send_outcome import SendOutcomeUnknownError
 from .strict_types import int_value, json_object
@@ -113,6 +116,18 @@ _CLOUDFLARE_CHALLENGE_RE = re.compile(
     re.IGNORECASE,
 )
 _CLOUDFLARE_FRAME_RE = re.compile(r"(?:cloudflare|security verification|challenge)", re.IGNORECASE)
+_FLARESOLVERR_LOCK = threading.Lock()
+_FLARESOLVERR_NEXT_ATTEMPT_AT = 0.0
+
+
+def _claim_flaresolverr_attempt() -> bool:
+    global _FLARESOLVERR_NEXT_ATTEMPT_AT
+    with _FLARESOLVERR_LOCK:
+        now = time.monotonic()
+        if now < _FLARESOLVERR_NEXT_ATTEMPT_AT:
+            return False
+        _FLARESOLVERR_NEXT_ATTEMPT_AT = now + 600.0
+        return True
 
 
 class _UsableCandidate(Protocol):
@@ -239,6 +254,7 @@ class PlaywrightDriver:
         self._connected = False
         self._next_orphan_cleanup_at = 0.0
         self._history_rate_limit_seen = False
+        self._flaresolverr_attempted = False
 
     @staticmethod
     def _is_send_endpoint(url: str) -> bool:
@@ -931,6 +947,12 @@ class PlaywrightDriver:
             self._connected = True
 
             await self.navigate("https://chatgpt.com/", context=self.context)
+            if await self._cloudflare_challenge_present():
+                if not await self._recover_security_challenge(page):
+                    raise RuntimeError("ChatGPT security challenge blocked authentication")
+                await self.navigate("https://chatgpt.com/", context=self.context)
+                if await self._cloudflare_challenge_present():
+                    raise RuntimeError("ChatGPT security challenge blocked authentication")
 
             deadline = asyncio.get_running_loop().time() + self.auth_timeout_seconds
             last_error: Exception | None = None
@@ -993,12 +1015,49 @@ class PlaywrightDriver:
             return False
         return verdict.casefold() == "challenge"
 
+    async def _recover_security_challenge(self, page: Page) -> bool:
+        """Try one local solver clearance before any prompt has been dispatched."""
+        endpoint = os.environ.get("PROMPTA_FLARESOLVERR_URL", "").strip()
+        if not endpoint or self._flaresolverr_attempted or not _claim_flaresolverr_attempt():
+            return False
+        self._flaresolverr_attempted = True
+        started = time.monotonic()
+        try:
+            clearance = await asyncio.wait_for(
+                asyncio.to_thread(solve_cloudflare, endpoint), timeout=32.0
+            )
+            if clearance is None:
+                logger.warning("FlareSolverr clearance unavailable")
+                return False
+            cookie_value, user_agent = clearance
+            current_agent = await page.evaluate(load_browser_script("navigator_user_agent.js"))
+            if current_agent != user_agent:
+                session = await page.context.new_cdp_session(page)
+                await session.send("Network.setUserAgentOverride", {"userAgent": user_agent})
+            await page.context.add_cookies(
+                [{"name": "cf_clearance", "value": cookie_value, "url": "https://chatgpt.com/"}]
+            )
+            logger.info(
+                "FlareSolverr clearance applied duration_ms=%d",
+                round((time.monotonic() - started) * 1000),
+            )
+            return True
+        except (Exception, TimeoutError) as exc:
+            logger.warning("FlareSolverr recovery failed error_type=%s", type(exc).__name__)
+            return False
+
     async def navigate(self, url: str, *, context: str | None = None) -> None:
         page = self._page(context)
         try:
             response = await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
             if self._navigation_response_is_security_challenge(response):
-                raise RuntimeError("ChatGPT security challenge blocked navigation")
+                if not await self._recover_security_challenge(page):
+                    raise RuntimeError("ChatGPT security challenge blocked navigation")
+                response = await page.goto(
+                    url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS
+                )
+                if self._navigation_response_is_security_challenge(response):
+                    raise RuntimeError("ChatGPT security challenge blocked navigation")
             context_id = self._page_contexts.get(page)
             if context_id in self._owned_contexts:
                 await self._mark_owned(page)
@@ -1132,7 +1191,13 @@ class PlaywrightDriver:
         context: str | None = None,
     ) -> None:
         if await self._cloudflare_challenge_present(context=context):
-            raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+            if not os.environ.get("PROMPTA_FLARESOLVERR_URL"):
+                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+            if not await self._recover_security_challenge(self._page(context)):
+                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+            await self.navigate("https://chatgpt.com/", context=context)
+            if await self._cloudflare_challenge_present(context=context):
+                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
 
         page = self._page(context)
         deadline = asyncio.get_running_loop().time() + timeout
