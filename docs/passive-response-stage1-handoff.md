@@ -27,3 +27,17 @@
 - uv run --no-sync pytest -q tests/test_response_capture.py tests/test_passive_network_capture.py
 - bun tests/passiveResponseObserver.test.cjs
 - Full validation before push: uv run --no-sync ruff check . ; uv run --no-sync ty check ; uv run --no-sync pytest -q ; bun run check
+
+## Nox deployment requirement discovered during Stage 1
+
+Nox uses setuptools strict editable mode. After adding new Python source modules,
+plain uv sync --locked does **not** necessarily rebuild the editable import link
+tree. Stage 1 initially failed worker startup with ModuleNotFoundError for
+prompta.response_capture. Recovery was:
+
+1. Run uv sync --locked --reinstall-package prompta in /home/brandon/prompta.
+2. Verify import from .venv/bin/python before restarting the service.
+3. If the service hit systemd's restart limit, reset-failed and start
+   prompta-delivery-worker.service, then check ActiveState=active and NRestarts=0.
+
+Repeat the explicit package reinstall whenever Stage 2/3 adds Python modules.
