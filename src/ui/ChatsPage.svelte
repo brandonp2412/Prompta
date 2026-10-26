@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import {
     groupRuns, nzTime, plainPreview, statusLabel,
@@ -100,12 +100,16 @@
   }
 
   $effect(() => {
-    if (selectedRunId) void loadDetail(selectedRunId);
-    else {
-      detailGeneration += 1;
-      detail = null;
-      detailError = "";
-    }
+    const id = selectedRunId;
+    // Only a selected-run change should fetch; loadDetail also reads/writes reactive detail.
+    untrack(() => {
+      if (id) void loadDetail(id);
+      else {
+        detailGeneration += 1;
+        detail = null;
+        detailError = "";
+      }
+    });
   });
 
   onMount(() => {

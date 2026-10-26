@@ -3,20 +3,21 @@
   // Installed in a NEW Prompta-owned tab before sending; never sends requests.
   const key = "__promptaPassiveResponseObserver";
   window[key]?.stop?.();
-  const main = document.querySelector("main");
-  if (!main) return false;
+  const root = document.documentElement;
+  if (!root) return false;
   const messageSelector = '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]';
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
   const stopSelector = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]';
   const copySelector = 'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]';
-  const baseline = new Set(main.querySelectorAll(messageSelector));
   const visible = (element) => element.isConnected && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
   const identity = (element) => {
     const legacy = element.getAttribute("data-message-id");
     if (legacy) return legacy;
-    const ids = [...new Set((element.getAttribute("data-chatgpt-search-message-ids") || "").trim().split(/\s+/).filter(Boolean))];
-    return ids.length === 1 ? ids[0] : "";
+    // Modern assistant turns aggregate multiple message IDs (tools/thoughts/final).
+    // The assistant unit key identifies the rendered answer container across updates.
+    return element.getAttribute("data-chatgpt-search-unit-key") || "";
   };
+  const baseline = new Set([...document.querySelectorAll(messageSelector)].map(identity).filter(Boolean));
   let timer = null;
   let settleTimer = null;
   let published = "";
@@ -33,7 +34,10 @@
     }
   };
   const sample = () => {
-    const fresh = [...main.querySelectorAll(messageSelector)].filter((element) => !baseline.has(element) && visible(element));
+    // ChatGPT can replace <main> when the new conversation receives its URL.
+    const main = document.querySelector("main");
+    if (!main) return;
+    const fresh = [...main.querySelectorAll(messageSelector)].filter((element) => !baseline.has(identity(element)) && visible(element));
     const nextId = fresh.length === 1 ? identity(fresh[0]) : "";
     if (ambiguous || fresh.length > 1 || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
       ambiguous = true; // A DOM branch rollover must not silently replace an earlier answer.
@@ -78,7 +82,7 @@
     }, 450);
   };
   const observer = new MutationObserver(schedule);
-  observer.observe(main, {
+  observer.observe(root, {
     subtree: true,
     childList: true,
     characterData: true,
