@@ -327,7 +327,37 @@ button:disabled { cursor: default; opacity: 0.45; }
   white-space: nowrap;
 }
 
-.editor-back { flex: none; margin-left: -9px; color: #eee; }
+.editor-back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid #404040;
+  border-radius: 9px;
+  background: #242424;
+  color: #f2f2f2;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.editor-back svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.editor-back:hover:not(:disabled) {
+  border-color: #626262;
+  background: #303030;
+}
+
+.editor-back:focus-visible {
+  outline: 2px solid #eee;
+  outline-offset: 2px;
+}
 
 .editor-body {
   display: flex;
