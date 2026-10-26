@@ -62,7 +62,7 @@
   let editing = $state("");
   let name = $state("");
   let prompt = $state("");
-  let schedule = $state<"interval" | "daily" | "once">("interval");
+  let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
   let dailyAt = $state("09:00");
   let exact = $state(false);
@@ -85,7 +85,7 @@
     editing = "";
     name = "";
     prompt = "";
-    schedule = "interval";
+    schedule = "once";
     interval = "40";
     dailyAt = "09:00";
     exact = false;
@@ -185,7 +185,7 @@
       exact = job.exact_interval;
     }
     activeEditorRoute = routeKey(route);
-    openEditor(route.kind === "new" && !route.once);
+    openEditor(route.kind === "new" && schedule !== "once");
   }
 
   function pushEditor(route: EditorRoute) {
