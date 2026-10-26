@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from playwright.async_api import Page, Request, Response
@@ -93,4 +94,27 @@ async def test_non_sse_post_response_never_reads_body(tmp_path: Path) -> None:
     assert capture["status"] == 429
     assert not driver._response_tasks
     assert driver.captured_assistant_response(capture) is None
+    await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_observer_binding_propagates_ambiguous_dom_rollover(tmp_path: Path) -> None:
+    driver = PlaywrightDriver(profile=tmp_path)
+    driver._connected = True
+    driver.context = "owned-fresh-tab"
+    page = Mock(spec=Page)
+    page.is_closed.return_value = False
+    callbacks: list[Callable[[object], None]] = []
+
+    async def expose(_name: str, callback: Callable[[object], None]) -> None:
+        callbacks.append(callback)
+
+    page.expose_function = AsyncMock(side_effect=expose)
+    driver._pages[driver.context] = page
+    await driver.enable_passive_updates()
+    assert len(callbacks) == 1
+    callbacks[0]({"message_id": "", "text": "", "complete": False, "ambiguous": True})
+    update = await driver.wait_capture_update(timeout=0.1)
+    assert update is not None and update.source == "dom"
+    assert update.status == "unknown" and update.message_id is None and not update.text
     await driver.close()

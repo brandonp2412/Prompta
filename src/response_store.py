@@ -161,6 +161,17 @@ class ResponseStore:
                 text = prior
             if not text:
                 return True
+            if (
+                not complete
+                and row["status"] == "generating"
+                and text == prior
+                and row["source"] == capture.source
+                and (not capture.conversation_id or row["conversation_id"] == capture.conversation_id)
+                and (not capture.message_id or row["message_id"] == capture.message_id)
+                and (not capture.parent_id or row["parent_id"] == capture.parent_id)
+            ):
+                # Mutation observers may repeat a snapshot. Avoid a WAL write every five seconds.
+                return True
             changed = connection.execute(
                 update(results).where(
                     results.c.send_id == send_id,
@@ -255,16 +266,18 @@ class ResponseStore:
         with self.engine.connect() as connection:
             count = connection.execute(select(func.count()).select_from(results).where(*criteria)).scalar_one()
             rows = connection.execute(
-                select(results.c.send_id, results.c.job_name, results.c.user_text,
-                       results.c.assistant_text, results.c.status, results.c.created_at,
-                       results.c.updated_at, results.c.finished_at)
+                select(results.c.send_id, results.c.job_name,
+                       func.substr(results.c.user_text, 1, 180).label("user_preview"),
+                       func.substr(results.c.assistant_text, 1, 180).label("assistant_preview"),
+                       results.c.status, results.c.created_at, results.c.updated_at,
+                       results.c.finished_at)
                 .where(*criteria).order_by(results.c.created_at.desc(), results.c.send_id.desc())
                 .limit(limit).offset(offset)
             ).mappings().all()
         items = []
         for row in rows:
-            prompt = str(row["user_text"])
-            answer = str(row["assistant_text"])
+            prompt = str(row["user_preview"])
+            answer = str(row["assistant_preview"])
             title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
             items.append({
                 "send_id": row["send_id"], "job_name": row["job_name"], "title": title,

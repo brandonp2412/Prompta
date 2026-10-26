@@ -22,14 +22,27 @@
   let published = "";
   let changedAt = Date.now();
   let lastText = "";
+  let observedId = "";
+  let ambiguous = false;
   let result = { message_id: "", text: "", complete: false, ambiguous: false };
+  const publish = () => {
+    const signature = `${result.message_id}:${result.complete}:${result.ambiguous}:${result.text}`;
+    if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
+      published = signature;
+      Promise.resolve(window.__promptaPassiveUpdate({ ...result })).catch(() => {});
+    }
+  };
   const sample = () => {
     const fresh = [...main.querySelectorAll(messageSelector)].filter((element) => !baseline.has(element) && visible(element));
-    if (fresh.length > 1 || fresh.some((element) => !identity(element))) {
+    const nextId = fresh.length === 1 ? identity(fresh[0]) : "";
+    if (ambiguous || fresh.length > 1 || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
+      ambiguous = true; // A DOM branch rollover must not silently replace an earlier answer.
       result = { message_id: "", text: "", complete: false, ambiguous: true };
+      publish();
       return;
     }
     if (!fresh.length) return;
+    observedId = nextId;
     const element = fresh[0];
     const roots = [...element.querySelectorAll(markdownSelector)].filter((root) => !root.parentElement?.closest(markdownSelector) && visible(root));
     // Never fall back to the whole turn, which may include tool UI/controls.
@@ -55,11 +68,7 @@
     };
     // Emit only mutation-coalesced changes over Playwright's in-page binding.
     // No network request, periodic polling, or alternate conversation access.
-    const signature = `${result.message_id}:${result.complete}:${result.text}`;
-    if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
-      published = signature;
-      Promise.resolve(window.__promptaPassiveUpdate({ ...result })).catch(() => {});
-    }
+    publish();
   };
   const schedule = () => {
     if (timer !== null) return; // mutation-driven, at most one scan per 450ms

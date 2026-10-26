@@ -343,6 +343,10 @@ class BrowserDeliverySender:
                 # Waiting is local: queue entries are emitted by the existing
                 # POST or semantic MutationObserver, not by reading ChatGPT.
                 update = await driver.wait_capture_update(timeout=min(5.0, remaining))
+                if (update is not None and update.source == "dom" and update.status == "unknown"
+                        and update.message_id is None):
+                    final_status = "unavailable"  # A fresh assistant branch replaced the tracked DOM node.
+                    break
                 # Multiple ChatGPT-owned continuation POSTs can follow connector
                 # approvals. Do not splice their SSE data or close the tab;
                 # keep observing the unique semantic DOM answer until finality/TTL.

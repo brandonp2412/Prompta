@@ -8,12 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import event, inspect
 
 from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
+from prompta.strict_types import string_object_dict
 
 
 def _capture(text: str, status: str = "partial", message: str = "m1") -> CaptureResult:
@@ -197,3 +198,72 @@ def test_delivery_queue_persists_scheduled_run_and_terminal_status(tmp_path: Pat
     assert queue.cancel_pending("scheduled-1", now=130)
     row = queue.results.get("scheduled-1")
     assert row is not None and row["status"] == "unavailable"
+
+
+def test_long_run_previews_project_only_bounded_sql_substrings(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("long", "Prompt" * 400_000, "A job", now=10)
+    assert store.accept("long", "42:a", deadline=30, now=11)
+    assert store.write("long", "42:a", _capture("A" * 2_000_000), now=12)
+    statements: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, _params: object,
+               _context: object, _many: bool) -> None:
+        statements.append(statement)
+
+    event.listen(store.engine, "before_cursor_execute", record)
+    try:
+        page = store.page(query="", limit=20)
+    finally:
+        event.remove(store.engine, "before_cursor_execute", record)
+    items = page["items"]
+    assert isinstance(items, list) and len(items) == 1
+    item = string_object_dict(items[0])
+    assert item is not None and item["preview"] == "A" * 180
+    assert len(str(item["title"])) < 100
+    listing = next(sql for sql in statements if "ORDER BY" in sql)
+    assert "substr(job_responses.assistant_text" in listing
+    assert "substr(job_responses.user_text" in listing
+    assert listing.count("job_responses.assistant_text") == 1
+
+
+def test_repeated_partial_snapshots_do_not_write_duplicate_wal_updates(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("s", "Synthetic prompt", now=10)
+    assert store.accept("s", "42:a", deadline=30, now=11)
+    writes: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, _params: object,
+               _context: object, _many: bool) -> None:
+        if statement.startswith("UPDATE job_responses"):
+            writes.append(statement)
+
+    event.listen(store.engine, "before_cursor_execute", record)
+    try:
+        assert store.write("s", "42:a", _capture("Partial"), now=12)
+        assert store.write("s", "42:a", _capture("Partial"), now=17)
+        assert store.write("s", "42:a", _capture("Partial"), now=22)
+        assert store.write("s", "42:a", _capture("Final", "complete"), now=23)
+    finally:
+        event.remove(store.engine, "before_cursor_execute", record)
+    assert len(writes) == 2
+    row = store.get("s")
+    assert row is not None and row["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_dom_branch_rollover_preserves_partial_without_false_completion(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "Synthetic prompt")
+    owner = f"{os.getpid()}:rollover"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    invalid = CaptureResult("dom", "unknown", "", None, None, None)
+    driver = StreamDriver([_capture("Original partial"), invalid, _capture("Wrong branch", "complete", "m2")])
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "s", owner, deadline=asyncio.get_running_loop().time() + 5,
+    )
+    row = sender.results.get("s")
+    assert row is not None
+    assert row["status"] == "unavailable"
+    assert row["assistant_text"] == "Original partial"
+    assert len(driver.updates) == 1

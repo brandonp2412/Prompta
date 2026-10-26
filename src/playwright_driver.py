@@ -502,7 +502,9 @@ class PlaywrightDriver:
 
         def on_change(payload: object) -> None:
             result = normalize_dom_snapshot(payload)
-            if result.message_id:
+            if isinstance(payload, dict) and payload.get("ambiguous") is True:
+                self._signal_response(CaptureResult("dom", "unknown", "", None, None, None))
+            elif result.message_id:
                 self._signal_response(result)
 
         # Page-scoped CDP binding, not an HTTP request, refresh, or DOM scrape.

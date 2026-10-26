@@ -180,3 +180,27 @@ def test_dom_completion_is_rejected_when_text_must_be_truncated() -> None:
     )
     assert result.status == "partial"
     assert len(result.text) == 2 * 1024 * 1024
+
+
+def test_adversarial_sse_overflow_does_not_fabricate_completion() -> None:
+    accumulator = SseResponseAccumulator()
+    accumulator.feed((FIXTURES / "legacy.sse").read_text().replace("data: [DONE]", "data: malformed"))
+    accumulator.feed("x" * (4 * 1024 * 1024 + 1))
+    accumulator.finish()
+    result = accumulator.snapshot()
+    assert result.status != "complete"
+    assert len(result.text) <= 2 * 1024 * 1024
+
+
+def test_nonfinal_message_followed_by_patch_cannot_leak_hidden_text() -> None:
+    body = (
+        'data: {"message":{"id":"a","author":{"role":"assistant"},'
+        '"channel":"final","content":{"content_type":"text","parts":["Safe"]}}}\n\n'
+        'data: {"message":{"id":"thought","author":{"role":"assistant"},'
+        '"channel":"analysis","content":{"content_type":"text","parts":["Secret"]}}}\n\n'
+        'data: {"o":"append","p":"/message/content/parts/0","v":"Secret patch"}\n\n'
+        'data: [DONE]\n\n'
+    )
+    result = parse_sse_body(body)
+    assert result.text == "Safe"
+    assert result.status == "complete"
