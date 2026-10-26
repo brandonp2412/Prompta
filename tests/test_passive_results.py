@@ -1,0 +1,199 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import stat
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import pytest
+from sqlalchemy import inspect
+
+from prompta.delivery_browser import BrowserDeliverySender
+from prompta.delivery_queue import DeliveryQueueStore
+from prompta.response_capture import CaptureResult
+from prompta.response_store import ResponseStore
+
+
+def _capture(text: str, status: str = "partial", message: str = "m1") -> CaptureResult:
+    from prompta.response_capture import CaptureStatus
+
+    resolved: CaptureStatus = "complete" if status == "complete" else "partial"
+    return CaptureResult("dom", resolved, text, None, message, None)
+
+
+def test_private_wal_migration_and_queued_identity(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "private" / "chat-results.sqlite3")
+    assert "job_responses" in inspect(store.engine).get_table_names()
+    store.ensure_queued("s1", "Private user prompt", "job", now=100)
+    store.ensure_queued("s1", "should not overwrite", now=101)
+    row = store.get("s1")
+    assert row is not None and row["user_text"] == "Private user prompt"
+    assert row["status"] == "queued" and row["job_name"] == "job"
+    assert stat.S_IMODE(store.path.parent.stat().st_mode) == 0o700
+    for path in [store.path, Path(str(store.path) + "-wal"), Path(str(store.path) + "-shm")]:
+        if path.exists():
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_atomic_lease_complete_is_immutable_and_branch_safe(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("s1", "prompt", now=100)
+
+    def claim(owner: str) -> bool:
+        return store.accept("s1", owner, deadline=300, now=101)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claims = list(pool.map(claim, ["11:a", "22:b"]))
+    assert claims.count(True) == 1
+    owner = "11:a" if claims[0] else "22:b"
+    other = "22:b" if owner == "11:a" else "11:a"
+    assert not store.write("s1", other, _capture("wrong"), now=102)
+    assert store.write("s1", owner, _capture("Partial"), now=103)
+    assert not store.write("s1", owner, _capture("Branch change", message="m2"), now=104)
+    assert store.write("s1", owner, _capture("Finished response", "complete"), now=105)
+    assert not store.write("s1", owner, _capture("Downgraded"), now=106)
+    assert not store.finish("s1", owner, "interrupted", now=107)
+    row = store.get("s1")
+    assert row is not None and row["status"] == "completed"
+    assert row["assistant_text"] == "Finished response"
+    assert row["message_id"] == "m1" and row["finished_at"] == 105
+
+
+def test_timeout_and_crash_keep_partial_without_fake_completion(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("ttl", "prompt", now=100)
+    assert store.accept("ttl", f"{os.getpid()}:lease", deadline=120, now=101)
+    assert store.write("ttl", f"{os.getpid()}:lease", _capture("Incomplete"), now=110)
+    assert store.recover_orphans(now=121) == 1
+    row = store.get("ttl")
+    assert row is not None
+    assert row["status"] == "interrupted"
+    assert row["assistant_text"] == "Incomplete"
+    store.ensure_queued("crash", "prompt", now=100)
+    assert store.accept("crash", "99999999:dead", deadline=200, now=101)
+    assert store.recover_orphans(now=110) == 1
+    row = store.get("crash")
+    assert row is not None
+    assert row["status"] == "interrupted"
+    assert not store.write("crash", "99999999:dead", _capture("Late", "complete"), now=111)
+
+
+def test_empty_answer_cannot_be_completed(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("s", "prompt", now=10)
+    assert store.accept("s", "100:a", deadline=40, now=11)
+    assert store.write("s", "100:a", _capture("", "complete"), now=12)
+    row = store.get("s")
+    assert row is not None
+    assert row["status"] == "accepted"
+
+
+class StreamDriver:
+    def __init__(self, updates: list[CaptureResult | None]) -> None:
+        self.updates = updates
+        self.is_connected = True
+        self.eval_calls = 0
+        self.dom_reads = 0
+        self.stop_after_first = False
+
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+        await asyncio.sleep(0)
+        if self.updates:
+            result = self.updates.pop(0)
+            if self.stop_after_first:
+                self.is_connected = False
+            return result
+        await asyncio.sleep(min(timeout, 0.01))
+        return None
+
+    def captured_assistant_response(self, capture: dict[str, object]) -> CaptureResult | None:
+        result = capture.get("assistant_result")
+        return result if isinstance(result, CaptureResult) else None
+
+    async def observed_assistant_response(self) -> CaptureResult:
+        self.dom_reads += 1
+        return _capture("")
+
+    async def eval(self, _script: str) -> bool:
+        self.eval_calls += 1
+        return False
+
+
+@pytest.mark.asyncio
+async def test_passive_sse_completion_without_network_or_dom_scrape(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "private")
+    owner = f"{os.getpid()}:test"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    sse = CaptureResult("sse", "complete", "Verified SSE answer", "c1", "m1", "p1")
+    driver = StreamDriver([sse])
+    await sender._capture_until_complete(driver, {"assistant_result": sse, "status": 200}, "s", owner, deadline=asyncio.get_running_loop().time() + 2)
+    row = sender.results.get("s")
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["source"] == "sse"
+    assert driver.dom_reads == 0 and driver.eval_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_disconnect_keeps_partial_and_approval_task_stops(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=True)
+    sender.results.ensure_queued("s", "private")
+    owner = f"{os.getpid()}:test"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    driver = StreamDriver([_capture("So far")])
+    driver.stop_after_first = True
+    await sender._capture_until_complete(driver, {"status": 200}, "s", owner, deadline=asyncio.get_running_loop().time() + 2)
+    row = sender.results.get("s")
+    assert row is not None
+    assert row["status"] == "interrupted"
+    assert row["assistant_text"] == "So far"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_during_capture_updates_global_backoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "private")
+    owner = f"{os.getpid()}:test"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    seen: list[str] = []
+    monkeypatch.setattr(sender.runtime, "record_global_rate_limit", lambda exc: seen.append(type(exc).__name__))
+    await sender._capture_until_complete(StreamDriver([None]), {"status": 429}, "s", owner, deadline=asyncio.get_running_loop().time() + 2)
+    assert seen == ["RateLimitError"]
+    row = sender.results.get("s")
+    assert row is not None
+    assert row["status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_extra_chatgpt_continuation_post_uses_dom_without_closing_early(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=True)
+    sender.results.ensure_queued("s", "prompt")
+    owner = f"{os.getpid()}:test"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    driver = StreamDriver([_capture("Approved answer", "complete")])
+    await sender._capture_until_complete(
+        driver, {"ambiguous_request": True, "status": 200}, "s", owner,
+        deadline=asyncio.get_running_loop().time() + 2,
+    )
+    row = sender.results.get("s")
+    assert row is not None and row["status"] == "completed"
+    assert row["source"] == "dom" and row["assistant_text"] == "Approved answer"
+    assert driver.dom_reads == 0
+
+
+def test_delivery_queue_persists_scheduled_run_and_terminal_status(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    receipt, created = queue.enqueue_idempotent({
+        "send_id": "scheduled-1", "client_id": "scheduled:key:review-job",
+        "message": "Review the code", "created_at": 123.0,
+    })
+    assert created and receipt["status"] == "queued"
+    row = queue.results.get("scheduled-1")
+    assert row is not None and row["status"] == "queued"
+    assert row["job_name"] == "review-job" and row["created_at"] == 123.0
+    assert queue.cancel_pending("scheduled-1", now=130)
+    row = queue.results.get("scheduled-1")
+    assert row is not None and row["status"] == "unavailable"

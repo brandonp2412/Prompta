@@ -36,8 +36,9 @@ const makeMessage = (id, text, copy = false) => {
 const main = {
   querySelectorAll: () => nodes,
 };
+const pushed = [];
 const context = {
-  window: {},
+  window: { __promptaPassiveUpdate: (snapshot) => pushed.push(snapshot) },
   document: {
     querySelector: (selector) => selector === "main" ? main : hasStop ? {} : null,
   },
@@ -65,6 +66,8 @@ nodes[0] = makeMessage("new-one", "Answer", true);
 time += 1000;
 snap = vm.runInContext(readSource, context);
 assert.equal(snap.complete, true);
+assert.equal(pushed.at(-1).complete, true);
+assert.equal(pushed.at(-1).text, "Answer");
 nodes.push(makeMessage("other-branch", "Wrong branch", true));
 snap = vm.runInContext(readSource, context);
 assert.equal(snap.ambiguous, true);

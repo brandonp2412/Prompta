@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Mapping
+from functools import cached_property
 from pathlib import Path
 
 from sqlalchemy import case, func, or_, select, update
@@ -16,6 +17,7 @@ from .delivery_state import (
     completion_action,
 )
 from .persistence import create_database, job_deliveries
+from .response_store import ResponseStore
 from .strict_types import float_value, int_value
 
 
@@ -25,6 +27,10 @@ class DeliveryQueueStore:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser()
         self.engine = create_database(self.path, timeout=30.0)
+
+    @cached_property
+    def results(self) -> ResponseStore:
+        return ResponseStore(self.path.parent / "chat-results.sqlite3")
 
     def connect(self) -> Connection:
         return self.engine.connect()
@@ -146,7 +152,16 @@ class DeliveryQueueStore:
                 )
             if row is None:
                 raise RuntimeError("delivery insert completed without a matching queue record")
-            return self.record_from_row(row), result.rowcount == 1
+            receipt = self.record_from_row(row)
+            created = result.rowcount == 1
+        if created or receipt["status"] in ("queued", "running", "retrying", "rate_limited"):
+            client = str(receipt["client_id"])
+            job_name = client.split(":", 2)[2] if client.startswith("scheduled:") and client.count(":") >= 2 else ""
+            self.results.ensure_queued(
+                str(receipt["send_id"]), str(receipt["message"]), job_name,
+                now=float_value(receipt["created_at"]),
+            )
+        return receipt, created
 
     def enqueue_manual(
         self, prompt: str, *, now: float | None = None, pin_chat: bool = False
@@ -188,7 +203,10 @@ class DeliveryQueueStore:
                     lease_expires_at=0,
                 )
             )
-            return result.rowcount == 1
+            cancelled = result.rowcount == 1
+        if cancelled:
+            self.results.unavailable(send_id)
+        return cancelled
 
     def upsert(self, record: dict[str, object]) -> None:
         send_id, message = str(record.get("send_id") or ""), str(record.get("message") or "")
@@ -223,6 +241,10 @@ class DeliveryQueueStore:
                     },
                 )
             )
+        if values["status"] in ("queued", "running", "retrying", "rate_limited"):
+            client = str(values["client_id"])
+            job_name = client.split(":", 2)[2] if client.startswith("scheduled:") and client.count(":") >= 2 else ""
+            self.results.ensure_queued(send_id, message, job_name, now=created)
 
     def claim_next(
         self,
@@ -385,4 +407,7 @@ class DeliveryQueueStore:
                     lease_expires_at=0,
                 )
             )
-            return result.rowcount == 1
+            failed = result.rowcount == 1
+        if failed:
+            self.results.unavailable(send_id)
+        return failed

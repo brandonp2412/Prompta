@@ -206,7 +206,10 @@ def _deliver_one(
 
     try:
         try:
-            sender(message, pin_chat=once)
+            if isinstance(sender, BrowserDeliverySender):
+                sender(message, pin_chat=once, send_id=send_id, job_name=job_name)
+            else:
+                sender(message, pin_chat=once)
         except RateLimitError as exc:
             remaining, _attempts = runtime.global_backoff_status()
             delay = remaining if remaining > 0 else max(1.0, float(exc.retry_after))
@@ -263,6 +266,7 @@ def _deliver_one(
                 )
             return
         except SendOutcomeUnknownError as exc:
+            queue.results.unavailable(send_id)
             queue.fail_claim(
                 send_id,
                 owner,
@@ -311,7 +315,7 @@ def _deliver_one(
         if not queue.complete_claim(send_id, owner):
             logger.error("Could not commit successful delivery receipt send_id=%s", send_id)
             return
-        logger.info("Prompta dispatched and discarded fresh chat send_id=%s", send_id)
+        logger.info("Prompta accepted fresh chat and handed off passive capture send_id=%s", send_id)
     finally:
         lease_stop.set()
         renewer.join(timeout=1.0)
@@ -342,6 +346,8 @@ def run(
     owner = socket.gethostname() + ":" + str(os.getpid()) + ":" + uuid.uuid4().hex[:8]
 
     logger.info("Prompta jobs delivery worker consuming %s", queue.path)
+    if hasattr(sender, "results"):
+        sender.results.recover_orphans()
     health.reset_activity("delivery_worker")
     notify_watchdog()
 

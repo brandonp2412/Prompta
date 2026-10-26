@@ -18,6 +18,8 @@
     return ids.length === 1 ? ids[0] : "";
   };
   let timer = null;
+  let settleTimer = null;
+  let published = "";
   let changedAt = Date.now();
   let lastText = "";
   let result = { message_id: "", text: "", complete: false, ambiguous: false };
@@ -35,6 +37,11 @@
     if (text !== lastText) {
       changedAt = Date.now();
       lastText = text;
+      if (settleTimer !== null) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        sample(); // single delayed finality check after this text change
+      }, 850);
     }
     const turn = element.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || element;
     const copyReady = [...turn.querySelectorAll(copySelector)].some(visible);
@@ -42,10 +49,17 @@
     const generating = !!document.querySelector(stopSelector);
     result = {
       message_id: identity(element),
-      text,
+      text: text.slice(0, 2 * 1024 * 1024),
       complete: !!text && copyReady && !streaming && !generating && Date.now() - changedAt >= 750,
       ambiguous: false,
     };
+    // Emit only mutation-coalesced changes over Playwright's in-page binding.
+    // No network request, periodic polling, or alternate conversation access.
+    const signature = `${result.message_id}:${result.complete}:${result.text}`;
+    if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
+      published = signature;
+      Promise.resolve(window.__promptaPassiveUpdate({ ...result })).catch(() => {});
+    }
   };
   const schedule = () => {
     if (timer !== null) return; // mutation-driven, at most one scan per 450ms
@@ -70,7 +84,9 @@
     stop: () => {
       observer.disconnect();
       if (timer !== null) clearTimeout(timer);
+      if (settleTimer !== null) clearTimeout(settleTimer);
       timer = null;
+      settleTimer = null;
     },
   };
   return true;

@@ -220,6 +220,7 @@ class PlaywrightDriver:
         self._network_subscribed = False
         self._send_capture: dict[str, object] | None = None
         self._response_tasks: set[asyncio.Task[None]] = set()
+        self._response_events: asyncio.Queue[CaptureResult | None] = asyncio.Queue(maxsize=4)
         self.needs_browser_restart = False
         self.profile = profile.expanduser().resolve()
         self.chrome_path = chrome_path
@@ -328,6 +329,7 @@ class PlaywrightDriver:
         if not context_id:
             return
         self._pages.pop(context_id, None)
+        self._signal_response(None)
         self._owned_contexts.discard(context_id)
         if self.context == context_id:
             self.context = next(
@@ -448,6 +450,7 @@ class PlaywrightDriver:
             return
         if capture.get("request_obj") is not None:
             capture["ambiguous_request"] = True
+            self._signal_response(None)
             return
         capture["request_obj"] = request
         capture["request_id"] = str(id(request))
@@ -478,11 +481,38 @@ class PlaywrightDriver:
             body = await response.text()
             if not capture.get("ambiguous_request"):
                 capture["assistant_result"] = parse_sse_body(body)
+                self._signal_response(capture["assistant_result"])
         except asyncio.CancelledError:
             capture["assistant_capture_stop"] = "interrupted"
+            self._signal_response(None)
             raise
         except (PlaywrightError, RuntimeError):
             capture["assistant_capture_stop"] = "interrupted"
+            self._signal_response(None)
+
+    def _signal_response(self, result: CaptureResult | None) -> None:
+        if self._response_events.full():
+            self._response_events.get_nowait()
+        self._response_events.put_nowait(result)
+
+    async def enable_passive_updates(self) -> None:
+        page = self._pages.get(self.context)
+        if page is None or page.is_closed():
+            raise RuntimeError("The owned capture tab is unavailable")
+
+        def on_change(payload: object) -> None:
+            result = normalize_dom_snapshot(payload)
+            if result.message_id:
+                self._signal_response(result)
+
+        # Page-scoped CDP binding, not an HTTP request, refresh, or DOM scrape.
+        await page.expose_function("__promptaPassiveUpdate", on_change)
+
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+        try:
+            return await asyncio.wait_for(self._response_events.get(), timeout=max(0.01, timeout))
+        except TimeoutError:
+            return None
 
     @staticmethod
     def captured_assistant_response(capture: dict[str, object]) -> CaptureResult | None:

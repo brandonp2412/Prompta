@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,13 +11,21 @@ import pytest
 
 import prompta.delivery_browser as delivery_browser
 import prompta.playwright_driver as playwright_driver
+from prompta.config import ConnectorApproval
 from prompta.delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
     _is_conversation_path,
 )
 from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
+from prompta.response_capture import CaptureResult
 from prompta.send_outcome import SendOutcomeUnknownError
+
+
+@pytest.fixture(autouse=True)
+def offline_approval_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Test behavior must not depend on the host's live connector-approval config.
+    monkeypatch.setattr(ConnectorApproval, "load", classmethod(lambda cls: cls(False)))
 
 
 class FakeDriver:
@@ -68,6 +78,19 @@ class FakeDriver:
 
     def arm_send_capture(self) -> dict[str, object]:
         return self.capture
+
+    async def enable_passive_updates(self) -> None:
+        return None
+
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+        await asyncio.sleep(min(timeout, 0.01))
+        return None
+
+    def captured_assistant_response(self, _capture: dict[str, object]) -> CaptureResult | None:
+        return None
+
+    async def observed_assistant_response(self) -> CaptureResult:
+        return CaptureResult("dom", "unknown", "", None, None, None)
 
     async def type_message(self, message: str) -> None:
         self.composer = message
@@ -3125,7 +3148,9 @@ def test_connector_supervision_does_not_block_next_delivery(tmp_path: Path) -> N
     driver = FakeDriver()
 
     class Sender(BrowserDeliverySender):
-        async def _handle_connector_approvals(self, driver: delivery_browser.BrowserDriver) -> None:
+        async def _handle_connector_approvals(
+            self, driver: delivery_browser.PassiveCaptureDriver, *, deadline: float | None = None
+        ) -> None:
             await asyncio.to_thread(release.wait)
 
     class Driver(FakeDriver):
@@ -3142,3 +3167,44 @@ def test_connector_supervision_does_not_block_next_delivery(tmp_path: Path) -> N
     finally:
         release.set()
     assert closed.wait(2)
+
+
+def test_passive_capture_handoff_does_not_hold_delivery_worker(tmp_path: Path) -> None:
+    class StreamedDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.ready = threading.Event()
+            self.closed_event = threading.Event()
+            self.clicks = 0
+
+        async def click_send(self, expected_message: str) -> None:
+            self.clicks += 1
+            await super().click_send(expected_message)
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            if await asyncio.to_thread(self.ready.wait, timeout):
+                return CaptureResult("dom", "complete", "Done without polling", None, "m1", None)
+            return None
+
+        async def close_context(self, context: str) -> None:
+            await super().close_context(context)
+            self.closed_event.set()
+
+    driver = StreamedDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, connector_approval=False,
+    )
+    started = time.monotonic()
+    sender("Fresh chat", send_id="run-1", job_name="sample")
+    assert time.monotonic() - started < 3
+    assert driver.clicks == 1
+    assert driver.closed_contexts == []
+    accepted = sender.results.get("run-1")
+    assert accepted is not None and accepted["status"] == "accepted"
+    assert accepted["user_text"] == "Fresh chat"
+    driver.ready.set()
+    assert driver.closed_event.wait(3)
+    result = sender.results.get("run-1")
+    assert result is not None and result["status"] == "completed"
+    assert result["assistant_text"] == "Done without polling"
+    assert driver.clicks == 1

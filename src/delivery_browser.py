@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 from .browser_driver import BrowserDriver
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
@@ -16,6 +16,8 @@ from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError, is_rate_limited_text
+from .response_capture import CaptureResult
+from .response_store import ResponseStore
 from .scheduler_runtime import SchedulerRuntime
 from .send_outcome import SendOutcomeUnknownError
 from .strict_types import int_value
@@ -33,6 +35,7 @@ _MODEL_SELECTION_TIMEOUT_SECONDS = 20.0
 _EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
 _SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
 _SEND_CONFIRM_STATE_TIMEOUT_SECONDS = 8.0
+_MAX_BACKGROUND_CAPTURES = 96
 
 
 def _is_conversation_path(path: str) -> bool:
@@ -64,6 +67,15 @@ async def _timed_stage(
         round((time.monotonic() - started) * 1000),
     )
     return result
+
+
+class PassiveCaptureDriver(Protocol):
+    @property
+    def is_connected(self) -> bool: ...
+    async def eval(self, expression: str, /) -> object: ...
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None: ...
+    def captured_assistant_response(self, capture: dict[str, object], /) -> CaptureResult | None: ...
+    async def observed_assistant_response(self) -> CaptureResult: ...
 
 
 class DeliveryBackendUnavailableError(RuntimeError):
@@ -113,6 +125,8 @@ class BrowserDeliverySender:
         self._dispatch_started = False
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
         self._next_effort_preference_retry_at = 0.0
+        self.results = ResponseStore(state_dir / "chat-results.sqlite3")
+        self._capture_slots = threading.BoundedSemaphore(_MAX_BACKGROUND_CAPTURES)
 
     def _new_driver(self) -> BrowserDriver:
         if self.driver_factory is not None:
@@ -181,7 +195,7 @@ class BrowserDeliverySender:
         )
         logger.info("Prompta set and verified preferred model and High effort")
 
-    def __call__(self, message: str, *, pin_chat: bool = False) -> None:
+    def __call__(self, message: str, *, pin_chat: bool = False, send_id: str = "", job_name: str = "") -> None:
         if not message.strip():
             raise ValueError("prompta prompt is empty")
 
@@ -200,6 +214,52 @@ class BrowserDeliverySender:
             )
 
         self._dispatch_started = False
+        if send_id:
+            self.results.ensure_queued(send_id, message, job_name)
+            if self._capture_slots.acquire(blocking=False):
+                handshake = threading.Event()
+                confirmed = threading.Event()
+                errors: list[BaseException] = []
+
+                def dispatch_and_capture() -> None:
+                    try:
+                        asyncio.run(self._send_browser(
+                            message, accepted=handshake, confirmed=confirmed,
+                            pin_chat=pin_chat, send_id=send_id,
+                        ))
+                    except BaseException as exc:
+                        if not confirmed.is_set():
+                            errors.append(exc)
+                        else:
+                            logger.warning("Background capture interrupted error_type=%s", type(exc).__name__)
+                    finally:
+                        handshake.set()
+                        self._capture_slots.release()
+
+                threading.Thread(
+                    target=dispatch_and_capture, name="prompta-passive-capture", daemon=True
+                ).start()
+                handshake.wait()
+                if confirmed.is_set():
+                    return
+                if errors:
+                    exc = errors[0]
+                    if isinstance(exc, TimeoutError):
+                        if self._dispatch_started:
+                            raise SendOutcomeUnknownError(
+                                "Prompta delivery deadline expired after dispatch",
+                                stage="delivery_timeout",
+                            ) from exc
+                        raise DeliveryBackendUnavailableError(
+                            "Prompta delivery deadline expired before dispatch"
+                        ) from exc
+                    if isinstance(exc, RateLimitError):
+                        delay = self.runtime.record_global_rate_limit(exc)
+                        raise RateLimitError(str(exc), retry_after=max(1, math.ceil(delay))) from exc
+                    raise exc
+                raise RuntimeError("Background delivery ended without a receipt")
+            self.results.unavailable(send_id)
+            logger.warning("Passive capture capacity reached; sending without retention")
         try:
             if self.connector_approval:
                 finished = threading.Event()
@@ -235,8 +295,10 @@ class BrowserDeliverySender:
                 retry_after=max(1, math.ceil(delay)),
             ) from exc
 
-    async def _handle_connector_approvals(self, driver: BrowserDriver) -> None:
-        deadline = asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS
+    async def _handle_connector_approvals(
+        self, driver: PassiveCaptureDriver, *, deadline: float | None = None
+    ) -> None:
+        deadline = deadline or asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS
         approved_count = 0
         while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
             try:
@@ -255,22 +317,102 @@ class BrowserDeliverySender:
                 logger.info("Connector permission check unavailable error_type=%s", type(exc).__name__)
             await asyncio.sleep(min(1.0, max(0.0, deadline - asyncio.get_running_loop().time())))
 
+    async def _capture_until_complete(
+        self, driver: PassiveCaptureDriver, capture: dict[str, object], send_id: str,
+        owner: str, *, deadline: float,
+    ) -> None:
+        """Use SSE completion and mutation notifications from this tab; never fetch."""
+        approval_task: asyncio.Task[None] | None = None
+        if self.connector_approval:
+            approval_task = asyncio.create_task(
+                self._handle_connector_approvals(driver, deadline=deadline)
+            )
+        last_saved_at = 0.0
+        pending: CaptureResult | None = None
+        seen_message = ""
+        final_status: str = "interrupted"
+        try:
+            while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                if not driver.is_connected:
+                    break
+                # Waiting is local: queue entries are emitted by the existing
+                # POST or semantic MutationObserver, not by reading ChatGPT.
+                update = await driver.wait_capture_update(timeout=min(5.0, remaining))
+                # Multiple ChatGPT-owned continuation POSTs can follow connector
+                # approvals. Do not splice their SSE data or close the tab;
+                # keep observing the unique semantic DOM answer until finality/TTL.
+                sse = (
+                    None if capture.get("ambiguous_request")
+                    else driver.captured_assistant_response(capture)
+                )
+                if int_value(capture.get("status")) == 429:
+                    self.runtime.record_global_rate_limit(RateLimitError("ChatGPT response rate limited"))
+                    final_status = "unavailable"
+                    break
+                if sse is not None and sse.status == "complete":
+                    update = sse
+                elif update is None and sse is not None and sse.text:
+                    update = sse
+                if update is not None and update.text:
+                    if seen_message and update.message_id and seen_message != update.message_id:
+                        final_status = "unavailable"
+                        break
+                    if update.message_id:
+                        seen_message = update.message_id
+                    if pending is None or update.status == "complete" or len(update.text) >= len(pending.text):
+                        pending = update
+                now = asyncio.get_running_loop().time()
+                if pending is not None and (
+                    pending.status == "complete" or now - last_saved_at >= 5.0
+                ):
+                    if not self.results.write(send_id, owner, pending):
+                        final_status = "unavailable"
+                        break
+                    last_saved_at = now
+                    if pending.status == "complete" and pending.message_id:
+                        return
+                if 0 < deadline - now <= 2.0:
+                    # At most one DOM fallback read, inside the hard tab TTL.
+                    snapshot = await asyncio.wait_for(
+                        driver.observed_assistant_response(), timeout=deadline - now
+                    )
+                    if snapshot.text and (pending is None or len(snapshot.text) >= len(pending.text)):
+                        pending = snapshot
+                    break
+            if pending is not None and pending.text:
+                self.results.write(send_id, owner, pending)
+        finally:
+            self.results.finish(send_id, owner, "unavailable" if final_status == "unavailable" else "interrupted")
+            if approval_task is not None:
+                approval_task.cancel()
+                try:
+                    await approval_task
+                except asyncio.CancelledError:
+                    pass
+
     async def _send_browser(
-        self, message: str, *, accepted: threading.Event | None = None, pin_chat: bool = False
+        self, message: str, *, accepted: threading.Event | None = None,
+        confirmed: threading.Event | None = None,
+        pin_chat: bool = False, send_id: str = "",
     ) -> None:
         driver = self._new_driver()
         context = ""
         capture: dict[str, object] | None = None
         send_attempted = False
+        tab_opened_at = 0.0
+        tab_deadline = 0.0
+        capture_owner = f"{os.getpid()}:{threading.get_ident()}:{time.monotonic_ns()}"
 
         async def dispatch() -> None:
-            nonlocal context, capture, send_attempted
+            nonlocal context, capture, send_attempted, tab_opened_at, tab_deadline
             try:
                 if not driver.is_connected:
                     await _timed_stage("cdp_connect", driver.connect(), timeout=45.0)
                 context = await _timed_stage(
                     "fresh_tab_navigation", driver.new_tab(), timeout=40.0
                 )
+                tab_opened_at = time.time()
+                tab_deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
                 await _timed_stage(
                     "composer_readiness", driver.wait_for_composer(), timeout=25.0
                 )
@@ -321,6 +463,13 @@ class BrowserDeliverySender:
                     raise RateLimitError.from_text(rate_limit_text)
                 baseline_send_in_progress = bool(baseline.get("send_in_progress"))
 
+                if send_id:
+                    try:
+                        await _timed_stage(
+                            "passive_capture_binding", driver.enable_passive_updates(), timeout=5.0
+                        )
+                    except Exception as exc:
+                        logger.info("Passive capture binding unavailable error_type=%s", type(exc).__name__)
                 # Observe only this fresh owned tab, before submission. The
                 # mutation observer reads the live DOM; it makes no requests.
                 try:
@@ -554,7 +703,7 @@ class BrowserDeliverySender:
                 ) from exc
         try:
             await asyncio.wait_for(dispatch(), timeout=self.delivery_hard_timeout_seconds)
-            if capture is not None:
+            if not send_id and capture is not None:
                 driver.clear_send_capture(capture)
                 capture = None
             if pin_chat:
@@ -574,13 +723,47 @@ class BrowserDeliverySender:
                         )
                         if attempt == 0:
                             await asyncio.sleep(0.5)
-            if accepted is not None:
-                accepted.set()
-            if self.connector_approval:
-                await self._handle_connector_approvals(driver)
+            if send_id:
+                lease_ok = False
+                try:
+                    lease_ok = self.results.accept(
+                        send_id, capture_owner,
+                        deadline=tab_opened_at + MAX_OWNED_TAB_AGE_SECONDS,
+                    )
+                except Exception as exc:
+                    logger.warning("Passive capture lease failed error_type=%s", type(exc).__name__)
+                # An accepted send is final even if local result persistence fails.
+                if confirmed is not None:
+                    confirmed.set()
+                if accepted is not None:
+                    accepted.set()
+                try:
+                    if lease_ok and capture is not None:
+                        await self._capture_until_complete(
+                            driver, capture, send_id, capture_owner, deadline=tab_deadline
+                        )
+                    else:
+                        self.results.unavailable(send_id)
+                except Exception as exc:
+                    logger.warning("Passive capture stopped error_type=%s", type(exc).__name__)
+                    self.results.finish(send_id, capture_owner, "interrupted")
+            else:
+                if confirmed is not None:
+                    confirmed.set()
+                if accepted is not None:
+                    accepted.set()
+                if self.connector_approval:
+                    await self._handle_connector_approvals(driver)
         finally:
             if capture is not None:
                 driver.clear_send_capture(capture)
+            if send_id and context:
+                try:
+                    await asyncio.wait_for(
+                        driver.eval(load_browser_script("passive_response_stop.js")), timeout=1.0
+                    )
+                except Exception:
+                    pass
             if context:
                 try:
                     await _timed_stage(
