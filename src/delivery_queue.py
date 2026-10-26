@@ -148,7 +148,9 @@ class DeliveryQueueStore:
                 raise RuntimeError("delivery insert completed without a matching queue record")
             return self.record_from_row(row), result.rowcount == 1
 
-    def enqueue_manual(self, prompt: str, *, now: float | None = None) -> dict[str, object]:
+    def enqueue_manual(
+        self, prompt: str, *, now: float | None = None, pin_chat: bool = False
+    ) -> dict[str, object]:
         """Queue an independent fresh chat without touching any job's schedule."""
         if not prompt.strip():
             raise ValueError("Prompt is required")
@@ -156,7 +158,7 @@ class DeliveryQueueStore:
         receipt, _created = self.enqueue_idempotent(
             {
                 "send_id": f"manual-{request_id}",
-                "client_id": f"manual:{request_id}",
+                "client_id": f"manual:{'once:' if pin_chat else ''}{request_id}",
                 "message": prompt,
                 "created_at": time.time() if now is None else now,
             }

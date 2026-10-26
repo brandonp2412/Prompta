@@ -8,7 +8,9 @@ from sqlalchemy.exc import OperationalError
 from prompta.config import WorkingHours
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.delivery_worker import DeliveryAdmission, _deliver_one, _sqlite_busy
+from prompta.jobs import add_job, load_jobs
 from prompta.scheduler_runtime import SchedulerRuntime
+from prompta.scheduler_service import DurableSchedulerProducer
 from prompta.service_health import ServiceHealthStore
 
 
@@ -89,7 +91,8 @@ def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> Non
 
     calls: list[str] = []
 
-    def sender(message: str) -> None:
+    def sender(message: str, *, pin_chat: bool = False) -> None:
+        assert not pin_chat
         calls.append(message)
 
     _deliver_one(
@@ -105,6 +108,50 @@ def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> Non
     cancelled = queue.get("scheduled-send")
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
+
+
+def test_queued_once_job_survives_scheduled_job_removal_and_pins_chat(tmp_path: Path) -> None:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    add_job(runtime_path, "one-time", "Only once", 0, run_at_epoch=1000.0)
+    producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
+    assert producer.tick(now=1000.0) == 1
+    assert "one-time" not in load_jobs(runtime_path)
+    record = producer.queue.claim_next("worker", now=1001.0, lease_seconds=30.0)
+    assert record is not None
+    calls: list[tuple[str, bool]] = []
+
+    def sender(message: str, *, pin_chat: bool = False) -> None:
+        calls.append((message, pin_chat))
+
+    _deliver_one(
+        producer.queue, sender, producer.runtime,
+        ServiceHealthStore(tmp_path / "health.sqlite3"), "worker", record,
+    )
+    assert calls == [("Only once", True)]
+    receipt = producer.queue.get(str(record["send_id"]))
+    assert receipt is not None and receipt["status"] == "succeeded"
+
+
+def test_manual_once_job_is_pinned(tmp_path: Path) -> None:
+    from prompta.manual_fire import fire_job_now
+
+    state = tmp_path / "runtime.sqlite3"
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    runtime = SchedulerRuntime(state, state)
+    add_job(state, "once", "Fire me", 0, run_at_epoch=2000.0)
+    fire_job_now(load_jobs(state)["once"], runtime=runtime, queue=queue, now=1000.0)
+    record = queue.claim_next("worker", now=1001.0, lease_seconds=30.0)
+    assert record is not None
+    calls: list[tuple[str, bool]] = []
+
+    def sender(message: str, *, pin_chat: bool = False) -> None:
+        calls.append((message, pin_chat))
+
+    _deliver_one(
+        queue, sender, runtime, ServiceHealthStore(tmp_path / "health.sqlite3"), "worker", record
+    )
+    assert calls == [("Fire me", True)]
 
 
 def test_manual_delivery_bypasses_working_hours_but_keeps_other_limits(
@@ -127,9 +174,14 @@ def test_manual_queued_prompt_uses_standard_delivery_path(tmp_path: Path) -> Non
     claimed = queue.claim_next("worker", now=20.0, lease_seconds=30.0)
     assert claimed is not None
     messages: list[str] = []
+
+    def sender(message: str, *, pin_chat: bool = False) -> None:
+        assert not pin_chat
+        messages.append(message)
+
     _deliver_one(
         queue,
-        messages.append,
+        sender,
         SchedulerRuntime(state, state),
         ServiceHealthStore(tmp_path / "health.sqlite3"),
         "worker",

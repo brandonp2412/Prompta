@@ -72,6 +72,9 @@ class FakeDriver:
     async def type_message(self, message: str) -> None:
         self.composer = message
 
+    async def pin_current_chat(self) -> None:
+        return None
+
     async def click_send(self, expected_message: str) -> None:
         assert _normalise_composer_text(self.composer) == _normalise_composer_text(expected_message)
         self.composer = ""
@@ -127,6 +130,41 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
     assert driver.closed_contexts == ["fresh-tab"]
     assert driver.closed is True
     assert driver.composer == ""
+
+
+@pytest.mark.asyncio
+async def test_once_chat_is_pinned_after_acceptance_before_tab_cleanup(tmp_path: Path) -> None:
+    actions: list[str] = []
+
+    class PinDriver(FakeDriver):
+        async def pin_current_chat(self) -> None:
+            actions.append("pin")
+            assert self.closed_contexts == []
+            assert self.composer == ""
+
+        async def close_context(self, context: str) -> None:
+            actions.append("close")
+            await super().close_context(context)
+
+    driver = PinDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+    await sender._send_browser("Once job", pin_chat=True)
+    assert actions == ["pin", "close"]
+
+
+@pytest.mark.asyncio
+async def test_pin_failure_never_resends_accepted_once_job(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    class PinFailureDriver(FakeDriver):
+        async def pin_current_chat(self) -> None:
+            raise RuntimeError("Pin control unavailable")
+
+    driver = PinFailureDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+    await sender._send_browser("Once job", pin_chat=True)
+    assert "could not be pinned" in caplog.text
+    assert driver.closed_contexts == ["fresh-tab"]
 
 
 def test_delivery_deadline_before_dispatch_is_retryable_and_closes_tab(tmp_path: Path) -> None:

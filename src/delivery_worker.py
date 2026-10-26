@@ -11,6 +11,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
 
@@ -156,9 +157,13 @@ def _scheduled_job_name(record: dict[str, object]) -> str:
     return job_name if separator else ""
 
 
+class DeliverySender(Protocol):
+    def __call__(self, message: str, *, pin_chat: bool = False) -> None: ...
+
+
 def _deliver_one(
     queue: DeliveryQueueStore,
-    sender: Callable[[str], None],
+    sender: DeliverySender,
     runtime: SchedulerRuntime,
     health: ServiceHealthStore,
     owner: str,
@@ -167,7 +172,13 @@ def _deliver_one(
     send_id = str(record["send_id"])
     message = str(record.get("message") or "")
     job_name = _scheduled_job_name(record)
-    if job_name and job_name not in runtime.read_jobs():
+    state = runtime.job_state(job_name) if job_name else {}
+    once = (
+        (bool(state.get("pending_delivery_one_time"))
+         and state.get("last_delivery_send_id") == send_id)
+        if job_name else str(record.get("client_id") or "").startswith("manual:once:")
+    )
+    if job_name and job_name not in runtime.read_jobs() and not once:
         error = f"scheduled job {job_name!r} was removed before delivery"
         if queue.fail_claim(send_id, owner, status="cancelled", error=error):
             logger.info(
@@ -195,7 +206,7 @@ def _deliver_one(
 
     try:
         try:
-            sender(message)
+            sender(message, pin_chat=once)
         except RateLimitError as exc:
             remaining, _attempts = runtime.global_backoff_status()
             delay = remaining if remaining > 0 else max(1.0, float(exc.retry_after))

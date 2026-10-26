@@ -181,7 +181,7 @@ class BrowserDeliverySender:
         )
         logger.info("Prompta set and verified preferred model and High effort")
 
-    def __call__(self, message: str) -> None:
+    def __call__(self, message: str, *, pin_chat: bool = False) -> None:
         if not message.strip():
             raise ValueError("prompta prompt is empty")
 
@@ -207,7 +207,7 @@ class BrowserDeliverySender:
 
                 def deliver() -> None:
                     try:
-                        asyncio.run(self._send_browser(message, accepted=finished))
+                        asyncio.run(self._send_browser(message, accepted=finished, pin_chat=pin_chat))
                     except BaseException as exc:
                         errors.append(exc)
                     finally:
@@ -218,7 +218,7 @@ class BrowserDeliverySender:
                 if errors:
                     raise errors[0]
             else:
-                asyncio.run(self._send_browser(message))
+                asyncio.run(self._send_browser(message, pin_chat=pin_chat))
         except TimeoutError as exc:
             if self._dispatch_started:
                 raise SendOutcomeUnknownError(
@@ -256,7 +256,7 @@ class BrowserDeliverySender:
             await asyncio.sleep(min(1.0, max(0.0, deadline - asyncio.get_running_loop().time())))
 
     async def _send_browser(
-        self, message: str, *, accepted: threading.Event | None = None
+        self, message: str, *, accepted: threading.Event | None = None, pin_chat: bool = False
     ) -> None:
         driver = self._new_driver()
         context = ""
@@ -544,6 +544,23 @@ class BrowserDeliverySender:
             if capture is not None:
                 driver.clear_send_capture(capture)
                 capture = None
+            if pin_chat:
+                for attempt in range(2):
+                    try:
+                        await _timed_stage(
+                            "once_chat_pin", driver.pin_current_chat(), timeout=25.0
+                        )
+                        break
+                    except Exception as exc:
+                        # The prompt was accepted: retry the pin, never the send.
+                        logger.log(
+                            logging.ERROR if attempt else logging.WARNING,
+                            "Accepted Once job chat could not be pinned attempt=%d error_type=%s",
+                            attempt + 1,
+                            type(exc).__name__,
+                        )
+                        if attempt == 0:
+                            await asyncio.sleep(0.5)
             if accepted is not None:
                 accepted.set()
             if self.connector_approval:

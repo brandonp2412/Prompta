@@ -6,6 +6,6 @@
 - Prompta is jobs-only. The browser UI and backend exist only to configure, schedule, dispatch, retry, and report operational status for jobs.
 - Every job run must start a fresh ChatGPT chat. Confirm only that prompt submission was accepted, then close/discard the Prompta-owned tab. When connector_approval.enabled is true, retain the tab for no more than 45 minutes and handle successive Always allow permission controls before closing it. An independent watchdog must reap expired owned tabs even if a worker is stuck or crashes.
 - Never read, cache, parse, render, reconcile, poll, recover, or otherwise consume assistant responses or chat transcripts.
-- Do not add replies to existing chats, conversation-history UI, conversation IDs, attachments, pinned/read state, result notifications, Machine Gun Mode, or unattended chat-running modes.
+- Do not add replies to existing chats, conversation-history UI, conversation IDs, attachments, persistent pinned/read state, result notifications, Machine Gun Mode, or unattended chat-running modes. Exception: pin each newly accepted Once job chat using its own temporary browser tab; do not store conversation IDs or read the chat.
 - Keep the web surface limited to jobs management and operational health.
 - Build browser UI with Svelte 5 + TypeScript + Vite.
