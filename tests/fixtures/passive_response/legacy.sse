@@ -1,0 +1,9 @@
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"analysis-1","author":{"role":"assistant"},"recipient":"all","channel":"analysis","content":{"content_type":"text","parts":["private reasoning"]}}}
+
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"tool-1","author":{"role":"assistant"},"recipient":"python","content":{"content_type":"code","parts":["private tool code"]}}}
+
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"final-1","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Hello"]},"status":"in_progress"}}
+
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"final-1","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Hello world"]},"status":"finished_successfully","end_turn":true}}
+
+data: [DONE]

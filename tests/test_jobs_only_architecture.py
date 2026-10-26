@@ -17,18 +17,14 @@ def test_chat_client_modules_are_absent() -> None:
     assert removed.isdisjoint({path.name for path in Path("src").glob("*.py")})
 
 
-def test_ui_contains_only_jobs_surface() -> None:
-    assert {path.name for path in Path("src/ui").glob("*")} == {
-        "App.svelte",
-        "JobsPage.svelte",
-        "jobSorting.ts",
-        "main.ts",
-    }
+def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     app = Path("src/ui/App.svelte").read_text()
     assert "JobsPage" in app
-    assert "PromptaPage" not in app
     assert "Machine Gun" not in app
-    assert "Jobs only" not in app
+    for component in Path("src/ui").glob("*.svelte"):
+        source = component.read_text()
+        assert "Machine Gun" not in source
+        assert "/backend-api/conversation" not in source
 
 
 def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
@@ -58,13 +54,11 @@ def test_jobs_ui_pause_resume_targets_only_visible_page() -> None:
     assert '"resume_all"' not in page
 
 
-def test_web_server_exposes_no_chat_or_result_routes() -> None:
+def test_web_server_exposes_no_mutating_chat_routes() -> None:
     web = Path("src/web.py").read_text()
     assert "/api/jobs" in web
     assert "/api/health" in web
     for route in (
-        "/api/chats",
-        "/api/messages",
         "/api/send",
         "/api/reply",
         "/api/pins",
@@ -80,3 +74,21 @@ def test_machine_gun_and_unattended_modes_are_removed() -> None:
     assert "machine gun" not in lowered
     assert "machine_gun" not in lowered
     assert "unattended_mode" not in lowered
+
+
+def test_passive_capture_is_owned_and_history_free() -> None:
+    guardrails = Path("AGENTS.md").read_text().casefold()
+    for phrase in (
+        "fresh chat",
+        "hard 45-minute ttl",
+        "no additional requests",
+        "history/get endpoints",
+        "global rate-limit backoff",
+        "machine gun mode",
+        "no raw messages in logs",
+    ):
+        assert phrase in guardrails
+    source = Path("src/response_capture.py").read_text()
+    assert "urlopen" not in source
+    assert "requests.get" not in source
+    assert "/backend-api/conversation/" not in source

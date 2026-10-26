@@ -1,0 +1,13 @@
+data: {"p":"/message","o":"add","v":{"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"reasoning","author":{"role":"assistant"},"channel":"analysis","recipient":"all","content":{"content_type":"text","parts":["not for UI"]}}}}
+
+data: {"o":"append","v":" also hidden"}
+
+data: {"p":"/message","o":"add","v":{"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"answer-1","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Hel"]},"status":"in_progress"}}}
+
+data: {"p":"/message/content/parts/0","o":"append","v":"lo"}
+
+data: {"v":" world"}
+
+data: {"o":"patch","v":[{"p":"/message/content/parts/0","o":"append","v":"!"},{"p":"/message/status","o":"replace","v":"finished_successfully"}]}
+
+data: {"type":"message_stream_complete","conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e"}

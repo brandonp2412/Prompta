@@ -1,0 +1,6 @@
+: keep-alive
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"final-1","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Work in progress"]},"status":"in_progress"}}
+
+data: {broken JSON}
+
+data: {

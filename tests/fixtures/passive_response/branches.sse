@@ -1,0 +1,5 @@
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"branch-a","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Branch A"]},"status":"in_progress"}}
+
+data: {"conversation_id":"d5c86e83-1f55-4ab5-ae50-7e2eed27c33e","message":{"id":"branch-b","author":{"role":"assistant"},"recipient":"all","channel":"final","content":{"content_type":"text","parts":["Branch B"]},"status":"in_progress"}}
+
+data: [DONE]

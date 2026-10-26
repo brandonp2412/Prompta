@@ -321,6 +321,19 @@ class BrowserDeliverySender:
                     raise RateLimitError.from_text(rate_limit_text)
                 baseline_send_in_progress = bool(baseline.get("send_in_progress"))
 
+                # Observe only this fresh owned tab, before submission. The
+                # mutation observer reads the live DOM; it makes no requests.
+                try:
+                    await _timed_stage(
+                        "passive_dom_observer_arm",
+                        driver.eval(load_browser_script("passive_response_observer.js")),
+                        timeout=5.0,
+                    )
+                except Exception as exc:
+                    logger.info(
+                        "Passive response observer unavailable error_type=%s",
+                        type(exc).__name__,
+                    )
                 capture = driver.arm_send_capture()
                 await _timed_stage("prompt_insertion", driver.type_message(message), timeout=30.0)
 

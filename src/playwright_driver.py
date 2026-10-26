@@ -40,6 +40,7 @@ from .browser_ownership import (
     record_owned_tab,
 )
 from .browser_script_loader import load_browser_script
+from .response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
 from .send_outcome import SendOutcomeUnknownError
 from .strict_types import int_value, json_object
 
@@ -218,6 +219,7 @@ class PlaywrightDriver:
         self.context = ""
         self._network_subscribed = False
         self._send_capture: dict[str, object] | None = None
+        self._response_tasks: set[asyncio.Task[None]] = set()
         self.needs_browser_restart = False
         self.profile = profile.expanduser().resolve()
         self.chrome_path = chrome_path
@@ -444,6 +446,9 @@ class PlaywrightDriver:
             return
         if request.method.upper() != "POST" or not self._is_send_endpoint(request.url):
             return
+        if capture.get("request_obj") is not None:
+            capture["ambiguous_request"] = True
+            return
         capture["request_obj"] = request
         capture["request_id"] = str(id(request))
 
@@ -453,6 +458,47 @@ class PlaywrightDriver:
             return
         capture["status"] = int(response.status)
         capture["response_started"] = True
+        if (
+            not capture.get("ambiguous_request")
+            and 200 <= response.status < 300
+            and "text/event-stream" in response.headers.get("content-type", "").casefold()
+        ):
+            # This is the existing POST's response. No fetch, routing, or history GET.
+            task = asyncio.create_task(self._read_completed_sse_response(response, capture))
+            self._response_tasks.add(task)
+            task.add_done_callback(self._response_tasks.discard)
+
+    async def _read_completed_sse_response(
+        self, response: Response, capture: dict[str, object]
+    ) -> None:
+        try:
+            await response.finished()
+            # Playwright can read the body after the SSE stream terminates.
+            # Its tab may close first; that is an interrupted capture, never a retry.
+            body = await response.text()
+            if not capture.get("ambiguous_request"):
+                capture["assistant_result"] = parse_sse_body(body)
+        except asyncio.CancelledError:
+            capture["assistant_capture_stop"] = "interrupted"
+            raise
+        except (PlaywrightError, RuntimeError):
+            capture["assistant_capture_stop"] = "interrupted"
+
+    @staticmethod
+    def captured_assistant_response(capture: dict[str, object]) -> CaptureResult | None:
+        result = capture.get("assistant_result")
+        if isinstance(result, CaptureResult):
+            return result
+        if capture.get("assistant_capture_stop") == "interrupted":
+            return CaptureResult("sse", "interrupted", "", None, None, None)
+        return None
+
+    async def observed_assistant_response(self) -> CaptureResult:
+        try:
+            payload = await self.eval(load_browser_script("passive_response_read.js"))
+        except (PlaywrightError, RuntimeError, TimeoutError):
+            return normalize_dom_snapshot(None)
+        return normalize_dom_snapshot(payload)
 
     def _on_request_finished(self, request: Request) -> None:
         capture = self._send_capture
@@ -474,6 +520,7 @@ class PlaywrightDriver:
             "response_started": False,
             "completed": False,
             "fetch_error": "",
+            "ambiguous_request": False,
         }
         self._send_capture = capture
         return capture
@@ -2109,6 +2156,11 @@ class PlaywrightDriver:
         self.context = ""
         self._network_subscribed = False
         self._send_capture = None
+        for task in tuple(self._response_tasks):
+            task.cancel()
+        if self._response_tasks:
+            await asyncio.gather(*self._response_tasks, return_exceptions=True)
+        self._response_tasks.clear()
         self._connected = False
 
         # For an attached browser, stopping Playwright disconnects the automation
