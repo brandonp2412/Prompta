@@ -1289,10 +1289,10 @@ class PlaywrightDriver:
 
         async def open_options() -> None:
             await link.hover()
-            for ancestor in range(1, 4):
+            for ancestor in range(1, 7):
                 row = link.locator(f"xpath=ancestor::div[{ancestor}]")
                 options = row.get_by_role(
-                    "button", name=re.compile(r"(?:conversation|chat)? ?(?:more |other )?options", re.I)
+                    "button", name=re.compile(r"^(?:Chat actions|(?:conversation|chat)? ?(?:more |other )?options)$", re.I)
                 )
                 if await options.count() == 1:
                     await options.click()
