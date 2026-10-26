@@ -1277,14 +1277,14 @@ class PlaywrightDriver:
         page = self._page()
         await page.wait_for_url(re.compile(r"^https://chatgpt\.com/c/[^/?#]+"), timeout=15_000)
         path = urlsplit(page.url).path
-        if not re.fullmatch(r"/c/[a-zA-Z0-9-]+", path):
+        if not re.fullmatch(r"/c/[^/]+", path):
             raise RuntimeError("Fresh chat has no pin-capable conversation route")
 
         show_sidebar = page.get_by_role("button", name=re.compile(r"^(show|open) sidebar$", re.I))
         if await show_sidebar.count() == 1 and await show_sidebar.is_visible():
             await show_sidebar.click()
 
-        link = page.locator(f'nav[aria-label="Chat history"] a[href$="{path}"]')
+        link = page.locator(f'nav[aria-label="Chat history"] a[href$={json.dumps(path)}]')
         await link.wait_for(state="visible", timeout=12_000)
 
         async def open_options() -> None:
