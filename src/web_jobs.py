@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import math
 import re
+import time
+import uuid
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
@@ -33,6 +36,18 @@ def _validated_interval_minutes(value: object) -> float:
         raise ValueError("Interval minutes must be at least 0.1")
     if minutes > 60.0 * 24.0 * 30.0:
         raise ValueError("Interval minutes cannot exceed 30 days")
+    return minutes
+
+
+def _validated_once_delay_minutes(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ValueError("Once delay minutes must be a number")
+    try:
+        minutes = float(value)
+    except ValueError as exc:
+        raise ValueError("Once delay minutes must be a number") from exc
+    if not math.isfinite(minutes) or not 0 <= minutes <= 43200:
+        raise ValueError("Once delay minutes must be between 0 and 43200")
     return minutes
 
 
@@ -131,16 +146,31 @@ class WebJobService:
                 if "mutex_group" in payload
                 else (existing.mutex_group if existing is not None else "")
             ).strip()
+            once = payload.get("schedule") == "once"
             daily_at = str(payload.get("daily_at") or "").strip() or None
-            if daily_at is not None:
+            if once:
+                daily_at = None
+                interval_seconds = 0.0
+                exact_interval = False
+                if "delay_minutes" in payload:
+                    run_at_epoch = time.time() + _validated_once_delay_minutes(payload["delay_minutes"]) * 60
+                else:
+                    run_at_epoch = (
+                        existing.run_at_epoch
+                        if existing is not None and existing.run_at_epoch is not None
+                        else time.time()
+                    )
+            elif daily_at is not None:
                 if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at) is None:
                     raise ValueError("Daily time must use HH:MM")
                 interval_seconds = 0.0
                 exact_interval = False
+                run_at_epoch = None
             else:
                 minutes = _validated_interval_minutes(payload.get("interval_minutes"))
                 interval_seconds = minutes * 60.0
                 exact_interval = payload.get("exact_interval") is True
+                run_at_epoch = None
 
             add_job(
                 self.jobs_path,
@@ -149,6 +179,7 @@ class WebJobService:
                 interval_seconds,
                 daily_at=daily_at,
                 exact_interval=exact_interval,
+                run_at_epoch=run_at_epoch,
                 mutex_group=mutex_group,
             )
             if existing is None:
@@ -157,6 +188,7 @@ class WebJobService:
             elif (
                 existing.interval_seconds != interval_seconds
                 or existing.daily_at != daily_at
+                or existing.run_at_epoch != run_at_epoch
                 or existing.exact_interval != exact_interval
             ):
                 # Rebase a changed cadence from the last actual dispatch, without
@@ -182,9 +214,18 @@ class WebJobService:
             prompt = payload.get("prompt")
             if not isinstance(prompt, str) or not prompt.strip():
                 raise ValueError("Job prompt is required")
-            DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
-                prompt.strip()
-            )
+            delay_minutes = _validated_once_delay_minutes(payload.get("delay_minutes", 0))
+            if delay_minutes == 0:
+                DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
+                    prompt.strip()
+                )
+            else:
+                run_at_epoch = time.time() + delay_minutes * 60
+                label = datetime.fromtimestamp(run_at_epoch).strftime("%d %b %H:%M")
+                name = f"Once {label} {uuid.uuid4().hex[:8]}"
+                add_job(self.jobs_path, name, prompt.strip(), 0, run_at_epoch=run_at_epoch)
+                runtime.clear_job_state(name)
+                self._wake_scheduler()
 
         elif normalized_action == "remove":
             name = str(payload.get("name") or "").strip()

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.jobs import add_job
 from prompta.scheduler_service import DurableSchedulerProducer
@@ -220,6 +222,61 @@ def test_run_once_queues_prompt_without_scheduling_or_changing_existing_jobs(tmp
     assert len(deliveries) == 1
     assert deliveries[0]["message"] == "Investigate now"
     assert str(deliveries[0]["client_id"]).startswith("manual:")
+
+
+def test_run_once_delay_creates_durable_one_shot_and_sends_at_due(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("prompta.web_jobs.time.time", lambda: 1000.0)
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    service = WebJobService(jobs, state, "test-host")
+    scheduled = service.apply("run_once", {"prompt": "Run later", "delay_minutes": 15})
+    assert len(scheduled["jobs"]) == 1
+    job = scheduled["jobs"][0]
+    assert str(job["name"]).startswith("Once ")
+    assert job["run_at_epoch"] == 1900.0
+    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
+
+    producer = DurableSchedulerProducer(state, jobs)
+    assert producer.tick(now=1899.0) == 0
+    assert producer.tick(now=1900.0) == 1
+    assert producer.tick(now=2000.0) == 0
+    records = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert len(records) == 1
+    assert records[0]["message"] == "Run later"
+    assert service.scheduled_jobs()["jobs"] == []
+
+
+def test_delayed_once_edit_preserves_due_until_delay_changes(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("prompta.web_jobs.time.time", lambda: 1000.0)
+    jobs = tmp_path / "jobs.sqlite3"
+    state = tmp_path / "state.sqlite3"
+    service = WebJobService(jobs, state, "test-host")
+    created = service.apply("run_once", {"prompt": "Original", "delay_minutes": 15})
+    name = created["jobs"][0]["name"]
+    edited = service.apply("add", {"name": name, "prompt": "Updated", "schedule": "once"})
+    assert edited["jobs"][0]["run_at_epoch"] == 1900.0
+
+    rescheduled = service.apply(
+        "add", {"name": name, "prompt": "Updated", "schedule": "once", "delay_minutes": 30}
+    )
+    assert rescheduled["jobs"][0]["run_at_epoch"] == 2800.0
+    producer = DurableSchedulerProducer(state, jobs)
+    assert producer.tick(now=1900.0) == 0
+    assert producer.tick(now=2800.0) == 1
+    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()[0]["message"] == "Updated"
+
+
+@pytest.mark.parametrize("delay", [-1, 43201, "nan", "inf", None, True, "abc"])
+@pytest.mark.parametrize("action", ["run_once", "add"])
+def test_once_rejects_invalid_delay(tmp_path: Path, delay: object, action: str) -> None:
+    service = WebJobService(tmp_path / "jobs.sqlite3", tmp_path / "state.sqlite3", "test-host")
+    payload: dict[str, object] = {"prompt": "No", "delay_minutes": delay}
+    if action == "add":
+        payload.update({"name": "invalid", "schedule": "once"})
+    with pytest.raises(ValueError, match="Once delay minutes"):
+        service.apply(action, payload)
+    assert service.scheduled_jobs()["jobs"] == []
+    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
 
 
 def test_run_once_rejects_empty_prompt(tmp_path: Path) -> None:

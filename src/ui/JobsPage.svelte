@@ -64,6 +64,9 @@
   let prompt = $state("");
   let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
+  let onceDelay = $state("0");
+  let initialOnceDelay = "0";
+  let originalRunAtEpoch: number | null = null;
   let dailyAt = $state("09:00");
   let exact = $state(false);
   let editorOpen = $state(false);
@@ -87,12 +90,15 @@
     prompt = "";
     schedule = "once";
     interval = "40";
+    onceDelay = "0";
+    initialOnceDelay = "0";
+    originalRunAtEpoch = null;
     dailyAt = "09:00";
     exact = false;
   }
 
   function formSnapshot() {
-    return JSON.stringify({ name, prompt, schedule, interval, dailyAt, exact });
+    return JSON.stringify({ name, prompt, schedule, interval, onceDelay, dailyAt, exact });
   }
 
   function closeEditorState() {
@@ -179,7 +185,10 @@
       editing = job.name;
       name = job.name;
       prompt = job.prompt;
-      schedule = job.daily_at ? "daily" : "interval";
+      schedule = job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval";
+      originalRunAtEpoch = job.run_at_epoch;
+      onceDelay = String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1000) / 6) / 10) : 0);
+      initialOnceDelay = onceDelay;
       dailyAt = job.daily_at || "09:00";
       interval = String(job.interval_minutes || 40);
       exact = job.exact_interval;
@@ -378,7 +387,11 @@
     if (!jobPrompt || (!runOnce && !jobName)) return;
 
     if (runOnce) {
-      const queued = await command({ action: "run_once", prompt: jobPrompt }, "Queued one fresh chat.");
+      const delayMinutes = Number(onceDelay);
+      const queued = await command(
+        { action: "run_once", prompt: jobPrompt, delay_minutes: delayMinutes },
+        delayMinutes ? `Scheduled once in ${delayMinutes} minutes (under Long jobs).` : "Queued one fresh chat.",
+      );
       if (queued) {
         initialForm = formSnapshot();
         leaveEditor();
@@ -391,9 +404,13 @@
         action: "add",
         name: jobName,
         prompt: jobPrompt,
+        schedule,
         daily_at: daily ? dailyAt : "",
-        interval_minutes: daily ? null : Number(interval),
-        exact_interval: !daily && exact,
+        interval_minutes: schedule === "interval" ? Number(interval) : null,
+        exact_interval: schedule === "interval" && exact,
+        ...(schedule === "once" && (!originalRunAtEpoch || onceDelay !== initialOnceDelay)
+          ? { delay_minutes: Number(onceDelay) }
+          : {}),
       },
       "Saved " + jobName + ".",
     );
@@ -633,7 +650,7 @@
               <select bind:value={schedule}>
                 <option value="interval">Interval</option>
                 <option value="daily">Daily</option>
-                {#if !editing}<option value="once">Once (now)</option>{/if}
+                <option value="once">Once</option>
               </select>
             </label>
 
@@ -641,6 +658,11 @@
               <label>
                 <span>Every (minutes)</span>
                 <input bind:value={interval} type="number" min="0.1" max="43200" step="0.1" required />
+              </label>
+            {:else if schedule === "once"}
+              <label>
+                <span>Delay (minutes, 0 = now)</span>
+                <input bind:value={onceDelay} type="number" min="0" max="43200" step="0.1" required />
               </label>
             {:else if schedule === "daily"}
               <label>
@@ -684,7 +706,7 @@
             <span class="keyboard-hint">Ctrl/⌘ + Enter to {runOnce ? "run" : "save"}</span>
             <button class="toolbar-button" type="button" disabled={saving} onclick={requestClose}>Cancel</button>
             <button class="primary-button" type="submit" disabled={saving || !dirty || duplicateName || !prompt.trim() || (!runOnce && !name.trim())}>
-              {saving ? (runOnce ? "Queuing…" : "Saving…") : editing ? "Save changes" : runOnce ? "Run once" : "Create job"}
+              {saving ? (runOnce ? "Queuing…" : "Saving…") : editing ? "Save changes" : runOnce ? (Number(onceDelay) > 0 ? "Schedule once" : "Run once") : "Create job"}
             </button>
           </div>
         </div>
