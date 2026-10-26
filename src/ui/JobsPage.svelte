@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { isLongJob, sortJobs } from "./jobSorting";
 
   type ImageRef = { ref: string; name: string; url: string };
@@ -67,6 +67,7 @@
   let prompt = $state("");
   let images = $state<ImageRef[]>([]);
   let uploadingImage = $state(false);
+  let imageInput: HTMLInputElement;
   let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
   let onceDelay = $state("0");
@@ -420,6 +421,11 @@
         if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
         if (activeEditorRoute !== route) return;
         images = [...images, result.image as ImageRef];
+        await tick();
+        editorPage?.querySelector(".job-image-preview:last-child")?.scrollIntoView({
+          block: "nearest",
+          behavior: "smooth",
+        });
       }
     } catch (error) {
       if (activeEditorRoute === route) editorError = String(error).replace(/^Error:\s*/, "");
@@ -687,7 +693,7 @@
           </div>
         </div>
 
-        <div class="editor-body">
+        <div class={"editor-body" + (images.length ? " has-images" : "")}>
           <div class="editor-settings">
             {#if !runOnce}
               <label class="name-field">
@@ -736,10 +742,8 @@
           </label>
           <div class="prompt-counter">{promptCharacters.toLocaleString()} characters · {promptLines.toLocaleString()} lines</div>
           <div class="job-image-picker">
-            <label class="toolbar-button image-add">
-              Add images
-              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={uploadingImage || saving || images.length >= 4} onchange={(event) => void addImages(event.currentTarget)} />
-            </label>
+            <button class="toolbar-button" type="button" disabled={uploadingImage || saving || images.length >= 4} onclick={() => imageInput?.click()}>Add images</button>
+            <input bind:this={imageInput} class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={uploadingImage || saving || images.length >= 4} onchange={(event) => void addImages(event.currentTarget)} />
             <span>{uploadingImage ? "Uploading…" : images.length + "/4 images"}</span>
           </div>
           {#if images.length}

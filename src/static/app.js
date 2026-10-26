@@ -7322,7 +7322,7 @@ var root_17 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
 var root_18 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
 var root_19 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
 var root_20 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
-var root_21 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div class="editor-body"><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><label class="toolbar-button image-add">Add images <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/></label> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" role="status" aria-live="polite"><!></div> <div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div></div></form></section>`);
+var root_21 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" role="status" aria-live="polite"><!></div> <div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div></div></form></section>`);
 var root_22 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 function JobsPage($$anchor, $$props) {
 	push($$props, true);
@@ -7383,6 +7383,7 @@ function JobsPage($$anchor, $$props) {
 	let prompt = /* @__PURE__ */ state("");
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploadingImage = /* @__PURE__ */ state(false);
+	let imageInput;
 	let schedule = /* @__PURE__ */ state("once");
 	let interval = /* @__PURE__ */ state("40");
 	let onceDelay = /* @__PURE__ */ state("0");
@@ -7692,6 +7693,11 @@ function JobsPage($$anchor, $$props) {
 				if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
 				if (activeEditorRoute !== route) return;
 				set(images, [...get(images), result.image], true);
+				await tick();
+				get(editorPage)?.querySelector(".job-image-preview:last-child")?.scrollIntoView({
+					block: "nearest",
+					behavior: "smooth"
+				});
 			}
 		} catch (error) {
 			if (activeEditorRoute === route) set(editorError, String(error).replace(/^Error:\s*/, ""), true);
@@ -8091,10 +8097,10 @@ function JobsPage($$anchor, $$props) {
 		var div_21 = sibling(label_6, 2);
 		var text_20 = only_child(div_21);
 		var div_22 = sibling(div_21, 2);
-		var label_7 = child(div_22);
-		var input_6 = sibling(child(label_7));
-		reset(label_7);
-		var text_21 = only_child(sibling(label_7, 2), true);
+		var button_14 = child(div_22);
+		var input_6 = sibling(button_14, 2);
+		bind_this(input_6, ($$value) => imageInput = $$value, () => imageInput);
+		var text_21 = only_child(sibling(input_6, 2), true);
 		reset(div_22);
 		var node_14 = sibling(div_22, 2);
 		var consequent_13 = ($$anchor) => {
@@ -8104,18 +8110,18 @@ function JobsPage($$anchor, $$props) {
 				var img = child(div_24);
 				var span_13 = sibling(img, 2);
 				var text_22 = only_child(span_13, true);
-				var button_14 = sibling(span_13, 2);
+				var button_15 = sibling(span_13, 2);
 				reset(div_24);
 				template_effect(() => {
 					set_attribute(img, "src", get(image).url);
 					set_attribute(img, "alt", get(image).name);
 					set_attribute(span_13, "title", get(image).name);
 					set_text(text_22, get(image).name);
-					set_attribute(button_14, "title", "Remove " + get(image).name);
-					set_attribute(button_14, "aria-label", "Remove " + get(image).name);
-					button_14.disabled = get(saving) || get(uploadingImage);
+					set_attribute(button_15, "title", "Remove " + get(image).name);
+					set_attribute(button_15, "aria-label", "Remove " + get(image).name);
+					button_15.disabled = get(saving) || get(uploadingImage);
 				});
-				delegated("click", button_14, () => set(images, get(images).filter((item) => item.ref !== get(image).ref), true));
+				delegated("click", button_15, () => set(images, get(images).filter((item) => item.ref !== get(image).ref), true));
 				append($$anchor, div_24);
 			});
 			reset(div_23);
@@ -8130,10 +8136,10 @@ function JobsPage($$anchor, $$props) {
 		var node_15 = child(div_26);
 		var consequent_14 = ($$anchor) => {
 			var fragment_1 = root_16();
-			var button_15 = sibling(first_child(fragment_1), 2);
-			var button_16 = sibling(button_15, 2);
-			delegated("click", button_15, () => set(confirmDiscard, false));
-			delegated("click", button_16, discardEditor);
+			var button_16 = sibling(first_child(fragment_1), 2);
+			var button_17 = sibling(button_16, 2);
+			delegated("click", button_16, () => set(confirmDiscard, false));
+			delegated("click", button_17, discardEditor);
 			append($$anchor, fragment_1);
 		};
 		var consequent_15 = ($$anchor) => {
@@ -8162,9 +8168,9 @@ function JobsPage($$anchor, $$props) {
 		var div_27 = sibling(div_26, 2);
 		var span_18 = child(div_27);
 		var text_24 = only_child(span_18);
-		var button_17 = sibling(span_18, 2);
-		var button_18 = sibling(button_17, 2);
-		var text_25 = only_child(button_18, true);
+		var button_18 = sibling(span_18, 2);
+		var button_19 = sibling(button_18, 2);
+		var text_25 = only_child(button_19, true);
 		reset(div_27);
 		reset(div_25);
 		reset(form);
@@ -8173,12 +8179,14 @@ function JobsPage($$anchor, $$props) {
 		template_effect(($0, $1, $2, $3) => {
 			button_13.disabled = get(saving);
 			set_text(text_18, get(editing) ? "Edit job" : get(runOnce) ? "Run once" : "New job");
+			set_class(div_19, 1, "editor-body" + (get(images).length ? " has-images" : ""));
 			set_text(text_20, `${$0 ?? ""} characters · ${$1 ?? ""} lines`);
+			button_14.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
 			input_6.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
 			set_text(text_21, get(uploadingImage) ? "Uploading…" : get(images).length + "/4 images");
 			set_text(text_24, `Ctrl/⌘ + Enter to ${get(runOnce) ? "run" : "save"}`);
-			button_17.disabled = get(saving);
-			button_18.disabled = $2;
+			button_18.disabled = get(saving);
+			button_19.disabled = $2;
 			set_text(text_25, $3);
 		}, [
 			() => get(promptCharacters).toLocaleString(),
@@ -8193,8 +8201,9 @@ function JobsPage($$anchor, $$props) {
 		delegated("click", button_13, requestClose);
 		bind_select_value(select, () => get(schedule), ($$value) => set(schedule, $$value));
 		bind_value(textarea_1, () => get(prompt), ($$value) => set(prompt, $$value));
+		delegated("click", button_14, () => imageInput?.click());
 		delegated("change", input_6, (event) => void addImages(event.currentTarget));
-		delegated("click", button_17, requestClose);
+		delegated("click", button_18, requestClose);
 		append($$anchor, section_1);
 	};
 	if_block(node_9, ($$render) => {

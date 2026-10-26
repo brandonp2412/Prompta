@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
 import threading
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from playwright.sync_api import sync_playwright
 
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.image_store import ImageStore
@@ -77,6 +79,51 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
         with pytest.raises(HTTPError) as exc:
             urlopen(base + "/api/images/../../etc/passwd", timeout=5)
         assert exc.value.code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_mobile_image_previews_do_not_hide_under_footer(tmp_path: Path) -> None:
+    chromium = shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("Chromium is not installed")
+
+    database = tmp_path / "runtime.sqlite3"
+    files = [tmp_path / f"preview-{index}.png" for index in range(4)]
+    for file in files:
+        file.write_bytes(PNG)
+
+    server = PromptaJobServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True, executable_path=chromium, args=["--no-sandbox"]
+            )
+            try:
+                page = browser.new_page(viewport={"width": 320, "height": 568})
+                page.goto(f"http://127.0.0.1:{server.server_port}/")
+                page.get_by_role("button", name="Run once").first.click()
+                page.locator("textarea").fill("Check four image previews")
+                page.locator('input[type="file"]').set_input_files(files)
+                page.locator(".job-image-preview").nth(3).wait_for()
+                page.wait_for_timeout(1000)
+                metrics = page.evaluate(
+                    """() => ({
+                        lastBottom: document.querySelector(".job-image-preview:last-child").getBoundingClientRect().bottom,
+                        footerTop: document.querySelector(".editor-footer").getBoundingClientRect().top,
+                        objectFit: getComputedStyle(document.querySelector(".job-image-preview img")).objectFit,
+                        horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+                    })"""
+                )
+                assert metrics["lastBottom"] <= metrics["footerTop"]
+                assert metrics["objectFit"] == "contain"
+                assert metrics["horizontalOverflow"] is False
+            finally:
+                browser.close()
     finally:
         server.shutdown()
         server.server_close()

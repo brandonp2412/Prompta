@@ -681,12 +681,22 @@ button:disabled { cursor: default; opacity: 0.45; }
 
 }
 
-.job-image-picker { display:flex; align-items:center; gap:12px; margin-top:12px; color:var(--muted, #9ca3af); font-size:0.85rem; }
-.job-image-picker .image-add { position:relative; cursor:pointer; overflow:hidden; }
-.job-image-picker input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; }
-.job-image-previews { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
-.job-image-preview { position:relative; width:112px; border:1px solid var(--line, #475569); border-radius:10px; overflow:hidden; }
-.job-image-preview img { display:block; width:100%; height:86px; object-fit:cover; }
-.job-image-preview span { display:block; padding:4px 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:0.73rem; }
-.job-image-preview button { position:absolute; top:3px; right:3px; border:0; border-radius:50%; background:#222d; color:white; font-size:18px; width:27px; height:27px; cursor:pointer; }
-.job-image-count { font-size:0.76rem; opacity:0.7; margin-top:3px; }
+/* Compact the composer when an image is attached so previews remain visible. */
+.editor-body.has-images .prompt-field { flex: none; min-height: 0; }
+.editor-body.has-images textarea { flex: none; height: min(26dvh, 240px); min-height: 160px; }
+.job-image-picker { display: flex; align-items: center; gap: 12px; margin-top: 4px; color: #aaa; font-size: .85rem; }
+.job-image-picker .image-input { display: none; }
+.job-image-previews { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(155px, 100%), 1fr)); gap: 10px; width: 100%; }
+.job-image-preview {
+  position: relative; width: 100%; max-width: 190px; min-width: 0;
+  border: 1px solid #474747; border-radius: 10px; overflow: hidden;
+  scroll-margin-bottom: 120px;
+}
+.job-image-preview img { display: block; width: 100%; height: 164px; object-fit: contain; background: #202020; }
+.job-image-preview span { display: block; padding: 5px 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .73rem; }
+.job-image-preview button { position: absolute; top: 5px; right: 5px; border: 0; border-radius: 50%; background: #111e; color: white; font-size: 18px; width: 30px; height: 30px; cursor: pointer; }
+.job-image-count { font-size: .76rem; opacity: .7; margin-top: 3px; }
+@media (max-width: 600px) {
+  .editor-body.has-images textarea { height: min(23dvh, 220px); min-height: 150px; }
+  .job-image-preview img { height: 146px; }
+}
