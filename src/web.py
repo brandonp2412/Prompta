@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
+from .image_store import ImageStore
 from .response_store import ResponseStore
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
 from .strict_types import json_object
@@ -88,6 +89,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         self.health = ServiceHealthStore(self.state_path)
         self.queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
         self.results = ResponseStore(self.state_path.parent / "chat-results.sqlite3")
+        self.images = ImageStore(self.state_path.parent)
         self.jobs = WebJobService(
             self.jobs_path,
             self.state_path,
@@ -125,7 +127,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     server: PromptaJobServer
 
     def log_message(self, format: str, *args: object) -> None:
-        if urlparse(self.path).path.startswith("/api/results"):
+        if urlparse(self.path).path.startswith(("/api/results", "/api/images")):
             # Search terms and run identifiers can be sensitive; don't log request URLs.
             logger.info("%s - %s /api/results", self.address_string(), self.command)
             return
@@ -169,13 +171,13 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             content_type += "; charset=utf-8"
         self._write(HTTPStatus.OK, content_type, content)
 
-    def _json_body(self) -> dict[str, object]:
+    def _json_body(self, *, max_bytes: int = 1024 * 1024) -> dict[str, object]:
         try:
             length = int(self.headers.get("content-length") or "0")
         except ValueError as exc:
             raise ValueError("Invalid content length") from exc
-        if length <= 0 or length > 1024 * 1024:
-            raise ValueError("Request body must be between 1 byte and 1 MiB")
+        if length <= 0 or length > max_bytes:
+            raise ValueError("Invalid request body size")
         try:
             payload = json_object(self.rfile.read(length), label="request body")
         except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -193,6 +195,15 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/jobs":
             self._json(self.server.jobs.scheduled_jobs())
+            return
+        if path.startswith("/api/images/"):
+            ref = unquote(path[len("/api/images/"):])
+            try:
+                mime, body = self.server.images.read(ref)
+            except ValueError:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._write(HTTPStatus.OK, mime, body)
             return
         if path == "/api/health":
             self._json(self.server.health_payload())
@@ -233,11 +244,18 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path != "/api/jobs":
+        if path not in {"/api/jobs", "/api/images"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
-            payload = self._json_body()
+            payload = self._json_body(max_bytes=11 * 1024 * 1024 if path == "/api/images" else 1024 * 1024)
+            if path == "/api/images":
+                name, data = payload.get("name"), payload.get("data")
+                if not isinstance(name, str) or not isinstance(data, str):
+                    raise ValueError("Invalid image upload")
+                ref = self.server.images.save(name, data)
+                self._json({"ok": True, "image": {"ref": ref, "name": ref.split("/", 1)[1], "url": "/api/images/" + ref}})
+                return
             action = str(payload.get("action") or "")
             result = self.server.jobs.apply(action, payload)
         except ValueError as exc:

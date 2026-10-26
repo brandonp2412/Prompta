@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import Mapping
@@ -16,6 +17,7 @@ from .delivery_state import (
     CompletionAction,
     completion_action,
 )
+from .image_store import image_refs
 from .persistence import create_database, job_deliveries
 from .response_store import ResponseStore
 from .strict_types import float_value, int_value
@@ -40,6 +42,7 @@ class DeliveryQueueStore:
         return {
             "send_id": str(row["send_id"]),
             "message": str(row["message"]),
+            "images": image_refs(json.loads(str(row["images_json"] or "[]"))),
             "client_id": str(row["client_id"] or ""),
             "status": str(row["status"] or "queued"),
             "error": str(row["error"] or ""),
@@ -122,6 +125,7 @@ class DeliveryQueueStore:
             values = {
                 "send_id": send_id,
                 "message": message,
+                "images_json": json.dumps(image_refs(record.get("images", ()))),
                 "client_id": client_id,
                 "status": "queued",
                 "error": "",
@@ -164,7 +168,8 @@ class DeliveryQueueStore:
         return receipt, created
 
     def enqueue_manual(
-        self, prompt: str, *, now: float | None = None, pin_chat: bool = False
+        self, prompt: str, *, now: float | None = None, pin_chat: bool = False,
+        images: tuple[str, ...] = (),
     ) -> dict[str, object]:
         """Queue an independent fresh chat without touching any job's schedule."""
         if not prompt.strip():
@@ -175,6 +180,7 @@ class DeliveryQueueStore:
                 "send_id": f"manual-{request_id}",
                 "client_id": f"manual:{'once:' if pin_chat else ''}{request_id}",
                 "message": prompt,
+                "images": images,
                 "created_at": time.time() if now is None else now,
             }
         )

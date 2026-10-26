@@ -207,7 +207,7 @@ def _deliver_one(
     try:
         try:
             if isinstance(sender, BrowserDeliverySender):
-                sender(message, pin_chat=once, send_id=send_id, job_name=job_name)
+                sender(message, pin_chat=once, send_id=send_id, job_name=job_name, images=record["images"])
             else:
                 sender(message, pin_chat=once)
         except RateLimitError as exc:

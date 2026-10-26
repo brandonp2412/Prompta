@@ -1,4 +1,4 @@
-//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
+//#region ../prompta/node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -70,7 +70,7 @@ var STALE_REACTION = new class StaleReactionError extends Error {
 }();
 var IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/constants.js
+//#region ../prompta/node_modules/svelte/src/constants.js
 var HYDRATION_ERROR = {};
 var UNINITIALIZED = Symbol("uninitialized");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
@@ -100,7 +100,7 @@ function svelte_boundary_reset_noop() {
 	console.warn(`https://svelte.dev/e/svelte_boundary_reset_noop`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
 /** @import { TemplateNode } from '#client' */
 /**
 * Use this variable to guard everything related to hydration code so it can be treeshaken out
@@ -179,7 +179,7 @@ function read_hydration_instruction(node) {
 	return node.data;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -206,7 +206,7 @@ function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
+//#region ../prompta/node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -283,13 +283,13 @@ function svelte_boundary_reset_onerror() {
 	throw new Error(`https://svelte.dev/e/svelte_boundary_reset_onerror`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
+//#region ../prompta/node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
 /** True if we're not certain that we only have Svelte 5 code in the compilation */
 var legacy_mode_flag = false;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
+//#region ../prompta/node_modules/svelte/src/internal/client/context.js
 /** @import { ComponentContext, DevStackEntry, Effect } from '#client' */
 /** @type {ComponentContext | null} */
 var component_context = null;
@@ -349,7 +349,7 @@ function is_runes() {
 	return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/task.js
 /** @type {Array<() => void>} */
 var micro_tasks = [];
 function run_micro_tasks() {
@@ -376,7 +376,7 @@ function flush_tasks() {
 	while (micro_tasks.length > 0) run_micro_tasks();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
 /** @import { Derived, Signal } from '#client' */
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 /**
@@ -395,7 +395,7 @@ function update_derived_status(derived) {
 	else set_signal_status(derived, MAYBE_DIRTY);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
 /** @import { Effect } from '#client' */
 /**
 * @param {Effect} effect
@@ -408,7 +408,7 @@ function defer_effect(effect, dirty_effects, maybe_dirty_effects) {
 	set_signal_status(effect, CLEAN);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -431,7 +431,7 @@ function add_form_reset_listener() {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -469,7 +469,7 @@ function listen_to_event_and_reset_event(element, event, handler, on_reset = han
 	add_form_reset_listener();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
 /** @import { Blocker, Effect, Source, Value } from '#client' */
 /**
 * @param {Blocker[]} blockers
@@ -757,7 +757,7 @@ function unfreeze_derived_effects(derived) {
 	for (const e of derived.effects) if (e.teardown && e.fn !== null) update_effect(e);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
 /** @import { Fork } from 'svelte' */
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /** @type {Batch | null} */
@@ -1522,7 +1522,7 @@ function reset_all(effect) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
 /** @import { Derived, Effect, Source, Value } from '#client' */
 /** @type {Set<Effect>} */
 var eager_effects = /* @__PURE__ */ new Set();
@@ -1853,7 +1853,7 @@ function is(a, b) {
 	return Object.is(get_proxied_value(a), get_proxied_value(b));
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/operations.js
 /** @import { Effect, TemplateNode } from '#client' */
 /** @type {Window} */
 var $window;
@@ -2081,7 +2081,7 @@ function invoke_error_boundary(error, effect) {
 	throw error;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region ../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
 /** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -2473,14 +2473,14 @@ function move_effect(effect, fragment) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
+//#region ../prompta/node_modules/svelte/src/internal/client/legacy.js
 /**
 * @type {Set<Value> | null}
 * @deprecated
 */
 var captured_signals = null;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
+//#region ../prompta/node_modules/svelte/src/internal/client/runtime.js
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /**
 * True if updating in an effect context that is reactive (i.e. not branch/root effects)
@@ -2863,7 +2863,7 @@ function is_passive_event(name) {
 	return PASSIVE_EVENTS.includes(name);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * Used on elements, as a map of event type -> event handler,
 * and on events themselves to track which element handled an event
@@ -3014,7 +3014,7 @@ function handle_event_propagation(event) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
 /** @param {string} html */
 createHTML: (html) => {
@@ -3033,7 +3033,7 @@ function create_fragment_from_html(html) {
 	return elem.content;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/template.js
 /** @import { Effect, EffectNodes, TemplateNode } from '#client' */
 /** @import { TemplateStructure } from './types' */
 /**
@@ -3133,7 +3133,7 @@ function append(anchor, dom) {
 	anchor.before(dom);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
+//#region ../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3206,7 +3206,7 @@ function createSubscriber(start) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /** @import { Effect, Source, TemplateNode, } from '#client' */
 /**
 * @typedef {{
@@ -3681,7 +3681,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 */
 var mounted_components = /* @__PURE__ */ new WeakMap();
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
 /** @import { Effect, TemplateNode } from '#client' */
 /**
 * @typedef {{ effect: Effect, fragment: DocumentFragment }} Branch
@@ -3829,7 +3829,7 @@ var BranchManager = class {
 	}
 };
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {TemplateNode} node
@@ -3875,7 +3875,7 @@ function if_block(node, fn, elseif = false) {
 	}, flags);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
 /** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
 /** @import { Batch } from '../../reactivity/batch.js'; */
 /**
@@ -4292,7 +4292,7 @@ function link(state, prev, next) {
 	else next.prev = prev;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {string} hash
@@ -4338,7 +4338,7 @@ function head(hash, render_fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
+//#region ../prompta/node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4353,7 +4353,7 @@ function clsx$1() {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
+//#region ../prompta/node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -4388,7 +4388,7 @@ function to_class(value, hash, directives) {
 	return classname === "" ? null : classname;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -4415,7 +4415,7 @@ function set_class(dom, is_html, value, hash, prev_classes, next_classes) {
 	return next_classes;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -4555,7 +4555,7 @@ function is_selectedcontent_mutation(entry) {
 	return false;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /** @import { Blocker, Effect } from '#client' */
 var IS_CUSTOM_ELEMENT = Symbol("is custom element");
 var IS_HTML = Symbol("is html");
@@ -4637,7 +4637,7 @@ function get_setters(element) {
 	return setters;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /** @import { Batch } from '../../../reactivity/batch.js' */
 /**
 * @param {HTMLInputElement} input
@@ -4716,7 +4716,7 @@ function to_number(value) {
 	return value === "" ? null : +value;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region ../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 /** @import { ComponentContext, Effect } from '#client' */
 /**
 * @param {any} bound_value
@@ -4803,10 +4803,10 @@ function init_update_callbacks(context) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
+//#region ../prompta/node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region ../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v18.0.14 - a markdown parser
 * Copyright (c) 2018-2026, MarkedJS. (MIT License)
@@ -6580,8 +6580,8 @@ var root_16$2 = /* @__PURE__ */ from_html(`<td><!></td>`);
 var root_17$2 = /* @__PURE__ */ from_html(`<tr></tr>`);
 var root_18$2 = /* @__PURE__ */ from_html(`<div class="result-table-scroll"><table><thead><tr></tr></thead><tbody></tbody></table></div>`);
 var root_19$1 = /* @__PURE__ */ from_html(`<hr/>`);
-var root_20 = /* @__PURE__ */ from_html(`<p> </p>`);
-var root_21 = /* @__PURE__ */ from_html(`<div class="result-markdown"><!></div>`);
+var root_20$1 = /* @__PURE__ */ from_html(`<p> </p>`);
+var root_21$1 = /* @__PURE__ */ from_html(`<div class="result-markdown"><!></div>`);
 function ResultMarkdown($$anchor, $$props) {
 	push($$props, true);
 	const inline = ($$anchor, items = noop) => {
@@ -6838,7 +6838,7 @@ function ResultMarkdown($$anchor, $$props) {
 				append($$anchor, root_19$1());
 			};
 			var consequent_20 = ($$anchor) => {
-				var p_1 = root_20();
+				var p_1 = root_20$1();
 				var text_4 = only_child(p_1, true);
 				template_effect(() => set_text(text_4, get(token).text));
 				append($$anchor, p_1);
@@ -6864,7 +6864,7 @@ function ResultMarkdown($$anchor, $$props) {
 	function children(token) {
 		return "tokens" in token && Array.isArray(token.tokens) ? token.tokens : [];
 	}
-	var div_1 = root_21();
+	var div_1 = root_21$1();
 	blocks(child(div_1), () => get(tokens));
 	reset(div_1);
 	append($$anchor, div_1);
@@ -7303,24 +7303,27 @@ function sortJobs(jobs) {
 //#region src/ui/JobsPage.svelte
 var root$1 = /* @__PURE__ */ from_html(`<button type="button"> <span> </span></button>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div class="empty-row"> </div>`);
-var root_2 = /* @__PURE__ */ from_html(`<span> </span>`);
-var root_3 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
-var root_4 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
-var root_5 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
-var root_6 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
-var root_7 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button class="toolbar-button visible-toggle" type="button"> </button> <button class="toolbar-button" type="button">Refresh</button> <button class="toolbar-button" type="button">Run once</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs"><!> <button type="button" title="Include jobs running less often than daily and scheduled one-time jobs">Long jobs <span> </span></button></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
-var root_8 = /* @__PURE__ */ from_html(`<label class="name-field"><span>Name</span> <input autocomplete="off" required=""/></label>`);
-var root_9 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" max="43200" step="0.1" required=""/></label>`);
-var root_10 = /* @__PURE__ */ from_html(`<label><span>Delay (minutes, 0 = now)</span> <input type="number" min="0" max="43200" step="0.1" required=""/></label>`);
-var root_11 = /* @__PURE__ */ from_html(`<label><span>At (local time)</span> <input type="time" required=""/></label>`);
-var root_12 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Exact interval</span></label>`);
-var root_13 = /* @__PURE__ */ from_html(`<span>Discard unsaved changes?</span> <button class="toolbar-button" type="button">Keep editing</button> <button class="toolbar-button danger-text" type="button">Discard</button>`, 1);
-var root_14 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
-var root_15 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
-var root_16 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
-var root_17 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
-var root_18 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div class="editor-body"><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div></div> <div class="editor-footer"><div class="editor-feedback" role="status" aria-live="polite"><!></div> <div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div></div></form></section>`);
-var root_19 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_2 = /* @__PURE__ */ from_html(`<div class="job-image-count"> </div>`);
+var root_3 = /* @__PURE__ */ from_html(`<span> </span>`);
+var root_4 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
+var root_5 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
+var root_6 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <!> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
+var root_7 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
+var root_8 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button class="toolbar-button visible-toggle" type="button"> </button> <button class="toolbar-button" type="button">Refresh</button> <button class="toolbar-button" type="button">Run once</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs"><!> <button type="button" title="Include jobs running less often than daily and scheduled one-time jobs">Long jobs <span> </span></button></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
+var root_9 = /* @__PURE__ */ from_html(`<label class="name-field"><span>Name</span> <input autocomplete="off" required=""/></label>`);
+var root_10 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" max="43200" step="0.1" required=""/></label>`);
+var root_11 = /* @__PURE__ */ from_html(`<label><span>Delay (minutes, 0 = now)</span> <input type="number" min="0" max="43200" step="0.1" required=""/></label>`);
+var root_12 = /* @__PURE__ */ from_html(`<label><span>At (local time)</span> <input type="time" required=""/></label>`);
+var root_13 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Exact interval</span></label>`);
+var root_14 = /* @__PURE__ */ from_html(`<div class="job-image-preview"><img/> <span> </span> <button type="button">×</button></div>`);
+var root_15 = /* @__PURE__ */ from_html(`<div class="job-image-previews"></div>`);
+var root_16 = /* @__PURE__ */ from_html(`<span>Discard unsaved changes?</span> <button class="toolbar-button" type="button">Keep editing</button> <button class="toolbar-button danger-text" type="button">Discard</button>`, 1);
+var root_17 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
+var root_18 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
+var root_19 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
+var root_20 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
+var root_21 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div class="editor-body"><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><label class="toolbar-button image-add">Add images <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/></label> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" role="status" aria-live="polite"><!></div> <div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div></div></form></section>`);
+var root_22 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 function JobsPage($$anchor, $$props) {
 	push($$props, true);
 	const filterOptions = [
@@ -7378,6 +7381,8 @@ function JobsPage($$anchor, $$props) {
 	let editing = /* @__PURE__ */ state("");
 	let name = /* @__PURE__ */ state("");
 	let prompt = /* @__PURE__ */ state("");
+	let images = /* @__PURE__ */ state(proxy([]));
+	let uploadingImage = /* @__PURE__ */ state(false);
 	let schedule = /* @__PURE__ */ state("once");
 	let interval = /* @__PURE__ */ state("40");
 	let onceDelay = /* @__PURE__ */ state("0");
@@ -7403,6 +7408,7 @@ function JobsPage($$anchor, $$props) {
 		set(editing, "");
 		set(name, "");
 		set(prompt, "");
+		set(images, [], true);
 		set(schedule, "once");
 		set(interval, "40");
 		set(onceDelay, "0");
@@ -7415,6 +7421,7 @@ function JobsPage($$anchor, $$props) {
 		return JSON.stringify({
 			name: get(name),
 			prompt: get(prompt),
+			images: get(images).map((image) => image.ref),
 			schedule: get(schedule),
 			interval: get(interval),
 			onceDelay: get(onceDelay),
@@ -7501,6 +7508,7 @@ function JobsPage($$anchor, $$props) {
 			set(editing, job.name, true);
 			set(name, job.name, true);
 			set(prompt, job.prompt, true);
+			set(images, [...job.images || []], true);
 			set(schedule, job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval", true);
 			originalRunAtEpoch = job.run_at_epoch;
 			set(onceDelay, String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1e3) / 6) / 10) : 0), true);
@@ -7590,7 +7598,7 @@ function JobsPage($$anchor, $$props) {
 		return job.status || "pending";
 	}
 	function sameJob(left, right) {
-		return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at && left.last_uncertain_send_at === right.last_uncertain_send_at;
+		return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && JSON.stringify(left.images) === JSON.stringify(right.images) && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at && left.last_uncertain_send_at === right.last_uncertain_send_at;
 	}
 	function applyJobs(nextJobs) {
 		const sortedJobs = sortJobs(nextJobs);
@@ -7648,8 +7656,51 @@ function JobsPage($$anchor, $$props) {
 			set(saving, false);
 		}
 	}
+	async function addImages(input) {
+		const files = Array.from(input.files || []);
+		input.value = "";
+		if (!files.length || get(uploadingImage)) return;
+		if (get(images).length + files.length > 4) {
+			set(editorError, "At most four images per job.");
+			return;
+		}
+		const route = activeEditorRoute;
+		set(uploadingImage, true);
+		set(editorError, "");
+		try {
+			for (const file of files) {
+				if (file.size > 8388608) throw new Error("Images must be 8 MiB or smaller.");
+				const data = await new Promise((resolve, reject) => {
+					const reader = new FileReader();
+					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read image."));
+					reader.onload = () => {
+						const value = reader.result;
+						if (typeof value !== "string" || !value.includes(",")) reject(/* @__PURE__ */ new Error("Could not encode image."));
+						else resolve(value.split(",", 2)[1]);
+					};
+					reader.readAsDataURL(file);
+				});
+				const response = await fetch("./api/images", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						name: file.name,
+						data
+					})
+				});
+				const result = await response.json();
+				if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
+				if (activeEditorRoute !== route) return;
+				set(images, [...get(images), result.image], true);
+			}
+		} catch (error) {
+			if (activeEditorRoute === route) set(editorError, String(error).replace(/^Error:\s*/, ""), true);
+		} finally {
+			set(uploadingImage, false);
+		}
+	}
 	async function submit() {
-		if (get(saving) || !get(dirty) || get(duplicateName)) return;
+		if (get(saving) || get(uploadingImage) || !get(dirty) || get(duplicateName)) return;
 		set(editorError, "");
 		const jobName = get(name).trim();
 		const jobPrompt = get(prompt).trim();
@@ -7659,6 +7710,7 @@ function JobsPage($$anchor, $$props) {
 			if (await command({
 				action: "run_once",
 				prompt: jobPrompt,
+				images: get(images).map((image) => image.ref),
 				delay_minutes: delayMinutes
 			}, delayMinutes ? `Scheduled once in ${delayMinutes} minutes (under Long jobs).` : "Queued one fresh chat.")) {
 				set(initialForm, formSnapshot(), true);
@@ -7671,6 +7723,7 @@ function JobsPage($$anchor, $$props) {
 			action: "add",
 			name: jobName,
 			prompt: jobPrompt,
+			images: get(images).map((image) => image.ref),
 			schedule: get(schedule),
 			daily_at: daily ? get(dailyAt) : "",
 			interval_minutes: get(schedule) === "interval" ? Number(get(interval)) : null,
@@ -7726,11 +7779,11 @@ function JobsPage($$anchor, $$props) {
 			window.removeEventListener("popstate", syncEditorFromUrl);
 		};
 	});
-	var fragment = root_19();
+	var fragment = root_22();
 	event("keydown", $window, onEditorKeydown);
 	var node = first_child(fragment);
-	var consequent_5 = ($$anchor) => {
-		var section = root_7();
+	var consequent_6 = ($$anchor) => {
+		var section = root_8();
 		var div = child(section);
 		var div_1 = child(div);
 		var text = only_child(sibling(child(div_1), 2), true);
@@ -7780,82 +7833,92 @@ function JobsPage($$anchor, $$props) {
 			if (get(filteredJobs).length === 0) $$render(consequent);
 		});
 		each(sibling(node_2, 2), 17, () => get(visibleJobs), (job) => job.name, ($$anchor, job) => {
-			var div_6 = root_5();
+			var div_6 = root_6();
 			var div_7 = child(div_6);
 			var div_8 = child(div_7);
 			var text_7 = only_child(div_8, true);
 			var div_9 = sibling(div_8, 2);
 			var text_8 = only_child(div_9, true);
-			var div_10 = sibling(div_9, 2);
-			var span_4 = child(div_10);
-			var text_9 = only_child(span_4);
-			var node_4 = sibling(span_4, 2);
+			var node_4 = sibling(div_9, 2);
 			var consequent_1 = ($$anchor) => {
-				var span_5 = root_2();
-				var text_10 = only_child(span_5);
+				var div_10 = root_2();
+				var text_9 = only_child(div_10);
+				template_effect(() => set_text(text_9, `${get(job).images.length ?? ""} image${get(job).images.length === 1 ? "" : "s"}`));
+				append($$anchor, div_10);
+			};
+			if_block(node_4, ($$render) => {
+				if (get(job).images?.length) $$render(consequent_1);
+			});
+			var div_11 = sibling(node_4, 2);
+			var span_4 = child(div_11);
+			var text_10 = only_child(span_4);
+			var node_5 = sibling(span_4, 2);
+			var consequent_2 = ($$anchor) => {
+				var span_5 = root_3();
+				var text_11 = only_child(span_5);
 				template_effect(($0) => {
 					set_attribute(span_5, "title", get(job).source_revision);
-					set_text(text_10, `rev ${$0 ?? ""}`);
+					set_text(text_11, `rev ${$0 ?? ""}`);
 				}, [() => get(job).source_revision.slice(0, 8)]);
 				append($$anchor, span_5);
 			};
-			if_block(node_4, ($$render) => {
-				if (get(job).source_revision) $$render(consequent_1);
+			if_block(node_5, ($$render) => {
+				if (get(job).source_revision) $$render(consequent_2);
 			});
-			reset(div_10);
-			reset(div_7);
-			var div_11 = sibling(div_7, 2);
-			var text_11 = only_child(sibling(child(div_11), 2), true);
 			reset(div_11);
-			var div_12 = sibling(div_11, 2);
+			reset(div_7);
+			var div_12 = sibling(div_7, 2);
 			var text_12 = only_child(sibling(child(div_12), 2), true);
 			reset(div_12);
 			var div_13 = sibling(div_12, 2);
-			var span_8 = sibling(child(div_13), 2);
-			let classes_2;
-			var text_13 = sibling(child(span_8));
-			reset(span_8);
-			var node_5 = sibling(span_8, 2);
-			var consequent_2 = ($$anchor) => {
-				var span_9 = root_3();
-				var text_14 = only_child(span_9, true);
-				template_effect(() => set_text(text_14, get(job).status_message));
-				append($$anchor, span_9);
-			};
-			if_block(node_5, ($$render) => {
-				if (get(job).status_message) $$render(consequent_2);
-			});
+			var text_13 = only_child(sibling(child(div_13), 2), true);
 			reset(div_13);
 			var div_14 = sibling(div_13, 2);
-			var button_6 = child(div_14);
-			var node_6 = sibling(button_6, 2);
+			var span_8 = sibling(child(div_14), 2);
+			let classes_2;
+			var text_14 = sibling(child(span_8));
+			reset(span_8);
+			var node_6 = sibling(span_8, 2);
 			var consequent_3 = ($$anchor) => {
-				var button_7 = root_4();
+				var span_9 = root_4();
+				var text_15 = only_child(span_9, true);
+				template_effect(() => set_text(text_15, get(job).status_message));
+				append($$anchor, span_9);
+			};
+			if_block(node_6, ($$render) => {
+				if (get(job).status_message) $$render(consequent_3);
+			});
+			reset(div_14);
+			var div_15 = sibling(div_14, 2);
+			var button_6 = child(div_15);
+			var node_7 = sibling(button_6, 2);
+			var consequent_4 = ($$anchor) => {
+				var button_7 = root_5();
 				template_effect(() => button_7.disabled = get(saving));
 				delegated("click", button_7, () => edit(get(job)));
 				append($$anchor, button_7);
 			};
-			if_block(node_6, ($$render) => {
-				if (!get(job).run_at_epoch) $$render(consequent_3);
+			if_block(node_7, ($$render) => {
+				if (!get(job).run_at_epoch) $$render(consequent_4);
 			});
-			var button_8 = sibling(node_6, 2);
-			var text_15 = only_child(button_8, true);
+			var button_8 = sibling(node_7, 2);
+			var text_16 = only_child(button_8, true);
 			var button_9 = sibling(button_8, 2);
-			reset(div_14);
+			reset(div_15);
 			reset(div_6);
 			template_effect(($0, $1, $2, $3) => {
 				set_text(text_7, get(job).name);
 				set_attribute(div_9, "title", get(job).prompt);
 				set_text(text_8, get(job).prompt);
-				set_text(text_9, `Last sent ${$0 ?? ""}`);
-				set_text(text_11, $1);
-				set_text(text_12, $2);
+				set_text(text_10, `Last sent ${$0 ?? ""}`);
+				set_text(text_12, $1);
+				set_text(text_13, $2);
 				classes_2 = set_class(span_8, 1, "state-value", null, classes_2, { error: get(job).status === "failing" });
-				set_text(text_13, ` ${$3 ?? ""}`);
+				set_text(text_14, ` ${$3 ?? ""}`);
 				button_6.disabled = get(saving);
 				set_attribute(button_6, "title", get(job).daily_at || get(job).run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown");
 				button_8.disabled = get(saving);
-				set_text(text_15, get(job).paused ? "Resume" : "Pause");
+				set_text(text_16, get(job).paused ? "Resume" : "Pause");
 				button_9.disabled = get(saving);
 			}, [
 				() => formatDate(get(job).last_sent_at),
@@ -7875,18 +7938,18 @@ function JobsPage($$anchor, $$props) {
 			append($$anchor, div_6);
 		});
 		reset(div_4);
-		var node_7 = sibling(div_4, 2);
-		var consequent_4 = ($$anchor) => {
-			var nav = root_6();
+		var node_8 = sibling(div_4, 2);
+		var consequent_5 = ($$anchor) => {
+			var nav = root_7();
 			var span_10 = child(nav);
-			var text_16 = only_child(span_10);
-			var div_15 = sibling(span_10, 2);
-			var button_10 = child(div_15);
+			var text_17 = only_child(span_10);
+			var div_16 = sibling(span_10, 2);
+			var button_10 = child(div_16);
 			var button_11 = sibling(button_10, 2);
-			reset(div_15);
+			reset(div_16);
 			reset(nav);
 			template_effect(() => {
-				set_text(text_16, `Page ${get(page) ?? ""} of ${get(pageCount) ?? ""}`);
+				set_text(text_17, `Page ${get(page) ?? ""} of ${get(pageCount) ?? ""}`);
 				button_10.disabled = get(page) <= 1;
 				button_11.disabled = get(page) >= get(pageCount);
 			});
@@ -7894,10 +7957,10 @@ function JobsPage($$anchor, $$props) {
 			delegated("click", button_11, () => changePage(get(page) + 1));
 			append($$anchor, nav);
 		};
-		if_block(node_7, ($$render) => {
-			if (get(filteredJobs).length > pageSize) $$render(consequent_4);
+		if_block(node_8, ($$render) => {
+			if (get(filteredJobs).length > pageSize) $$render(consequent_5);
 		});
-		var button_12 = only_child(sibling(node_7, 2));
+		var button_12 = only_child(sibling(node_8, 2));
 		reset(section);
 		template_effect(() => {
 			set_text(text, get(cadenceJobs).length);
@@ -7925,48 +7988,48 @@ function JobsPage($$anchor, $$props) {
 		append($$anchor, section);
 	};
 	if_block(node, ($$render) => {
-		if (!get(editorOpen)) $$render(consequent_5);
+		if (!get(editorOpen)) $$render(consequent_6);
 	});
-	var node_8 = sibling(node, 2);
-	var consequent_17 = ($$anchor) => {
-		var section_1 = root_18();
+	var node_9 = sibling(node, 2);
+	var consequent_19 = ($$anchor) => {
+		var section_1 = root_21();
 		var form = child(section_1);
-		var div_16 = child(form);
-		var button_13 = child(div_16);
-		var div_17 = sibling(button_13, 2);
-		var h2 = child(div_17);
-		var text_17 = only_child(h2, true);
-		var node_9 = sibling(h2, 2);
-		var consequent_6 = ($$anchor) => {
-			var span_11 = root_2();
-			var text_18 = only_child(span_11, true);
+		var div_17 = child(form);
+		var button_13 = child(div_17);
+		var div_18 = sibling(button_13, 2);
+		var h2 = child(div_18);
+		var text_18 = only_child(h2, true);
+		var node_10 = sibling(h2, 2);
+		var consequent_7 = ($$anchor) => {
+			var span_11 = root_3();
+			var text_19 = only_child(span_11, true);
 			template_effect(() => {
 				set_attribute(span_11, "title", get(editing));
-				set_text(text_18, get(editing));
+				set_text(text_19, get(editing));
 			});
 			append($$anchor, span_11);
 		};
-		if_block(node_9, ($$render) => {
-			if (get(editing)) $$render(consequent_6);
+		if_block(node_10, ($$render) => {
+			if (get(editing)) $$render(consequent_7);
 		});
+		reset(div_18);
 		reset(div_17);
-		reset(div_16);
-		var div_18 = sibling(div_16, 2);
-		var div_19 = child(div_18);
-		var node_10 = child(div_19);
-		var consequent_7 = ($$anchor) => {
-			var label = root_8();
-			var input = sibling(child(label), 2);
-			remove_input_defaults(input);
+		var div_19 = sibling(div_17, 2);
+		var div_20 = child(div_19);
+		var node_11 = child(div_20);
+		var consequent_8 = ($$anchor) => {
+			var label = root_9();
+			var input_1 = sibling(child(label), 2);
+			remove_input_defaults(input_1);
 			reset(label);
-			template_effect(($0) => input.readOnly = $0, [() => Boolean(get(editing))]);
-			bind_value(input, () => get(name), ($$value) => set(name, $$value));
+			template_effect(($0) => input_1.readOnly = $0, [() => Boolean(get(editing))]);
+			bind_value(input_1, () => get(name), ($$value) => set(name, $$value));
 			append($$anchor, label);
 		};
-		if_block(node_10, ($$render) => {
-			if (!get(runOnce)) $$render(consequent_7);
+		if_block(node_11, ($$render) => {
+			if (!get(runOnce)) $$render(consequent_8);
 		});
-		var label_1 = sibling(node_10, 2);
+		var label_1 = sibling(node_11, 2);
 		var select = sibling(child(label_1), 2);
 		var option_1 = child(select);
 		option_1.value = option_1.__value = "interval";
@@ -7977,113 +8040,150 @@ function JobsPage($$anchor, $$props) {
 		reset(select);
 		init_select(select);
 		reset(label_1);
-		var node_11 = sibling(label_1, 2);
-		var consequent_8 = ($$anchor) => {
-			var label_2 = root_9();
-			var input_1 = sibling(child(label_2), 2);
-			remove_input_defaults(input_1);
+		var node_12 = sibling(label_1, 2);
+		var consequent_9 = ($$anchor) => {
+			var label_2 = root_10();
+			var input_2 = sibling(child(label_2), 2);
+			remove_input_defaults(input_2);
 			reset(label_2);
-			bind_value(input_1, () => get(interval), ($$value) => set(interval, $$value));
+			bind_value(input_2, () => get(interval), ($$value) => set(interval, $$value));
 			append($$anchor, label_2);
 		};
-		var consequent_9 = ($$anchor) => {
-			var label_3 = root_10();
-			var input_2 = sibling(child(label_3), 2);
-			remove_input_defaults(input_2);
+		var consequent_10 = ($$anchor) => {
+			var label_3 = root_11();
+			var input_3 = sibling(child(label_3), 2);
+			remove_input_defaults(input_3);
 			reset(label_3);
-			bind_value(input_2, () => get(onceDelay), ($$value) => set(onceDelay, $$value));
+			bind_value(input_3, () => get(onceDelay), ($$value) => set(onceDelay, $$value));
 			append($$anchor, label_3);
 		};
-		var consequent_10 = ($$anchor) => {
-			var label_4 = root_11();
-			var input_3 = sibling(child(label_4), 2);
-			remove_input_defaults(input_3);
+		var consequent_11 = ($$anchor) => {
+			var label_4 = root_12();
+			var input_4 = sibling(child(label_4), 2);
+			remove_input_defaults(input_4);
 			reset(label_4);
-			bind_value(input_3, () => get(dailyAt), ($$value) => set(dailyAt, $$value));
+			bind_value(input_4, () => get(dailyAt), ($$value) => set(dailyAt, $$value));
 			append($$anchor, label_4);
 		};
-		if_block(node_11, ($$render) => {
-			if (get(schedule) === "interval") $$render(consequent_8);
-			else if (get(schedule) === "once") $$render(consequent_9, 1);
-			else if (get(schedule) === "daily") $$render(consequent_10, 2);
+		if_block(node_12, ($$render) => {
+			if (get(schedule) === "interval") $$render(consequent_9);
+			else if (get(schedule) === "once") $$render(consequent_10, 1);
+			else if (get(schedule) === "daily") $$render(consequent_11, 2);
 		});
-		reset(div_19);
-		var node_12 = sibling(div_19, 2);
-		var consequent_11 = ($$anchor) => {
-			var label_5 = root_12();
-			var input_4 = child(label_5);
-			remove_input_defaults(input_4);
+		reset(div_20);
+		var node_13 = sibling(div_20, 2);
+		var consequent_12 = ($$anchor) => {
+			var label_5 = root_13();
+			var input_5 = child(label_5);
+			remove_input_defaults(input_5);
 			next(2);
 			reset(label_5);
-			bind_checked(input_4, () => get(exact), ($$value) => set(exact, $$value));
+			bind_checked(input_5, () => get(exact), ($$value) => set(exact, $$value));
 			append($$anchor, label_5);
 		};
-		if_block(node_12, ($$render) => {
-			if (get(schedule) === "interval") $$render(consequent_11);
+		if_block(node_13, ($$render) => {
+			if (get(schedule) === "interval") $$render(consequent_12);
 		});
-		var label_6 = sibling(node_12, 2);
+		var label_6 = sibling(node_13, 2);
 		var textarea_1 = sibling(child(label_6), 2);
 		remove_textarea_child(textarea_1);
 		reset(label_6);
-		var text_19 = only_child(sibling(label_6, 2));
-		reset(div_18);
-		var div_21 = sibling(div_18, 2);
-		var div_22 = child(div_21);
-		var node_13 = child(div_22);
-		var consequent_12 = ($$anchor) => {
-			var fragment_1 = root_13();
-			var button_14 = sibling(first_child(fragment_1), 2);
-			var button_15 = sibling(button_14, 2);
-			delegated("click", button_14, () => set(confirmDiscard, false));
-			delegated("click", button_15, discardEditor);
+		var div_21 = sibling(label_6, 2);
+		var text_20 = only_child(div_21);
+		var div_22 = sibling(div_21, 2);
+		var label_7 = child(div_22);
+		var input_6 = sibling(child(label_7));
+		reset(label_7);
+		var text_21 = only_child(sibling(label_7, 2), true);
+		reset(div_22);
+		var node_14 = sibling(div_22, 2);
+		var consequent_13 = ($$anchor) => {
+			var div_23 = root_15();
+			each(div_23, 21, () => get(images), (image) => image.ref, ($$anchor, image) => {
+				var div_24 = root_14();
+				var img = child(div_24);
+				var span_13 = sibling(img, 2);
+				var text_22 = only_child(span_13, true);
+				var button_14 = sibling(span_13, 2);
+				reset(div_24);
+				template_effect(() => {
+					set_attribute(img, "src", get(image).url);
+					set_attribute(img, "alt", get(image).name);
+					set_attribute(span_13, "title", get(image).name);
+					set_text(text_22, get(image).name);
+					set_attribute(button_14, "title", "Remove " + get(image).name);
+					set_attribute(button_14, "aria-label", "Remove " + get(image).name);
+					button_14.disabled = get(saving) || get(uploadingImage);
+				});
+				delegated("click", button_14, () => set(images, get(images).filter((item) => item.ref !== get(image).ref), true));
+				append($$anchor, div_24);
+			});
+			reset(div_23);
+			append($$anchor, div_23);
+		};
+		if_block(node_14, ($$render) => {
+			if (get(images).length) $$render(consequent_13);
+		});
+		reset(div_19);
+		var div_25 = sibling(div_19, 2);
+		var div_26 = child(div_25);
+		var node_15 = child(div_26);
+		var consequent_14 = ($$anchor) => {
+			var fragment_1 = root_16();
+			var button_15 = sibling(first_child(fragment_1), 2);
+			var button_16 = sibling(button_15, 2);
+			delegated("click", button_15, () => set(confirmDiscard, false));
+			delegated("click", button_16, discardEditor);
 			append($$anchor, fragment_1);
 		};
-		var consequent_13 = ($$anchor) => {
-			var span_12 = root_14();
-			var text_20 = only_child(span_12, true);
-			template_effect(() => set_text(text_20, get(editorError)));
-			append($$anchor, span_12);
-		};
-		var consequent_14 = ($$anchor) => {
-			append($$anchor, root_15());
-		};
 		var consequent_15 = ($$anchor) => {
-			append($$anchor, root_16());
+			var span_14 = root_17();
+			var text_23 = only_child(span_14, true);
+			template_effect(() => set_text(text_23, get(editorError)));
+			append($$anchor, span_14);
 		};
 		var consequent_16 = ($$anchor) => {
-			append($$anchor, root_17());
+			append($$anchor, root_18());
 		};
-		if_block(node_13, ($$render) => {
-			if (get(confirmDiscard)) $$render(consequent_12);
-			else if (get(editorError)) $$render(consequent_13, 1);
-			else if (get(duplicateName)) $$render(consequent_14, 2);
-			else if (get(dirty)) $$render(consequent_15, 3);
-			else if (get(editing)) $$render(consequent_16, 4);
+		var consequent_17 = ($$anchor) => {
+			append($$anchor, root_19());
+		};
+		var consequent_18 = ($$anchor) => {
+			append($$anchor, root_20());
+		};
+		if_block(node_15, ($$render) => {
+			if (get(confirmDiscard)) $$render(consequent_14);
+			else if (get(editorError)) $$render(consequent_15, 1);
+			else if (get(duplicateName)) $$render(consequent_16, 2);
+			else if (get(dirty)) $$render(consequent_17, 3);
+			else if (get(editing)) $$render(consequent_18, 4);
 		});
-		reset(div_22);
-		var div_23 = sibling(div_22, 2);
-		var span_16 = child(div_23);
-		var text_21 = only_child(span_16);
-		var button_16 = sibling(span_16, 2);
-		var button_17 = sibling(button_16, 2);
-		var text_22 = only_child(button_17, true);
-		reset(div_23);
-		reset(div_21);
+		reset(div_26);
+		var div_27 = sibling(div_26, 2);
+		var span_18 = child(div_27);
+		var text_24 = only_child(span_18);
+		var button_17 = sibling(span_18, 2);
+		var button_18 = sibling(button_17, 2);
+		var text_25 = only_child(button_18, true);
+		reset(div_27);
+		reset(div_25);
 		reset(form);
 		reset(section_1);
 		bind_this(section_1, ($$value) => set(editorPage, $$value), () => get(editorPage));
 		template_effect(($0, $1, $2, $3) => {
 			button_13.disabled = get(saving);
-			set_text(text_17, get(editing) ? "Edit job" : get(runOnce) ? "Run once" : "New job");
-			set_text(text_19, `${$0 ?? ""} characters · ${$1 ?? ""} lines`);
-			set_text(text_21, `Ctrl/⌘ + Enter to ${get(runOnce) ? "run" : "save"}`);
-			button_16.disabled = get(saving);
-			button_17.disabled = $2;
-			set_text(text_22, $3);
+			set_text(text_18, get(editing) ? "Edit job" : get(runOnce) ? "Run once" : "New job");
+			set_text(text_20, `${$0 ?? ""} characters · ${$1 ?? ""} lines`);
+			input_6.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
+			set_text(text_21, get(uploadingImage) ? "Uploading…" : get(images).length + "/4 images");
+			set_text(text_24, `Ctrl/⌘ + Enter to ${get(runOnce) ? "run" : "save"}`);
+			button_17.disabled = get(saving);
+			button_18.disabled = $2;
+			set_text(text_25, $3);
 		}, [
 			() => get(promptCharacters).toLocaleString(),
 			() => get(promptLines).toLocaleString(),
-			() => get(saving) || !get(dirty) || get(duplicateName) || !get(prompt).trim() || !get(runOnce) && !get(name).trim(),
+			() => get(saving) || get(uploadingImage) || !get(dirty) || get(duplicateName) || !get(prompt).trim() || !get(runOnce) && !get(name).trim(),
 			() => get(saving) ? get(runOnce) ? "Queuing…" : "Saving…" : get(editing) ? "Save changes" : get(runOnce) ? Number(get(onceDelay)) > 0 ? "Schedule once" : "Run once" : "Create job"
 		]);
 		event("submit", form, (event) => {
@@ -8093,16 +8193,17 @@ function JobsPage($$anchor, $$props) {
 		delegated("click", button_13, requestClose);
 		bind_select_value(select, () => get(schedule), ($$value) => set(schedule, $$value));
 		bind_value(textarea_1, () => get(prompt), ($$value) => set(prompt, $$value));
-		delegated("click", button_16, requestClose);
+		delegated("change", input_6, (event) => void addImages(event.currentTarget));
+		delegated("click", button_17, requestClose);
 		append($$anchor, section_1);
 	};
-	if_block(node_8, ($$render) => {
-		if (get(editorOpen)) $$render(consequent_17);
+	if_block(node_9, ($$render) => {
+		if (get(editorOpen)) $$render(consequent_19);
 	});
 	append($$anchor, fragment);
 	pop();
 }
-delegate(["click"]);
+delegate(["click", "change"]);
 //#endregion
 //#region src/ui/App.svelte
 var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`);

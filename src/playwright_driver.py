@@ -772,6 +772,76 @@ class PlaywrightDriver:
                 continue
         return None
 
+    async def _image_input(self, page: Page) -> Locator | None:
+        # ChatGPT now exposes multiple hidden camera, photos, video and file
+        # pickers at once. Select its semantically named photo picker first.
+        photos = page.locator('input[type="file"][aria-label="Attach photos"]')
+        if await photos.count() == 1 and await photos.first.is_enabled():
+            return photos.first
+        images = page.locator('input[type="file"][multiple][accept*="image/"]:not([accept*="video/"])')
+        if await images.count() == 1 and await images.first.is_enabled():
+            return images.first
+        composer = await self._composer(page)
+        if composer is not None:
+            owner = composer.locator('xpath=ancestor::*[.//input[@type="file"]][1]')
+            inputs = owner.locator('input[type="file"]')
+            count = await inputs.count()
+            if count == 1 and await inputs.first.is_enabled():
+                return inputs.first
+            if count > 1:
+                multi = owner.locator('input[type="file"][multiple]')
+                if await multi.count() == 1 and await multi.first.is_enabled():
+                    return multi.first
+        inputs = page.locator('input[type="file"]')
+        if await inputs.count() == 1 and await inputs.first.is_enabled():
+            return inputs.first
+        return None
+
+    async def attach_images(self, paths: tuple[Path, ...]) -> None:
+        if not paths:
+            return
+        for path in paths:
+            if not path.is_file():
+                raise RuntimeError("Prompta image attachment missing")
+        page = self._page()
+        field = await self._image_input(page)
+        if field is None:
+            attach = await self._semantic_button(
+                page, re.compile(r"add files? and more|attach|upload|add (?:file|photo)", re.I)
+            )
+            if attach is not None:
+                await attach.click()
+                for _ in range(30):
+                    field = await self._image_input(page)
+                    if field is not None:
+                        break
+                    await asyncio.sleep(0.1)
+        if field is None:
+            raise RuntimeError("ChatGPT image attachment input unavailable")
+        previews = page.locator(".composer-attachment-surface img")
+        baseline = await previews.count()
+        await field.set_input_files([str(path) for path in paths])
+        stable = 0
+        deadline = asyncio.get_running_loop().time() + 120.0
+        while asyncio.get_running_loop().time() < deadline:
+            count = await previews.count()
+            ready = count >= baseline + len(paths)
+            if ready:
+                for index in range(baseline, baseline + len(paths)):
+                    if not await previews.nth(index).evaluate(
+                        load_browser_script("image_preview_ready.js")
+                    ):
+                        ready = False
+                        break
+            if ready:
+                stable += 1
+                if stable >= 5:
+                    return
+            else:
+                stable = 0
+            await asyncio.sleep(0.25)
+        raise RuntimeError("ChatGPT image previews did not become ready within 120s")
+
     async def _semantic_button(
         self,
         page: Page,

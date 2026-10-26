@@ -14,6 +14,7 @@ from .browser_driver import BrowserDriver
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
+from .image_store import ImageStore, image_refs
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .response_capture import CaptureResult
@@ -126,6 +127,7 @@ class BrowserDeliverySender:
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
         self._next_effort_preference_retry_at = 0.0
         self.results = ResponseStore(state_dir / "chat-results.sqlite3")
+        self.images = ImageStore(state_dir)
         self._capture_slots = threading.BoundedSemaphore(_MAX_BACKGROUND_CAPTURES)
 
     def _new_driver(self) -> BrowserDriver:
@@ -195,7 +197,7 @@ class BrowserDeliverySender:
         )
         logger.info("Prompta set and verified preferred model and High effort")
 
-    def __call__(self, message: str, *, pin_chat: bool = False, send_id: str = "", job_name: str = "") -> None:
+    def __call__(self, message: str, *, pin_chat: bool = False, send_id: str = "", job_name: str = "", images: object = ()) -> None:
         if not message.strip():
             raise ValueError("prompta prompt is empty")
 
@@ -213,6 +215,7 @@ class BrowserDeliverySender:
                 + f"{max(1, math.ceil(gap))} seconds"
             )
 
+        image_paths = tuple(self.images.path(ref) for ref in image_refs(images))
         self._dispatch_started = False
         if send_id:
             self.results.ensure_queued(send_id, message, job_name)
@@ -225,7 +228,7 @@ class BrowserDeliverySender:
                     try:
                         asyncio.run(self._send_browser(
                             message, accepted=handshake, confirmed=confirmed,
-                            pin_chat=pin_chat, send_id=send_id,
+                            pin_chat=pin_chat, send_id=send_id, images=image_paths,
                         ))
                     except BaseException as exc:
                         if not confirmed.is_set():
@@ -272,7 +275,7 @@ class BrowserDeliverySender:
 
                 def deliver() -> None:
                     try:
-                        asyncio.run(self._send_browser(message, accepted=finished, pin_chat=pin_chat))
+                        asyncio.run(self._send_browser(message, accepted=finished, pin_chat=pin_chat, images=image_paths))
                     except BaseException as exc:
                         errors.append(exc)
                     finally:
@@ -283,7 +286,7 @@ class BrowserDeliverySender:
                 if errors:
                     raise errors[0]
             else:
-                asyncio.run(self._send_browser(message, pin_chat=pin_chat))
+                asyncio.run(self._send_browser(message, pin_chat=pin_chat, images=image_paths))
         except TimeoutError as exc:
             if self._dispatch_started:
                 raise SendOutcomeUnknownError(
@@ -403,6 +406,7 @@ class BrowserDeliverySender:
         self, message: str, *, accepted: threading.Event | None = None,
         confirmed: threading.Event | None = None,
         pin_chat: bool = False, send_id: str = "",
+        images: tuple[Path, ...] = (),
     ) -> None:
         driver = self._new_driver()
         context = ""
@@ -494,6 +498,8 @@ class BrowserDeliverySender:
                     )
                 capture = driver.arm_send_capture()
                 await _timed_stage("prompt_insertion", driver.type_message(message), timeout=30.0)
+                if images:
+                    await _timed_stage("image_upload", driver.attach_images(images), timeout=140.0)
 
                 typed = await _timed_stage(
                     "prompt_verification", driver.dom_state(), timeout=15.0

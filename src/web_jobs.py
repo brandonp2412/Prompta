@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from .delivery_queue import DeliveryQueueStore
+from .image_store import ImageStore, image_refs
 from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .manual_fire import fire_job_now
 from .scheduler_runtime import SchedulerRuntime
@@ -75,6 +76,7 @@ def serialize_scheduled_jobs(
                 "name": job.name,
                 "created_order": job.created_order,
                 "prompt": job.prompt,
+                "images": [{"ref": ref, "name": ref.split("/", 1)[1], "url": "/api/images/" + ref} for ref in job.images],
                 "interval_minutes": job.interval_seconds / 60.0,
                 "daily_at": job.daily_at,
                 "run_at_epoch": job.run_at_epoch,
@@ -104,6 +106,7 @@ class WebJobService:
         self.jobs_path = jobs_path.expanduser()
         self.state_path = state_path.expanduser()
         self.server_name = server_name
+        self.images = ImageStore(self.state_path.parent)
         self.start_scheduler = start_scheduler
 
     @property
@@ -141,6 +144,9 @@ class WebJobService:
                 raise ValueError("Job prompt is required")
 
             existing = load_jobs(self.jobs_path).get(name)
+            images = image_refs(payload.get("images", existing.images if existing else []))
+            for ref in images:
+                self.images.path(ref)
             mutex_group = str(
                 payload.get("mutex_group")
                 if "mutex_group" in payload
@@ -181,6 +187,7 @@ class WebJobService:
                 exact_interval=exact_interval,
                 run_at_epoch=run_at_epoch,
                 mutex_group=mutex_group,
+                images=images,
             )
             if existing is None:
                 # A newly created job must not inherit state from an older deleted job.
@@ -214,16 +221,19 @@ class WebJobService:
             prompt = payload.get("prompt")
             if not isinstance(prompt, str) or not prompt.strip():
                 raise ValueError("Job prompt is required")
+            images = image_refs(payload.get("images", []))
+            for ref in images:
+                self.images.path(ref)
             delay_minutes = _validated_once_delay_minutes(payload.get("delay_minutes", 0))
             if delay_minutes == 0:
                 DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
-                    prompt.strip()
+                    prompt.strip(), images=images
                 )
             else:
                 run_at_epoch = time.time() + delay_minutes * 60
                 label = datetime.fromtimestamp(run_at_epoch).strftime("%d %b %H:%M")
                 name = f"Once {label} {uuid.uuid4().hex[:8]}"
-                add_job(self.jobs_path, name, prompt.strip(), 0, run_at_epoch=run_at_epoch)
+                add_job(self.jobs_path, name, prompt.strip(), 0, run_at_epoch=run_at_epoch, images=images)
                 runtime.clear_job_state(name)
                 self._wake_scheduler()
 

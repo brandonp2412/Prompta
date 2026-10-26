@@ -2,7 +2,10 @@
   import { onMount } from "svelte";
   import { isLongJob, sortJobs } from "./jobSorting";
 
+  type ImageRef = { ref: string; name: string; url: string };
+
   type Job = {
+    images: ImageRef[];
     name: string;
     created_order: number;
     prompt: string;
@@ -62,6 +65,8 @@
   let editing = $state("");
   let name = $state("");
   let prompt = $state("");
+  let images = $state<ImageRef[]>([]);
+  let uploadingImage = $state(false);
   let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
   let onceDelay = $state("0");
@@ -88,6 +93,7 @@
     editing = "";
     name = "";
     prompt = "";
+    images = [];
     schedule = "once";
     interval = "40";
     onceDelay = "0";
@@ -98,7 +104,7 @@
   }
 
   function formSnapshot() {
-    return JSON.stringify({ name, prompt, schedule, interval, onceDelay, dailyAt, exact });
+    return JSON.stringify({ name, prompt, images: images.map((image) => image.ref), schedule, interval, onceDelay, dailyAt, exact });
   }
 
   function closeEditorState() {
@@ -185,6 +191,7 @@
       editing = job.name;
       name = job.name;
       prompt = job.prompt;
+      images = [...(job.images || [])];
       schedule = job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval";
       originalRunAtEpoch = job.run_at_epoch;
       onceDelay = String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1000) / 6) / 10) : 0);
@@ -295,6 +302,7 @@
       left.name === right.name &&
       left.created_order === right.created_order &&
       left.prompt === right.prompt &&
+      JSON.stringify(left.images) === JSON.stringify(right.images) &&
       left.status === right.status &&
       left.status_message === right.status_message &&
       left.paused === right.paused &&
@@ -379,8 +387,49 @@
     }
   }
 
+  async function addImages(input: HTMLInputElement) {
+    const files = Array.from(input.files || []);
+    input.value = "";
+    if (!files.length || uploadingImage) return;
+    if (images.length + files.length > 4) {
+      editorError = "At most four images per job.";
+      return;
+    }
+    const route = activeEditorRoute;
+    uploadingImage = true;
+    editorError = "";
+    try {
+      for (const file of files) {
+        if (file.size > 8 * 1024 * 1024) throw new Error("Images must be 8 MiB or smaller.");
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Could not read image."));
+          reader.onload = () => {
+            const value = reader.result;
+            if (typeof value !== "string" || !value.includes(",")) reject(new Error("Could not encode image."));
+            else resolve(value.split(",", 2)[1]);
+          };
+          reader.readAsDataURL(file);
+        });
+        const response = await fetch("./api/images", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: file.name, data }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
+        if (activeEditorRoute !== route) return;
+        images = [...images, result.image as ImageRef];
+      }
+    } catch (error) {
+      if (activeEditorRoute === route) editorError = String(error).replace(/^Error:\s*/, "");
+    } finally {
+      uploadingImage = false;
+    }
+  }
+
   async function submit() {
-    if (saving || !dirty || duplicateName) return;
+    if (saving || uploadingImage || !dirty || duplicateName) return;
     editorError = "";
     const jobName = name.trim();
     const jobPrompt = prompt.trim();
@@ -389,7 +438,7 @@
     if (runOnce) {
       const delayMinutes = Number(onceDelay);
       const queued = await command(
-        { action: "run_once", prompt: jobPrompt, delay_minutes: delayMinutes },
+        { action: "run_once", prompt: jobPrompt, images: images.map((image) => image.ref), delay_minutes: delayMinutes },
         delayMinutes ? `Scheduled once in ${delayMinutes} minutes (under Long jobs).` : "Queued one fresh chat.",
       );
       if (queued) {
@@ -404,6 +453,7 @@
         action: "add",
         name: jobName,
         prompt: jobPrompt,
+        images: images.map((image) => image.ref),
         schedule,
         daily_at: daily ? dailyAt : "",
         interval_minutes: schedule === "interval" ? Number(interval) : null,
@@ -529,6 +579,7 @@
         <div class="job-main" role="cell">
           <div class="job-name">{job.name}</div>
           <div class="job-prompt" title={job.prompt}>{job.prompt}</div>
+          {#if job.images?.length}<div class="job-image-count">{job.images.length} image{job.images.length === 1 ? "" : "s"}</div>{/if}
           <div class="job-submeta">
             <span>Last sent {formatDate(job.last_sent_at)}</span>
             {#if job.source_revision}
@@ -684,6 +735,24 @@
             <textarea bind:value={prompt} rows="14" required></textarea>
           </label>
           <div class="prompt-counter">{promptCharacters.toLocaleString()} characters · {promptLines.toLocaleString()} lines</div>
+          <div class="job-image-picker">
+            <label class="toolbar-button image-add">
+              Add images
+              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={uploadingImage || saving || images.length >= 4} onchange={(event) => void addImages(event.currentTarget)} />
+            </label>
+            <span>{uploadingImage ? "Uploading…" : images.length + "/4 images"}</span>
+          </div>
+          {#if images.length}
+            <div class="job-image-previews">
+              {#each images as image (image.ref)}
+                <div class="job-image-preview">
+                  <img src={image.url} alt={image.name} />
+                  <span title={image.name}>{image.name}</span>
+                  <button type="button" title={"Remove " + image.name} aria-label={"Remove " + image.name} disabled={saving || uploadingImage} onclick={() => (images = images.filter((item) => item.ref !== image.ref))}>×</button>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <div class="editor-footer">
@@ -705,7 +774,7 @@
           <div class="editor-actions">
             <span class="keyboard-hint">Ctrl/⌘ + Enter to {runOnce ? "run" : "save"}</span>
             <button class="toolbar-button" type="button" disabled={saving} onclick={requestClose}>Cancel</button>
-            <button class="primary-button" type="submit" disabled={saving || !dirty || duplicateName || !prompt.trim() || (!runOnce && !name.trim())}>
+            <button class="primary-button" type="submit" disabled={saving || uploadingImage || !dirty || duplicateName || !prompt.trim() || (!runOnce && !name.trim())}>
               {saving ? (runOnce ? "Queuing…" : "Saving…") : editing ? "Save changes" : runOnce ? (Number(onceDelay) > 0 ? "Schedule once" : "Run once") : "Create job"}
             </button>
           </div>

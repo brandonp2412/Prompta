@@ -16,7 +16,7 @@ def fire_job_now(
 ) -> dict[str, object]:
     """Queue a fresh chat and restart an interval job's countdown."""
     fired_at = time.time() if now is None else float(now)
-    receipt = queue.enqueue_manual(job.prompt, now=fired_at, pin_chat=job.run_at_epoch is not None)
+    receipt = queue.enqueue_manual(job.prompt, now=fired_at, pin_chat=job.run_at_epoch is not None, images=job.images)
     if job.interval_seconds > 0 and job.daily_at is None and job.run_at_epoch is None:
         updates: dict[str, object] = {
             "initial_due_at_epoch": 0.0,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
@@ -12,6 +13,7 @@ from sqlalchemy import Integer, delete, literal_column, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from .image_store import image_refs
 from .persistence import create_database, scheduled_jobs
 
 logger = logging.getLogger(__name__)
@@ -68,6 +70,7 @@ class PromptJob:
     mutex_group: str = ""
     # Existing SQLite rowid tracks insertion order even when a job is edited.
     created_order: int = field(default=0, compare=False)
+    images: tuple[str, ...] = ()
 
 
 def load_jobs(path: Path) -> dict[str, PromptJob]:
@@ -101,6 +104,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             str(row["source_revision"] or ""),
             str(row["mutex_group"] or ""),
             int(row["created_order"]),
+            image_refs(json.loads(str(row["images_json"] or "[]"))),
         )
         for row in rows
     }
@@ -115,6 +119,7 @@ def normalise_job_definition(
     run_at_epoch: float | None = None,
     source_revision: str = "",
     mutex_group: str = "",
+    images: tuple[str, ...] = (),
 ) -> PromptJob:
     normalized_name = name.strip()
     if not normalized_name:
@@ -134,6 +139,7 @@ def normalise_job_definition(
         normalised_run_at,
         source_revision.strip().lower(),
         mutex_group.strip(),
+        images=image_refs(images),
     )
 
 
@@ -147,6 +153,7 @@ def add_job(
     run_at_epoch: float | None = None,
     source_revision: str | None = None,
     mutex_group: str = "",
+    images: tuple[str, ...] | None = None,
 ) -> None:
     job = normalise_job_definition(
         name,
@@ -157,6 +164,7 @@ def add_job(
         run_at_epoch,
         source_revision if source_revision is not None else current_source_revision(),
         mutex_group,
+        images=images or (),
     )
 
     engine = create_database(path)
@@ -170,6 +178,7 @@ def add_job(
             "run_at_epoch": job.run_at_epoch,
             "source_revision": job.source_revision,
             "mutex_group": job.mutex_group,
+            "images_json": json.dumps(job.images),
         }
         statement = insert(scheduled_jobs).values(**values)
         statement = statement.on_conflict_do_update(
@@ -177,7 +186,7 @@ def add_job(
             set_={
                 key: getattr(statement.excluded, key)
                 for key in values
-                if key not in {"name", "source_revision"}
+                if key not in ({"name", "source_revision", "images_json"} if images is None else {"name", "source_revision"})
             },
         )
         with engine.begin() as connection:

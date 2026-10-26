@@ -680,3 +680,13 @@ button:disabled { cursor: default; opacity: 0.45; }
   .keyboard-hint { display: none; }
 
 }
+
+.job-image-picker { display:flex; align-items:center; gap:12px; margin-top:12px; color:var(--muted, #9ca3af); font-size:0.85rem; }
+.job-image-picker .image-add { position:relative; cursor:pointer; overflow:hidden; }
+.job-image-picker input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; }
+.job-image-previews { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.job-image-preview { position:relative; width:112px; border:1px solid var(--line, #475569); border-radius:10px; overflow:hidden; }
+.job-image-preview img { display:block; width:100%; height:86px; object-fit:cover; }
+.job-image-preview span { display:block; padding:4px 6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:0.73rem; }
+.job-image-preview button { position:absolute; top:3px; right:3px; border:0; border-radius:50%; background:#222d; color:white; font-size:18px; width:27px; height:27px; cursor:pointer; }
+.job-image-count { font-size:0.76rem; opacity:0.7; margin-top:3px; }

@@ -37,6 +37,7 @@ scheduled_jobs = Table(
     Column("run_at_epoch", Float),
     Column("source_revision", String, nullable=False, default=""),
     Column("mutex_group", String, nullable=False, default=""),
+    Column("images_json", Text, nullable=False, default="[]"),
 )
 scheduler_state = Table(
     "scheduler_state",
@@ -58,6 +59,7 @@ job_deliveries = Table(
     Column("sequence", Integer, primary_key=True, autoincrement=True),
     Column("send_id", String, nullable=False, unique=True),
     Column("message", Text, nullable=False),
+    Column("images_json", Text, nullable=False, default="[]"),
     Column("client_id", String, nullable=False, default=""),
     Column("status", String, nullable=False, default="queued"),
     Column("error", Text, nullable=False, default=""),
@@ -118,6 +120,11 @@ def _database_engine(path: str, timeout: float) -> Engine:
             migrations.add_column(
                 "scheduled_jobs", Column("mutex_group", String, nullable=False, server_default="")
             )
+        if "images_json" not in columns:
+            migrations.add_column("scheduled_jobs", Column("images_json", Text, nullable=False, server_default="[]"))
+        delivery_columns = {column["name"] for column in inspect(connection).get_columns("job_deliveries")}
+        if "images_json" not in delivery_columns:
+            migrations.add_column("job_deliveries", Column("images_json", Text, nullable=False, server_default="[]"))
         account_backoff = insert(account_state).from_select(
             ["key", "value_json"],
             select(literal("rate_limit_backoff"), scheduler_state.c.value_json).where(

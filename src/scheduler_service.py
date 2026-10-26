@@ -124,6 +124,7 @@ class DurableSchedulerProducer:
             {
                 "send_id": send_id,
                 "message": scheduled_job_prompt(job),
+                "images": job.images,
                 "client_id": f"scheduled:{idempotency_key}:{job.name}",
                 "status": "queued",
                 "created_at": now,
