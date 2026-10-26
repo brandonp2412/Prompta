@@ -236,9 +236,13 @@ class BrowserDeliverySender:
                         handshake.set()
                         self._capture_slots.release()
 
-                threading.Thread(
-                    target=dispatch_and_capture, name="prompta-passive-capture", daemon=True
-                ).start()
+                try:
+                    threading.Thread(
+                        target=dispatch_and_capture, name="prompta-passive-capture", daemon=True
+                    ).start()
+                except RuntimeError as exc:
+                    self._capture_slots.release()
+                    raise DeliveryBackendUnavailableError("Passive capture thread unavailable") from exc
                 handshake.wait()
                 if confirmed.is_set():
                     return
@@ -258,8 +262,9 @@ class BrowserDeliverySender:
                         raise RateLimitError(str(exc), retry_after=max(1, math.ceil(delay))) from exc
                     raise exc
                 raise RuntimeError("Background delivery ended without a receipt")
-            self.results.unavailable(send_id)
-            logger.warning("Passive capture capacity reached; sending without retention")
+            raise DeliveryBackendUnavailableError(
+                "Passive capture capacity reached; delivery safely deferred before dispatch"
+            )
         try:
             if self.connector_approval:
                 finished = threading.Event()

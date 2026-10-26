@@ -9,7 +9,7 @@
   pre-existing **45-minute tab TTL**. Connector `Always allow` supervision runs
   alongside capture. Only the existing single worker dispatches new prompts;
   capture threads never send. Capacity is 96 retained tabs; if exhausted,
-  sending remains possible but that run's capture is unavailable.
+  a new send is safely deferred before dispatch and retried by the delivery queue.
 - `~/.local/state/prompta/chat-results.sqlite3` contains per-send `send_id`,
   job name, user text, assistant text, source, single branch/message identity,
   timestamps, lease owner/deadline, and states queued/accepted/generating/

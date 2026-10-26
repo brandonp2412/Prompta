@@ -3208,3 +3208,20 @@ def test_passive_capture_handoff_does_not_hold_delivery_worker(tmp_path: Path) -
     assert result is not None and result["status"] == "completed"
     assert result["assistant_text"] == "Done without polling"
     assert driver.clicks == 1
+
+
+def test_capture_capacity_defers_before_any_chatgpt_dispatch(tmp_path: Path) -> None:
+    driver = FakeDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, connector_approval=False,
+    )
+    sender._capture_slots = threading.BoundedSemaphore(1)
+    assert sender._capture_slots.acquire(blocking=False)
+    try:
+        with pytest.raises(DeliveryBackendUnavailableError, match="safely deferred"):
+            sender("Do not send yet", send_id="capacity-run")
+    finally:
+        sender._capture_slots.release()
+    assert driver.context == "" and driver.composer == ""
+    row = sender.results.get("capacity-run")
+    assert row is not None and row["status"] == "queued"
