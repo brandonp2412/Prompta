@@ -1,6 +1,6 @@
 # Prompta
 
-Prompta schedules one-off and recurring prompts for ChatGPT. Jobs can be managed from the CLI or the mobile-friendly web UI; each run opens a fresh ChatGPT chat, submits the prompt, and leaves the response to ChatGPT.
+Prompta schedules one-off and recurring prompts for ChatGPT. Each run opens a fresh chat and passively captures the assistant's response from its owned tab. The mobile-friendly web UI manages jobs and shows local read-only results, without accessing account-wide ChatGPT history.
 
 <p align="center">
   <img src="docs/prompta-cli.png" alt="Prompta CLI" width="900">
@@ -25,7 +25,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now prompta.target prompta-browser-watchdog.timer
 ```
 
-The UI is at `http://127.0.0.1:8765`. The CLI is available as `uv run prompta`, for example:
+The Jobs and Chats UI is at `http://127.0.0.1:8765`. Its Chats view reads only Prompta's private local SQLite results. The CLI is available as `uv run prompta`, for example:
 
 ```bash
 uv run prompta add nightly-review "Review the project and improve it" --daily-at 21:00
@@ -81,11 +81,11 @@ systemctl --user start prompta-browser.service
 
 ## Connector permissions
 
-By default tabs close after prompt acceptance. To keep them open for 45 minutes and automatically select “Always allow” on successive permission dialogs, add to `~/.config/prompta/config.toml`:
+Passive response capture retains each Prompta-owned tab only until completion, interruption, or the existing hard 45-minute TTL. To automatically select “Always allow” on successive permission dialogs within that bound, add to `~/.config/prompta/config.toml`:
 
 ```toml
 [connector_approval]
 enabled = true
 ```
 
-Restart `prompta-delivery-worker` after changing this setting. Delivery is acknowledged immediately; permission handling runs in the background without reading assistant output.
+Restart `prompta-delivery-worker` after changing this setting. Delivery is acknowledged immediately; approval handling and passive response capture run in the background without making any additional ChatGPT requests.

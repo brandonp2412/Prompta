@@ -14,10 +14,11 @@ from collections.abc import Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
+from .response_store import ResponseStore
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
 from .strict_types import json_object
 from .web_jobs import WebJobService
@@ -86,6 +87,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         self.host_name = host.split(".", 1)[0]
         self.health = ServiceHealthStore(self.state_path)
         self.queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
+        self.results = ResponseStore(self.state_path.parent / "chat-results.sqlite3")
         self.jobs = WebJobService(
             self.jobs_path,
             self.state_path,
@@ -123,6 +125,10 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     server: PromptaJobServer
 
     def log_message(self, format: str, *args: object) -> None:
+        if urlparse(self.path).path.startswith("/api/results"):
+            # Search terms and run identifiers can be sensitive; don't log request URLs.
+            logger.info("%s - %s /api/results", self.address_string(), self.command)
+            return
         logger.info("%s - %s", self.address_string(), format % args)
 
     def _headers(self, status: HTTPStatus, content_type: str, length: int) -> None:
@@ -180,7 +186,8 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"", "/"}:
             self._index()
             return
@@ -189,6 +196,35 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/health":
             self._json(self.server.health_payload())
+            return
+        if path == "/api/results":
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            try:
+                if any(len(values) != 1 for values in params.values()):
+                    raise ValueError("Invalid result query")
+                if set(params) - {"limit", "offset", "q", "status"}:
+                    raise ValueError("Unknown result query")
+                limit = int(params.get("limit", ["20"])[0])
+                offset = int(params.get("offset", ["0"])[0])
+                payload = self.server.results.page(
+                    limit=limit, offset=offset, query=params.get("q", [""])[0].strip(),
+                    status=params.get("status", [""])[0],
+                )
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(payload)
+            return
+        if path.startswith("/api/results/"):
+            send_id = unquote(path[len("/api/results/"):])
+            if "/" in send_id:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            record = self.server.results.detail(send_id)
+            if record is None:
+                self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
+            else:
+                self._json(record)
             return
         if path.startswith("/") and path[1:] in _ALLOWED_STATIC:
             self._static(path[1:])

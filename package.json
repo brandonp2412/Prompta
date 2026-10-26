@@ -2,6 +2,9 @@
   "name": "prompta-ui",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "marked": "^16.4.2"
+  },
   "scripts": {
     "build": "vite build && bun scripts/normalize-bundle.mjs src/static/app.js",
     "fmt": "bun x oxfmt src/ui vite.config.ts svelte.config.js",

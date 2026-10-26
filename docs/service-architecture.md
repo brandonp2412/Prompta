@@ -1,14 +1,14 @@
 # Prompta service architecture
 
-Prompta is a jobs-only scheduler and fresh-chat dispatcher. Conversation viewing and result processing are deliberately outside the system.
+Prompta is a job-centric scheduler and fresh-chat dispatcher. Its only conversation view is a read-only record of responses passively captured from Prompta-owned job tabs.
 
 ## Components
 
 | Unit | Owns | Does not own |
 | --- | --- | --- |
-| prompta-ui.service | Jobs CRUD/status API and jobs-only Svelte UI | Chat history, messages, replies, assistant output |
+| prompta-ui.service | Jobs CRUD/status plus local SQLite-only `/api/results` and read-only Chats view | ChatGPT browser access, account-wide history, replies |
 | prompta-scheduler.service | Due-time calculation and durable job-delivery enqueue | Browser automation or result tracking |
-| prompta-delivery-worker.service | Delivery claims, retry policy, fresh-tab prompt submission | Assistant-response polling or conversation persistence |
+| prompta-delivery-worker.service | Delivery claims, fresh-tab submission and bounded passive capture into private SQLite | Extra ChatGPT reads, retries after ambiguous sends, historical tab reopening |
 | prompta-browser.service | Authenticated Chromium/CDP session | Scheduling or job state |
 
 prompta.target starts these four services. The old conversation worker does not exist.
@@ -26,17 +26,21 @@ prompta.target starts these four services. The old conversation worker does not 
                                v
                     fresh ChatGPT tab
                                |
-                        submit prompt
+                        submit fresh prompt
                                |
                      confirm acceptance
                                |
-                          close tab
+                  passive POST/DOM capture
+                          |
+                 private chat-results SQLite
+                          |
+               read-only local Chats UI
 
-The durable queue stores job-delivery metadata only. It does not store conversation IDs, assistant messages, transcripts, attachments, reply targets, or UI chat state.
+The durable queue stores delivery metadata. A separate private per-run response store holds only Prompta-issued prompts and user-facing assistant output, with status and branch identity. There are no attachments, reply targets, or account-wide transcripts.
 
 ## Completion rule
 
-A Prompta job run is complete when prompt submission is confirmed. The assistant may continue producing a response on ChatGPT's servers after the Prompta-owned browser tab has been closed; Prompta does not observe that response. With `connector_approval.enabled = true`, a background supervisor keeps the owned tab open for 45 minutes, selects successive Always allow permission controls, then closes it. An independent 20-second watchdog closes expired owned browser targets even after worker failures. This does not delay queue completion.
+A delivery is accepted when prompt submission is confirmed. Its *response* is completed only with explicit final evidence. After acceptance, passive capture retains that same tab within the original hard 45-minute TTL; the independent watchdog closes expired owned targets, even after worker failure. Partial/failed captures remain distinct from completed ones. Connector approvals and global rate-limit backoff remain in force.
 
 Pre-dispatch failures are retryable. A post-dispatch outcome that cannot be proven is terminal outcome_unknown, preventing an automatic duplicate.
 

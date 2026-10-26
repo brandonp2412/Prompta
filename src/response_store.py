@@ -18,7 +18,9 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    func,
     inspect,
+    or_,
     select,
     update,
 )
@@ -228,3 +230,57 @@ class ResponseStore:
             rows = connection.execute(select(results).order_by(results.c.created_at.desc()).limit(
                 max(1, min(1000, limit)))).mappings().all()
         return [dict(row) for row in rows]
+
+    def page(
+        self, *, limit: int = 20, offset: int = 0, query: str = "", status: str = ""
+    ) -> dict[str, object]:
+        """List only locally persisted Prompta runs; never touch browser state."""
+        if status and status not in (
+            "queued", "accepted", "generating", "completed", "interrupted", "unavailable"
+        ):
+            raise ValueError("Invalid result status")
+        if len(query) > 200 or not 1 <= limit <= 50 or not 0 <= offset <= 100_000:
+            raise ValueError("Invalid results pagination or search")
+        criteria = []
+        if status:
+            criteria.append(results.c.status == status)
+        if query:
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            criteria.append(or_(
+                results.c.job_name.ilike(pattern, escape="\\"),
+                results.c.user_text.ilike(pattern, escape="\\"),
+                results.c.assistant_text.ilike(pattern, escape="\\"),
+            ))
+        with self.engine.connect() as connection:
+            count = connection.execute(select(func.count()).select_from(results).where(*criteria)).scalar_one()
+            rows = connection.execute(
+                select(results.c.send_id, results.c.job_name, results.c.user_text,
+                       results.c.assistant_text, results.c.status, results.c.created_at,
+                       results.c.updated_at, results.c.finished_at)
+                .where(*criteria).order_by(results.c.created_at.desc(), results.c.send_id.desc())
+                .limit(limit).offset(offset)
+            ).mappings().all()
+        items = []
+        for row in rows:
+            prompt = str(row["user_text"])
+            answer = str(row["assistant_text"])
+            title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
+            items.append({
+                "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
+                "status": row["status"], "preview": (answer or prompt)[:180],
+                "has_response": bool(answer), "created_at": row["created_at"],
+                "updated_at": row["updated_at"], "finished_at": row["finished_at"],
+            })
+        return {"items": items, "total": count, "limit": limit, "offset": offset}
+
+    def detail(self, send_id: str) -> dict[str, object] | None:
+        if not send_id or len(send_id) > 200:
+            return None
+        row = self.get(send_id)
+        if row is None:
+            return None
+        return {key: row[key] for key in (
+            "send_id", "job_name", "user_text", "assistant_text", "status", "source",
+            "created_at", "accepted_at", "updated_at", "finished_at",
+        )}
