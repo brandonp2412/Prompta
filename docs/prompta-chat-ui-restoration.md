@@ -136,3 +136,12 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 2. Wire a dedicated manual dispatcher behind account-wide backoff/send gaps, independent ownership leases, exact branch navigation verification, and a single irreversible pre-send claim; preserve scheduled *fresh* chats, Once pinning, image isolation, connector approvals, FlareSolverr, queue, health, and existing crash safety.
 3. Extend per-turn UI and capture to show truthful partial/interrupted/outcome-unknown states; refuse ambiguous retries and mutated lineage. Test concurrent scheduled/manual dispatch, 429s, lease loss, process death, stale parent IDs, and independent 45-minute idle reaping.
 4. Repeat full strict checks and exact-viewport real-browser screenshots, actually view them, then integrate under `prompta-main-merge.lock`, push and deploy Nox safely. Do not start Stage 3 before Stage 2 integration/deployment is fully verified.
+
+### Integration and deployed Nox closeout
+
+- Implementation commit `15d72abeb0206d5e73edb6ba0bc672d299e3ac86` fast-forwarded to `main` under `/home/brandon/prompta/.git/prompta-main-merge.lock`, pushed successfully, and verified against `origin/main`. No merge conflict or overlapping restoration worker occurred.
+- Final pre-integration buildq gates: Ruff `#1385` pass, Ty `#1386` pass, full Bun/Svelte/TypeScript/Vite `#1387` pass, and pytest `#1388` **363 passed, 1 skipped** in 85.63 seconds. Normalized Vite output was reverted as test-only noise; no UI source changes.
+- Nox package reinstall `#1389` succeeded. UI and scheduler were restarted. The delivery worker was restarted **only after** the single pre-existing passive capture reached its terminal state (zero active captures and no dispatch in flight). Browser service PID `725209` was preserved and remained active. No jobs were resumed by this work.
+- Post-restart `GET /api/health`: HTTP 200, `ok: true`, no-store, browser reachable; `GET /api/results`: HTTP 200/no-store. All four services remained active.
+- Actual post-deployment headless Chromium E2E `#1390` passed at 1440×900 and 390×844: **23 local GETs, zero POSTs, zero remote hosts**, no horizontal overflow, successful Jobs/Chats/search/refresh/back interactions and local turn API read. No ChatGPT sends occurred. Six earlier synthetic-private E2E screenshots were already opened and reviewed.
+- Gate disposition: **Stage 2 complete, merged, pushed, deployed and verified**. Stage 3 may start with its explicitly user-triggered send bridge; Stage 2's prepared intent endpoint does not submit messages.
