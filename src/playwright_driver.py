@@ -89,6 +89,10 @@ async def _timed_model_picker_step(
     return result
 
 
+class BrowserSecurityChallengeError(RuntimeError):
+    """ChatGPT security challenge blocked an attempted navigation or UI action."""
+
+
 def _normalise_composer_text(text: str) -> str:
     normalized = " ".join(text.split()).strip()
     return re.sub(r"(?<=[=(])\s+(?=https?://)", "", normalized)
@@ -1019,10 +1023,10 @@ class PlaywrightDriver:
             await self.navigate("https://chatgpt.com/", context=self.context)
             if await self._cloudflare_challenge_present():
                 if not await self._recover_security_challenge(page):
-                    raise RuntimeError("ChatGPT security challenge blocked authentication")
+                    raise BrowserSecurityChallengeError("ChatGPT security challenge blocked authentication")
                 await self.navigate("https://chatgpt.com/", context=self.context)
                 if await self._cloudflare_challenge_present():
-                    raise RuntimeError("ChatGPT security challenge blocked authentication")
+                    raise BrowserSecurityChallengeError("ChatGPT security challenge blocked authentication")
 
             deadline = asyncio.get_running_loop().time() + self.auth_timeout_seconds
             last_error: Exception | None = None
@@ -1122,12 +1126,12 @@ class PlaywrightDriver:
             response = await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
             if self._navigation_response_is_security_challenge(response):
                 if not await self._recover_security_challenge(page):
-                    raise RuntimeError("ChatGPT security challenge blocked navigation")
+                    raise BrowserSecurityChallengeError("ChatGPT security challenge blocked navigation")
                 response = await page.goto(
                     url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS
                 )
                 if self._navigation_response_is_security_challenge(response):
-                    raise RuntimeError("ChatGPT security challenge blocked navigation")
+                    raise BrowserSecurityChallengeError("ChatGPT security challenge blocked navigation")
             context_id = self._page_contexts.get(page)
             if context_id in self._owned_contexts:
                 await self._mark_owned(page)
@@ -1262,12 +1266,12 @@ class PlaywrightDriver:
     ) -> None:
         if await self._cloudflare_challenge_present(context=context):
             if not os.environ.get("PROMPTA_FLARESOLVERR_URL"):
-                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+                raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking composer readiness")
             if not await self._recover_security_challenge(self._page(context)):
-                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+                raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking composer readiness")
             await self.navigate("https://chatgpt.com/", context=context)
             if await self._cloudflare_challenge_present(context=context):
-                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+                raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking composer readiness")
 
         page = self._page(context)
         deadline = asyncio.get_running_loop().time() + timeout
@@ -1283,11 +1287,11 @@ class PlaywrightDriver:
             # A challenge can replace the editor while hydration is in flight.
             # Fail closed before another wait rather than mistaking it for a stall.
             if await self._cloudflare_challenge_present(context=context):
-                raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+                raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking composer readiness")
             await asyncio.sleep(0.15)
 
         if await self._cloudflare_challenge_present(context=context):
-            raise RuntimeError("ChatGPT security challenge is blocking composer readiness")
+            raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking composer readiness")
         # FirstWari/chatgpt-web classifies authentication redirects separately
         # from hydration failures. Check only after exhausting the normal wait,
         # retaining Prompta's existing browser and authentication ownership.
@@ -1429,7 +1433,7 @@ class PlaywrightDriver:
             # The keyboard fallback is valid only on an ordinary composer.
             # A challenge/login replacement must never receive the prompt.
             if await self._cloudflare_challenge_present():
-                raise RuntimeError("ChatGPT security challenge is blocking send readiness")
+                raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking send readiness")
             if self._mfa_authentication_route(page.url):
                 raise RuntimeError("ChatGPT multi-factor authentication required; send control unavailable")
             if await self.login_required():
@@ -1454,7 +1458,7 @@ class PlaywrightDriver:
     async def _raise_send_readiness_unavailable(self) -> None:
         # This is pre-dispatch only: never retry after a possible send mutation.
         if await self._cloudflare_challenge_present():
-            raise RuntimeError("ChatGPT security challenge is blocking send readiness")
+            raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking send readiness")
         page = self._page()
         if self._mfa_authentication_route(page.url):
             raise RuntimeError("ChatGPT multi-factor authentication required; send control unavailable")
@@ -1700,7 +1704,7 @@ class PlaywrightDriver:
             # Do not interact with Chat/Work controls if a security challenge
             # replaces the chat surface during initial navigation.
             if await self._cloudflare_challenge_present():
-                raise RuntimeError("ChatGPT security challenge is blocking Chat surface readiness")
+                raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking Chat surface readiness")
             # A usable composer is sufficient evidence that the page is already on
             # the normal chat surface. Do not interact with a redundant Chat/Work
             # mode control merely because ChatGPT happens to render one.
@@ -1728,7 +1732,7 @@ class PlaywrightDriver:
             except PlaywrightError:
                 await asyncio.sleep(0.1)
         if await self._cloudflare_challenge_present():
-            raise RuntimeError("ChatGPT security challenge is blocking Chat surface readiness")
+            raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking Chat surface readiness")
         raise RuntimeError("ChatGPT Chat surface did not become active")
 
     async def _effort_trigger_locator(self) -> Locator | None:
@@ -2213,7 +2217,7 @@ class PlaywrightDriver:
         # A session can expire or encounter a security challenge while the picker
         # is hydrating. Do not change selection or authentication ownership.
         if await self._cloudflare_challenge_present():
-            raise RuntimeError("ChatGPT security challenge is blocking model selection")
+            raise BrowserSecurityChallengeError("ChatGPT security challenge is blocking model selection")
         page = self._page()
         if self._mfa_authentication_route(page.url):
             raise RuntimeError("ChatGPT multi-factor authentication required; model selection unavailable")

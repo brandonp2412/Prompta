@@ -93,6 +93,10 @@ class DeliveryAdmission:
                 remaining,
             )
 
+        challenge_cooldown = self.runtime.security_challenge_remaining()
+        if challenge_cooldown > 0:
+            return False, "ChatGPT security challenge cooldown active", challenge_cooldown
+
         gap = self.runtime.send_gap_remaining(current)
         if gap > 0:
             return False, "Prompta global send gap is active", gap
@@ -229,7 +233,7 @@ def _deliver_one(
             return
         except DeliveryBackendUnavailableError as exc:
             attempt = max(0, _record_int(record, "retry_attempt")) + 1
-            delay = _retry_delay(attempt)
+            delay = max(_retry_delay(attempt), runtime.security_challenge_remaining())
             _retry(queue, record, owner, error=str(exc), delay=delay)
             logger.warning(
                 "Browser unavailable before dispatch send_id=%s attempt=%d retry_in=%.1fs: %s",

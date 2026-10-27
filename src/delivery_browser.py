@@ -15,7 +15,11 @@ from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
 from .image_store import ImageStore, image_refs
-from .playwright_driver import PlaywrightDriver, _normalise_composer_text
+from .playwright_driver import (
+    BrowserSecurityChallengeError,
+    PlaywrightDriver,
+    _normalise_composer_text,
+)
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .response_capture import CaptureResult
 from .response_store import ResponseStore
@@ -207,6 +211,10 @@ class BrowserDeliverySender:
                 "ChatGPT account-wide rate limit backoff is active",
                 retry_after=max(1, math.ceil(remaining)),
             )
+
+        challenge_cooldown = self.runtime.security_challenge_remaining()
+        if challenge_cooldown > 0:
+            raise DeliveryBackendUnavailableError("ChatGPT security challenge cooldown active")
 
         gap = self.runtime.send_gap_remaining(time.time())
         if gap > 0:
@@ -710,7 +718,15 @@ class BrowserDeliverySender:
             except (RateLimitError, SendNotAcceptedError, SendOutcomeUnknownError):
                 raise
             except Exception as exc:
+                cooldown = (
+                    self.runtime.record_security_challenge()
+                    if isinstance(exc, BrowserSecurityChallengeError) else 0.0
+                )
                 if not send_attempted:
+                    if cooldown > 0:
+                        raise DeliveryBackendUnavailableError(
+                            f"ChatGPT security challenge; new navigation paused for {math.ceil(cooldown)}s"
+                        ) from exc
                     raise DeliveryBackendUnavailableError(str(exc)) from exc
                 raise SendOutcomeUnknownError(
                     "Prompta failed after dispatch and cannot prove send acceptance",

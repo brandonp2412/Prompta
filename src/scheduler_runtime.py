@@ -33,7 +33,7 @@ from .scheduler_policy import (
 from .scheduler_policy import (
     send_gap_remaining as calculate_send_gap_remaining,
 )
-from .strict_types import string_object_dict
+from .strict_types import float_value, int_value, string_object_dict
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +285,44 @@ class SchedulerRuntime:
         backoff = self._durable_global_backoff()
         return backoff.remaining(), backoff.attempts
 
+    def security_challenge_remaining(self) -> float:
+        snapshot = string_object_dict(
+            self.account_state(strict=True).get("security_challenge_backoff")
+        ) or {}
+        return max(0.0, float_value(snapshot.get("blocked_until_epoch")) - time.time())
+
+    def record_security_challenge(self) -> float:
+        """Durably suppress new navigations after a confirmed Cloudflare challenge."""
+        now = time.time()
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                current = connection.execute(
+                    select(account_state.c.value_json).where(
+                        account_state.c.key == "security_challenge_backoff"
+                    )
+                ).scalar_one_or_none()
+                try:
+                    snapshot = string_object_dict(json.loads(str(current))) or {}
+                except (TypeError, ValueError):
+                    snapshot = {}
+                last_seen = float_value(snapshot.get("last_seen_epoch"))
+                prior = int_value(snapshot.get("attempts")) if 0 <= now - last_seen < 86400 else 0
+                attempts = min(5, max(0, prior) + 1)
+                duration = min(6 * 3600, 3600 * (1 << (attempts - 1)))
+                blocked_until = max(float_value(snapshot.get("blocked_until_epoch")), now + duration)
+                self._upsert_state(connection, account_state, [{
+                    "key": "security_challenge_backoff",
+                    "value_json": json.dumps({
+                        "attempts": attempts,
+                        "last_seen_epoch": now,
+                        "blocked_until_epoch": blocked_until,
+                    }),
+                }])
+        finally:
+            engine.dispose()
+        return max(0.0, blocked_until - time.time())
+
     def clear_global_rate_limit(self) -> None:
         self.global_backoff.reset()
         snapshot = self.global_backoff.snapshot()
@@ -321,6 +359,18 @@ class SchedulerRuntime:
                 "reason": reason,
                 "retry_after_seconds": max(1, int(remaining + 0.999)),
                 "retry_at_epoch": time.time() + remaining,
+            }
+        challenge_snapshot = string_object_dict(state.get("security_challenge_backoff")) or {}
+        challenge_remaining = max(
+            0.0, float_value(challenge_snapshot.get("blocked_until_epoch")) - time.time()
+        )
+        if challenge_remaining > 0:
+            return {
+                "blocked": True,
+                "kind": "security_challenge",
+                "reason": "ChatGPT security challenge cooldown active",
+                "retry_after_seconds": max(1, int(challenge_remaining + 0.999)),
+                "retry_at_epoch": time.time() + challenge_remaining,
             }
         if bool(state.get("resource_blocked")):
             return {
