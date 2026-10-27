@@ -6,6 +6,7 @@ import shutil
 import threading
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 import pytest
@@ -67,7 +68,11 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
         })["image"]
         assert isinstance(uploaded, dict)
         ref = uploaded["ref"]
-        with urlopen(base + str(uploaded["url"]), timeout=5) as response:
+        assert str(uploaded["url"]).startswith("./api/images/")
+        assert urljoin("https://example.test/private/", str(uploaded["url"])).startswith(
+            "https://example.test/private/api/images/"
+        )
+        with urlopen(urljoin(base + "/", str(uploaded["url"])), timeout=5) as response:
             assert response.headers["Content-Type"] == "image/png"
             assert response.read() == PNG
         result = post("/api/jobs", {
@@ -76,6 +81,8 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
         })
         assert result["ok"] is True
         assert load_jobs(database)["image-test"].images == (ref,)
+        saved_image = next(job for job in result["jobs"] if job["name"] == "image-test")["images"][0]
+        assert saved_image["url"] == uploaded["url"]
         with pytest.raises(HTTPError) as exc:
             urlopen(base + "/api/images/../../etc/passwd", timeout=5)
         assert exc.value.code == 404

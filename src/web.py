@@ -254,7 +254,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                 if not isinstance(name, str) or not isinstance(data, str):
                     raise ValueError("Invalid image upload")
                 ref = self.server.images.save(name, data)
-                self._json({"ok": True, "image": {"ref": ref, "name": ref.split("/", 1)[1], "url": "/api/images/" + ref}})
+                self._json({"ok": True, "image": {"ref": ref, "name": ref.split("/", 1)[1], "url": "./api/images/" + ref}})
                 return
             action = str(payload.get("action") or "")
             result = self.server.jobs.apply(action, payload)

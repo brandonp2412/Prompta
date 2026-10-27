@@ -76,7 +76,7 @@ def serialize_scheduled_jobs(
                 "name": job.name,
                 "created_order": job.created_order,
                 "prompt": job.prompt,
-                "images": [{"ref": ref, "name": ref.split("/", 1)[1], "url": "/api/images/" + ref} for ref in job.images],
+                "images": [{"ref": ref, "name": ref.split("/", 1)[1], "url": "./api/images/" + ref} for ref in job.images],
                 "interval_minutes": job.interval_seconds / 60.0,
                 "daily_at": job.daily_at,
                 "run_at_epoch": job.run_at_epoch,
