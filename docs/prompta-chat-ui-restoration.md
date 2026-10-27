@@ -95,3 +95,11 @@ This section supersedes the earlier red Ty integration gate; `#1295` is retained
 - Nox Serena activation succeeded, but `serena_repl` again returned `INVALID_ARGUMENT / Unknown tool: serena_repl`. Nox Python MCP with checked Git patches was the fallback; no private responses entered logs or artifacts.
 
 Stage 2 handoff remains: only an explicit manual user reply can target an exact verified stored branch; scheduled runs always start fresh chats. Local results browsing cannot fetch ChatGPT history. Implement 45-minute idle activity tracking and independent watchdog, preserving queue, capture, images, security backoff, FlareSolverr, Jobs, and exactly-once safeguards. If this gate is not merged, pushed, and Nox healthy, repair/reschedule it and Stage 2 before Stage 3.
+
+### Integration and Nox post-deployment closeout
+
+- Under the shared merge lock, fresh `origin/main` matched `b9cd577` and was a clean ancestor of the validated branch; main fast-forwarded to `c8e9b49027ca9215e1ae0c7725e762fa927a0291` and `git push origin main` succeeded. Audit `00d9649` is an ancestor of main; newer security-challenge fixes remain present.
+- Production package reinstall via buildq `#1348` (`uv sync --locked --reinstall-package prompta`) passed; `prompta.web`, `prompta.scheduler_service`, and `prompta.delivery_worker` imports passed. UI and scheduler restarted independently under the merge lock. Browser and delivery-worker PIDs remained unchanged to preserve any owned-tab capture.
+- Post-deploy `GET /api/health` returned HTTP 200, `ok: true`, `Cache-Control: no-store`; `GET /api/results` returned HTTP 200/no-store. UI, scheduler, delivery worker, and browser are all active. Git main remained clean.
+- Post-deploy real headless Chromium re-smoke passed at 1440×900 and 390×844: respectively 15 and 14 local GETs, zero POSTs, zero nonlocal hosts, and no horizontal overflow. Six earlier privacy-masked screenshots remain saved and were visually reviewed; the re-smoke did not overwrite them.
+- **Gate disposition: complete.** Stage 2 may proceed against deployed main once its worker verifies no overlap; Stage 3 must not preempt Stage 2. Keep this document updated with each later stage proof.
