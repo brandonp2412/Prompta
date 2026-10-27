@@ -133,6 +133,7 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
         new_owned_window_marker,
         owned_tab_records,
         record_owned_tab,
+        touch_owned_tab,
     )
 
     chromium = shutil.which("chromium")
@@ -168,6 +169,24 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
             record_owned_tab(target_id, time.time() - MAX_OWNED_TAB_AGE_SECONDS - 5, ledger)
             # The durable target ID must work even without a readable ownership marker.
             await hung_lease.evaluate("window.name = ''")
+            renewed = await context.new_page()
+            await renewed.evaluate(
+                "marker => window.name = marker",
+                new_owned_window_marker(
+                    now=time.time() - MAX_OWNED_TAB_AGE_SECONDS - 5,
+                    owner_id=f"{os.getpid()}-renewed",
+                ),
+            )
+            renewed_session = await context.new_cdp_session(renewed)
+            try:
+                renewed_info = await renewed_session.send("Target.getTargetInfo")
+            finally:
+                await renewed_session.detach()
+            renewed_target = renewed_info["targetInfo"]["targetId"]
+            record_owned_tab(
+                renewed_target, time.time() - MAX_OWNED_TAB_AGE_SECONDS + 10, ledger
+            )
+            assert touch_owned_tab(renewed_target, time.time(), ledger)
             recent = await context.new_page()
             await recent.evaluate(
                 "marker => window.name = marker",
@@ -179,8 +198,9 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
             assert expired.is_closed()
             assert hung_lease.is_closed()
             assert not recent.is_closed()
+            assert not renewed.is_closed()
             assert not user_tab.is_closed()
-            assert owned_tab_records(ledger) == {}
+            assert set(owned_tab_records(ledger)) == {renewed_target}
             http_expired = await context.new_page()
             session = await context.new_cdp_session(http_expired)
             try:

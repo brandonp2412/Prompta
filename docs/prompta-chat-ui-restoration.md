@@ -103,3 +103,36 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 - Post-deploy `GET /api/health` returned HTTP 200, `ok: true`, `Cache-Control: no-store`; `GET /api/results` returned HTTP 200/no-store. UI, scheduler, delivery worker, and browser are all active. Git main remained clean.
 - Post-deploy real headless Chromium re-smoke passed at 1440×900 and 390×844: respectively 15 and 14 local GETs, zero POSTs, zero nonlocal hosts, and no horizontal overflow. Six earlier privacy-masked screenshots remain saved and were visually reviewed; the re-smoke did not overwrite them.
 - **Gate disposition: complete.** Stage 2 may proceed against deployed main once its worker verifies no overlap; Stage 3 must not preempt Stage 2. Keep this document updated with each later stage proof.
+
+## Stage 2/16 — explicit reply contracts and verified idle leases (2026-10-28 NZDT)
+
+### Gate and isolation
+
+- Started from clean `main`/`origin/main` `31dca008`; Stage 1 audit `00d9649` and gate `c8e9b49` are ancestors, with the final Stage 1 deployed handoff at `31dca008`. All four Prompta services were active and `/api/health` was healthy. Checked all six worktrees, pueue, running processes, and the shared merge lock; no competing restoration work was present.
+- Inspected historical `db709ee` composer for *styling only*. Nox Serena activation succeeded but `serena_repl` returned `Unknown tool`, so verified code patches used Nox Python MCP and `git apply`. Desktop Glass and interactive Brave remained untouched.
+
+### Durable reply contract
+
+- New `manual_reply_turns` SQLAlchemy/SQLite WAL table is independently migrated alongside existing `job_responses`, with owner-only database and WAL permissions. The existing scheduler/delivery queue and fresh-chat dispatch path are unchanged.
+- Typed `ReplyIntent` requires an explicit idempotency key, nonempty text, and the exact persisted conversation ID plus current assistant message ID. The original run must be **completed** with complete branch identity. Replays of the same key/payload are idempotent; changed payloads, stale parents, unknown runs, and concurrent siblings are refused.
+- A prepared intent is local persistence **only**, not a send. `POST /api/results/{send_id}/reply-intents` returns HTTP 202 with `dispatched: false`; `GET /api/results/{send_id}/turns` reads local records only. No composer, automatic worker pickup, browser navigation, or ChatGPT submission is wired yet. Stage 3 must implement explicit UI interaction plus verified branch/lease ownership before dispatch.
+- The single atomic `prepared → dispatching` lease claim is irreversible. A lost acknowledgment or crashed dispatcher becomes `outcome_unknown`, never a silent resend. Accepted replies require exact conversation/parent/new message identity; only branch-matching final visible assistant text may complete a turn. Unresolved intents block descendants. The independent watchdog can recover stale dispatch leases without resending.
+
+### Owned-tab idle lifecycle
+
+- The existing owned-tab ledger now migrates `last_activity_at` from old `opened_at` data. Registering or navigating an owned tab does **not** reset activity. A currently owned and unexpired tab can refresh it only on confirmed acceptance or a new identity-bound captured response; expired tabs cannot be resurrected by a late touch.
+- The passive-capture database lease and local capture deadline extend only after matching verified activity. The independent CDP/HTTP watchdog reaps tabs 45 minutes after their *last* verified activity, while marker fallback cannot overrule a newer lease; an unrelated driver does not preempt a live owner. Crash recovery remains independent of the delivery process.
+
+### Checks and real UI evidence
+
+- Buildq: full Ruff `#1377` **pass**; strict Ty `#1378` **pass, zero diagnostics**; Bun formatting, Oxlint, TypeScript, Svelte, Vite `#1379` **pass** (the pre-existing non-reactive `imageInput` Svelte warning remains); full pytest `#1382` **363 passed, 1 skipped** in 84.49 seconds. A first new idle-fixture assertion incorrectly tried to revive an already expired lease (`#1380`); fixed to refresh before expiry, reran targeted `#1381` and full `#1382` green.
+- Real Nox headless Chromium E2E `#1384` at **1440×900** and **390×844** used the actual served Svelte/UI and private synthetic local runs. Tested Jobs/Chats navigation, selection/back, search/clear, explicit refresh, mobile responsive panels and horizontal overflow. **24 GET, zero POST, zero nonlocal hosts**; no ChatGPT conversation, browser focus, or scheduler action was invoked.
+- Six owner-only PNGs were generated in `/home/brandon/.local/state/prompta/visual-baselines/stage2-20261028/` (0700 directory, 0600 files): `prompta-stage2-{desktop,mobile}-{jobs,chats,detail}.png`. **All six were opened and visually inspected.** Existing dark Jobs/Chats layout remained stable, mobile detail/back did not overflow, and the read-only UI remains unchanged. Known earlier debts are still outside Stage 2: the default Jobs filter can hide long jobs and long prompts can push mobile answers below the fold.
+- No raw private prompts/answers in logs, Matrix, build artifacts or screenshots. Stage 2 does not enable unattended chat continuation or account-wide ChatGPT history reads.
+
+### Stage 3 handoff
+
+1. Add an explicitly user-triggered composer and route-specific intent creation only after showing the exact stored branch, its current assistant parent, and the prepared-versus-sent distinction. No automatic dispatch of stored `prepared` rows and no speculative old-chat browsing.
+2. Wire a dedicated manual dispatcher behind account-wide backoff/send gaps, independent ownership leases, exact branch navigation verification, and a single irreversible pre-send claim; preserve scheduled *fresh* chats, Once pinning, image isolation, connector approvals, FlareSolverr, queue, health, and existing crash safety.
+3. Extend per-turn UI and capture to show truthful partial/interrupted/outcome-unknown states; refuse ambiguous retries and mutated lineage. Test concurrent scheduled/manual dispatch, 429s, lease loss, process death, stale parent IDs, and independent 45-minute idle reaping.
+4. Repeat full strict checks and exact-viewport real-browser screenshots, actually view them, then integrate under `prompta-main-merge.lock`, push and deploy Nox safely. Do not start Stage 3 before Stage 2 integration/deployment is fully verified.

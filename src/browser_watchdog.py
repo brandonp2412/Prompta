@@ -24,6 +24,7 @@ from .browser_ownership import (
     owned_window_started_at,
 )
 from .browser_script_loader import load_browser_script
+from .reply_contracts import ManualReplyStore
 
 logger = logging.getLogger(__name__)
 STATE_DIR = Path.home() / ".local/state/prompta"
@@ -171,6 +172,9 @@ async def reap_expired_owned_tabs(
                         )
                         if not isinstance(target_id, str) or target_id in resolved:
                             continue
+                        # A legacy window marker never overrides a newer verified lease.
+                        if target_id in leases and leases[target_id] > expired_before:
+                            continue
                         result = await asyncio.wait_for(
                             session.send("Target.closeTarget", {"targetId": target_id}),
                             timeout=3.0,
@@ -241,6 +245,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     now = time.time()
     state = load_state(STATE_FILE)
+    try:
+        ManualReplyStore(STATE_DIR / "chat-results.sqlite3").recover_orphans(now=now)
+    except Exception as exc:
+        logger.warning("Manual reply lease recovery failed error_type=%s", type(exc).__name__)
     healthy = debugger_responding()
     busy = False if healthy else delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
     if healthy:

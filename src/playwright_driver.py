@@ -32,7 +32,6 @@ from playwright.async_api import (
 )
 
 from .browser_ownership import (
-    MAX_OWNED_TAB_AGE_SECONDS,
     OWNED_WINDOW_PREFIX,
     new_owned_window_marker,
     new_page_owner_id,
@@ -40,6 +39,7 @@ from .browser_ownership import (
     owned_window_owner_id,
     owned_window_started_at,
     record_owned_tab,
+    touch_owned_tab,
 )
 from .browser_script_loader import load_browser_script
 from .flaresolverr_client import solve_cloudflare
@@ -254,6 +254,7 @@ class PlaywrightDriver:
         self._pages: dict[str, Page] = {}
         self._page_contexts: dict[Page, str] = {}
         self._owned_contexts: set[str] = set()
+        self._owned_target_ids: dict[str, str] = {}
         self._attached = bool(self.debugger_address)
         self._connected = False
         self._next_orphan_cleanup_at = 0.0
@@ -351,6 +352,7 @@ class PlaywrightDriver:
         self._pages.pop(context_id, None)
         self._signal_response(None)
         self._owned_contexts.discard(context_id)
+        self._owned_target_ids.pop(context_id, None)
         if self.context == context_id:
             self.context = next(
                 (
@@ -388,6 +390,9 @@ class PlaywrightDriver:
                 target_id = target_info.get("targetId") if isinstance(target_info, dict) else None
                 if isinstance(target_id, str) and target_id:
                     record_owned_tab(target_id, time.time())
+                    context_id = self._page_contexts.get(page)
+                    if context_id is not None and context_id in self._owned_contexts:
+                        self._owned_target_ids[context_id] = target_id
                 else:
                     logger.warning("Prompta CDP target lacked an ID for expiry registration")
             finally:
@@ -397,6 +402,13 @@ class PlaywrightDriver:
                     logger.debug("Prompta CDP lease session detach failed type=%s", type(exc).__name__)
         except Exception as exc:
             logger.warning("Prompta tab lease registration failed error_type=%s", type(exc).__name__)
+
+    def record_verified_activity(self) -> bool:
+        """Only a currently owned, live page can refresh its ledger's idle clock."""
+        if not self.is_connected or self.context not in self._owned_contexts:
+            return False
+        target_id = self._owned_target_ids.get(self.context)
+        return bool(target_id and touch_owned_tab(target_id, time.time()))
 
     async def _mark_owned(self, page: Page) -> None:
         # Retry a failed lease before setting the marker, which can require page JavaScript.
@@ -434,7 +446,6 @@ class PlaywrightDriver:
 
         now = time.time()
         cutoff = now - max(1.0, minimum_age_seconds)
-        hard_cutoff = now - MAX_OWNED_TAB_AGE_SECONDS
         closed = 0
         for page in list(browser_context.pages):
             if page in self._page_contexts:
@@ -447,11 +458,9 @@ class PlaywrightDriver:
                 # Ownerless markers cannot prove that another live process still
                 # owns the page, so fail safe and leave them alone.
                 continue
-            if (
-                started_at > hard_cutoff
-                and owner_id != self.page_owner_id
-                and owned_window_owner_alive(owner_id)
-            ):
+            # A live owner may have renewed verified activity. The independent
+            # watchdog, not an unrelated driver, applies the 45-minute idle TTL.
+            if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
                 continue
             try:
                 await page.close()

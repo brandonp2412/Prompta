@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
+from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_store import ResponseStore
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
 from .strict_types import json_object
@@ -89,6 +90,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         self.health = ServiceHealthStore(self.state_path)
         self.queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
         self.results = ResponseStore(self.state_path.parent / "chat-results.sqlite3")
+        self.replies = ManualReplyStore(self.state_path.parent / "chat-results.sqlite3")
         self.images = ImageStore(self.state_path.parent)
         self.jobs = WebJobService(
             self.jobs_path,
@@ -226,6 +228,17 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                 return
             self._json(payload)
             return
+        if path.startswith("/api/results/") and path.endswith("/turns"):
+            send_id = unquote(path[len("/api/results/"):-len("/turns")])
+            if not send_id or "/" in send_id:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            turns = self.server.replies.turns(send_id)
+            if turns is None:
+                self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
+            else:
+                self._json({"turns": turns})
+            return
         if path.startswith("/api/results/"):
             send_id = unquote(path[len("/api/results/"):])
             if "/" in send_id:
@@ -244,10 +257,22 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/api/jobs", "/api/images"}:
+        reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
+        if path not in {"/api/jobs", "/api/images"} and not reply_path:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
+            if reply_path:
+                send_id = unquote(path[len("/api/results/"):-len("/reply-intents")])
+                if not send_id or "/" in send_id:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+                    raise ValueError("Reply contract requires JSON")
+                intent = ReplyIntent.parse(self._json_body(max_bytes=65536))
+                turn = self.server.replies.prepare(send_id, intent)
+                self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
+                return
             payload = self._json_body(max_bytes=11 * 1024 * 1024 if path == "/api/images" else 1024 * 1024)
             if path == "/api/images":
                 name, data = payload.get("name"), payload.get("data")
@@ -258,10 +283,19 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                 return
             action = str(payload.get("action") or "")
             result = self.server.jobs.apply(action, payload)
+        except ReplyConflict as exc:
+            self._json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+            return
         except ValueError as exc:
             self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         except Exception as exc:
+            if reply_path:
+                # DB/driver exceptions may contain secret prompts or SQLite parameters.
+                logger.error("Manual reply contract failed error_type=%s", type(exc).__name__)
+                self._json({"ok": False, "error": "Reply contract unavailable"},
+                           HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
             logger.exception("Prompta jobs update failed")
             self._json(
                 {"ok": False, "error": str(exc) or exc.__class__.__name__},

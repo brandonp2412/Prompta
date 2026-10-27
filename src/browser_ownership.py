@@ -76,18 +76,41 @@ def _tab_ledger(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=2.0)
     connection.execute(
-        "CREATE TABLE IF NOT EXISTS owned_tabs (target_id TEXT PRIMARY KEY, opened_at REAL NOT NULL)"
+        "CREATE TABLE IF NOT EXISTS owned_tabs "
+        "(target_id TEXT PRIMARY KEY, opened_at REAL NOT NULL, last_activity_at REAL NOT NULL)"
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(owned_tabs)")}
+    if "last_activity_at" not in columns:
+        connection.execute(
+            "ALTER TABLE owned_tabs ADD COLUMN last_activity_at REAL NOT NULL DEFAULT 0"
+        )
+        connection.execute("UPDATE owned_tabs SET last_activity_at = opened_at")
+        connection.commit()
     return connection
 
 
 def record_owned_tab(target_id: str, opened_at: float, path: Path = OWNED_TAB_LEDGER) -> None:
     with closing(_tab_ledger(path)) as connection, connection:
         connection.execute(
-            "INSERT INTO owned_tabs (target_id, opened_at) VALUES (?, ?) "
+            "INSERT INTO owned_tabs (target_id, opened_at, last_activity_at) VALUES (?, ?, ?) "
             "ON CONFLICT(target_id) DO UPDATE SET opened_at = min(opened_at, excluded.opened_at)",
-            (target_id, opened_at),
+            (target_id, opened_at, opened_at),
         )
+
+
+def touch_owned_tab(
+    target_id: str, at: float, path: Path = OWNED_TAB_LEDGER,
+) -> bool:
+    """Only existing, unexpired owned targets can gain a new verified-activity timestamp."""
+    if not path.exists():
+        return False
+    with closing(_tab_ledger(path)) as connection, connection:
+        updated = connection.execute(
+            "UPDATE owned_tabs SET last_activity_at = ? "
+            "WHERE target_id = ? AND last_activity_at <= ? AND last_activity_at > ?",
+            (at, target_id, at, at - MAX_OWNED_TAB_AGE_SECONDS),
+        )
+        return updated.rowcount == 1
 
 
 def owned_tab_records(path: Path = OWNED_TAB_LEDGER) -> dict[str, float]:
@@ -95,9 +118,9 @@ def owned_tab_records(path: Path = OWNED_TAB_LEDGER) -> dict[str, float]:
         return {}
     with closing(_tab_ledger(path)) as connection, connection:
         return {
-            target: float(opened_at)
-            for target, opened_at in connection.execute(
-                "SELECT target_id, opened_at FROM owned_tabs"
+            target: float(last_activity)
+            for target, last_activity in connection.execute(
+                "SELECT target_id, last_activity_at FROM owned_tabs"
             )
         }
 

@@ -192,6 +192,23 @@ class ResponseStore:
             )
             return changed.rowcount == 1
 
+    def renew_capture_deadline(
+        self, send_id: str, owner: str, *, deadline: float, now: float | None = None,
+    ) -> bool:
+        """Extend only a live, uniquely held capture lease after verified activity."""
+        at = time.time() if now is None else now
+        if deadline <= at:
+            return False
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.capture_owner == owner,
+                results.c.status.in_(("accepted", "generating")),
+                results.c.capture_deadline > at,
+                results.c.capture_deadline < deadline,
+            ).values(capture_deadline=deadline))
+        return changed.rowcount == 1
+
     def finish(
         self, send_id: str, owner: str, status: Literal["interrupted", "unavailable"],
         *, now: float | None = None,

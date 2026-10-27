@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -198,3 +199,52 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 context.close()
             finally:
                 browser.close()
+
+
+def test_explicit_reply_intent_contract_is_local_and_not_dispatched(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    from prompta.reply_contracts import ReplyIntent
+
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("known", "Private seed", now=100)
+        assert app.results.accept("known", "100:seed", deadline=300, now=101)
+        assert app.results.write("known", "100:seed", CaptureResult(
+            "sse", "complete", "Private answer", "conversation-1234567890",
+            "assistant-1234567890", "user-1234567890123"
+        ), now=102)
+        payload: dict[str, object] = {
+            "reply_id": "reply-1234567890123", "conversation_id": "conversation-1234567890",
+            "parent_id": "assistant-1234567890", "text": "Private manual question",
+        }
+        assert ReplyIntent.parse(payload).text == payload["text"]
+
+        def post(body: dict[str, object], *, content_type: str = "application/json") -> tuple[int, dict[str, object]]:
+            conn = HTTPConnection("127.0.0.1", port, timeout=3)
+            try:
+                conn.request("POST", "/api/results/known/reply-intents",
+                             body=json.dumps(body), headers={"content-type": content_type})
+                response = conn.getresponse()
+                result = json_object(response.read(), label="intent")
+                return response.status, result
+            finally:
+                conn.close()
+
+        with caplog.at_level(logging.INFO):
+            status, result = post(payload)
+            assert status == 202 and result["dispatched"] is False
+            assert get(port, "/api/results/known/turns")[0] == 200
+            assert post(payload)[0] == 202
+            changed: dict[str, object] = {**payload, "text": "changed"}
+            assert post(changed)[0] == 409
+            assert post({**payload, "reply_id": "reply-9999999999999"})[0] == 409
+            assert post(payload, content_type="text/plain")[0] == 400
+            assert get(port, "/api/results/unknown/turns")[0] == 404
+            assert get(port, "/api/results/known/turns", method="POST")[0] == 404
+        turns = get(port, "/api/results/known/turns")[1]["turns"]
+        assert isinstance(turns, list) and len(turns) == 2
+        turn = string_object_dict(turns[1])
+        assert turn is not None and turn["status"] == "prepared"
+        assert "lease_owner" not in turn
+        assert "Private manual question" not in caplog.text
+        assert "Private answer" not in caplog.text

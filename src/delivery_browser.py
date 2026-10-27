@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import Protocol, TypeVar, runtime_checkable
 
 from .browser_driver import BrowserDriver
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
@@ -81,6 +81,11 @@ class PassiveCaptureDriver(Protocol):
     async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None: ...
     def captured_assistant_response(self, capture: dict[str, object], /) -> CaptureResult | None: ...
     async def observed_assistant_response(self) -> CaptureResult: ...
+
+
+@runtime_checkable
+class VerifiedActivityDriver(Protocol):
+    def record_verified_activity(self) -> bool: ...
 
 
 class DeliveryBackendUnavailableError(RuntimeError):
@@ -346,6 +351,7 @@ class BrowserDeliverySender:
         last_saved_at = 0.0
         pending: CaptureResult | None = None
         seen_message = ""
+        last_verified_text = ""
         final_status: str = "interrupted"
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
@@ -389,6 +395,18 @@ class BrowserDeliverySender:
                         final_status = "unavailable"
                         break
                     last_saved_at = now
+                    if (
+                        pending.text != last_verified_text
+                        and pending.conversation_id and pending.message_id and pending.parent_id
+                        and isinstance(driver, VerifiedActivityDriver)
+                        and driver.record_verified_activity()
+                    ):
+                        last_verified_text = pending.text
+                        refreshed_wall = time.time() + MAX_OWNED_TAB_AGE_SECONDS
+                        if self.results.renew_capture_deadline(
+                            send_id, owner, deadline=refreshed_wall
+                        ):
+                            deadline = now + MAX_OWNED_TAB_AGE_SECONDS
                     if pending.status == "complete" and pending.message_id:
                         return
                 if 0 < deadline - now <= 2.0:
@@ -755,6 +773,11 @@ class BrowserDeliverySender:
                         if attempt == 0:
                             await asyncio.sleep(0.5)
             if send_id:
+                # An accepted POST is verified tab activity; the idle clock
+                # starts here, not at the earlier fresh-tab navigation.
+                if isinstance(driver, VerifiedActivityDriver) and driver.record_verified_activity():
+                    tab_opened_at = time.time()
+                    tab_deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
                 lease_ok = False
                 try:
                     lease_ok = self.results.accept(
