@@ -95,6 +95,9 @@ class FakeDriver:
     async def type_message(self, message: str) -> None:
         self.composer = message
 
+    async def attach_images(self, paths: tuple[Path, ...]) -> None:
+        assert not paths
+
     async def pin_current_chat(self) -> None:
         return None
 

@@ -80,8 +80,9 @@ def test_passive_capture_is_owned_and_history_free() -> None:
     guardrails = Path("AGENTS.md").read_text().casefold()
     for phrase in (
         "fresh chat",
-        "hard 45-minute ttl",
-        "no additional requests",
+        "45 minutes without activity",
+        "only an explicit user ui reply may reopen",
+        "no extra requests for reading",
         "history/get endpoints",
         "global rate-limit backoff",
         "machine gun mode",

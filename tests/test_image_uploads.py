@@ -35,7 +35,9 @@ def test_images_stay_on_disk_and_queue_retains_a_snapshot(tmp_path: Path) -> Non
     queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
     receipt = queue.enqueue_manual("What is in this image?", images=(ref,))
     assert receipt["images"] == (ref,)
-    assert queue.get(str(receipt["send_id"]))["images"] == (ref,)
+    queued = queue.get(str(receipt["send_id"]))
+    assert queued is not None
+    assert queued["images"] == (ref,)
 
 
 @pytest.mark.parametrize("name,raw", [
@@ -46,6 +48,15 @@ def test_images_stay_on_disk_and_queue_retains_a_snapshot(tmp_path: Path) -> Non
 def test_invalid_images_are_rejected(tmp_path: Path, name: str, raw: str) -> None:
     with pytest.raises(ValueError):
         ImageStore(tmp_path).save(name, raw)
+
+
+def object_map(value: object) -> dict[str, object]:
+    assert isinstance(value, dict)
+    parsed: dict[str, object] = {}
+    for key, item in value.items():
+        assert isinstance(key, str)
+        parsed[key] = item
+    return parsed
 
 
 def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
@@ -61,18 +72,20 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
             headers={"Content-Type": "application/json"}, method="POST",
         )
         with urlopen(request, timeout=5) as response:
-            return json.load(response)
+            return object_map(json.load(response))
     try:
-        uploaded = post("/api/images", {
+        uploaded = object_map(post("/api/images", {
             "name": "demo.png", "data": base64.b64encode(PNG).decode(),
-        })["image"]
-        assert isinstance(uploaded, dict)
+        })["image"])
         ref = uploaded["ref"]
-        assert str(uploaded["url"]).startswith("./api/images/")
-        assert urljoin("https://example.test/private/", str(uploaded["url"])).startswith(
+        url = uploaded["url"]
+        assert isinstance(ref, str)
+        assert isinstance(url, str)
+        assert url.startswith("./api/images/")
+        assert urljoin("https://example.test/private/", url).startswith(
             "https://example.test/private/api/images/"
         )
-        with urlopen(urljoin(base + "/", str(uploaded["url"])), timeout=5) as response:
+        with urlopen(urljoin(base + "/", url), timeout=5) as response:
             assert response.headers["Content-Type"] == "image/png"
             assert response.read() == PNG
         result = post("/api/jobs", {
@@ -81,8 +94,14 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
         })
         assert result["ok"] is True
         assert load_jobs(database)["image-test"].images == (ref,)
-        saved_image = next(job for job in result["jobs"] if job["name"] == "image-test")["images"][0]
-        assert saved_image["url"] == uploaded["url"]
+        job_rows = result["jobs"]
+        assert isinstance(job_rows, list)
+        jobs = [object_map(row) for row in job_rows]
+        saved_job = next(job for job in jobs if job["name"] == "image-test")
+        images = saved_job["images"]
+        assert isinstance(images, list)
+        saved_image = object_map(images[0])
+        assert saved_image["url"] == url
         with pytest.raises(HTTPError) as exc:
             urlopen(base + "/api/images/../../etc/passwd", timeout=5)
         assert exc.value.code == 404
