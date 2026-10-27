@@ -19,8 +19,16 @@ def test_chat_client_modules_are_absent() -> None:
 
 def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     app = Path("src/ui/App.svelte").read_text()
-    assert "JobsPage" in app
+    sidebar = Path("src/ui/ChatsPage.svelte").read_text()
+    assert "ChatsPage" in app
+    assert 'import JobsPage from "./JobsPage.svelte"' in sidebar
+    assert '{#if view === "jobs"}' in sidebar
+    assert "<JobsPage />" in sidebar
     assert "Machine Gun" not in app
+    assert 'fetch("./api/results?' in sidebar
+    assert 'fetch("./api/results/"' in sidebar
+    assert "localStorage.setItem(preferencesKey" in sidebar
+    assert "onNewChat" in sidebar
     for component in Path("src/ui").glob("*.svelte"):
         source = component.read_text()
         assert "Machine Gun" not in source

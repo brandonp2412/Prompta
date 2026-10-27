@@ -41,7 +41,7 @@
     paused: true,
     unhealthy: true,
   });
-  let showLongJobs = $state(false);
+  let showLongJobs = $state(true);
   let longJobsCount = $derived(jobs.filter(isLongJob).length);
   let cadenceJobs = $derived(jobs.filter((job) => showLongJobs || !isLongJob(job)));
   let filteredJobs = $derived(cadenceJobs.filter((job) => activeFilters[jobFilter(job)]));

@@ -145,3 +145,35 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 - Post-restart `GET /api/health`: HTTP 200, `ok: true`, no-store, browser reachable; `GET /api/results`: HTTP 200/no-store. All four services remained active.
 - Actual post-deployment headless Chromium E2E `#1390` passed at 1440×900 and 390×844: **23 local GETs, zero POSTs, zero remote hosts**, no horizontal overflow, successful Jobs/Chats/search/refresh/back interactions and local turn API read. No ChatGPT sends occurred. Six earlier synthetic-private E2E screenshots were already opened and reviewed.
 - Gate disposition: **Stage 2 complete, merged, pushed, deployed and verified**. Stage 3 may start with its explicitly user-triggered send bridge; Stage 2's prepared intent endpoint does not submit messages.
+
+
+## Stage 3/16 — ChatGPT-style shell and unified local sidebar (2026-10-28 NZDT)
+
+### Entry gate and scope
+
+- Clean main/origin/main were both 8991ea9; Stage 2 implementation 15d72ab and its merged/pushed/deployed closeout were verified in Git and this document. All four Nox Prompta services and local health were active; worktrees and the free main merge lock were checked. No overlapping restoration worker was found.
+- Inspected historical db709ee sidebar/Prompta page for styling ONLY. Nox Serena activation succeeded but serena_repl returned Unknown tool as in prior stages; Nox Python MCP applied checked Git patches instead. Desktop Glass/foreground Brave were untouched.
+- This stage is UI-only plus a stronger layout guardrail test. Scheduler, delivery queue, capture, database schema, branch identity, reply dispatch, backoff, images, Once pinning, connector approvals and browser ownership code were unchanged.
+
+### Shell/sidebar implementation
+
+- Svelte 5 App now hosts a full-height desktop sidebar and content workspace; Jobs remains reachable and Chats detail/read-only views share navigation. Mobile uses a dismissible overlay drawer for Jobs/selected chats and a full-screen sidebar for an unselected Chats list, with Escape/back and no horizontal overflow.
+- New chat opens the existing Jobs Run once form. Only an actual explicit user form submit queues one FRESH ChatGPT chat via the unchanged safe dispatch path. Merely opening does not send. Stage 2's exact-branch reply-intents remain local dispatched:false; no ChatGPT manual reply dispatcher was enabled here.
+- Title/search, state filter, pagination, pinned group, unread marker, selected thread and NZ-local activity dates use only local /api/results and its exact send-ID detail endpoint. Within pinned/unpinned groups, latest updated_at (fallback created_at) sorts chronologically; read-state changes never reorder.
+- Pin/read timestamps persist per browser in local storage as opaque Prompta send IDs and timestamps only (up to 24 pins; bounded reads). Off-page pinned metadata is hydrated using exact local result endpoints. No raw prompt/answer is stored in browser storage or logs.
+- A 15-second visible-page local refresh updates lists and selected detail without changing selection. Jobs shows configured long jobs by default, fixing the baseline misleading Jobs 0 screen without affecting schedules.
+- Replaced a brittle architecture assertion naming the old JobsPage location with checks for Jobs in the unified shell and forbidden remote chat actions; safety checks were not weakened.
+
+### Strict verification and visual review
+
+- Buildq #1399: Bun format, Oxlint, strict TypeScript, Svelte and Vite bundle PASS. Only the pre-existing Jobs imageInput reactivity warning remains. Reviewed production bundle src/static/app.js is included.
+- Buildq #1402 full Ruff PASS; #1403 strict Ty PASS, zero diagnostics; #1401 full pytest 363 passed, 1 skipped (86.77s). Earlier #1394 failed solely on the superseded JobsPage location assertion; the strengthened new architecture test and full suite passed.
+- Real Nox headless Chromium E2E buildq #1400 PASS at 1440x900 and 390x844: Jobs, Chats list/detail/back, selected thread, pin/reload, search/clear, refresh without selection jump, unread-to-read without reorder, mobile drawer/Escape, user-driven New chat -> Run once without submit. 44 local GET, zero POST, zero nonlocal hosts; no horizontal overflow.
+- Six privacy-masked screenshots saved owner-only in /home/brandon/.local/state/prompta/visual-baselines/stage3-20261028/ (0700 directory, 0600 PNGs): prompta-stage3-{desktop,mobile}-{jobs,chats,detail}.png. ALL SIX were opened and visually inspected after final fixes. Names/prompts/answers were masked; no private text entered logs, Matrix or build output.
+- Visual findings corrected: configured long jobs visible by default, selected local job title in header, inert mobile list-page close control hidden, and final mobile detail captured only after the intentional drawer animation settled.
+
+### Stage 4 handoff
+
+1. Preserve the shell, local-only search/read markers, selected-thread stability and Jobs access. Browser-local pins/read marks are presentation preferences, not account-wide ChatGPT state.
+2. Manual replies still require a separate verified explicitly triggered dispatcher: exact stored branch/parent, independent leases, global gap/backoff, irreversible send claim and ambiguous-outcome refusal. Never drain prepared intents automatically or make scheduled jobs continue old chats.
+3. Preserve private capture, statuses, image isolation, Once pinning, approvals, FlareSolverr, 45-minute verified-activity idle reap, crash watchdog and queue exactly-once. Repeat strict gates, real desktop/mobile screenshots, visual review, locked integration and safe Nox deployment.

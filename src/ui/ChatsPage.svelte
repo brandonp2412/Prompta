@@ -1,17 +1,23 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import JobsPage from "./JobsPage.svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import {
     groupRuns, nzTime, plainPreview, statusLabel,
     type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
-  let { selectedRunId, onSelect }: {
+  let { view, serverName, selectedRunId, onSelect, onNavigate, onNewChat }: {
+    view: "jobs" | "chats";
+    serverName: string;
     selectedRunId: string | null;
     onSelect: (sendId: string | null) => void;
+    onNavigate: (view: "jobs" | "chats") => void;
+    onNewChat: () => void;
   } = $props();
 
   const pageSize = 20;
+  const preferencesKey = "prompta.local-sidebar.v1";
   const statuses: { value: ResultStatus | ""; label: string }[] = [
     { value: "", label: "All states" },
     { value: "accepted", label: "Accepted" },
@@ -23,6 +29,11 @@
   ];
 
   let items = $state<RunSummary[]>([]);
+  let pinnedItems = $state<RunSummary[]>([]);
+  let pinnedIds = $state<string[]>([]);
+  let readAt = $state<Record<string, number>>({});
+  let baselineAt = $state(0);
+  let drawerOpen = $state(false);
   let total = $state(0);
   let page = $state(0);
   let search = $state("");
@@ -32,12 +43,87 @@
   let loadingDetail = $state(false);
   let listError = $state("");
   let detailError = $state("");
-  let lastRefresh = $state(0);
   let listGeneration = 0;
+  let pinsGeneration = 0;
   let detailGeneration = 0;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
-  let groups = $derived(groupRuns(items));
+
+  const activity = (item: RunSummary) => item.updated_at || item.created_at;
+  const newestFirst = (a: RunSummary, b: RunSummary) =>
+    activity(b) - activity(a) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
+  let pinned = $derived.by(() => {
+    // Pinned runs remain available when they fall outside the current local page.
+    const byId = new Map([...pinnedItems, ...items].map((item) => [item.send_id, item]));
+    const filtered = search.trim() || statusFilter;
+    return pinnedIds
+      .map((id) => byId.get(id))
+      .filter((item): item is RunSummary => !!item)
+      .filter((item) => !filtered || items.some((listed) => listed.send_id === item.send_id))
+      .sort(newestFirst);
+  });
+  let groups = $derived(groupRuns(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst)));
   let pageCount = $derived(Math.min(5001, Math.max(1, Math.ceil(total / pageSize))));
+
+  function loadPreferences() {
+    try {
+      const saved = localStorage.getItem(preferencesKey);
+      if (saved) {
+        const prefs: { baselineAt?: number; pinnedIds?: string[]; readAt?: Record<string, number> } = JSON.parse(saved);
+        baselineAt = Number.isFinite(prefs.baselineAt) ? Number(prefs.baselineAt) : Date.now() / 1000;
+        pinnedIds = Array.isArray(prefs.pinnedIds) ? prefs.pinnedIds.filter((id) => typeof id === "string").slice(0, 24) : [];
+        readAt = prefs.readAt && typeof prefs.readAt === "object" ? prefs.readAt : {};
+      } else baselineAt = Date.now() / 1000;
+    } catch {
+      baselineAt = Date.now() / 1000;
+    }
+    savePreferences();
+  }
+
+  function savePreferences() {
+    try {
+      // Only opaque local send IDs and timestamps are stored, never chat content.
+      const recent = Object.entries(readAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
+      localStorage.setItem(preferencesKey, JSON.stringify({
+        baselineAt, pinnedIds, readAt: Object.fromEntries(recent),
+      }));
+    } catch {
+      // Private browsing and disabled storage still allow in-memory navigation.
+    }
+  }
+
+  function isUnread(item: RunSummary) {
+    return activity(item) > (readAt[item.send_id] ?? baselineAt);
+  }
+
+  function markRead(item: RunSummary) {
+    readAt = { ...readAt, [item.send_id]: Math.max(Date.now() / 1000, activity(item)) };
+    savePreferences();
+  }
+
+  async function loadPins() {
+    const generation = ++pinsGeneration;
+    const loaded = await Promise.all(pinnedIds.map(async (id): Promise<RunSummary | null> => {
+      try {
+        const response = await fetch("./api/results/" + encodeURIComponent(id), { cache: "no-store" });
+        if (!response.ok) return null;
+        return await response.json() as RunDetail;
+      } catch {
+        return null;
+      }
+    }));
+    if (generation === pinsGeneration) pinnedItems = loaded.filter((item): item is RunSummary => item !== null);
+  }
+
+  function togglePin(item: RunSummary) {
+    if (pinnedIds.includes(item.send_id)) {
+      pinnedIds = pinnedIds.filter((id) => id !== item.send_id);
+      pinnedItems = pinnedItems.filter((pinnedItem) => pinnedItem.send_id !== item.send_id);
+    } else {
+      pinnedIds = [item.send_id, ...pinnedIds].slice(0, 24);
+      pinnedItems = [item, ...pinnedItems];
+    }
+    savePreferences();
+  }
 
   async function loadList() {
     const generation = ++listGeneration;
@@ -53,7 +139,6 @@
       items = body.items;
       total = body.total;
       listError = "";
-      lastRefresh = Date.now();
     } catch {
       if (generation === listGeneration) listError = "Local results are temporarily unavailable.";
     } finally {
@@ -72,6 +157,7 @@
       if (generation !== detailGeneration) return;
       detail = body;
       detailError = "";
+      if (view === "chats" && selectedRunId === id) markRead(body);
     } catch {
       if (generation === detailGeneration) detailError = "This run is unavailable locally.";
     } finally {
@@ -81,7 +167,8 @@
 
   function refresh() {
     void loadList();
-    if (selectedRunId) void loadDetail(selectedRunId);
+    void loadPins();
+    if (view === "chats" && selectedRunId) void loadDetail(selectedRunId);
   }
 
   function applyFilter() {
@@ -99,9 +186,33 @@
     void loadList();
   }
 
+  function selectRun(item: RunSummary) {
+    markRead(item);
+    drawerOpen = false;
+    onSelect(item.send_id);
+  }
+
+  function showJobs() {
+    drawerOpen = false;
+    onNavigate("jobs");
+  }
+
+  function showChats() {
+    drawerOpen = false;
+    onSelect(null);
+  }
+
+  function createChat() {
+    drawerOpen = false;
+    onNewChat();
+  }
+
+  function escapeDrawer(event: KeyboardEvent) {
+    if (event.key === "Escape" && drawerOpen) drawerOpen = false;
+  }
+
   $effect(() => {
-    const id = selectedRunId;
-    // Only a selected-run change should fetch; loadDetail also reads/writes reactive detail.
+    const id = view === "chats" ? selectedRunId : null;
     untrack(() => {
       if (id) void loadDetail(id);
       else {
@@ -113,7 +224,9 @@
   });
 
   onMount(() => {
+    loadPreferences();
     void loadList();
+    void loadPins();
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") refresh();
     }, 15000);
@@ -124,19 +237,64 @@
   });
 </script>
 
-<section class:detail-open={selectedRunId !== null} class="chats-layout" aria-label="Prompta job results">
-  <div class="chats-sidebar">
+<svelte:window onkeydown={escapeDrawer} />
+
+{#snippet chatItem(item: RunSummary)}
+  <div class:chosen={view === "chats" && selectedRunId === item.send_id} class:unread={isUnread(item)} class="chat-entry">
+    <button
+      type="button"
+      class="chat-row"
+      onclick={() => selectRun(item)}
+      aria-current={view === "chats" && selectedRunId === item.send_id ? "true" : undefined}
+    >
+      <span class="chat-row-top">
+        {#if isUnread(item)}<span class="unread-indicator" title="Unread activity"><span class="sr-only">Unread</span></span>{/if}
+        <strong>{item.title || "Untitled run"}</strong>
+        <small>{nzTime(activity(item)).split(", ").at(-1)}</small>
+      </span>
+      <span class="chat-row-meta"><span class={"result-dot status-" + item.status}></span>{statusLabel(item.status)}{#if item.job_name}<span class="chat-job">{item.job_name}</span>{/if}</span>
+      <span class="chat-preview">{plainPreview(item.preview) || "No response captured yet"}</span>
+    </button>
+    <button
+      type="button" class:active={pinnedIds.includes(item.send_id)} class="chat-pin"
+      title={pinnedIds.includes(item.send_id) ? "Unpin local chat" : "Pin local chat"}
+      aria-label={pinnedIds.includes(item.send_id) ? "Unpin " + item.title : "Pin " + item.title}
+      aria-pressed={pinnedIds.includes(item.send_id)}
+      onclick={() => togglePin(item)}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" /></svg>
+    </button>
+  </div>
+{/snippet}
+
+<section class:drawer-open={drawerOpen} class:show-list={view === "chats" && !selectedRunId} class="chats-layout" aria-label="Prompta local chats and jobs">
+  {#if drawerOpen}
+    <button type="button" class="drawer-backdrop" aria-label="Close chat sidebar" onclick={() => drawerOpen = false}></button>
+  {/if}
+  <aside class="chats-sidebar" aria-label="Local chat sidebar">
+    <div class="sidebar-brand">
+      <div><strong>Prompta</strong><span>{serverName}</span></div>
+      <button class="sidebar-close" type="button" aria-label="Close sidebar" onclick={() => drawerOpen = false}>×</button>
+    </div>
+    <nav class="sidebar-actions" aria-label="Main navigation">
+      <button class="sidebar-primary" type="button" onclick={createChat}>
+        <span aria-hidden="true">＋</span> New chat
+      </button>
+      <button class:active={view === "chats"} type="button" onclick={showChats}>
+        <span aria-hidden="true">▤</span> Chats
+      </button>
+      <button class:active={view === "jobs"} type="button" onclick={showJobs}>
+        <span aria-hidden="true">▦</span> Jobs
+      </button>
+    </nav>
     <div class="chats-heading">
-      <div>
-        <h1>Chats <span class="chats-count">{total}</span></h1>
-        <p>Read-only results from Prompta job runs</p>
-      </div>
-      <button class="chats-refresh" onclick={refresh} aria-label="Refresh local results" title="Refresh local results">↻</button>
+      <h2>Recent <span class="chats-count">{total}</span></h2>
+      <button class="chats-refresh" type="button" onclick={refresh} aria-label="Refresh local results" title="Refresh local results">↻</button>
     </div>
     <div class="chats-controls">
       <label class="search-label">
         <span class="sr-only">Search job results</span>
-        <input type="search" placeholder="Search runs or responses" bind:value={search} oninput={searchChanged} />
+        <input type="search" placeholder="Search chats" bind:value={search} oninput={searchChanged} />
       </label>
       <label>
         <span class="sr-only">Filter results by state</span>
@@ -146,37 +304,39 @@
       </label>
     </div>
     {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
-    {#if loadingList && !items.length}
-      <p class="chats-empty">Loading local results…</p>
-    {:else if !items.length}
-      <p class="chats-empty">{search || statusFilter ? "No runs match these filters." : "No captured job runs yet."}</p>
-    {:else}
-      <div class="chats-list">
+    <div class="chats-list">
+      {#if pinned.length}
+        <div class="chats-date">Pinned</div>
+        {#each pinned as item (item.send_id)}{@render chatItem(item)}{/each}
+      {/if}
+      {#if loadingList && !items.length}
+        <p class="chats-empty">Loading local results…</p>
+      {:else if !items.length && !pinned.length}
+        <p class="chats-empty">{search || statusFilter ? "No runs match these filters." : "No captured job runs yet."}</p>
+      {:else}
         {#each groups as group (group.date)}
           <div class="chats-date">{group.date}</div>
-          {#each group.items as item (item.send_id)}
-            <button
-              class:chosen={selectedRunId === item.send_id}
-              class="chat-row" onclick={() => onSelect(item.send_id)}
-              aria-current={selectedRunId === item.send_id ? "true" : undefined}
-            >
-              <span class="chat-row-top"><strong>{item.title || "Untitled run"}</strong><small>{nzTime(item.created_at).split(", ").at(-1)}</small></span>
-              <span class="chat-row-meta"><span class={"result-dot status-" + item.status}></span>{statusLabel(item.status)}{#if item.job_name}<span class="chat-job">{item.job_name}</span>{/if}</span>
-              <span class="chat-preview">{plainPreview(item.preview) || "No response captured yet"}</span>
-            </button>
-          {/each}
+          {#each group.items as item (item.send_id)}{@render chatItem(item)}{/each}
         {/each}
-      </div>
-    {/if}
+      {/if}
+    </div>
     <div class="chats-pagination">
       <span>{total ? page * pageSize + 1 : 0}–{Math.min(total, (page + 1) * pageSize)} of {total}</span>
       <div><button disabled={page === 0} onclick={() => movePage(page - 1)}>Previous</button><button disabled={page + 1 >= pageCount} onclick={() => movePage(page + 1)}>Next</button></div>
     </div>
-  </div>
+    <div class="sidebar-footnote">Local Prompta runs only</div>
+  </aside>
 
   <div class="chats-detail">
-    {#if !selectedRunId}
-      <div class="chats-detail-empty"><div class="empty-icon">✦</div><h2>Select a run</h2><p>View the original job prompt and its captured assistant response.</p></div>
+    <div class="workspace-header">
+      <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
+      <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
+      <span>{serverName}</span>
+    </div>
+    {#if view === "jobs"}
+      <div class="jobs-workspace"><JobsPage /></div>
+    {:else if !selectedRunId}
+      <div class="chats-detail-empty"><div class="empty-icon">✦</div><h2>What would you like to revisit?</h2><p>Select a locally captured run from the sidebar, or start a fresh chat.</p><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
       <div class="chat-detail-toolbar">
         <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>

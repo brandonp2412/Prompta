@@ -85,7 +85,7 @@ export function plainPreview(text: string): string {
 export function groupRuns(items: RunSummary[]): { date: string; items: RunSummary[] }[] {
   const groups: { date: string; items: RunSummary[] }[] = [];
   for (const item of items) {
-    const date = dateGroup(item.created_at);
+    const date = dateGroup(item.updated_at || item.created_at);
     const last = groups[groups.length - 1];
     if (last?.date === date) last.items.push(item);
     else groups.push({ date, items: [item] });

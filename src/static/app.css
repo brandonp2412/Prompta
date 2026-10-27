@@ -700,3 +700,139 @@ button:disabled { cursor: default; opacity: 0.45; }
   .editor-body.has-images textarea { height: min(23dvh, 220px); min-height: 150px; }
   .job-image-preview img { height: 146px; }
 }
+
+/* Stage 3: one persistent, locally backed ChatGPT-style shell. */
+.jobs-app { width: 100%; min-height: 100dvh; padding: 0; }
+.chats-layout {
+  grid-template-columns: 292px minmax(0, 1fr);
+  min-height: 0; height: 100dvh;
+  border: 0;
+}
+.chats-sidebar {
+  background: #171717;
+  border-right: 1px solid #292929;
+  min-height: 0;
+}
+.sidebar-brand {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 25px 18px 22px;
+}
+.sidebar-brand div { display: grid; gap: 5px; }
+.sidebar-brand strong { font-size: 1.12rem; letter-spacing: -.035em; }
+.sidebar-brand span { font-size: .72rem; color: #777; }
+.sidebar-close { display: none; }
+.sidebar-actions { display: grid; gap: 3px; padding: 0 11px 17px; }
+.sidebar-actions button, .sidebar-primary {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 40px; padding: 9px 12px;
+  border: 0; border-radius: 10px; color: #ddd;
+  background: transparent; text-align: left; font-size: .9rem; font-weight: 560;
+}
+.sidebar-actions button span { width: 22px; font-size: 1.3rem; line-height: 1; text-align: center; }
+.sidebar-actions button:hover, .sidebar-actions button.active { background: #292929; color: white; }
+.sidebar-actions .sidebar-primary, .sidebar-primary {
+  background: #2d2d2d; color: #fff; font-weight: 650;
+}
+.sidebar-actions .sidebar-primary:hover, .sidebar-primary:hover { background: #3a3a3a; }
+.chats-heading { padding: 10px 17px 12px; }
+.chats-heading h2 { margin: 0; font-size: .84rem; font-weight: 650; color: #a6a6a6; }
+.chats-refresh { width: 30px; height: 30px; font-size: 1.25rem; border: none; background: transparent; }
+.chats-controls { grid-template-columns: 1fr; gap: 7px; padding: 0 12px 14px; }
+.chats-controls input, .chats-controls select { background: #252525; border-color: #333; border-radius: 10px; height: 37px; font-size: .82rem; }
+.chats-list { padding: 2px 8px 12px; }
+.chats-date {
+  position: static; padding: 16px 10px 7px; border: 0;
+  background: transparent; font-size: .76rem; font-weight: 620;
+  color: #aaa;
+}
+.chat-entry { display: flex; align-items: center; border-radius: 10px; position: relative; margin: 1px 0; }
+.chat-entry:hover { background: #252525; }
+.chat-entry.chosen { background: #303030; }
+.chat-entry .chat-row {
+  flex: 1; min-width: 0; width: 0; padding: 10px 3px 10px 11px;
+  gap: 5px; border: 0; border-radius: 10px; background: transparent;
+}
+.chat-entry .chat-row:hover, .chat-entry .chat-row.chosen { background: transparent; }
+.chat-entry .chat-row-top { align-items: center; gap: 7px; }
+.chat-entry .chat-row-top strong { font-size: .86rem; font-weight: 530; color: #ddd; }
+.chat-entry.unread .chat-row-top strong { font-weight: 750; color: #fff; }
+.chat-entry .chat-row-top small { font-size: .64rem; }
+.unread-indicator { flex: none; width: 7px; height: 7px; background: #b8c7ff; border-radius: 50%; }
+.chat-entry .chat-preview { font-size: .72rem; -webkit-line-clamp: 1; color: #858585; }
+.chat-entry .chat-row-meta { font-size: .68rem; }
+.chat-entry .chat-job { color: #777; }
+.chat-pin {
+  flex: none; align-self: stretch; display: grid; place-items: center;
+  width: 32px; margin-right: 4px; border: 0; border-radius: 8px;
+  background: transparent; color: #777;
+  opacity: 0;
+}
+.chat-pin svg { width: 16px; height: 16px; }
+.chat-entry:hover .chat-pin, .chat-pin:focus-visible, .chat-pin.active { opacity: 1; }
+.chat-pin:hover, .chat-pin.active { color: #ddd; }
+.chat-row:focus-visible, .chat-pin:focus-visible, .sidebar-actions button:focus-visible { outline: 2px solid #c8d4ff; outline-offset: -2px; }
+.chats-pagination { padding: 10px 11px; font-size: .68rem; }
+.chats-pagination button { padding: 6px 7px; }
+.sidebar-footnote { color: #646464; padding: 12px 17px 17px; font-size: .7rem; }
+.chats-detail { background: #212121; }
+.workspace-header {
+  position: sticky; top: 0; z-index: 4; min-height: 59px;
+  display: flex; align-items: center; gap: 16px; flex: none;
+  padding: 0 30px; background: #212121; color: #eaeaea;
+}
+.workspace-header strong { font-size: .93rem; font-weight: 620; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.workspace-header span { margin-left: auto; color: #777; font-size: .73rem; }
+.sidebar-menu { display: none; border: 0; background: transparent; color: #f4f4f4; font-size: 1.3rem; padding: 8px; }
+.jobs-workspace { flex: 1; min-height: 0; overflow-y: auto; padding: 0 30px 40px; }
+.jobs-workspace > .jobs-panel, .jobs-workspace > .editor-page { max-width: 1220px; margin: 0 auto; }
+.jobs-workspace .job-editor { min-height: calc(100dvh - 59px); }
+.chat-detail-toolbar { background: #212121; }
+.chat-detail-content { width: min(100%, 850px); padding: 30px 44px 110px; }
+.chats-detail-empty { max-width: 410px; }
+.chats-detail-empty .sidebar-primary { margin: 20px auto 0; width: fit-content; }
+.drawer-backdrop { display: none; }
+
+@media (max-width: 680px) {
+  .jobs-app { width: 100%; padding: 0; }
+  .chats-layout { height: 100dvh; min-height: 0; display: block; }
+  .chats-detail { display: flex; height: 100%; }
+  .workspace-header { min-height: 54px; padding: 0 14px; gap: 10px; }
+  .sidebar-menu { display: block; }
+  .jobs-workspace { padding: 0 14px 28px; }
+  .jobs-workspace .job-editor { min-height: calc(100dvh - 54px); }
+  .chats-sidebar {
+    display: flex; position: fixed; z-index: 12; top: 0; bottom: 0; left: 0;
+    width: min(340px, calc(100% - 44px)); height: 100dvh;
+    transform: translateX(-105%); box-shadow: 9px 0 25px #0005;
+    transition: transform .18s ease-out;
+  }
+  .sidebar-close { display: block; border: 0; background: transparent; color: #bbb; font-size: 1.5rem; width: 36px; height: 36px; }
+  .chats-layout.drawer-open .chats-sidebar { display: flex; transform: translateX(0); }
+  .chats-layout.drawer-open .drawer-backdrop {
+    display: block; position: fixed; z-index: 11; inset: 0;
+    width: 100%; height: 100%; border: 0; background: #0009;
+  }
+  .chats-layout.show-list:not(.drawer-open) .chats-sidebar {
+    display: flex; position: relative; transform: none;
+    width: 100%; height: 100%; box-shadow: none;
+  }
+  .chats-layout.show-list:not(.drawer-open) .chats-detail { display: none; }
+  .chats-layout.drawer-open .chats-detail { display: flex; }
+  .chats-heading { padding: 10px 15px 12px; }
+  .chats-controls { padding: 0 12px 12px; }
+  .chats-date { padding-left: 10px; }
+  .chat-entry .chat-row { padding: 12px 3px 12px 11px; }
+  .chat-pin { opacity: 1; }
+  .chat-detail-toolbar { padding: 6px 14px; }
+  .chat-detail-content { padding: 21px 18px 80px; }
+  .jobs-toolbar { padding-top: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chats-sidebar { transition: none; }
+}
+
+/* On the mobile chat-list page there is no overlaid drawer to dismiss. */
+@media (max-width: 680px) {
+  .chats-layout.show-list:not(.drawer-open) .sidebar-close { display: none; }
+}

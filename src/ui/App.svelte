@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ChatsPage from "./ChatsPage.svelte";
-  import JobsPage from "./JobsPage.svelte";
 
   let { serverName }: { serverName: string } = $props();
   let view = $state<"jobs" | "chats">("jobs");
@@ -26,6 +25,18 @@
     syncRoute();
   }
 
+  function newChat() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    url.searchParams.delete("run");
+    url.searchParams.delete("edit");
+    url.searchParams.set("new", "once");
+    window.history.pushState(null, "", url);
+    syncRoute();
+    // A mounted Jobs editor also observes popstate; this opens Run once explicitly.
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+
   onMount(() => {
     syncRoute();
     window.addEventListener("popstate", syncRoute);
@@ -39,14 +50,8 @@
 </svelte:head>
 
 <main class="jobs-app">
-  <header class="app-header">
-    <div class="brand">Prompta</div>
-    <nav class="app-nav" aria-label="Main navigation">
-      <button class:active={view === "jobs"} onclick={() => navigate("jobs")} aria-current={view === "jobs" ? "page" : undefined}>Jobs</button>
-      <button class:active={view === "chats"} onclick={() => navigate("chats")} aria-current={view === "chats" ? "page" : undefined}>Chats</button>
-    </nav>
-    <div class="server-name">{serverName}</div>
-  </header>
-
-  {#if view === "jobs"}<JobsPage />{:else}<ChatsPage {selectedRunId} onSelect={(id) => navigate("chats", id)} />{/if}
+  <ChatsPage {view} {serverName} {selectedRunId}
+    onSelect={(id) => navigate("chats", id)}
+    onNavigate={(nextView) => navigate(nextView)}
+    onNewChat={newChat} />
 </main>
