@@ -18,7 +18,7 @@ def test_solver_rejects_nonlocal_endpoint() -> None:
 
 
 def test_solver_accepts_only_chatgpt_clearance(monkeypatch: pytest.MonkeyPatch) -> None:
-    posted: dict[str, object] = {}
+    posted: list[dict[str, object]] = []
 
     class Response:
         def __enter__(self) -> Self:
@@ -27,39 +27,49 @@ def test_solver_accepts_only_chatgpt_clearance(monkeypatch: pytest.MonkeyPatch) 
         def __exit__(self, *args: object) -> None:
             pass
 
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
         def read(self, size: int) -> bytes:
             assert size <= 128 * 1024 + 1
-            return json.dumps(
-                {
-                    "status": "ok",
-                    "solution": {
-                        "status": 200,
-                        "userAgent": "Mozilla/5.0 test-user-agent",
-                        "cookies": [
-                            {"name": "session", "domain": ".chatgpt.com", "value": "private"},
-                            {"name": "cf_clearance", "domain": ".example.com", "value": "other"},
-                            {"name": "cf_clearance", "domain": ".chatgpt.com", "value": "valid"},
-                        ],
-                    },
-                }
-            ).encode()
+            return json.dumps(self.payload).encode()
 
     def fake_open(request: Request, *, timeout: int) -> Response:
         assert timeout > 0
         assert isinstance(request.data, bytes)
-        posted["body"] = json.loads(request.data)
-        return Response()
+        payload: dict[str, object] = json.loads(request.data)
+        posted.append(payload)
+        if payload["cmd"] == "sessions.create":
+            return Response({"status": "ok", "session": "prompta-chatgpt"})
+        return Response(
+            {
+                "status": "ok",
+                "solution": {
+                    "status": 200,
+                    "userAgent": "Mozilla/5.0 test-user-agent",
+                    "cookies": [
+                        {"name": "session", "domain": ".chatgpt.com", "value": "private"},
+                        {"name": "cf_clearance", "domain": ".example.com", "value": "other"},
+                        {"name": "cf_clearance", "domain": ".chatgpt.com", "value": "valid"},
+                    ],
+                },
+            }
+        )
 
     monkeypatch.setattr(solver, "urlopen", fake_open)
     assert solver.solve_cloudflare("http://127.0.0.1:8191") == (
         "valid", "Mozilla/5.0 test-user-agent"
     )
-    assert posted["body"] == {
-        "cmd": "request.get",
-        "url": "https://chatgpt.com/",
-        "maxTimeout": 24000,
-        "returnOnlyCookies": True,
-    }
+    assert posted == [
+        {"cmd": "sessions.create", "session": "prompta-chatgpt"},
+        {
+            "cmd": "request.get",
+            "session": "prompta-chatgpt",
+            "url": "https://chatgpt.com/",
+            "maxTimeout": 24000,
+            "returnOnlyCookies": True,
+        },
+    ]
 
 
 @pytest.mark.asyncio

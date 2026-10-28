@@ -231,3 +231,9 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 
 - Commit `0adc00e` pushed to `main` under the shared merge lock. Buildq #1433 production package reinstall passed. Delivery worker restarted from PID `1644467` to `2006904` only after proving zero live capture leases or running delivery leases; scheduler and browser PIDs remained unchanged, and neither the browser profile nor current cooldown was reset.
 - Stage 5 (`prompta-chat-ui-05-compose`) remained queued with no new attempts. Existing security-challenge backoff remains until 15:31:13 NZDT. The real Cloudflare 403 is still externally controlled and has **not** been bypassed; do not force another prompt attempt or mistake this fail-fast remediation for clearance.
+
+## Persistent FlareSolverr browser handoff (2026-10-28 NZDT)
+
+- A dedicated Nox user service `prompta-flaresolverr` runs Chromium on private X display `:99` and local port `8193`, isolated from the existing shared FlareSolverr `8191` and the Prompta-owned Brave CDP browser. `sessions.create` reuses the fixed `prompta-chatgpt` session; only its private browser profile persists on disk across service restarts (`~/.local/state/prompta/flaresolverr-chrome`, owner-only). FlareSolverr source patch is committed in the installed `v3.5.2` checkout.
+- Prompta's recovery client uses that exact session for one cooldown-limited ChatGPT homepage GET, transfers only `cf_clearance`/UA on success, and never sends account cookies, chat/history GETs or prompts through FlareSolverr. No queued job is automatically resumed or duplicated. This integration does not guarantee Cloudflare accepts clearance in Brave; verify only after owner login.
+- Temporary TLS VNC `prompta-login-vnc` exposes X display `:99` on Nox LAN `192.168.1.133:5903` with an owner-only password file. Disable VNC after owner authentication. No VNC password is stored in the repository.

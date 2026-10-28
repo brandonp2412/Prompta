@@ -5,6 +5,9 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 
+_SESSION_ID = "prompta-chatgpt"
+
+
 def solve_cloudflare(endpoint: str, *, timeout_seconds: int = 24) -> tuple[str, str] | None:
     """Ask local FlareSolverr for clearance only; never forward ChatGPT account cookies."""
     parsed_url = urlsplit(endpoint)
@@ -20,22 +23,35 @@ def solve_cloudflare(endpoint: str, *, timeout_seconds: int = 24) -> tuple[str, 
     if not url.endswith("/v1"):
         url += "/v1"
     timeout_seconds = max(1, min(timeout_seconds, 30))
-    body = json.dumps(
+    def command(payload: dict[str, object]) -> object:
+        request = Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=timeout_seconds + 5) as response:
+            raw = response.read(128 * 1024 + 1)
+        if len(raw) > 128 * 1024:
+            raise ValueError("FlareSolverr response exceeded limit")
+        return json.loads(raw)
+
+    session = command({"cmd": "sessions.create", "session": _SESSION_ID})
+    if (
+        not isinstance(session, dict)
+        or session.get("status") != "ok"
+        or session.get("session") != _SESSION_ID
+    ):
+        return None
+    result = command(
         {
             "cmd": "request.get",
+            "session": _SESSION_ID,
             "url": "https://chatgpt.com/",
             "maxTimeout": timeout_seconds * 1000,
             "returnOnlyCookies": True,
         }
-    ).encode("utf-8")
-    request = Request(
-        url, data=body, headers={"Content-Type": "application/json"}, method="POST"
     )
-    with urlopen(request, timeout=timeout_seconds + 5) as response:
-        raw = response.read(128 * 1024 + 1)
-    if len(raw) > 128 * 1024:
-        raise ValueError("FlareSolverr response exceeded limit")
-    result: object = json.loads(raw)
     if not isinstance(result, dict) or result.get("status") != "ok":
         return None
     solution = result.get("solution")

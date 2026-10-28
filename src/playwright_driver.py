@@ -1115,7 +1115,7 @@ class PlaywrightDriver:
         started = time.monotonic()
         try:
             clearance = await asyncio.wait_for(
-                asyncio.to_thread(solve_cloudflare, endpoint), timeout=32.0
+                asyncio.to_thread(solve_cloudflare, endpoint), timeout=70.0
             )
             if clearance is None:
                 logger.warning("FlareSolverr clearance unavailable")
