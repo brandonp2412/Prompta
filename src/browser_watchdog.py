@@ -1,4 +1,4 @@
-"""Recover Prompta's browser when its CDP HTTP endpoint stops responding."""
+"""Recover Prompta's configured browser when its CDP endpoint stops responding."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def debugger_responding(address: str = "127.0.0.1:9222") -> bool:
 
 
 def delivery_in_flight(database: Path, now: float) -> bool:
-    """Avoid killing Brave during a recently started send with an unknown outcome."""
+    """Avoid restarting the browser during a send with an unknown outcome."""
     try:
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=1.0) as connection:
             row = connection.execute(
@@ -188,7 +188,7 @@ async def reap_expired_owned_tabs(
                         )
             forget_owned_tabs(resolved)
         finally:
-            # Stopping Playwright disconnects without closing the shared Brave browser.
+            # Stopping Playwright disconnects without closing the shared browser.
             await session.detach()
     if closed:
         logger.warning("Reaped %d expired Prompta-owned tabs", closed)
@@ -245,21 +245,23 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     now = time.time()
     state = load_state(STATE_FILE)
+    address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
+    browser_service = os.environ.get("PROMPTA_BROWSER_SERVICE", "prompta-browser.service")
     try:
         ManualReplyStore(STATE_DIR / "chat-results.sqlite3").recover_orphans(now=now)
     except Exception as exc:
         logger.warning("Manual reply lease recovery failed error_type=%s", type(exc).__name__)
-    healthy = debugger_responding()
+    healthy = debugger_responding(address)
     busy = False if healthy else delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
     if healthy:
         try:
-            asyncio.run(reap_expired_owned_tabs(now=now))
+            asyncio.run(reap_expired_owned_tabs(address=address, now=now))
         except Exception as exc:
             logger.warning(
                 "Prompta independent tab reaper failed error_type=%s", type(exc).__name__
             )
             try:
-                reap_expired_leases_http(now=now)
+                reap_expired_leases_http(address=address, now=now)
             except Exception as fallback_exc:
                 logger.error(
                     "Prompta HTTP tab reaper failed error_type=%s", type(fallback_exc).__name__
@@ -268,29 +270,29 @@ def main() -> None:
     if restart:
         active = (
             subprocess.run(
-                ["systemctl", "--user", "is-active", "--quiet", "prompta-browser.service"],
+                ["systemctl", "--user", "is-active", "--quiet", browser_service],
                 check=False,
                 timeout=10,
             ).returncode
             == 0
         )
         if not active:
-            logger.info("Brave service is intentionally inactive; not restarting it")
+            logger.info("Browser service %s is intentionally inactive; not restarting it", browser_service)
             state.consecutive_failures = 0
             save_state(STATE_FILE, state)
             return
-        logger.warning("Brave CDP unavailable on consecutive checks; restarting browser service")
+        logger.warning("Browser CDP unavailable; restarting %s", browser_service)
         subprocess.run(
-            ["systemctl", "--user", "restart", "prompta-browser.service"],
+            ["systemctl", "--user", "restart", browser_service],
             check=True,
             timeout=60,
         )
         state.consecutive_failures = 0
         state.last_restart_at = time.time()
-        logger.info("Brave restarted; next watchdog check will verify debugger health")
+        logger.info("Browser restarted; next watchdog check will verify debugger health")
     elif not healthy:
         logger.warning(
-            "Brave CDP unhealthy failures=%d delivery_in_flight=%s",
+            "Browser CDP unhealthy failures=%d delivery_in_flight=%s",
             state.consecutive_failures,
             busy,
         )

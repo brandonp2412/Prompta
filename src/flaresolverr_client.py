@@ -4,7 +4,6 @@ import json
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-
 _SESSION_ID = "prompta-chatgpt"
 
 
@@ -23,6 +22,7 @@ def solve_cloudflare(endpoint: str, *, timeout_seconds: int = 24) -> tuple[str, 
     if not url.endswith("/v1"):
         url += "/v1"
     timeout_seconds = max(1, min(timeout_seconds, 30))
+
     def command(payload: dict[str, object]) -> object:
         request = Request(
             url,

@@ -37,7 +37,8 @@ def test_solver_accepts_only_chatgpt_clearance(monkeypatch: pytest.MonkeyPatch) 
     def fake_open(request: Request, *, timeout: int) -> Response:
         assert timeout > 0
         assert isinstance(request.data, bytes)
-        payload: dict[str, object] = json.loads(request.data)
+        payload = json.loads(request.data)
+        assert isinstance(payload, dict)
         posted.append(payload)
         if payload["cmd"] == "sessions.create":
             return Response({"status": "ok", "session": "prompta-chatgpt"})
