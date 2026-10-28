@@ -34,6 +34,7 @@
   let readAt = $state<Record<string, number>>({});
   let baselineAt = $state(0);
   let drawerOpen = $state(false);
+  let expandedPrompts = $state<Record<string, boolean>>({});
   let total = $state(0);
   let page = $state(0);
   let search = $state("");
@@ -381,7 +382,12 @@
           {#each turns as turn, index (turn.reply_id || detail.send_id)}
             <div class="message-group user-group">
               <div class="message-role">You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</div>
-              <div class="prompt-message">{turn.user_text}</div>
+              <div class:collapsed={turn.user_text.length > 280 && !expandedPrompts[(detail?.send_id ?? "") + ":" + index]} class="prompt-message">{turn.user_text}</div>
+                {#if turn.user_text.length > 280}
+                  <button class="prompt-expand" type="button" aria-expanded={Boolean(expandedPrompts[(detail?.send_id ?? "") + ":" + index])} onclick={() => (expandedPrompts[(detail?.send_id ?? "") + ":" + index] = !expandedPrompts[(detail?.send_id ?? "") + ":" + index])}>
+                    {expandedPrompts[(detail?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt"}
+                  </button>
+                {/if}
               {#if index === 0 && detail.images?.length}
                 <div class="chat-attachments" aria-label="Attached images">
                   {#each detail.images as attachment (attachment.url)}

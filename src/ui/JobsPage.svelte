@@ -134,13 +134,34 @@
     return url;
   }
 
+  function workspaceScroll() {
+    return document.querySelector<HTMLElement>(".jobs-workspace");
+  }
+
+  function restoreListScroll() {
+    const pane = workspaceScroll();
+    if (pane) pane.scrollTop = listScrollY;
+    else window.scrollTo(0, listScrollY);
+  }
+
+  function keepFocusedPromptVisible() {
+    if (!editorOpen || !window.matchMedia("(max-width: 680px)").matches) return;
+    const pane = workspaceScroll();
+    const focused = document.activeElement;
+    if (!pane || !(focused instanceof HTMLTextAreaElement) || !editorPage?.contains(focused)) return;
+    const footerTop = editorPage.querySelector<HTMLElement>(".editor-footer")?.getBoundingClientRect().top ?? innerHeight;
+    const visibleBottom = Math.min(footerTop, window.visualViewport?.height ?? innerHeight) - 44;
+    const overlap = focused.getBoundingClientRect().bottom - visibleBottom;
+    if (overlap > 0) pane.scrollTop += overlap;
+  }
+
   function leaveEditor() {
     if (window.history.state?.promptaEditor === true) {
       window.history.back();
     } else {
       window.history.replaceState(null, "", jobsUrl());
       closeEditorState();
-      requestAnimationFrame(() => window.scrollTo(0, listScrollY));
+      requestAnimationFrame(restoreListScroll);
     }
   }
 
@@ -164,7 +185,9 @@
     initialForm = formSnapshot();
     editorOpen = true;
     requestAnimationFrame(() => {
-      window.scrollTo(0, 0);
+      const pane = workspaceScroll();
+      if (pane) pane.scrollTop = 0;
+      else window.scrollTo(0, 0);
       if (focusName) {
         editorPage?.querySelector<HTMLInputElement>(".name-field input")?.focus();
       } else if (window.matchMedia("(pointer: coarse)").matches) {
@@ -206,7 +229,7 @@
   }
 
   function pushEditor(route: EditorRoute) {
-    listScrollY = window.scrollY;
+    listScrollY = workspaceScroll()?.scrollTop ?? window.scrollY;
     const url = jobsUrl();
     if (route.kind === "new") url.searchParams.set("new", route.once ? "once" : "1");
     else url.searchParams.set("edit", route.name);
@@ -224,7 +247,7 @@
     if (route) showEditor(route);
     else {
       closeEditorState();
-      requestAnimationFrame(() => window.scrollTo(0, listScrollY));
+      requestAnimationFrame(restoreListScroll);
     }
   }
 
@@ -506,6 +529,9 @@
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
+    const onViewportResize = () => requestAnimationFrame(keepFocusedPromptVisible);
+    window.addEventListener("resize", onViewportResize);
+    window.visualViewport?.addEventListener("resize", onViewportResize);
     void load().then(syncEditorFromUrl);
     window.addEventListener("popstate", syncEditorFromUrl);
     const timer = window.setInterval(() => {
@@ -514,6 +540,8 @@
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("resize", onViewportResize);
+      window.visualViewport?.removeEventListener("resize", onViewportResize);
       window.removeEventListener("popstate", syncEditorFromUrl);
     };
   });
@@ -540,8 +568,8 @@
         onclick={() => void toggleVisible()}
       >{allVisiblePaused ? "Resume visible" : "Pause visible"} ({visibleJobs.length})</button>
 
-      <button class="toolbar-button" type="button" disabled={saving} onclick={() => void load()}>Refresh</button>
-      <button class="toolbar-button" type="button" disabled={saving} onclick={beginOnce}>Run once</button>
+      <button class="toolbar-button refresh-action" type="button" disabled={saving} onclick={() => void load()}>Refresh</button>
+      <button class="toolbar-button run-once-action" type="button" disabled={saving} onclick={beginOnce}>Run once</button>
       <button class="primary-button" type="button" disabled={saving} onclick={beginNew}>New job</button>
     </div>
   </div>
@@ -738,7 +766,7 @@
 
           <label class="prompt-field">
             <span>Prompt</span>
-            <textarea bind:value={prompt} rows="14" required></textarea>
+            <textarea bind:value={prompt} rows="14" required onfocus={() => requestAnimationFrame(keepFocusedPromptVisible)}></textarea>
           </label>
           <div class="prompt-counter">{promptCharacters.toLocaleString()} characters · {promptLines.toLocaleString()} lines</div>
           <div class="job-image-picker">
@@ -760,7 +788,7 @@
         </div>
 
         <div class="editor-footer">
-          <div class="editor-feedback" role="status" aria-live="polite">
+          <div class="editor-feedback" role={confirmDiscard ? "alertdialog" : "status"} aria-label={confirmDiscard ? "Discard unsaved changes" : undefined} aria-live="polite">
             {#if confirmDiscard}
               <span>Discard unsaved changes?</span>
               <button class="toolbar-button" type="button" onclick={() => (confirmDiscard = false)}>Keep editing</button>
@@ -775,6 +803,7 @@
               <span>No changes</span>
             {/if}
           </div>
+          {#if !confirmDiscard}
           <div class="editor-actions">
             <span class="keyboard-hint">Ctrl/⌘ + Enter to {runOnce ? "run" : "save"}</span>
             <button class="toolbar-button" type="button" disabled={saving} onclick={requestClose}>Cancel</button>
@@ -782,6 +811,7 @@
               {saving ? (runOnce ? "Queuing…" : "Saving…") : editing ? "Save changes" : runOnce ? (Number(onceDelay) > 0 ? "Schedule once" : "Run once") : "Create job"}
             </button>
           </div>
+          {/if}
         </div>
       </form>
   </section>

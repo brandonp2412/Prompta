@@ -850,3 +850,100 @@ button:disabled { cursor: default; opacity: 0.45; }
 .code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 9px 4px 14px; color: #999; font-size: .72rem; border-bottom: 1px solid #343434; }
 .result-markdown .code-snippet pre { border: 0; border-radius: 0; margin: 0; }
 @media (max-width: 680px) { .chat-attachments img { width: 108px; height: 104px; } }
+
+/* Small-screen navigation and controls should take less space than the content. */
+.prompt-message.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prompt-expand {
+  display: block;
+  margin: 6px 0 0 auto;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #b6c9f5;
+  font-size: .8rem;
+}
+.prompt-expand:hover { background: #303030; color: #fff; }
+.chat-entry .chat-row-top { justify-content: flex-start; }
+.chat-entry .chat-row-top strong { flex: 1; min-width: 0; }
+
+@media (max-width: 680px) {
+  .sidebar-brand { padding: 13px 16px 10px; }
+  .sidebar-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    padding: 0 12px 6px;
+  }
+  .sidebar-actions button {
+    justify-content: center;
+    gap: 5px;
+    min-height: 46px;
+    padding: 9px 4px;
+    font-size: .8rem;
+    white-space: nowrap;
+  }
+  .sidebar-actions button span { width: auto; font-size: 1.05rem; }
+  .sidebar-close { width: 44px; height: 44px; }
+  .chats-heading { padding: 7px 14px 8px; }
+  .chats-refresh { width: 44px; height: 44px; }
+  .chats-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(108px, .45fr);
+    gap: 7px;
+    padding: 0 12px 10px;
+  }
+  .chats-controls input, .chats-controls select {
+    height: 44px;
+    padding: 0 9px;
+    font-size: .82rem;
+  }
+  .chats-pagination button { min-height: 44px; padding: 10px; }
+  .chat-pin { width: 44px; margin-right: 0; }
+  .chat-entry .chat-row { min-height: 72px; }
+  .sidebar-menu { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; }
+  .chat-detail-back { min-height: 44px; padding: 8px; }
+  .jobs-toolbar { gap: 12px; }
+  .toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: stretch;
+  }
+  .toolbar-actions .run-once-action { order: 0; }
+  .toolbar-actions .primary-button { order: 1; }
+  .toolbar-actions .visible-toggle { order: 2; margin: 0; }
+  .toolbar-actions .refresh-action { order: 3; }
+  .toolbar-actions .status-line { order: 4; grid-column: 1 / -1; }
+  .toolbar-actions > button {
+    min-height: 44px;
+    padding: 10px 8px;
+    border: 1px solid #353535;
+    border-radius: 10px;
+    background: #242424;
+    text-align: center;
+  }
+  .toolbar-actions .primary-button { background: #ededed; color: #111; }
+  .jobs-summary { gap: 6px; }
+  .filter-chip { min-height: 42px; padding: 9px 11px; }
+  .job-row {
+    margin: 10px 0;
+    padding: 16px 12px;
+    border: 1px solid #303030;
+    border-radius: 12px;
+    background: #191919;
+  }
+  .job-row:hover { background: #1d1d1d; }
+  .job-actions { flex-wrap: wrap; justify-content: flex-start; gap: 4px; }
+  .row-action { min-height: 44px; padding: 10px 7px; font-size: .8rem; }
+  .editor-body .prompt-field { flex: none; min-height: 0; }
+  .editor-body textarea { flex: none; height: min(36dvh, 300px); min-height: 180px; }
+  .editor-body textarea:focus { height: min(30dvh, 240px); min-height: 140px; }
+  .editor-footer { gap: 6px; padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); }
+  .editor-feedback[role="alertdialog"] { width: 100%; justify-content: space-between; gap: 8px; }
+  .editor-feedback button, .editor-actions button { min-height: 44px; padding: 10px 14px; }
+}

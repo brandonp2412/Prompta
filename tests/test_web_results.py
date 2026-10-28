@@ -13,6 +13,7 @@ from typing import Literal
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from prompta.jobs import add_job
 from prompta.response_capture import CaptureResult
 from prompta.strict_types import json_object, string_object_dict
 from prompta.web import PromptaJobServer
@@ -162,7 +163,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
             "dom", "partial", "### So far\n\nStill generating a **partial** answer.",
             "c2", "m2", "p2",
         ), now=now + 102)
-        app.results.ensure_queued("unsafe", "Render unsafe markup", "Security", now=now - 180_000)
+        app.results.ensure_queued("unsafe", "Render unsafe markup. " * 65, "Security", now=now - 180_000)
         assert app.results.accept("unsafe", "10:unsafe", deadline=now + 1000, now=now - 179_999)
         assert app.results.write("unsafe", "10:unsafe", CaptureResult(
             "sse", "complete", "<img src=x onerror=alert(1)> [bad](javascript:alert(1))",
@@ -205,6 +206,10 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 page.screenshot(path=str(screenshots / "prompta-chats-desktop.png"), animations="disabled")
 
                 page.locator(".chat-row").filter(has_text="Security").click()
+                expect(page.locator(".prompt-message.collapsed")).to_have_count(1)
+                page.get_by_role("button", name="Show full prompt").click()
+                expect(page.locator(".prompt-message.collapsed")).to_have_count(0)
+                page.get_by_role("button", name="Show less").click()
                 assert page.locator(".result-markdown img").count() == 0
                 assert page.locator(".result-markdown a").count() == 0
                 assert "<img" in page.locator(".result-markdown").inner_text()
@@ -220,6 +225,23 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 page.set_viewport_size({"width": 390, "height": 844})
                 phone = page
                 phone.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
+                list_box = phone.locator(".chats-list").bounding_box()
+                refresh_box = phone.locator(".chats-refresh").bounding_box()
+                pin_box = phone.locator(".chat-pin").first.bounding_box()
+                assert list_box and refresh_box and pin_box
+                assert list_box["y"] < 300
+                assert refresh_box["width"] >= 44
+                assert pin_box["width"] >= 44
+                first_title = phone.locator(".chat-row-top strong").first
+                title_before = first_title.bounding_box()
+                phone.locator(".chat-row-top").first.evaluate(
+                    "(row) => { const dot = document.createElement('span'); "
+                    "dot.className = 'unread-indicator'; row.prepend(dot); }"
+                )
+                title_after = first_title.bounding_box()
+                assert title_before and title_after
+                assert 0 < title_after["x"] - title_before["x"] <= 18
+                phone.screenshot(path=str(screenshots / "mobile-chats-list.png"), animations="disabled")
                 phone.locator(".chat-row").filter(has_text="Daily review").click()
                 expect(phone.locator(".assistant-group")).to_have_count(2)
                 assert phone.locator(".prompt-message").count() == 2
@@ -231,12 +253,82 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 phone.locator(".chats-detail").evaluate("(element) => { element.scrollTop = element.scrollHeight; }")
                 phone.screenshot(path=str(screenshots / "prompta-chats-mobile.png"), animations="disabled")
                 phone.get_by_role("button", name="All chats").click()
+                phone.locator(".chat-row").filter(has_text="Security").click()
+                expect(phone.locator(".prompt-message.collapsed")).to_have_count(1)
+                phone.get_by_role("button", name="All chats").click()
                 phone.locator(".chat-row").filter(has_text="Release notes").click()
                 expect(phone.get_by_text("Partial response", exact=False)).to_be_visible()
                 phone.get_by_role("button", name="All chats").click()
                 assert phone.locator(".chats-sidebar").is_visible()
                 assert phone.locator(".chats-detail").is_hidden()
                 context.close()
+            finally:
+                browser.close()
+
+
+def test_mobile_jobs_editor_navigation_and_touch_targets(tmp_path: Path) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    screenshots = Path(os.environ.get("PROMPTA_SCREENSHOT_DIR", str(tmp_path)))
+    screenshots.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with server(tmp_path) as (app, port):
+        for index in range(16):
+            add_job(app.jobs_path, f"mobile-{index:02}", "Work safely on mobile", 2400)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium_path, headless=True,
+                args=["--no-sandbox", "--single-process", "--no-zygote"],
+            )
+            try:
+                page = browser.new_page(
+                    viewport={"width": 390, "height": 844},
+                    device_scale_factor=1, is_mobile=True, has_touch=True,
+                )
+                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+                expect(page.locator(".job-row")).to_have_count(10)
+                page.screenshot(path=str(screenshots / "mobile-jobs-top.png"), animations="disabled")
+                pane = page.locator(".jobs-workspace")
+                target = page.locator(".job-row").nth(5).get_by_role("button", name="Edit")
+                target.scroll_into_view_if_needed()
+                before_scroll = pane.evaluate("(element) => element.scrollTop")
+                assert before_scroll > 100
+                page.screenshot(path=str(screenshots / "mobile-jobs-list.png"), animations="disabled")
+                target.click()
+                expect(page.get_by_role("heading", name="Edit job")).to_be_visible()
+                page.locator(".prompt-field textarea").fill("Edited but unsaved")
+                focused_box = page.locator(".prompt-field textarea").bounding_box()
+                assert focused_box and focused_box["height"] <= 245
+                page.screenshot(path=str(screenshots / "mobile-jobs-editor.png"), animations="disabled")
+                page.set_viewport_size({"width": 390, "height": 520})
+                page.locator(".prompt-field textarea").focus()
+                page.wait_for_timeout(100)
+                footer_box = page.locator(".editor-footer").bounding_box()
+                prompt_box = page.locator(".prompt-field textarea").bounding_box()
+                assert footer_box and prompt_box
+                assert footer_box["y"] + footer_box["height"] <= 520
+                assert prompt_box["y"] + prompt_box["height"] <= footer_box["y"] - 36
+                page.screenshot(path=str(screenshots / "mobile-jobs-keyboard-viewport.png"), animations="disabled")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.locator(".editor-back").click()
+                expect(page.get_by_role("alertdialog", name="Discard unsaved changes")).to_be_visible()
+                expect(page.locator(".editor-actions")).to_have_count(0)
+                page.screenshot(path=str(screenshots / "mobile-jobs-discard.png"), animations="disabled")
+                page.get_by_role("button", name="Keep editing").click()
+                expect(page.locator(".prompt-field textarea")).to_have_value("Edited but unsaved")
+                page.get_by_role("button", name="Cancel").click()
+                page.get_by_role("button", name="Discard", exact=True).click()
+                expect(page.locator(".job-row")).to_have_count(10)
+                assert abs(pane.evaluate("(element) => element.scrollTop") - before_scroll) < 10
+                page.get_by_role("button", name="Open chat sidebar").click()
+                close_box = page.locator(".sidebar-close").bounding_box()
+                assert close_box and close_box["width"] >= 44
+                page.screenshot(path=str(screenshots / "mobile-jobs-drawer.png"), animations="disabled")
+                page.get_by_role("button", name="Close sidebar").click()
+                for width, height in [(360, 780), (430, 932), (1440, 900)]:
+                    page.set_viewport_size({"width": width, "height": height})
+                    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                page.close()
             finally:
                 browser.close()
 
