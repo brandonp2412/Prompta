@@ -18,7 +18,6 @@ from prompta.scheduler_policy import (
     recurring_delay,
     recurring_jitter_cap,
     retry_at,
-    send_gap_remaining,
     should_enqueue_job,
     terminal_reconciliation_updates,
 )
@@ -311,10 +310,7 @@ def test_retry_at_clamps_negative_delay_and_uses_explicit_time() -> None:
     assert retry_at(now=1000.0, delay_seconds=-5.0) == 1000.0
 
 
-def test_retry_and_send_gap_windows_use_explicit_time() -> None:
-    assert send_gap_remaining(last_attempt_at=100.0, gap_seconds=60.0, now=125.0) == 35.0
-    assert send_gap_remaining(last_attempt_at="bad", gap_seconds=60.0, now=125.0) == 0.0
-
+def test_retry_windows_use_explicit_time() -> None:
     assert (
         failure_retry_remaining(
             persisted_retry_until=150.0,

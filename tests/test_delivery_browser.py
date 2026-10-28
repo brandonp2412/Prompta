@@ -3214,7 +3214,7 @@ def test_passive_capture_handoff_does_not_hold_delivery_worker(tmp_path: Path) -
     assert driver.clicks == 1
 
 
-def test_multiple_passive_captures_can_overlap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_multiple_passive_captures_can_overlap(tmp_path: Path) -> None:
     class PendingDriver(FakeDriver):
         def __init__(self, answer: str) -> None:
             super().__init__()
@@ -3243,10 +3243,6 @@ def test_multiple_passive_captures_can_overlap(tmp_path: Path, monkeypatch: pyte
         tmp_path / "runtime.sqlite3", driver_factory=lambda: next(drivers),
         connector_approval=False,
     )
-    # Simulate the next eligible dispatch slot without waiting 45 real minutes.
-    # The global send gap remains enforced separately by DeliveryAdmission.
-    monkeypatch.setattr(sender.runtime, "send_gap_remaining", lambda _now: 0.0)
-
     try:
         sender("First job", send_id="run-1", job_name="first")
         first_accepted = sender.results.get("run-1")

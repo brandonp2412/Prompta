@@ -184,14 +184,6 @@ def should_enqueue_job(
     )
 
 
-def send_gap_remaining(*, last_attempt_at: object, gap_seconds: float, now: float) -> float:
-    try:
-        last_attempt = float_value(last_attempt_at)
-    except (TypeError, ValueError):
-        return 0.0
-    return max(0.0, last_attempt + max(0.0, float(gap_seconds)) - now)
-
-
 def failure_retry_remaining(
     *,
     persisted_retry_until: object,

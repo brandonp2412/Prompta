@@ -30,15 +30,9 @@ from .scheduler_policy import (
     recurring_delay,
     recurring_jitter_cap,
 )
-from .scheduler_policy import (
-    send_gap_remaining as calculate_send_gap_remaining,
-)
 from .strict_types import string_object_dict
 
 logger = logging.getLogger(__name__)
-
-
-_SEND_GAP_SECONDS = 45 * 60.0
 
 
 class SchedulerRuntime:
@@ -404,22 +398,6 @@ class SchedulerRuntime:
         self.global_backoff.restore(snapshot)
         self.update_scheduler_state({"rate_limit_backoff": snapshot})
         return remaining
-
-    def send_gap_remaining(self, now: float) -> float:
-        return calculate_send_gap_remaining(
-            last_attempt_at=self.scheduler_state(strict=True).get("last_attempt_at"),
-            gap_seconds=_SEND_GAP_SECONDS,
-            now=now,
-        )
-
-    def delivery_claim_gap_remaining(self, now: float) -> float:
-        state = self.scheduler_state(strict=True)
-        return max(
-            calculate_send_gap_remaining(
-                last_attempt_at=state.get(key), gap_seconds=_SEND_GAP_SECONDS, now=now
-            )
-            for key in ("last_attempt_at", "last_delivery_claim_at")
-        )
 
     def ensure_initial_schedules(self, jobs: list[PromptJob], now: float) -> None:
         for job in jobs:

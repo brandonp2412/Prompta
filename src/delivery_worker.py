@@ -93,10 +93,6 @@ class DeliveryAdmission:
                 remaining,
             )
 
-        gap = self.runtime.delivery_claim_gap_remaining(current)
-        if gap > 0:
-            return False, "Prompta global send gap is active", gap
-
         allowed, reason = self.resource_admission()
         state = (allowed, reason)
         if state != self._last_resource_state:
@@ -388,7 +384,6 @@ def run(
                     time.sleep(0.5)
                     continue
 
-                runtime.update_scheduler_state({"last_delivery_claim_at": time.time()})
                 _deliver_one(queue, sender, runtime, health, owner, record)
             except OperationalError as exc:
                 if not _sqlite_busy(exc):

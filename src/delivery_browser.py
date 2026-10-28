@@ -210,13 +210,6 @@ class BrowserDeliverySender:
                 retry_after=max(1, math.ceil(remaining)),
             )
 
-        gap = self.runtime.send_gap_remaining(time.time())
-        if gap > 0:
-            raise DeliveryBackendUnavailableError(
-                "Prompta global send gap is active for another "
-                + f"{max(1, math.ceil(gap))} seconds"
-            )
-
         image_paths = tuple(self.images.path(ref) for ref in image_refs(images))
         dispatch_started = threading.Event()
         if send_id:
