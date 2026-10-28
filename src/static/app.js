@@ -57,6 +57,7 @@ var ERROR_VALUE = 1 << 23;
 var STATE_SYMBOL = Symbol("$state");
 /** Marks component export objects, so that `proxy(...)` leaves them untouched */
 var COMPONENT_SYMBOL = Symbol("component");
+var LEGACY_PROPS = Symbol("legacy props");
 var LOADING_ATTR_SYMBOL = Symbol("");
 var ATTRIBUTES_CACHE = Symbol("attributes");
 var CLASS_CACHE = Symbol("class");
@@ -253,6 +254,14 @@ function effect_orphan(rune) {
 */
 function effect_update_depth_exceeded() {
 	throw new Error(`https://svelte.dev/e/effect_update_depth_exceeded`);
+}
+/**
+* Cannot do `bind:%key%={undefined}` when `%key%` has a fallback value
+* @param {string} key
+* @returns {never}
+*/
+function props_invalid_value(key) {
+	throw new Error(`https://svelte.dev/e/props_invalid_value`);
 }
 /**
 * Property descriptors defined on `$state` objects must contain `value` and always be `enumerable`, `configurable` and `writable`.
@@ -4767,6 +4776,124 @@ function bind_this(element_or_component = mark_as_component(), update, get_value
 	});
 	return element_or_component;
 }
+//#endregion
+//#region node_modules/svelte/src/internal/client/reactivity/store.js
+/**
+* Whether or not the prop currently being read is a store binding, as in
+* `<Child bind:x={$y} />`. If it is, we treat the prop as mutable even in
+* runes mode, and skip `binding_property_non_reactive` validation
+*/
+var is_store_binding = false;
+/**
+* Returns a tuple that indicates whether `fn()` reads a prop that is a store binding.
+* Used to prevent `binding_property_non_reactive` validation false positives and
+* ensure that these props are treated as mutable even in runes mode
+* @template T
+* @param {() => T} fn
+* @returns {[T, boolean]}
+*/
+function capture_store_binding(fn) {
+	var previous_is_store_binding = is_store_binding;
+	try {
+		is_store_binding = false;
+		return [fn(), is_store_binding];
+	} finally {
+		is_store_binding = previous_is_store_binding;
+	}
+}
+//#endregion
+//#region node_modules/svelte/src/internal/client/reactivity/props.js
+/** @import { Derived, Effect, Source } from './types.js' */
+/**
+* This function is responsible for synchronizing a possibly bound prop with the inner component state.
+* It is used whenever the compiler sees that the component writes to the prop, or when it has a default prop_value.
+* @template V
+* @param {Record<string, unknown>} props
+* @param {string} key
+* @param {number} flags
+* @param {V | (() => V)} [fallback]
+* @returns {(() => V | ((arg: V) => V) | ((arg: V, mutation: boolean) => V))}
+*/
+function prop(props, key, flags, fallback) {
+	var runes = !legacy_mode_flag || (flags & 2) !== 0;
+	var bindable = (flags & 8) !== 0;
+	var lazy = (flags & 16) !== 0;
+	var fallback_value = fallback;
+	var fallback_dirty = true;
+	var fallback_signal = void 0;
+	var get_fallback = () => {
+		if (lazy && runes) {
+			fallback_signal ??= /* @__PURE__ */ derived(fallback);
+			return get(fallback_signal);
+		}
+		if (fallback_dirty) {
+			fallback_dirty = false;
+			fallback_value = lazy ? untrack(fallback) : fallback;
+		}
+		return fallback_value;
+	};
+	/** @type {((v: V) => void) | undefined} */
+	let setter;
+	if (bindable) {
+		var is_entry_props = STATE_SYMBOL in props || LEGACY_PROPS in props;
+		setter = get_descriptor(props, key)?.set ?? (is_entry_props && key in props ? (v) => props[key] = v : void 0);
+	}
+	/** @type {V} */
+	var initial_value;
+	var is_store_sub = false;
+	if (bindable) [initial_value, is_store_sub] = capture_store_binding(() => props[key]);
+	else initial_value = props[key];
+	if (initial_value === void 0 && fallback !== void 0) {
+		initial_value = get_fallback();
+		if (setter) {
+			if (runes) props_invalid_value(key);
+			setter(initial_value);
+		}
+	}
+	/** @type {() => V} */
+	var getter;
+	if (runes) getter = () => {
+		var value = props[key];
+		if (value === void 0) return get_fallback();
+		fallback_dirty = true;
+		return value;
+	};
+	else getter = () => {
+		var value = props[key];
+		if (value !== void 0) fallback_value = void 0;
+		return value === void 0 ? fallback_value : value;
+	};
+	if (runes && (flags & 4) === 0) return getter;
+	if (setter) {
+		var legacy_parent = props.$$legacy;
+		return (function(value, mutation) {
+			if (arguments.length > 0) {
+				if (!runes || !mutation || legacy_parent || is_store_sub)
+ /** @type {Function} */ setter(mutation ? getter() : value);
+				return value;
+			}
+			return getter();
+		});
+	}
+	var overridden = false;
+	var d = ((flags & 1) !== 0 ? derived : derived_safe_equal)(() => {
+		overridden = false;
+		return getter();
+	});
+	if (bindable) get(d);
+	var parent_effect = active_effect;
+	return (function(value, mutation) {
+		if (arguments.length > 0) {
+			const new_value = mutation ? get(d) : runes && bindable ? proxy(value) : value;
+			set(d, new_value);
+			overridden = true;
+			if (fallback_value !== void 0) fallback_value = new_value;
+			return value;
+		}
+		if (is_destroying_effect && overridden || (parent_effect.f & 16384) !== 0) return d.v;
+		return get(d);
+	});
+}
 if (typeof HTMLElement === "function");
 /**
 * `onMount`, like [`$effect`](https://svelte.dev/docs/svelte/$effect), schedules a function to run as soon as the component has been mounted to the DOM.
@@ -4826,11 +4953,11 @@ function sortJobs(jobs) {
 }
 //#endregion
 //#region src/ui/JobsPage.svelte
-var root$3 = /* @__PURE__ */ from_html(`<button type="button"> <span> </span></button>`);
-var root_1$3 = /* @__PURE__ */ from_html(`<div class="empty-row"> </div>`);
-var root_2$2 = /* @__PURE__ */ from_html(`<div class="job-image-count"> </div>`);
-var root_3$2 = /* @__PURE__ */ from_html(`<span> </span>`);
-var root_4$2 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
+var root$4 = /* @__PURE__ */ from_html(`<button type="button"> <span> </span></button>`);
+var root_1$4 = /* @__PURE__ */ from_html(`<div class="empty-row"> </div>`);
+var root_2$3 = /* @__PURE__ */ from_html(`<div class="job-image-count"> </div>`);
+var root_3$3 = /* @__PURE__ */ from_html(`<span> </span>`);
+var root_4$3 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
 var root_5$2 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
 var root_6$2 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <!> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
 var root_7$2 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
@@ -5365,7 +5492,7 @@ function JobsPage($$anchor, $$props) {
 		var div_3 = sibling(div, 2);
 		var node_1 = child(div_3);
 		each(node_1, 17, () => filterOptions, (option) => option.key, ($$anchor, option) => {
-			var button_4 = root$3();
+			var button_4 = root$4();
 			let classes;
 			var text_3 = child(button_4);
 			var text_4 = only_child(sibling(text_3), true);
@@ -5388,7 +5515,7 @@ function JobsPage($$anchor, $$props) {
 		var div_4 = sibling(div_3, 2);
 		var node_2 = sibling(child(div_4), 2);
 		var consequent = ($$anchor) => {
-			var div_5 = root_1$3();
+			var div_5 = root_1$4();
 			var text_6 = only_child(div_5, true);
 			template_effect(() => set_text(text_6, get(jobs).length ? "No jobs match these filters." : "No scheduled jobs."));
 			append($$anchor, div_5);
@@ -5405,7 +5532,7 @@ function JobsPage($$anchor, $$props) {
 			var text_8 = only_child(div_9, true);
 			var node_4 = sibling(div_9, 2);
 			var consequent_1 = ($$anchor) => {
-				var div_10 = root_2$2();
+				var div_10 = root_2$3();
 				var text_9 = only_child(div_10);
 				template_effect(() => set_text(text_9, `${get(job).images.length ?? ""} image${get(job).images.length === 1 ? "" : "s"}`));
 				append($$anchor, div_10);
@@ -5418,7 +5545,7 @@ function JobsPage($$anchor, $$props) {
 			var text_10 = only_child(span_4);
 			var node_5 = sibling(span_4, 2);
 			var consequent_2 = ($$anchor) => {
-				var span_5 = root_3$2();
+				var span_5 = root_3$3();
 				var text_11 = only_child(span_5);
 				template_effect(($0) => {
 					set_attribute(span_5, "title", get(job).source_revision);
@@ -5444,7 +5571,7 @@ function JobsPage($$anchor, $$props) {
 			reset(span_8);
 			var node_6 = sibling(span_8, 2);
 			var consequent_3 = ($$anchor) => {
-				var span_9 = root_4$2();
+				var span_9 = root_4$3();
 				var text_15 = only_child(span_9, true);
 				template_effect(() => set_text(text_15, get(job).status_message));
 				append($$anchor, span_9);
@@ -5565,7 +5692,7 @@ function JobsPage($$anchor, $$props) {
 		var text_18 = only_child(h2, true);
 		var node_10 = sibling(h2, 2);
 		var consequent_7 = ($$anchor) => {
-			var span_11 = root_3$2();
+			var span_11 = root_3$3();
 			var text_19 = only_child(span_11, true);
 			template_effect(() => {
 				set_attribute(span_11, "title", get(editing));
@@ -5788,6 +5915,224 @@ function JobsPage($$anchor, $$props) {
 	pop();
 }
 delegate(["click", "change"]);
+//#endregion
+//#region src/ui/ChatComposer.svelte
+var root$3 = /* @__PURE__ */ from_html(`<div class="composer-preview"><img/> <button type="button">×</button></div>`);
+var root_1$3 = /* @__PURE__ */ from_html(`<div class="composer-previews" aria-label="Images to attach"></div>`);
+var root_2$2 = /* @__PURE__ */ from_html(`<button type="button" aria-label="Attach images" title="Attach images">＋</button> <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple="" aria-label="Choose images"/>`, 1);
+var root_3$2 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
+var root_4$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="2" maxlength="32000"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <small> </small></div> <button class="composer-send" type="submit"> </button></div></div> <!> <p class="composer-disclaimer"> </p></form>`);
+function ChatComposer($$anchor, $$props) {
+	push($$props, true);
+	let disabled = prop($$props, "disabled", 3, false);
+	let draft = /* @__PURE__ */ state("");
+	let images = /* @__PURE__ */ state(proxy([]));
+	let uploading = /* @__PURE__ */ state(false);
+	let sending = /* @__PURE__ */ state(false);
+	let locked = /* @__PURE__ */ state(false);
+	let feedback = /* @__PURE__ */ state("");
+	let dragging = /* @__PURE__ */ state(false);
+	let textarea = /* @__PURE__ */ state(void 0);
+	let fileInput = /* @__PURE__ */ state(void 0);
+	const canAttach = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" && !disabled() && !get(locked) && !get(sending) && !get(uploading));
+	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !get(locked) && !get(sending) && !get(uploading) && !!get(draft).trim());
+	onMount(() => {
+		if ($$props.mode === "fresh") get(textarea)?.focus();
+	});
+	async function addFiles(files) {
+		if (!files.length) return;
+		if (!get(canAttach)) {
+			set(feedback, $$props.mode === "reply" ? "Images can only be sent with fresh chats." : "Wait for the current upload.", true);
+			return;
+		}
+		if (get(images).length + files.length > 4) {
+			set(feedback, "At most four images per fresh chat.");
+			return;
+		}
+		set(uploading, true);
+		set(feedback, "");
+		try {
+			for (const file of files) {
+				if (![
+					"image/png",
+					"image/jpeg",
+					"image/gif",
+					"image/webp"
+				].includes(file.type)) throw new Error("Only PNG, JPEG, GIF or WebP images are supported.");
+				if (file.size > 8388608) throw new Error("Images must be 8 MiB or smaller.");
+				const data = await new Promise((resolve, reject) => {
+					const reader = new FileReader();
+					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read image."));
+					reader.onload = () => {
+						const encoded = reader.result;
+						if (typeof encoded !== "string" || !encoded.includes(",")) reject(/* @__PURE__ */ new Error("Could not encode image."));
+						else resolve(encoded.slice(encoded.indexOf(",") + 1));
+					};
+					reader.readAsDataURL(file);
+				});
+				const response = await fetch("./api/images", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						name: file.name,
+						data
+					})
+				});
+				if (!response.ok) throw new Error("Image upload failed.");
+				const result = await response.json();
+				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
+				set(images, [...get(images), result.image], true);
+			}
+		} catch (error) {
+			set(feedback, error instanceof Error ? error.message : "Image upload failed.", true);
+		} finally {
+			set(uploading, false);
+		}
+	}
+	async function submit() {
+		if (!get(canSend)) return;
+		set(sending, true);
+		set(feedback, "");
+		try {
+			const result = await $$props.onSend(get(draft), get(images).map((image) => image.ref));
+			if (result.ok) {
+				set(draft, "");
+				set(images, [], true);
+				set(feedback, result.message, true);
+			} else {
+				set(feedback, result.message, true);
+				set(locked, !!result.ambiguous);
+			}
+		} catch {
+			set(locked, true);
+			set(feedback, "Send confirmation was lost. Check local Chats before making a separate new request; this draft will not retry.");
+		} finally {
+			set(sending, false);
+		}
+	}
+	function keydown(event) {
+		if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+			event.preventDefault();
+			submit();
+		}
+	}
+	function pasted(event) {
+		const files = Array.from(event.clipboardData?.files || []);
+		if (!files.length) return;
+		if (!event.clipboardData?.getData("text/plain")) event.preventDefault();
+		addFiles(files);
+	}
+	function dropped(event) {
+		event.preventDefault();
+		set(dragging, false);
+		addFiles(Array.from(event.dataTransfer?.files || []));
+	}
+	var form = root_4$2();
+	let classes;
+	var div = child(form);
+	var node = child(div);
+	var consequent = ($$anchor) => {
+		var div_1 = root_1$3();
+		each(div_1, 21, () => get(images), (image) => image.ref, ($$anchor, image) => {
+			var div_2 = root$3();
+			var img = child(div_2);
+			var button = sibling(img, 2);
+			reset(div_2);
+			template_effect(() => {
+				set_attribute(img, "src", get(image).url);
+				set_attribute(img, "alt", get(image).name);
+				set_attribute(button, "aria-label", "Remove " + get(image).name);
+				button.disabled = !get(canAttach);
+			});
+			delegated("click", button, () => set(images, get(images).filter((item) => item.ref !== get(image).ref), true));
+			append($$anchor, div_2);
+		});
+		reset(div_1);
+		append($$anchor, div_1);
+	};
+	if_block(node, ($$render) => {
+		if (get(images).length) $$render(consequent);
+	});
+	var textarea_1 = sibling(node, 2);
+	remove_textarea_child(textarea_1);
+	bind_this(textarea_1, ($$value) => set(textarea, $$value), () => get(textarea));
+	var div_3 = sibling(textarea_1, 2);
+	var div_4 = child(div_3);
+	var node_1 = child(div_4);
+	var consequent_1 = ($$anchor) => {
+		var fragment = root_2$2();
+		var button_1 = first_child(fragment);
+		var input = sibling(button_1, 2);
+		bind_this(input, ($$value) => set(fileInput, $$value), () => get(fileInput));
+		template_effect(() => {
+			button_1.disabled = !get(canAttach);
+			input.disabled = !get(canAttach);
+		});
+		delegated("click", button_1, () => get(fileInput)?.click());
+		delegated("change", input, (event) => {
+			addFiles(Array.from(event.currentTarget.files || []));
+			event.currentTarget.value = "";
+		});
+		append($$anchor, fragment);
+	};
+	if_block(node_1, ($$render) => {
+		if ($$props.mode === "fresh") $$render(consequent_1);
+	});
+	var text = only_child(sibling(node_1, 2), true);
+	reset(div_4);
+	var button_2 = sibling(div_4, 2);
+	var text_1 = only_child(button_2, true);
+	reset(div_3);
+	reset(div);
+	var node_2 = sibling(div, 2);
+	var consequent_2 = ($$anchor) => {
+		var p = root_3$2();
+		let classes_1;
+		var text_2 = only_child(p, true);
+		template_effect(() => {
+			classes_1 = set_class(p, 1, "composer-feedback", null, classes_1, { "composer-error": get(locked) });
+			set_text(text_2, get(feedback));
+		});
+		append($$anchor, p);
+	};
+	if_block(node_2, ($$render) => {
+		if (get(feedback)) $$render(consequent_2);
+	});
+	var text_3 = only_child(sibling(node_2, 2), true);
+	reset(form);
+	template_effect(() => {
+		classes = set_class(form, 1, "chat-composer-wrap", null, classes, { dragging: get(dragging) });
+		set_attribute(form, "aria-label", $$props.mode === "fresh" ? "New chat composer" : "Reply composer");
+		textarea_1.disabled = disabled() || get(locked) || get(sending);
+		set_attribute(textarea_1, "aria-label", $$props.mode === "fresh" ? "Message for new chat" : "Reply to this chat");
+		set_attribute(textarea_1, "placeholder", $$props.mode === "fresh" ? "Message Prompta…" : "Reply to this chat…");
+		set_text(text, get(uploading) ? "Uploading…" : $$props.mode === "fresh" ? get(images).length + "/4 images · paste or drop" : "Exact saved branch only");
+		button_2.disabled = !get(canSend);
+		set_attribute(button_2, "aria-label", get(sending) ? "Sending" : $$props.mode === "fresh" ? "Send fresh chat" : "Send reply");
+		set_text(text_1, get(sending) ? "Sending…" : "↑");
+		set_text(text_3, $$props.mode === "fresh" ? "Queues one fresh ChatGPT chat using Prompta delivery. Enter sends · Shift+Enter adds a line." : "Only an explicit send can reopen this exact saved conversation. Enter sends · Shift+Enter adds a line.");
+	});
+	event("submit", form, (event) => {
+		event.preventDefault();
+		submit();
+	});
+	event("dragover", form, (event) => {
+		event.preventDefault();
+		set(dragging, $$props.mode === "fresh");
+	});
+	event("dragleave", form, () => set(dragging, false));
+	event("drop", form, dropped);
+	delegated("keydown", textarea_1, keydown);
+	event("paste", textarea_1, pasted);
+	bind_value(textarea_1, () => get(draft), ($$value) => set(draft, $$value));
+	append($$anchor, form);
+	pop();
+}
+delegate([
+	"click",
+	"keydown",
+	"change"
+]);
 //#endregion
 //#region node_modules/marked/lib/marked.esm.js
 /**
@@ -7734,23 +8079,26 @@ var root_7 = /* @__PURE__ */ from_html(`<p class="chats-empty">Loading local res
 var root_8 = /* @__PURE__ */ from_html(`<p class="chats-empty"> </p>`);
 var root_9 = /* @__PURE__ */ from_html(`<div class="chats-date"> </div> <!>`, 1);
 var root_10 = /* @__PURE__ */ from_html(`<div class="jobs-workspace"><!></div>`);
-var root_11 = /* @__PURE__ */ from_html(`<div class="chats-detail-empty"><div class="empty-icon">✦</div><h2>What would you like to revisit?</h2><p>Select a locally captured run from the sidebar, or start a fresh chat.</p><button class="sidebar-primary">New chat</button></div>`);
-var root_12 = /* @__PURE__ */ from_html(`<span> </span>`);
-var root_13 = /* @__PURE__ */ from_html(`<p class="chats-empty">Loading run…</p>`);
-var root_14 = /* @__PURE__ */ from_html(`<p class="result-error" role="alert"> </p>`);
-var root_15 = /* @__PURE__ */ from_html(`<button class="prompt-expand" type="button"> </button>`);
-var root_16 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noopener noreferrer"><img loading="lazy"/></a>`);
-var root_17 = /* @__PURE__ */ from_html(`<div class="chat-attachments" aria-label="Attached images"></div>`);
-var root_18 = /* @__PURE__ */ from_html(`<span class="capture-live">· Capturing</span>`);
-var root_19 = /* @__PURE__ */ from_html(`<button class="copy-message" type="button"> </button>`);
-var root_20 = /* @__PURE__ */ from_html(`<p class="partial-note"> </p>`);
-var root_21 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
-var root_22 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
-var root_23 = /* @__PURE__ */ from_html(`<p class="capture-note"> </p>`);
-var root_24 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role">You <!></div> <div> </div> <!> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!> <!></div>`, 1);
-var root_25 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><header class="chat-detail-title"><h2> </h2><p> </p></header> <!> <!></div>`);
-var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <!> <!> <!>`, 1);
-var root_27 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong><span> </span></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button class="sidebar-primary" type="button"><span aria-hidden="true">＋</span> New chat</button> <button type="button"><span aria-hidden="true">▤</span> Chats</button> <button type="button"><span aria-hidden="true">▦</span> Jobs</button></nav> <div class="chats-heading"><h2>Recent <span class="chats-count"> </span></h2> <button class="chats-refresh" type="button" aria-label="Refresh local results" title="Refresh local results">↻</button></div> <div class="chats-controls"><label class="search-label"><span class="sr-only">Search job results</span> <input type="search" placeholder="Search chats"/></label> <label><span class="sr-only">Filter results by state</span> <select></select></label></div> <!> <div class="chats-list"><!> <!></div> <div class="chats-pagination"><span> </span> <div><button>Previous</button><button>Next</button></div></div> <div class="sidebar-footnote">Local Prompta runs only</div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong> <span> </span></div> <!></div></section>`);
+var root_11 = /* @__PURE__ */ from_html(`<div class="new-chat-empty"><div class="empty-icon">✦</div><h2>Start a fresh chat</h2></div> <!>`, 1);
+var root_12 = /* @__PURE__ */ from_html(`<div class="chats-detail-empty"><div class="empty-icon">✦</div><h2>What would you like to revisit?</h2><p>Select a locally captured run from the sidebar, or start a fresh chat.</p><button class="sidebar-primary">New chat</button></div>`);
+var root_13 = /* @__PURE__ */ from_html(`<span> </span>`);
+var root_14 = /* @__PURE__ */ from_html(`<p class="chats-empty">Loading run…</p>`);
+var root_15 = /* @__PURE__ */ from_html(`<p class="result-error" role="alert"> </p>`);
+var root_16 = /* @__PURE__ */ from_html(`<button class="prompt-expand" type="button"> </button>`);
+var root_17 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noopener noreferrer"><img loading="lazy"/></a>`);
+var root_18 = /* @__PURE__ */ from_html(`<div class="chat-attachments" aria-label="Attached images"></div>`);
+var root_19 = /* @__PURE__ */ from_html(`<span class="capture-live">· Capturing</span>`);
+var root_20 = /* @__PURE__ */ from_html(`<button class="copy-message" type="button"> </button>`);
+var root_21 = /* @__PURE__ */ from_html(`<p class="partial-note"> </p>`);
+var root_22 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_23 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
+var root_24 = /* @__PURE__ */ from_html(`<p class="capture-note"> </p>`);
+var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role">You <!></div> <div> </div> <!> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!> <!></div>`, 1);
+var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><header class="chat-detail-title"><h2> </h2><p> </p></header> <!> <!></div>`);
+var root_27 = /* @__PURE__ */ from_html(`<div class="chat-prepared-action"><span>Reply saved locally, not yet sent.</span> <button type="button">Send saved reply</button></div>`);
+var root_28 = /* @__PURE__ */ from_html(`<div class="chat-reply-status"> </div>`);
+var root_29 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
+var root_30 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong><span> </span></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button class="sidebar-primary" type="button"><span aria-hidden="true">＋</span> New chat</button> <button type="button"><span aria-hidden="true">▤</span> Chats</button> <button type="button"><span aria-hidden="true">▦</span> Jobs</button></nav> <div class="chats-heading"><h2>Recent <span class="chats-count"> </span></h2> <button class="chats-refresh" type="button" aria-label="Refresh local results" title="Refresh local results">↻</button></div> <div class="chats-controls"><label class="search-label"><span class="sr-only">Search job results</span> <input type="search" placeholder="Search chats"/></label> <label><span class="sr-only">Filter results by state</span> <select></select></label></div> <!> <div class="chats-list"><!> <!></div> <div class="chats-pagination"><span> </span> <div><button>Previous</button><button>Next</button></div></div> <div class="sidebar-footnote">Local Prompta runs only</div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong> <span> </span></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
 	push($$props, true);
 	const chatItem = ($$anchor, item = noop) => {
@@ -7767,24 +8115,24 @@ function ChatsPage($$anchor, $$props) {
 			if (get(d)) $$render(consequent);
 		});
 		var strong = sibling(node, 2);
-		var text = only_child(strong, true);
-		var text_1 = only_child(sibling(strong, 2), true);
+		var text_1 = only_child(strong, true);
+		var text_2 = only_child(sibling(strong, 2), true);
 		reset(span);
 		var span_2 = sibling(span, 2);
 		var span_3 = child(span_2);
-		var text_2 = sibling(span_3, 1, true);
-		var node_1 = sibling(text_2);
+		var text_3 = sibling(span_3, 1, true);
+		var node_1 = sibling(text_3);
 		var consequent_1 = ($$anchor) => {
 			var span_4 = root_1$1();
-			var text_3 = only_child(span_4, true);
-			template_effect(() => set_text(text_3, item().job_name));
+			var text_4 = only_child(span_4, true);
+			template_effect(() => set_text(text_4, item().job_name));
 			append($$anchor, span_4);
 		};
 		if_block(node_1, ($$render) => {
 			if (item().job_name) $$render(consequent_1);
 		});
 		reset(span_2);
-		var text_4 = only_child(sibling(span_2, 2), true);
+		var text_5 = only_child(sibling(span_2, 2), true);
 		reset(button);
 		var button_1 = sibling(button, 2);
 		let classes_1;
@@ -7795,11 +8143,11 @@ function ChatsPage($$anchor, $$props) {
 				unread: $0
 			});
 			set_attribute(button, "aria-current", $$props.view === "chats" && $$props.selectedRunId === item().send_id ? "true" : void 0);
-			set_text(text, item().title || "Untitled run");
-			set_text(text_1, $1);
+			set_text(text_1, item().title || "Untitled run");
+			set_text(text_2, $1);
 			set_class(span_3, 1, "result-dot status-" + item().status);
-			set_text(text_2, $2);
-			set_text(text_4, $3);
+			set_text(text_3, $2);
+			set_text(text_5, $3);
 			classes_1 = set_class(button_1, 1, "chat-pin", null, classes_1, { active: $4 });
 			set_attribute(button_1, "title", $5);
 			set_attribute(button_1, "aria-label", $6);
@@ -7999,6 +8347,86 @@ function ChatsPage($$anchor, $$props) {
 			if (generation === detailGeneration) set(loadingDetail, false);
 		}
 	}
+	async function sendFresh(text, images) {
+		const requestId = crypto.randomUUID().replaceAll("-", "");
+		try {
+			const response = await fetch("./api/chats", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					request_id: requestId,
+					prompt: text,
+					images
+				})
+			});
+			if (!response.ok) return {
+				ok: false,
+				ambiguous: response.status >= 500,
+				message: response.status >= 500 ? "The queue result is uncertain. Check local Chats; no automatic resend." : "The fresh chat was rejected. Review the prompt or images."
+			};
+			const body = await response.json();
+			if (!body.send_id) throw new Error("Missing queue receipt");
+			$$props.onQueued(body.send_id);
+			return {
+				ok: true,
+				message: "Queued one fresh chat."
+			};
+		} catch {
+			return {
+				ok: false,
+				ambiguous: true,
+				message: "Queue confirmation was lost. Check local Chats before another explicit send; no automatic retry."
+			};
+		}
+	}
+	async function sendReply(text, _images) {
+		const latest = get(turns).at(-1);
+		if (!$$props.selectedRunId || latest?.status !== "completed" || !latest.conversation_id || !latest.message_id) return {
+			ok: false,
+			message: "This saved branch is not eligible for a reply."
+		};
+		return sendExactReply($$props.selectedRunId, {
+			reply_id: crypto.randomUUID().replaceAll("-", ""),
+			conversation_id: latest.conversation_id,
+			parent_id: latest.message_id,
+			text
+		});
+	}
+	async function sendExactReply(sendId, payload) {
+		try {
+			const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-send", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(payload)
+			});
+			if (!response.ok) return {
+				ok: false,
+				ambiguous: response.status >= 500,
+				message: response.status >= 500 ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly." : "Reply was not queued. Check the account-wide send gap and saved branch."
+			};
+			loadDetail(sendId);
+			return {
+				ok: true,
+				message: "Reply intent saved; explicit dispatch is starting."
+			};
+		} catch {
+			return {
+				ok: false,
+				ambiguous: true,
+				message: "Reply acknowledgment was lost. Check local turns; no automatic retry."
+			};
+		}
+	}
+	async function sendPreparedReply(turn) {
+		if (!$$props.selectedRunId || !turn.reply_id || !turn.conversation_id || !turn.parent_id) return;
+		const result = await sendExactReply($$props.selectedRunId, {
+			reply_id: turn.reply_id,
+			conversation_id: turn.conversation_id,
+			parent_id: turn.parent_id,
+			text: turn.user_text
+		});
+		if (!result.ok) set(turnsError, result.message, true);
+	}
 	async function copyText(value, key) {
 		try {
 			await navigator.clipboard.writeText(value);
@@ -8069,7 +8497,7 @@ function ChatsPage($$anchor, $$props) {
 			clearTimeout(searchTimer);
 		};
 	});
-	var section = root_27();
+	var section = root_30();
 	event("keydown", $window, escapeDrawer);
 	let classes_2;
 	var node_2 = child(section);
@@ -8084,7 +8512,7 @@ function ChatsPage($$anchor, $$props) {
 	var aside = sibling(node_2, 2);
 	var div_1 = child(aside);
 	var div_2 = child(div_1);
-	var text_5 = only_child(sibling(child(div_2)), true);
+	var text_6 = only_child(sibling(child(div_2)), true);
 	reset(div_2);
 	var button_3 = sibling(div_2, 2);
 	reset(div_1);
@@ -8097,7 +8525,7 @@ function ChatsPage($$anchor, $$props) {
 	reset(nav);
 	var div_3 = sibling(nav, 2);
 	var h2 = child(div_3);
-	var text_6 = only_child(sibling(child(h2)), true);
+	var text_7 = only_child(sibling(child(h2)), true);
 	reset(h2);
 	var button_7 = sibling(h2, 2);
 	reset(div_3);
@@ -8110,10 +8538,10 @@ function ChatsPage($$anchor, $$props) {
 	var select = sibling(child(label_1), 2);
 	each(select, 21, () => statuses, index, ($$anchor, choice) => {
 		var option = root_4();
-		var text_7 = only_child(option, true);
+		var text_8 = only_child(option, true);
 		var option_value = {};
 		template_effect(() => {
-			set_text(text_7, get(choice).label);
+			set_text(text_8, get(choice).label);
 			if (option_value !== (option_value = get(choice).value)) option.value = (option.__value = option_value) ?? "";
 		});
 		append($$anchor, option);
@@ -8125,8 +8553,8 @@ function ChatsPage($$anchor, $$props) {
 	var node_3 = sibling(div_4, 2);
 	var consequent_3 = ($$anchor) => {
 		var div_5 = root_5();
-		var text_8 = only_child(div_5, true);
-		template_effect(() => set_text(text_8, get(listError)));
+		var text_9 = only_child(div_5, true);
+		template_effect(() => set_text(text_9, get(listError)));
 		append($$anchor, div_5);
 	};
 	if_block(node_3, ($$render) => {
@@ -8150,8 +8578,8 @@ function ChatsPage($$anchor, $$props) {
 	};
 	var consequent_6 = ($$anchor) => {
 		var p_1 = root_8();
-		var text_9 = only_child(p_1, true);
-		template_effect(() => set_text(text_9, get(search) || get(statusFilter) ? "No runs match these filters." : "No captured job runs yet."));
+		var text_10 = only_child(p_1, true);
+		template_effect(() => set_text(text_10, get(search) || get(statusFilter) ? "No runs match these filters." : "No captured job runs yet."));
 		append($$anchor, p_1);
 	};
 	var alternate = ($$anchor) => {
@@ -8159,11 +8587,11 @@ function ChatsPage($$anchor, $$props) {
 		each(first_child(fragment_2), 17, () => get(groups), (group) => group.date, ($$anchor, group) => {
 			var fragment_3 = root_9();
 			var div_7 = first_child(fragment_3);
-			var text_10 = only_child(div_7, true);
+			var text_11 = only_child(div_7, true);
 			each(sibling(div_7, 2), 17, () => get(group).items, (item) => item.send_id, ($$anchor, item) => {
 				chatItem($$anchor, () => get(item));
 			});
-			template_effect(() => set_text(text_10, get(group).date));
+			template_effect(() => set_text(text_11, get(group).date));
 			append($$anchor, fragment_3);
 		});
 		append($$anchor, fragment_2);
@@ -8176,7 +8604,7 @@ function ChatsPage($$anchor, $$props) {
 	reset(div_6);
 	var div_8 = sibling(div_6, 2);
 	var span_8 = child(div_8);
-	var text_11 = only_child(span_8);
+	var text_12 = only_child(span_8);
 	var div_9 = sibling(span_8, 2);
 	var button_8 = child(div_9);
 	var button_9 = sibling(button_8);
@@ -8188,8 +8616,8 @@ function ChatsPage($$anchor, $$props) {
 	var div_11 = child(div_10);
 	var button_10 = child(div_11);
 	var strong_1 = sibling(button_10, 2);
-	var text_12 = only_child(strong_1, true);
-	var text_13 = only_child(sibling(strong_1, 2), true);
+	var text_13 = only_child(strong_1, true);
+	var text_14 = only_child(sibling(strong_1, 2), true);
 	reset(div_11);
 	var node_9 = sibling(div_11, 2);
 	var consequent_7 = ($$anchor) => {
@@ -8199,105 +8627,114 @@ function ChatsPage($$anchor, $$props) {
 		append($$anchor, div_12);
 	};
 	var consequent_8 = ($$anchor) => {
-		var div_13 = root_11();
+		var fragment_5 = root_11();
+		ChatComposer(sibling(first_child(fragment_5), 2), {
+			mode: "fresh",
+			onSend: sendFresh
+		});
+		append($$anchor, fragment_5);
+	};
+	var consequent_9 = ($$anchor) => {
+		var div_13 = root_12();
 		var button_11 = sibling(child(div_13), 3);
 		reset(div_13);
 		delegated("click", button_11, createChat);
 		append($$anchor, div_13);
 	};
 	var alternate_3 = ($$anchor) => {
-		var fragment_5 = root_26();
-		var div_14 = first_child(fragment_5);
+		var fragment_6 = root_29();
+		var div_14 = first_child(fragment_6);
 		var button_12 = child(div_14);
-		var node_11 = sibling(button_12, 2);
-		var consequent_9 = ($$anchor) => {
-			var span_10 = root_12();
-			var text_14 = only_child(span_10, true);
+		var node_12 = sibling(button_12, 2);
+		var consequent_10 = ($$anchor) => {
+			var span_10 = root_13();
+			var text_15 = only_child(span_10, true);
 			template_effect(($0, $1) => {
 				set_class(span_10, 1, $0);
-				set_text(text_14, $1);
+				set_text(text_15, $1);
 			}, [() => "result-pill status-" + (get(turns).at(-1)?.status || get(detail).status), () => get(turns).length > 1 ? "Latest reply · " + turnStatus(get(turns).at(-1)?.status || get(detail).status) : statusLabel(get(detail).status)]);
 			append($$anchor, span_10);
 		};
-		if_block(node_11, ($$render) => {
-			if (get(detail)) $$render(consequent_9);
+		if_block(node_12, ($$render) => {
+			if (get(detail)) $$render(consequent_10);
 		});
 		reset(div_14);
-		var node_12 = sibling(div_14, 2);
-		var consequent_10 = ($$anchor) => {
-			var div_15 = root_5();
-			var text_15 = only_child(div_15, true);
-			template_effect(() => set_text(text_15, get(detailError)));
-			append($$anchor, div_15);
-		};
-		if_block(node_12, ($$render) => {
-			if (get(detailError)) $$render(consequent_10);
-		});
-		var node_13 = sibling(node_12, 2);
+		var div_15 = sibling(div_14, 2);
+		var node_13 = child(div_15);
 		var consequent_11 = ($$anchor) => {
-			append($$anchor, root_13());
+			var div_16 = root_5();
+			var text_16 = only_child(div_16, true);
+			template_effect(() => set_text(text_16, get(detailError)));
+			append($$anchor, div_16);
 		};
 		if_block(node_13, ($$render) => {
-			if (get(loadingDetail) && !get(detail)) $$render(consequent_11);
+			if (get(detailError)) $$render(consequent_11);
 		});
 		var node_14 = sibling(node_13, 2);
-		var consequent_21 = ($$anchor) => {
-			var div_16 = root_25();
-			var header = child(div_16);
+		var consequent_12 = ($$anchor) => {
+			append($$anchor, root_14());
+		};
+		if_block(node_14, ($$render) => {
+			if (get(loadingDetail) && !get(detail)) $$render(consequent_12);
+		});
+		var node_15 = sibling(node_14, 2);
+		var consequent_22 = ($$anchor) => {
+			var div_17 = root_26();
+			var header = child(div_17);
 			var h2_1 = child(header);
-			var text_16 = only_child(h2_1, true);
-			var text_17 = only_child(sibling(h2_1));
+			var text_17 = only_child(h2_1, true);
+			var text_18 = only_child(sibling(h2_1));
 			reset(header);
-			var node_15 = sibling(header, 2);
-			var consequent_12 = ($$anchor) => {
-				var p_4 = root_14();
-				var text_18 = only_child(p_4, true);
-				template_effect(() => set_text(text_18, get(turnsError)));
+			var node_16 = sibling(header, 2);
+			var consequent_13 = ($$anchor) => {
+				var p_4 = root_15();
+				var text_19 = only_child(p_4, true);
+				template_effect(() => set_text(text_19, get(turnsError)));
 				append($$anchor, p_4);
 			};
-			if_block(node_15, ($$render) => {
-				if (get(turnsError)) $$render(consequent_12);
+			if_block(node_16, ($$render) => {
+				if (get(turnsError)) $$render(consequent_13);
 			});
-			each(sibling(node_15, 2), 19, () => get(turns), (turn) => turn.reply_id || get(detail).send_id, ($$anchor, turn, index) => {
-				var fragment_6 = root_24();
-				var div_17 = first_child(fragment_6);
-				var div_18 = child(div_17);
-				var node_17 = sibling(child(div_18));
-				var consequent_13 = ($$anchor) => {
+			each(sibling(node_16, 2), 19, () => get(turns), (turn) => turn.reply_id || get(detail).send_id, ($$anchor, turn, index) => {
+				var fragment_7 = root_25();
+				var div_18 = first_child(fragment_7);
+				var div_19 = child(div_18);
+				var node_18 = sibling(child(div_19));
+				var consequent_14 = ($$anchor) => {
 					append($$anchor, text("· Job prompt"));
 				};
 				var alternate_1 = ($$anchor) => {
-					var text_20 = text();
-					template_effect(() => set_text(text_20, `· Reply ${get(index) ?? ""}`));
-					append($$anchor, text_20);
+					var text_21 = text();
+					template_effect(() => set_text(text_21, `· Reply ${get(index) ?? ""}`));
+					append($$anchor, text_21);
 				};
-				if_block(node_17, ($$render) => {
-					if (get(index) === 0) $$render(consequent_13);
+				if_block(node_18, ($$render) => {
+					if (get(index) === 0) $$render(consequent_14);
 					else $$render(alternate_1, -1);
 				});
-				reset(div_18);
-				var div_19 = sibling(div_18, 2);
+				reset(div_19);
+				var div_20 = sibling(div_19, 2);
 				let classes_5;
-				var text_21 = only_child(div_19, true);
-				var node_18 = sibling(div_19, 2);
-				var consequent_14 = ($$anchor) => {
-					var button_13 = root_15();
-					var text_22 = only_child(button_13, true);
+				var text_22 = only_child(div_20, true);
+				var node_19 = sibling(div_20, 2);
+				var consequent_15 = ($$anchor) => {
+					var button_13 = root_16();
+					var text_23 = only_child(button_13, true);
 					template_effect(($0) => {
 						set_attribute(button_13, "aria-expanded", $0);
-						set_text(text_22, expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)] ? "Show less" : "Show full prompt");
+						set_text(text_23, expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)] ? "Show less" : "Show full prompt");
 					}, [() => Boolean(expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)])]);
 					delegated("click", button_13, () => expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)] = !expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)]);
 					append($$anchor, button_13);
 				};
-				if_block(node_18, ($$render) => {
-					if (get(turn).user_text.length > 280) $$render(consequent_14);
+				if_block(node_19, ($$render) => {
+					if (get(turn).user_text.length > 280) $$render(consequent_15);
 				});
-				var node_19 = sibling(node_18, 2);
-				var consequent_15 = ($$anchor) => {
-					var div_20 = root_17();
-					each(div_20, 21, () => get(detail).images, (attachment) => attachment.url, ($$anchor, attachment) => {
-						var a_1 = root_16();
+				var node_20 = sibling(node_19, 2);
+				var consequent_16 = ($$anchor) => {
+					var div_21 = root_18();
+					each(div_21, 21, () => get(detail).images, (attachment) => attachment.url, ($$anchor, attachment) => {
+						var a_1 = root_17();
 						var img = only_child(a_1);
 						template_effect(() => {
 							set_attribute(a_1, "href", get(attachment).url);
@@ -8307,121 +8744,153 @@ function ChatsPage($$anchor, $$props) {
 						});
 						append($$anchor, a_1);
 					});
-					reset(div_20);
-					append($$anchor, div_20);
-				};
-				if_block(node_19, ($$render) => {
-					if (get(index) === 0 && get(detail).images?.length) $$render(consequent_15);
-				});
-				reset(div_17);
-				var div_21 = sibling(div_17, 2);
-				var div_22 = child(div_21);
-				var span_11 = child(div_22);
-				var node_20 = sibling(child(span_11));
-				var consequent_16 = ($$anchor) => {
-					append($$anchor, root_18());
+					reset(div_21);
+					append($$anchor, div_21);
 				};
 				if_block(node_20, ($$render) => {
-					if (get(turn).status === "generating") $$render(consequent_16);
+					if (get(index) === 0 && get(detail).images?.length) $$render(consequent_16);
+				});
+				reset(div_18);
+				var div_22 = sibling(div_18, 2);
+				var div_23 = child(div_22);
+				var span_11 = child(div_23);
+				var node_21 = sibling(child(span_11));
+				var consequent_17 = ($$anchor) => {
+					append($$anchor, root_19());
+				};
+				if_block(node_21, ($$render) => {
+					if (get(turn).status === "generating") $$render(consequent_17);
 				});
 				reset(span_11);
-				var node_21 = sibling(span_11, 2);
-				var consequent_17 = ($$anchor) => {
-					var button_14 = root_19();
-					var text_23 = only_child(button_14, true);
+				var node_22 = sibling(span_11, 2);
+				var consequent_18 = ($$anchor) => {
+					var button_14 = root_20();
+					var text_24 = only_child(button_14, true);
 					template_effect(() => {
 						set_attribute(button_14, "aria-label", "Copy assistant reply " + (get(index) + 1));
-						set_text(text_23, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
+						set_text(text_24, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
 					});
 					delegated("click", button_14, () => copyText(get(turn).assistant_text, get(turn).reply_id || $$props.selectedRunId || ""));
 					append($$anchor, button_14);
 				};
-				if_block(node_21, ($$render) => {
-					if (get(turn).assistant_text) $$render(consequent_17);
+				if_block(node_22, ($$render) => {
+					if (get(turn).assistant_text) $$render(consequent_18);
 				});
-				reset(div_22);
-				var node_22 = sibling(div_22, 2);
-				var consequent_19 = ($$anchor) => {
-					var fragment_8 = root_21();
-					var node_23 = first_child(fragment_8);
-					ResultMarkdown(node_23, { get source() {
+				reset(div_23);
+				var node_23 = sibling(div_23, 2);
+				var consequent_20 = ($$anchor) => {
+					var fragment_9 = root_22();
+					var node_24 = first_child(fragment_9);
+					ResultMarkdown(node_24, { get source() {
 						return get(turn).assistant_text;
 					} });
-					var node_24 = sibling(node_23, 2);
-					var consequent_18 = ($$anchor) => {
-						var p_5 = root_20();
-						var text_24 = only_child(p_5);
-						template_effect(($0) => set_text(text_24, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
+					var node_25 = sibling(node_24, 2);
+					var consequent_19 = ($$anchor) => {
+						var p_5 = root_21();
+						var text_25 = only_child(p_5);
+						template_effect(($0) => set_text(text_25, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
 						append($$anchor, p_5);
 					};
-					if_block(node_24, ($$render) => {
-						if (get(turn).status !== "completed") $$render(consequent_18);
+					if_block(node_25, ($$render) => {
+						if (get(turn).status !== "completed") $$render(consequent_19);
 					});
-					append($$anchor, fragment_8);
+					append($$anchor, fragment_9);
 				};
 				var alternate_2 = ($$anchor) => {
-					var p_6 = root_22();
-					var text_25 = only_child(p_6, true);
-					template_effect(($0) => set_text(text_25, $0), [() => turnStatus(get(turn).status)]);
+					var p_6 = root_23();
+					var text_26 = only_child(p_6, true);
+					template_effect(($0) => set_text(text_26, $0), [() => turnStatus(get(turn).status)]);
 					append($$anchor, p_6);
 				};
-				if_block(node_22, ($$render) => {
-					if (get(turn).assistant_text) $$render(consequent_19);
+				if_block(node_23, ($$render) => {
+					if (get(turn).assistant_text) $$render(consequent_20);
 					else $$render(alternate_2, -1);
 				});
-				var node_25 = sibling(node_22, 2);
-				var consequent_20 = ($$anchor) => {
-					var p_7 = root_23();
-					var text_26 = only_child(p_7);
-					template_effect(($0) => set_text(text_26, `${$0 ?? ""}. No automatic history fetch or retry.`), [() => turnStatus(get(turn).status)]);
+				var node_26 = sibling(node_23, 2);
+				var consequent_21 = ($$anchor) => {
+					var p_7 = root_24();
+					var text_27 = only_child(p_7);
+					template_effect(($0) => set_text(text_27, `${$0 ?? ""}. No automatic history fetch or retry.`), [() => turnStatus(get(turn).status)]);
 					append($$anchor, p_7);
 				};
-				if_block(node_25, ($$render) => {
-					if (get(turn).status === "interrupted" || get(turn).status === "unavailable" || get(turn).status === "outcome_unknown") $$render(consequent_20);
+				if_block(node_26, ($$render) => {
+					if (get(turn).status === "interrupted" || get(turn).status === "unavailable" || get(turn).status === "outcome_unknown") $$render(consequent_21);
 				});
-				reset(div_21);
+				reset(div_22);
 				template_effect(() => {
-					classes_5 = set_class(div_19, 1, "prompt-message", null, classes_5, { collapsed: get(turn).user_text.length > 280 && !expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)] });
-					set_text(text_21, get(turn).user_text);
+					classes_5 = set_class(div_20, 1, "prompt-message", null, classes_5, { collapsed: get(turn).user_text.length > 280 && !expandedPrompts[(get(detail)?.send_id ?? "") + ":" + get(index)] });
+					set_text(text_22, get(turn).user_text);
 				});
-				append($$anchor, fragment_6);
+				append($$anchor, fragment_7);
 			});
-			reset(div_16);
+			reset(div_17);
 			template_effect(($0) => {
-				set_text(text_16, get(detail).job_name || "Prompta run");
-				set_text(text_17, `${$0 ?? ""} · Prompta job run`);
+				set_text(text_17, get(detail).job_name || "Prompta run");
+				set_text(text_18, `${$0 ?? ""} · Prompta job run`);
 			}, [() => nzTime(get(detail).created_at)]);
-			append($$anchor, div_16);
+			append($$anchor, div_17);
 		};
-		if_block(node_14, ($$render) => {
-			if (get(detail)) $$render(consequent_21);
+		if_block(node_15, ($$render) => {
+			if (get(detail)) $$render(consequent_22);
+		});
+		reset(div_15);
+		bind_this(div_15, ($$value) => scrollPane = $$value, () => scrollPane);
+		var node_27 = sibling(div_15, 2);
+		var consequent_23 = ($$anchor) => {
+			ChatComposer($$anchor, {
+				mode: "reply",
+				onSend: sendReply
+			});
+		};
+		var d_1 = /* @__PURE__ */ user_derived(() => get(detail) && get(turns).at(-1)?.status === "completed" && get(turns).at(-1)?.conversation_id && get(turns).at(-1)?.message_id);
+		var consequent_24 = ($$anchor) => {
+			var div_24 = root_27();
+			var button_15 = sibling(child(div_24), 2);
+			reset(div_24);
+			delegated("click", button_15, () => {
+				const latest = get(turns).at(-1);
+				if (latest) sendPreparedReply(latest);
+			});
+			append($$anchor, div_24);
+		};
+		var d_2 = /* @__PURE__ */ user_derived(() => get(turns).at(-1)?.status === "prepared");
+		var consequent_25 = ($$anchor) => {
+			var div_25 = root_28();
+			var text_28 = only_child(div_25);
+			template_effect(($0) => set_text(text_28, `${$0 ?? ""} · No automatic retry`), [() => turnStatus(get(turns).at(-1)?.status || get(detail).status)]);
+			append($$anchor, div_25);
+		};
+		if_block(node_27, ($$render) => {
+			if (get(d_1)) $$render(consequent_23);
+			else if (get(d_2)) $$render(consequent_24, 1);
+			else if (get(detail) && get(turns).length > 1) $$render(consequent_25, 2);
 		});
 		delegated("click", button_12, () => $$props.onSelect(null));
-		append($$anchor, fragment_5);
+		append($$anchor, fragment_6);
 	};
 	if_block(node_9, ($$render) => {
 		if ($$props.view === "jobs") $$render(consequent_7);
-		else if (!$$props.selectedRunId) $$render(consequent_8, 1);
+		else if (!$$props.selectedRunId && $$props.newChatOpen) $$render(consequent_8, 1);
+		else if (!$$props.selectedRunId) $$render(consequent_9, 2);
 		else $$render(alternate_3, -1);
 	});
 	reset(div_10);
-	bind_this(div_10, ($$value) => scrollPane = $$value, () => scrollPane);
 	reset(section);
 	template_effect(($0) => {
 		classes_2 = set_class(section, 1, "chats-layout", null, classes_2, {
 			"drawer-open": get(drawerOpen),
-			"show-list": $$props.view === "chats" && !$$props.selectedRunId
+			"show-list": $$props.view === "chats" && !$$props.selectedRunId && !$$props.newChatOpen
 		});
-		set_text(text_5, $$props.serverName);
+		set_text(text_6, $$props.serverName);
 		classes_3 = set_class(button_5, 1, "", null, classes_3, { active: $$props.view === "chats" });
 		classes_4 = set_class(button_6, 1, "", null, classes_4, { active: $$props.view === "jobs" });
-		set_text(text_6, get(total));
-		set_text(text_11, `${get(total) ? get(page) * pageSize + 1 : 0}–${$0 ?? ""} of ${get(total) ?? ""}`);
+		set_text(text_7, get(total));
+		set_text(text_12, `${get(total) ? get(page) * pageSize + 1 : 0}–${$0 ?? ""} of ${get(total) ?? ""}`);
 		button_8.disabled = get(page) === 0;
 		button_9.disabled = get(page) + 1 >= get(pageCount);
 		set_attribute(button_10, "aria-expanded", get(drawerOpen));
-		set_text(text_12, $$props.view === "jobs" ? "Jobs" : get(detail)?.title || get(detail)?.job_name || "Chats");
-		set_text(text_13, $$props.serverName);
+		set_text(text_13, $$props.view === "jobs" ? "Jobs" : get(detail)?.title || get(detail)?.job_name || "Chats");
+		set_text(text_14, $$props.serverName);
 	}, [() => Math.min(get(total), (get(page) + 1) * pageSize)]);
 	delegated("click", button_3, () => set(drawerOpen, false));
 	delegated("click", button_4, createChat);
@@ -8451,16 +8920,19 @@ function App($$anchor, $$props) {
 	push($$props, true);
 	let view = /* @__PURE__ */ state("jobs");
 	let selectedRunId = /* @__PURE__ */ state(null);
+	let newChatOpen = /* @__PURE__ */ state(false);
 	function syncRoute() {
 		const params = new URLSearchParams(window.location.search);
 		set(view, params.get("view") === "chats" ? "chats" : "jobs", true);
 		set(selectedRunId, get(view) === "chats" ? params.get("run") : null, true);
+		set(newChatOpen, get(view) === "chats" && !get(selectedRunId) && params.get("draft") === "new", true);
 	}
 	function navigate(nextView, run = null) {
 		const url = new URL(window.location.href);
 		url.searchParams.delete("new");
 		url.searchParams.delete("edit");
 		url.searchParams.delete("run");
+		url.searchParams.delete("draft");
 		if (nextView === "chats") {
 			url.searchParams.set("view", "chats");
 			if (run) url.searchParams.set("run", run);
@@ -8470,13 +8942,13 @@ function App($$anchor, $$props) {
 	}
 	function newChat() {
 		const url = new URL(window.location.href);
-		url.searchParams.delete("view");
+		url.searchParams.set("view", "chats");
 		url.searchParams.delete("run");
 		url.searchParams.delete("edit");
-		url.searchParams.set("new", "once");
+		url.searchParams.delete("new");
+		url.searchParams.set("draft", "new");
 		window.history.pushState(null, "", url);
 		syncRoute();
-		window.dispatchEvent(new PopStateEvent("popstate"));
 	}
 	onMount(() => {
 		syncRoute();
@@ -8502,9 +8974,13 @@ function App($$anchor, $$props) {
 		get selectedRunId() {
 			return get(selectedRunId);
 		},
+		get newChatOpen() {
+			return get(newChatOpen);
+		},
 		onSelect: (id) => navigate("chats", id),
 		onNavigate: (nextView) => navigate(nextView),
-		onNewChat: newChat
+		onNewChat: newChat,
+		onQueued: (id) => navigate("chats", id)
 	});
 	reset(main);
 	append($$anchor, main);

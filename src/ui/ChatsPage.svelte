@@ -1,19 +1,22 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import JobsPage from "./JobsPage.svelte";
+  import ChatComposer from "./ChatComposer.svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import {
     groupRuns, nzTime, plainPreview, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
-  let { view, serverName, selectedRunId, onSelect, onNavigate, onNewChat }: {
+  let { view, serverName, selectedRunId, newChatOpen, onSelect, onNavigate, onNewChat, onQueued }: {
     view: "jobs" | "chats";
     serverName: string;
     selectedRunId: string | null;
+    newChatOpen: boolean;
     onSelect: (sendId: string | null) => void;
     onNavigate: (view: "jobs" | "chats") => void;
     onNewChat: () => void;
+    onQueued: (sendId: string) => void;
   } = $props();
 
   const pageSize = 20;
@@ -185,6 +188,84 @@
     }
   }
 
+  async function sendFresh(text: string, images: string[]) {
+    const requestId = crypto.randomUUID().replaceAll("-", "");
+    try {
+      const response = await fetch("./api/chats", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ request_id: requestId, prompt: text, images }),
+      });
+      if (!response.ok) {
+        return {
+          ok: false, ambiguous: response.status >= 500,
+          message: response.status >= 500
+            ? "The queue result is uncertain. Check local Chats; no automatic resend."
+            : "The fresh chat was rejected. Review the prompt or images.",
+        };
+      }
+      const body = await response.json() as { send_id?: string };
+      if (!body.send_id) throw new Error("Missing queue receipt");
+      onQueued(body.send_id);
+      return { ok: true, message: "Queued one fresh chat." };
+    } catch {
+      return {
+        ok: false, ambiguous: true,
+        message: "Queue confirmation was lost. Check local Chats before another explicit send; no automatic retry.",
+      };
+    }
+  }
+
+  async function sendReply(text: string, _images: string[]) {
+    const latest = turns.at(-1);
+    if (!selectedRunId || latest?.status !== "completed"
+        || !latest.conversation_id || !latest.message_id) {
+      return { ok: false, message: "This saved branch is not eligible for a reply." };
+    }
+    return sendExactReply(selectedRunId, {
+      reply_id: crypto.randomUUID().replaceAll("-", ""),
+      conversation_id: latest.conversation_id,
+      parent_id: latest.message_id,
+      text,
+    });
+  }
+
+  async function sendExactReply(sendId: string, payload: {
+    reply_id: string; conversation_id: string; parent_id: string; text: string;
+  }) {
+    try {
+      const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) return {
+        ok: false, ambiguous: response.status >= 500,
+        message: response.status >= 500
+          ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly."
+          : "Reply was not queued. Check the account-wide send gap and saved branch.",
+      };
+      void loadDetail(sendId);
+      return { ok: true, message: "Reply intent saved; explicit dispatch is starting." };
+    } catch {
+      return {
+        ok: false, ambiguous: true,
+        message: "Reply acknowledgment was lost. Check local turns; no automatic retry.",
+      };
+    }
+  }
+
+  async function sendPreparedReply(turn: LocalTurn) {
+    if (!selectedRunId || !turn.reply_id || !turn.conversation_id || !turn.parent_id) return;
+    const result = await sendExactReply(selectedRunId, {
+      reply_id: turn.reply_id,
+      conversation_id: turn.conversation_id,
+      parent_id: turn.parent_id,
+      text: turn.user_text,
+    });
+    if (!result.ok) turnsError = result.message;
+  }
+
   async function copyText(value: string, key: string) {
     try {
       await navigator.clipboard.writeText(value);
@@ -298,7 +379,7 @@
   </div>
 {/snippet}
 
-<section class:drawer-open={drawerOpen} class:show-list={view === "chats" && !selectedRunId} class="chats-layout" aria-label="Prompta local chats and jobs">
+<section class:drawer-open={drawerOpen} class:show-list={view === "chats" && !selectedRunId && !newChatOpen} class="chats-layout" aria-label="Prompta local chats and jobs">
   {#if drawerOpen}
     <button type="button" class="drawer-backdrop" aria-label="Close chat sidebar" onclick={() => drawerOpen = false}></button>
   {/if}
@@ -358,7 +439,7 @@
     <div class="sidebar-footnote">Local Prompta runs only</div>
   </aside>
 
-  <div class="chats-detail" bind:this={scrollPane}>
+  <div class="chats-detail">
     <div class="workspace-header">
       <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
       <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
@@ -366,6 +447,9 @@
     </div>
     {#if view === "jobs"}
       <div class="jobs-workspace"><JobsPage /></div>
+    {:else if !selectedRunId && newChatOpen}
+      <div class="new-chat-empty"><div class="empty-icon">✦</div><h2>Start a fresh chat</h2></div>
+      <ChatComposer mode="fresh" onSend={sendFresh} />
     {:else if !selectedRunId}
       <div class="chats-detail-empty"><div class="empty-icon">✦</div><h2>What would you like to revisit?</h2><p>Select a locally captured run from the sidebar, or start a fresh chat.</p><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
@@ -373,6 +457,7 @@
         <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
         {#if detail}<span class={"result-pill status-" + (turns.at(-1)?.status || detail.status)}>{turns.length > 1 ? "Latest reply · " + turnStatus(turns.at(-1)?.status || detail.status) : statusLabel(detail.status)}</span>{/if}
       </div>
+      <div class="chat-transcript-scroll" bind:this={scrollPane}>
       {#if detailError}<div class="result-error" role="alert">{detailError}</div>{/if}
       {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}
       {#if detail}
@@ -419,6 +504,17 @@
             </div>
           {/each}
         </div>
+      {/if}
+      </div>
+      {#if detail && turns.at(-1)?.status === "completed" && turns.at(-1)?.conversation_id && turns.at(-1)?.message_id}
+        <ChatComposer mode="reply" onSend={sendReply} />
+      {:else if turns.at(-1)?.status === "prepared"}
+        <div class="chat-prepared-action">
+          <span>Reply saved locally, not yet sent.</span>
+          <button type="button" onclick={() => { const latest = turns.at(-1); if (latest) void sendPreparedReply(latest); }}>Send saved reply</button>
+        </div>
+      {:else if detail && turns.length > 1}
+        <div class="chat-reply-status">{turnStatus(turns.at(-1)?.status || detail.status)} · No automatic retry</div>
       {/if}
     {/if}
   </div>

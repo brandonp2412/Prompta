@@ -193,7 +193,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert page.locator(".assistant-group").count() == 2
                 assert page.get_by_role("button", name="Copy code").count() == 2
                 assert page.get_by_role("button", name="Copy assistant reply 2").count() == 1
-                pane = page.locator(".chats-detail")
+                pane = page.locator(".chat-transcript-scroll")
                 assert pane.evaluate("(element) => element.scrollHeight > element.clientHeight")
                 pane.evaluate("(element) => { element.scrollTop = 90; }")
                 before_scroll = pane.evaluate("(element) => element.scrollTop")

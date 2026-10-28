@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore, image_refs
+from .manual_reply_dispatch import ManualReplyDispatcher
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_store import ResponseStore
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
@@ -91,6 +92,8 @@ class PromptaJobServer(ThreadingHTTPServer):
         self.queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
         self.results = ResponseStore(self.state_path.parent / "chat-results.sqlite3")
         self.replies = ManualReplyStore(self.state_path.parent / "chat-results.sqlite3")
+        self.replies.recover_orphans()
+        self.reply_dispatch = ManualReplyDispatcher(self.replies, self.state_path)
         self.images = ImageStore(self.state_path.parent)
         self.jobs = WebJobService(
             self.jobs_path,
@@ -107,6 +110,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         if now - self._last_health_beat < 5.0:
             return
         self.health.beat("ui", now=now)
+        self.replies.recover_orphans(now=now)
         notify_watchdog()
         self._last_health_beat = now
 
@@ -263,22 +267,56 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
-        if path not in {"/api/jobs", "/api/images"} and not reply_path:
+        send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
+        if path not in {"/api/jobs", "/api/images", "/api/chats"} and not (reply_path or send_reply_path):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
-            if reply_path:
-                send_id = unquote(path[len("/api/results/"):-len("/reply-intents")])
+            if reply_path or send_reply_path:
+                suffix = "/reply-send" if send_reply_path else "/reply-intents"
+                send_id = unquote(path[len("/api/results/"):-len(suffix)])
                 if not send_id or "/" in send_id:
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
                 if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise ValueError("Reply contract requires JSON")
                 intent = ReplyIntent.parse(self._json_body(max_bytes=65536))
-                turn = self.server.replies.prepare(send_id, intent)
-                self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
+                if send_reply_path:
+                    turn = self.server.reply_dispatch.submit(send_id, intent)
+                    self._json(
+                        {"ok": True, "dispatched": False, "queued_for_explicit_dispatch": turn["status"] == "prepared", "turn": turn},
+                        HTTPStatus.ACCEPTED,
+                    )
+                else:
+                    turn = self.server.replies.prepare(send_id, intent)
+                    self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
                 return
             payload = self._json_body(max_bytes=11 * 1024 * 1024 if path == "/api/images" else 1024 * 1024)
+            if path == "/api/chats":
+                if set(payload) != {"request_id", "prompt", "images"}:
+                    raise ValueError("Invalid fresh chat fields")
+                request_id, prompt, raw_images = (
+                    payload["request_id"], payload["prompt"], payload["images"]
+                )
+                if (
+                    not isinstance(request_id, str) or not isinstance(prompt, str)
+                    or not prompt.strip() or len(prompt) > 32000
+                    or not isinstance(raw_images, list) or len(raw_images) > 4
+                ):
+                    raise ValueError("Invalid fresh chat payload")
+                refs = image_refs(raw_images)
+                if len(refs) != len(raw_images):
+                    raise ValueError("Invalid image references")
+                for ref in refs:
+                    self.server.images.path(ref)
+                receipt = self.server.queue.enqueue_manual(
+                    prompt.strip(), images=refs, request_id=request_id,
+                )
+                self._json(
+                    {"ok": True, "send_id": receipt["send_id"], "status": receipt["status"]},
+                    HTTPStatus.ACCEPTED,
+                )
+                return
             if path == "/api/images":
                 name, data = payload.get("name"), payload.get("data")
                 if not isinstance(name, str) or not isinstance(data, str):
@@ -295,10 +333,10 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         except Exception as exc:
-            if reply_path:
+            if reply_path or send_reply_path or path == "/api/chats":
                 # DB/driver exceptions may contain secret prompts or SQLite parameters.
-                logger.error("Manual reply contract failed error_type=%s", type(exc).__name__)
-                self._json({"ok": False, "error": "Reply contract unavailable"},
+                logger.error("Chat send contract failed error_type=%s", type(exc).__name__)
+                self._json({"ok": False, "error": "Chat send contract unavailable"},
                            HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             logger.exception("Prompta jobs update failed")

@@ -28,6 +28,9 @@ export type RunDetail = RunSummary & {
 
 export type LocalTurn = {
   reply_id: string;
+  conversation_id?: string;
+  parent_id?: string;
+  message_id?: string;
   user_text: string;
   assistant_text: string;
   status: ResultStatus | "prepared" | "dispatching" | "outcome_unknown";

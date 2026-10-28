@@ -74,7 +74,9 @@ class PassiveCaptureDriver(Protocol):
     def is_connected(self) -> bool: ...
     async def eval(self, expression: str, /) -> object: ...
     async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None: ...
-    def captured_assistant_response(self, capture: dict[str, object], /) -> CaptureResult | None: ...
+    def captured_assistant_response(
+        self, capture: dict[str, object], /
+    ) -> CaptureResult | None: ...
     async def observed_assistant_response(self) -> CaptureResult: ...
 
 
@@ -147,9 +149,6 @@ class BrowserDeliverySender:
     def _global_cooldown_remaining(self) -> float:
         return self.runtime.global_backoff_remaining()
 
-    def _record_send_attempt(self) -> None:
-        self.runtime.update_scheduler_state({"last_attempt_at": time.time()})
-
     async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
         await _timed_stage("chat_surface_ready", driver.ensure_chat_surface(), timeout=12.0)
         now = asyncio.get_running_loop().time()
@@ -199,7 +198,15 @@ class BrowserDeliverySender:
         )
         logger.info("Prompta set and verified preferred model and High effort")
 
-    def __call__(self, message: str, *, pin_chat: bool = False, send_id: str = "", job_name: str = "", images: object = ()) -> None:
+    def __call__(
+        self,
+        message: str,
+        *,
+        pin_chat: bool = False,
+        send_id: str = "",
+        job_name: str = "",
+        images: object = (),
+    ) -> None:
         if not message.strip():
             raise ValueError("prompta prompt is empty")
 
@@ -220,16 +227,24 @@ class BrowserDeliverySender:
 
             def dispatch_and_capture() -> None:
                 try:
-                    asyncio.run(self._send_browser(
-                        message, accepted=handshake, confirmed=confirmed,
-                        pin_chat=pin_chat, send_id=send_id, images=image_paths,
-                        dispatch_started=dispatch_started,
-                    ))
+                    asyncio.run(
+                        self._send_browser(
+                            message,
+                            accepted=handshake,
+                            confirmed=confirmed,
+                            pin_chat=pin_chat,
+                            send_id=send_id,
+                            images=image_paths,
+                            dispatch_started=dispatch_started,
+                        )
+                    )
                 except BaseException as exc:
                     if not confirmed.is_set():
                         errors.append(exc)
                     else:
-                        logger.warning("Background capture interrupted error_type=%s", type(exc).__name__)
+                        logger.warning(
+                            "Background capture interrupted error_type=%s", type(exc).__name__
+                        )
                 finally:
                     handshake.set()
 
@@ -265,18 +280,35 @@ class BrowserDeliverySender:
 
                 def deliver() -> None:
                     try:
-                        asyncio.run(self._send_browser(message, accepted=finished, pin_chat=pin_chat, images=image_paths, dispatch_started=dispatch_started))
+                        asyncio.run(
+                            self._send_browser(
+                                message,
+                                accepted=finished,
+                                pin_chat=pin_chat,
+                                images=image_paths,
+                                dispatch_started=dispatch_started,
+                            )
+                        )
                     except BaseException as exc:
                         errors.append(exc)
                     finally:
                         finished.set()
 
-                threading.Thread(target=deliver, name="prompta-connector-approval", daemon=True).start()
+                threading.Thread(
+                    target=deliver, name="prompta-connector-approval", daemon=True
+                ).start()
                 finished.wait()
                 if errors:
                     raise errors[0]
             else:
-                asyncio.run(self._send_browser(message, pin_chat=pin_chat, images=image_paths, dispatch_started=dispatch_started))
+                asyncio.run(
+                    self._send_browser(
+                        message,
+                        pin_chat=pin_chat,
+                        images=image_paths,
+                        dispatch_started=dispatch_started,
+                    )
+                )
         except TimeoutError as exc:
             if dispatch_started.is_set():
                 raise SendOutcomeUnknownError(
@@ -306,18 +338,28 @@ class BrowserDeliverySender:
                 )
                 if approved is True:
                     approved_count += 1
-                    logger.info("Prompta confirmed Always allow permission dismissed count=%d", approved_count)
+                    logger.info(
+                        "Prompta confirmed Always allow permission dismissed count=%d",
+                        approved_count,
+                    )
                     # A grant may immediately reveal another permission dialog.
                     continue
                 elif approved == "stuck":
                     logger.warning("Connector permission control remained after Always allow click")
             except Exception as exc:
-                logger.info("Connector permission check unavailable error_type=%s", type(exc).__name__)
+                logger.info(
+                    "Connector permission check unavailable error_type=%s", type(exc).__name__
+                )
             await asyncio.sleep(min(1.0, max(0.0, deadline - asyncio.get_running_loop().time())))
 
     async def _capture_until_complete(
-        self, driver: PassiveCaptureDriver, capture: dict[str, object], send_id: str,
-        owner: str, *, deadline: float,
+        self,
+        driver: PassiveCaptureDriver,
+        capture: dict[str, object],
+        send_id: str,
+        owner: str,
+        *,
+        deadline: float,
     ) -> None:
         """Use SSE completion and mutation notifications from this tab; never fetch."""
         approval_task: asyncio.Task[None] | None = None
@@ -338,19 +380,28 @@ class BrowserDeliverySender:
                 # Waiting is local: queue entries are emitted by the existing
                 # POST or semantic MutationObserver, not by reading ChatGPT.
                 update = await driver.wait_capture_update(timeout=min(5.0, remaining))
-                if (update is not None and update.source == "dom" and update.status == "unknown"
-                        and update.message_id is None):
-                    final_status = "unavailable"  # A fresh assistant branch replaced the tracked DOM node.
+                if (
+                    update is not None
+                    and update.source == "dom"
+                    and update.status == "unknown"
+                    and update.message_id is None
+                ):
+                    final_status = (
+                        "unavailable"  # A fresh assistant branch replaced the tracked DOM node.
+                    )
                     break
                 # Multiple ChatGPT-owned continuation POSTs can follow connector
                 # approvals. Do not splice their SSE data or close the tab;
                 # keep observing the unique semantic DOM answer until finality/TTL.
                 sse = (
-                    None if capture.get("ambiguous_request")
+                    None
+                    if capture.get("ambiguous_request")
                     else driver.captured_assistant_response(capture)
                 )
                 if int_value(capture.get("status")) == 429:
-                    self.runtime.record_global_rate_limit(RateLimitError("ChatGPT response rate limited"))
+                    self.runtime.record_global_rate_limit(
+                        RateLimitError("ChatGPT response rate limited")
+                    )
                     final_status = "unavailable"
                     break
                 if sse is not None and sse.status == "complete":
@@ -368,7 +419,11 @@ class BrowserDeliverySender:
                         seen_message = update.message_id
                     if update.observer_id:
                         seen_observer = update.observer_id
-                    if pending is None or update.status == "complete" or len(update.text) >= len(pending.text):
+                    if (
+                        pending is None
+                        or update.status == "complete"
+                        or len(update.text) >= len(pending.text)
+                    ):
                         pending = update
                 now = asyncio.get_running_loop().time()
                 if pending is not None and (
@@ -380,7 +435,9 @@ class BrowserDeliverySender:
                     last_saved_at = now
                     if (
                         pending.text != last_verified_text
-                        and pending.conversation_id and pending.message_id and pending.parent_id
+                        and pending.conversation_id
+                        and pending.message_id
+                        and pending.parent_id
                         and isinstance(driver, VerifiedActivityDriver)
                         and driver.record_verified_activity()
                     ):
@@ -397,13 +454,17 @@ class BrowserDeliverySender:
                     snapshot = await asyncio.wait_for(
                         driver.observed_assistant_response(), timeout=deadline - now
                     )
-                    if snapshot.text and (pending is None or len(snapshot.text) >= len(pending.text)):
+                    if snapshot.text and (
+                        pending is None or len(snapshot.text) >= len(pending.text)
+                    ):
                         pending = snapshot
                     break
             if pending is not None and pending.text:
                 self.results.write(send_id, owner, pending)
         finally:
-            self.results.finish(send_id, owner, "unavailable" if final_status == "unavailable" else "interrupted")
+            self.results.finish(
+                send_id, owner, "unavailable" if final_status == "unavailable" else "interrupted"
+            )
             if approval_task is not None:
                 approval_task.cancel()
                 try:
@@ -412,9 +473,13 @@ class BrowserDeliverySender:
                     pass
 
     async def _send_browser(
-        self, message: str, *, accepted: threading.Event | None = None,
+        self,
+        message: str,
+        *,
+        accepted: threading.Event | None = None,
         confirmed: threading.Event | None = None,
-        pin_chat: bool = False, send_id: str = "",
+        pin_chat: bool = False,
+        send_id: str = "",
         images: tuple[Path, ...] = (),
         dispatch_started: threading.Event | None = None,
     ) -> None:
@@ -431,14 +496,10 @@ class BrowserDeliverySender:
             try:
                 if not driver.is_connected:
                     await _timed_stage("cdp_connect", driver.connect(), timeout=45.0)
-                context = await _timed_stage(
-                    "fresh_tab_navigation", driver.new_tab(), timeout=40.0
-                )
+                context = await _timed_stage("fresh_tab_navigation", driver.new_tab(), timeout=40.0)
                 tab_opened_at = time.time()
                 tab_deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
-                await _timed_stage(
-                    "composer_readiness", driver.wait_for_composer(), timeout=25.0
-                )
+                await _timed_stage("composer_readiness", driver.wait_for_composer(), timeout=25.0)
                 initial_path = str(
                     await _timed_stage(
                         "fresh_chat_route_check",
@@ -454,9 +515,7 @@ class BrowserDeliverySender:
 
                 await self._ensure_high_effort(driver)
 
-                baseline = await _timed_stage(
-                    "composer_baseline", driver.dom_state(), timeout=15.0
-                )
+                baseline = await _timed_stage("composer_baseline", driver.dom_state(), timeout=15.0)
                 baseline_path = str(
                     await _timed_stage(
                         "baseline_route_check",
@@ -472,9 +531,7 @@ class BrowserDeliverySender:
                 stale_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
                 if stale_text:
                     logger.warning("Prompta found stale text in a fresh-chat composer; clearing it")
-                    await _timed_stage(
-                        "stale_draft_clear", driver.clear_composer(), timeout=10.0
-                    )
+                    await _timed_stage("stale_draft_clear", driver.clear_composer(), timeout=10.0)
                     baseline = await _timed_stage(
                         "stale_draft_verify_clear", driver.dom_state(), timeout=10.0
                     )
@@ -492,7 +549,9 @@ class BrowserDeliverySender:
                             "passive_capture_binding", driver.enable_passive_updates(), timeout=5.0
                         )
                     except Exception as exc:
-                        logger.info("Passive capture binding unavailable error_type=%s", type(exc).__name__)
+                        logger.info(
+                            "Passive capture binding unavailable error_type=%s", type(exc).__name__
+                        )
                 # Observe only this fresh owned tab, before submission. The
                 # mutation observer reads the live DOM; it makes no requests.
                 try:
@@ -511,12 +570,10 @@ class BrowserDeliverySender:
                 if images:
                     await _timed_stage("image_upload", driver.attach_images(images), timeout=140.0)
 
-                typed = await _timed_stage(
-                    "prompt_verification", driver.dom_state(), timeout=15.0
-                )
-                if _normalise_composer_text(str(typed.get("composer_text") or "")) != _normalise_composer_text(
-                    message
-                ):
+                typed = await _timed_stage("prompt_verification", driver.dom_state(), timeout=15.0)
+                if _normalise_composer_text(
+                    str(typed.get("composer_text") or "")
+                ) != _normalise_composer_text(message):
                     raise RuntimeError("ChatGPT composer did not contain the configured prompt")
 
                 predispatch_path = str(
@@ -539,7 +596,6 @@ class BrowserDeliverySender:
                     if dispatch_started is not None:
                         dispatch_started.set()
                     send_attempted = True
-                    self._record_send_attempt()
                     await _timed_stage(
                         "send_dispatch",
                         driver.click_send(message),
@@ -556,9 +612,7 @@ class BrowserDeliverySender:
                         "Prompta send dispatch exceeded its bound; acceptance is unknown",
                         stage="send_dispatch",
                     )
-                    logger.warning(
-                        "Prompta send dispatch timed out; automatic resend disabled"
-                    )
+                    logger.warning("Prompta send dispatch timed out; automatic resend disabled")
                     if exc.__cause__ is not None:
                         logger.debug(
                             "Prompta send dispatch timeout cause type=%s",
@@ -675,9 +729,7 @@ class BrowserDeliverySender:
                         raise RateLimitError.from_text(rate_limit_text)
 
                     route_confirmed = _is_conversation_path(path) and path != baseline_path
-                    composer_now = _normalise_composer_text(
-                        str(state.get("composer_text") or "")
-                    )
+                    composer_now = _normalise_composer_text(str(state.get("composer_text") or ""))
                     generation_confirmed = (
                         not baseline_send_in_progress
                         and bool(state.get("send_in_progress"))
@@ -695,7 +747,9 @@ class BrowserDeliverySender:
 
                     await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
 
-                final_composer = _normalise_composer_text(str(last_state.get("composer_text") or ""))
+                final_composer = _normalise_composer_text(
+                    str(last_state.get("composer_text") or "")
+                )
                 if (
                     dispatch_error is None
                     and final_composer == _normalise_composer_text(message)
@@ -727,6 +781,7 @@ class BrowserDeliverySender:
                     "Prompta failed after dispatch and cannot prove send acceptance",
                     stage="post_dispatch",
                 ) from exc
+
         try:
             await asyncio.wait_for(dispatch(), timeout=self.delivery_hard_timeout_seconds)
             if not send_id and capture is not None:
@@ -735,9 +790,7 @@ class BrowserDeliverySender:
             if pin_chat:
                 for attempt in range(2):
                     try:
-                        await _timed_stage(
-                            "once_chat_pin", driver.pin_current_chat(), timeout=25.0
-                        )
+                        await _timed_stage("once_chat_pin", driver.pin_current_chat(), timeout=25.0)
                         break
                     except Exception as exc:
                         # The prompt was accepted: retry the pin, never the send.
@@ -758,7 +811,8 @@ class BrowserDeliverySender:
                 lease_ok = False
                 try:
                     lease_ok = self.results.accept(
-                        send_id, capture_owner,
+                        send_id,
+                        capture_owner,
                         deadline=tab_opened_at + MAX_OWNED_TAB_AGE_SECONDS,
                     )
                 except Exception as exc:
@@ -771,9 +825,14 @@ class BrowserDeliverySender:
                             timeout=5.0,
                         )
                         if self.results.bind_conversation_route(send_id, capture_owner, path):
-                            logger.info("Prompta persisted verified fresh-chat conversation identity")
+                            logger.info(
+                                "Prompta persisted verified fresh-chat conversation identity"
+                            )
                     except Exception as exc:
-                        logger.info("Fresh-chat route identity unavailable error_type=%s", type(exc).__name__)
+                        logger.info(
+                            "Fresh-chat route identity unavailable error_type=%s",
+                            type(exc).__name__,
+                        )
                 # An accepted send is final even if local result persistence fails.
                 if confirmed is not None:
                     confirmed.set()

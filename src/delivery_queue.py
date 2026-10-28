@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -182,21 +183,30 @@ class DeliveryQueueStore:
         now: float | None = None,
         pin_chat: bool = False,
         images: tuple[str, ...] = (),
+        request_id: str | None = None,
     ) -> dict[str, object]:
         """Queue an independent fresh chat without touching any job's schedule."""
         if not prompt.strip():
             raise ValueError("Prompt is required")
-        request_id = uuid.uuid4().hex
+        request_id = uuid.uuid4().hex if request_id is None else request_id
+        if not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise ValueError("Invalid fresh chat request identifier")
         receipt, _created = self.enqueue_idempotent(
             {
                 "send_id": f"manual-{request_id}",
-                "client_id": f"manual:{request_id}",
+                "client_id": f"manual:{'once:' if pin_chat else ''}{request_id}",
                 "pin_chat": pin_chat,
                 "message": prompt,
                 "images": images,
                 "created_at": time.time() if now is None else now,
             }
         )
+        if (
+            receipt["message"] != prompt
+            or image_refs(receipt["images"]) != images
+            or receipt["client_id"] != f"manual:{'once:' if pin_chat else ''}{request_id}"
+        ):
+            raise ValueError("Fresh chat identifier belongs to a different payload")
         return receipt
 
     def cancel_pending(
