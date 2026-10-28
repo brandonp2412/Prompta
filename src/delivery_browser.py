@@ -36,7 +36,6 @@ _MODEL_SELECTION_TIMEOUT_SECONDS = 20.0
 _EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
 _SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
 _SEND_CONFIRM_STATE_TIMEOUT_SECONDS = 8.0
-_MAX_BACKGROUND_CAPTURES = 1
 
 
 def _is_conversation_path(path: str) -> bool:
@@ -128,12 +127,10 @@ class BrowserDeliverySender:
         self.connector_approval = (
             ConnectorApproval.load().enabled if connector_approval is None else connector_approval
         )
-        self._dispatch_started = False
         self.runtime = SchedulerRuntime(self.state_path, self.state_path)
         self._next_effort_preference_retry_at = 0.0
         self.results = ResponseStore(state_dir / "chat-results.sqlite3")
         self.images = ImageStore(state_dir)
-        self._capture_slots = threading.BoundedSemaphore(_MAX_BACKGROUND_CAPTURES)
 
     def _new_driver(self) -> BrowserDriver:
         if self.driver_factory is not None:
@@ -221,58 +218,53 @@ class BrowserDeliverySender:
             )
 
         image_paths = tuple(self.images.path(ref) for ref in image_refs(images))
-        self._dispatch_started = False
+        dispatch_started = threading.Event()
         if send_id:
             self.results.ensure_queued(send_id, message, job_name)
-            if self._capture_slots.acquire(blocking=False):
-                handshake = threading.Event()
-                confirmed = threading.Event()
-                errors: list[BaseException] = []
+            handshake = threading.Event()
+            confirmed = threading.Event()
+            errors: list[BaseException] = []
 
-                def dispatch_and_capture() -> None:
-                    try:
-                        asyncio.run(self._send_browser(
-                            message, accepted=handshake, confirmed=confirmed,
-                            pin_chat=pin_chat, send_id=send_id, images=image_paths,
-                        ))
-                    except BaseException as exc:
-                        if not confirmed.is_set():
-                            errors.append(exc)
-                        else:
-                            logger.warning("Background capture interrupted error_type=%s", type(exc).__name__)
-                    finally:
-                        handshake.set()
-                        self._capture_slots.release()
-
+            def dispatch_and_capture() -> None:
                 try:
-                    threading.Thread(
-                        target=dispatch_and_capture, name="prompta-passive-capture", daemon=True
-                    ).start()
-                except RuntimeError as exc:
-                    self._capture_slots.release()
-                    raise DeliveryBackendUnavailableError("Passive capture thread unavailable") from exc
-                handshake.wait()
-                if confirmed.is_set():
-                    return
-                if errors:
-                    exc = errors[0]
-                    if isinstance(exc, TimeoutError):
-                        if self._dispatch_started:
-                            raise SendOutcomeUnknownError(
-                                "Prompta delivery deadline expired after dispatch",
-                                stage="delivery_timeout",
-                            ) from exc
-                        raise DeliveryBackendUnavailableError(
-                            "Prompta delivery deadline expired before dispatch"
+                    asyncio.run(self._send_browser(
+                        message, accepted=handshake, confirmed=confirmed,
+                        pin_chat=pin_chat, send_id=send_id, images=image_paths,
+                        dispatch_started=dispatch_started,
+                    ))
+                except BaseException as exc:
+                    if not confirmed.is_set():
+                        errors.append(exc)
+                    else:
+                        logger.warning("Background capture interrupted error_type=%s", type(exc).__name__)
+                finally:
+                    handshake.set()
+
+            try:
+                threading.Thread(
+                    target=dispatch_and_capture, name="prompta-passive-capture", daemon=True
+                ).start()
+            except RuntimeError as exc:
+                raise DeliveryBackendUnavailableError("Passive capture thread unavailable") from exc
+            handshake.wait()
+            if confirmed.is_set():
+                return
+            if errors:
+                exc = errors[0]
+                if isinstance(exc, TimeoutError):
+                    if dispatch_started.is_set():
+                        raise SendOutcomeUnknownError(
+                            "Prompta delivery deadline expired after dispatch",
+                            stage="delivery_timeout",
                         ) from exc
-                    if isinstance(exc, RateLimitError):
-                        delay = self.runtime.record_global_rate_limit(exc)
-                        raise RateLimitError(str(exc), retry_after=max(1, math.ceil(delay))) from exc
-                    raise exc
-                raise RuntimeError("Background delivery ended without a receipt")
-            raise DeliveryBackendUnavailableError(
-                "Passive capture capacity reached; delivery safely deferred before dispatch"
-            )
+                    raise DeliveryBackendUnavailableError(
+                        "Prompta delivery deadline expired before dispatch"
+                    ) from exc
+                if isinstance(exc, RateLimitError):
+                    delay = self.runtime.record_global_rate_limit(exc)
+                    raise RateLimitError(str(exc), retry_after=max(1, math.ceil(delay))) from exc
+                raise exc
+            raise RuntimeError("Background delivery ended without a receipt")
         try:
             if self.connector_approval:
                 finished = threading.Event()
@@ -280,7 +272,7 @@ class BrowserDeliverySender:
 
                 def deliver() -> None:
                     try:
-                        asyncio.run(self._send_browser(message, accepted=finished, pin_chat=pin_chat, images=image_paths))
+                        asyncio.run(self._send_browser(message, accepted=finished, pin_chat=pin_chat, images=image_paths, dispatch_started=dispatch_started))
                     except BaseException as exc:
                         errors.append(exc)
                     finally:
@@ -291,9 +283,9 @@ class BrowserDeliverySender:
                 if errors:
                     raise errors[0]
             else:
-                asyncio.run(self._send_browser(message, pin_chat=pin_chat, images=image_paths))
+                asyncio.run(self._send_browser(message, pin_chat=pin_chat, images=image_paths, dispatch_started=dispatch_started))
         except TimeoutError as exc:
-            if self._dispatch_started:
+            if dispatch_started.is_set():
                 raise SendOutcomeUnknownError(
                     "Prompta delivery deadline expired during or after dispatch; send acceptance is unknown",
                     stage="delivery_timeout",
@@ -431,6 +423,7 @@ class BrowserDeliverySender:
         confirmed: threading.Event | None = None,
         pin_chat: bool = False, send_id: str = "",
         images: tuple[Path, ...] = (),
+        dispatch_started: threading.Event | None = None,
     ) -> None:
         driver = self._new_driver()
         context = ""
@@ -550,7 +543,8 @@ class BrowserDeliverySender:
                 try:
                     # A timeout during the send control itself is ambiguous.
                     # Never automatically retry unless dispatch was never entered.
-                    self._dispatch_started = True
+                    if dispatch_started is not None:
+                        dispatch_started.set()
                     send_attempted = True
                     self._record_send_attempt()
                     await _timed_stage(

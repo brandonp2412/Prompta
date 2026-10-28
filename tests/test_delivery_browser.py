@@ -3214,21 +3214,63 @@ def test_passive_capture_handoff_does_not_hold_delivery_worker(tmp_path: Path) -
     assert driver.clicks == 1
 
 
-def test_capture_capacity_defers_before_any_chatgpt_dispatch(tmp_path: Path) -> None:
-    driver = FakeDriver()
+def test_multiple_passive_captures_can_overlap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class PendingDriver(FakeDriver):
+        def __init__(self, answer: str) -> None:
+            super().__init__()
+            self.answer = answer
+            self.ready = threading.Event()
+            self.closed_event = threading.Event()
+            self.clicks = 0
+
+        async def click_send(self, expected_message: str) -> None:
+            self.clicks += 1
+            await super().click_send(expected_message)
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            if await asyncio.to_thread(self.ready.wait, timeout):
+                return CaptureResult("dom", "complete", self.answer, None, "m1", None)
+            return None
+
+        async def close_context(self, context: str) -> None:
+            await super().close_context(context)
+            self.closed_event.set()
+
+    first = PendingDriver("First answer")
+    second = PendingDriver("Second answer")
+    drivers = iter((first, second))
     sender = BrowserDeliverySender(
-        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, connector_approval=False,
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: next(drivers),
+        connector_approval=False,
     )
-    sender._capture_slots = threading.BoundedSemaphore(1)
-    assert sender._capture_slots.acquire(blocking=False)
+    # Simulate the next eligible dispatch slot without waiting 45 real minutes.
+    # The global send gap remains enforced separately by DeliveryAdmission.
+    monkeypatch.setattr(sender.runtime, "send_gap_remaining", lambda _now: 0.0)
+
     try:
-        with pytest.raises(DeliveryBackendUnavailableError, match="safely deferred"):
-            sender("Do not send yet", send_id="capacity-run")
+        sender("First job", send_id="run-1", job_name="first")
+        first_accepted = sender.results.get("run-1")
+        assert first_accepted is not None and first_accepted["status"] == "accepted"
+        assert first.closed_contexts == []
+
+        sender("Second job", send_id="run-2", job_name="second")
+        second_accepted = sender.results.get("run-2")
+        assert second_accepted is not None and second_accepted["status"] == "accepted"
+        assert first.closed_contexts == []
+        assert second.closed_contexts == []
+        assert first.clicks == second.clicks == 1
     finally:
-        sender._capture_slots.release()
-    assert driver.context == "" and driver.composer == ""
-    row = sender.results.get("capacity-run")
-    assert row is not None and row["status"] == "queued"
+        first.ready.set()
+        second.ready.set()
+
+    assert first.closed_event.wait(3)
+    assert second.closed_event.wait(3)
+    first_result = sender.results.get("run-1")
+    second_result = sender.results.get("run-2")
+    assert first_result is not None and first_result["status"] == "completed"
+    assert second_result is not None and second_result["status"] == "completed"
+    assert first_result["assistant_text"] == "First answer"
+    assert second_result["assistant_text"] == "Second answer"
 
 
 @pytest.mark.asyncio
