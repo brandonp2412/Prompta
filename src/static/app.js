@@ -4976,7 +4976,7 @@ var root_19$2 = /* @__PURE__ */ from_html(`<span class="editor-error">This job a
 var root_20$2 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
 var root_21$2 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
 var root_22$1 = /* @__PURE__ */ from_html(`<div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div>`);
-var root_23$1 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" aria-live="polite"><!></div> <!></div></form></section>`);
+var root_23$1 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select aria-label="Schedule"><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" aria-live="polite"><!></div> <!></div></form></section>`);
 var root_24$1 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 function JobsPage($$anchor, $$props) {
 	push($$props, true);
@@ -5037,7 +5037,7 @@ function JobsPage($$anchor, $$props) {
 	let prompt = /* @__PURE__ */ state("");
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploadingImage = /* @__PURE__ */ state(false);
-	let imageInput;
+	let imageInput = /* @__PURE__ */ state(void 0);
 	let schedule = /* @__PURE__ */ state("once");
 	let interval = /* @__PURE__ */ state("40");
 	let onceDelay = /* @__PURE__ */ state("0");
@@ -5048,13 +5048,13 @@ function JobsPage($$anchor, $$props) {
 	let exact = /* @__PURE__ */ state(false);
 	let editorOpen = /* @__PURE__ */ state(false);
 	let editorPage = /* @__PURE__ */ state(void 0);
-	let activeEditorRoute = "";
+	let activeEditorRoute = /* @__PURE__ */ state("");
 	let listScrollY = 0;
 	let editorError = /* @__PURE__ */ state("");
 	let confirmDiscard = /* @__PURE__ */ state(false);
 	let initialForm = /* @__PURE__ */ state("");
 	let dirty = /* @__PURE__ */ user_derived(() => get(editorOpen) && formSnapshot() !== get(initialForm));
-	let runOnce = /* @__PURE__ */ user_derived(() => !get(editing) && get(schedule) === "once");
+	let runOnce = /* @__PURE__ */ user_derived(() => !get(editing) && get(activeEditorRoute) === "new:once");
 	let duplicateName = /* @__PURE__ */ user_derived(() => !get(runOnce) && !get(editing) && get(jobs).some((job) => job.name === get(name).trim()));
 	let promptCharacters = /* @__PURE__ */ user_derived(() => get(prompt).length);
 	let promptLines = /* @__PURE__ */ user_derived(() => get(prompt) ? get(prompt).split("\n").length : 0);
@@ -5065,7 +5065,7 @@ function JobsPage($$anchor, $$props) {
 		set(name, "");
 		set(prompt, "");
 		set(images, [], true);
-		set(schedule, "once");
+		set(schedule, "interval");
 		set(interval, "40");
 		set(onceDelay, "0");
 		set(pinChat, false);
@@ -5089,7 +5089,7 @@ function JobsPage($$anchor, $$props) {
 	}
 	function closeEditorState() {
 		set(editorOpen, false);
-		activeEditorRoute = "";
+		set(activeEditorRoute, "");
 		set(confirmDiscard, false);
 		set(editorError, "");
 		reset$1();
@@ -5196,7 +5196,7 @@ function JobsPage($$anchor, $$props) {
 			set(interval, String(job.interval_minutes || 40), true);
 			set(exact, job.exact_interval, true);
 		}
-		activeEditorRoute = routeKey(route);
+		set(activeEditorRoute, routeKey(route), true);
 		openEditor(route.kind === "new" && get(schedule) !== "once");
 	}
 	function pushEditor(route) {
@@ -5209,7 +5209,7 @@ function JobsPage($$anchor, $$props) {
 	}
 	function syncEditorFromUrl() {
 		const route = editorRouteFromUrl();
-		if (routeKey(route) === activeEditorRoute) return;
+		if (routeKey(route) === get(activeEditorRoute)) return;
 		if (get(saving) || get(dirty) && !window.confirm("Discard unsaved job changes?")) {
 			window.history.forward();
 			return;
@@ -5343,7 +5343,7 @@ function JobsPage($$anchor, $$props) {
 			set(editorError, "At most four images per job.");
 			return;
 		}
-		const route = activeEditorRoute;
+		const route = get(activeEditorRoute);
 		set(uploadingImage, true);
 		set(editorError, "");
 		try {
@@ -5369,7 +5369,7 @@ function JobsPage($$anchor, $$props) {
 				});
 				const result = await response.json();
 				if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
-				if (activeEditorRoute !== route) return;
+				if (get(activeEditorRoute) !== route) return;
 				set(images, [...get(images), result.image], true);
 				await tick();
 				get(editorPage)?.querySelector(".job-image-preview:last-child")?.scrollIntoView({
@@ -5378,7 +5378,7 @@ function JobsPage($$anchor, $$props) {
 				});
 			}
 		} catch (error) {
-			if (activeEditorRoute === route) set(editorError, String(error).replace(/^Error:\s*/, ""), true);
+			if (get(activeEditorRoute) === route) set(editorError, String(error).replace(/^Error:\s*/, ""), true);
 		} finally {
 			set(uploadingImage, false);
 		}
@@ -5794,7 +5794,7 @@ function JobsPage($$anchor, $$props) {
 		var div_22 = sibling(div_21, 2);
 		var button_14 = child(div_22);
 		var input_7 = sibling(button_14, 2);
-		bind_this(input_7, ($$value) => imageInput = $$value, () => imageInput);
+		bind_this(input_7, ($$value) => set(imageInput, $$value), () => get(imageInput));
 		var text_21 = only_child(sibling(input_7, 2), true);
 		reset(div_22);
 		var node_14 = sibling(div_22, 2);
@@ -5889,6 +5889,7 @@ function JobsPage($$anchor, $$props) {
 			button_13.disabled = get(saving);
 			set_text(text_18, get(editing) ? "Edit job" : get(runOnce) ? "Run once" : "New job");
 			set_class(div_19, 1, "editor-body" + (get(images).length ? " has-images" : ""));
+			select.disabled = get(runOnce);
 			set_text(text_20, `${$0 ?? ""} characters · ${$1 ?? ""} lines`);
 			button_14.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
 			input_7.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
@@ -5904,7 +5905,7 @@ function JobsPage($$anchor, $$props) {
 		bind_select_value(select, () => get(schedule), ($$value) => set(schedule, $$value));
 		event("focus", textarea_1, () => requestAnimationFrame(keepFocusedPromptVisible));
 		bind_value(textarea_1, () => get(prompt), ($$value) => set(prompt, $$value));
-		delegated("click", button_14, () => imageInput?.click());
+		delegated("click", button_14, () => get(imageInput)?.click());
 		delegated("change", input_7, (event) => void addImages(event.currentTarget));
 		append($$anchor, section_1);
 	};
@@ -8213,7 +8214,7 @@ function ChatsPage($$anchor, $$props) {
 	let turns = /* @__PURE__ */ state(proxy([]));
 	let turnsError = /* @__PURE__ */ state("");
 	let copyState = /* @__PURE__ */ state("");
-	let scrollPane;
+	let scrollPane = /* @__PURE__ */ state(void 0);
 	let loadingList = /* @__PURE__ */ state(true);
 	let loadingDetail = /* @__PURE__ */ state(false);
 	let listError = /* @__PURE__ */ state("");
@@ -8318,7 +8319,7 @@ function ChatsPage($$anchor, $$props) {
 			set(detail, null);
 			set(turns, [], true);
 		}
-		const followTail = newSelection || !!scrollPane && scrollPane.scrollHeight - scrollPane.scrollTop - scrollPane.clientHeight < 96;
+		const followTail = newSelection || !!get(scrollPane) && get(scrollPane).scrollHeight - get(scrollPane).scrollTop - get(scrollPane).clientHeight < 96;
 		set(loadingDetail, true);
 		try {
 			const path = "./api/results/" + encodeURIComponent(id);
@@ -8340,7 +8341,7 @@ function ChatsPage($$anchor, $$props) {
 			set(detailError, "");
 			if ($$props.view === "chats" && $$props.selectedRunId === id) markRead(body);
 			await tick();
-			if (followTail && scrollPane && $$props.selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
+			if (followTail && get(scrollPane) && $$props.selectedRunId === id) get(scrollPane).scrollTop = get(scrollPane).scrollHeight;
 		} catch {
 			if (generation === detailGeneration) set(detailError, "This run is unavailable locally.");
 		} finally {
@@ -8834,7 +8835,7 @@ function ChatsPage($$anchor, $$props) {
 			if (get(detail)) $$render(consequent_22);
 		});
 		reset(div_15);
-		bind_this(div_15, ($$value) => scrollPane = $$value, () => scrollPane);
+		bind_this(div_15, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
 		var node_27 = sibling(div_15, 2);
 		var consequent_23 = ($$anchor) => {
 			ChatComposer($$anchor, {

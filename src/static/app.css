@@ -987,3 +987,39 @@ button:disabled { cursor: default; opacity: 0.45; }
 @media (max-width: 680px) {
   .chat-prepared-action, .chat-reply-status { padding: 10px 14px max(12px, env(safe-area-inset-bottom)); }
 }
+
+/* UX01: predictable touch targets across Jobs, Chats, transcript and composer. */
+.sidebar-actions button, .chats-refresh, .chat-pin, .chats-pagination button,
+.filter-chip, .row-action, .job-image-picker .toolbar-button,
+.copy-message, .code-toolbar button, .chat-prepared-action button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.composer-attach button, .composer-send {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+}
+.composer-preview button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Landscape phones have a narrow workspace even when the viewport is wide. */
+@media (min-width: 681px) and (max-width: 950px) and (max-height: 520px) {
+  .chats-layout { grid-template-columns: 210px minmax(0, 1fr); }
+  .sidebar-brand { padding: 12px 14px; }
+  .sidebar-actions { padding: 0 8px 8px; }
+  .chats-heading { padding-top: 5px; }
+  .jobs-toolbar { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .toolbar-actions { flex-wrap: wrap; gap: 4px; width: 100%; }
+  .status-line { max-width: none; flex: 1 1 100%; }
+  .editor-heading { padding: 8px 0; }
+  .editor-body { min-height: 0; }
+  .editor-body .prompt-field { min-height: 0; }
+  .editor-body textarea { min-height: 96px; height: 27dvh; }
+  /* Let the landscape editor scroll instead of floating actions over its prompt. */
+  .editor-body { flex: none; }
+  .editor-body .prompt-field { flex: none; }
+  .editor-footer { position: static; padding: 8px 0; }
+}

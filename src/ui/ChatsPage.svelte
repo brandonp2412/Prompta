@@ -46,7 +46,7 @@
   let turns = $state<LocalTurn[]>([]);
   let turnsError = $state("");
   let copyState = $state("");
-  let scrollPane: HTMLDivElement;
+  let scrollPane = $state<HTMLDivElement>();
   let loadingList = $state(true);
   let loadingDetail = $state(false);
   let listError = $state("");

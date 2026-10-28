@@ -68,7 +68,7 @@
   let prompt = $state("");
   let images = $state<ImageRef[]>([]);
   let uploadingImage = $state(false);
-  let imageInput: HTMLInputElement;
+  let imageInput = $state<HTMLInputElement>();
   let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
   let onceDelay = $state("0");
@@ -79,13 +79,13 @@
   let exact = $state(false);
   let editorOpen = $state(false);
   let editorPage = $state<HTMLElement>();
-  let activeEditorRoute = "";
+  let activeEditorRoute = $state("");
   let listScrollY = 0;
   let editorError = $state("");
   let confirmDiscard = $state(false);
   let initialForm = $state("");
   let dirty = $derived(editorOpen && formSnapshot() !== initialForm);
-  let runOnce = $derived(!editing && schedule === "once");
+  let runOnce = $derived(!editing && activeEditorRoute === "new:once");
   let duplicateName = $derived(!runOnce && !editing && jobs.some((job) => job.name === name.trim()));
   let promptCharacters = $derived(prompt.length);
   let promptLines = $derived(prompt ? prompt.split("\n").length : 0);
@@ -97,7 +97,7 @@
     name = "";
     prompt = "";
     images = [];
-    schedule = "once";
+    schedule = "interval";
     interval = "40";
     onceDelay = "0";
     pinChat = false;
@@ -738,7 +738,7 @@
 
             <label>
               <span>Schedule</span>
-              <select bind:value={schedule}>
+              <select bind:value={schedule} disabled={runOnce} aria-label="Schedule">
                 <option value="interval">Interval</option>
                 <option value="daily">Daily</option>
                 <option value="once">Once</option>
