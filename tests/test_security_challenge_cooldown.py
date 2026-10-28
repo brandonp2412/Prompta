@@ -11,50 +11,23 @@ from prompta.playwright_driver import BrowserSecurityChallengeError
 from prompta.scheduler_runtime import SchedulerRuntime
 
 
-def test_security_challenge_cooldown_is_durable_and_blocks_all_delivery(tmp_path: Path) -> None:
-    path = tmp_path / "runtime.sqlite3"
-    first = SchedulerRuntime(path, path)
-    assert first.record_security_challenge() >= 3590
-
-    restarted = SchedulerRuntime(path, path)
-    assert restarted.security_challenge_remaining() >= 3590
-    status = restarted.account_admission_status()
-    assert status["blocked"] is True
-    assert status["kind"] == "security_challenge"
-    allowed, reason, remaining = DeliveryAdmission(
-        restarted, resource_admission=lambda: (True, "")
-    )(manual=True)
-    assert not allowed
-    assert "security challenge" in reason
-    assert remaining >= 3590
-
-    sender = BrowserDeliverySender(
-        path, connector_approval=False,
-        driver_factory=lambda: pytest.fail("cooldown must block before browser creation"),
-    )
-    with pytest.raises(DeliveryBackendUnavailableError, match="security challenge cooldown"):
-        sender("Never submit this prompt")
-
-
-def test_security_challenge_cooldown_escalates_and_expires(tmp_path: Path) -> None:
+def test_legacy_challenge_cooldown_does_not_block_delivery(tmp_path: Path) -> None:
     path = tmp_path / "runtime.sqlite3"
     runtime = SchedulerRuntime(path, path)
-    assert runtime.record_security_challenge() >= 3590
-    assert runtime.record_security_challenge() >= 7190
-    assert runtime.record_security_challenge() >= 14390
-    assert runtime.record_security_challenge() >= 21590
-    assert runtime.record_security_challenge() <= 21600
+    runtime.update_account_state({
+        "security_challenge_backoff": {"blocked_until_epoch": time.time() + 7200},
+    })
 
-    runtime.update_account_state({"security_challenge_backoff": {
-        "attempts": 4, "last_seen_epoch": time.time() - 90000,
-        "blocked_until_epoch": time.time() - 1,
-    }})
-    assert runtime.security_challenge_remaining() == 0
-    assert 3590 <= runtime.record_security_challenge() <= 3600
+    allowed, reason, delay = DeliveryAdmission(
+        runtime, resource_admission=lambda: (True, "")
+    )(manual=True)
+
+    assert allowed and not reason and delay == 0
+    assert runtime.account_admission_status()["blocked"] is False
 
 
 @pytest.mark.asyncio
-async def test_confirmed_challenge_records_cooldown_without_sending(
+async def test_confirmed_challenge_fails_closed_without_cooldown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = tmp_path / "runtime.sqlite3"
@@ -75,7 +48,8 @@ async def test_confirmed_challenge_records_cooldown_without_sending(
             closed += 1
 
     monkeypatch.setattr(sender, "_new_driver", ChallengedDriver)
-    with pytest.raises(DeliveryBackendUnavailableError, match="new navigation paused"):
+    with pytest.raises(DeliveryBackendUnavailableError, match="security challenge blocked navigation"):
         await sender._send_browser("Never submit this prompt")
     assert (opened, closed) == (1, 1)
-    assert sender.runtime.security_challenge_remaining() >= 3590
+    assert sender.runtime.account_admission_status()["blocked"] is False
+    assert "security_challenge_backoff" not in sender.runtime.account_state()
