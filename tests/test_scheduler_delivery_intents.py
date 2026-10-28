@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import fcntl
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
-from prompta.scheduler_service import DurableSchedulerProducer
+from prompta.scheduler_service import DurableSchedulerProducer, stage_parallel_limit
 
 
 def test_scheduler_restart_with_worker_stopped_records_one_pending_delivery(tmp_path: Path) -> None:
@@ -163,7 +165,9 @@ def test_scheduler_ignores_missing_external_mutex_file(tmp_path: Path) -> None:
     assert producer.tick(now=1000.0) == 1
 
 
-def test_manual_fire_deadline_survives_late_scheduled_receipt_reconciliation(tmp_path: Path) -> None:
+def test_manual_fire_deadline_survives_late_scheduled_receipt_reconciliation(
+    tmp_path: Path,
+) -> None:
     state = tmp_path / "runtime.sqlite3"
     queue_path = tmp_path / "ui-send-jobs.sqlite3"
     add_job(state, "recurring", "Do work", 600, exact_interval=True)
@@ -229,3 +233,102 @@ def test_manual_fire_replaces_queued_scheduled_send(tmp_path: Path) -> None:
     assert producer.tick(now=1100.0) == 0
     assert producer.tick(now=1699.0) == 0
     assert producer.tick(now=1700.0) == 1
+
+
+def _nz_epoch(value: str) -> float:
+    return datetime.fromisoformat(value).replace(tzinfo=ZoneInfo("Pacific/Auckland")).timestamp()
+
+
+@pytest.mark.parametrize(
+    ("local", "capacity"),
+    [
+        ("2026-10-29T22:29:59", 1),
+        ("2026-10-29T22:30:00", 3),
+        ("2026-10-30T06:59:59", 3),
+        ("2026-10-30T07:00:00", 1),
+        ("2026-10-30T18:00:00", 1),
+        ("2026-07-01T22:30:00", 3),  # NZST winter clock
+    ],
+)
+def test_stage_capacity_uses_auckland_wall_clock(local: str, capacity: int) -> None:
+    assert stage_parallel_limit(_nz_epoch(local)) == capacity
+
+
+def _due_stage_producer(tmp_path: Path, *, due: float, count: int) -> DurableSchedulerProducer:
+    runtime_path = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    for index in range(1, count + 1):
+        add_job(
+            runtime_path,
+            f"prompta-mobile-ux-v2-{index:02d}-example",
+            f"Run mobile stage {index}",
+            0.0,
+            run_at_epoch=due,
+            mutex_group="prompta-ui-stage-work",
+        )
+    return DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
+
+
+def _accept_and_finish_delivery(
+    producer: DurableSchedulerProducer, *, now: float, deadline: float
+) -> tuple[str, str]:
+    claimed = producer.queue.claim_next("test-worker", now=now, lease_seconds=30.0)
+    assert claimed is not None
+    send_id = str(claimed["send_id"])
+    client_id = str(claimed["client_id"])
+    job_name = client_id.rsplit(":", 1)[-1]
+    producer.queue.results.ensure_queued(send_id, str(claimed["message"]), job_name, now=now)
+    assert producer.queue.results.accept(send_id, "test-owner", deadline=deadline, now=now)
+    assert producer.queue.complete_claim(send_id, "test-worker", now=now + 0.1)
+    return send_id, job_name
+
+
+def test_stage_capacity_counts_owned_capture_after_one_shot_definition_removed(
+    tmp_path: Path,
+) -> None:
+    day = _nz_epoch("2026-10-29T22:29:00")
+    night = _nz_epoch("2026-10-29T22:30:00")
+    producer = _due_stage_producer(tmp_path, due=day - 60, count=5)
+    assert producer.tick(now=day) == 1
+    assert len(load_jobs(producer.jobs_path)) == 4
+    first_send_id, _ = _accept_and_finish_delivery(producer, now=day + 1, deadline=night + 7200)
+    assert producer.queue.pending_scheduled_send_ids(("prompta-mobile-ux-v2-",)) == set()
+    assert producer.queue.results.active_capture_send_ids(
+        ("prompta-mobile-ux-v2-",), now=night
+    ) == {first_send_id}
+    # The first one-shot job has disappeared from scheduled_jobs, but its
+    # owned ChatGPT capture still occupies an active lane.
+    assert producer.tick(now=day + 2) == 1  # only receipt reconciliation
+    assert len(producer.queue.records()) == 1
+    assert producer.tick(now=night) == 2
+    assert len(producer.queue.records()) == 3
+    assert len(load_jobs(producer.jobs_path)) == 2
+    # Union the accepted capture with the two pending queue receipts.
+    assert producer.tick(now=night + 1) == 0
+    assert len(producer.queue.records()) == 3
+    assert producer.queue.results.finish(first_send_id, "test-owner", "interrupted", now=night + 2)
+    assert producer.tick(now=night + 3) == 1
+    assert len(producer.queue.records()) == 4
+
+
+def test_dawn_reduces_new_admissions_without_interrupting_live_captures(
+    tmp_path: Path,
+) -> None:
+    night = _nz_epoch("2026-10-30T06:59:00")
+    dawn = _nz_epoch("2026-10-30T07:00:00")
+    producer = _due_stage_producer(tmp_path, due=night - 60, count=4)
+    assert producer.tick(now=night) == 3
+    live_send_ids = [
+        _accept_and_finish_delivery(producer, now=night + offset, deadline=dawn + 7200)[0]
+        for offset in (1.0, 2.0, 3.0)
+    ]
+    assert producer.tick(now=dawn) == 3  # three receipt reconciliations; no fourth send
+    assert len(producer.queue.records()) == 3
+    for send_id in live_send_ids[:2]:
+        assert producer.queue.results.finish(send_id, "test-owner", "interrupted", now=dawn + 1)
+    assert producer.tick(now=dawn + 2) == 0  # one live capture still fills the day slot
+    assert producer.queue.results.finish(
+        live_send_ids[2], "test-owner", "interrupted", now=dawn + 3
+    )
+    assert producer.tick(now=dawn + 4) == 1
+    assert len(producer.queue.records()) == 4

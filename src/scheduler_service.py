@@ -5,7 +5,10 @@ import fcntl
 import logging
 import random
 import time
+from datetime import datetime
+from datetime import time as clock_time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
@@ -25,6 +28,16 @@ from .service_health import ServiceHealthStore, notify_watchdog
 from .strict_types import float_value, string_object_dict
 
 logger = logging.getLogger(__name__)
+
+_STAGE_GROUP = "prompta-ui-stage-work"
+_STAGE_PREFIXES = ("prompta-chat-ui-", "prompta-mobile-ux-v2-")
+_AUCKLAND = ZoneInfo("Pacific/Auckland")
+
+
+def stage_parallel_limit(now: float) -> int:
+    """One stage by day, three from 22:30 through 06:59 in Auckland."""
+    local = datetime.fromtimestamp(now, tz=_AUCKLAND).time()
+    return 3 if local >= clock_time(22, 30) or local < clock_time(7, 0) else 1
 
 
 class DurableSchedulerProducer:
@@ -56,9 +69,15 @@ class DurableSchedulerProducer:
         receipt = self.queue.get(send_id)
         return receipt if receipt_is_pending(receipt) else None
 
-    def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob]) -> bool:
+    def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob], *, now: float) -> bool:
         if not job.mutex_group:
             return False
+        if job.mutex_group == _STAGE_GROUP:
+            # One-shot definitions vanish on enqueue, so counting only active
+            # scheduled-job rows would accidentally admit unlimited stage jobs.
+            active = self.queue.pending_scheduled_send_ids(_STAGE_PREFIXES)
+            active.update(self.queue.results.active_capture_send_ids(_STAGE_PREFIXES, now=now))
+            return len(active) >= stage_parallel_limit(now)
         return any(
             other.name != job.name
             and other.mutex_group == job.mutex_group
@@ -108,7 +127,7 @@ class DurableSchedulerProducer:
         state = self.runtime.job_state(job.name)
         pending_receipt = self._pending_receipt(job.name)
         all_jobs = jobs if jobs is not None else list(self.runtime.read_jobs().values())
-        if self._mutex_group_busy(job, all_jobs) or self._external_mutex_group_busy(job):
+        if self._mutex_group_busy(job, all_jobs, now=now) or self._external_mutex_group_busy(job):
             return False
         if not should_enqueue_job(
             job,

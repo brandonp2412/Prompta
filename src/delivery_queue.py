@@ -68,6 +68,30 @@ class DeliveryQueueStore:
             )
         return [self.record_from_row(row) for row in rows]
 
+    def pending_scheduled_send_ids(self, job_prefixes: tuple[str, ...]) -> set[str]:
+        """Count unsent or in-flight scheduled jobs, even after a one-shot job is removed."""
+        if not job_prefixes:
+            return set()
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    select(job_deliveries.c.send_id).where(
+                        job_deliveries.c.status.in_(
+                            ("queued", "retrying", "rate_limited", "running")
+                        ),
+                        or_(
+                            *(
+                                job_deliveries.c.client_id.like(f"scheduled:%:{prefix}%")
+                                for prefix in job_prefixes
+                            )
+                        ),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return {str(send_id) for send_id in rows}
+
     def health_metrics(self, *, now: float | None = None) -> dict[str, object]:
         at = time.time() if now is None else float(now)
         pending = ("queued", "retrying", "rate_limited", "running")
