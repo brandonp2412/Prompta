@@ -41,6 +41,29 @@ def test_delivery_admission_blocks_outside_working_hours(
     assert retry_after > 0
 
 
+def test_delivery_admission_spaces_failed_attempts_by_45_minutes(tmp_path: Path, monkeypatch) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
+    now = 10_000.0
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: now)
+    runtime.update_scheduler_state({"last_delivery_claim_at": now})
+
+    assert admission(manual=True) == (False, "Prompta global send gap is active", 2700.0)
+    assert runtime.send_gap_remaining(now) == 0.0  # No self-block on browser dispatch.
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: now + 2699)
+    assert admission(manual=True)[0] is False
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: now + 2700)
+    assert admission(manual=True) == (True, "", 0.0)
+
+
+def test_delivery_admission_uses_last_dispatch_gap(tmp_path: Path, monkeypatch) -> None:
+    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
+    runtime.update_scheduler_state({"last_attempt_at": 10_000.0})
+    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: 10_001.0)
+    admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
+    assert admission(manual=True) == (False, "Prompta global send gap is active", 2699.0)
+
+
 def test_delivery_admission_reloads_working_hours_config(
     tmp_path: Path,
     monkeypatch,
@@ -71,6 +94,14 @@ def test_delivery_admission_reloads_working_hours_config(
     current_hours[0] = WorkingHours()
 
     assert admission() == (True, "", 0.0)
+
+
+def test_future_queued_delivery_waits_for_its_slot(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
+    queue.upsert({"send_id": "later", "message": "Later", "client_id": "scheduled:key:later", "status": "queued", "created_at": 100.0, "retry_at": 500.0})
+    assert queue.claim_next("worker", now=499.0, lease_seconds=30.0) is None
+    record = queue.claim_next("worker", now=500.0, lease_seconds=30.0)
+    assert record is not None and record["send_id"] == "later"
 
 
 def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> None:

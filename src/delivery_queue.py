@@ -263,7 +263,7 @@ class DeliveryQueueStore:
         at = time.time() if now is None else float(now)
         with self.engine.begin() as connection:
             claimable = or_(
-                job_deliveries.c.status == "queued",
+                (job_deliveries.c.status == "queued") & (job_deliveries.c.retry_at <= at),
                 job_deliveries.c.status.in_(RETRY_DELIVERY_STATUSES)
                 & (job_deliveries.c.retry_at <= at),
                 (job_deliveries.c.status == "running") & (job_deliveries.c.lease_expires_at <= at),
