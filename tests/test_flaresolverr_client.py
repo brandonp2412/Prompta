@@ -9,7 +9,7 @@ from urllib.request import Request
 import pytest
 
 import prompta.flaresolverr_client as solver
-from prompta.playwright_driver import PlaywrightDriver
+from prompta.playwright_driver import BrowserSecurityChallengeError, PlaywrightDriver
 
 
 def test_solver_rejects_nonlocal_endpoint() -> None:
@@ -110,3 +110,32 @@ async def test_solver_clearance_applies_only_cf_cookie(
     session.send.assert_awaited_once_with(
         "Network.setUserAgentOverride", {"userAgent": "Mozilla/5.0 test-user-agent"}
     )
+
+
+@pytest.mark.asyncio
+async def test_auth_endpoint_cloudflare_challenge_is_not_treated_as_logout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    probe = AsyncMock(return_value=json.dumps({
+        "ok": False, "challenge": True, "token": "",
+    }))
+    monkeypatch.setattr(driver, "eval", probe)
+    with pytest.raises(BrowserSecurityChallengeError, match="authentication endpoint"):
+        await driver.ensure_token()
+    probe.assert_awaited_once()
+    assert "cf-mitigated" in (
+        Path(__file__).parent.parent / "src/browser_scripts/ensure_token.js"
+    ).read_text()
+
+
+@pytest.mark.asyncio
+async def test_auth_endpoint_nonchallenge_remains_login_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    monkeypatch.setattr(driver, "eval", AsyncMock(return_value=json.dumps({
+        "ok": False, "challenge": False, "token": "",
+    })))
+    with pytest.raises(RuntimeError, match="not logged into ChatGPT"):
+        await driver.ensure_token()

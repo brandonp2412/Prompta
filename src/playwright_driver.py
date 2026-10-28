@@ -286,6 +286,8 @@ class PlaywrightDriver:
             await self.eval(load_browser_script("ensure_token.js"), await_promise=True),
             label="token probe",
         )
+        if payload.get("challenge") is True:
+            raise BrowserSecurityChallengeError("ChatGPT authentication endpoint is challenged")
         token = str(payload.get("token") or "")
         if not payload.get("ok") or not token:
             raise RuntimeError("Prompta browser profile is not logged into ChatGPT")
@@ -1045,9 +1047,15 @@ class PlaywrightDriver:
                         raise RuntimeError("Prompta Chromium profile is not logged into ChatGPT")
                     if await self.ensure_token():
                         return
+                except BrowserSecurityChallengeError:
+                    if not await self._recover_security_challenge(page):
+                        raise
+                    await self.navigate("https://chatgpt.com/", context=self.context)
+                    await self.ensure_token()
+                    return
                 except Exception as exc:
                     last_error = exc
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(min(5.0, max(0.0, deadline - asyncio.get_running_loop().time())))
         except BaseException:
             await self.close()
             raise
