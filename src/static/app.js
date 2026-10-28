@@ -4840,16 +4840,17 @@ var root_10$2 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <
 var root_11$2 = /* @__PURE__ */ from_html(`<label><span>Delay (minutes, 0 = now)</span> <input type="number" min="0" max="43200" step="0.1" required=""/></label>`);
 var root_12$2 = /* @__PURE__ */ from_html(`<label><span>At (local time)</span> <input type="time" required=""/></label>`);
 var root_13$2 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Exact interval</span></label>`);
-var root_14$2 = /* @__PURE__ */ from_html(`<div class="job-image-preview"><img/> <span> </span> <button type="button">×</button></div>`);
-var root_15$2 = /* @__PURE__ */ from_html(`<div class="job-image-previews"></div>`);
-var root_16$2 = /* @__PURE__ */ from_html(`<span>Discard unsaved changes?</span> <button class="toolbar-button" type="button">Keep editing</button> <button class="toolbar-button danger-text" type="button">Discard</button>`, 1);
-var root_17$2 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
-var root_18$2 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
-var root_19$2 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
-var root_20$2 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
-var root_21$2 = /* @__PURE__ */ from_html(`<div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div>`);
-var root_22$1 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" aria-live="polite"><!></div> <!></div></form></section>`);
-var root_23$1 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_14$2 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Pin chat</span></label>`);
+var root_15$2 = /* @__PURE__ */ from_html(`<div class="job-image-preview"><img/> <span> </span> <button type="button">×</button></div>`);
+var root_16$2 = /* @__PURE__ */ from_html(`<div class="job-image-previews"></div>`);
+var root_17$2 = /* @__PURE__ */ from_html(`<span>Discard unsaved changes?</span> <button class="toolbar-button" type="button">Keep editing</button> <button class="toolbar-button danger-text" type="button">Discard</button>`, 1);
+var root_18$2 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
+var root_19$2 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
+var root_20$2 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
+var root_21$2 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
+var root_22$1 = /* @__PURE__ */ from_html(`<div class="editor-actions"><span class="keyboard-hint"> </span> <button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div>`);
+var root_23$1 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="prompt-counter"> </div> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <span> </span></div> <!></div> <div class="editor-footer"><div class="editor-feedback" aria-live="polite"><!></div> <!></div></form></section>`);
+var root_24$1 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 function JobsPage($$anchor, $$props) {
 	push($$props, true);
 	const filterOptions = [
@@ -4913,6 +4914,7 @@ function JobsPage($$anchor, $$props) {
 	let schedule = /* @__PURE__ */ state("once");
 	let interval = /* @__PURE__ */ state("40");
 	let onceDelay = /* @__PURE__ */ state("0");
+	let pinChat = /* @__PURE__ */ state(false);
 	let initialOnceDelay = "0";
 	let originalRunAtEpoch = null;
 	let dailyAt = /* @__PURE__ */ state("09:00");
@@ -4939,6 +4941,7 @@ function JobsPage($$anchor, $$props) {
 		set(schedule, "once");
 		set(interval, "40");
 		set(onceDelay, "0");
+		set(pinChat, false);
 		initialOnceDelay = "0";
 		originalRunAtEpoch = null;
 		set(dailyAt, "09:00");
@@ -4952,6 +4955,7 @@ function JobsPage($$anchor, $$props) {
 			schedule: get(schedule),
 			interval: get(interval),
 			onceDelay: get(onceDelay),
+			pinChat: get(pinChat),
 			dailyAt: get(dailyAt),
 			exact: get(exact)
 		});
@@ -5058,6 +5062,7 @@ function JobsPage($$anchor, $$props) {
 			set(images, [...job.images || []], true);
 			set(schedule, job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval", true);
 			originalRunAtEpoch = job.run_at_epoch;
+			set(pinChat, job.pin_chat, true);
 			set(onceDelay, String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1e3) / 6) / 10) : 0), true);
 			initialOnceDelay = get(onceDelay);
 			set(dailyAt, job.daily_at || "09:00", true);
@@ -5145,7 +5150,7 @@ function JobsPage($$anchor, $$props) {
 		return job.status || "pending";
 	}
 	function sameJob(left, right) {
-		return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && JSON.stringify(left.images) === JSON.stringify(right.images) && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at && left.last_uncertain_send_at === right.last_uncertain_send_at;
+		return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && JSON.stringify(left.images) === JSON.stringify(right.images) && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.pin_chat === right.pin_chat && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at && left.last_uncertain_send_at === right.last_uncertain_send_at;
 	}
 	function applyJobs(nextJobs) {
 		const sortedJobs = sortJobs(nextJobs);
@@ -5263,7 +5268,8 @@ function JobsPage($$anchor, $$props) {
 				action: "run_once",
 				prompt: jobPrompt,
 				images: get(images).map((image) => image.ref),
-				delay_minutes: delayMinutes
+				delay_minutes: delayMinutes,
+				pin_chat: get(pinChat)
 			}, delayMinutes ? `Scheduled once in ${delayMinutes} minutes (under Long jobs).` : "Queued one fresh chat.")) {
 				set(initialForm, formSnapshot(), true);
 				leaveEditor();
@@ -5277,6 +5283,7 @@ function JobsPage($$anchor, $$props) {
 			prompt: jobPrompt,
 			images: get(images).map((image) => image.ref),
 			schedule: get(schedule),
+			pin_chat: get(schedule) === "once" && get(pinChat),
 			daily_at: daily ? get(dailyAt) : "",
 			interval_minutes: get(schedule) === "interval" ? Number(get(interval)) : null,
 			exact_interval: get(schedule) === "interval" && get(exact),
@@ -5336,7 +5343,7 @@ function JobsPage($$anchor, $$props) {
 			window.removeEventListener("popstate", syncEditorFromUrl);
 		};
 	});
-	var fragment = root_23$1();
+	var fragment = root_24$1();
 	event("keydown", $window, onEditorKeydown);
 	var node = first_child(fragment);
 	var consequent_6 = ($$anchor) => {
@@ -5548,8 +5555,8 @@ function JobsPage($$anchor, $$props) {
 		if (!get(editorOpen)) $$render(consequent_6);
 	});
 	var node_9 = sibling(node, 2);
-	var consequent_20 = ($$anchor) => {
-		var section_1 = root_22$1();
+	var consequent_21 = ($$anchor) => {
+		var section_1 = root_23$1();
 		var form = child(section_1);
 		var div_17 = child(form);
 		var button_13 = child(div_17);
@@ -5638,26 +5645,36 @@ function JobsPage($$anchor, $$props) {
 			bind_checked(input_5, () => get(exact), ($$value) => set(exact, $$value));
 			append($$anchor, label_5);
 		};
+		var consequent_13 = ($$anchor) => {
+			var label_6 = root_14$2();
+			var input_6 = child(label_6);
+			remove_input_defaults(input_6);
+			next(2);
+			reset(label_6);
+			bind_checked(input_6, () => get(pinChat), ($$value) => set(pinChat, $$value));
+			append($$anchor, label_6);
+		};
 		if_block(node_13, ($$render) => {
 			if (get(schedule) === "interval") $$render(consequent_12);
+			else if (get(schedule) === "once") $$render(consequent_13, 1);
 		});
-		var label_6 = sibling(node_13, 2);
-		var textarea_1 = sibling(child(label_6), 2);
+		var label_7 = sibling(node_13, 2);
+		var textarea_1 = sibling(child(label_7), 2);
 		remove_textarea_child(textarea_1);
-		reset(label_6);
-		var div_21 = sibling(label_6, 2);
+		reset(label_7);
+		var div_21 = sibling(label_7, 2);
 		var text_20 = only_child(div_21);
 		var div_22 = sibling(div_21, 2);
 		var button_14 = child(div_22);
-		var input_6 = sibling(button_14, 2);
-		bind_this(input_6, ($$value) => imageInput = $$value, () => imageInput);
-		var text_21 = only_child(sibling(input_6, 2), true);
+		var input_7 = sibling(button_14, 2);
+		bind_this(input_7, ($$value) => imageInput = $$value, () => imageInput);
+		var text_21 = only_child(sibling(input_7, 2), true);
 		reset(div_22);
 		var node_14 = sibling(div_22, 2);
-		var consequent_13 = ($$anchor) => {
-			var div_23 = root_15$2();
+		var consequent_14 = ($$anchor) => {
+			var div_23 = root_16$2();
 			each(div_23, 21, () => get(images), (image) => image.ref, ($$anchor, image) => {
-				var div_24 = root_14$2();
+				var div_24 = root_15$2();
 				var img = child(div_24);
 				var span_13 = sibling(img, 2);
 				var text_22 = only_child(span_13, true);
@@ -5679,28 +5696,25 @@ function JobsPage($$anchor, $$props) {
 			append($$anchor, div_23);
 		};
 		if_block(node_14, ($$render) => {
-			if (get(images).length) $$render(consequent_13);
+			if (get(images).length) $$render(consequent_14);
 		});
 		reset(div_19);
 		var div_25 = sibling(div_19, 2);
 		var div_26 = child(div_25);
 		var node_15 = child(div_26);
-		var consequent_14 = ($$anchor) => {
-			var fragment_1 = root_16$2();
+		var consequent_15 = ($$anchor) => {
+			var fragment_1 = root_17$2();
 			var button_16 = sibling(first_child(fragment_1), 2);
 			var button_17 = sibling(button_16, 2);
 			delegated("click", button_16, () => set(confirmDiscard, false));
 			delegated("click", button_17, discardEditor);
 			append($$anchor, fragment_1);
 		};
-		var consequent_15 = ($$anchor) => {
-			var span_14 = root_17$2();
+		var consequent_16 = ($$anchor) => {
+			var span_14 = root_18$2();
 			var text_23 = only_child(span_14, true);
 			template_effect(() => set_text(text_23, get(editorError)));
 			append($$anchor, span_14);
-		};
-		var consequent_16 = ($$anchor) => {
-			append($$anchor, root_18$2());
 		};
 		var consequent_17 = ($$anchor) => {
 			append($$anchor, root_19$2());
@@ -5708,17 +5722,20 @@ function JobsPage($$anchor, $$props) {
 		var consequent_18 = ($$anchor) => {
 			append($$anchor, root_20$2());
 		};
+		var consequent_19 = ($$anchor) => {
+			append($$anchor, root_21$2());
+		};
 		if_block(node_15, ($$render) => {
-			if (get(confirmDiscard)) $$render(consequent_14);
-			else if (get(editorError)) $$render(consequent_15, 1);
-			else if (get(duplicateName)) $$render(consequent_16, 2);
-			else if (get(dirty)) $$render(consequent_17, 3);
-			else if (get(editing)) $$render(consequent_18, 4);
+			if (get(confirmDiscard)) $$render(consequent_15);
+			else if (get(editorError)) $$render(consequent_16, 1);
+			else if (get(duplicateName)) $$render(consequent_17, 2);
+			else if (get(dirty)) $$render(consequent_18, 3);
+			else if (get(editing)) $$render(consequent_19, 4);
 		});
 		reset(div_26);
 		var node_16 = sibling(div_26, 2);
-		var consequent_19 = ($$anchor) => {
-			var div_27 = root_21$2();
+		var consequent_20 = ($$anchor) => {
+			var div_27 = root_22$1();
 			var span_18 = child(div_27);
 			var text_24 = only_child(span_18);
 			var button_18 = sibling(span_18, 2);
@@ -5735,7 +5752,7 @@ function JobsPage($$anchor, $$props) {
 			append($$anchor, div_27);
 		};
 		if_block(node_16, ($$render) => {
-			if (!get(confirmDiscard)) $$render(consequent_19);
+			if (!get(confirmDiscard)) $$render(consequent_20);
 		});
 		reset(div_25);
 		reset(form);
@@ -5747,7 +5764,7 @@ function JobsPage($$anchor, $$props) {
 			set_class(div_19, 1, "editor-body" + (get(images).length ? " has-images" : ""));
 			set_text(text_20, `${$0 ?? ""} characters · ${$1 ?? ""} lines`);
 			button_14.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
-			input_6.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
+			input_7.disabled = get(uploadingImage) || get(saving) || get(images).length >= 4;
 			set_text(text_21, get(uploadingImage) ? "Uploading…" : get(images).length + "/4 images");
 			set_attribute(div_26, "role", get(confirmDiscard) ? "alertdialog" : "status");
 			set_attribute(div_26, "aria-label", get(confirmDiscard) ? "Discard unsaved changes" : void 0);
@@ -5761,11 +5778,11 @@ function JobsPage($$anchor, $$props) {
 		event("focus", textarea_1, () => requestAnimationFrame(keepFocusedPromptVisible));
 		bind_value(textarea_1, () => get(prompt), ($$value) => set(prompt, $$value));
 		delegated("click", button_14, () => imageInput?.click());
-		delegated("change", input_6, (event) => void addImages(event.currentTarget));
+		delegated("change", input_7, (event) => void addImages(event.currentTarget));
 		append($$anchor, section_1);
 	};
 	if_block(node_9, ($$render) => {
-		if (get(editorOpen)) $$render(consequent_20);
+		if (get(editorOpen)) $$render(consequent_21);
 	});
 	append($$anchor, fragment);
 	pop();

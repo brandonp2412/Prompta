@@ -55,7 +55,9 @@ def test_web_job_service_manages_interval_job_lifecycle(tmp_path: Path) -> None:
 def test_bulk_pause_only_affects_selected_jobs_and_resumes_them(tmp_path: Path) -> None:
     database = tmp_path / "jobs.sqlite3"
     wakeups: list[bool] = []
-    service = WebJobService(database, database, "test-host", start_scheduler=lambda: wakeups.append(True) or True)
+    service = WebJobService(
+        database, database, "test-host", start_scheduler=lambda: wakeups.append(True) or True
+    )
     for name in ("visible-a", "visible-b", "hidden-long"):
         add_job(database, name, "Work", 2400)
 
@@ -208,32 +210,44 @@ def test_fire_now_rejects_unknown_job_without_queuing(tmp_path: Path) -> None:
     assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
 
 
-def test_run_once_queues_prompt_without_scheduling_or_changing_existing_jobs(tmp_path: Path) -> None:
+@pytest.mark.parametrize("pin_chat", [False, True])
+def test_run_once_queues_prompt_without_scheduling_or_changing_existing_jobs(
+    tmp_path: Path, pin_chat: bool
+) -> None:
     jobs = tmp_path / "jobs.sqlite3"
     state = tmp_path / "state.sqlite3"
     add_job(jobs, "audit", "Recurring work", 2400)
     service = WebJobService(jobs, state, "test-host")
     service.runtime.update_job_state("audit", {"next_due_at_epoch": 5000.0})
 
-    result = service.apply("run_once", {"prompt": "  Investigate now  "})
+    result = service.apply(
+        "run_once", {"prompt": "  Investigate now  ", **({"pin_chat": True} if pin_chat else {})}
+    )
     assert [job["name"] for job in result["jobs"]] == ["audit"]
     assert service.runtime.job_state("audit")["next_due_at_epoch"] == 5000.0
     deliveries = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
     assert len(deliveries) == 1
     assert deliveries[0]["message"] == "Investigate now"
+    assert deliveries[0]["pin_chat"] is pin_chat
     assert str(deliveries[0]["client_id"]).startswith("manual:")
 
 
-def test_run_once_delay_creates_durable_one_shot_and_sends_at_due(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("pin_chat", [False, True])
+def test_run_once_delay_creates_durable_one_shot_and_sends_at_due(
+    tmp_path: Path, monkeypatch, pin_chat: bool
+) -> None:
     monkeypatch.setattr("prompta.web_jobs.time.time", lambda: 1000.0)
     jobs = tmp_path / "jobs.sqlite3"
     state = tmp_path / "state.sqlite3"
     service = WebJobService(jobs, state, "test-host")
-    scheduled = service.apply("run_once", {"prompt": "Run later", "delay_minutes": 15})
+    scheduled = service.apply(
+        "run_once", {"prompt": "Run later", "delay_minutes": 15, "pin_chat": pin_chat}
+    )
     assert len(scheduled["jobs"]) == 1
     job = scheduled["jobs"][0]
     assert str(job["name"]).startswith("Once ")
     assert job["run_at_epoch"] == 1900.0
+    assert job["pin_chat"] is pin_chat
     assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
 
     producer = DurableSchedulerProducer(state, jobs)
@@ -243,6 +257,7 @@ def test_run_once_delay_creates_durable_one_shot_and_sends_at_due(tmp_path: Path
     records = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
     assert len(records) == 1
     assert records[0]["message"] == "Run later"
+    assert records[0]["pin_chat"] is pin_chat
     assert service.scheduled_jobs()["jobs"] == []
 
 
@@ -253,17 +268,35 @@ def test_delayed_once_edit_preserves_due_until_delay_changes(tmp_path: Path, mon
     service = WebJobService(jobs, state, "test-host")
     created = service.apply("run_once", {"prompt": "Original", "delay_minutes": 15})
     name = created["jobs"][0]["name"]
-    edited = service.apply("add", {"name": name, "prompt": "Updated", "schedule": "once"})
+    edited = service.apply(
+        "add", {"name": name, "prompt": "Updated", "schedule": "once", "pin_chat": True}
+    )
     assert edited["jobs"][0]["run_at_epoch"] == 1900.0
+    assert edited["jobs"][0]["pin_chat"] is True
 
     rescheduled = service.apply(
         "add", {"name": name, "prompt": "Updated", "schedule": "once", "delay_minutes": 30}
     )
     assert rescheduled["jobs"][0]["run_at_epoch"] == 2800.0
+    assert rescheduled["jobs"][0]["pin_chat"] is True
     producer = DurableSchedulerProducer(state, jobs)
     assert producer.tick(now=1900.0) == 0
     assert producer.tick(now=2800.0) == 1
-    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()[0]["message"] == "Updated"
+    assert (
+        DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()[0]["message"] == "Updated"
+    )
+    assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()[0]["pin_chat"] is True
+
+
+@pytest.mark.parametrize("action", ["run_once", "add"])
+def test_once_rejects_non_boolean_pin_choice(tmp_path: Path, action: str) -> None:
+    service = WebJobService(tmp_path / "jobs.sqlite3", tmp_path / "state.sqlite3", "test-host")
+    payload: dict[str, object] = {"prompt": "No", "pin_chat": "false"}
+    if action == "add":
+        payload.update({"name": "invalid", "schedule": "once"})
+    with pytest.raises(ValueError, match="Pin chat must be true or false"):
+        service.apply(action, payload)
+    assert service.scheduled_jobs()["jobs"] == []
 
 
 @pytest.mark.parametrize("delay", [-1, 43201, "nan", "inf", None, True, "abc"])

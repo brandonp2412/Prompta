@@ -31,7 +31,9 @@ The Jobs and Chats UI is at `http://127.0.0.1:8765`. Its Chats view reads only P
 uv run prompta add nightly-review "Review the project and improve it" --daily-at 21:00
 uv run prompta edit nightly-review "Review the project, improve it, and update the ledger"
 uv run prompta list
-uv run prompta once "Run this immediately in a fresh chat"
+uv run prompta once "Run this immediately in a fresh chat"  # unpinned by default
+uv run prompta once --pin "Run this and pin the new chat"
+uv run prompta at 21:30 one-shot "Run once at 9:30pm" --pin
 uv run prompta once --job nightly-review  # fire an existing job and restart its interval
 ```
 

@@ -65,9 +65,7 @@ def _dispatch_remote(argv: list[str]) -> int | None:
     if not remote_cli:
         remote_cli = DEFAULT_REMOTE_CLI
 
-    remote_command = shlex.join(
-        ["env", f"{PROMPTA_HOST_ENV}=local", remote_cli, *argv]
-    )
+    remote_command = shlex.join(["env", f"{PROMPTA_HOST_ENV}=local", remote_cli, *argv])
     try:
         completed = subprocess.run(["ssh", host, remote_command], check=False)
     except FileNotFoundError:
@@ -114,6 +112,7 @@ def _jobs_payload(path: Path, state_path: Path) -> list[dict[str, object]]:
                 "exact_interval": job.exact_interval,
                 "mutex_group": job.mutex_group,
                 "run_at_epoch": job.run_at_epoch,
+                "pin_chat": job.pin_chat,
                 "paused": state.get("paused") is True,
                 "status": state.get("status") or "pending",
             }
@@ -291,6 +290,20 @@ def build_parser() -> argparse.ArgumentParser:
     once = subparsers.add_parser("once", help="Send a prompt in one fresh chat immediately")
     once.add_argument("prompt", nargs="?", help="Prompt text for an unscheduled chat")
     once.add_argument("--job", help="Use an existing job's prompt and restart its interval")
+    once.add_argument(
+        "--pin",
+        "--pin-chat",
+        dest="pin_chat",
+        action="store_true",
+        default=None,
+        help="Pin the created chat",
+    )
+    once.add_argument(
+        "--no-pin",
+        dest="pin_chat",
+        action="store_false",
+        help="Do not pin the created chat (default)",
+    )
     once.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     once.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
 
@@ -304,6 +317,15 @@ def build_parser() -> argparse.ArgumentParser:
     at.add_argument("when", metavar="TIME", help="HH:MM or ISO local datetime")
     at.add_argument("name")
     at.add_argument("prompt")
+    at.add_argument(
+        "--pin", "--pin-chat", dest="pin_chat", action="store_true", help="Pin the created chat"
+    )
+    at.add_argument(
+        "--no-pin",
+        dest="pin_chat",
+        action="store_false",
+        help="Do not pin the created chat (default)",
+    )
     at.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     at.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
 
@@ -366,6 +388,7 @@ def main() -> None:
                 job,
                 runtime=SchedulerRuntime(args.state, args.jobs_file),
                 queue=queue,
+                pin_chat=args.pin_chat,
             )
             detail = (
                 f"from {job.name}, interval restarted"
@@ -373,7 +396,7 @@ def main() -> None:
                 else f"from {job.name}, fixed schedule unchanged"
             )
         else:
-            receipt = queue.enqueue_manual(prompt)
+            receipt = queue.enqueue_manual(prompt, pin_chat=args.pin_chat is True)
         _print_notice("▶", "Queued one chat", f"{detail} · {receipt['send_id']}", tone="32")
         return
 
@@ -389,6 +412,7 @@ def main() -> None:
             0.0,
             exact_interval=True,
             run_at_epoch=run_at_epoch,
+            pin_chat=args.pin_chat,
         )
         SchedulerRuntime(args.state, args.jobs_file).clear_job_state(args.name)
         scheduled = datetime.fromtimestamp(run_at_epoch).astimezone().strftime("%Y-%m-%d %H:%M")

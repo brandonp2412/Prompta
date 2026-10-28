@@ -71,6 +71,7 @@ class PromptJob:
     # Existing SQLite rowid tracks insertion order even when a job is edited.
     created_order: int = field(default=0, compare=False)
     images: tuple[str, ...] = ()
+    pin_chat: bool = False
 
 
 def load_jobs(path: Path) -> dict[str, PromptJob]:
@@ -105,6 +106,7 @@ def load_jobs(path: Path) -> dict[str, PromptJob]:
             str(row["mutex_group"] or ""),
             int(row["created_order"]),
             image_refs(json.loads(str(row["images_json"] or "[]"))),
+            bool(row["pin_chat"]),
         )
         for row in rows
     }
@@ -120,6 +122,7 @@ def normalise_job_definition(
     source_revision: str = "",
     mutex_group: str = "",
     images: tuple[str, ...] = (),
+    pin_chat: bool = False,
 ) -> PromptJob:
     normalized_name = name.strip()
     if not normalized_name:
@@ -140,6 +143,7 @@ def normalise_job_definition(
         source_revision.strip().lower(),
         mutex_group.strip(),
         images=image_refs(images),
+        pin_chat=bool(pin_chat) if normalised_run_at is not None else False,
     )
 
 
@@ -154,6 +158,7 @@ def add_job(
     source_revision: str | None = None,
     mutex_group: str = "",
     images: tuple[str, ...] | None = None,
+    pin_chat: bool = False,
 ) -> None:
     job = normalise_job_definition(
         name,
@@ -165,6 +170,7 @@ def add_job(
         source_revision if source_revision is not None else current_source_revision(),
         mutex_group,
         images=images or (),
+        pin_chat=pin_chat,
     )
 
     engine = create_database(path)
@@ -176,6 +182,7 @@ def add_job(
             "daily_at": job.daily_at,
             "exact_interval": job.exact_interval,
             "run_at_epoch": job.run_at_epoch,
+            "pin_chat": job.pin_chat,
             "source_revision": job.source_revision,
             "mutex_group": job.mutex_group,
             "images_json": json.dumps(job.images),
@@ -186,7 +193,12 @@ def add_job(
             set_={
                 key: getattr(statement.excluded, key)
                 for key in values
-                if key not in ({"name", "source_revision", "images_json"} if images is None else {"name", "source_revision"})
+                if key
+                not in (
+                    {"name", "source_revision", "images_json"}
+                    if images is None
+                    else {"name", "source_revision"}
+                )
             },
         )
         with engine.begin() as connection:

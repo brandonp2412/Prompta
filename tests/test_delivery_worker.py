@@ -41,7 +41,9 @@ def test_delivery_admission_blocks_outside_working_hours(
     assert retry_after > 0
 
 
-def test_delivery_admission_spaces_failed_attempts_by_45_minutes(tmp_path: Path, monkeypatch) -> None:
+def test_delivery_admission_spaces_failed_attempts_by_45_minutes(
+    tmp_path: Path, monkeypatch
+) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
     admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
     now = 10_000.0
@@ -98,7 +100,16 @@ def test_delivery_admission_reloads_working_hours_config(
 
 def test_future_queued_delivery_waits_for_its_slot(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
-    queue.upsert({"send_id": "later", "message": "Later", "client_id": "scheduled:key:later", "status": "queued", "created_at": 100.0, "retry_at": 500.0})
+    queue.upsert(
+        {
+            "send_id": "later",
+            "message": "Later",
+            "client_id": "scheduled:key:later",
+            "status": "queued",
+            "created_at": 100.0,
+            "retry_at": 500.0,
+        }
+    )
     assert queue.claim_next("worker", now=499.0, lease_seconds=30.0) is None
     record = queue.claim_next("worker", now=500.0, lease_seconds=30.0)
     assert record is not None and record["send_id"] == "later"
@@ -141,10 +152,13 @@ def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> Non
     assert cancelled["status"] == "cancelled"
 
 
-def test_queued_once_job_survives_scheduled_job_removal_and_pins_chat(tmp_path: Path) -> None:
+@pytest.mark.parametrize("pin_chat", [False, True])
+def test_queued_once_job_survives_scheduled_job_removal_and_respects_pin_choice(
+    tmp_path: Path, pin_chat: bool
+) -> None:
     runtime_path = tmp_path / "runtime.sqlite3"
     queue_path = tmp_path / "ui-send-jobs.sqlite3"
-    add_job(runtime_path, "one-time", "Only once", 0, run_at_epoch=1000.0)
+    add_job(runtime_path, "one-time", "Only once", 0, run_at_epoch=1000.0, pin_chat=pin_chat)
     producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
     assert producer.tick(now=1000.0) == 1
     assert "one-time" not in load_jobs(runtime_path)
@@ -156,21 +170,26 @@ def test_queued_once_job_survives_scheduled_job_removal_and_pins_chat(tmp_path: 
         calls.append((message, pin_chat))
 
     _deliver_one(
-        producer.queue, sender, producer.runtime,
-        ServiceHealthStore(tmp_path / "health.sqlite3"), "worker", record,
+        producer.queue,
+        sender,
+        producer.runtime,
+        ServiceHealthStore(tmp_path / "health.sqlite3"),
+        "worker",
+        record,
     )
-    assert calls == [("Only once", True)]
+    assert calls == [("Only once", pin_chat)]
     receipt = producer.queue.get(str(record["send_id"]))
     assert receipt is not None and receipt["status"] == "succeeded"
 
 
-def test_manual_once_job_is_pinned(tmp_path: Path) -> None:
+@pytest.mark.parametrize("pin_chat", [False, True])
+def test_manual_once_job_respects_pin_choice(tmp_path: Path, pin_chat: bool) -> None:
     from prompta.manual_fire import fire_job_now
 
     state = tmp_path / "runtime.sqlite3"
     queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
     runtime = SchedulerRuntime(state, state)
-    add_job(state, "once", "Fire me", 0, run_at_epoch=2000.0)
+    add_job(state, "once", "Fire me", 0, run_at_epoch=2000.0, pin_chat=pin_chat)
     fire_job_now(load_jobs(state)["once"], runtime=runtime, queue=queue, now=1000.0)
     record = queue.claim_next("worker", now=1001.0, lease_seconds=30.0)
     assert record is not None
@@ -182,7 +201,7 @@ def test_manual_once_job_is_pinned(tmp_path: Path) -> None:
     _deliver_one(
         queue, sender, runtime, ServiceHealthStore(tmp_path / "health.sqlite3"), "worker", record
     )
-    assert calls == [("Fire me", True)]
+    assert calls == [("Fire me", pin_chat)]
 
 
 def test_manual_delivery_bypasses_working_hours_but_keeps_other_limits(
@@ -191,10 +210,14 @@ def test_manual_delivery_bypasses_working_hours_but_keeps_other_limits(
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
     hours = WorkingHours(enabled=True, start=time(22, 30), end=time(8), timezone="Pacific/Auckland")
     monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: 1791154800.0)
-    admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""), working_hours=hours)
+    admission = DeliveryAdmission(
+        runtime, resource_admission=lambda: (True, ""), working_hours=hours
+    )
     assert admission()[0] is False
     assert admission(manual=True) == (True, "", 0.0)
-    blocked = DeliveryAdmission(runtime, resource_admission=lambda: (False, "busy"), working_hours=hours)
+    blocked = DeliveryAdmission(
+        runtime, resource_admission=lambda: (False, "busy"), working_hours=hours
+    )
     assert blocked(manual=True) == (False, "busy", 0.0)
 
 
@@ -228,7 +251,8 @@ def _locked_error(message: str = "database is locked") -> OperationalError:
 
 
 def test_admission_defers_sends_when_resource_state_write_is_locked(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
     admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
@@ -251,7 +275,8 @@ def test_admission_defers_sends_when_resource_state_write_is_locked(
 
 
 def test_admission_does_not_hide_nonlocking_database_failures(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
     admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))

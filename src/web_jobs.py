@@ -52,6 +52,12 @@ def _validated_once_delay_minutes(value: object) -> float:
     return minutes
 
 
+def _validated_pin_chat(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("Pin chat must be true or false")
+    return value
+
+
 def serialize_scheduled_jobs(
     jobs: list[PromptJob],
     state_jobs: dict[str, object],
@@ -76,10 +82,14 @@ def serialize_scheduled_jobs(
                 "name": job.name,
                 "created_order": job.created_order,
                 "prompt": job.prompt,
-                "images": [{"ref": ref, "name": ref.split("/", 1)[1], "url": "./api/images/" + ref} for ref in job.images],
+                "images": [
+                    {"ref": ref, "name": ref.split("/", 1)[1], "url": "./api/images/" + ref}
+                    for ref in job.images
+                ],
                 "interval_minutes": job.interval_seconds / 60.0,
                 "daily_at": job.daily_at,
                 "run_at_epoch": job.run_at_epoch,
+                "pin_chat": job.pin_chat,
                 "exact_interval": job.exact_interval,
                 "mutex_group": job.mutex_group,
                 "source_revision": job.source_revision,
@@ -153,13 +163,22 @@ class WebJobService:
                 else (existing.mutex_group if existing is not None else "")
             ).strip()
             once = payload.get("schedule") == "once"
+            pin_chat = (
+                _validated_pin_chat(
+                    payload.get("pin_chat", existing.pin_chat if existing else False)
+                )
+                if once
+                else False
+            )
             daily_at = str(payload.get("daily_at") or "").strip() or None
             if once:
                 daily_at = None
                 interval_seconds = 0.0
                 exact_interval = False
                 if "delay_minutes" in payload:
-                    run_at_epoch = time.time() + _validated_once_delay_minutes(payload["delay_minutes"]) * 60
+                    run_at_epoch = (
+                        time.time() + _validated_once_delay_minutes(payload["delay_minutes"]) * 60
+                    )
                 else:
                     run_at_epoch = (
                         existing.run_at_epoch
@@ -186,6 +205,7 @@ class WebJobService:
                 daily_at=daily_at,
                 exact_interval=exact_interval,
                 run_at_epoch=run_at_epoch,
+                pin_chat=pin_chat,
                 mutex_group=mutex_group,
                 images=images,
             )
@@ -225,15 +245,24 @@ class WebJobService:
             for ref in images:
                 self.images.path(ref)
             delay_minutes = _validated_once_delay_minutes(payload.get("delay_minutes", 0))
+            pin_chat = _validated_pin_chat(payload.get("pin_chat", False))
             if delay_minutes == 0:
                 DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
-                    prompt.strip(), images=images
+                    prompt.strip(), images=images, pin_chat=pin_chat
                 )
             else:
                 run_at_epoch = time.time() + delay_minutes * 60
                 label = datetime.fromtimestamp(run_at_epoch).strftime("%d %b %H:%M")
                 name = f"Once {label} {uuid.uuid4().hex[:8]}"
-                add_job(self.jobs_path, name, prompt.strip(), 0, run_at_epoch=run_at_epoch, images=images)
+                add_job(
+                    self.jobs_path,
+                    name,
+                    prompt.strip(),
+                    0,
+                    run_at_epoch=run_at_epoch,
+                    images=images,
+                    pin_chat=pin_chat,
+                )
                 runtime.clear_job_state(name)
                 self._wake_scheduler()
 

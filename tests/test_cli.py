@@ -203,6 +203,7 @@ def test_cli_restores_human_readable_list_show_and_json(
             "exact_interval": True,
             "mutex_group": "ibkr-refactor",
             "run_at_epoch": None,
+            "pin_chat": False,
             "paused": False,
             "status": "pending",
         }
@@ -260,6 +261,39 @@ def test_cli_at_schedules_one_time_job(tmp_path: Path, monkeypatch, capsys) -> N
     output = _run_cli(monkeypatch, capsys, "show", "translation-hi", *paths)
     assert "Schedule" in output
     assert "once at 2099-01-01 13:00 local time" in output
+
+
+def test_once_cli_pin_flags_queue_explicit_choice(tmp_path: Path, monkeypatch, capsys) -> None:
+    runtime = tmp_path / "runtime.sqlite3"
+    paths = _paths(runtime)
+    _run_cli(monkeypatch, capsys, "once", "No pin", *paths)
+    _run_cli(monkeypatch, capsys, "once", "Pin", "--pin", *paths)
+    _run_cli(monkeypatch, capsys, "once", "No pin explicit", "--no-pin", *paths)
+    receipts = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert [(r["message"], r["pin_chat"]) for r in receipts] == [
+        ("No pin", False),
+        ("Pin", True),
+        ("No pin explicit", False),
+    ]
+
+
+def test_once_cli_job_inherits_pin_and_allows_override(tmp_path: Path, monkeypatch, capsys) -> None:
+    runtime = tmp_path / "runtime.sqlite3"
+    add_job(runtime, "one", "Job message", 0, run_at_epoch=10000.0, pin_chat=True)
+    paths = _paths(runtime)
+    _run_cli(monkeypatch, capsys, "once", "--job", "one", *paths)
+    _run_cli(monkeypatch, capsys, "once", "--job", "one", "--no-pin", *paths)
+    receipts = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records()
+    assert [r["pin_chat"] for r in receipts] == [True, False]
+
+
+def test_at_cli_pin_flag_persists_choice(tmp_path: Path, monkeypatch, capsys) -> None:
+    runtime = tmp_path / "runtime.sqlite3"
+    paths = _paths(runtime)
+    _run_cli(monkeypatch, capsys, "at", "2099-01-01T13:00", "off", "Off", *paths)
+    _run_cli(monkeypatch, capsys, "at", "2099-01-01T14:00", "on", "On", "--pin", *paths)
+    assert load_jobs(runtime)["off"].pin_chat is False
+    assert load_jobs(runtime)["on"].pin_chat is True
 
 
 def test_parse_run_at_rolls_time_only_to_next_day() -> None:
@@ -335,7 +369,9 @@ def test_cli_remove_cancels_pending_delivery(tmp_path: Path, monkeypatch, capsys
     assert cancelled["status"] == "cancelled"
 
 
-def test_once_queues_unscheduled_chat_without_creating_job(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_once_queues_unscheduled_chat_without_creating_job(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     state = tmp_path / "runtime.sqlite3"
     output = _run_cli(monkeypatch, capsys, "once", "Inspect once", *_paths(state))
     assert "Queued one chat" in output

@@ -13,6 +13,7 @@
     status_message: string;
     paused: boolean;
     run_at_epoch: number | null;
+    pin_chat: boolean;
     daily_at: string | null;
     interval_minutes: number;
     exact_interval: boolean;
@@ -71,6 +72,7 @@
   let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
   let onceDelay = $state("0");
+  let pinChat = $state(false);
   let initialOnceDelay = "0";
   let originalRunAtEpoch: number | null = null;
   let dailyAt = $state("09:00");
@@ -98,6 +100,7 @@
     schedule = "once";
     interval = "40";
     onceDelay = "0";
+    pinChat = false;
     initialOnceDelay = "0";
     originalRunAtEpoch = null;
     dailyAt = "09:00";
@@ -105,7 +108,7 @@
   }
 
   function formSnapshot() {
-    return JSON.stringify({ name, prompt, images: images.map((image) => image.ref), schedule, interval, onceDelay, dailyAt, exact });
+    return JSON.stringify({ name, prompt, images: images.map((image) => image.ref), schedule, interval, onceDelay, pinChat, dailyAt, exact });
   }
 
   function closeEditorState() {
@@ -218,6 +221,7 @@
       images = [...(job.images || [])];
       schedule = job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval";
       originalRunAtEpoch = job.run_at_epoch;
+      pinChat = job.pin_chat;
       onceDelay = String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1000) / 6) / 10) : 0);
       initialOnceDelay = onceDelay;
       dailyAt = job.daily_at || "09:00";
@@ -331,6 +335,7 @@
       left.status_message === right.status_message &&
       left.paused === right.paused &&
       left.run_at_epoch === right.run_at_epoch &&
+      left.pin_chat === right.pin_chat &&
       left.daily_at === right.daily_at &&
       left.interval_minutes === right.interval_minutes &&
       left.exact_interval === right.exact_interval &&
@@ -467,7 +472,7 @@
     if (runOnce) {
       const delayMinutes = Number(onceDelay);
       const queued = await command(
-        { action: "run_once", prompt: jobPrompt, images: images.map((image) => image.ref), delay_minutes: delayMinutes },
+        { action: "run_once", prompt: jobPrompt, images: images.map((image) => image.ref), delay_minutes: delayMinutes, pin_chat: pinChat },
         delayMinutes ? `Scheduled once in ${delayMinutes} minutes (under Long jobs).` : "Queued one fresh chat.",
       );
       if (queued) {
@@ -484,6 +489,7 @@
         prompt: jobPrompt,
         images: images.map((image) => image.ref),
         schedule,
+        pin_chat: schedule === "once" && pinChat,
         daily_at: daily ? dailyAt : "",
         interval_minutes: schedule === "interval" ? Number(interval) : null,
         exact_interval: schedule === "interval" && exact,
@@ -761,6 +767,11 @@
             <label class="checkbox-row">
               <input bind:checked={exact} type="checkbox" />
               <span>Exact interval</span>
+            </label>
+          {:else if schedule === "once"}
+            <label class="checkbox-row">
+              <input bind:checked={pinChat} type="checkbox" />
+              <span>Pin chat</span>
             </label>
           {/if}
 

@@ -35,6 +35,7 @@ scheduled_jobs = Table(
     Column("daily_at", String),
     Column("exact_interval", Boolean, nullable=False, default=False),
     Column("run_at_epoch", Float),
+    Column("pin_chat", Boolean, nullable=False, default=False),
     Column("source_revision", String, nullable=False, default=""),
     Column("mutex_group", String, nullable=False, default=""),
     Column("images_json", Text, nullable=False, default="[]"),
@@ -60,6 +61,7 @@ job_deliveries = Table(
     Column("send_id", String, nullable=False, unique=True),
     Column("message", Text, nullable=False),
     Column("images_json", Text, nullable=False, default="[]"),
+    Column("pin_chat", Boolean, nullable=False, default=False),
     Column("client_id", String, nullable=False, default=""),
     Column("status", String, nullable=False, default="queued"),
     Column("error", Text, nullable=False, default=""),
@@ -121,10 +123,24 @@ def _database_engine(path: str, timeout: float) -> Engine:
                 "scheduled_jobs", Column("mutex_group", String, nullable=False, server_default="")
             )
         if "images_json" not in columns:
-            migrations.add_column("scheduled_jobs", Column("images_json", Text, nullable=False, server_default="[]"))
-        delivery_columns = {column["name"] for column in inspect(connection).get_columns("job_deliveries")}
+            migrations.add_column(
+                "scheduled_jobs", Column("images_json", Text, nullable=False, server_default="[]")
+            )
+        if "pin_chat" not in columns:
+            migrations.add_column(
+                "scheduled_jobs", Column("pin_chat", Boolean, nullable=False, server_default="0")
+            )
+        delivery_columns = {
+            column["name"] for column in inspect(connection).get_columns("job_deliveries")
+        }
         if "images_json" not in delivery_columns:
-            migrations.add_column("job_deliveries", Column("images_json", Text, nullable=False, server_default="[]"))
+            migrations.add_column(
+                "job_deliveries", Column("images_json", Text, nullable=False, server_default="[]")
+            )
+        if "pin_chat" not in delivery_columns:
+            migrations.add_column(
+                "job_deliveries", Column("pin_chat", Boolean, nullable=False, server_default="0")
+            )
         account_backoff = insert(account_state).from_select(
             ["key", "value_json"],
             select(literal("rate_limit_backoff"), scheduler_state.c.value_json).where(

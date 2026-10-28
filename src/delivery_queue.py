@@ -44,6 +44,7 @@ class DeliveryQueueStore:
             "message": str(row["message"]),
             "images": image_refs(json.loads(str(row["images_json"] or "[]"))),
             "client_id": str(row["client_id"] or ""),
+            "pin_chat": bool(row["pin_chat"]),
             "status": str(row["status"] or "queued"),
             "error": str(row["error"] or ""),
             "last_error": str(row["last_error"] or ""),
@@ -127,6 +128,7 @@ class DeliveryQueueStore:
                 "message": message,
                 "images_json": json.dumps(image_refs(record.get("images", ()))),
                 "client_id": client_id,
+                "pin_chat": record.get("pin_chat") is True,
                 "status": "queued",
                 "error": "",
                 "last_error": "",
@@ -160,15 +162,25 @@ class DeliveryQueueStore:
             created = result.rowcount == 1
         if created or receipt["status"] in ("queued", "running", "retrying", "rate_limited"):
             client = str(receipt["client_id"])
-            job_name = client.split(":", 2)[2] if client.startswith("scheduled:") and client.count(":") >= 2 else ""
+            job_name = (
+                client.split(":", 2)[2]
+                if client.startswith("scheduled:") and client.count(":") >= 2
+                else ""
+            )
             self.results.ensure_queued(
-                str(receipt["send_id"]), str(receipt["message"]), job_name,
+                str(receipt["send_id"]),
+                str(receipt["message"]),
+                job_name,
                 now=float_value(receipt["created_at"]),
             )
         return receipt, created
 
     def enqueue_manual(
-        self, prompt: str, *, now: float | None = None, pin_chat: bool = False,
+        self,
+        prompt: str,
+        *,
+        now: float | None = None,
+        pin_chat: bool = False,
         images: tuple[str, ...] = (),
     ) -> dict[str, object]:
         """Queue an independent fresh chat without touching any job's schedule."""
@@ -178,7 +190,8 @@ class DeliveryQueueStore:
         receipt, _created = self.enqueue_idempotent(
             {
                 "send_id": f"manual-{request_id}",
-                "client_id": f"manual:{'once:' if pin_chat else ''}{request_id}",
+                "client_id": f"manual:{request_id}",
+                "pin_chat": pin_chat,
                 "message": prompt,
                 "images": images,
                 "created_at": time.time() if now is None else now,
@@ -249,7 +262,11 @@ class DeliveryQueueStore:
             )
         if values["status"] in ("queued", "running", "retrying", "rate_limited"):
             client = str(values["client_id"])
-            job_name = client.split(":", 2)[2] if client.startswith("scheduled:") and client.count(":") >= 2 else ""
+            job_name = (
+                client.split(":", 2)[2]
+                if client.startswith("scheduled:") and client.count(":") >= 2
+                else ""
+            )
             self.results.ensure_queued(send_id, message, job_name, now=created)
 
     def claim_next(

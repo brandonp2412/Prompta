@@ -174,9 +174,15 @@ def _deliver_one(
     job_name = _scheduled_job_name(record)
     state = runtime.job_state(job_name) if job_name else {}
     once = (
-        (bool(state.get("pending_delivery_one_time"))
-         and state.get("last_delivery_send_id") == send_id)
-        if job_name else str(record.get("client_id") or "").startswith("manual:once:")
+        (
+            bool(state.get("pending_delivery_one_time"))
+            and state.get("last_delivery_send_id") == send_id
+        )
+        if job_name
+        else str(record.get("client_id") or "").startswith("manual:once:")
+    )
+    pin_chat = bool(record.get("pin_chat")) or str(record.get("client_id") or "").startswith(
+        "manual:once:"
     )
     if job_name and job_name not in runtime.read_jobs() and not once:
         error = f"scheduled job {job_name!r} was removed before delivery"
@@ -207,9 +213,15 @@ def _deliver_one(
     try:
         try:
             if isinstance(sender, BrowserDeliverySender):
-                sender(message, pin_chat=once, send_id=send_id, job_name=job_name, images=record["images"])
+                sender(
+                    message,
+                    pin_chat=pin_chat,
+                    send_id=send_id,
+                    job_name=job_name,
+                    images=record["images"],
+                )
             else:
-                sender(message, pin_chat=once)
+                sender(message, pin_chat=pin_chat)
         except RateLimitError as exc:
             remaining, _attempts = runtime.global_backoff_status()
             delay = remaining if remaining > 0 else max(1.0, float(exc.retry_after))
@@ -315,7 +327,9 @@ def _deliver_one(
         if not queue.complete_claim(send_id, owner):
             logger.error("Could not commit successful delivery receipt send_id=%s", send_id)
             return
-        logger.info("Prompta accepted fresh chat and handed off passive capture send_id=%s", send_id)
+        logger.info(
+            "Prompta accepted fresh chat and handed off passive capture send_id=%s", send_id
+        )
     finally:
         lease_stop.set()
         renewer.join(timeout=1.0)
@@ -379,7 +393,9 @@ def run(
             except OperationalError as exc:
                 if not _sqlite_busy(exc):
                     raise
-                logger.warning("SQLite busy in delivery worker; will retry without dispatching", exc_info=True)
+                logger.warning(
+                    "SQLite busy in delivery worker; will retry without dispatching", exc_info=True
+                )
                 time.sleep(1.0)
     except KeyboardInterrupt:
         pass
