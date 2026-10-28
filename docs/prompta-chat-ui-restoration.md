@@ -208,3 +208,12 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 ### Stage 5 handoff
 
 - Stage 4 is the local transcript/view layer only. Stage 5 must separately build the explicit user-triggered composer and verify actual browser manual dispatch with exact persisted conversation and current parent identities, irreversible claim, global backoff/send-gap, watchdog leases and no ambiguous retry. Never automatically drain prepared intents or reuse an existing chat for scheduled runs. Preserve FlareSolverr, passive capture, image isolation, connector approval policy, 45-minute inactivity reaping, crash recovery and exactly-once semantics.
+
+
+### Stage 4 deployed closeout
+
+- Implementation and tests committed/pushed to main as `8a3cfa7` with `origin/main` verified under `prompta-main-merge.lock`; no overlapping restoration edits or unresolved worktree merge. Postscript browser GET-only proof buildq #1423 PASS.
+- Production reinstall buildq #1424 (`uv sync --locked --reinstall-package prompta`) PASS. Restarted **only** `prompta-ui.service` under the merge lock: UI PID `1691250 → 1982661`; scheduler `1643648`, delivery worker `1644467`, browser `725209` unchanged. `GET /api/health` returned HTTP 200 with `ok:true`; `GET /api/results?limit=1` returned HTTP 200, `Cache-Control:no-store`. No jobs were resumed or re-sent.
+- Actual deployed private localhost Chromium smoke passed at 1440×900 (10 GETs) and 390×844 (9 GETs); zero POSTs, zero nonlocal hosts, no horizontal overflow, transcript loaded. Saved `stage4-live-{desktop,mobile}-masked.png` owner-only 0600; both opened and visually reviewed with private content masked. The synthetic E2E was likewise visually reviewed in three unmasked fixture screenshots.
+- The original browser-owned Stage 4 run reached its 45-minute watchdog terminal `interrupted` state at 13:15 NZDT after Cloudflare/unknown tool-response errors; it was **not** marked successful, resubmitted, or continued. This distinct manual remediation completed its requested code stage. Stage 5 queued at 13:15 behind Prompta's existing security-challenge backoff until 13:31:11 NZDT and must verify this deployed commit before proceeding.
+- Gate disposition: **Stage 4 implemented, fully tested, integrated, deployed and inspected**. The original failed scheduled conversation remains truthfully interrupted; no ambiguous resend.
