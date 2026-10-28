@@ -10,6 +10,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Literal
+from uuid import UUID
 
 CaptureStatus = Literal[
     "complete", "partial", "timeout", "approval_wait", "rate_limited", "interrupted", "unknown"
@@ -30,6 +31,21 @@ class CaptureResult:
     conversation_id: str | None
     message_id: str | None
     parent_id: str | None
+    observer_id: str | None = None
+
+
+def conversation_id_from_path(path: object) -> str | None:
+    """Validate the new conversation route on this one owned tab."""
+    if not isinstance(path, str):
+        return None
+    match = re.fullmatch(r"/(?:g/[^/]+/)?c/([0-9a-fA-F-]{36})", path)
+    if match is None:
+        return None
+    try:
+        identity = UUID(match.group(1))
+    except ValueError:
+        return None
+    return str(identity) if str(identity) == match.group(1).lower() else None
 
 
 def _record(value: object) -> dict[str, object]:
@@ -299,4 +315,19 @@ def normalize_dom_snapshot(
         status = "partial"
     else:
         status = "unknown"
-    return CaptureResult("dom", status, text, None, identity, None)
+    # The modern assistant unit key is an observer identity, not a backend message ID.
+    # Only the single unambiguous backend ID may become a manual-reply parent.
+    branch_id = (
+        _string(record.get("branch_message_id"))
+        if "branch_message_id" in record
+        else identity  # Legacy synthetic observer fixtures.
+    )
+    if "branch_message_id" in record and branch_id is not None:
+        try:
+            branch_id = str(UUID(branch_id)) if str(UUID(branch_id)) == branch_id.lower() else None
+        except ValueError:
+            branch_id = None
+    return CaptureResult(
+        "dom", status, text, conversation_id_from_path(record.get("pathname")),
+        branch_id, None, identity,
+    )

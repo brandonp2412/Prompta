@@ -27,7 +27,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 
-from .response_capture import CaptureResult
+from .response_capture import CaptureResult, conversation_id_from_path
 
 ResultStatus = Literal["queued", "accepted", "generating", "completed", "interrupted", "unavailable"]
 _MAX_TEXT = 2 * 1024 * 1024
@@ -130,6 +130,24 @@ class ResponseStore:
             )
         return changed.rowcount == 1
 
+    def bind_conversation_route(
+        self, send_id: str, owner: str, path: object, *, now: float | None = None
+    ) -> bool:
+        """Persist only a verified fresh route while its unique capture lease is live."""
+        conversation_id = conversation_id_from_path(path)
+        if conversation_id is None:
+            return False
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.capture_owner == owner,
+                results.c.status.in_(("accepted", "generating")),
+                results.c.capture_deadline > at,
+                or_(results.c.conversation_id == "", results.c.conversation_id == conversation_id),
+            ).values(conversation_id=conversation_id, updated_at=at))
+        return changed.rowcount == 1
+
     def write(
         self, send_id: str, owner: str, capture: CaptureResult, *, now: float | None = None
     ) -> bool:
@@ -154,7 +172,9 @@ class ResponseStore:
                     # A branch changed. Never join text from different answers.
                     return False
             text = capture.text[:_MAX_TEXT]
-            complete = capture.status == "complete" and bool(text and capture.message_id)
+            complete = capture.status == "complete" and bool(
+                text and (capture.message_id or capture.observer_id)
+            )
             prior = str(row["assistant_text"])
             # A shorter partial observer snapshot cannot erase a longer answer.
             if not complete and len(text) < len(prior):

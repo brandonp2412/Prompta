@@ -343,6 +343,7 @@ class BrowserDeliverySender:
         last_saved_at = 0.0
         pending: CaptureResult | None = None
         seen_message = ""
+        seen_observer = ""
         last_verified_text = ""
         final_status: str = "interrupted"
         try:
@@ -375,8 +376,13 @@ class BrowserDeliverySender:
                     if seen_message and update.message_id and seen_message != update.message_id:
                         final_status = "unavailable"
                         break
+                    if seen_observer and update.observer_id and seen_observer != update.observer_id:
+                        final_status = "unavailable"
+                        break
                     if update.message_id:
                         seen_message = update.message_id
+                    if update.observer_id:
+                        seen_observer = update.observer_id
                     if pending is None or update.status == "complete" or len(update.text) >= len(pending.text):
                         pending = update
                 now = asyncio.get_running_loop().time()
@@ -399,7 +405,7 @@ class BrowserDeliverySender:
                             send_id, owner, deadline=refreshed_wall
                         ):
                             deadline = now + MAX_OWNED_TAB_AGE_SECONDS
-                    if pending.status == "complete" and pending.message_id:
+                    if pending.status == "complete" and (pending.message_id or pending.observer_id):
                         return
                 if 0 < deadline - now <= 2.0:
                     # At most one DOM fallback read, inside the hard tab TTL.
@@ -770,6 +776,17 @@ class BrowserDeliverySender:
                     )
                 except Exception as exc:
                     logger.warning("Passive capture lease failed error_type=%s", type(exc).__name__)
+                if lease_ok:
+                    try:
+                        path = await _timed_stage(
+                            "capture_conversation_route",
+                            driver.eval(load_browser_script("location_pathname.js")),
+                            timeout=5.0,
+                        )
+                        if self.results.bind_conversation_route(send_id, capture_owner, path):
+                            logger.info("Prompta persisted verified fresh-chat conversation identity")
+                    except Exception as exc:
+                        logger.info("Fresh-chat route identity unavailable error_type=%s", type(exc).__name__)
                 # An accepted send is final even if local result persistence fails.
                 if confirmed is not None:
                     confirmed.set()

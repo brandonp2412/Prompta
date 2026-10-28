@@ -17,6 +17,18 @@
     // The assistant unit key identifies the rendered answer container across updates.
     return element.getAttribute("data-chatgpt-search-unit-key") || "";
   };
+  const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+  const branchMessageId = (element) => {
+    const legacy = element.getAttribute("data-message-id") || "";
+    if (uuid.test(legacy)) return legacy.toLowerCase();
+    const raw = element.getAttribute("data-chatgpt-search-message-ids");
+    if (!raw) return "";
+    try {
+      const ids = JSON.parse(raw);
+      return Array.isArray(ids) && ids.length === 1 && typeof ids[0] === "string" && uuid.test(ids[0])
+        ? ids[0].toLowerCase() : "";
+    } catch { return ""; }
+  };
   const baseline = new Set([...document.querySelectorAll(messageSelector)].map(identity).filter(Boolean));
   let timer = null;
   let settleTimer = null;
@@ -25,9 +37,9 @@
   let lastText = "";
   let observedId = "";
   let ambiguous = false;
-  let result = { message_id: "", text: "", complete: false, ambiguous: false };
+  let result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: false };
   const publish = () => {
-    const signature = `${result.message_id}:${result.complete}:${result.ambiguous}:${result.text}`;
+    const signature = `${result.message_id}:${result.branch_message_id}:${result.pathname}:${result.complete}:${result.ambiguous}:${result.text}`;
     if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
       published = signature;
       Promise.resolve(window.__promptaPassiveUpdate({ ...result })).catch(() => {});
@@ -41,7 +53,7 @@
     const nextId = fresh.length === 1 ? identity(fresh[0]) : "";
     if (ambiguous || fresh.length > 1 || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
       ambiguous = true; // A DOM branch rollover must not silently replace an earlier answer.
-      result = { message_id: "", text: "", complete: false, ambiguous: true };
+      result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: true };
       publish();
       return;
     }
@@ -66,6 +78,8 @@
     const generating = !!document.querySelector(stopSelector);
     result = {
       message_id: identity(element),
+      branch_message_id: branchMessageId(element),
+      pathname: location.pathname,
       text: text.slice(0, 2 * 1024 * 1024),
       complete: !!text && copyReady && !streaming && !generating && Date.now() - changedAt >= 750,
       ambiguous: false,

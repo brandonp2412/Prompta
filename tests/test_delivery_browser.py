@@ -18,7 +18,8 @@ from prompta.delivery_browser import (
     _is_conversation_path,
 )
 from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
-from prompta.response_capture import CaptureResult
+from prompta.reply_contracts import ManualReplyStore, ReplyIntent
+from prompta.response_capture import CaptureResult, normalize_dom_snapshot
 from prompta.send_outcome import SendOutcomeUnknownError
 
 
@@ -3228,3 +3229,54 @@ def test_capture_capacity_defers_before_any_chatgpt_dispatch(tmp_path: Path) -> 
     assert driver.context == "" and driver.composer == ""
     row = sender.results.get("capacity-run")
     assert row is not None and row["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_accepted_owned_chat_persists_url_and_backend_reply_identity(tmp_path: Path) -> None:
+    chat = "d5c86e83-1f55-4ab5-ae50-7e2eed27c33e"
+    answer = "a0b7758e-fef9-47e3-933b-8ce91bd2c3c9"
+
+    class OwnedReplyDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.sent = False
+            self.observed = False
+            self.sends = 0
+
+        async def eval(self, _script: str) -> str | bool:
+            if "location.pathname" in _script:
+                return f"/c/{chat}" if self.sent else "/"
+            return True
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.sent = True
+            self.sends += 1
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            if self.observed:
+                await asyncio.sleep(min(timeout, 0.01))
+                return None
+            self.observed = True
+            return normalize_dom_snapshot({
+                "pathname": f"/c/{chat}", "message_id": "unit:assistant",
+                "branch_message_id": answer, "text": "Exact answer", "complete": True,
+            })
+
+    driver = OwnedReplyDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, connector_approval=False,
+    )
+    sender.results.ensure_queued("owned-send", "Private prompt")
+    await sender._send_browser("Private prompt", send_id="owned-send")
+    row = sender.results.get("owned-send")
+    assert row is not None
+    assert (row["status"], row["conversation_id"], row["message_id"]) == (
+        "completed", chat, answer,
+    )
+    assert row["assistant_text"] == "Exact answer"
+    reply = ManualReplyStore(sender.results.path).prepare(
+        "owned-send", ReplyIntent("reply-1234567890123", chat, answer, "Follow-up")
+    )
+    assert reply["status"] == "prepared" and reply["parent_id"] == answer
+    assert driver.sends == 1 and driver.closed_contexts == ["fresh-tab"]
