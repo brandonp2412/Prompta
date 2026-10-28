@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
-from .image_store import ImageStore
+from .image_store import ImageStore, image_refs
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_store import ResponseStore
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
@@ -248,6 +248,11 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             if record is None:
                 self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
             else:
+                queued = self.server.queue.get(send_id)
+                record["images"] = [
+                    {"name": ref.split("/", 1)[1], "url": "./api/images/" + ref}
+                    for ref in image_refs(queued["images"])
+                ] if queued is not None else []
                 self._json(record)
             return
         if path.startswith("/") and path[1:] in _ALLOWED_STATIC:

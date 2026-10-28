@@ -23,7 +23,40 @@ export type RunDetail = RunSummary & {
   assistant_text: string;
   source: string;
   accepted_at: number;
+  images: { name: string; url: string }[];
 };
+
+export type LocalTurn = {
+  reply_id: string;
+  user_text: string;
+  assistant_text: string;
+  status: ResultStatus | "prepared" | "dispatching" | "outcome_unknown";
+  created_at: number;
+  updated_at: number;
+};
+
+export function turnStatus(status: LocalTurn["status"]): string {
+  switch (status) {
+    case "prepared":
+      return "Reply saved locally · not sent";
+    case "dispatching":
+      return "Sending · confirmation pending";
+    case "outcome_unknown":
+      return "Send outcome unknown · no automatic retry";
+    case "accepted":
+      return "Awaiting captured response";
+    case "generating":
+      return "Response is generating";
+    case "interrupted":
+      return "Response capture interrupted";
+    case "unavailable":
+      return "Response unavailable";
+    case "queued":
+      return "Waiting for job dispatch";
+    case "completed":
+      return "Completed";
+  }
+}
 
 const dateOptions: Intl.DateTimeFormatOptions = {
   timeZone: "Pacific/Auckland",

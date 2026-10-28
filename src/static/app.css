@@ -120,6 +120,8 @@ button:disabled { cursor: default; opacity: 0.45; }
 .result-pill.status-completed { border-color: #456550; color: #93d5ad; }
 .result-pill.status-generating { border-color: #475e80; color: #a1c3ff; }
 .result-pill.status-interrupted, .result-pill.status-unavailable { border-color: #794848; color: #f0a2a2; }
+.result-pill.status-prepared, .result-pill.status-dispatching, .result-pill.status-accepted { border-color: #695c39; color: #dec489; }
+.result-pill.status-outcome_unknown { border-color: #794848; color: #f0a2a2; }
 .chat-detail-content { width: min(100%, 830px); margin: 0 auto; padding: 28px 40px 100px; }
 .chat-detail-title { border-bottom: 1px solid #2c2c2c; padding-bottom: 22px; margin-bottom: 24px; }
 .chat-detail-title h2 { font-size: 1.28rem; font-weight: 650; letter-spacing: -.022em; overflow-wrap: anywhere; margin: 0 0 7px; }
@@ -803,17 +805,17 @@ button:disabled { cursor: default; opacity: 0.45; }
   .chats-sidebar {
     display: flex; position: fixed; z-index: 12; top: 0; bottom: 0; left: 0;
     width: min(340px, calc(100% - 44px)); height: 100dvh;
-    transform: translateX(-105%); box-shadow: 9px 0 25px #0005;
+    transform: translateX(-105%); visibility: hidden; box-shadow: 9px 0 25px #0005;
     transition: transform .18s ease-out;
   }
   .sidebar-close { display: block; border: 0; background: transparent; color: #bbb; font-size: 1.5rem; width: 36px; height: 36px; }
-  .chats-layout.drawer-open .chats-sidebar { display: flex; transform: translateX(0); }
+  .chats-layout.drawer-open .chats-sidebar { display: flex; visibility: visible; transform: translateX(0); }
   .chats-layout.drawer-open .drawer-backdrop {
     display: block; position: fixed; z-index: 11; inset: 0;
     width: 100%; height: 100%; border: 0; background: #0009;
   }
   .chats-layout.show-list:not(.drawer-open) .chats-sidebar {
-    display: flex; position: relative; transform: none;
+    display: flex; visibility: visible; position: relative; transform: none;
     width: 100%; height: 100%; box-shadow: none;
   }
   .chats-layout.show-list:not(.drawer-open) .chats-detail { display: none; }
@@ -836,3 +838,15 @@ button:disabled { cursor: default; opacity: 0.45; }
 @media (max-width: 680px) {
   .chats-layout.show-list:not(.drawer-open) .sidebar-close { display: none; }
 }
+
+/* Stage 4: local multi-turn transcript, with no remote history access. */
+.chat-detail-content .message-role { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.copy-message, .code-toolbar button { border: 0; background: transparent; color: #aaa; font: inherit; font-size: .75rem; cursor: pointer; padding: 5px 8px; border-radius: 7px; }
+.copy-message:hover, .code-toolbar button:hover { color: #fff; background: #353535; }
+.chat-attachments { margin: 12px 0 0 auto; max-width: 92%; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.chat-attachments a { display: block; border-radius: 12px; overflow: hidden; background: #272727; border: 1px solid #414141; }
+.chat-attachments img { width: 144px; height: 130px; object-fit: cover; display: block; }
+.code-snippet { min-width: 0; margin: 16px 0; border: 1px solid #363636; border-radius: 10px; overflow: hidden; background: #1c1c1c; }
+.code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 9px 4px 14px; color: #999; font-size: .72rem; border-bottom: 1px solid #343434; }
+.result-markdown .code-snippet pre { border: 0; border-radius: 0; margin: 0; }
+@media (max-width: 680px) { .chat-attachments img { width: 108px; height: 104px; } }

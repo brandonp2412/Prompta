@@ -185,3 +185,26 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 - Actual POST-DEPLOY headless Chromium E2E buildq #1405 passed on the live service at 1440x900 and 390x844 with all sidebar, Jobs, selection, local search, pin/unread and mobile drawer assertions, 44 local GET / zero POST / zero nonlocal hosts and no horizontal overflow. Six privacy-masked desktop/mobile Jobs/list/detail PNGs were re-saved and ALL opened and reviewed after deployment.
 - No scheduled jobs were resumed, no ChatGPT branch was opened, no manual reply was dispatched, and no browser-focus interaction occurred. The existing scheduler/delivery/browser ownership processes and exactly-once guards remained in place.
 - Gate disposition: STAGE 3 COMPLETE, validated, merged/pushed and deployed. Stage 4 may start after verifying this closeout on current main and confirming there is no overlapping restoration worker.
+
+
+## Stage 4/16 — Local multi-turn transcript (2026-10-28 NZDT)
+
+### Entry and boundaries
+
+- Verified clean `main`/`origin/main` at `d7a170c`, deployed Stage 3 `16019ff`, active Nox services, free merge lock and no overlapping restoration edits. Inspected `db709ee` **CSS only**; no legacy backend restoration. Nox Serena activation worked but the remote `serena_repl` endpoint returned `Unknown tool`, so checked Nox Python MCP edits were used as in Stage 3.
+- The original Stage 4 Prompta fresh-chat run was accepted at 12:30 NZDT but stopped after its opening response with `cloudflare_challenge`. One owner-requested response retry failed `Unknown error`; no further retry or second prompt submission. The original run remains distinct from this locally executed remediation.
+
+### Transcript UI
+
+- The selected chat renders `/api/results/{send_id}/turns`, which reads *only* the private Prompta-generated SQLAlchemy SQLite WAL. The original job turn and any explicitly prepared/manual turns appear in durable order as separate user/assistant pairs, with Markdown, code blocks, copy actions, per-turn partial/accepted/prepared/dispatching/outcome-unknown/interrupted/completed states, and latest-reply status in the header. No thought/tool parts are rendered.
+- Original fresh-job image attachments are previewed using only the existing validated local hashed-image endpoint; no new upload pathway or remote reads. Clipboard copy is triggered solely by user clicks. The detail view preserves an active scroll position on local refresh and follows growing content only if previously near the bottom. Failed turn reads show a warning and retain the locally known original result, not a false completed transcript.
+- Reads are one concurrent pair of local detail + turns GETs per selection/15-second visible refresh; stale generations are discarded. No automatic ChatGPT history/navigation/reply, branch revival, tool approval, change to scheduler/queue/worker or resubmit was added. Mobile hides the offscreen sidebar from keyboard/accessibility until explicitly opened.
+
+### Verification
+
+- Buildq #1414 full Ruff PASS; #1415 strict Ty PASS; #1421 complete frontend formatting/Oxlint/TypeScript/Svelte/Vite PASS with the pre-existing `JobsPage.imageInput` warning unchanged. Buildq #1422 full pytest **364 passed** in 91.49 seconds; the new test checks two local user/assistant turns, long Markdown/code reply, hashed image preview, desktop/mobile layout, active scroll preservation and safe rendering.
+- Real local Chromium E2E at exactly **1440×900** and **390×844** passed via #1420 and #1422; every observed browser request was to the synthetic localhost service. Screenshots are owner-only 0600 in `/home/brandon/.local/state/prompta/visual-baselines/stage4-20261028/`: `prompta-chats-desktop.png`, `prompta-stage4-mobile-top.png`, `prompta-chats-mobile.png`. All three were opened and visually reviewed; desktop roles and code controls, mobile first/second turns and long-response layout were sound. The white square in the synthetic fixture is a deliberate one-pixel white PNG, not a failed real preview.
+
+### Stage 5 handoff
+
+- Stage 4 is the local transcript/view layer only. Stage 5 must separately build the explicit user-triggered composer and verify actual browser manual dispatch with exact persisted conversation and current parent identities, irreversible claim, global backoff/send-gap, watchdog leases and no ambiguous retry. Never automatically drain prepared intents or reuse an existing chat for scheduled runs. Preserve FlareSolverr, passive capture, image isolation, connector approval policy, 45-minute inactivity reaping, crash recovery and exactly-once semantics.

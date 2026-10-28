@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import JobsPage from "./JobsPage.svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import {
-    groupRuns, nzTime, plainPreview, statusLabel,
-    type ResultStatus, type RunDetail, type RunSummary,
+    groupRuns, nzTime, plainPreview, statusLabel, turnStatus,
+    type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
   let { view, serverName, selectedRunId, onSelect, onNavigate, onNewChat }: {
@@ -39,6 +39,10 @@
   let search = $state("");
   let statusFilter = $state<ResultStatus | "">("");
   let detail = $state<RunDetail | null>(null);
+  let turns = $state<LocalTurn[]>([]);
+  let turnsError = $state("");
+  let copyState = $state("");
+  let scrollPane: HTMLDivElement;
   let loadingList = $state(true);
   let loadingDetail = $state(false);
   let listError = $state("");
@@ -148,20 +152,44 @@
 
   async function loadDetail(id: string) {
     const generation = ++detailGeneration;
-    if (detail?.send_id !== id) detail = null;
+    const newSelection = detail?.send_id !== id;
+    if (newSelection) { detail = null; turns = []; }
+    const followTail = newSelection || !!scrollPane &&
+      scrollPane.scrollHeight - scrollPane.scrollTop - scrollPane.clientHeight < 96;
     loadingDetail = true;
     try {
-      const response = await fetch("./api/results/" + encodeURIComponent(id), { cache: "no-store" });
+      const path = "./api/results/" + encodeURIComponent(id);
+      const [response, replyResponse] = await Promise.all([
+        fetch(path, { cache: "no-store" }),
+        fetch(path + "/turns", { cache: "no-store" }),
+      ]);
       if (!response.ok) throw new Error("Result not found");
       const body: RunDetail = await response.json();
+      const saved = replyResponse.ok ? await replyResponse.json() as { turns: LocalTurn[] } : null;
       if (generation !== detailGeneration) return;
       detail = body;
+      turns = saved?.turns?.length ? saved.turns : [{
+        reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
+        status: body.status, created_at: body.created_at, updated_at: body.updated_at,
+      }];
+      turnsError = !replyResponse.ok ? "Saved replies are temporarily unavailable locally." : "";
       detailError = "";
       if (view === "chats" && selectedRunId === id) markRead(body);
+      await tick();
+      if (followTail && scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
     } catch {
       if (generation === detailGeneration) detailError = "This run is unavailable locally.";
     } finally {
       if (generation === detailGeneration) loadingDetail = false;
+    }
+  }
+
+  async function copyText(value: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      copyState = key;
+    } catch {
+      copyState = "error:" + key;
     }
   }
 
@@ -218,6 +246,8 @@
       else {
         detailGeneration += 1;
         detail = null;
+        turns = [];
+        turnsError = "";
         detailError = "";
       }
     });
@@ -327,7 +357,7 @@
     <div class="sidebar-footnote">Local Prompta runs only</div>
   </aside>
 
-  <div class="chats-detail">
+  <div class="chats-detail" bind:this={scrollPane}>
     <div class="workspace-header">
       <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
       <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
@@ -340,26 +370,48 @@
     {:else}
       <div class="chat-detail-toolbar">
         <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
-        {#if detail}<span class={"result-pill status-" + detail.status}>{statusLabel(detail.status)}</span>{/if}
+        {#if detail}<span class={"result-pill status-" + (turns.at(-1)?.status || detail.status)}>{turns.length > 1 ? "Latest reply · " + turnStatus(turns.at(-1)?.status || detail.status) : statusLabel(detail.status)}</span>{/if}
       </div>
       {#if detailError}<div class="result-error" role="alert">{detailError}</div>{/if}
       {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}
       {#if detail}
         <div class="chat-detail-content">
           <header class="chat-detail-title"><h2>{detail.job_name || "Prompta run"}</h2><p>{nzTime(detail.created_at)} · Prompta job run</p></header>
-          <div class="message-group"><div class="message-role">You · Job prompt</div><div class="prompt-message">{detail.user_text}</div></div>
-          <div class="message-group assistant-group">
-            <div class="message-role">Assistant {#if detail.status === "generating"}<span class="capture-live">· Capturing</span>{/if}</div>
-            {#if detail.assistant_text}
-              <ResultMarkdown source={detail.assistant_text} />
-              {#if detail.status !== "completed"}<p class="partial-note">Partial response · {statusLabel(detail.status).toLowerCase()}</p>{/if}
-            {:else}
-              <p class="no-response">{detail.status === "accepted" || detail.status === "queued" ? "Awaiting a captured response…" : detail.status === "generating" ? "Response is generating…" : "No assistant response was captured for this run."}</p>
-            {/if}
-          </div>
-          {#if detail.status === "interrupted" || detail.status === "unavailable"}
-            <p class="capture-note">Capture {detail.status}. No historical chat will be reopened or retried.</p>
-          {/if}
+          {#if turnsError}<p class="result-error" role="alert">{turnsError}</p>{/if}
+          {#each turns as turn, index (turn.reply_id || detail.send_id)}
+            <div class="message-group user-group">
+              <div class="message-role">You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</div>
+              <div class="prompt-message">{turn.user_text}</div>
+              {#if index === 0 && detail.images?.length}
+                <div class="chat-attachments" aria-label="Attached images">
+                  {#each detail.images as attachment (attachment.url)}
+                    <a href={attachment.url} target="_blank" rel="noopener noreferrer" title={attachment.name}>
+                      <img src={attachment.url} alt={attachment.name} loading="lazy" />
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <div class="message-group assistant-group">
+              <div class="message-role">
+                <span>Assistant {#if turn.status === "generating"}<span class="capture-live">· Capturing</span>{/if}</span>
+                {#if turn.assistant_text}
+                  <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(turn.assistant_text, turn.reply_id || selectedRunId || "")}>
+                    {copyState === (turn.reply_id || detail.send_id) ? "Copied" : copyState === "error:" + (turn.reply_id || detail.send_id) ? "Copy failed" : "Copy"}
+                  </button>
+                {/if}
+              </div>
+              {#if turn.assistant_text}
+                <ResultMarkdown source={turn.assistant_text} />
+                {#if turn.status !== "completed"}<p class="partial-note">{turn.status === "generating" ? "Partial response · " : ""}{turnStatus(turn.status)}</p>{/if}
+              {:else}
+                <p class="no-response">{turnStatus(turn.status)}</p>
+              {/if}
+              {#if turn.status === "interrupted" || turn.status === "unavailable" || turn.status === "outcome_unknown"}
+                <p class="capture-note">{turnStatus(turn.status)}. No automatic history fetch or retry.</p>
+              {/if}
+            </div>
+          {/each}
         </div>
       {/if}
     {/if}

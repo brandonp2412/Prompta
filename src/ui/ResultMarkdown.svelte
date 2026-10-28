@@ -5,6 +5,16 @@
   let { source }: { source: string } = $props();
   // The token tree is rendered as Svelte text/elements. Untrusted HTML is never injected.
   let tokens = $derived(marked.lexer(source, { gfm: true, breaks: false }));
+  let copiedCode = $state("");
+
+  async function copyCode(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedCode = text;
+    } catch {
+      copiedCode = "";
+    }
+  }
 
   function children(token: Token): Token[] {
     return "tokens" in token && Array.isArray(token.tokens) ? token.tokens : [];
@@ -46,7 +56,10 @@
     {:else if token.type === "paragraph" || token.type === "text"}
       <p>{@render inline(children(token).length ? children(token) : [token])}</p>
     {:else if token.type === "code"}
-      <pre><code class={token.lang ? "language-" + token.lang.split(/\s+/)[0] : ""}>{token.text}</code></pre>
+      <div class="code-snippet">
+        <div class="code-toolbar"><span>{token.lang || "Code"}</span><button type="button" aria-label="Copy code" onclick={() => copyCode(token.text)}>{copiedCode === token.text ? "Copied" : "Copy code"}</button></div>
+        <pre><code class={token.lang ? "language-" + token.lang.split(/\s+/)[0] : ""}>{token.text}</code></pre>
+      </div>
     {:else if token.type === "list"}
       {#if token.ordered}
         <ol start={token.start || 1}>{#each token.items as item}<li>{@render blocks(item.tokens)}</li>{/each}</ol>

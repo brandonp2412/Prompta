@@ -135,8 +135,27 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
     screenshots.mkdir(parents=True, exist_ok=True, mode=0o700)
     with server(tmp_path) as (app, port):
         now = 1793020000.0
+        from prompta.reply_contracts import ReplyIntent
+
+        image = app.images.save(
+            "preview.png",
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9pB7sAAAAASUVORK5CYII=",
+        )
+        app.queue.enqueue_idempotent({
+            "send_id": "daily", "message": "Prompt for Daily review", "images": [image],
+        })
         completed_run(app, "daily", "Daily review", now)
         completed_run(app, "nightly", "Nightly summary", now - 90_000)
+        app.replies.prepare("daily", ReplyIntent("reply-12345678901234", "c1", "m1", "What changed?"), now=now + 3)
+        assert app.replies.claim("reply-12345678901234", "100:test", deadline=now + 1000, now=now + 4)
+        assert app.replies.accepted("reply-12345678901234", "100:test", conversation_id="c1", parent_id="m1", message_id="m2", now=now + 5)
+        assert app.replies.observe("reply-12345678901234", "100:test", CaptureResult(
+            "sse", "complete", "### Follow-up\n\n" + "Verified paragraph. " * 120 + "\n\n```ts\nconst answer = 42;\n```",
+            "c1", "m2", "m1",
+        ), now=now + 6)
+        assert get(port, "/api/results/daily")[1]["images"] == [
+            {"name": "preview.png", "url": "./api/images/" + image},
+        ]
         app.results.ensure_queued("partial", "Build release notes", "Release notes", now=now + 100)
         assert app.results.accept("partial", "10:partial", deadline=now + 1000, now=now + 101)
         assert app.results.write("partial", "10:partial", CaptureResult(
@@ -156,19 +175,32 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 args=["--no-sandbox", "--single-process", "--no-zygote"],
             )
             try:
-                context = browser.new_context(viewport={"width": 1365, "height": 900}, device_scale_factor=1)
+                context = browser.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
                 page = context.new_page()
                 network_hosts: list[str] = []
+                network_methods: list[str] = []
                 page.on("request", lambda request: network_hosts.append(request.url.split("/")[2]))
+                page.on("request", lambda request: network_methods.append(request.method))
                 page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
                 page.get_by_role("button", name="Chats").click()
                 page.locator(".chat-row").first.wait_for()
                 assert page.locator(".chat-row").count() == 4
                 page.locator(".chat-row").filter(has_text="Daily review").click()
-                assert page.locator(".result-markdown pre code").inner_text() == "print(1)"
-                assert page.locator(".prompt-message").inner_text() == "Prompt for Daily review"
+                assert page.locator(".result-markdown pre code").first.inner_text() == "print(1)"
+                assert page.locator(".prompt-message").all_inner_texts() == ["Prompt for Daily review", "What changed?"]
+                assert page.locator(".chat-attachments img").count() == 1
+                assert page.locator(".assistant-group").count() == 2
+                assert page.get_by_role("button", name="Copy code").count() == 2
+                assert page.get_by_role("button", name="Copy assistant reply 2").count() == 1
+                pane = page.locator(".chats-detail")
+                assert pane.evaluate("(element) => element.scrollHeight > element.clientHeight")
+                pane.evaluate("(element) => { element.scrollTop = 90; }")
+                before_scroll = pane.evaluate("(element) => element.scrollTop")
                 page.get_by_role("button", name="Refresh local results").click()
                 page.get_by_role("button", name="Refresh local results").click()
+                expect(page.locator(".prompt-message")).to_have_count(2)
+                page.wait_for_timeout(300)
+                assert abs(pane.evaluate("(element) => element.scrollTop") - before_scroll) < 3
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
                 page.screenshot(path=str(screenshots / "prompta-chats-desktop.png"), animations="disabled")
 
@@ -183,16 +215,24 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 expect(page.locator(".chat-row")).to_have_count(1)
                 assert page.locator(".chat-row").inner_text().find("Nightly summary") >= 0
                 assert all(host == f"127.0.0.1:{port}" for host in network_hosts)
+                assert all(method == "GET" for method in network_methods)
 
                 page.set_viewport_size({"width": 390, "height": 844})
                 phone = page
                 phone.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
-                phone.locator(".chat-row").filter(has_text="Release notes").click()
-                expect(phone.get_by_text("Partial response", exact=False)).to_be_visible()
+                phone.locator(".chat-row").filter(has_text="Daily review").click()
+                expect(phone.locator(".assistant-group")).to_have_count(2)
+                assert phone.locator(".prompt-message").count() == 2
                 assert phone.locator(".chats-sidebar").is_hidden()
                 assert phone.locator(".chats-detail").is_visible()
                 assert phone.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                phone.locator(".chats-detail").evaluate("(element) => { element.scrollTop = 0; }")
+                phone.screenshot(path=str(screenshots / "prompta-stage4-mobile-top.png"), animations="disabled")
+                phone.locator(".chats-detail").evaluate("(element) => { element.scrollTop = element.scrollHeight; }")
                 phone.screenshot(path=str(screenshots / "prompta-chats-mobile.png"), animations="disabled")
+                phone.get_by_role("button", name="All chats").click()
+                phone.locator(".chat-row").filter(has_text="Release notes").click()
+                expect(phone.get_by_text("Partial response", exact=False)).to_be_visible()
                 phone.get_by_role("button", name="All chats").click()
                 assert phone.locator(".chats-sidebar").is_visible()
                 assert phone.locator(".chats-detail").is_hidden()
