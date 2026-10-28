@@ -1,0 +1,164 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+
+  type ImageRef = { ref: string; name: string; url: string };
+  type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
+
+  let { mode, onSend, disabled = false }: {
+    mode: "fresh" | "reply";
+    onSend: (text: string, images: string[]) => Promise<SendResult>;
+    disabled?: boolean;
+  } = $props();
+
+  let draft = $state("");
+  let images = $state<ImageRef[]>([]);
+  let uploading = $state(false);
+  let sending = $state(false);
+  let locked = $state(false);
+  let feedback = $state("");
+  let dragging = $state(false);
+  let textarea = $state<HTMLTextAreaElement>();
+  let fileInput = $state<HTMLInputElement>();
+  const canAttach = $derived(mode === "fresh" && !disabled && !locked && !sending && !uploading);
+  const canSend = $derived(!disabled && !locked && !sending && !uploading && !!draft.trim());
+
+  onMount(() => {
+    if (mode === "fresh") textarea?.focus();
+  });
+
+  async function addFiles(files: File[]) {
+    if (!files.length) return;
+    if (!canAttach) {
+      feedback = mode === "reply" ? "Images can only be sent with fresh chats." : "Wait for the current upload.";
+      return;
+    }
+    if (images.length + files.length > 4) {
+      feedback = "At most four images per fresh chat.";
+      return;
+    }
+    uploading = true;
+    feedback = "";
+    try {
+      for (const file of files) {
+        if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) {
+          throw new Error("Only PNG, JPEG, GIF or WebP images are supported.");
+        }
+        if (file.size > 8 * 1024 * 1024) throw new Error("Images must be 8 MiB or smaller.");
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Could not read image."));
+          reader.onload = () => {
+            const encoded = reader.result;
+            if (typeof encoded !== "string" || !encoded.includes(",")) reject(new Error("Could not encode image."));
+            else resolve(encoded.slice(encoded.indexOf(",") + 1));
+          };
+          reader.readAsDataURL(file);
+        });
+        const response = await fetch("./api/images", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: file.name, data }),
+        });
+        if (!response.ok) throw new Error("Image upload failed.");
+        const result = await response.json() as { image?: ImageRef };
+        if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
+          throw new Error("Image upload receipt was invalid.");
+        }
+        images = [...images, result.image];
+      }
+    } catch (error) {
+      feedback = error instanceof Error ? error.message : "Image upload failed.";
+    } finally {
+      uploading = false;
+    }
+  }
+
+  async function submit() {
+    if (!canSend) return;
+    sending = true;
+    feedback = "";
+    try {
+      const result = await onSend(draft, images.map((image) => image.ref));
+      if (result.ok) {
+        draft = "";
+        images = [];
+        feedback = result.message;
+      } else {
+        feedback = result.message;
+        locked = !!result.ambiguous;
+      }
+    } catch {
+      locked = true;
+      feedback = "Send confirmation was lost. Check local Chats before making a separate new request; this draft will not retry.";
+    } finally {
+      sending = false;
+    }
+  }
+
+  function keydown(event: KeyboardEvent) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      void submit();
+    }
+  }
+
+  function pasted(event: ClipboardEvent) {
+    const files = Array.from(event.clipboardData?.files || []);
+    if (!files.length) return;
+    if (!event.clipboardData?.getData("text/plain")) event.preventDefault();
+    void addFiles(files);
+  }
+
+  function dropped(event: DragEvent) {
+    event.preventDefault();
+    dragging = false;
+    void addFiles(Array.from(event.dataTransfer?.files || []));
+  }
+</script>
+
+<form class:dragging class="chat-composer-wrap" aria-label={mode === "fresh" ? "New chat composer" : "Reply composer"}
+  onsubmit={(event) => { event.preventDefault(); void submit(); }}
+  ondragover={(event) => { event.preventDefault(); dragging = mode === "fresh"; }}
+  ondragleave={() => dragging = false}
+  ondrop={dropped}>
+  <div class="chat-composer">
+    {#if images.length}
+      <div class="composer-previews" aria-label="Images to attach">
+        {#each images as image (image.ref)}
+          <div class="composer-preview">
+            <img src={image.url} alt={image.name} />
+            <button type="button" aria-label={"Remove " + image.name} disabled={!canAttach}
+              onclick={() => images = images.filter((item) => item.ref !== image.ref)}>×</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    <textarea bind:this={textarea} bind:value={draft} onkeydown={keydown} onpaste={pasted}
+      rows="2" maxlength="32000" disabled={disabled || locked || sending}
+      aria-label={mode === "fresh" ? "Message for new chat" : "Reply to this chat"}
+      placeholder={mode === "fresh" ? "Message Prompta…" : "Reply to this chat…"}></textarea>
+    <div class="composer-actions">
+      <div class="composer-attach">
+        {#if mode === "fresh"}
+          <button type="button" aria-label="Attach images" title="Attach images" disabled={!canAttach}
+            onclick={() => fileInput?.click()}>＋</button>
+          <input bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple
+            aria-label="Choose images" disabled={!canAttach}
+            onchange={(event) => {
+              void addFiles(Array.from(event.currentTarget.files || []));
+              event.currentTarget.value = "";
+            }} />
+        {/if}
+        <small>{uploading ? "Uploading…" : mode === "fresh" ? images.length + "/4 images · paste or drop" : "Exact saved branch only"}</small>
+      </div>
+      <button class="composer-send" type="submit" disabled={!canSend}
+        aria-label={sending ? "Sending" : mode === "fresh" ? "Send fresh chat" : "Send reply"}>
+        {sending ? "Sending…" : "↑"}
+      </button>
+    </div>
+  </div>
+  {#if feedback}<p class:composer-error={locked} class="composer-feedback" role="status">{feedback}</p>{/if}
+  <p class="composer-disclaimer">{mode === "fresh"
+    ? "Queues one fresh ChatGPT chat using Prompta delivery. Enter sends · Shift+Enter adds a line."
+    : "Only an explicit send can reopen this exact saved conversation. Enter sends · Shift+Enter adds a line."}</p>
+</form>

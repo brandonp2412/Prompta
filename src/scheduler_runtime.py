@@ -405,6 +405,44 @@ class SchedulerRuntime:
         self.update_scheduler_state({"rate_limit_backoff": snapshot})
         return remaining
 
+    def reserve_send_attempt(self, now: float, *, manual: bool = False) -> float:
+        """Atomically reserve the account-wide gap immediately before a browser mutation."""
+        engine = self._connect_state()
+        try:
+            with engine.begin() as connection:
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+                rows = connection.execute(select(
+                    scheduler_state.c.key, scheduler_state.c.value_json,
+                ).where(
+                    scheduler_state.c.scope == "scheduler",
+                    scheduler_state.c.name == "",
+                    scheduler_state.c.key.in_(("last_attempt_at", "last_delivery_claim_at")),
+                )).all()
+                fields: dict[str, object] = {}
+                for key, raw in rows:
+                    try:
+                        fields[str(key)] = json.loads(str(raw))
+                    except (TypeError, json.JSONDecodeError):
+                        fields[str(key)] = None
+                remaining = calculate_send_gap_remaining(
+                    last_attempt_at=fields.get("last_attempt_at"),
+                    gap_seconds=_SEND_GAP_SECONDS, now=now,
+                )
+                if manual:
+                    remaining = max(remaining, calculate_send_gap_remaining(
+                        last_attempt_at=fields.get("last_delivery_claim_at"),
+                        gap_seconds=_SEND_GAP_SECONDS, now=now,
+                    ))
+                if remaining > 0:
+                    return remaining
+                self._upsert_state(
+                    connection, scheduler_state,
+                    self._state_rows("scheduler", "", {"last_attempt_at": now}),
+                )
+                return 0.0
+        finally:
+            engine.dispose()
+
     def send_gap_remaining(self, now: float) -> float:
         return calculate_send_gap_remaining(
             last_attempt_at=self.scheduler_state(strict=True).get("last_attempt_at"),

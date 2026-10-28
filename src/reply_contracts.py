@@ -1,4 +1,4 @@
-"""Durable, exact-branch manual reply contracts; no browser dispatch in this stage."""
+"""Durable, exact-branch manual reply contracts and irreversible dispatch leases."""
 
 from __future__ import annotations
 
@@ -11,7 +11,19 @@ from typing import Literal
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import Column, Float, Index, MetaData, String, Table, Text, inspect, select, update
+from sqlalchemy import (
+    Column,
+    Float,
+    Index,
+    MetaData,
+    String,
+    Table,
+    Text,
+    case,
+    inspect,
+    select,
+    update,
+)
 from sqlalchemy.dialects.sqlite import insert
 
 from .response_capture import CaptureResult
@@ -31,6 +43,7 @@ replies = Table(
     Column("user_text", Text, nullable=False),
     Column("assistant_text", Text, nullable=False, default=""),
     Column("message_id", String, nullable=False, default=""),
+    Column("response_parent_id", String, nullable=False, default=""),
     Column("status", String, nullable=False),
     Column("lease_owner", String, nullable=False, default=""),
     Column("lease_deadline", Float, nullable=False, default=0),
@@ -89,6 +102,16 @@ class ManualReplyStore:
                 migration.create_index(
                     "manual_reply_turns_branch", replies.name, ["send_id", "created_at"]
                 )
+            elif not any(
+                column["name"] == "response_parent_id"
+                for column in inspect(connection).get_columns(replies.name)
+            ):
+                migration = Operations(MigrationContext.configure(connection))
+                migration.add_column(
+                    replies.name, Column(
+                        "response_parent_id", String, nullable=False, server_default="",
+                    ),
+                )
         self.responses._secure_files()
 
     @staticmethod
@@ -97,6 +120,13 @@ class ManualReplyStore:
             "reply_id", "send_id", "conversation_id", "parent_id", "message_id",
             "user_text", "assistant_text", "status", "created_at", "updated_at",
         )}
+
+    def get(self, reply_id: str) -> dict[str, object] | None:
+        with self.engine.connect() as connection:
+            row = connection.execute(select(replies).where(
+                replies.c.reply_id == reply_id,
+            )).mappings().one_or_none()
+        return self._public(dict(row)) if row is not None else None
 
     def prepare(self, send_id: str, intent: ReplyIntent, *, now: float | None = None) -> dict[str, object]:
         at = time.time() if now is None else now
@@ -160,17 +190,20 @@ class ManualReplyStore:
 
     def accepted(
         self, reply_id: str, owner: str, *, conversation_id: str, parent_id: str,
-        message_id: str, now: float | None = None,
+        message_id: str, response_parent_id: str | None = None,
+        now: float | None = None,
     ) -> bool:
         at = time.time() if now is None else now
-        if not message_id or message_id == parent_id:
+        response_parent = response_parent_id or parent_id
+        if not message_id or message_id == parent_id or response_parent == message_id:
             return False
         with self.engine.begin() as connection:
             changed = connection.execute(update(replies).where(
                 replies.c.reply_id == reply_id, replies.c.status == "dispatching",
                 replies.c.lease_owner == owner, replies.c.lease_deadline > at,
                 replies.c.conversation_id == conversation_id, replies.c.parent_id == parent_id,
-            ).values(status="accepted", message_id=message_id, updated_at=at))
+            ).values(status="accepted", message_id=message_id,
+                     response_parent_id=response_parent, updated_at=at))
         return changed.rowcount == 1
 
     def observe(self, reply_id: str, owner: str, capture: CaptureResult,
@@ -184,7 +217,8 @@ class ManualReplyStore:
                 replies.c.lease_deadline > at,
             )).mappings().one_or_none()
             if row is None or (capture.conversation_id, capture.message_id, capture.parent_id) != (
-                row["conversation_id"], row["message_id"], row["parent_id"]
+                row["conversation_id"], row["message_id"],
+                row["response_parent_id"] or row["parent_id"],
             ) or not capture.text or len(capture.text) < len(str(row["assistant_text"])):
                 return False
             complete = capture.status == "complete"
@@ -194,6 +228,38 @@ class ManualReplyStore:
             ).values(status="completed" if complete else "generating",
                      assistant_text=capture.text[:2 * 1024 * 1024], updated_at=at,
                      lease_owner="" if complete else owner))
+        return changed.rowcount == 1
+
+    def renew(
+        self, reply_id: str, owner: str, *, deadline: float, now: float | None = None,
+    ) -> bool:
+        at = time.time() if now is None else now
+        if deadline <= at:
+            return False
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(replies).where(
+                replies.c.reply_id == reply_id, replies.c.lease_owner == owner,
+                replies.c.status.in_(("dispatching", "accepted", "generating")),
+                replies.c.lease_deadline > at,
+            ).values(lease_deadline=deadline, updated_at=at))
+        return changed.rowcount == 1
+
+    def finish(
+        self, reply_id: str, owner: str, *, uncertain: bool = False,
+        now: float | None = None,
+    ) -> bool:
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(replies).where(
+                replies.c.reply_id == reply_id, replies.c.lease_owner == owner,
+                replies.c.status.in_(("dispatching", "accepted", "generating")),
+            ).values(
+                status=case(
+                    (replies.c.status == "dispatching", "outcome_unknown"),
+                    else_="interrupted",
+                ) if uncertain else "interrupted",
+                lease_owner="", updated_at=at,
+            ))
         return changed.rowcount == 1
 
     def recover_orphans(self, *, now: float | None = None) -> int:

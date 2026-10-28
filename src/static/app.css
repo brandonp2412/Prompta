@@ -850,3 +850,43 @@ button:disabled { cursor: default; opacity: 0.45; }
 .code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 9px 4px 14px; color: #999; font-size: .72rem; border-bottom: 1px solid #343434; }
 .result-markdown .code-snippet pre { border: 0; border-radius: 0; margin: 0; }
 @media (max-width: 680px) { .chat-attachments img { width: 108px; height: 104px; } }
+
+/* Stage 5: fixed workspace composer; only the transcript scrolls. */
+.chats-detail { overflow: hidden; }
+.chat-transcript-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: #454545 transparent; }
+.new-chat-empty { flex: 1; display: grid; place-content: center; text-align: center; gap: 12px; color: #bbb; }
+.new-chat-empty h2 { font-size: 1.15rem; font-weight: 550; }
+.chat-composer-wrap { width: min(100%, 850px); flex: none; margin: 0 auto; padding: 12px 30px max(14px, env(safe-area-inset-bottom)); }
+.chat-composer { min-width: 0; border: 1px solid #464646; background: #303030; border-radius: 22px; padding: 12px 14px 9px; transition: border-color .15s ease; }
+.chat-composer-wrap:focus-within .chat-composer, .chat-composer-wrap.dragging .chat-composer { border-color: #888; }
+.chat-composer textarea { display: block; width: 100%; min-height: 48px; max-height: min(26dvh, 220px); resize: vertical; background: transparent; border: 0; outline: 0; color: #f2f2f2; font: inherit; font-size: .92rem; line-height: 1.5; padding: 3px 2px; overflow-wrap: anywhere; }
+.chat-composer textarea::placeholder { color: #a5a5a5; }
+.composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; margin-top: 6px; }
+.composer-attach { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.composer-attach button { width: 34px; height: 34px; border: 1px solid #575757; border-radius: 50%; background: transparent; color: #eee; font-size: 1.4rem; line-height: 1; }
+.composer-attach input { display: none; }
+.composer-attach small { color: #b1b1b1; font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-send { width: 36px; min-width: 36px; height: 36px; border: 0; border-radius: 50%; background: #f3f3f3; color: #202020; font-size: 1.3rem; font-weight: 650; }
+.composer-send:disabled { background: #525252; color: #929292; cursor: default; }
+.composer-attach button:disabled { opacity: .5; }
+.composer-previews { display: flex; gap: 8px; overflow-x: auto; max-width: 100%; padding-bottom: 8px; }
+.composer-preview { position: relative; flex: 0 0 82px; width: 82px; height: 82px; border-radius: 10px; overflow: hidden; background: #252525; }
+.composer-preview img { width: 100%; height: 100%; object-fit: cover; }
+.composer-preview button { position: absolute; right: 3px; top: 3px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: #171717de; color: white; }
+.composer-feedback, .composer-disclaimer { color: #969696; font-size: .69rem; text-align: center; line-height: 1.4; margin: 6px 0 0; }
+.composer-error { color: #f2a3a3; }
+@media (max-width: 680px) {
+  .chat-composer-wrap { padding: 8px 10px max(12px, env(safe-area-inset-bottom)); }
+  .chat-composer { border-radius: 20px; padding: 9px 12px 7px; }
+  .chat-composer textarea { min-height: 42px; max-height: 25dvh; font-size: 16px; }
+  .composer-disclaimer { font-size: .65rem; margin-top: 5px; }
+  .new-chat-empty h2 { font-size: 1rem; }
+  .composer-preview { flex-basis: 72px; width: 72px; height: 72px; }
+}
+
+.chat-prepared-action, .chat-reply-status { flex: none; width: min(100%, 850px); margin: 0 auto; padding: 14px 30px 18px; color: #b7b7b7; font-size: .8rem; }
+.chat-prepared-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-prepared-action button { background: #303030; color: #eee; border: 1px solid #555; border-radius: 10px; padding: 9px 12px; white-space: nowrap; }
+@media (max-width: 680px) {
+  .chat-prepared-action, .chat-reply-status { padding: 10px 14px max(12px, env(safe-area-inset-bottom)); }
+}

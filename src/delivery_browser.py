@@ -151,7 +151,11 @@ class BrowserDeliverySender:
         return self.runtime.global_backoff_remaining()
 
     def _record_send_attempt(self) -> None:
-        self.runtime.update_scheduler_state({"last_attempt_at": time.time()})
+        remaining = self.runtime.reserve_send_attempt(time.time())
+        if remaining > 0:
+            raise DeliveryBackendUnavailableError(
+                f"Prompta account-wide send gap is active for {math.ceil(remaining)} seconds"
+            )
 
     async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
         await _timed_stage("chat_surface_ready", driver.ensure_chat_surface(), timeout=12.0)
@@ -544,9 +548,9 @@ class BrowserDeliverySender:
                 try:
                     # A timeout during the send control itself is ambiguous.
                     # Never automatically retry unless dispatch was never entered.
+                    self._record_send_attempt()
                     self._dispatch_started = True
                     send_attempted = True
-                    self._record_send_attempt()
                     await _timed_stage(
                         "send_dispatch",
                         driver.click_send(message),

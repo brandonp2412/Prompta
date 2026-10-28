@@ -5,11 +5,13 @@
   let { serverName }: { serverName: string } = $props();
   let view = $state<"jobs" | "chats">("jobs");
   let selectedRunId = $state<string | null>(null);
+  let newChatOpen = $state(false);
 
   function syncRoute() {
     const params = new URLSearchParams(window.location.search);
     view = params.get("view") === "chats" ? "chats" : "jobs";
     selectedRunId = view === "chats" ? params.get("run") : null;
+    newChatOpen = view === "chats" && !selectedRunId && params.get("draft") === "new";
   }
 
   function navigate(nextView: "jobs" | "chats", run: string | null = null) {
@@ -17,6 +19,7 @@
     url.searchParams.delete("new");
     url.searchParams.delete("edit");
     url.searchParams.delete("run");
+    url.searchParams.delete("draft");
     if (nextView === "chats") {
       url.searchParams.set("view", "chats");
       if (run) url.searchParams.set("run", run);
@@ -27,14 +30,13 @@
 
   function newChat() {
     const url = new URL(window.location.href);
-    url.searchParams.delete("view");
+    url.searchParams.set("view", "chats");
     url.searchParams.delete("run");
     url.searchParams.delete("edit");
-    url.searchParams.set("new", "once");
+    url.searchParams.delete("new");
+    url.searchParams.set("draft", "new");
     window.history.pushState(null, "", url);
     syncRoute();
-    // A mounted Jobs editor also observes popstate; this opens Run once explicitly.
-    window.dispatchEvent(new PopStateEvent("popstate"));
   }
 
   onMount(() => {
@@ -50,8 +52,8 @@
 </svelte:head>
 
 <main class="jobs-app">
-  <ChatsPage {view} {serverName} {selectedRunId}
+  <ChatsPage {view} {serverName} {selectedRunId} {newChatOpen}
     onSelect={(id) => navigate("chats", id)}
     onNavigate={(nextView) => navigate(nextView)}
-    onNewChat={newChat} />
+    onNewChat={newChat} onQueued={(id) => navigate("chats", id)} />
 </main>
