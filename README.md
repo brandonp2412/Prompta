@@ -60,6 +60,33 @@ daily and one-time schedules are unchanged. An ad-hoc `once` prompt has no sched
 to reset. If
 `working_hours` is omitted or disabled, Prompta can deliver at any time.
 
+
+## Optional stage concurrency
+
+Prompta has **no time-of-day parallelism limit by default**. To opt in for specific
+jobs, add this to `~/.config/prompta/config.toml` (alongside any existing sections):
+
+```toml
+[stage_concurrency]
+enabled = true
+job_prefixes = ["prompta-chat-ui-", "prompta-mobile-ux-v2-"]
+timezone = "Pacific/Auckland"
+night_start = "22:30"
+night_end = "07:00"
+day_limit = 1
+night_limit = 3
+```
+
+This limits the named group to one ongoing job during the day and up to three at
+night. Admission counts pending fresh-chat deliveries and active per-job passive
+captures, including one-shot jobs already removed from the schedule. It does not
+interrupt an accepted job when the cap falls at 07:00. Changes to this configuration
+are picked up without a scheduler restart. Omitting the section or setting
+`enabled = false` disables this special parallelism cap; explicitly configured
+per-job mutex groups continue to enforce their ordinary serialization rules.
+Invalid enabled settings fail closed rather than silently lifting the limit.
+
+
 ## Login to ChatGPT
 
 Prompta uses a dedicated Chromium profile. Stop the background browser, open that same profile visibly, and log in at ChatGPT:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
@@ -19,6 +20,84 @@ def _parse_local_time(value: object, *, key: str) -> time:
     if parsed.second or parsed.microsecond:
         raise ValueError(f"{key} must not include seconds")
     return parsed
+
+
+@dataclass(frozen=True)
+class StageConcurrencySettings:
+    """Optional per-install admission policy; missing settings mean no special limit."""
+
+    enabled: bool = False
+    job_prefixes: tuple[str, ...] = ()
+    timezone: str = "UTC"
+    night_start: time = time(0, 0)
+    night_end: time = time(0, 0)
+    day_limit: int = 0
+    night_limit: int = 0
+
+    @classmethod
+    def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> StageConcurrencySettings:
+        try:
+            with path.expanduser().open("rb") as config_file:
+                raw = tomllib.load(config_file)
+        except FileNotFoundError:
+            return cls()
+
+        section = raw.get("stage_concurrency")
+        if section is None:
+            return cls()
+        if not isinstance(section, dict):
+            raise ValueError("[stage_concurrency] must be a table")
+        enabled = section.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise ValueError("stage_concurrency.enabled must be true or false")
+        if not enabled:
+            return cls()
+
+        raw_prefixes = section.get("job_prefixes")
+        if (
+            not isinstance(raw_prefixes, list)
+            or not raw_prefixes
+            or any(
+                not isinstance(prefix, str)
+                or re.fullmatch(r"[a-zA-Z0-9_.-]+", prefix) is None
+                for prefix in raw_prefixes
+            )
+        ):
+            raise ValueError("stage_concurrency.job_prefixes must be nonempty safe names")
+        prefixes = tuple(raw_prefixes)
+        if len(set(prefixes)) != len(prefixes):
+            raise ValueError("stage_concurrency.job_prefixes must be unique")
+
+        timezone = section.get("timezone")
+        if not isinstance(timezone, str) or not timezone.strip():
+            raise ValueError("stage_concurrency.timezone must be an IANA timezone")
+        timezone = timezone.strip()
+        try:
+            ZoneInfo(timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("stage_concurrency.timezone is invalid") from exc
+
+        start = _parse_local_time(section.get("night_start"), key="stage_concurrency.night_start")
+        end = _parse_local_time(section.get("night_end"), key="stage_concurrency.night_end")
+        if start == end:
+            raise ValueError("stage_concurrency night start and end must differ")
+
+        day_limit = section.get("day_limit")
+        night_limit = section.get("night_limit")
+        for key, limit in (("day_limit", day_limit), ("night_limit", night_limit)):
+            if type(limit) is not int or limit <= 0:
+                raise ValueError(f"stage_concurrency.{key} must be a positive integer")
+        return cls(True, prefixes, timezone, start, end, day_limit, night_limit)
+
+    def limit_at(self, now: float) -> int | None:
+        if not self.enabled:
+            return None
+        local = datetime.fromtimestamp(now, ZoneInfo(self.timezone)).time()
+        if self.night_start < self.night_end:
+            night = self.night_start <= local < self.night_end
+        else:
+            night = local >= self.night_start or local < self.night_end
+        return self.night_limit if night else self.day_limit
 
 
 @dataclass(frozen=True)

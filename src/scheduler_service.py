@@ -5,11 +5,9 @@ import fcntl
 import logging
 import random
 import time
-from datetime import datetime
-from datetime import time as clock_time
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+from .config import DEFAULT_CONFIG_PATH, StageConcurrencySettings
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -29,16 +27,6 @@ from .strict_types import float_value, string_object_dict
 
 logger = logging.getLogger(__name__)
 
-_STAGE_GROUP = "prompta-ui-stage-work"
-_STAGE_PREFIXES = ("prompta-chat-ui-", "prompta-mobile-ux-v2-")
-_AUCKLAND = ZoneInfo("Pacific/Auckland")
-
-
-def stage_parallel_limit(now: float) -> int:
-    """One stage by day, three from 22:30 through 06:59 in Auckland."""
-    local = datetime.fromtimestamp(now, tz=_AUCKLAND).time()
-    return 3 if local >= clock_time(22, 30) or local < clock_time(7, 0) else 1
-
 
 class DurableSchedulerProducer:
     def __init__(
@@ -46,6 +34,7 @@ class DurableSchedulerProducer:
         state_path: Path = DEFAULT_RUNTIME_PATH,
         jobs_path: Path = DEFAULT_RUNTIME_PATH,
         queue_path: Path | None = None,
+        concurrency_config_path: Path = DEFAULT_CONFIG_PATH,
     ) -> None:
         self.state_path = state_path.expanduser()
         self.jobs_path = jobs_path.expanduser()
@@ -53,6 +42,22 @@ class DurableSchedulerProducer:
         self.queue = DeliveryQueueStore(
             (queue_path or self.state_path.parent / "ui-send-jobs.sqlite3").expanduser()
         )
+        self.concurrency_config_path = concurrency_config_path.expanduser()
+        self._concurrency_signature: tuple[int, int, int] | None = None
+        self._concurrency_settings: StageConcurrencySettings | None = None
+
+    def _current_concurrency_settings(self) -> StageConcurrencySettings:
+        """Reload only on file replacement/change; invalid files never disable the cap."""
+        try:
+            stat = self.concurrency_config_path.stat()
+            signature = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            signature = None
+        if self._concurrency_settings is None or signature != self._concurrency_signature:
+            settings = StageConcurrencySettings.load(self.concurrency_config_path)
+            self._concurrency_settings = settings
+            self._concurrency_signature = signature
+        return self._concurrency_settings
 
     def _occurrence_key(self, job: PromptJob) -> str:
         return occurrence_key(job, self.runtime.job_state(job.name))
@@ -70,14 +75,19 @@ class DurableSchedulerProducer:
         return receipt if receipt_is_pending(receipt) else None
 
     def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob], *, now: float) -> bool:
+        settings = self._current_concurrency_settings()
+        if settings.enabled and job.name.startswith(settings.job_prefixes):
+            # One-shot definitions vanish on enqueue, but their active response
+            # captures still occupy the configured group's concurrency slots.
+            active = self.queue.pending_scheduled_send_ids(settings.job_prefixes)
+            active.update(
+                self.queue.results.active_capture_send_ids(settings.job_prefixes, now=now)
+            )
+            limit = settings.limit_at(now)
+            assert limit is not None
+            return len(active) >= limit
         if not job.mutex_group:
             return False
-        if job.mutex_group == _STAGE_GROUP:
-            # One-shot definitions vanish on enqueue, so counting only active
-            # scheduled-job rows would accidentally admit unlimited stage jobs.
-            active = self.queue.pending_scheduled_send_ids(_STAGE_PREFIXES)
-            active.update(self.queue.results.active_capture_send_ids(_STAGE_PREFIXES, now=now))
-            return len(active) >= stage_parallel_limit(now)
         return any(
             other.name != job.name
             and other.mutex_group == job.mutex_group

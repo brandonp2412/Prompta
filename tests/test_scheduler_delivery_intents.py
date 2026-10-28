@@ -7,9 +7,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from prompta.config import StageConcurrencySettings
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
-from prompta.scheduler_service import DurableSchedulerProducer, stage_parallel_limit
+from prompta.scheduler_service import DurableSchedulerProducer
 
 
 def test_scheduler_restart_with_worker_stopped_records_one_pending_delivery(tmp_path: Path) -> None:
@@ -239,6 +240,23 @@ def _nz_epoch(value: str) -> float:
     return datetime.fromisoformat(value).replace(tzinfo=ZoneInfo("Pacific/Auckland")).timestamp()
 
 
+def _stage_config(tmp_path: Path, *, day_limit: int = 1, night_limit: int = 3) -> Path:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        f"""[stage_concurrency]
+enabled = true
+job_prefixes = ["prompta-chat-ui-", "prompta-mobile-ux-v2-"]
+timezone = "Pacific/Auckland"
+night_start = "22:30"
+night_end = "07:00"
+day_limit = {day_limit}
+night_limit = {night_limit}
+""",
+        encoding="utf-8",
+    )
+    return path
+
+
 @pytest.mark.parametrize(
     ("local", "capacity"),
     [
@@ -250,8 +268,11 @@ def _nz_epoch(value: str) -> float:
         ("2026-07-01T22:30:00", 3),  # NZST winter clock
     ],
 )
-def test_stage_capacity_uses_auckland_wall_clock(local: str, capacity: int) -> None:
-    assert stage_parallel_limit(_nz_epoch(local)) == capacity
+def test_stage_capacity_uses_auckland_wall_clock(
+    tmp_path: Path, local: str, capacity: int
+) -> None:
+    settings = StageConcurrencySettings.load(_stage_config(tmp_path))
+    assert settings.limit_at(_nz_epoch(local)) == capacity
 
 
 def _due_stage_producer(tmp_path: Path, *, due: float, count: int) -> DurableSchedulerProducer:
@@ -266,7 +287,9 @@ def _due_stage_producer(tmp_path: Path, *, due: float, count: int) -> DurableSch
             run_at_epoch=due,
             mutex_group="prompta-ui-stage-work",
         )
-    return DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
+    return DurableSchedulerProducer(
+        runtime_path, runtime_path, queue_path, concurrency_config_path=_stage_config(tmp_path)
+    )
 
 
 def _accept_and_finish_delivery(
@@ -331,4 +354,70 @@ def test_dawn_reduces_new_admissions_without_interrupting_live_captures(
         live_send_ids[2], "test-owner", "interrupted", now=dawn + 3
     )
     assert producer.tick(now=dawn + 4) == 1
+    assert len(producer.queue.records()) == 4
+
+
+def test_stage_parallelism_setting_hot_reloads_without_scheduler_restart(tmp_path: Path) -> None:
+    night = _nz_epoch("2026-10-29T22:30:00")
+    producer = _due_stage_producer(tmp_path, due=night - 60, count=4)
+    assert producer.tick(now=night) == 3
+    assert len(producer.queue.records()) == 3
+    assert producer._current_concurrency_settings().night_limit == 3
+
+    # Persist a changed setting; existing producer notices and admits one more.
+    _stage_config(tmp_path, night_limit=4)
+    assert producer.tick(now=night + 1) == 1
+    assert len(producer.queue.records()) == 4
+    assert producer._current_concurrency_settings().night_limit == 4
+
+
+def test_no_parallelism_config_adds_no_global_limit(tmp_path: Path) -> None:
+    due = _nz_epoch("2026-10-29T12:00:00")
+    state = tmp_path / "runtime.sqlite3"
+    for index in range(4):
+        add_job(state, f"independent-{index}", "A fresh independent chat", 0, run_at_epoch=due)
+    producer = DurableSchedulerProducer(
+        state, state, concurrency_config_path=tmp_path / "missing-config.toml"
+    )
+    assert producer._current_concurrency_settings().limit_at(due) is None
+    assert producer.tick(now=due) == 4
+
+
+def test_invalid_reloaded_stage_cap_fails_closed(tmp_path: Path) -> None:
+    due = _nz_epoch("2026-10-29T22:30:00")
+    producer = _due_stage_producer(tmp_path, due=due, count=1)
+    assert producer._current_concurrency_settings().enabled
+    config = tmp_path / "config.toml"
+    config.write_text(
+        config.read_text().replace("night_limit = 3", 'night_limit = "many"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="night_limit"):
+        producer.tick(now=due)
+    assert producer.queue.records() == []
+
+
+def test_stage_prefix_cap_applies_to_future_cli_jobs_without_mutex_group(
+    tmp_path: Path,
+) -> None:
+    due = _nz_epoch("2026-10-29T12:00:00")
+    state = tmp_path / "runtime.sqlite3"
+    for index in range(4):
+        add_job(
+            state,
+            f"prompta-chat-ui-{index + 20:02d}-recheck",
+            "One future fresh stage chat",
+            0,
+            run_at_epoch=due,
+        )
+    producer = DurableSchedulerProducer(
+        state, state, concurrency_config_path=_stage_config(tmp_path)
+    )
+    assert producer.tick(now=due) == 1
+    assert len(producer.queue.records()) == 1
+
+    # An opt-out on the same file removes the *configured* special cap.
+    path = tmp_path / "config.toml"
+    path.write_text("[stage_concurrency]\nenabled = false\n", encoding="utf-8")
+    assert producer.tick(now=due + 1) == 3
     assert len(producer.queue.records()) == 4

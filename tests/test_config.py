@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from prompta.config import WorkingHours
+from prompta.config import StageConcurrencySettings, WorkingHours
 
 
 def _epoch(local: str) -> float:
@@ -80,3 +80,46 @@ def test_connector_approval_defaults_off_and_requires_boolean(tmp_path: Path) ->
     config.write_text('[connector_approval]\nenabled = "true"\n')
     with pytest.raises(ValueError, match="true or false"):
         ConnectorApproval.load(config)
+
+
+def test_missing_stage_concurrency_config_has_no_special_limit(tmp_path: Path) -> None:
+    assert StageConcurrencySettings.load(tmp_path / "missing.toml").limit_at(
+        _epoch("2026-10-29T23:00")
+    ) is None
+    path = tmp_path / "config.toml"
+    path.write_text("[stage_concurrency]\nenabled = false\n", encoding="utf-8")
+    assert StageConcurrencySettings.load(path).limit_at(_epoch("2026-10-29T23:00")) is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("day_limit", "0"),
+        ("night_limit", "true"),
+        ("night_start", '"25:00"'),
+        ("night_end", '"22:30"'),
+        ("timezone", '"Unknown/Timezone"'),
+        ("job_prefixes", '["bad/%"]'),
+        ("job_prefixes", '[]'),
+    ],
+)
+def test_invalid_parallelism_setting_fails_closed(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    path = tmp_path / "config.toml"
+    settings = {
+        "enabled": "true",
+        "job_prefixes": '["prompta-chat-ui-", "prompta-mobile-ux-v2-"]',
+        "timezone": '"Pacific/Auckland"',
+        "night_start": '"22:30"',
+        "night_end": '"07:00"',
+        "day_limit": "1",
+        "night_limit": "3",
+    }
+    settings[field] = value
+    path.write_text(
+        "[stage_concurrency]\n" + "".join(f"{key} = {setting}\n" for key, setting in settings.items()),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        StageConcurrencySettings.load(path)
