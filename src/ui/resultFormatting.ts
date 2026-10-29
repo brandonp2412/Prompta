@@ -47,7 +47,7 @@ export type LocalTurn = {
   user_text: string;
   assistant_text: string;
   tool_calls?: CapturedToolCall[];
-  status: ResultStatus | "prepared" | "dispatching" | "outcome_unknown";
+  status: ResultStatus | "prepared" | "preflight_failed" | "dispatching" | "outcome_unknown";
   created_at: number;
   updated_at: number;
 };
@@ -56,6 +56,8 @@ export function turnStatus(status: LocalTurn["status"]): string {
   switch (status) {
     case "prepared":
       return "Pending";
+    case "preflight_failed":
+      return "Not sent · browser verification failed. Tap Send to retry.";
     case "dispatching":
       return "Sending…";
     case "outcome_unknown":

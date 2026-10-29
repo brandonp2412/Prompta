@@ -4,7 +4,7 @@
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
 
-  let { mode, onSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "" }: {
+  let { mode, onSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
     mode: "fresh" | "reply";
     onSend: (text: string, images: string[]) => Promise<SendResult>;
     onNewChat: () => void;
@@ -12,6 +12,7 @@
     sendDisabled?: boolean;
     sendHint?: string;
     restoreDraft?: string;
+    retryablePreflight?: boolean;
   } = $props();
 
   let draft = $state("");
@@ -31,11 +32,13 @@
   const canSend = $derived(!disabled && !sendDisabled && !locked && !sending && !uploading && hasDraft);
 
   $effect(() => {
-    if (mode !== "reply" || !restoreDraft || restoredDraft === restoreDraft) return;
+    if (mode !== "reply" || !restoreDraft) return;
+    const changed = restoredDraft !== restoreDraft;
+    if (!changed && !retryablePreflight) return;
     restoredDraft = restoreDraft;
-    // Restore a pending intent only on a later visit. Never refill the field
-    // immediately after the user's original successful Send click.
-    if (!draft && !sending && restoreDraft !== lastSubmitted) {
+    // A confirmed preflight failure never clicked Send, so refill its original
+    // immutable text. Normal pending sends still wait for a later visit.
+    if (!draft && !sending && (retryablePreflight || restoreDraft !== lastSubmitted)) {
       draft = restoreDraft;
       requestAnimationFrame(resizeTextarea);
     }

@@ -1,4 +1,5 @@
 """Real Chromium checks for exact DOM branch identity without external requests."""
+
 from __future__ import annotations
 
 import os
@@ -21,7 +22,7 @@ OTHER = "00000000-0000-4000-8000-000000000003"
         (f"data-chatgpt-search-message-ids='[\"{PARENT}\"]'", True),
         (f"data-chatgpt-search-message-ids='{PARENT} {PARENT}'", True),
         (f"data-chatgpt-search-message-ids='{PARENT} {OTHER}'", False),
-        (f"data-chatgpt-search-message-ids='[\"{PARENT}\",\"{OTHER}\"]'", False),
+        (f'data-chatgpt-search-message-ids=\'["{PARENT}","{OTHER}"]\'', False),
         ("data-chatgpt-search-message-ids='not-json'", False),
         (f"data-chatgpt-search-message-ids='[\"{OTHER}\"]'", False),
     ],
@@ -32,7 +33,8 @@ def test_exact_branch_probe_decodes_only_one_backend_id(attribute: str, expected
         pytest.skip("Headless Chromium unavailable")
     html = (
         "<main><div data-message-author-role='assistant' data-chatgpt-search-unit-key='turn:assistant' "
-        + attribute + ">Synthetic final assistant turn</div></main>"
+        + attribute
+        + ">Synthetic final assistant turn</div></main>"
     )
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=executable, headless=True)
@@ -59,9 +61,14 @@ def test_exact_branch_probe_decodes_only_one_backend_id(attribute: str, expected
         (f"{PARENT} {PARENT}", "Original answer", "", PARENT),
         (f"{PARENT} {OTHER}", "Original answer", "", None),
         (f"{PARENT} {PARENT}", "Changed answer", "", None),
-        (f"{PARENT} {PARENT}", "Original answer",
-         "<div data-chatgpt-search-unit-key='other:assistant' data-chatgpt-search-message-ids='"
-         + OTHER + "'><div class='markdown'>Other answer</div></div>", None),
+        (
+            f"{PARENT} {PARENT}",
+            "Original answer",
+            "<div data-chatgpt-search-unit-key='other:assistant' data-chatgpt-search-message-ids='"
+            + OTHER
+            + "'><div class='markdown'>Other answer</div></div>",
+            None,
+        ),
     ],
 )
 def test_explicit_recovery_verifies_only_the_one_original_branch(
@@ -89,7 +96,10 @@ def test_explicit_recovery_verifies_only_the_one_original_branch(
         browser.close()
 
 
-def test_branch_wait_observes_delayed_assistant_hydration_without_polling() -> None:
+@pytest.mark.parametrize("hydration_delay_ms", [450, 12500])
+def test_branch_wait_observes_delayed_assistant_hydration_without_polling(
+    hydration_delay_ms: int,
+) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
@@ -100,20 +110,22 @@ def test_branch_wait_observes_delayed_assistant_hydration_without_polling() -> N
 
         def serve(route: object) -> None:
             from playwright.sync_api import Route
+
             assert isinstance(route, Route)
             routed.append(route.request.url)
             route.fulfill(status=200, content_type="text/html", body="<main></main>")
+
         page.route("https://chatgpt.com/**", serve)
         page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
         page.evaluate(
-            """(parent) => setTimeout(() => {
+            """(payload) => setTimeout(() => {
                 const assistant = document.createElement('div');
                 assistant.setAttribute('data-message-author-role', 'assistant');
-                assistant.setAttribute('data-message-id', parent);
+                assistant.setAttribute('data-message-id', payload.parent);
                 assistant.innerText = 'Hydrated answer';
                 document.querySelector('main').append(assistant);
-            }, 450)""",
-            PARENT,
+            }, payload.delay)""",
+            {"parent": PARENT, "delay": hydration_delay_ms},
         )
         assert page.evaluate(_branch_wait_probe(CONVERSATION, PARENT)) is True
         assert routed == [f"https://chatgpt.com/c/{CONVERSATION}"]

@@ -7,7 +7,9 @@
     const observer = new MutationObserver(() => {
       if (verify()) finish(true);
     });
-    const timeout = setTimeout(() => finish(false), 12000);
+    // Allow slow conversation hydration while staying below the 30-second
+    // Playwright evaluation bound. This check never submits a message.
+    const timeout = setTimeout(() => finish(false), 24000);
     const finish = (matched) => {
       observer.disconnect();
       clearTimeout(timeout);

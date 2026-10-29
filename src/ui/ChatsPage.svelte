@@ -37,6 +37,7 @@
   let queueSnapshot = $state<QueueSnapshot>({ max_workers: null, occupied_slots: 0, waiting: [] });
   let queueGeneration = 0;
   let queuePollTimer: ReturnType<typeof setInterval> | undefined;
+  let detailPollTimer: ReturnType<typeof setInterval> | undefined;
   let items = $state<RunSummary[]>([]);
   let pinnedItems = $state<RunSummary[]>([]);
   let pinnedIds = $state<string[]>([]);
@@ -91,7 +92,7 @@
   const replyBlockedReason = $derived.by((): string => {
     const latest = turns.at(-1);
     if (!detail || !latest) return "Loading reply availability…";
-    if (latest.status === "prepared") {
+    if (latest.status === "prepared" || latest.status === "preflight_failed") {
       return latest.reply_id && latest.conversation_id && latest.parent_id
         ? "" : "The saved reply has no verified target, so it cannot be resent.";
     }
@@ -407,7 +408,7 @@
   async function sendReply(text: string, _images: string[]) {
     const sendId = selectedRunId;
     const latest = turns.at(-1);
-    if (sendId && latest?.status === "prepared") {
+    if (sendId && (latest?.status === "prepared" || latest?.status === "preflight_failed")) {
       if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) {
         return { ok: false, message: "A pending reply can only be retried with its original text." };
       }
@@ -578,6 +579,14 @@
     void loadPins();
     void loadQueue();
     queuePollTimer = setInterval(() => { if (document.visibilityState === "visible") void loadQueue(); }, 15000);
+    // Poll only Prompta's local turn record while an explicit reply is active.
+    // This never opens ChatGPT or submits another message.
+    detailPollTimer = setInterval(() => {
+      if (document.visibilityState !== "visible" || view !== "chats" || !selectedRunId) return;
+      if (["prepared", "dispatching", "accepted", "generating"].includes(turns.at(-1)?.status ?? "")) {
+        void loadDetail(selectedRunId);
+      }
+    }, 5000);
     const unsubscribeJobs = subscribeLiveUpdates("jobs", () => void loadQueue());
     const unsubscribe = subscribeLiveUpdates("chats", () => {
       clearTimeout(liveRefreshTimer);
@@ -587,6 +596,7 @@
       unsubscribe();
       unsubscribeJobs();
       clearInterval(queuePollTimer);
+      clearInterval(detailPollTimer);
       clearTimeout(liveRefreshTimer);
       clearTimeout(searchTimer);
     };
@@ -760,7 +770,8 @@
       </div>
       {#key selectedRunId}
         <ChatComposer mode="reply" onSend={sendReply} onNewChat={createChat}
-          restoreDraft={turns.at(-1)?.status === "prepared" ? turns.at(-1)?.user_text ?? "" : ""}
+          restoreDraft={["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
+          retryablePreflight={turns.at(-1)?.status === "preflight_failed"}
           sendDisabled={Boolean(replyBlockedReason) || recoveringReply}
           sendHint={replyBlockedReason} />
       {/key}

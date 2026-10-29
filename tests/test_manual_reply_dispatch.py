@@ -29,7 +29,7 @@ class FakeDriver:
         self.sent = threading.Event()
 
     async def connect(self) -> None:
-        pass
+        self.is_connected = True
 
     async def new_tab(self, _url: str) -> str:
         return "owned-test-tab"
@@ -146,7 +146,17 @@ def test_explicit_reply_requires_exact_last_assistant_and_single_claim(
         assert fake.calls == 1
     else:
         assert fake.calls == 0
-        assert turns[-1]["status"] == "prepared"
+        assert turns[-1]["status"] == "preflight_failed"
+        # The first attempt never claimed a send. A second explicit click with
+        # the same immutable intent may verify again, but never auto-retries.
+        fake.correct_branch = True
+        assert service.submit("send-1", intent)["status"] == "prepared"
+        until = time.monotonic() + 3.0
+        while time.monotonic() < until and REPLY_ID in service._active:
+            time.sleep(0.02)
+        assert fake.calls == 1
+        saved = store.get(REPLY_ID)
+        assert saved is not None and saved["status"] == "completed"
 
 
 def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
@@ -173,8 +183,10 @@ def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
     [("Synthetic explicit reply", 1), ("Unrelated human draft", 0)],
 )
 def test_prepared_reply_reuses_only_an_identical_existing_draft(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-    existing_draft: str, expected_send: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing_draft: str,
+    expected_send: int,
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = FakeDriver(correct_branch=True)
@@ -191,7 +203,7 @@ def test_prepared_reply_reuses_only_an_identical_existing_draft(
     assert fake.type_calls == 0
     turns = store.turns("send-1")
     assert turns is not None
-    assert turns[-1]["status"] == ("completed" if expected_send else "prepared")
+    assert turns[-1]["status"] == ("completed" if expected_send else "preflight_failed")
 
 
 class FlakyConnectDriver(FakeDriver):
@@ -209,7 +221,10 @@ class FlakyConnectDriver(FakeDriver):
 
 @pytest.mark.parametrize(("failures", "expected_sends"), [(1, 1), (2, 0)])
 def test_manual_reply_retries_only_preclaim_browser_connection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failures: int, expected_sends: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failures: int,
+    expected_sends: int,
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = FlakyConnectDriver(failures)
@@ -225,7 +240,7 @@ def test_manual_reply_retries_only_preclaim_browser_connection(
     assert turns is not None
     assert fake.connect_attempts == 2
     assert fake.calls == expected_sends
-    assert turns[-1]["status"] == ("completed" if expected_sends else "prepared")
+    assert turns[-1]["status"] == ("completed" if expected_sends else "preflight_failed")
 
 
 def test_atomic_manual_claim_is_exactly_once_across_workers(tmp_path: Path) -> None:
@@ -260,13 +275,16 @@ class DomOnlyDriver(FakeDriver):
     async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
         del timeout
         return CaptureResult(
-            "dom", "complete", "DOM-only final answer",
-            CONVERSATION, "a" * 32, None, "new:assistant",
+            "dom",
+            "complete",
+            "DOM-only final answer",
+            CONVERSATION,
+            "a" * 32,
+            None,
+            "new:assistant",
         )
 
-    def captured_assistant_response(
-        self, _capture: dict[str, object]
-    ) -> CaptureResult | None:
+    def captured_assistant_response(self, _capture: dict[str, object]) -> CaptureResult | None:
         return None
 
 
@@ -296,8 +314,12 @@ class MissingRouteSseDriver(DomOnlyDriver):
 
     def captured_assistant_response(self, _capture: dict[str, object]) -> CaptureResult:
         return CaptureResult(
-            "sse", "complete", "SSE final without conversation field",
-            None, "a" * 32, "u" * 32,
+            "sse",
+            "complete",
+            "SSE final without conversation field",
+            None,
+            "a" * 32,
+            "u" * 32,
         )
 
 

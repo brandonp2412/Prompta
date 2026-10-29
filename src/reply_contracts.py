@@ -36,7 +36,7 @@ from .response_store import (
 )
 
 ReplyStatus = Literal[
-    "prepared", "dispatching", "outcome_unknown", "accepted",
+    "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
     "generating", "completed", "interrupted",
 ]
 _SCHEMA = MetaData()
@@ -187,6 +187,46 @@ class ManualReplyStore:
             "message_id": "", "user_text": intent.text, "assistant_text": "",
             "status": "prepared", "created_at": at, "updated_at": at,
         }
+
+    def mark_preflight_failed(self, reply_id: str, *, now: float | None = None) -> bool:
+        """Only a never-claimed reply can fail safely before dispatch."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(
+                update(replies)
+                .where(
+                    replies.c.reply_id == reply_id,
+                    replies.c.status == "prepared",
+                )
+                .values(status="preflight_failed", updated_at=at)
+            )
+        return changed.rowcount == 1
+
+    def retry_preflight(self, reply_id: str, *, now: float | None = None) -> dict[str, object]:
+        """Rearm only after an explicit click with the same immutable intent."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            connection.execute(
+                update(replies)
+                .where(
+                    replies.c.reply_id == reply_id,
+                    replies.c.status == "preflight_failed",
+                )
+                .values(status="prepared", updated_at=at)
+            )
+            row = (
+                connection.execute(
+                    select(replies).where(
+                        replies.c.reply_id == reply_id,
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise ReplyConflict("The saved reply is unavailable")
+        return self._public(dict(row))
 
     def recover_original_parent(
         self, send_id: str, conversation_id: str, message_id: str, original_answer: str

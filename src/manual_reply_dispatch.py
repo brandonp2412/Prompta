@@ -64,14 +64,15 @@ class ManualReplyDispatcher:
 
     def submit(self, send_id: str, intent: ReplyIntent) -> dict[str, object]:
         """Called only by an explicit UI POST; never starts prepared rows on its own."""
-        existing = self.store.get(intent.reply_id)
-        if existing is not None and existing["status"] != "prepared":
-            return self.store.prepare(send_id, intent)
         turn = self.store.prepare(send_id, intent)
-        if turn["status"] != "prepared":
+        if turn["status"] not in ("prepared", "preflight_failed"):
             return turn
         with self._lock:
             if intent.reply_id in self._active:
+                return turn
+            if turn["status"] == "preflight_failed":
+                turn = self.store.retry_preflight(intent.reply_id)
+            if turn["status"] != "prepared":
                 return turn
             self._active.add(intent.reply_id)
         try:
@@ -84,6 +85,7 @@ class ManualReplyDispatcher:
         except RuntimeError:
             with self._lock:
                 self._active.discard(intent.reply_id)
+            self.store.mark_preflight_failed(intent.reply_id)
             raise ReplyConflict("Manual reply worker is unavailable") from None
         return turn
 
@@ -149,6 +151,7 @@ class ManualReplyDispatcher:
         except Exception as exc:
             # Never log the submitted text, provider response, or browser URL.
             logger.warning("Explicit reply dispatch stopped error_type=%s", type(exc).__name__)
+            self.store.mark_preflight_failed(str(turn["reply_id"]))
         finally:
             with self._lock:
                 self._active.discard(str(turn["reply_id"]))
@@ -373,6 +376,7 @@ class ManualReplyDispatcher:
                         pass
         finally:
             if not claimed:
+                self.store.mark_preflight_failed(reply_id)
                 logger.warning("Explicit reply preflight left unsent stage=%s", preflight_stage)
             if claimed and not completed:
                 self.store.finish(reply_id, owner, uncertain=True)
