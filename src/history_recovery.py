@@ -150,6 +150,7 @@ class HistoryRecovery:
                     send_id, result, now=at,
                 ):
                     if result.status == "complete":
+                        self.runtime.record_read_success()
                         logger.info("Historical response recovered send_id=%s", send_id)
                         return True
         except RateLimitError as exc:

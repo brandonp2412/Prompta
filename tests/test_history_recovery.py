@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from prompta.delivery_worker import DeliveryAdmission
 from prompta.history_recovery import (
     HistoryRecovery,
     _read_backoff_remaining,
@@ -116,7 +117,12 @@ def test_rate_limit_stops_recovery_and_preserves_retry_state(tmp_path: Path) -> 
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     worker = HistoryRecovery(store, runtime, lambda: driver)
     assert not worker.recover_once(now=150)
-    assert driver.closed and runtime.global_backoff_remaining() > 0
+    assert driver.closed and runtime.read_backoff_remaining() >= 299
+    assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))(
+        manual=True
+    ) == (True, "", 0.0)
+    restarted = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert restarted.read_backoff_remaining() > 0
     row = store.get("manual-1")
     assert row is not None and row["status"] == "interrupted"
     assert not worker.recover_once(now=151)

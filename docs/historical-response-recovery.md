@@ -14,8 +14,9 @@ the live passive SSE/DOM capture path.
 - One navigation is permitted globally every 90 seconds, persisted in SQLite
   across service restarts. Each unresolved chat backs off independently from
   90 seconds to at most one hour, with retries continuing until completion.
-- Detected account rate limiting suspends reads through the existing global
-  scheduler backoff. A browser security challenge creates a separate durable
+- Detected account rate limiting suspends reads for at least five minutes
+  through a durable read-only exponential backoff. Longer server-provided
+  `Retry-After` delays are honoured; chat dispatch remains independent. A browser security challenge creates a separate durable
   30-minute account-wide pause; do not attempt to bypass the challenge.
 - Partial text may be preserved without marking a response complete. Completion
   requires an explicit rendered Copy action and no active generation indicator.

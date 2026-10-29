@@ -96,7 +96,7 @@ def test_passive_capture_is_owned_and_history_free() -> None:
         "no account-wide history reads",
         "read-only historical recovery may navigate",
         "internal history api calls",
-        "global rate-limit backoff",
+        "read-only rate-limit backoff",
         "machine gun mode",
         "no raw messages in logs",
     ):

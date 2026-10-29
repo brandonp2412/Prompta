@@ -8,7 +8,7 @@ Prompta is a job-centric scheduler and fresh-chat dispatcher. Its only conversat
 | --- | --- | --- |
 | prompta-ui.service | Jobs CRUD/status plus local SQLite-only `/api/results` and read-only Chats view | ChatGPT browser access, account-wide history, replies |
 | prompta-scheduler.service | Due-time calculation and durable job-delivery enqueue | Browser automation or result tracking |
-| prompta-delivery-worker.service | Delivery claims, due-time fresh-tab submissions, and independent overlapping passive captures into private SQLite | Extra ChatGPT reads, retries after ambiguous sends, historical tab reopening |
+| prompta-delivery-worker.service | Fresh-chat delivery, independent passive captures, and paced read-only recovery of exact verified conversations | Account-wide history enumeration, internal history API requests, or retries after ambiguous sends |
 | prompta-browser.service | Authenticated Chromium/CDP session | Scheduling or job state |
 
 prompta.target starts these four services. The old conversation worker does not exist.
@@ -47,9 +47,9 @@ Pre-dispatch failures are retryable. A post-dispatch outcome that cannot be prov
 
 ## Read-side rate limits
 
-A `429 Too Many Requests` observed while capturing a response records a durable, SQLite-backed `read_rate_limit_backoff` independent of delivery admission. Active semantic-DOM recovery probes pause during this cooldown; already-arriving passive POST/DOM events remain eligible for capture. An accepted prompt is never automatically resent to recover its response, and the cooldown never authorizes history requests or account-wide polling.
+A `429 Too Many Requests` observed during response capture or exact-conversation historical recovery records a durable, SQLite-backed `read_rate_limit_backoff` independent of delivery admission. Active semantic-DOM recovery probes and historical read navigation pause during this cooldown; already-arriving passive POST/DOM events remain eligible for capture. An accepted prompt is never automatically resent to recover its response, and the cooldown never authorizes history requests or account-wide polling.
 
-The read cooldown starts at five minutes, doubles for repeated rate limits up to a 30-minute exponential cap, adds positive jitter, and honours a longer `Retry-After` (seconds, HTTP date or supported millisecond header). A completed capture after expiry clears the stale backoff. New scheduled chats and explicit manual replies are not blocked by this read-only state; a rejected send is retried only as its own bounded queue item, still subject to delivery parallelism. Current cooldown details are available via `SchedulerRuntime.read_admission_status()`.
+The read cooldown starts at five minutes, doubles for repeated rate limits up to a 30-minute exponential cap, adds positive jitter, and honours a longer `Retry-After` (seconds, HTTP date or supported millisecond header). A completed capture after expiry clears the stale backoff. Historical recovery retains its independent 90-second global pacing and per-chat retry state. New scheduled chats and explicit manual replies are not blocked by read-only throttling; a rejected send is retried only as its own bounded queue item, still subject to delivery parallelism. Current cooldown details are available via `SchedulerRuntime.read_admission_status()`.
 
 ## Service control
 
