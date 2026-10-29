@@ -60,10 +60,16 @@ def test_fresh_chat_endpoint_is_idempotent_and_payload_bound(tmp_path: Path) -> 
         assert first_status == second_status == 202
         assert first["send_id"] == second["send_id"] == "manual-" + "a" * 32
         assert first["status"] == "queued" and second["status"] == "queued"
+        results = ResponseStore(tmp_path / "chat-results.sqlite3")
+        assert [item["send_id"] for item in results.local_pinned_runs()] == [first["send_id"]]
+        assert results.set_local_pin(str(first["send_id"]), pinned=False)
+        assert post(port, "/api/chats", payload)[0] == 202
+        assert results.local_pinned_runs() == []
         assert post(port, "/api/chats", {**payload, "prompt": "Different immutable message"})[0] == 400
         assert post(port, "/api/chats", {**payload, "request_id": "bad"})[0] == 400
         assert post(port, "/api/chats", {**payload, "images": ["unverified-ref"]})[0] == 400
         assert post(port, "/api/chats", {**payload, "request_id": "b" * 32, "images": []})[0] == 202
+        assert [item["send_id"] for item in results.local_pinned_runs()] == ["manual-" + "b" * 32]
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
@@ -228,6 +234,15 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
         page.locator(".chats-list .chat-row").filter(has_text="Instant new sidebar chat").wait_for(
             timeout=2000,
         )
+        page.locator(".chat-entry").filter(has_text="Instant new sidebar chat").locator(
+            ".chat-pin[aria-pressed='true']"
+        ).wait_for(timeout=3000)
+        page.reload()
+        if width < 681:
+            page.get_by_role("button", name="Open chat sidebar").click()
+        page.locator(".chat-entry").filter(has_text="Instant new sidebar chat").locator(
+            ".chat-pin[aria-pressed='true']"
+        ).wait_for(timeout=3000)
         assert page.locator(".chats-list .chat-row").first.inner_text().startswith(
             "Instant new sidebar chat",
         )

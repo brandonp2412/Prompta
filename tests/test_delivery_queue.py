@@ -192,3 +192,10 @@ def test_manual_claim_has_priority_over_old_scheduled_backlog(tmp_path: Path) ->
     manual = queue.enqueue_manual("Now", now=12.0)
     claimed = queue.claim_next("worker", now=12.0, lease_seconds=30)
     assert claimed is not None and claimed["send_id"] == manual["send_id"]
+
+
+def test_non_ui_manual_queue_does_not_pin_local_sidebar_by_default(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    receipt = queue.enqueue_manual("Manual CLI or job run", now=12.0)
+    assert receipt["pin_chat"] is False
+    assert queue.results.local_pinned_runs() == []

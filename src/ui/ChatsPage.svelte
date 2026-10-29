@@ -272,6 +272,7 @@
       statusFilter = "";
       onQueued(body.send_id);
       void loadList();
+      void loadPins();
       return { ok: true, message: "" };
     } catch {
       return {

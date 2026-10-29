@@ -417,6 +417,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                     self.server.images.path(ref)
                 receipt = self.server.queue.enqueue_manual(
                     prompt.strip(), images=refs, request_id=request_id,
+                    pin_local_default=True,
                 )
                 self._json(
                     {"ok": True, "send_id": receipt["send_id"], "status": receipt["status"]},

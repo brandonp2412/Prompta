@@ -211,6 +211,7 @@ class DeliveryQueueStore:
         *,
         now: float | None = None,
         pin_chat: bool = False,
+        pin_local_default: bool = False,
         images: tuple[str, ...] = (),
         request_id: str | None = None,
     ) -> dict[str, object]:
@@ -220,7 +221,7 @@ class DeliveryQueueStore:
         request_id = uuid.uuid4().hex if request_id is None else request_id
         if not re.fullmatch(r"[0-9a-f]{32}", request_id):
             raise ValueError("Invalid fresh chat request identifier")
-        receipt, _created = self.enqueue_idempotent(
+        receipt, created = self.enqueue_idempotent(
             {
                 "send_id": f"manual-{request_id}",
                 "client_id": f"manual:{'once:' if pin_chat else ''}{request_id}",
@@ -236,6 +237,10 @@ class DeliveryQueueStore:
             or receipt["client_id"] != f"manual:{'once:' if pin_chat else ''}{request_id}"
         ):
             raise ValueError("Fresh chat identifier belongs to a different payload")
+        if created and pin_local_default:
+            # Prompta sidebar pins are distinct from ChatGPT account pins.
+            # Do not re-pin a chat the user explicitly unpinned on a retry.
+            self.results.set_local_pin(str(receipt["send_id"]), pinned=True)
         return receipt
 
     def cancel_pending(
