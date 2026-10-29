@@ -8569,6 +8569,7 @@ function ChatsPage($$anchor, $$props) {
 			set(statusFilter, "");
 			$$props.onQueued(body.send_id);
 			loadList();
+			loadPins();
 			return {
 				ok: true,
 				message: ""
