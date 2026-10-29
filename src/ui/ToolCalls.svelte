@@ -5,7 +5,7 @@
   let failures = $derived(calls.filter((call) => call.status === "error" || call.error).length);
   const title = (call: CapturedToolCall) => [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
   const status = (call: CapturedToolCall) => call.status === "error" || call.error ? "Failed" :
-    call.status === "running" ? "Running" : "Completed";
+    call.status === "running" ? "Running" : call.status === "observed" ? "Observed" : "Completed";
 </script>
 
 {#if calls.length}
@@ -20,7 +20,7 @@
       {#each calls as call, index (call.id || index)}
         <details class="tool-call" class:failed={status(call) === "Failed"} class:running={status(call) === "Running"}>
           <summary class="tool-call-summary">
-            <span class="tool-call-mark" aria-hidden="true">{status(call) === "Failed" ? "!" : status(call) === "Running" ? "…" : "✓"}</span>
+            <span class="tool-call-mark" aria-hidden="true">{status(call) === "Failed" ? "!" : status(call) === "Running" ? "…" : status(call) === "Observed" ? "·" : "✓"}</span>
             <span class="tool-call-name">{title(call)}</span>
             <span class="tool-call-status">{status(call)}</span>
             <span class="tool-call-chevron" aria-hidden="true">⌄</span>

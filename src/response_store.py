@@ -113,6 +113,14 @@ def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) 
     if not incoming:
         return previous if isinstance(previous, str) else "[]"
     merged = deserialize_tool_calls(previous)
+    # Prefer structured POST evidence to visible DOM headings. They describe
+    # the same activity, but DOM headings have neither arguments nor results.
+    has_stream_calls = any(not str(call.get("id", "")).startswith("dom-tool-") for call in merged)
+    incoming_stream = any(not str(call.get("id", "")).startswith("dom-tool-") for call in incoming)
+    if has_stream_calls and not incoming_stream:
+        return previous if isinstance(previous, str) else "[]"
+    if incoming_stream:
+        merged = [call for call in merged if not str(call.get("id", "")).startswith("dom-tool-")]
     by_id = {str(call.get("id")): i for i, call in enumerate(merged)}
     for call in incoming:
         identifier = str(call.get("id"))
@@ -612,8 +620,8 @@ class ResponseStore:
         """Recover text only for the original, still-incomplete known branch."""
         at = time.time() if now is None else now
         if (
-            not capture.text or not capture.conversation_id
-            or capture.status not in ("partial", "complete")
+            not (capture.text or capture.tool_calls) or not capture.conversation_id
+            or (capture.text and capture.status not in ("partial", "complete"))
             or not (capture.message_id or capture.observer_id)
         ):
             return False
@@ -631,11 +639,13 @@ class ResponseStore:
                 and row["message_id"] != capture.message_id
             ):
                 return False
-            complete = capture.status == "complete"
+            complete = capture.status == "complete" and bool(capture.text)
             # The fallback must never erase a longer already-stored partial answer.
             text = capture.text[:_MAX_TEXT]
             if not complete and len(text) < len(str(row["assistant_text"])):
-                return False
+                if not capture.tool_calls:
+                    return False
+                text = str(row["assistant_text"])
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
                 results.c.status.in_(("interrupted", "unavailable")),
@@ -643,6 +653,7 @@ class ResponseStore:
                 results.c.capture_owner == "",
             ).values(
                 assistant_text=text, source="history_dom",
+                tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
                 message_id=capture.message_id or row["message_id"],
                 parent_id=capture.parent_id or row["parent_id"],
                 status="completed" if complete else row["status"],

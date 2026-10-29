@@ -857,7 +857,7 @@
               {#if turn.assistant_text}
                 <ResultMarkdown source={turn.assistant_text} captureSource={index === 0 ? detail.source : ""} />
                 {#if turn.status !== "completed"}<p class="partial-note">{turn.status === "generating" ? "Partial response · " : ""}{turnStatus(turn.status)}</p>{/if}
-              {:else if !turn.tool_calls?.length}
+              {:else}
                 <p class="no-response">{turnStatus(turn.status)}</p>
               {/if}
             </div>

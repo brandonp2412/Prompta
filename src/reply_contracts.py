@@ -21,7 +21,9 @@ from sqlalchemy import (
     Table,
     Text,
     case,
+    func,
     inspect,
+    literal,
     select,
     update,
 )
@@ -31,6 +33,7 @@ from .response_capture import CaptureResult
 from .response_store import (
     ResponseStore,
     deserialize_tool_calls,
+    history_recovery_attempts,
     local_chat_reads,
     merge_tool_calls,
     results,
@@ -376,6 +379,80 @@ class ManualReplyStore:
                          lease_owner="", updated_at=at))
                 changed += result.rowcount
         return changed
+
+    def next_history_reply_recovery(self, *, now: float | None = None) -> dict[str, object] | None:
+        """Only first explicit replies with a verified original parent are eligible."""
+        at = time.time() if now is None else now
+        attempts = history_recovery_attempts.alias("reply_recovery")
+        joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
+            attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(select(
+                replies.c.reply_id, replies.c.conversation_id, replies.c.parent_id,
+                replies.c.user_text, results.c.user_text.label("original_prompt"),
+                func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
+            ).select_from(joined).where(
+                replies.c.status.in_(("outcome_unknown", "interrupted")),
+                replies.c.lease_owner == "",
+                replies.c.conversation_id != "",
+                replies.c.parent_id == results.c.message_id,
+                replies.c.conversation_id == results.c.conversation_id,
+                results.c.status == "completed",
+                func.coalesce(attempts.c.next_attempt_at, 0) <= at,
+            ).order_by(
+                func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
+            ).limit(1)).mappings().one_or_none()
+        return dict(row) if row is not None else None
+
+    def recover_historical_reply(
+        self, reply_id: str, capture: CaptureResult, *, now: float | None = None,
+    ) -> bool:
+        """Read-only recovery; no uncertain dispatch claim is ever retried."""
+        at = time.time() if now is None else now
+        if (
+            not capture.conversation_id or not capture.parent_id
+            or not (capture.text or capture.tool_calls)
+            or (capture.text and capture.status not in ("partial", "complete"))
+            or not (capture.message_id or capture.observer_id)
+        ):
+            return False
+        with self.engine.begin() as connection:
+            row = connection.execute(select(replies).where(
+                replies.c.reply_id == reply_id,
+                replies.c.status.in_(("outcome_unknown", "interrupted")),
+                replies.c.lease_owner == "",
+            )).mappings().one_or_none()
+            if row is None or (
+                row["conversation_id"] != capture.conversation_id
+                or row["parent_id"] != capture.parent_id
+                or (row["message_id"] and capture.message_id
+                    and row["message_id"] != capture.message_id)
+            ):
+                return False
+            original = connection.execute(select(results.c.status, results.c.message_id).where(
+                results.c.send_id == row["send_id"],
+                results.c.conversation_id == capture.conversation_id,
+            )).mappings().one_or_none()
+            if original is None or original["status"] != "completed" or original["message_id"] != row["parent_id"]:
+                return False
+            text = capture.text[:2 * 1024 * 1024]
+            if len(text) < len(str(row["assistant_text"])):
+                if not capture.tool_calls:
+                    return False
+                text = str(row["assistant_text"])
+            complete = capture.status == "complete" and bool(text)
+            changed = connection.execute(update(replies).where(
+                replies.c.reply_id == reply_id,
+                replies.c.status.in_(("outcome_unknown", "interrupted")),
+                replies.c.lease_owner == "",
+            ).values(
+                assistant_text=text,
+                tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
+                message_id=capture.message_id or row["message_id"],
+                status="completed" if complete else row["status"], updated_at=at,
+            ))
+        return changed.rowcount == 1
 
     def annotate_response_markers(self, summaries: list[dict[str, object]]) -> None:
         """Annotate only saved completed answers, never job/capture metadata activity."""

@@ -17,6 +17,7 @@ from uuid import UUID
 from .browser_script_loader import load_browser_script
 from .playwright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
+from .reply_contracts import ManualReplyStore
 from .response_capture import CaptureResult, normalize_dom_snapshot
 from .response_store import ResponseStore
 from .scheduler_runtime import SchedulerRuntime
@@ -75,18 +76,34 @@ class HistoryRecovery:
         driver_factory: Callable[[], HistoryDriver],
     ) -> None:
         self.results = results
+        self.replies = ManualReplyStore(results.path)
         self.runtime = runtime
         self.driver_factory = driver_factory
 
     async def _read_original_response(
         self, conversation_id: str, original_prompt: str,
     ) -> CaptureResult | None:
-        driver = self.driver_factory()
         script = (
             load_browser_script("historical_response_probe.js")
             .replace("__CONVERSATION__", json.dumps(conversation_id))
             .replace("__ORIGINAL_PROMPT__", json.dumps(original_prompt))
         )
+        return await self._read_probe(conversation_id, script)
+
+    async def _read_reply_response(
+        self, conversation_id: str, original_prompt: str, reply_text: str, parent_id: str,
+    ) -> CaptureResult | None:
+        script = (
+            load_browser_script("historical_reply_probe.js")
+            .replace("__CONVERSATION__", json.dumps(conversation_id))
+            .replace("__ORIGINAL_PROMPT__", json.dumps(original_prompt))
+            .replace("__REPLY_TEXT__", json.dumps(reply_text))
+            .replace("__PARENT__", json.dumps(parent_id))
+        )
+        return await self._read_probe(conversation_id, script)
+
+    async def _read_probe(self, conversation_id: str, script: str) -> CaptureResult | None:
+        driver = self.driver_factory()
         try:
             await driver.connect()
             await driver.navigate(
@@ -110,7 +127,7 @@ class HistoryRecovery:
                         return None
                     if payload.get("verified") is True:
                         result = normalize_dom_snapshot(payload)
-                        if result.conversation_id == conversation_id and result.text:
+                        if result.conversation_id == conversation_id and (result.text or result.tool_calls):
                             return result
                 await asyncio.sleep(2.0)
             return None
@@ -126,13 +143,15 @@ class HistoryRecovery:
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
             return False
-        candidate = self.results.next_history_recovery(now=at)
+        reply = self.replies.next_history_reply_recovery(now=at)
+        candidate = reply or self.results.next_history_recovery(now=at)
         if candidate is None:
             return False
         self.results.reserve_history_recovery_global_slot(
             now=at, interval=_GLOBAL_INTERVAL_SECONDS,
         )
-        send_id = str(candidate["send_id"])
+        reply_id = str(candidate["reply_id"]) if reply is not None else ""
+        send_id = "reply:" + reply_id if reply_id else str(candidate["send_id"])
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])
         attempts = int_value(candidate["attempt_count"])
@@ -142,13 +161,17 @@ class HistoryRecovery:
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)
                 delay = _MAX_PER_CHAT_INTERVAL_SECONDS
             else:
-                result = asyncio.run(asyncio.wait_for(
-                    self._read_original_response(conversation_id, prompt),
-                    timeout=_LOOKUP_TIMEOUT_SECONDS,
-                ))
-                if result is not None and self.results.recover_historical_response(
-                    send_id, result, now=at,
-                ):
+                probe = (
+                    self._read_reply_response(conversation_id, str(candidate["original_prompt"]),
+                                              prompt, str(candidate["parent_id"]))
+                    if reply_id else self._read_original_response(conversation_id, prompt)
+                )
+                result = asyncio.run(asyncio.wait_for(probe, timeout=_LOOKUP_TIMEOUT_SECONDS))
+                recovered = result is not None and (
+                    self.replies.recover_historical_reply(reply_id, result, now=at)
+                    if reply_id else self.results.recover_historical_response(send_id, result, now=at)
+                )
+                if recovered and result is not None:
                     if result.status == "complete":
                         self.runtime.record_read_success()
                         logger.info("Historical response recovered send_id=%s", send_id)
@@ -192,7 +215,8 @@ def run_history_recovery(
                     and results.history_recovery_global_pace_remaining() <= 0
                 ):
                     # The global pacing clock advances for each attempted scan.
-                    if results.next_history_recovery() is not None:
+                    if (results.next_history_recovery() is not None
+                            or recovery.replies.next_history_reply_recovery() is not None):
                         last_checked_at = current
                         recovery.recover_once()
         except Exception as exc:

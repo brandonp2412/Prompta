@@ -9,6 +9,7 @@
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
   const stopSelector = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]';
   const copySelector = 'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]';
+  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [aria-label^="Used "]';
   const visible = (element) => element.isConnected && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
   // Preserve visible response headings, lists, tables and code as Markdown.
   // Only the newly owned final-answer node is read; no history or HTTP requests.
@@ -159,7 +160,7 @@
   let ambiguous = false;
   let result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: false };
   const publish = () => {
-    const signature = `${result.message_id}:${result.branch_message_id}:${result.pathname}:${result.complete}:${result.ambiguous}:${result.text}`;
+    const signature = `${result.message_id}:${result.branch_message_id}:${result.pathname}:${result.complete}:${result.ambiguous}:${result.text}:${JSON.stringify(result.tool_calls || [])}`;
     if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
       published = signature;
       Promise.resolve(window.__promptaPassiveUpdate({ ...result })).catch(() => {});
@@ -193,6 +194,15 @@
       }, 850);
     }
     const turn = element.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || element;
+    const tool_calls = [...turn.querySelectorAll(toolSelector)].filter((node) =>
+      visible(node) && !node.closest(markdownSelector) && !node.parentElement?.closest(toolSelector)
+    ).slice(0, 128).map((node) => {
+      const heading = node.getAttribute('aria-label') || node.getAttribute('data-tool-name') ||
+        node.querySelector('[data-testid*="tool-name"]')?.textContent || 'Tool activity';
+      const state = node.getAttribute('data-state') || '';
+      return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? 'error' :
+        /running|loading|pending/i.test(state) ? 'running' : /complete|success|done/i.test(state) ? 'completed' : 'observed' };
+    });
     const copyReady = [...turn.querySelectorAll(copySelector)].some(visible);
     const streaming = !!turn.querySelector('[data-is-streaming="true"], .result-streaming');
     const generating = !!document.querySelector(stopSelector);
@@ -203,6 +213,7 @@
       text: text.slice(0, 2 * 1024 * 1024),
       complete: !!text && copyReady && !streaming && !generating && Date.now() - changedAt >= 750,
       ambiguous: false,
+      tool_calls,
     };
     // Emit only mutation-coalesced changes over Playwright's in-page binding.
     // No network request, periodic polling, or alternate conversation access.

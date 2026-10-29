@@ -64,6 +64,30 @@ def _name_from_path(value: object) -> str:
     return path.rstrip("/").rsplit("/", 1)[-1] if path else ""
 
 
+def normalize_dom_tool_calls(value: object) -> tuple[dict[str, object], ...]:
+    """Accept only bounded, visible tool labels; never DOM details or thoughts."""
+    if not isinstance(value, list):
+        return ()
+    calls: list[dict[str, object]] = []
+    for candidate in value[:_MAX_TOOLS]:
+        item = _record(candidate)
+        label = _text(item.get("action")).strip()
+        if not label or re.search(r"thought|reasoning|analysis|thinking", label, re.I):
+            continue
+        label = re.sub(r"https?://\S+|\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b", "[redacted]", label, flags=re.I)
+        label = " ".join(label.split())[:120]
+        if not label:
+            continue
+        status = _text(item.get("status"))
+        if status not in ("running", "completed", "error", "observed"):
+            status = "observed"
+        calls.append({
+            "id": f"dom-tool-{len(calls)}", "connector": "", "action": label,
+            "status": status, "arguments": "", "result": "", "error": "",
+        })
+    return tuple(calls)
+
+
 class ToolEventCollector:
     """Deduplicates invocation snapshots and pairs tool results without recording thoughts."""
 

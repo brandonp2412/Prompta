@@ -42,6 +42,17 @@
   const text = roots.map((root) => root.innerText || root.textContent || "").filter(Boolean)
     .join("\n\n").trim().slice(0, 2 * 1024 * 1024);
   const turn = assistant.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || assistant;
+  // Only visible tool headings in this verified turn, never tool bodies or reasoning.
+  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [aria-label^="Used "]';
+  const tool_calls = [...turn.querySelectorAll(toolSelector)].filter((node) =>
+    visible(node) && !node.closest(markdownSelector) && !node.parentElement?.closest(toolSelector)
+  ).slice(0, 128).map((node) => {
+    const heading = node.getAttribute('aria-label') || node.getAttribute('data-tool-name') ||
+      node.querySelector('[data-testid*="tool-name"]')?.textContent || 'Tool activity';
+    const state = node.getAttribute('data-state') || '';
+    return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? 'error' :
+      /running|loading|pending/i.test(state) ? 'running' : /complete|success|done/i.test(state) ? 'completed' : 'observed' };
+  });
   const copyReady = [...turn.querySelectorAll(
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
   )].some(visible);
@@ -66,6 +77,6 @@
     verified: true, ambiguous: false, message_id: identity,
     branch_message_id: branch, pathname: location.pathname, text,
     complete: !!text && copyReady && !streaming && !generating,
-    rate_limited: false,
+    rate_limited: false, tool_calls,
   };
 })()

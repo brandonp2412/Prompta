@@ -1145,6 +1145,12 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
         status, body, _ = get(port, "/api/results/tool-demo")
         returned_calls = body["tool_calls"]
         assert status == 200 and isinstance(returned_calls, list) and len(returned_calls) == 2
+        app.results.ensure_queued("tool-interrupted", "Check the server", now=210)
+        assert app.results.accept("tool-interrupted", "100:interrupted", deadline=500, now=211)
+        assert app.results.write("tool-interrupted", "100:interrupted", CaptureResult(
+            "sse", "unknown", "", "c2", None, None, tool_calls=(calls[0],),
+        ), now=212)
+        assert app.results.finish("tool-interrupted", "100:interrupted", "interrupted", now=213)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
                 executable_path=chromium_path, headless=True,
@@ -1156,7 +1162,7 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
                                             is_mobile=mobile, has_touch=mobile)
                     requests: list[tuple[str, str]] = []
                     page.on("request", lambda req: requests.append((req.method, req.url)))
-                    page.goto(f"http://127.0.0.1:{port}/?view=chats&run=tool-demo", wait_until="networkidle")
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats&run=tool-demo", wait_until="domcontentloaded")
                     expect(page.locator(".tool-call")).to_have_count(2)
                     expect(page.locator(".tool-timeline-summary")).to_contain_text("2 tool calls")
                     expect(page.locator(".tool-failure-count")).to_have_text("1 failed")
@@ -1164,11 +1170,26 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
                     page.locator(".tool-call-summary").first.click()
                     expect(page.locator(".tool-call-body pre").first).to_contain_text("demo/project")
                     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-                    assert requests and all(method == "GET" and url.startswith(f"http://127.0.0.1:{port}/")
-                                            for method, url in requests)
+                    assert requests and all(
+                        url.startswith(f"http://127.0.0.1:{port}/")
+                        and (method == "GET" or (
+                            method == "POST" and url.split("?", 1)[0].endswith(
+                                ("/api/local-chat-reads", "/api/local-chat-reads/import")
+                            )
+                        ))
+                        for method, url in requests
+                    )
                     target = screenshots / f"tool-events-{width}.png"
                     page.screenshot(path=str(target), animations="disabled", full_page=True)
                     target.chmod(0o600)
                     page.close()
+                interrupted = browser.new_page(viewport={"width": 320, "height": 700},
+                                               is_mobile=True, has_touch=True)
+                interrupted.goto(f"http://127.0.0.1:{port}/?view=chats&run=tool-interrupted",
+                                 wait_until="domcontentloaded")
+                expect(interrupted.locator(".tool-timeline-summary")).to_contain_text("1 tool call")
+                expect(interrupted.get_by_text("Response capture interrupted")).to_be_visible()
+                assert interrupted.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                interrupted.close()
             finally:
                 browser.close()

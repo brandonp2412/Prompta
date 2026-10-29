@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from .tool_events import ToolEventCollector
+from .tool_events import ToolEventCollector, normalize_dom_tool_calls
 
 CaptureStatus = Literal[
     "complete", "partial", "timeout", "approval_wait", "rate_limited", "interrupted", "unknown"
@@ -335,5 +335,6 @@ def normalize_dom_snapshot(
             branch_id = None
     return CaptureResult(
         "dom", status, text, conversation_id_from_path(record.get("pathname")),
-        branch_id, None, identity,
+        branch_id, _string(record.get("verified_parent_id")), identity,
+        tool_calls=normalize_dom_tool_calls(record.get("tool_calls")),
     )

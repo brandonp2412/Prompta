@@ -5,13 +5,63 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
-from prompta.response_capture import CaptureResult, parse_sse_body
-from prompta.response_store import ResponseStore
+from prompta.response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
+from prompta.response_store import ResponseStore, merge_tool_calls
 from prompta.strict_types import string_object_dict
 
 
 def event(message: Mapping[str, object]) -> str:
     return "data: " + json.dumps({"conversation_id": "chat-1", "message": message}) + "\n\n"
+
+
+def test_stream_tool_evidence_replaces_dom_summary_without_duplicates() -> None:
+    dom: tuple[dict[str, object], ...] = (
+        {"id": "dom-tool-0", "connector": "", "action": "Used search", "status": "observed"},
+    )
+    stream: tuple[dict[str, object], ...] = (
+        {"id": "invoke-1", "connector": "Search", "action": "find", "status": "completed", "result": "Two hits"},
+    )
+    recovered = merge_tool_calls("[]", dom)
+    upgraded = merge_tool_calls(recovered, stream)
+    assert len(json.loads(upgraded)) == 1
+    assert json.loads(upgraded)[0]["id"] == "invoke-1"
+    assert merge_tool_calls(upgraded, dom) == upgraded
+
+
+def test_dom_tool_summaries_are_bounded_redacted_and_survive_interrupted_recovery(tmp_path: Path) -> None:
+    conversation = "12345678-1234-4123-8123-123456789abc"
+    payload = {
+        "message_id": "assistant-unit", "pathname": f"/c/{conversation}",
+        "text": "", "complete": False,
+        "tool_calls": [
+            {"action": "Used Nox Python for https://private.example/path", "status": "completed", "result": "private"},
+            {"action": "Thinking about private task", "status": "running"},
+        ],
+    }
+    partial = normalize_dom_snapshot(payload)
+    assert partial.status == "unknown"
+    assert len(partial.tool_calls) == 1
+    assert "private.example" not in str(partial.tool_calls)
+    assert "private" not in str(partial.tool_calls)
+    assert partial.tool_calls[0]["action"] == "Used Nox Python for [redacted]"
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("manual-tools", "Original prompt", now=10)
+    assert store.accept("manual-tools", "123:owner", deadline=100, now=11)
+    assert store.bind_conversation_route("manual-tools", "123:owner", f"/c/{conversation}", now=12)
+    assert store.finish("manual-tools", "123:owner", "interrupted", now=100)
+    assert store.recover_historical_response("manual-tools", partial, now=110)
+    recovered = store.detail("manual-tools")
+    assert recovered is not None
+    assert recovered["status"] == "interrupted"
+    assert recovered["tool_calls"] == list(partial.tool_calls)
+    payload["text"] = "The answer"
+    payload["complete"] = True
+    assert store.recover_historical_response("manual-tools", normalize_dom_snapshot(payload), now=111)
+    completed = store.detail("manual-tools")
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["assistant_text"] == "The answer"
+    assert completed["tool_calls"] == list(partial.tool_calls)
 
 
 def test_tool_calls_are_ordered_paired_redacted_and_persisted(tmp_path: Path) -> None:

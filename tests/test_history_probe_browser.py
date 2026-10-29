@@ -15,6 +15,7 @@ HTML = """<html><body><main>
 <article><div data-message-author-role="assistant"
   data-message-id="87654321-4321-4321-8321-123456789abc">
   <div class="markdown"><p>Recovered <strong>answer</strong></p></div></div>
+  <button data-testid="tool-call-entry" aria-label="Used Nox Python" data-state="completed">Tool</button>
   <button data-testid="copy-turn-action-button">Copy</button>
 </article></main></body></html>"""
 
@@ -45,6 +46,7 @@ def test_historical_probe_real_chromium_dom() -> None:
                 assert result["verified"] is True
                 assert result["complete"] is True
                 assert result["text"] == "Recovered answer"
+                assert result["tool_calls"] == [{"action": "Used Nox Python", "status": "completed"}]
                 assert result["branch_message_id"] == "87654321-4321-4321-8321-123456789abc"
                 await page.locator('[data-message-author-role="user"] p').evaluate(
                     "element => element.textContent = 'Wrong prompt'",

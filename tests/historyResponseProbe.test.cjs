@@ -20,8 +20,16 @@ const visible = (node) => ({
 });
 const user = visible({ innerText: prompt });
 const root = visible({ get innerText() { return responseText; }, parentElement: null });
+const toolCard = visible({
+  parentElement: null, closest: () => null,
+  getAttribute: (name) => ({
+    'aria-label': 'Used Nox Python', 'data-state': 'completed',
+  })[name] || '',
+  querySelector: () => null,
+});
 const turn = {
-  querySelectorAll: () => copyReady ? [visible({})] : [],
+  querySelectorAll: (selector) => selector.includes('copy-turn') ?
+    (copyReady ? [visible({})] : []) : [toolCard],
   querySelector: () => null,
 };
 const assistant = visible({
@@ -49,6 +57,8 @@ let result = probe();
 assert.equal(result.verified, true);
 assert.equal(result.text, responseText);
 assert.equal(result.complete, true);
+assert.equal(result.tool_calls.length, 1);
+assert.equal(result.tool_calls[0].action, 'Used Nox Python');
 assert.equal(result.pathname, "/c/" + id);
 assert.equal(result.branch_message_id, "87654321-4321-4321-8321-123456789abc");
 

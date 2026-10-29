@@ -10,6 +10,7 @@ from prompta.history_recovery import (
 )
 from prompta.playwright_driver import BrowserSecurityChallengeError
 from prompta.rate_limit import RateLimitError
+from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -54,6 +55,15 @@ def test_recovery_never_overwrites_completed_or_crosses_branches(tmp_path: Path)
     assert row["assistant_text"] == "Still working"
     shorter = CaptureResult("dom", "partial", "Tiny", CONVERSATION, None, None, "turn")
     assert not store.recover_historical_response("manual-1", shorter, now=112)
+    tool_only = CaptureResult(
+        "dom", "unknown", "", CONVERSATION, None, None, "turn",
+        tool_calls=({"id": "dom-tool-0", "connector": "", "action": "Used search", "status": "observed"},),
+    )
+    assert store.recover_historical_response("manual-1", tool_only, now=112.5)
+    saved = store.detail("manual-1")
+    assert saved is not None and saved["assistant_text"] == "Still working"
+    calls = saved["tool_calls"]
+    assert isinstance(calls, list) and len(calls) == 1
     complete = CaptureResult("dom", "complete", "Finished response", CONVERSATION, None, None, "turn")
     assert store.recover_historical_response("manual-1", complete, now=113)
     row = store.get("manual-1")
@@ -108,6 +118,47 @@ def test_read_only_recovery_restores_exact_run_without_dispatch(tmp_path: Path) 
     row = store.get("manual-1")
     assert row is not None and row["status"] == "completed"
     assert row["assistant_text"] == "Recovered from existing chat"
+
+
+def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(tmp_path: Path) -> None:
+    path = tmp_path / "chat-results.sqlite3"
+    responses = ResponseStore(path)
+    original_id = "87654321-4321-4321-8321-123456789abc"
+    responses.ensure_queued("manual-original", "Original prompt", now=10)
+    assert responses.accept("manual-original", "123:owner", deadline=300, now=11)
+    assert responses.write("manual-original", "123:owner", CaptureResult(
+        "sse", "complete", "Original answer", CONVERSATION, original_id, None,
+    ), now=12)
+    replies = ManualReplyStore(path)
+    intent = ReplyIntent("reply-123456789abcdef", CONVERSATION, original_id, "Follow up")
+    assert replies.prepare("manual-original", intent, now=13)["status"] == "prepared"
+    assert replies.claim(intent.reply_id, "123:reply", deadline=300, now=14)
+    assert replies.finish(intent.reply_id, "123:reply", uncertain=True, now=15)
+    before = replies.get(intent.reply_id)
+    assert before is not None and before["status"] == "outcome_unknown"
+
+    class ReplyDriver(FakeHistoryDriver):
+        async def eval(self, expression: str) -> object:
+            assert "Follow up" in expression and original_id in expression
+            return {
+                "verified": True, "ambiguous": False,
+                "message_id": "reply-unit", "branch_message_id": "11111111-1111-4111-8111-111111111111",
+                "verified_parent_id": original_id, "pathname": "/c/" + CONVERSATION,
+                "text": "Recovered follow-up", "complete": True,
+                "tool_calls": [{"action": "Used Nox Python", "status": "completed"}],
+            }
+
+    driver = ReplyDriver()
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert HistoryRecovery(responses, runtime, lambda: driver).recover_once(now=20)
+    assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
+    turn = replies.get(intent.reply_id)
+    assert turn is not None
+    assert turn["status"] == "completed" and turn["assistant_text"] == "Recovered follow-up"
+    assert turn["message_id"] == "11111111-1111-4111-8111-111111111111"
+    calls = turn["tool_calls"]
+    assert isinstance(calls, list) and len(calls) == 1
+    assert replies.next_history_reply_recovery(now=999) is None
 
 
 def test_rate_limit_stops_recovery_and_preserves_retry_state(tmp_path: Path) -> None:
