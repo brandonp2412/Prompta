@@ -80,8 +80,8 @@ def test_foundations_readability_and_editor_hit_testing(
                 page.goto(base, wait_until="networkidle")
                 expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
                 atlas_root = os.environ.get("PROMPTA_ATLAS_OUTPUT")
-                if atlas_root and width == 768:
-                    tablet_dir = Path(atlas_root) / "768x1024"
+                tablet_dir = Path(atlas_root) / "768x1024" if atlas_root and width == 768 else None
+                if tablet_dir is not None:
                     tablet_dir.mkdir(parents=True, exist_ok=True)
                     page.screenshot(path=str(tablet_dir / "01-jobs.png"))
                 for selector in [".job-prompt", ".job-submeta", ".job-cell", ".filter-chip"]:
@@ -92,7 +92,7 @@ def test_foundations_readability_and_editor_hit_testing(
 
                 page.get_by_role("button", name="New job").click()
                 expect(page.locator(".job-image-picker")).to_be_visible()
-                if atlas_root and width == 768:
+                if tablet_dir is not None:
                     page.screenshot(path=str(tablet_dir / "03-new-job.png"))
                 positions = page.evaluate(
                     """() => ({
@@ -129,7 +129,7 @@ def test_foundations_readability_and_editor_hit_testing(
                     expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
 
                 page.goto(base + "?view=chats", wait_until="networkidle")
-                if atlas_root and width == 768:
+                if tablet_dir is not None:
                     page.screenshot(path=str(tablet_dir / "10-chats-list.png"))
                 for selector in [".chat-entry .chat-preview", ".chats-date", ".chat-entry .chat-row-meta"]:
                     result = typography(page, selector)
