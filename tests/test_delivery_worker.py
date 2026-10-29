@@ -317,7 +317,19 @@ def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkey
     health = HealthWithTransientLock(tmp_path)
     monkeypatch.setattr(delivery_worker, "ServiceHealthStore", lambda path: health)
     monkeypatch.setattr(delivery_worker, "DeliveryQueueStore", EmptyQueue)
-    monkeypatch.setattr(delivery_worker, "BrowserDeliverySender", lambda *a, **kw: object())
+
+    class FakeResults:
+        def recover_orphans(self) -> None:
+            return None
+
+    class FakeSender:
+        results = FakeResults()
+
+        def _new_driver(self) -> None:
+            return None
+
+    monkeypatch.setattr(delivery_worker, "BrowserDeliverySender", lambda *a, **kw: FakeSender())
+    monkeypatch.setattr(delivery_worker, "run_history_recovery", lambda *a, **kw: None)
     monkeypatch.setattr(delivery_worker, "notify_watchdog", lambda: None)
     sleeps = 0
 

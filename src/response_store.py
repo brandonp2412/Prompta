@@ -14,6 +14,7 @@ from sqlalchemy import (
     Column,
     Float,
     Index,
+    Integer,
     MetaData,
     String,
     Table,
@@ -67,6 +68,13 @@ local_chat_pins = Table(
     "local_chat_pins", _SCHEMA,
     Column("send_id", String, primary_key=True),
     Column("pinned_at", Float, nullable=False),
+)
+history_recovery_attempts = Table(
+    "history_recovery_attempts", _SCHEMA,
+    Column("send_id", String, primary_key=True),
+    Column("attempt_count", Integer, nullable=False, default=0),
+    Column("next_attempt_at", Float, nullable=False, default=0),
+    Column("last_attempt_at", Float, nullable=False, default=0),
 )
 
 
@@ -166,6 +174,15 @@ class ResponseStore:
                     local_chat_pins.name,
                     Column("send_id", String, primary_key=True),
                     Column("pinned_at", Float, nullable=False),
+                )
+            if not inspect(connection).has_table(history_recovery_attempts.name):
+                migration = Operations(MigrationContext.configure(connection))
+                migration.create_table(
+                    history_recovery_attempts.name,
+                    Column("send_id", String, primary_key=True),
+                    Column("attempt_count", Integer, nullable=False),
+                    Column("next_attempt_at", Float, nullable=False),
+                    Column("last_attempt_at", Float, nullable=False),
                 )
         self._secure_files()
 
@@ -443,6 +460,122 @@ class ResponseStore:
                 "updated_at": row["updated_at"], "finished_at": row["finished_at"],
             })
         return items
+
+    def next_history_recovery(self, *, now: float | None = None) -> dict[str, object] | None:
+        """Choose only expired, Prompta-owned conversations with durable identities."""
+        at = time.time() if now is None else now
+        attempts = history_recovery_attempts
+        joined = results.outerjoin(attempts, results.c.send_id == attempts.c.send_id)
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(
+                    results.c.send_id, results.c.user_text, results.c.conversation_id,
+                    func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
+                ).select_from(joined).where(
+                    results.c.status.in_(("interrupted", "unavailable")),
+                    results.c.conversation_id != "",
+                    results.c.capture_owner == "",
+                    func.coalesce(attempts.c.next_attempt_at, 0) <= at,
+                ).order_by(
+                    func.coalesce(attempts.c.next_attempt_at, 0),
+                    results.c.created_at.desc(),
+                ).limit(1)
+            ).mappings().one_or_none()
+        return dict(row) if row is not None else None
+
+    def schedule_history_recovery(
+        self, send_id: str, *, next_attempt_at: float, now: float | None = None,
+    ) -> None:
+        """Persist retry pacing even if the worker crashes or restarts."""
+        at = time.time() if now is None else now
+        stmt = insert(history_recovery_attempts).values(
+            send_id=send_id, attempt_count=1,
+            next_attempt_at=next_attempt_at, last_attempt_at=at,
+        ).on_conflict_do_update(
+            index_elements=[history_recovery_attempts.c.send_id],
+            set_={
+                "attempt_count": history_recovery_attempts.c.attempt_count + 1,
+                "next_attempt_at": next_attempt_at,
+                "last_attempt_at": at,
+            },
+        )
+        with self.engine.begin() as connection:
+            connection.execute(stmt)
+
+    def history_recovery_security_pause_remaining(self, *, now: float | None = None) -> float:
+        """Durable global pause prevents repeatedly triggering a browser challenge."""
+        at = time.time() if now is None else now
+        with self.engine.connect() as connection:
+            blocked_until = connection.execute(
+                select(history_recovery_attempts.c.next_attempt_at).where(
+                    history_recovery_attempts.c.send_id == "__security_pause__"
+                )
+            ).scalar_one_or_none()
+        return max(0.0, float(blocked_until or 0.0) - at)
+
+    def history_recovery_global_pace_remaining(self, *, now: float | None = None) -> float:
+        """Across worker restarts, limit browser history reads to one per 90 seconds."""
+        at = time.time() if now is None else now
+        with self.engine.connect() as connection:
+            next_allowed = connection.execute(
+                select(history_recovery_attempts.c.next_attempt_at).where(
+                    history_recovery_attempts.c.send_id == "__global_pacing__"
+                )
+            ).scalar_one_or_none()
+        return max(0.0, float(next_allowed or 0.0) - at)
+
+    def reserve_history_recovery_global_slot(self, *, now: float, interval: float) -> None:
+        self.schedule_history_recovery(
+            "__global_pacing__", next_attempt_at=now + interval, now=now,
+        )
+
+    def pause_history_recovery_security(self, *, until: float, now: float | None = None) -> None:
+        self.schedule_history_recovery("__security_pause__", next_attempt_at=until, now=now)
+
+    def recover_historical_response(
+        self, send_id: str, capture: CaptureResult, *, now: float | None = None,
+    ) -> bool:
+        """Recover text only for the original, still-incomplete known branch."""
+        at = time.time() if now is None else now
+        if (
+            not capture.text or not capture.conversation_id
+            or capture.status not in ("partial", "complete")
+            or not (capture.message_id or capture.observer_id)
+        ):
+            return False
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(results).where(
+                    results.c.send_id == send_id,
+                    results.c.status.in_(("interrupted", "unavailable")),
+                    results.c.conversation_id == capture.conversation_id,
+                    results.c.capture_owner == "",
+                )
+            ).mappings().one_or_none()
+            if row is None or (
+                row["message_id"] and capture.message_id
+                and row["message_id"] != capture.message_id
+            ):
+                return False
+            complete = capture.status == "complete"
+            # The fallback must never erase a longer already-stored partial answer.
+            text = capture.text[:_MAX_TEXT]
+            if not complete and len(text) < len(str(row["assistant_text"])):
+                return False
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.status.in_(("interrupted", "unavailable")),
+                results.c.conversation_id == capture.conversation_id,
+                results.c.capture_owner == "",
+            ).values(
+                assistant_text=text, source="history_dom",
+                message_id=capture.message_id or row["message_id"],
+                parent_id=capture.parent_id or row["parent_id"],
+                status="completed" if complete else row["status"],
+                updated_at=at,
+                finished_at=at if complete else row["finished_at"],
+            ))
+            return changed.rowcount == 1
 
     def get(self, send_id: str) -> dict[str, object] | None:
         with self.engine.connect() as connection:

@@ -22,6 +22,7 @@ from .delivery_browser import (
     SendNotAcceptedError,
 )
 from .delivery_queue import DeliveryQueueStore
+from .history_recovery import run_history_recovery
 from .persistence import DEFAULT_RUNTIME_PATH
 from .rate_limit import RateLimitError
 from .resource_pressure import ResourceAdmission
@@ -360,6 +361,15 @@ def run(
         sender.results.recover_orphans()
     health.reset_activity("delivery_worker")
     notify_watchdog()
+    recovery_stop = threading.Event()
+    recovery_thread = threading.Thread(
+        target=run_history_recovery,
+        args=(sender.results, runtime, sender._new_driver),
+        kwargs={"stop": recovery_stop},
+        name="prompta-history-recovery",
+        daemon=True,
+    )
+    recovery_thread.start()
 
     try:
         while True:
@@ -394,6 +404,9 @@ def run(
                 time.sleep(1.0)
     except KeyboardInterrupt:
         pass
+    finally:
+        recovery_stop.set()
+        recovery_thread.join(timeout=2.0)
 
 
 def main() -> None:
