@@ -128,6 +128,63 @@ def test_results_reads_do_not_call_chatgpt_or_open_browser(tmp_path: Path, monke
             assert get(port, "/api/results/absent")[0] == 404
 
 
+def test_legacy_dom_table_is_rendered_as_table_on_desktop_and_mobile(tmp_path: Path) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    screenshots = Path(os.environ.get("PROMPTA_SCREENSHOT_DIR", str(tmp_path)))
+    screenshots.mkdir(parents=True, exist_ok=True, mode=0o700)
+    legacy = (
+        "Intro paragraph.\n\nStage\n\n\t\n\nRestored job"
+        "\n\n\n\n\n1\n\n\t\n\nOriginal game design"
+        "\n\n\n\n\n2\n\n\t\n\nHexagonal board"
+        "\n\nThe original jobs remain paused."
+    )
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("legacy", "Restore jobs", "Legacy table", now=100)
+        assert app.results.accept("legacy", "100:legacy", deadline=1000, now=101)
+        assert app.results.write("legacy", "100:legacy", CaptureResult(
+            "dom", "complete", legacy, "c1", "m1", "p1"
+        ), now=102)
+        # The API must keep the original evidence for reply-parent verification.
+        assert get(port, "/api/results/legacy")[1]["assistant_text"] == legacy
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium_path, headless=True,
+                args=["--no-sandbox", "--single-process", "--no-zygote"],
+            )
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                hosts: list[str] = []
+                page.on("request", lambda request: hosts.append(request.url.split("/")[2]))
+                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+                page.get_by_role("button", name="Chats", exact=True).click()
+                page.locator(".chat-row").filter(has_text="Legacy table").click()
+                expect(page.locator(".result-markdown table")).to_have_count(1)
+                assert page.locator(".result-markdown th").all_inner_texts() == [
+                    "Stage", "Restored job"
+                ]
+                assert page.locator(".result-markdown tbody tr").count() == 2
+                assert page.locator(".result-markdown tbody tr").all_inner_texts() == [
+                    "1\tOriginal game design", "2\tHexagonal board"
+                ]
+                assert "Intro paragraph." in page.locator(".result-markdown").inner_text()
+                assert "The original jobs remain paused." in page.locator(".result-markdown").inner_text()
+                for width, height, name in [
+                    (1440, 900, "desktop"), (390, 844, "mobile"),
+                ]:
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.locator(".result-markdown table").scroll_into_view_if_needed()
+                    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                    screenshot = screenshots / f"legacy-response-{name}.png"
+                    page.screenshot(path=str(screenshot), animations="disabled")
+                    screenshot.chmod(0o600)
+                assert all(host.startswith("127.0.0.1:") for host in hosts)
+            finally:
+                browser.close()
+
+
 def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():

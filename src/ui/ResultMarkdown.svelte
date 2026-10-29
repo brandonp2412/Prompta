@@ -1,11 +1,12 @@
 <script lang="ts">
   import { marked, type Token, type Tokens } from "marked";
-  import { isFlattenedDomResponse, safeHref } from "./resultFormatting";
+  import { formatStoredResponse, isFlattenedDomResponse, safeHref } from "./resultFormatting";
 
   let { source, captureSource = "" }: { source: string; captureSource?: string } = $props();
-  let flattened = $derived(isFlattenedDomResponse(source, captureSource));
+  let displaySource = $derived(formatStoredResponse(source, captureSource));
+  let flattened = $derived(isFlattenedDomResponse(displaySource, captureSource));
   // The token tree is rendered as Svelte text/elements. Untrusted HTML is never injected.
-  let tokens = $derived(marked.lexer(source, { gfm: true, breaks: false }));
+  let tokens = $derived(marked.lexer(displaySource, { gfm: true, breaks: false }));
   let copiedCode = $state("");
 
   async function copyCode(text: string) {

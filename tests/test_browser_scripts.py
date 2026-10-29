@@ -98,6 +98,19 @@ def test_browser_script_loader_reads_packaged_assets() -> None:
         assert load_browser_script(script_path.name)
 
 
+def test_browser_script_loader_refreshes_after_asset_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from prompta import browser_script_loader
+
+    monkeypatch.setattr(browser_script_loader, "_SCRIPT_ROOT", tmp_path)
+    path = tmp_path / "observer.js"
+    path.write_text("old")
+    assert browser_script_loader.load_browser_script("observer.js") == "old"
+    path.write_text("new longer script")
+    assert browser_script_loader.load_browser_script("observer.js") == "new longer script"
+
+
 def test_browser_script_loader_rejects_nested_paths() -> None:
     with pytest.raises(ValueError, match="Invalid browser script name"):
         load_browser_script("../conversation_snapshot.js")

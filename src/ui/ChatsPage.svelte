@@ -5,7 +5,7 @@
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import {
-    groupRuns, nzTime, statusLabel, turnStatus,
+    formatStoredResponse, groupRuns, nzTime, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
@@ -542,7 +542,7 @@
               <div class="message-role">
                 <span>Assistant {#if turn.status === "generating"}<span class="capture-live">· Capturing</span>{/if}</span>
                 {#if turn.assistant_text}
-                  <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(turn.assistant_text, turn.reply_id || selectedRunId || "")}>
+                  <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail?.source ?? "" : ""), turn.reply_id || selectedRunId || "")}>
                     {copyState === (turn.reply_id || detail.send_id) ? "Copied" : copyState === "error:" + (turn.reply_id || detail.send_id) ? "Copy failed" : "Copy"}
                   </button>
                 {/if}

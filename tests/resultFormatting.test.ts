@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   dateGroup,
+  formatStoredResponse,
   groupRuns,
   isFlattenedDomResponse,
   nzTime,
@@ -48,6 +49,39 @@ test("list previews remove markdown syntax without interpreting it", () => {
   expect(plainPreview("**Answer**\n\n```py\nprint(1)\n```")).toBe("Answer print(1)");
   expect(plainPreview("[documentation](https://example.com)")).toBe("documentation");
 });
+
+test("restores archived table rows and surrounding prose without mutating stored text", () => {
+  const archived = [
+    "Restored all 8 Stone & Banner jobs in Prompta on Nox.",
+    "",
+    "I recovered their exact prompts.",
+    "",
+    "Stage", "", "\t", "", "Restored job", "", "", "", "",
+    "1", "", "\t", "", "Original game design and setup", "", "", "", "",
+    "2", "", "\t", "", "Hexagonal board and game engine", "",
+    "All eight have successful deliveries.",
+  ].join("\n");
+  const display = formatStoredResponse(archived, "dom");
+  expect(display).toContain("| Stage | Restored job |\n| --- | --- |");
+  expect(display).toContain("| 1 | Original game design and setup |");
+  expect(display).toContain("| 2 | Hexagonal board and game engine |");
+  expect(display).toContain("I recovered their exact prompts.\n\n| Stage");
+  expect(display).toContain("| Hexagonal board and game engine |\n\nAll eight");
+  expect(archived).not.toContain("| --- | --- |");
+});
+
+test("does not misread prose tabs, native Markdown, or SSE as legacy tables", () => {
+  for (const text of [
+    "A single\n\n\t\n\nrow",
+    "Indented\tcode\n\ntext",
+    "| A | B |\n| --- | --- |\n| 1 | 2 |",
+  ]) {
+    expect(formatStoredResponse(text, "dom")).toBe(text);
+  }
+  const raw = "A\n\n\t\n\nB\n\n\n\n1\n\n\t\n\n2";
+  expect(formatStoredResponse(raw, "sse")).toBe(raw);
+});
+
 test("legacy flattened DOM answers render densely without changing real Markdown", () => {
   const cells = [
     "Status",

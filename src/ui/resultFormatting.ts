@@ -118,6 +118,72 @@ export function plainPreview(text: string): string {
     .trim();
 }
 
+// Early DOM captures stored ChatGPT's rendered table innerText rather than
+// Markdown. Tabs still delimit cells, and 3+ newlines still delimit rows.
+// Repair the presentation only: retain raw text for reply-parent verification.
+type LegacyTableRow = { cells: string[]; before: string; after: string };
+
+function legacyTableRow(chunk: string): LegacyTableRow | null {
+  if (!/\n[ \r\n]*\t[ \r\n]*\n/.test(chunk)) return null;
+  const raw = chunk.split(/\n[ \r\n]*\t[ \r\n]*\n/);
+  if (raw.length < 2 || raw.length > 6) return null;
+  const before = raw[0].split(/\n[ \t]*\n/);
+  const last = raw.length - 1;
+  const after = raw[last].split(/\n[ \t]*\n/);
+  raw[0] = before.at(-1) ?? "";
+  raw[last] = after[0];
+  const cells = raw.map((cell) => cell.trim());
+  if (cells.some((cell) => !cell || cell.includes("\n"))) return null;
+  return {
+    cells,
+    before: before.slice(0, -1).join("\n\n"),
+    after: after.slice(1).join("\n\n"),
+  };
+}
+
+export function formatStoredResponse(text: string, captureSource: string): string {
+  if (captureSource === "sse" || !text.includes("\t")) return text;
+  const parts = text.split(/(\n{3,})/);
+  let output = "";
+  for (let i = 0; i < parts.length;) {
+    const first = legacyTableRow(parts[i]);
+    if (!first) {
+      output += parts[i] + (parts[i + 1] ?? "");
+      i += 2;
+      continue;
+    }
+
+    const rows = [first];
+    let end = i + 2;
+    while (end < parts.length) {
+      const next = legacyTableRow(parts[end]);
+      if (!next || next.cells.length !== first.cells.length || next.before) break;
+      rows.push(next);
+      end += 2;
+    }
+    // Leave an isolated tabbed line or an ambiguous block untouched.
+    if (rows.length < 2 || rows.slice(0, -1).some((row) => row.after)) {
+      output += parts[i] + (parts[i + 1] ?? "");
+      i += 2;
+      continue;
+    }
+    const row = (cells: string[]) =>
+      "| " + cells.map((cell) => cell.replace(/\|/g, "\\|")).join(" | ") + " |";
+    const table = [
+      row(first.cells),
+      row(first.cells.map(() => "---")),
+      ...rows.slice(1).map((item) => row(item.cells)),
+    ].join("\n");
+    output +=
+      (first.before ? first.before.trimEnd() + "\n\n" : "") +
+      table +
+      (rows.at(-1)?.after ? "\n\n" + rows.at(-1)?.after.trimStart() : "") +
+      (parts[end - 1] ?? "");
+    i = end;
+  }
+  return output;
+}
+
 // Older DOM captures contain plain innerText with every heading, list item and
 // table cell separated as a paragraph. Keep those archived answers compact;
 // new semantic captures and genuine Markdown retain normal formatting.
