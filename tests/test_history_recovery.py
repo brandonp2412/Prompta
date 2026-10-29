@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from prompta.history_recovery import HistoryRecovery
+from prompta.history_recovery import (
+    HistoryRecovery,
+    _read_backoff_remaining,
+    _record_read_rate_limit,
+)
 from prompta.playwright_driver import BrowserSecurityChallengeError
+from prompta.rate_limit import RateLimitError
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -148,3 +153,16 @@ def test_global_pacing_survives_worker_restart(tmp_path: Path) -> None:
     assert second_driver.visited == []
     assert restarted_worker.recover_once(now=240)
     assert second_driver.visited.count("connect") == 1
+
+
+def test_read_specific_backoff_api_is_preferred_when_available() -> None:
+    class NewRuntime:
+        def read_backoff_remaining(self) -> float:
+            return 42.0
+
+        def record_read_rate_limit(self, exc: RateLimitError) -> float:
+            return 120.0
+
+    runtime = NewRuntime()
+    assert _read_backoff_remaining(runtime) == 42.0
+    assert _record_read_rate_limit(runtime, RateLimitError()) == 120.0

@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from .browser_script_loader import load_browser_script
@@ -36,6 +36,35 @@ class HistoryDriver(Protocol):
     async def dom_state(self) -> dict[str, object]: ...
     async def eval(self, expression: str) -> object: ...
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class _ReadLimitAPI(Protocol):
+    def read_backoff_remaining(self) -> float: ...
+    def record_read_rate_limit(self, exc: RateLimitError) -> float: ...
+
+
+@runtime_checkable
+class _LegacyLimitAPI(Protocol):
+    def global_backoff_remaining(self) -> float: ...
+    def record_global_rate_limit(self, exc: RateLimitError) -> float: ...
+
+
+def _read_backoff_remaining(runtime: object) -> float:
+    # The account admission refactor gives read throttling its own persisted gate.
+    if isinstance(runtime, _ReadLimitAPI):
+        return runtime.read_backoff_remaining()
+    if isinstance(runtime, _LegacyLimitAPI):
+        return runtime.global_backoff_remaining()
+    raise RuntimeError("Read rate-limit admission is unavailable")
+
+
+def _record_read_rate_limit(runtime: object, exc: RateLimitError) -> float:
+    if isinstance(runtime, _ReadLimitAPI):
+        return runtime.record_read_rate_limit(exc)
+    if isinstance(runtime, _LegacyLimitAPI):
+        return runtime.record_global_rate_limit(exc)
+    raise RuntimeError("Read rate-limit recording is unavailable")
 
 
 class HistoryRecovery:
@@ -92,7 +121,7 @@ class HistoryRecovery:
         """Attempt at most one due chat; all retries are read-only and persisted."""
         at = time.time() if now is None else now
         if (
-            self.runtime.global_backoff_remaining() > 0
+            _read_backoff_remaining(self.runtime) > 0
             or self.results.history_recovery_security_pause_remaining(now=at) > 0
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
@@ -124,7 +153,7 @@ class HistoryRecovery:
                         logger.info("Historical response recovered send_id=%s", send_id)
                         return True
         except RateLimitError as exc:
-            delay = max(delay, self.runtime.record_global_rate_limit(exc))
+            delay = max(delay, _record_read_rate_limit(self.runtime, exc))
             logger.warning("Historical recovery paused for account rate limit")
         except BrowserSecurityChallengeError:
             delay = max(delay, 30 * 60.0)
@@ -157,7 +186,7 @@ def run_history_recovery(
             current = time.monotonic()
             if current - last_checked_at >= _GLOBAL_INTERVAL_SECONDS:
                 if (
-                    runtime.global_backoff_remaining() <= 0
+                    _read_backoff_remaining(runtime) <= 0
                     and results.history_recovery_security_pause_remaining() <= 0
                     and results.history_recovery_global_pace_remaining() <= 0
                 ):
