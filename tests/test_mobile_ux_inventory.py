@@ -249,9 +249,12 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 send_initial = page.get_by_role("button", name="Send fresh chat").bounding_box()
                 assert attach_initial is not None and send_initial is not None
                 text_center = initial["y"] + initial["height"] / 2
-                for button in (attach_initial, send_initial):
-                    button_center = button["y"] + button["height"] / 2
-                    assert abs(text_center - button_center) <= 2, (width, text_center, button_center)
+                send_center = send_initial["y"] + send_initial["height"] / 2
+                assert abs(text_center - send_center) <= 2, (width, text_center, send_center)
+                # Attachment is now a compact bottom-left footer icon, not a text column.
+                assert attach_initial["y"] >= initial["y"] + initial["height"] - 2
+                assert abs(attach_initial["x"] - initial["x"]) <= 4
+                assert attach_initial["width"] == 44
                 composer.fill("A wrapped synthetic line of text. " * 70)
                 expanded = composer.bounding_box()
                 assert expanded is not None
