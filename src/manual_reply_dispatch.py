@@ -18,6 +18,7 @@ from .delivery_browser import BrowserDeliverySender
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
+from .response_capture import CaptureResult
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
@@ -181,7 +182,9 @@ class ManualReplyDispatcher:
             if await driver.eval(verify) is not True:
                 return
             baseline = await driver.dom_state()
-            if baseline.get("composer_text") or baseline.get("send_in_progress"):
+            if _normalise_composer_text(
+                str(baseline.get("composer_text") or "")
+            ) or baseline.get("send_in_progress"):
                 return
             await driver.enable_passive_updates()
             await driver.eval(load_browser_script("passive_response_observer.js"))
@@ -264,29 +267,74 @@ class ManualReplyDispatcher:
                         if self.store.renew(reply_id, owner, deadline=refreshed):
                             deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
                     result = driver.captured_assistant_response(capture)
-                    if result is None or result.status != "complete":
-                        continue
                     if (
-                        result.conversation_id != conversation_id
-                        or not result.parent_id
-                        or not result.message_id
-                        or result.message_id == parent_id
-                        or not result.text
+                        result is not None
+                        and result.status == "complete"
+                        and result.conversation_id not in (None, conversation_id)
                     ):
                         break
-                    if not self.store.accepted(
-                        reply_id,
-                        owner,
-                        conversation_id=conversation_id,
-                        parent_id=parent_id,
-                        message_id=result.message_id,
-                        response_parent_id=result.parent_id,
+                    if (
+                        result is not None
+                        and result.status == "complete"
+                        and result.parent_id
+                        and result.message_id
+                        and result.message_id != parent_id
+                        and result.text
                     ):
+                        response_id = result.message_id
+                        if result.conversation_id is None:
+                            # A POST stream may omit the conversation field.
+                            # Bind only after the owned page proves its exact route.
+                            if await driver.eval(load_browser_script("location_pathname.js")) != (
+                                "/c/" + conversation_id
+                            ):
+                                break
+                            result = CaptureResult(
+                                result.source, result.status, result.text,
+                                conversation_id, response_id, result.parent_id,
+                                result.observer_id,
+                            )
+                        if not self.store.accepted(
+                            reply_id,
+                            owner,
+                            conversation_id=conversation_id,
+                            parent_id=parent_id,
+                            message_id=response_id,
+                            response_parent_id=result.parent_id,
+                        ):
+                            break
+                        if self.store.observe(reply_id, owner, result):
+                            completed = True
+                            driver.record_verified_activity()
                         break
-                    if self.store.observe(reply_id, owner, result):
-                        completed = True
-                        driver.record_verified_activity()
-                    break
+                    # Some accepted POSTs complete in the owned tab before their
+                    # SSE body can be read. The pre-send parent, original POST
+                    # acknowledgment, single fresh DOM node and exact route bind
+                    # this answer without pretending to know its response parent.
+                    if (
+                        update is not None
+                        and update.source == "dom"
+                        and update.status == "complete"
+                        and update.conversation_id == conversation_id
+                        and update.message_id
+                        and update.message_id != parent_id
+                        and update.text
+                        and await driver.eval(load_browser_script("location_pathname.js"))
+                        == "/c/" + conversation_id
+                    ):
+                        if not self.store.accepted(
+                            reply_id,
+                            owner,
+                            conversation_id=conversation_id,
+                            parent_id=parent_id,
+                            message_id=update.message_id,
+                            response_parent_id="",
+                        ):
+                            break
+                        if self.store.observe(reply_id, owner, update):
+                            completed = True
+                            driver.record_verified_activity()
+                        break
             finally:
                 if approval_task is not None:
                     approval_task.cancel()

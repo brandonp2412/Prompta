@@ -74,7 +74,7 @@ class FakeDriver:
             "u" * 32,
         )
 
-    async def wait_capture_update(self, *, timeout: float) -> None:
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
         del timeout
 
     def record_verified_activity(self) -> bool:
@@ -147,6 +147,25 @@ def test_explicit_reply_requires_exact_last_assistant_and_single_claim(
         assert turns[-1]["status"] == "prepared"
 
 
+def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = FakeDriver(correct_branch=True)
+    fake.text = "\n"
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    assert fake.calls == 1
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "completed"
+
+
 def test_atomic_manual_claim_is_exactly_once_across_workers(tmp_path: Path) -> None:
     store, _state = completed_store(tmp_path)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -168,3 +187,71 @@ def test_atomic_manual_claim_is_exactly_once_across_workers(tmp_path: Path) -> N
     turns = store.turns("send-1")
     assert turns is not None
     assert turns[-1]["status"] == "dispatching"
+
+
+class DomOnlyDriver(FakeDriver):
+    async def eval(self, script: str) -> object:
+        if script.strip() == "location.pathname":
+            return "/c/" + CONVERSATION
+        return await super().eval(script)
+
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+        del timeout
+        return CaptureResult(
+            "dom", "complete", "DOM-only final answer",
+            CONVERSATION, "a" * 32, None, "new:assistant",
+        )
+
+    def captured_assistant_response(
+        self, _capture: dict[str, object]
+    ) -> CaptureResult | None:
+        return None
+
+
+def test_accepted_post_with_exact_dom_final_completes_without_sse_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = DomOnlyDriver()
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "completed"
+    assert turns[-1]["assistant_text"] == "DOM-only final answer"
+    assert turns[-1]["parent_id"] == PARENT
+    assert fake.calls == 1
+
+
+class MissingRouteSseDriver(DomOnlyDriver):
+    async def wait_capture_update(self, *, timeout: float) -> None:
+        del timeout
+
+    def captured_assistant_response(self, _capture: dict[str, object]) -> CaptureResult:
+        return CaptureResult(
+            "sse", "complete", "SSE final without conversation field",
+            None, "a" * 32, "u" * 32,
+        )
+
+
+def test_exact_owned_route_binds_sse_result_missing_conversation_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = MissingRouteSseDriver()
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "completed"
+    assert turns[-1]["assistant_text"] == "SSE final without conversation field"

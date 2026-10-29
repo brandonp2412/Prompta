@@ -217,7 +217,7 @@ class ManualReplyStore:
         now: float | None = None,
     ) -> bool:
         at = time.time() if now is None else now
-        response_parent = response_parent_id or parent_id
+        response_parent = parent_id if response_parent_id is None else response_parent_id
         if not message_id or message_id == parent_id or response_parent == message_id:
             return False
         with self.engine.begin() as connection:
@@ -239,10 +239,21 @@ class ManualReplyStore:
                 replies.c.status.in_(("accepted", "generating")),
                 replies.c.lease_deadline > at,
             )).mappings().one_or_none()
-            if row is None or (capture.conversation_id, capture.message_id, capture.parent_id) != (
-                row["conversation_id"], row["message_id"],
-                row["response_parent_id"] or row["parent_id"],
-            ) or not capture.text or len(capture.text) < len(str(row["assistant_text"])):
+            if row is None:
+                return False
+            expected_parent = str(row["response_parent_id"] or row["parent_id"])
+            parent_matches = (
+                capture.parent_id == expected_parent
+                if capture.source == "sse"
+                else capture.parent_id is None or capture.parent_id == expected_parent
+            )
+            if (
+                (capture.conversation_id, capture.message_id)
+                != (row["conversation_id"], row["message_id"])
+                or not parent_matches
+                or not capture.text
+                or len(capture.text) < len(str(row["assistant_text"]))
+            ):
                 return False
             complete = capture.status == "complete"
             changed = connection.execute(update(replies).where(

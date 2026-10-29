@@ -189,3 +189,31 @@ def test_original_parent_recovery_requires_exact_saved_answer_and_is_one_time(
         "run", ReplyIntent("reply-1234567890123", conversation, message, "Follow-up")
     )
     assert prepared["status"] == "prepared"
+
+
+def test_accepted_post_dom_answer_preserves_unknown_response_parent(
+    tmp_path: Path,
+) -> None:
+    store = seed(tmp_path)
+    assert store.prepare("run", intent(), now=200)["status"] == "prepared"
+    owner = f"{os.getpid()}:dom"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert store.accepted(
+        REPLY_ID, owner, conversation_id=CONVERSATION,
+        parent_id=PARENT, message_id=MESSAGE, response_parent_id="", now=202,
+    )
+    assert not store.observe(
+        REPLY_ID, owner, CaptureResult("sse", "complete", "SSE without parent",
+                                       CONVERSATION, MESSAGE, None), now=203,
+    )
+    assert not store.observe(
+        REPLY_ID, owner, CaptureResult("dom", "complete", "Wrong answer",
+                                       CONVERSATION, "different-message", None), now=203,
+    )
+    assert store.observe(
+        REPLY_ID, owner, CaptureResult("dom", "complete", "DOM verified answer",
+                                       CONVERSATION, MESSAGE, None, "unit:assistant"),
+        now=204,
+    )
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "completed"
