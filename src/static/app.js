@@ -1,4 +1,4 @@
-//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
+//#region node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -71,7 +71,7 @@ var STALE_REACTION = new class StaleReactionError extends Error {
 }();
 var IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/constants.js
+//#region node_modules/svelte/src/constants.js
 var HYDRATION_ERROR = {};
 var UNINITIALIZED = Symbol("uninitialized");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
@@ -101,7 +101,7 @@ function svelte_boundary_reset_noop() {
 	console.warn(`https://svelte.dev/e/svelte_boundary_reset_noop`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
+//#region node_modules/svelte/src/internal/client/dom/hydration.js
 /** @import { TemplateNode } from '#client' */
 /**
 * Use this variable to guard everything related to hydration code so it can be treeshaken out
@@ -180,7 +180,7 @@ function read_hydration_instruction(node) {
 	return node.data;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -207,7 +207,7 @@ function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
+//#region node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -292,13 +292,13 @@ function svelte_boundary_reset_onerror() {
 	throw new Error(`https://svelte.dev/e/svelte_boundary_reset_onerror`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
+//#region node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
 /** True if we're not certain that we only have Svelte 5 code in the compilation */
 var legacy_mode_flag = false;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
+//#region node_modules/svelte/src/internal/client/context.js
 /** @import { ComponentContext, DevStackEntry, Effect } from '#client' */
 /** @type {ComponentContext | null} */
 var component_context = null;
@@ -358,7 +358,7 @@ function is_runes() {
 	return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
+//#region node_modules/svelte/src/internal/client/dom/task.js
 /** @type {Array<() => void>} */
 var micro_tasks = [];
 function run_micro_tasks() {
@@ -385,7 +385,7 @@ function flush_tasks() {
 	while (micro_tasks.length > 0) run_micro_tasks();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
+//#region node_modules/svelte/src/internal/client/reactivity/status.js
 /** @import { Derived, Signal } from '#client' */
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 /**
@@ -404,7 +404,7 @@ function update_derived_status(derived) {
 	else set_signal_status(derived, MAYBE_DIRTY);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region node_modules/svelte/src/internal/client/reactivity/utils.js
 /** @import { Effect } from '#client' */
 /**
 * @param {Effect} effect
@@ -417,7 +417,7 @@ function defer_effect(effect, dirty_effects, maybe_dirty_effects) {
 	set_signal_status(effect, CLEAN);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -440,7 +440,7 @@ function add_form_reset_listener() {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -478,7 +478,7 @@ function listen_to_event_and_reset_event(element, event, handler, on_reset = han
 	add_form_reset_listener();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
+//#region node_modules/svelte/src/internal/client/reactivity/async.js
 /** @import { Blocker, Effect, Source, Value } from '#client' */
 /**
 * @param {Blocker[]} blockers
@@ -603,7 +603,7 @@ function async_derived(fn, label, location) {
 	let parent = active_effect;
 	if (parent === null) async_derived_orphan();
 	var promise = void 0;
-	var signal = source(UNINITIALIZED);
+	var signal = source$1(UNINITIALIZED);
 	var should_suspend = !active_reaction;
 	/** @type {Set<ReturnType<typeof deferred<V>>>} */
 	var deferreds = /* @__PURE__ */ new Set();
@@ -766,7 +766,7 @@ function unfreeze_derived_effects(derived) {
 	for (const e of derived.effects) if (e.teardown && e.fn !== null) update_effect(e);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region node_modules/svelte/src/internal/client/reactivity/batch.js
 /** @import { Fork } from 'svelte' */
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /** @type {Batch | null} */
@@ -1531,7 +1531,7 @@ function reset_all(effect) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
+//#region node_modules/svelte/src/internal/client/reactivity/sources.js
 /** @import { Derived, Effect, Source, Value } from '#client' */
 /** @type {Set<Effect>} */
 var eager_effects = /* @__PURE__ */ new Set();
@@ -1544,7 +1544,7 @@ var eager_effects_deferred = false;
 * @param {Error | null} [stack]
 * @returns {Source<V>}
 */
-function source(v, stack) {
+function source$1(v, stack) {
 	return {
 		f: 0,
 		v,
@@ -1561,7 +1561,7 @@ function source(v, stack) {
 */
 /*#__NO_SIDE_EFFECTS__*/
 function state(v, stack) {
-	const s = source(v, stack);
+	const s = source$1(v, stack);
 	push_reaction_value(s);
 	return s;
 }
@@ -1573,7 +1573,7 @@ function state(v, stack) {
 */
 /*#__NO_SIDE_EFFECTS__*/
 function mutable_source(initial_value, immutable = false, trackable = true) {
-	const s = source(initial_value);
+	const s = source$1(initial_value);
 	if (!immutable) s.equals = safe_equals;
 	if (legacy_mode_flag && trackable && component_context !== null && component_context.l !== null) (component_context.l.s ??= []).push(s);
 	return s;
@@ -1862,7 +1862,7 @@ function is(a, b) {
 	return Object.is(get_proxied_value(a), get_proxied_value(b));
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
+//#region node_modules/svelte/src/internal/client/dom/operations.js
 /** @import { Effect, TemplateNode } from '#client' */
 /** @type {Window} */
 var $window;
@@ -2090,7 +2090,7 @@ function invoke_error_boundary(error, effect) {
 	throw error;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region node_modules/svelte/src/internal/client/reactivity/effects.js
 /** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -2482,14 +2482,14 @@ function move_effect(effect, fragment) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
+//#region node_modules/svelte/src/internal/client/legacy.js
 /**
 * @type {Set<Value> | null}
 * @deprecated
 */
 var captured_signals = null;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
+//#region node_modules/svelte/src/internal/client/runtime.js
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /**
 * True if updating in an effect context that is reactive (i.e. not branch/root effects)
@@ -2872,7 +2872,7 @@ function is_passive_event(name) {
 	return PASSIVE_EVENTS.includes(name);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * Used on elements, as a map of event type -> event handler,
 * and on events themselves to track which element handled an event
@@ -3023,7 +3023,7 @@ function handle_event_propagation(event) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
 /** @param {string} html */
 createHTML: (html) => {
@@ -3042,7 +3042,7 @@ function create_fragment_from_html(html) {
 	return elem.content;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
+//#region node_modules/svelte/src/internal/client/dom/template.js
 /** @import { Effect, EffectNodes, TemplateNode } from '#client' */
 /** @import { TemplateStructure } from './types' */
 /**
@@ -3142,7 +3142,7 @@ function append(anchor, dom) {
 	anchor.before(dom);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
+//#region node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3191,7 +3191,7 @@ function append(anchor, dom) {
 */
 function createSubscriber(start) {
 	let subscribers = 0;
-	let version = source(0);
+	let version = source$1(0);
 	/** @type {(() => void) | void} */
 	let stop;
 	return () => {
@@ -3215,7 +3215,7 @@ function createSubscriber(start) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /** @import { Effect, Source, TemplateNode, } from '#client' */
 /**
 * @typedef {{
@@ -3279,7 +3279,7 @@ var Boundary = class {
 	*/
 	#effect_pending = null;
 	#effect_pending_subscriber = createSubscriber(() => {
-		this.#effect_pending = source(this.#local_pending_count);
+		this.#effect_pending = source$1(this.#local_pending_count);
 		return () => {
 			this.#effect_pending = null;
 		};
@@ -3612,7 +3612,7 @@ function mount(component, options) {
 	return _mount(component, options);
 }
 /** @type {Map<EventTarget, Map<string, number>>} */
-var listeners = /* @__PURE__ */ new Map();
+var listeners$1 = /* @__PURE__ */ new Map();
 /**
 * @template {Record<string, any>} Exports
 * @param {ComponentType<SvelteComponent<any>> | Component<any>} Component
@@ -3652,10 +3652,10 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 				registered_events.add(event_name);
 				var passive = is_passive_event(event_name);
 				for (const node of [target, document]) {
-					var counts = listeners.get(node);
+					var counts = listeners$1.get(node);
 					if (counts === void 0) {
 						counts = /* @__PURE__ */ new Map();
-						listeners.set(node, counts);
+						listeners$1.set(node, counts);
 					}
 					var count = counts.get(event_name);
 					if (count === void 0) {
@@ -3669,12 +3669,12 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 		root_event_handles.add(event_handle);
 		return () => {
 			for (var event_name of registered_events) for (const node of [target, document]) {
-				var counts = listeners.get(node);
+				var counts = listeners$1.get(node);
 				var count = counts.get(event_name);
 				if (--count == 0) {
 					node.removeEventListener(event_name, handle_event_propagation);
 					counts.delete(event_name);
-					if (counts.size === 0) listeners.delete(node);
+					if (counts.size === 0) listeners$1.delete(node);
 				} else counts.set(event_name, count);
 			}
 			root_event_handles.delete(event_handle);
@@ -3690,7 +3690,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 */
 var mounted_components = /* @__PURE__ */ new WeakMap();
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
 /** @import { Effect, TemplateNode } from '#client' */
 /**
 * @typedef {{ effect: Effect, fragment: DocumentFragment }} Branch
@@ -3838,7 +3838,7 @@ var BranchManager = class {
 	}
 };
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {TemplateNode} node
@@ -3884,7 +3884,7 @@ function if_block(node, fn, elseif = false) {
 	}, flags);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
 /** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
 /** @import { Batch } from '../../reactivity/batch.js'; */
 /**
@@ -4259,8 +4259,8 @@ function reconcile(state, array, anchor, flags, get_key) {
 * @returns {EachItem}
 */
 function create_item(items, anchor, value, key, index, render_fn, flags, get_collection) {
-	var v = (flags & 1) !== 0 ? (flags & 16) === 0 ? /* @__PURE__ */ mutable_source(value, false, false) : source(value) : null;
-	var i = (flags & 2) !== 0 ? source(index) : null;
+	var v = (flags & 1) !== 0 ? (flags & 16) === 0 ? /* @__PURE__ */ mutable_source(value, false, false) : source$1(value) : null;
+	var i = (flags & 2) !== 0 ? source$1(index) : null;
 	return {
 		v,
 		i,
@@ -4301,7 +4301,7 @@ function link(state, prev, next) {
 	else next.prev = prev;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {string} hash
@@ -4347,7 +4347,7 @@ function head(hash, render_fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
+//#region node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4362,7 +4362,7 @@ function clsx$1() {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
+//#region node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -4397,7 +4397,7 @@ function to_class(value, hash, directives) {
 	return classname === "" ? null : classname;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -4424,7 +4424,7 @@ function set_class(dom, is_html, value, hash, prev_classes, next_classes) {
 	return next_classes;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -4564,7 +4564,7 @@ function is_selectedcontent_mutation(entry) {
 	return false;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /** @import { Blocker, Effect } from '#client' */
 var IS_CUSTOM_ELEMENT = Symbol("is custom element");
 var IS_HTML = Symbol("is html");
@@ -4646,7 +4646,7 @@ function get_setters(element) {
 	return setters;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /** @import { Batch } from '../../../reactivity/batch.js' */
 /**
 * @param {HTMLInputElement} input
@@ -4725,7 +4725,7 @@ function to_number(value) {
 	return value === "" ? null : +value;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 /** @import { ComponentContext, Effect } from '#client' */
 /**
 * @param {any} bound_value
@@ -4777,7 +4777,7 @@ function bind_this(element_or_component = mark_as_component(), update, get_value
 	return element_or_component;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
+//#region node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Whether or not the prop currently being read is a store binding, as in
 * `<Child bind:x={$y} />`. If it is, we treat the prop as mutable even in
@@ -4802,7 +4802,7 @@ function capture_store_binding(fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
+//#region node_modules/svelte/src/internal/client/reactivity/props.js
 /** @import { Derived, Effect, Source } from './types.js' */
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
@@ -4930,7 +4930,7 @@ function init_update_callbacks(context) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
+//#region node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
 //#region src/ui/jobSorting.ts
@@ -4950,6 +4950,53 @@ function compareJobs(left, right) {
 }
 function sortJobs(jobs) {
 	return [...jobs].sort(compareJobs);
+}
+//#endregion
+//#region src/ui/liveUpdates.ts
+var listeners = {
+	jobs: /* @__PURE__ */ new Set(),
+	chats: /* @__PURE__ */ new Set()
+};
+var source = null;
+var fallbackTimer;
+function notify(topic) {
+	if (document.visibilityState !== "visible") return;
+	for (const listener of listeners[topic]) listener();
+}
+function refreshBoth() {
+	notify("jobs");
+	notify("chats");
+}
+function visibleAgain() {
+	if (document.visibilityState === "visible") refreshBoth();
+}
+function start() {
+	if (typeof EventSource !== "undefined") {
+		source = new EventSource("./api/events");
+		source.addEventListener("sync", refreshBoth);
+		source.addEventListener("jobs", () => notify("jobs"));
+		source.addEventListener("chats", () => notify("chats"));
+	}
+	fallbackTimer = window.setInterval(() => {
+		if (!source || source.readyState !== EventSource.OPEN) refreshBoth();
+	}, 6e4);
+	document.addEventListener("visibilitychange", visibleAgain);
+}
+function stop() {
+	source?.close();
+	source = null;
+	window.clearInterval(fallbackTimer);
+	fallbackTimer = void 0;
+	document.removeEventListener("visibilitychange", visibleAgain);
+}
+function subscribeLiveUpdates(topic, listener) {
+	const wasEmpty = listeners.jobs.size === 0 && listeners.chats.size === 0;
+	listeners[topic].add(listener);
+	if (wasEmpty) start();
+	return () => {
+		listeners[topic].delete(listener);
+		if (!listeners.jobs.size && !listeners.chats.size) stop();
+	};
 }
 //#endregion
 //#region src/ui/JobsPage.svelte
@@ -5003,7 +5050,6 @@ function JobsPage($$anchor, $$props) {
 		}
 	];
 	const pageSize = 10;
-	const refreshIntervalMs = 5e3;
 	let jobs = /* @__PURE__ */ state(proxy([]));
 	let activeFilters = /* @__PURE__ */ state(proxy({
 		pending: true,
@@ -5057,6 +5103,7 @@ function JobsPage($$anchor, $$props) {
 	let runOnce = /* @__PURE__ */ user_derived(() => !get(editing) && get(activeEditorRoute) === "new:once");
 	let duplicateName = /* @__PURE__ */ user_derived(() => !get(runOnce) && !get(editing) && get(jobs).some((job) => job.name === get(name).trim()));
 	let loadInFlight = false;
+	let refreshPending = false;
 	let dataGeneration = 0;
 	function reset$1() {
 		set(editing, "");
@@ -5294,7 +5341,11 @@ function JobsPage($$anchor, $$props) {
 		});
 	}
 	async function load({ quiet = false } = {}) {
-		if (loadInFlight || quiet && document.visibilityState !== "visible") return;
+		if (quiet && document.visibilityState !== "visible") return;
+		if (loadInFlight) {
+			refreshPending = true;
+			return;
+		}
 		loadInFlight = true;
 		const requestGeneration = dataGeneration;
 		if (!quiet) set(status, "Loading jobs…");
@@ -5309,6 +5360,10 @@ function JobsPage($$anchor, $$props) {
 			if (!quiet) set(status, "Could not load jobs: " + String(error).replace(/^Error:\s*/, ""));
 		} finally {
 			loadInFlight = false;
+			if (refreshPending) {
+				refreshPending = false;
+				load({ quiet: true });
+			}
 		}
 	}
 	async function command(payload, success) {
@@ -5457,11 +5512,11 @@ function JobsPage($$anchor, $$props) {
 		window.visualViewport?.addEventListener("resize", onViewportResize);
 		load().then(syncEditorFromUrl);
 		window.addEventListener("popstate", syncEditorFromUrl);
-		const timer = window.setInterval(() => {
+		const unsubscribe = subscribeLiveUpdates("jobs", () => {
 			load({ quiet: true });
-		}, refreshIntervalMs);
+		});
 		return () => {
-			window.clearInterval(timer);
+			unsubscribe();
 			window.removeEventListener("beforeunload", onBeforeUnload);
 			window.removeEventListener("resize", onViewportResize);
 			window.visualViewport?.removeEventListener("resize", onViewportResize);
@@ -6170,7 +6225,7 @@ delegate([
 	"change"
 ]);
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -8242,6 +8297,7 @@ function ChatsPage($$anchor, $$props) {
 	let pinsGeneration = 0;
 	let detailGeneration = 0;
 	let searchTimer;
+	let liveRefreshTimer;
 	const activity = (item) => item.updated_at || item.created_at;
 	const newestFirst = (a, b) => activity(b) - activity(a) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
 	let pinned = /* @__PURE__ */ user_derived(() => {
@@ -8523,11 +8579,13 @@ function ChatsPage($$anchor, $$props) {
 		loadPreferences();
 		loadList();
 		loadPins();
-		const interval = setInterval(() => {
-			if (document.visibilityState === "visible") refresh();
-		}, 15e3);
+		const unsubscribe = subscribeLiveUpdates("chats", () => {
+			clearTimeout(liveRefreshTimer);
+			liveRefreshTimer = setTimeout(refresh, 100);
+		});
 		return () => {
-			clearInterval(interval);
+			unsubscribe();
+			clearTimeout(liveRefreshTimer);
 			clearTimeout(searchTimer);
 		};
 	});

@@ -3,6 +3,7 @@
   import JobsPage from "./JobsPage.svelte";
   import ChatComposer from "./ChatComposer.svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
+  import { subscribeLiveUpdates } from "./liveUpdates";
   import {
     groupRuns, nzTime, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
@@ -55,6 +56,7 @@
   let pinsGeneration = 0;
   let detailGeneration = 0;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   const activity = (item: RunSummary) => item.updated_at || item.created_at;
   const newestFirst = (a: RunSummary, b: RunSummary) =>
@@ -356,11 +358,13 @@
     loadPreferences();
     void loadList();
     void loadPins();
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
-    }, 15000);
+    const unsubscribe = subscribeLiveUpdates("chats", () => {
+      clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = setTimeout(refresh, 100);
+    });
     return () => {
-      clearInterval(interval);
+      unsubscribe();
+      clearTimeout(liveRefreshTimer);
       clearTimeout(searchTimer);
     };
   });
