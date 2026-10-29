@@ -64,3 +64,32 @@ its active owned captures terminate, preserving their leases and responses.
 Until it restarts, new runs created by that older worker may require the explicit
 per-chat recovery action above. Never interrupt active captures just to apply
 the script change.
+
+## Production closeout — 29 Oct 2026 NZDT
+
+- The manual-reply browser now waits for exact-parent DOM hydration before the
+  irreversible claim, and can reuse only an identical prepared draft on a new
+  explicit click. Transient CDP startup errors receive one bounded **pre-claim**
+  connection retry; a claimed/accepted message is never resent. Commits
+  `6b3c68f`, `fdcf3e5`, and `b013dd7` are on pushed `main`.
+- The production UI's systemd sandbox had `ProtectHome=read-only` while Playwright
+  inherited `TMPDIR=/home/brandon/.cache/tmp`, producing `EROFS` during
+  `BrowserType.connect_over_cdp` artifact-directory creation. A sandbox clone
+  proved authentication worked with the writable state directory. The Nox user
+  drop-in `prompta-ui.service.d/30-disk-backed-temp.conf` now sets
+  `TMPDIR=/home/brandon/.local/state/prompta/tmp`; daemon reload and UI restart
+  succeeded without interrupting any claimed reply.
+- Actual authenticated ChatGPT, through the served production Svelte UI, accepted
+  exactly one explicit POST (`202`) for the surviving prepared test intent. SQLite
+  advanced `prepared → dispatching → completed` and captured the exact expected
+  **FOURTH** result with a new assistant message ID. This extended the earlier
+  **FIRST → SECOND → THIRD** proof to four completed turns on one conversation,
+  with each saved reply parent matching the preceding assistant message ID.
+- Fresh real Chromium reloads at **1440×900** and **390×844** displayed all four
+  answers and the current reply composer. Both had no horizontal overflow,
+  **zero POSTs** and **zero foreign hosts** during local read-only viewing.
+  `/api/health` was OK, browser reachable, and every service heartbeat fresh.
+- The 460-test full Python suite, Ruff, strict Ty and Bun/Svelte/Vite passed
+  earlier in this recovery; the final connection-retry branch passed **22**
+  focused Python/real-Chromium tests plus Ruff and strict Ty. No account-wide
+  ChatGPT history was read or imported, and no ambiguous send was retried.
