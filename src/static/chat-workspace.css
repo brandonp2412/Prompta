@@ -2,15 +2,16 @@
 .chats-layout { grid-template-columns: 266px minmax(0, 1fr); }
 .sidebar-brand { padding: 17px 15px 10px; }
 .sidebar-brand strong { font-size: 1.02rem; font-weight: 650; letter-spacing: -.035em; }
-.sidebar-actions { display: grid; grid-template-columns: 1fr; gap: 1px; padding: 0 9px 10px; }
-.sidebar-actions button { min-height: 42px; padding: 9px 11px; gap: 12px; border-radius: 10px; font-size: .88rem; font-weight: 540; }
+.sidebar-actions { display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr); gap: 6px; padding: 0 9px 10px; }
+.sidebar-actions button { justify-content: center; min-width: 0; min-height: 44px; padding: 7px 5px; gap: 0; border-radius: 10px; font-size: .88rem; font-weight: 540; white-space: nowrap; }
 .sidebar-actions button svg { width: 19px; height: 19px; flex: none; }
-.sidebar-actions .sidebar-jobs { color: #c3c3c3; }
+.sidebar-actions .sidebar-jobs { width: 44px; padding: 0; color: #c3c3c3; }
 .sidebar-actions .sidebar-primary { background: transparent; font-weight: 550; }
 .sidebar-actions .sidebar-primary:hover, .sidebar-actions .sidebar-search:hover { background: #292929; }
 .sidebar-actions .sidebar-search { color: #bcbcbc; }
-/* Desktop action labels are prose, not the 22px icon spans from the base stylesheet. */
-.sidebar-actions .action-label { width: auto; min-width: 0; font-size: inherit; line-height: 1.25; text-align: left; white-space: nowrap; }
+/* Keep desktop Create/Search labels readable in the narrower shared row. */
+.sidebar-actions .sidebar-primary svg, .sidebar-actions .sidebar-search svg { display: none; }
+.sidebar-actions .action-label { width: auto; min-width: 0; font-size: inherit; line-height: 1.25; text-align: center; white-space: nowrap; }
 .filter-active-dot { width: 6px !important; height: 6px; margin-left: auto; border-radius: 50%; background: #8eafff; }
 .chats-controls { grid-template-columns: 1fr; padding: 4px 10px 10px; gap: 7px; border-bottom: 0; }
 .chats-controls input, .chats-controls select { height: 38px; font-size: .85rem; }
@@ -43,11 +44,11 @@
 @media (max-width: 680px) {
   .chats-layout { display: block; }
   .sidebar-brand { padding: 14px 15px 9px; }
-  .sidebar-actions { grid-template-columns: 42px 42px minmax(0, 1fr); padding: 0 12px 8px; gap: 6px; }
-  .sidebar-actions .sidebar-jobs { grid-column: 1 / -1; justify-content: flex-start; width: 100%; min-height: 44px; padding: 9px 11px; font-size: .88rem; gap: 12px; }
-  .sidebar-actions .sidebar-primary, .sidebar-actions .sidebar-search {
-    justify-content: center; width: 42px; min-height: 42px; height: 42px; padding: 0; gap: 0;
+  .sidebar-actions { grid-template-columns: repeat(3, 44px); padding: 0 12px 8px; gap: 6px; }
+  .sidebar-actions .sidebar-jobs, .sidebar-actions .sidebar-primary, .sidebar-actions .sidebar-search {
+    justify-content: center; width: 44px; min-height: 44px; height: 44px; padding: 0; gap: 0;
   }
+  .sidebar-actions .sidebar-primary svg, .sidebar-actions .sidebar-search svg { display: block; }
   .sidebar-actions .action-label { display: none; }
   .sidebar-actions .filter-active-dot { position: absolute; margin: 0; transform: translate(14px, -14px); }
   .sidebar-actions .sidebar-search { position: relative; }
@@ -99,3 +100,12 @@
 .tool-call-body p { margin: 0; color: #aaa; font-size: .8rem; }
 @media (max-width: 680px) { .tool-call-list { margin-left: 9px; padding-left: 10px; } .tool-call-summary { padding: 10px; } .tool-call-status { font-size: .7rem; } }
 @media (prefers-reduced-motion: reduce) { .tool-timeline-toggle, .tool-call-chevron { transition: none; } }
+
+/* Phone-landscape sidebars have less than 210px for the three actions. */
+@media (min-width: 681px) and (max-width: 950px) and (max-height: 520px) {
+  .sidebar-actions { grid-template-columns: repeat(3, 44px); }
+  .sidebar-actions .sidebar-primary svg, .sidebar-actions .sidebar-search svg { display: block; }
+  .sidebar-actions .action-label { display: none; }
+  .sidebar-actions .sidebar-search { position: relative; }
+  .sidebar-actions .filter-active-dot { position: absolute; margin: 0; transform: translate(14px, -14px); }
+}

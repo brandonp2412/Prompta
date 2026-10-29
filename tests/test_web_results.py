@@ -247,11 +247,15 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             page.wait_for_function("() => document.querySelectorAll('.chat-entry').length >= 20")
             expect(page.locator(".chats-pagination, .chats-heading, .chats-date")).to_have_count(0)
             nav = page.locator(".sidebar-actions")
-            assert nav.get_by_role("button").first.get_attribute("class") == "sidebar-jobs"
+            jobs_button = nav.get_by_role("button", name="Jobs")
+            assert jobs_button.get_attribute("class") == "sidebar-jobs"
+            assert jobs_button.inner_text() == ""
+            jobs = jobs_button.bounding_box()
             new_chat = nav.get_by_role("button", name="New chat").bounding_box()
             search = nav.get_by_role("button", name="Search chats").bounding_box()
-            assert new_chat and search
-            assert abs(new_chat["y"] - search["y"]) < 2
+            assert jobs and new_chat and search
+            assert max(jobs["y"], new_chat["y"], search["y"]) - min(jobs["y"], new_chat["y"], search["y"]) < 2
+            assert jobs["width"] == 44
             assert new_chat["width"] <= 44 and search["width"] <= 44
             nav.get_by_role("button", name="Search chats").click()
             assert page.locator(".chats-controls input").evaluate(
@@ -478,7 +482,13 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert page.locator(".result-markdown img").count() == 0
                 assert page.locator(".result-markdown a").count() == 0
                 assert "<img" in page.locator(".result-markdown").inner_text()
-                # Desktop sidebar actions must display readable, unwrapped labels.
+                # All three actions share one row, with desktop Create/Search labels.
+                sidebar_nav = page.locator(".sidebar-actions")
+                jobs_action = sidebar_nav.get_by_role("button", name="Jobs")
+                jobs_box = jobs_action.bounding_box()
+                assert jobs_box and jobs_box["width"] == 44
+                assert jobs_action.inner_text() == ""
+                assert jobs_action.get_attribute("title") == "Jobs"
                 for label in ("New chat", "Search chats"):
                     action = page.locator(".sidebar-actions").get_by_role("button", name=label)
                     text = action.locator(".action-label")
@@ -486,6 +496,12 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                     assert text.evaluate("element => element.scrollWidth <= element.clientWidth")
                     action_box = action.bounding_box()
                     assert action_box is not None and action_box["height"] <= 55
+                    assert abs(action_box["y"] - jobs_box["y"]) < 2
+                    assert action_box["x"] > jobs_box["x"]
+                jobs_action.click()
+                expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
+                expect(jobs_action).to_have_attribute("aria-current", "page")
+                page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 page.get_by_role("button", name="Search chats").click()
                 assert page.locator(".chats-controls input").evaluate(
                     "element => document.activeElement === element"
@@ -538,10 +554,13 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 phone = page
                 phone.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 list_box = phone.locator(".chats-list").bounding_box()
+                jobs_box = phone.locator(".sidebar-jobs").bounding_box()
                 search_box = phone.locator(".sidebar-search").bounding_box()
                 new_box = phone.locator(".sidebar-actions .sidebar-primary").bounding_box()
                 pin_box = phone.locator(".chat-pin").first.bounding_box()
-                assert list_box and search_box and new_box and pin_box
+                assert list_box and jobs_box and search_box and new_box and pin_box
+                assert abs(jobs_box["y"] - new_box["y"]) < 2
+                assert jobs_box["width"] == 44
                 assert list_box["y"] < 300
                 assert search_box["width"] <= 44
                 assert new_box["width"] <= 44
