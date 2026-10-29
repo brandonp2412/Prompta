@@ -6,8 +6,8 @@ export type SortableJob = {
   run_at_epoch: number | null;
 };
 
-export function isLongJob(job: SortableJob): boolean {
-  return job.run_at_epoch !== null || (!job.daily_at && job.interval_minutes > 24 * 60);
+export function isRepeatingJob(job: SortableJob): boolean {
+  return job.run_at_epoch === null && (job.daily_at !== null || job.interval_minutes > 0);
 }
 
 function frequencyMinutes(job: SortableJob): number {

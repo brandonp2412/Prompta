@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { isLongJob, sortJobs } from "./jobSorting";
+  import { isRepeatingJob, sortJobs } from "./jobSorting";
 
   type ImageRef = { ref: string; name: string; url: string };
 
@@ -42,9 +42,9 @@
     paused: true,
     unhealthy: true,
   });
-  let showLongJobs = $state(true);
-  let longJobsCount = $derived(jobs.filter(isLongJob).length);
-  let cadenceJobs = $derived(jobs.filter((job) => showLongJobs || !isLongJob(job)));
+  let showRepeatingJobs = $state(true);
+  let repeatingJobsCount = $derived(jobs.filter(isRepeatingJob).length);
+  let cadenceJobs = $derived(jobs.filter((job) => showRepeatingJobs || !isRepeatingJob(job)));
   let filteredJobs = $derived(cadenceJobs.filter((job) => activeFilters[jobFilter(job)]));
   let filterCounts = $derived(
     cadenceJobs.reduce<Record<JobFilter, number>>(
@@ -471,7 +471,7 @@
       const delayMinutes = Number(onceDelay);
       const queued = await command(
         { action: "run_once", prompt: jobPrompt, images: images.map((image) => image.ref), delay_minutes: delayMinutes, pin_chat: pinChat },
-        delayMinutes ? `Scheduled once in ${delayMinutes} minutes (under Long jobs).` : "Queued one fresh chat.",
+        delayMinutes ? `Scheduled once in ${delayMinutes} minutes.` : "Queued one fresh chat.",
       );
       if (queued) {
         initialForm = formSnapshot();
@@ -590,13 +590,13 @@
       >{option.label} <span>{filterCounts[option.key]}</span></button>
     {/each}
     <button
-      class:chosen={showLongJobs}
+      class:chosen={showRepeatingJobs}
       class="filter-chip"
       type="button"
-      aria-pressed={showLongJobs}
-      title="Include jobs running less often than daily and scheduled one-time jobs"
-      onclick={() => { showLongJobs = !showLongJobs; page = 1; }}
-    >Long jobs <span>{longJobsCount}</span></button>
+      aria-pressed={showRepeatingJobs}
+      title="Include daily and interval-based repeating jobs"
+      onclick={() => { showRepeatingJobs = !showRepeatingJobs; page = 1; }}
+    >Repeating jobs <span>{repeatingJobsCount}</span></button>
   </div>
 
   <div class="jobs-table" role="table" aria-label="Scheduled jobs">
