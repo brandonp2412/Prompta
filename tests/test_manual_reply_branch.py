@@ -19,6 +19,8 @@ OTHER = "00000000-0000-4000-8000-000000000003"
     [
         (f"data-message-id='{PARENT}'", True),
         (f"data-chatgpt-search-message-ids='[\"{PARENT}\"]'", True),
+        (f"data-chatgpt-search-message-ids='{PARENT} {PARENT}'", True),
+        (f"data-chatgpt-search-message-ids='{PARENT} {OTHER}'", False),
         (f"data-chatgpt-search-message-ids='[\"{PARENT}\",\"{OTHER}\"]'", False),
         ("data-chatgpt-search-message-ids='not-json'", False),
         (f"data-chatgpt-search-message-ids='[\"{OTHER}\"]'", False),

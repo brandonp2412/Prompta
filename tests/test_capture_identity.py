@@ -112,6 +112,25 @@ async def test_real_browser_observer_binds_owned_route_without_network() -> None
                 ANSWER,
             )
             assert result.text == "Exact response"
+            # Real ChatGPT uses space-separated repeated IDs rather than JSON.
+            await page.evaluate(
+                """(answer) => document.querySelector('[data-chatgpt-search-unit-key="new:assistant"]')
+                .setAttribute('data-chatgpt-search-message-ids', answer + ' ' + answer)""",
+                ANSWER,
+            )
+            repeated = normalize_dom_snapshot(
+                await page.evaluate("window.__promptaPassiveResponseObserver.read()")
+            )
+            assert repeated.message_id == ANSWER
+            await page.evaluate(
+                """([answer, other]) => document.querySelector('[data-chatgpt-search-unit-key="new:assistant"]')
+                .setAttribute('data-chatgpt-search-message-ids', answer + ' ' + other)""",
+                [ANSWER, CHAT],
+            )
+            conflicting = normalize_dom_snapshot(
+                await page.evaluate("window.__promptaPassiveResponseObserver.read()")
+            )
+            assert conflicting.message_id is None
             # The observer must preserve rendered Markdown semantics rather
             # than flatten every table cell and list item into a paragraph.
             await page.evaluate("""

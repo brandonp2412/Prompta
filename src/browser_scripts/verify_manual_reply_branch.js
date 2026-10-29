@@ -13,8 +13,11 @@
       let candidate = legacy;
       if (!candidate) {
         try {
-          const ids = JSON.parse(last.getAttribute("data-chatgpt-search-message-ids") || "null");
-          if (!Array.isArray(ids) || ids.length !== 1 || typeof ids[0] !== "string") return false;
+          const raw = last.getAttribute("data-chatgpt-search-message-ids") || "";
+          const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
+          if (!Array.isArray(ids) || !ids.length ||
+              !ids.every((id) => typeof id === "string" && uuid.test(id))) return false;
+          if (new Set(ids.map((id) => id.toLowerCase())).size !== 1) return false;
           candidate = ids[0];
         } catch { return false; }
       }

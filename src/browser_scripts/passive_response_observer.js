@@ -140,9 +140,13 @@
     const raw = element.getAttribute("data-chatgpt-search-message-ids");
     if (!raw) return "";
     try {
-      const ids = JSON.parse(raw);
-      return Array.isArray(ids) && ids.length === 1 && typeof ids[0] === "string" && uuid.test(ids[0])
-        ? ids[0].toLowerCase() : "";
+      // ChatGPT also emits whitespace-separated IDs, sometimes repeating the
+      // same backend ID. Only one distinct UUID can identify a reply parent.
+      const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
+      if (!Array.isArray(ids) || !ids.length ||
+          !ids.every((id) => typeof id === "string" && uuid.test(id))) return "";
+      const unique = [...new Set(ids.map((id) => id.toLowerCase()))];
+      return unique.length === 1 ? unique[0] : "";
     } catch { return ""; }
   };
   const baseline = new Set([...document.querySelectorAll(messageSelector)].map(identity).filter(Boolean));
