@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { isRepeatingJob, sortJobs } from "./jobSorting";
+  import { subscribeLiveUpdates } from "./liveUpdates";
 
   type ImageRef = { ref: string; name: string; url: string };
 
@@ -34,7 +35,6 @@
   type EditorRoute = { kind: "new"; once?: boolean } | { kind: "edit"; name: string };
 
   const pageSize = 10;
-  const refreshIntervalMs = 5000;
   let jobs = $state<Job[]>([]);
   let activeFilters = $state<Record<JobFilter, boolean>>({
     pending: true,
@@ -88,6 +88,7 @@
   let runOnce = $derived(!editing && activeEditorRoute === "new:once");
   let duplicateName = $derived(!runOnce && !editing && jobs.some((job) => job.name === name.trim()));
   let loadInFlight = false;
+  let refreshPending = false;
   let dataGeneration = 0;
 
   function reset() {
@@ -363,7 +364,11 @@
   }
 
   async function load({ quiet = false }: { quiet?: boolean } = {}) {
-    if (loadInFlight || (quiet && document.visibilityState !== "visible")) return;
+    if (quiet && document.visibilityState !== "visible") return;
+    if (loadInFlight) {
+      refreshPending = true;
+      return;
+    }
 
     loadInFlight = true;
     const requestGeneration = dataGeneration;
@@ -383,6 +388,10 @@
       if (!quiet) status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
     } finally {
       loadInFlight = false;
+      if (refreshPending) {
+        refreshPending = false;
+        void load({ quiet: true });
+      }
     }
   }
 
@@ -538,11 +547,9 @@
     window.visualViewport?.addEventListener("resize", onViewportResize);
     void load().then(syncEditorFromUrl);
     window.addEventListener("popstate", syncEditorFromUrl);
-    const timer = window.setInterval(() => {
-      void load({ quiet: true });
-    }, refreshIntervalMs);
+    const unsubscribe = subscribeLiveUpdates("jobs", () => { void load({ quiet: true }); });
     return () => {
-      window.clearInterval(timer);
+      unsubscribe();
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("resize", onViewportResize);
       window.visualViewport?.removeEventListener("resize", onViewportResize);

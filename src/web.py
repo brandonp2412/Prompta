@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import mimetypes
@@ -19,6 +20,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore, image_refs
+from .live_events import LocalEventSignals
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_store import ResponseStore
@@ -87,6 +89,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         super().__init__(address, PromptaJobHandler)
         self.state_path = state_path.expanduser()
         self.jobs_path = jobs_path.expanduser()
+        self.live_events = LocalEventSignals(self.jobs_path, self.state_path)
         host = socket.gethostname().strip() or "localhost"
         self.host_name = host.split(".", 1)[0]
         self.health = ServiceHealthStore(self.state_path)
@@ -132,6 +135,7 @@ class PromptaJobServer(ThreadingHTTPServer):
 
 class PromptaJobHandler(BaseHTTPRequestHandler):
     server: PromptaJobServer
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
         if urlparse(self.path).path.startswith(("/api/results", "/api/images")):
@@ -191,6 +195,58 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             raise ValueError("Request body must be valid JSON") from exc
         return payload
 
+    def _event_stream(self) -> None:
+        """Invalidate local views on storage changes; every reconnect starts with a full sync."""
+        self.send_response(HTTPStatus.OK)
+        self.send_header("content-type", "text/event-stream; charset=utf-8")
+        self.send_header("cache-control", "no-cache, no-transform")
+        self.send_header("x-accel-buffering", "no")
+        self.send_header("x-content-type-options", "nosniff")
+        self.send_header("transfer-encoding", "chunked")
+        self.end_headers()
+
+        def emit(payload: str) -> None:
+            data = payload.encode("utf-8")
+            self.wfile.write(f"{len(data):x}\r\n".encode("ascii") + data + b"\r\n")
+            self.wfile.flush()
+
+        def event(topic: str) -> None:
+            emit(f"id: {time.time_ns()}\nevent: {topic}\ndata: refresh\n\n")
+
+        try:
+            previous = self.server.live_events.snapshot()
+
+            def job_digest() -> bytes:
+                # Health heartbeats write to the same runtime database; do not
+                # wake the Jobs UI unless its actual payload changed.
+                payload = json.dumps(
+                    self.server.jobs.scheduled_jobs(),
+                    sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                ).encode("utf-8")
+                return hashlib.blake2b(payload, digest_size=16).digest()
+
+            previous_jobs = job_digest()
+            emit("retry: 1500\n\n")
+            event("sync")
+            last_heartbeat = time.monotonic()
+            while True:
+                time.sleep(0.75)
+                current = self.server.live_events.snapshot()
+                if current.jobs != previous.jobs:
+                    current_jobs = job_digest()
+                    if current_jobs != previous_jobs:
+                        event("jobs")
+                    previous_jobs = current_jobs
+                if current.chats != previous.chats:
+                    event("chats")
+                previous = current
+                if time.monotonic() - last_heartbeat >= 15:
+                    emit(": heartbeat\n\n")
+                    last_heartbeat = time.monotonic()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            # A closed EventSource is normal; avoid logging private request state.
+            return
+
     def do_HEAD(self) -> None:
         self.do_GET()
 
@@ -199,6 +255,12 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if path in {"", "/"}:
             self._index()
+            return
+        if path == "/api/events":
+            if self.command == "HEAD":
+                self._write(HTTPStatus.OK, "text/event-stream; charset=utf-8", b"")
+            else:
+                self._event_stream()
             return
         if path == "/api/jobs":
             self._json(self.server.jobs.scheduled_jobs())
