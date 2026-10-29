@@ -20,6 +20,16 @@ from prompta.strict_types import json_object, string_object_dict
 from prompta.web import PromptaJobServer
 
 
+@pytest.fixture(autouse=True)
+def serve_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Nox's editable installation points at main even in an isolated worktree.
+    import prompta.web as web_module
+
+    assets = Path(__file__).resolve().parents[1] / "src/static"
+    assert (assets / "app.js").is_file()
+    monkeypatch.setattr(web_module, "_STATIC_ROOT", assets)
+
+
 @contextmanager
 def server(tmp_path: Path) -> Generator[tuple[PromptaJobServer, int]]:
     app = PromptaJobServer(
@@ -182,7 +192,8 @@ def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Pa
                 a.evaluate("""() => localStorage.setItem("prompta.local-sidebar.v1",
                     JSON.stringify({ baselineAt: 1, readAt: {}, pinnedIds: ["run-00"] }))""")
                 a.reload(wait_until="domcontentloaded")
-                expect(a.locator(".chats-date").filter(has_text="Pinned")).to_have_count(1)
+                expect(a.locator(".chats-date")).to_have_count(0)
+                expect(a.locator(".chats-pagination")).to_have_count(0)
                 expect(a.locator(".chat-entry").filter(has_text="Chat 00")).to_have_count(1)
                 assert "pinnedIds" not in json.loads(a.evaluate(
                     "localStorage.getItem('prompta.local-sidebar.v1')"))
@@ -208,6 +219,86 @@ def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Pa
                 assert all(value == host for value in remote_hosts)
             finally:
                 browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915)])
+def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+        for index in range(65):
+            completed_run(app, f"scroll-{index:03}", f"Scroll entry {index:03}", 1000 + index)
+        browser = playwright.chromium.launch(
+            executable_path=chromium_path, headless=True, args=["--no-sandbox"],
+        )
+        try:
+            context = browser.new_context(
+                viewport={"width": width, "height": height}, is_mobile=True, has_touch=True,
+            )
+            page = context.new_page()
+            host = f"127.0.0.1:{port}"
+            observed: list[tuple[str, str]] = []
+            page.on("request", lambda request: observed.append((request.method, request.url)))
+            page.goto(f"http://{host}/?view=chats", wait_until="networkidle")
+            # Tall viewports may prefetch a second page before the first scroll.
+            page.wait_for_function("() => document.querySelectorAll('.chat-entry').length >= 20")
+            expect(page.locator(".chats-pagination, .chats-heading, .chats-date")).to_have_count(0)
+            nav = page.locator(".sidebar-actions")
+            assert nav.get_by_role("button").first.get_attribute("class") == "sidebar-jobs"
+            new_chat = nav.get_by_role("button", name="New chat").bounding_box()
+            search = nav.get_by_role("button", name="Search chats").bounding_box()
+            assert new_chat and search
+            assert abs(new_chat["y"] - search["y"]) < 2
+            assert new_chat["width"] <= 44 and search["width"] <= 44
+            nav.get_by_role("button", name="Search chats").click()
+            assert page.locator(".chats-controls input").evaluate(
+                "element => document.activeElement === element"
+            )
+            nav.get_by_role("button", name="Search chats").click()
+            for _ in range(4):
+                previous = page.locator(".chat-entry").count()
+                if previous == 65:
+                    break
+                page.locator(".chats-list").evaluate(
+                    "element => element.scrollTop = element.scrollHeight"
+                )
+                page.wait_for_function(
+                    f"() => document.querySelectorAll('.chat-entry').length > {previous}"
+                )
+            expect(page.locator(".chat-entry")).to_have_count(65)
+            assert page.locator(".chat-row-top strong").last.inner_text() == "Scroll entry 000"
+
+            page.locator(".chat-row").first.click()
+            expect(page.locator(".chats-sidebar")).to_be_hidden()
+            cdp = context.new_cdp_session(page)
+
+            def swipe(start_x: int, end_x: int) -> None:
+                cdp.send("Input.dispatchTouchEvent", {
+                    "type": "touchStart", "touchPoints": [{"x": start_x, "y": 300}],
+                })
+                for step in range(1, 7):
+                    cdp.send("Input.dispatchTouchEvent", {
+                        "type": "touchMove", "touchPoints": [{
+                            "x": start_x + (end_x - start_x) * step / 6, "y": 300,
+                        }],
+                    })
+                cdp.send("Input.dispatchTouchEvent", {
+                    "type": "touchEnd", "touchPoints": [],
+                })
+
+            swipe(105, 260)  # Starts well beyond a narrow OS edge-swipe zone.
+            expect(page.locator(".chats-sidebar")).to_be_visible()
+            swipe(240, 50)
+            expect(page.locator(".chats-sidebar")).to_be_hidden()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+            assert all(url.startswith(f"http://{host}/") for _, url in observed)
+            assert all(method == "GET" for method, _ in observed)
+            context.close()
+        finally:
+            browser.close()
 
 
 def test_partial_and_unavailable_states_are_truthful_and_logs_private(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -272,8 +363,7 @@ def test_legacy_dom_table_is_rendered_as_table_on_desktop_and_mobile(tmp_path: P
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
                 hosts: list[str] = []
                 page.on("request", lambda request: hosts.append(request.url.split("/")[2]))
-                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-                page.get_by_role("button", name="Chats", exact=True).click()
+                page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 page.locator(".chat-row").filter(has_text="Legacy table").click()
                 expect(page.locator(".result-markdown table")).to_have_count(1)
                 assert page.locator(".result-markdown th").all_inner_texts() == [
@@ -353,8 +443,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 network_methods: list[str] = []
                 page.on("request", lambda request: network_hosts.append(request.url.split("/")[2]))
                 page.on("request", lambda request: network_methods.append(request.method))
-                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-                page.get_by_role("button", name="Chats", exact=True).click()
+                page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 page.locator(".chat-row").first.wait_for()
                 assert page.locator(".chat-row").count() == 4
                 page.locator(".chat-row").filter(has_text="Daily review").click()
@@ -368,8 +457,6 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert pane.evaluate("(element) => element.scrollHeight > element.clientHeight")
                 pane.evaluate("(element) => { element.scrollTop = 90; }")
                 before_scroll = pane.evaluate("(element) => element.scrollTop")
-                page.get_by_role("button", name="Refresh local results").click()
-                page.get_by_role("button", name="Refresh local results").click()
                 expect(page.locator(".prompt-message")).to_have_count(2)
                 page.wait_for_timeout(300)
                 assert abs(pane.evaluate("(element) => element.scrollTop") - before_scroll) < 3
@@ -392,6 +479,9 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert page.locator(".result-markdown a").count() == 0
                 assert "<img" in page.locator(".result-markdown").inner_text()
                 page.get_by_role("button", name="Search chats").click()
+                assert page.locator(".chats-controls input").evaluate(
+                    "element => document.activeElement === element"
+                )
                 page.locator(".chats-controls select").select_option("completed")
                 expect(page.locator(".chat-row")).to_have_count(3)
                 page.locator(".chats-controls select").select_option("")
@@ -417,7 +507,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 composer.fill(draft_text)
                 page.reload(wait_until="networkidle")
                 expect(page.get_by_role("textbox", name="Message for new chat")).to_have_value(draft_text)
-                page.get_by_role("button", name="Chats", exact=True).click()
+                page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 page.locator(".sidebar-actions").get_by_role("button", name="New chat").click()
                 expect(page.get_by_role("textbox", name="Message for new chat")).to_have_value(draft_text)
                 page.get_by_role("textbox", name="Message for new chat").fill("")
@@ -429,11 +519,14 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 phone = page
                 phone.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 list_box = phone.locator(".chats-list").bounding_box()
-                refresh_box = phone.locator(".chats-refresh").bounding_box()
+                search_box = phone.locator(".sidebar-search").bounding_box()
+                new_box = phone.locator(".sidebar-actions .sidebar-primary").bounding_box()
                 pin_box = phone.locator(".chat-pin").first.bounding_box()
-                assert list_box and refresh_box and pin_box
+                assert list_box and search_box and new_box and pin_box
                 assert list_box["y"] < 300
-                assert refresh_box["width"] >= 44
+                assert search_box["width"] <= 44
+                assert new_box["width"] <= 44
+                assert abs(search_box["y"] - new_box["y"]) < 2
                 assert pin_box["width"] >= 44
                 first_title = phone.locator(".chat-row-top strong").first
                 title_before = first_title.bounding_box()
@@ -620,8 +713,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 remote: list[str] = []
                 page.on("request", lambda request: remote.append(request.url)
                         if not request.url.startswith(f"http://127.0.0.1:{port}/") else None)
-                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-                page.get_by_role("button", name="Chats", exact=True).click()
+                page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
                 answered = page.locator(".chat-entry").filter(has_text="Answered")
                 pending = page.locator(".chat-entry").filter(has_text="Pending")
                 partial = page.locator(".chat-entry").filter(has_text="Partial")
@@ -638,12 +730,12 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                     connection.execute(update(results).where(
                         results.c.send_id == "answered",
                     ).values(updated_at=800))
-                page.get_by_role("button", name="Refresh local results").click()
+                page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
 
                 intent = ReplyIntent("reply-12345678901234", "c1", "m1", "Follow up")
                 assert app.replies.prepare("answered", intent, now=600)
-                page.get_by_role("button", name="Refresh local results").click()
+                page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert app.replies.claim(intent.reply_id, "100:manual", deadline=900, now=601)
                 assert app.replies.accepted(
@@ -653,12 +745,12 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 assert app.replies.observe(intent.reply_id, "100:manual", CaptureResult(
                     "dom", "partial", "Working on the answer", "c1", "m2", "m1",
                 ), now=603)
-                page.get_by_role("button", name="Refresh local results").click()
+                page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert app.replies.observe(intent.reply_id, "100:manual", CaptureResult(
                     "sse", "complete", "New verified assistant reply", "c1", "m2", "m1",
                 ), now=604)
-                page.get_by_role("button", name="Refresh local results").click()
+                page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(1)
                 answered.locator(".chat-row").click()
                 expect(page.locator(".assistant-group")).to_have_count(2)

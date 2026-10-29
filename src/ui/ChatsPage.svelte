@@ -6,7 +6,7 @@
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import {
-    formatStoredResponse, groupRuns, nzTime, statusLabel, turnStatus,
+    formatStoredResponse, nzTime, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
@@ -53,7 +53,8 @@
   let filtersOpen = $state(false);
   let expandedPrompts = $state<Record<string, boolean>>({});
   let total = $state(0);
-  let page = $state(0);
+  let nextOffset = $state(0);
+  let loadingMore = $state(false);
   let search = $state("");
   let statusFilter = $state<ResultStatus | "">("");
   let detail = $state<RunDetail | null>(null);
@@ -62,6 +63,8 @@
   let recoveringReply = $state(false);
   let copyState = $state("");
   let scrollPane = $state<HTMLDivElement>();
+  let listPane = $state<HTMLDivElement>();
+  let searchInput = $state<HTMLInputElement>();
   let loadingList = $state(true);
   let loadingDetail = $state(false);
   let listError = $state("");
@@ -71,6 +74,7 @@
   let detailGeneration = 0;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let swipeStart: { x: number; y: number; opening: boolean } | null = null;
 
   const activity = (item: RunSummary) => item.updated_at || item.created_at;
   const newestFirst = (a: RunSummary, b: RunSummary) =>
@@ -84,7 +88,6 @@
       .filter((item): item is RunSummary => !!item)
       .filter((item) => !filtered || items.some((listed) => listed.send_id === item.send_id));
   });
-  let groups = $derived(groupRuns(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst)));
   const replyBlockedReason = $derived.by((): string => {
     const latest = turns.at(-1);
     if (!detail || !latest) return "Loading reply availability…";
@@ -109,13 +112,13 @@
     }
     return "You can reply when this chat has a completed response.";
   });
-  let pageCount = $derived(Math.min(5001, Math.max(1, Math.ceil(total / pageSize))));
   let visibleWaiting = $derived(
     statusFilter && statusFilter !== "queued" ? [] :
       queueSnapshot.waiting.filter((job) =>
         !search.trim() || job.name.toLowerCase().includes(search.trim().toLowerCase())
       )
   );
+  let unpinned = $derived(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst));
 
   function loadPreferences() {
     try {
@@ -240,24 +243,75 @@
     }
   }
 
-  async function loadList() {
-    const generation = ++listGeneration;
-    loadingList = items.length === 0;
-    const params = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize) });
+  function resultsParams(offset: number) {
+    const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
     if (search.trim()) params.set("q", search.trim());
     if (statusFilter) params.set("status", statusFilter);
+    return params;
+  }
+
+  function mergeRuns(previous: RunSummary[], incoming: RunSummary[]) {
+    return [...new Map([...previous, ...incoming].map((item) => [item.send_id, item])).values()].sort(newestFirst);
+  }
+
+  function maybeLoadMore() {
+    if (loadingList || loadingMore || nextOffset >= total || !listPane) return;
+    if (listPane.scrollTop + listPane.clientHeight >= listPane.scrollHeight - 240) void loadMore();
+  }
+
+  async function loadList(reset = false) {
+    const generation = ++listGeneration;
+    loadingMore = false; // A fresh first-page response supersedes an in-flight append.
+    if (reset) {
+      items = [];
+      total = 0;
+      nextOffset = 0;
+      if (listPane) listPane.scrollTop = 0;
+    }
+    loadingList = items.length === 0;
     try {
-      const response = await fetch("./api/results?" + params, { cache: "no-store" });
+      const response = await fetch("./api/results?" + resultsParams(0), { cache: "no-store" });
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
-      items = body.items;
+      items = reset ? body.items : mergeRuns(items, body.items);
       total = body.total;
+      nextOffset = Math.max(nextOffset, body.items.length);
       listError = "";
     } catch {
       if (generation === listGeneration) listError = "Local results are temporarily unavailable.";
     } finally {
-      if (generation === listGeneration) loadingList = false;
+      if (generation === listGeneration) {
+        loadingList = false;
+        await tick();
+        maybeLoadMore();
+      }
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || loadingList || nextOffset >= total) return;
+    const generation = listGeneration;
+    const offset = nextOffset;
+    loadingMore = true;
+    try {
+      const response = await fetch("./api/results?" + resultsParams(offset), { cache: "no-store" });
+      if (!response.ok) throw new Error("Results could not be loaded");
+      const body: { items: RunSummary[]; total: number } = await response.json();
+      if (generation !== listGeneration) return;
+      items = mergeRuns(items, body.items);
+      total = body.total;
+      nextOffset = offset + body.items.length;
+      listError = "";
+    } catch {
+      if (generation === listGeneration) listError = "More local chats could not be loaded.";
+    } finally {
+      if (generation === listGeneration) {
+        loadingMore = false;
+        await tick();
+        // On a tall viewport, continue until the rail actually overflows.
+        if (!listError) maybeLoadMore();
+      }
     }
   }
 
@@ -316,11 +370,10 @@
       if (!body.send_id) throw new Error("Missing queue receipt");
       // The queue has already persisted this run locally. Show it as soon as
       // the receipt is confirmed, even if the previous list was filtered.
-      page = 0;
       search = "";
       statusFilter = "";
       onQueued(body.send_id);
-      void loadList();
+      void loadList(true);
       void loadPins();
       return { ok: true, message: "" };
     } catch {
@@ -432,8 +485,7 @@
   }
 
   function applyFilter() {
-    page = 0;
-    void loadList();
+    void loadList(true);
   }
 
   function searchChanged() {
@@ -441,9 +493,33 @@
     searchTimer = setTimeout(applyFilter, 300);
   }
 
-  function movePage(next: number) {
-    page = Math.max(0, Math.min(pageCount - 1, next));
-    void loadList();
+  async function toggleSearch() {
+    filtersOpen = !filtersOpen;
+    if (filtersOpen) {
+      await tick();
+      searchInput?.focus();
+    }
+  }
+
+  function startSwipe(event: TouchEvent) {
+    if (!window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const showList = view === "chats" && !selectedRunId && !newChatOpen;
+    if (drawerOpen || (!showList && touch.clientX <= 120)) {
+      swipeStart = { x: touch.clientX, y: touch.clientY, opening: !drawerOpen };
+    }
+  }
+
+  function finishSwipe(event: TouchEvent) {
+    if (!swipeStart || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - swipeStart.x;
+    const dy = touch.clientY - swipeStart.y;
+    if (Math.abs(dx) >= 64 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+      if (swipeStart.opening && dx > 0) drawerOpen = true;
+      else if (!swipeStart.opening && dx < 0) drawerOpen = false;
+    }
+    swipeStart = null;
   }
 
   function selectRun(item: RunSummary) {
@@ -517,7 +593,7 @@
   });
 </script>
 
-<svelte:window onkeydown={escapeDrawer} />
+<svelte:window onkeydown={escapeDrawer} ontouchstart={startSwipe} ontouchend={finishSwipe} ontouchcancel={() => swipeStart = null} />
 
 {#snippet chatItem(item: RunSummary)}
   <div class:chosen={view === "chats" && selectedRunId === item.send_id} class:unread={isUnread(item)} class="chat-entry">
@@ -555,25 +631,25 @@
       <button class="sidebar-close" type="button" aria-label="Close sidebar" onclick={() => drawerOpen = false}>×</button>
     </div>
     <nav class="sidebar-actions" aria-label="Main navigation">
-      <button class="sidebar-primary" type="button" onclick={createChat}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" /></svg>
-        New chat
+      <button class:active={view === "jobs"} class="sidebar-jobs" type="button" onclick={showJobs}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
+        Jobs
       </button>
-      <button class:active={filtersOpen} class="sidebar-search" type="button" aria-expanded={filtersOpen} aria-controls="chat-filters" onclick={() => filtersOpen = !filtersOpen}>
+      <button class="sidebar-primary" type="button" onclick={createChat} aria-label="New chat" title="New chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" /></svg>
+        <span class="action-label">New chat</span>
+      </button>
+      <button class:active={filtersOpen} class="sidebar-search" type="button" aria-label="Search chats" title="Search chats" aria-expanded={filtersOpen} aria-controls="chat-filters" onclick={toggleSearch}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
-        Search chats
+        <span class="action-label">Search chats</span>
         {#if search || statusFilter}<span class="filter-active-dot" aria-label="Filters active"></span>{/if}
       </button>
     </nav>
-    <div class="chats-heading">
-      <h2><button class="chats-heading-link" type="button" onclick={showChats}>Chats</button> <span class="chats-count">{total}</span></h2>
-      <button class="chats-refresh" type="button" onclick={refresh} aria-label="Refresh local results" title="Refresh local results">↻</button>
-    </div>
     {#if filtersOpen}
     <div id="chat-filters" class="chats-controls">
       <label class="search-label">
         <span class="sr-only">Search job results</span>
-        <input type="search" placeholder="Search chats" bind:value={search} oninput={searchChanged} />
+        <input type="search" placeholder="Search chats" bind:this={searchInput} bind:value={search} oninput={searchChanged} />
       </label>
       <label>
         <span class="sr-only">Filter results by state</span>
@@ -585,7 +661,7 @@
     {/if}
     {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
     {#if pinError}<div class="result-error" role="alert">{pinError}</div>{/if}
-    <div class="chats-list">
+    <div class="chats-list" bind:this={listPane} onscroll={maybeLoadMore}>
       {#if visibleWaiting.length}
         <div class="chats-date queue-heading" aria-live="polite">
           <span>Waiting to start · {visibleWaiting.length}</span>
@@ -601,7 +677,6 @@
         {/each}
       {/if}
       {#if pinned.length}
-        <div class="chats-date">Pinned</div>
         {#each pinned as item (item.send_id)}{@render chatItem(item)}{/each}
       {/if}
       {#if loadingList && !items.length}
@@ -609,23 +684,8 @@
       {:else if !items.length && !pinned.length && !visibleWaiting.length}
         <p class="chats-empty">{search || statusFilter ? "No matching chats" : "No chats"}</p>
       {:else}
-        {#each groups as group (group.date)}
-          <div class="chats-date">{group.date}</div>
-          {#each group.items as item (item.send_id)}{@render chatItem(item)}{/each}
-        {/each}
+        {#each unpinned as item (item.send_id)}{@render chatItem(item)}{/each}
       {/if}
-    </div>
-    {#if total > pageSize}
-      <div class="chats-pagination">
-        <span>{page + 1} / {pageCount}</span>
-        <div><button disabled={page === 0} aria-label="Previous chat page" onclick={() => movePage(page - 1)}>‹</button><button disabled={page + 1 >= pageCount} aria-label="Next chat page" onclick={() => movePage(page + 1)}>›</button></div>
-      </div>
-    {/if}
-    <div class="sidebar-footer">
-      <button class:active={view === "jobs"} type="button" onclick={showJobs}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
-        Jobs
-      </button>
     </div>
   </aside>
 
