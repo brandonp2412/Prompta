@@ -4,13 +4,17 @@
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
 
-  let { mode, onSend, disabled = false }: {
+  let { mode, onSend, disabled = false, sendDisabled = false, restoreDraft = "" }: {
     mode: "fresh" | "reply";
     onSend: (text: string, images: string[]) => Promise<SendResult>;
     disabled?: boolean;
+    sendDisabled?: boolean;
+    restoreDraft?: string;
   } = $props();
 
   let draft = $state("");
+  let restoredDraft = $state("");
+  let lastSubmitted = $state("");
   let images = $state<ImageRef[]>([]);
   let uploading = $state(false);
   let sending = $state(false);
@@ -21,7 +25,18 @@
   let fileInput = $state<HTMLInputElement>();
   const newChatDraftKey = "prompta.new-chat-draft.v1";
   const canAttach = $derived(mode === "fresh" && !disabled && !locked && !sending && !uploading);
-  const canSend = $derived(!disabled && !locked && !sending && !uploading && !!draft.trim());
+  const canSend = $derived(!disabled && !sendDisabled && !locked && !sending && !uploading && !!draft.trim());
+
+  $effect(() => {
+    if (mode !== "reply" || !restoreDraft || restoredDraft === restoreDraft) return;
+    restoredDraft = restoreDraft;
+    // Restore a pending intent only on a later visit. Never refill the field
+    // immediately after the user's original successful Send click.
+    if (!draft && !sending && restoreDraft !== lastSubmitted) {
+      draft = restoreDraft;
+      requestAnimationFrame(resizeTextarea);
+    }
+  });
 
   onMount(() => {
     if (mode === "fresh") {
@@ -100,8 +115,10 @@
     sending = true;
     feedback = "";
     try {
-      const result = await onSend(draft, images.map((image) => image.ref));
+      const submitted = draft;
+      const result = await onSend(submitted, images.map((image) => image.ref));
       if (result.ok) {
+        lastSubmitted = submitted;
         draft = "";
         images = [];
         feedback = result.message;
@@ -161,8 +178,8 @@
     {/if}
     <textarea bind:this={textarea} bind:value={draft} oninput={draftChanged} onkeydown={keydown} onpaste={pasted}
       rows="1" maxlength="32000" disabled={disabled || locked || sending}
-      aria-label={mode === "fresh" ? "Message for new chat" : "Reply to this chat"}
-      placeholder={mode === "fresh" ? "Message Prompta…" : "Reply to this chat…"}></textarea>
+      aria-label={mode === "fresh" ? "Message for new chat" : "Message for current chat"}
+      placeholder="Message Prompta…"></textarea>
     <div class="composer-actions">
       <div class="composer-attach">
         {#if mode === "fresh"}

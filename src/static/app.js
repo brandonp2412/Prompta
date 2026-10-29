@@ -1,4 +1,4 @@
-//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
+//#region node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -71,7 +71,7 @@ var STALE_REACTION = new class StaleReactionError extends Error {
 }();
 var IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/constants.js
+//#region node_modules/svelte/src/constants.js
 var HYDRATION_ERROR = {};
 var UNINITIALIZED = Symbol("uninitialized");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
@@ -101,7 +101,7 @@ function svelte_boundary_reset_noop() {
 	console.warn(`https://svelte.dev/e/svelte_boundary_reset_noop`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
+//#region node_modules/svelte/src/internal/client/dom/hydration.js
 /** @import { TemplateNode } from '#client' */
 /**
 * Use this variable to guard everything related to hydration code so it can be treeshaken out
@@ -180,7 +180,7 @@ function read_hydration_instruction(node) {
 	return node.data;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -207,7 +207,7 @@ function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
+//#region node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -292,13 +292,13 @@ function svelte_boundary_reset_onerror() {
 	throw new Error(`https://svelte.dev/e/svelte_boundary_reset_onerror`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
+//#region node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
 /** True if we're not certain that we only have Svelte 5 code in the compilation */
 var legacy_mode_flag = false;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
+//#region node_modules/svelte/src/internal/client/context.js
 /** @import { ComponentContext, DevStackEntry, Effect } from '#client' */
 /** @type {ComponentContext | null} */
 var component_context = null;
@@ -358,7 +358,7 @@ function is_runes() {
 	return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
+//#region node_modules/svelte/src/internal/client/dom/task.js
 /** @type {Array<() => void>} */
 var micro_tasks = [];
 function run_micro_tasks() {
@@ -385,7 +385,7 @@ function flush_tasks() {
 	while (micro_tasks.length > 0) run_micro_tasks();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
+//#region node_modules/svelte/src/internal/client/reactivity/status.js
 /** @import { Derived, Signal } from '#client' */
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 /**
@@ -404,7 +404,7 @@ function update_derived_status(derived) {
 	else set_signal_status(derived, MAYBE_DIRTY);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region node_modules/svelte/src/internal/client/reactivity/utils.js
 /** @import { Effect } from '#client' */
 /**
 * @param {Effect} effect
@@ -417,7 +417,7 @@ function defer_effect(effect, dirty_effects, maybe_dirty_effects) {
 	set_signal_status(effect, CLEAN);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -440,7 +440,7 @@ function add_form_reset_listener() {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -478,7 +478,7 @@ function listen_to_event_and_reset_event(element, event, handler, on_reset = han
 	add_form_reset_listener();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
+//#region node_modules/svelte/src/internal/client/reactivity/async.js
 /** @import { Blocker, Effect, Source, Value } from '#client' */
 /**
 * @param {Blocker[]} blockers
@@ -766,7 +766,7 @@ function unfreeze_derived_effects(derived) {
 	for (const e of derived.effects) if (e.teardown && e.fn !== null) update_effect(e);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region node_modules/svelte/src/internal/client/reactivity/batch.js
 /** @import { Fork } from 'svelte' */
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /** @type {Batch | null} */
@@ -1531,7 +1531,7 @@ function reset_all(effect) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
+//#region node_modules/svelte/src/internal/client/reactivity/sources.js
 /** @import { Derived, Effect, Source, Value } from '#client' */
 /** @type {Set<Effect>} */
 var eager_effects = /* @__PURE__ */ new Set();
@@ -1862,7 +1862,7 @@ function is(a, b) {
 	return Object.is(get_proxied_value(a), get_proxied_value(b));
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
+//#region node_modules/svelte/src/internal/client/dom/operations.js
 /** @import { Effect, TemplateNode } from '#client' */
 /** @type {Window} */
 var $window;
@@ -2090,7 +2090,7 @@ function invoke_error_boundary(error, effect) {
 	throw error;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region node_modules/svelte/src/internal/client/reactivity/effects.js
 /** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -2482,14 +2482,14 @@ function move_effect(effect, fragment) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
+//#region node_modules/svelte/src/internal/client/legacy.js
 /**
 * @type {Set<Value> | null}
 * @deprecated
 */
 var captured_signals = null;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
+//#region node_modules/svelte/src/internal/client/runtime.js
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /**
 * True if updating in an effect context that is reactive (i.e. not branch/root effects)
@@ -2872,7 +2872,7 @@ function is_passive_event(name) {
 	return PASSIVE_EVENTS.includes(name);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * Used on elements, as a map of event type -> event handler,
 * and on events themselves to track which element handled an event
@@ -3023,7 +3023,7 @@ function handle_event_propagation(event) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
 /** @param {string} html */
 createHTML: (html) => {
@@ -3042,7 +3042,7 @@ function create_fragment_from_html(html) {
 	return elem.content;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
+//#region node_modules/svelte/src/internal/client/dom/template.js
 /** @import { Effect, EffectNodes, TemplateNode } from '#client' */
 /** @import { TemplateStructure } from './types' */
 /**
@@ -3142,7 +3142,7 @@ function append(anchor, dom) {
 	anchor.before(dom);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
+//#region node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3215,7 +3215,7 @@ function createSubscriber(start) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /** @import { Effect, Source, TemplateNode, } from '#client' */
 /**
 * @typedef {{
@@ -3690,7 +3690,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 */
 var mounted_components = /* @__PURE__ */ new WeakMap();
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
 /** @import { Effect, TemplateNode } from '#client' */
 /**
 * @typedef {{ effect: Effect, fragment: DocumentFragment }} Branch
@@ -3838,7 +3838,7 @@ var BranchManager = class {
 	}
 };
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {TemplateNode} node
@@ -3884,7 +3884,29 @@ function if_block(node, fn, elseif = false) {
 	}, flags);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/key.js
+/** @import { TemplateNode } from '#client' */
+var NAN = Symbol("NaN");
+/**
+* @template V
+* @param {TemplateNode} node
+* @param {() => V} get_key
+* @param {(anchor: Node) => TemplateNode | void} render_fn
+* @returns {void}
+*/
+function key(node, get_key, render_fn) {
+	if (hydrating) hydrate_next();
+	var branches = new BranchManager(node);
+	var legacy = !is_runes();
+	block(() => {
+		var key = get_key();
+		if (key !== key) key = NAN;
+		if (legacy && key !== null && typeof key === "object") key = {};
+		branches.ensure(key, render_fn);
+	});
+}
+//#endregion
+//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
 /** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
 /** @import { Batch } from '../../reactivity/batch.js'; */
 /**
@@ -4301,7 +4323,7 @@ function link(state, prev, next) {
 	else next.prev = prev;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {string} hash
@@ -4347,7 +4369,7 @@ function head(hash, render_fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
+//#region node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4362,7 +4384,7 @@ function clsx$1() {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
+//#region node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -4397,7 +4419,7 @@ function to_class(value, hash, directives) {
 	return classname === "" ? null : classname;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -4424,7 +4446,7 @@ function set_class(dom, is_html, value, hash, prev_classes, next_classes) {
 	return next_classes;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -4564,7 +4586,7 @@ function is_selectedcontent_mutation(entry) {
 	return false;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /** @import { Blocker, Effect } from '#client' */
 var IS_CUSTOM_ELEMENT = Symbol("is custom element");
 var IS_HTML = Symbol("is html");
@@ -4646,7 +4668,7 @@ function get_setters(element) {
 	return setters;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /** @import { Batch } from '../../../reactivity/batch.js' */
 /**
 * @param {HTMLInputElement} input
@@ -4725,7 +4747,7 @@ function to_number(value) {
 	return value === "" ? null : +value;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 /** @import { ComponentContext, Effect } from '#client' */
 /**
 * @param {any} bound_value
@@ -4777,7 +4799,7 @@ function bind_this(element_or_component = mark_as_component(), update, get_value
 	return element_or_component;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
+//#region node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Whether or not the prop currently being read is a store binding, as in
 * `<Child bind:x={$y} />`. If it is, we treat the prop as mutable even in
@@ -4802,7 +4824,7 @@ function capture_store_binding(fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
+//#region node_modules/svelte/src/internal/client/reactivity/props.js
 /** @import { Derived, Effect, Source } from './types.js' */
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
@@ -4930,7 +4952,7 @@ function init_update_callbacks(context) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
+//#region node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
 //#region src/ui/jobSorting.ts
@@ -5977,11 +5999,13 @@ var root_1$3 = /* @__PURE__ */ from_html(`<div class="composer-previews" aria-la
 var root_2$2 = /* @__PURE__ */ from_html(`<button type="button" aria-label="Attach images" title="Attach images"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6"></path></svg> <span> </span></button> <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple="" aria-label="Choose images"/>`, 1);
 var root_3$2 = /* @__PURE__ */ from_html(`<small role="status">Uploading images…</small>`);
 var root_4$2 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
-var root_5$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <button class="composer-send" type="submit"> </button></div></div> <!></form>`);
+var root_5$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <button class="composer-send" type="submit"> </button></div></div> <!></form>`);
 function ChatComposer($$anchor, $$props) {
 	push($$props, true);
-	let disabled = prop($$props, "disabled", 3, false);
+	let disabled = prop($$props, "disabled", 3, false), sendDisabled = prop($$props, "sendDisabled", 3, false), restoreDraft = prop($$props, "restoreDraft", 3, "");
 	let draft = /* @__PURE__ */ state("");
+	let restoredDraft = /* @__PURE__ */ state("");
+	let lastSubmitted = /* @__PURE__ */ state("");
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploading = /* @__PURE__ */ state(false);
 	let sending = /* @__PURE__ */ state(false);
@@ -5992,7 +6016,15 @@ function ChatComposer($$anchor, $$props) {
 	let fileInput = /* @__PURE__ */ state(void 0);
 	const newChatDraftKey = "prompta.new-chat-draft.v1";
 	const canAttach = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" && !disabled() && !get(locked) && !get(sending) && !get(uploading));
-	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !get(locked) && !get(sending) && !get(uploading) && !!get(draft).trim());
+	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !sendDisabled() && !get(locked) && !get(sending) && !get(uploading) && !!get(draft).trim());
+	user_effect(() => {
+		if ($$props.mode !== "reply" || !restoreDraft() || get(restoredDraft) === restoreDraft()) return;
+		set(restoredDraft, restoreDraft());
+		if (!get(draft) && !get(sending) && restoreDraft() !== get(lastSubmitted)) {
+			set(draft, restoreDraft());
+			requestAnimationFrame(resizeTextarea);
+		}
+	});
 	onMount(() => {
 		if ($$props.mode === "fresh") {
 			try {
@@ -6072,8 +6104,10 @@ function ChatComposer($$anchor, $$props) {
 		set(sending, true);
 		set(feedback, "");
 		try {
-			const result = await $$props.onSend(get(draft), get(images).map((image) => image.ref));
+			const submitted = get(draft);
+			const result = await $$props.onSend(submitted, get(images).map((image) => image.ref));
 			if (result.ok) {
+				set(lastSubmitted, submitted, true);
 				set(draft, "");
 				set(images, [], true);
 				set(feedback, result.message, true);
@@ -6194,8 +6228,7 @@ function ChatComposer($$anchor, $$props) {
 		classes = set_class(form, 1, "chat-composer-wrap", null, classes, { dragging: get(dragging) });
 		set_attribute(form, "aria-label", $$props.mode === "fresh" ? "New chat composer" : "Reply composer");
 		textarea_1.disabled = disabled() || get(locked) || get(sending);
-		set_attribute(textarea_1, "aria-label", $$props.mode === "fresh" ? "Message for new chat" : "Reply to this chat");
-		set_attribute(textarea_1, "placeholder", $$props.mode === "fresh" ? "Message Prompta…" : "Reply to this chat…");
+		set_attribute(textarea_1, "aria-label", $$props.mode === "fresh" ? "Message for new chat" : "Message for current chat");
 		button_2.disabled = !get(canSend);
 		set_attribute(button_2, "aria-label", get(sending) ? "Sending" : $$props.mode === "fresh" ? "Send fresh chat" : "Send reply");
 		set_text(text_1, get(sending) ? "Sending…" : "↑");
@@ -6224,7 +6257,7 @@ delegate([
 	"change"
 ]);
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -7760,8 +7793,8 @@ x.lex;
 //#region src/ui/resultFormatting.ts
 function turnStatus(status) {
 	switch (status) {
-		case "prepared": return "Reply saved locally · not sent";
-		case "dispatching": return "Sending · confirmation pending";
+		case "prepared": return "Pending";
+		case "dispatching": return "Sending…";
 		case "outcome_unknown": return "Send outcome unknown · no automatic retry";
 		case "accepted": return "Awaiting captured response";
 		case "generating": return "Response is generating";
@@ -8248,11 +8281,8 @@ var root_24 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_25 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
 var root_26 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role">You <!></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!></div>`, 1);
 var root_27 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><header class="chat-detail-title"><h2> </h2><p> </p></header> <!> <!></div>`);
-var root_28 = /* @__PURE__ */ from_html(`<div class="chat-reply-status"><button type="button"> </button></div>`);
-var root_29 = /* @__PURE__ */ from_html(`<div class="chat-prepared-action"><span>Reply saved locally, not yet sent.</span> <button type="button">Send saved reply</button></div>`);
-var root_30 = /* @__PURE__ */ from_html(`<div class="chat-reply-status"> </div>`);
-var root_31 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
-var root_32 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button class="sidebar-primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> New chat</button> <button type="button" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> Search chats <!></button></nav> <div class="chats-heading"><h2><button class="chats-heading-link" type="button">Chats</button> <span class="chats-count"> </span></h2> <button class="chats-refresh" type="button" aria-label="Refresh local results" title="Refresh local results">↻</button></div> <!> <!> <!> <div class="chats-list"><!> <!></div> <!> <div class="sidebar-footer"><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> Jobs</button></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
+var root_28 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
+var root_29 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button class="sidebar-primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> New chat</button> <button type="button" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> Search chats <!></button></nav> <div class="chats-heading"><h2><button class="chats-heading-link" type="button">Chats</button> <span class="chats-count"> </span></h2> <button class="chats-refresh" type="button" aria-label="Refresh local results" title="Refresh local results">↻</button></div> <!> <!> <!> <div class="chats-list"><!> <!></div> <!> <div class="sidebar-footer"><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> Jobs</button></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
 	push($$props, true);
 	const chatItem = ($$anchor, item = noop) => {
@@ -8582,38 +8612,60 @@ function ChatsPage($$anchor, $$props) {
 			};
 		}
 	}
-	async function recoverReply() {
-		const id = $$props.selectedRunId;
-		const original = get(turns).length === 1 ? get(turns)[0] : null;
-		if (!id || original?.status !== "completed" || !original.conversation_id || original.message_id || get(recoveringReply)) return;
+	async function recoverReply(sendId) {
+		if (get(recoveringReply)) return "";
 		set(recoveringReply, true);
-		set(turnsError, "");
 		try {
-			if (!(await fetch("./api/results/" + encodeURIComponent(id) + "/reply-recover", {
+			const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: "{}"
-			})).ok) {
-				set(turnsError, "The original reply branch could not be verified.");
-				return;
-			}
-			await loadDetail(id);
+			});
+			if (!response.ok) return "";
+			const recovered = await response.json();
+			return $$props.selectedRunId === sendId ? recovered.message_id ?? "" : "";
 		} catch {
-			set(turnsError, "Reply verification could not be completed.");
+			return "";
 		} finally {
 			set(recoveringReply, false);
 		}
 	}
 	async function sendReply(text, _images) {
+		const sendId = $$props.selectedRunId;
 		const latest = get(turns).at(-1);
-		if (!$$props.selectedRunId || latest?.status !== "completed" || !latest.conversation_id || !latest.message_id) return {
+		if (sendId && latest?.status === "prepared") {
+			if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) return {
+				ok: false,
+				message: "A pending reply can only be retried with its original text."
+			};
+			return sendExactReply(sendId, {
+				reply_id: latest.reply_id,
+				conversation_id: latest.conversation_id,
+				parent_id: latest.parent_id,
+				text: latest.user_text
+			});
+		}
+		if (!sendId || latest?.status !== "completed") return {
 			ok: false,
-			message: "This saved branch is not eligible for a reply."
+			message: "Wait for the current response to finish."
 		};
-		return sendExactReply($$props.selectedRunId, {
+		if (!latest.conversation_id) return {
+			ok: false,
+			message: "This chat has no verified reply branch."
+		};
+		const parentId = latest.message_id || (get(turns).length === 1 ? await recoverReply(sendId) : "");
+		if (!parentId) return {
+			ok: false,
+			message: "The reply branch could not be verified. Nothing was sent."
+		};
+		if ($$props.selectedRunId !== sendId) return {
+			ok: false,
+			message: "The selected chat changed. Nothing was sent."
+		};
+		return sendExactReply(sendId, {
 			reply_id: crypto.randomUUID().replaceAll("-", ""),
 			conversation_id: latest.conversation_id,
-			parent_id: latest.message_id,
+			parent_id: parentId,
 			text
 		});
 	}
@@ -8629,10 +8681,10 @@ function ChatsPage($$anchor, $$props) {
 				ambiguous: response.status >= 500,
 				message: response.status >= 500 ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly." : "Reply was not queued. Check the account-wide send gap and saved branch."
 			};
-			loadDetail(sendId);
+			await loadDetail(sendId);
 			return {
 				ok: true,
-				message: "Reply intent saved; explicit dispatch is starting."
+				message: ""
 			};
 		} catch {
 			return {
@@ -8641,16 +8693,6 @@ function ChatsPage($$anchor, $$props) {
 				message: "Reply acknowledgment was lost. Check local turns; no automatic retry."
 			};
 		}
-	}
-	async function sendPreparedReply(turn) {
-		if (!$$props.selectedRunId || !turn.reply_id || !turn.conversation_id || !turn.parent_id) return;
-		const result = await sendExactReply($$props.selectedRunId, {
-			reply_id: turn.reply_id,
-			conversation_id: turn.conversation_id,
-			parent_id: turn.parent_id,
-			text: turn.user_text
-		});
-		if (!result.ok) set(turnsError, result.message, true);
 	}
 	async function copyText(value, key) {
 		try {
@@ -8734,7 +8776,7 @@ function ChatsPage($$anchor, $$props) {
 			clearTimeout(searchTimer);
 		};
 	});
-	var section = root_32();
+	var section = root_29();
 	event("keydown", $window, escapeDrawer);
 	let classes_2;
 	var node_1 = child(section);
@@ -8917,7 +8959,7 @@ function ChatsPage($$anchor, $$props) {
 		append($$anchor, div_14);
 	};
 	var alternate_3 = ($$anchor) => {
-		var fragment_6 = root_31();
+		var fragment_6 = root_28();
 		var div_15 = first_child(fragment_6);
 		var button_13 = child(div_15);
 		var node_15 = sibling(button_13, 2);
@@ -9114,48 +9156,21 @@ function ChatsPage($$anchor, $$props) {
 		});
 		reset(div_16);
 		bind_this(div_16, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
-		var node_29 = sibling(div_16, 2);
-		var consequent_25 = ($$anchor) => {
-			ChatComposer($$anchor, {
-				mode: "reply",
-				onSend: sendReply
-			});
-		};
-		var d_1 = /* @__PURE__ */ user_derived(() => get(detail) && get(turns).at(-1)?.status === "completed" && get(turns).at(-1)?.conversation_id && get(turns).at(-1)?.message_id);
-		var consequent_26 = ($$anchor) => {
-			var div_26 = root_28();
-			var button_16 = child(div_26);
-			var text_23 = only_child(button_16, true);
-			reset(div_26);
-			template_effect(() => {
-				button_16.disabled = get(recoveringReply);
-				set_text(text_23, get(recoveringReply) ? "Verifying reply…" : "Reply to this chat");
-			});
-			delegated("click", button_16, () => void recoverReply());
-			append($$anchor, div_26);
-		};
-		var consequent_27 = ($$anchor) => {
-			var div_27 = root_29();
-			var button_17 = sibling(child(div_27), 2);
-			reset(div_27);
-			delegated("click", button_17, () => {
-				const latest = get(turns).at(-1);
-				if (latest) sendPreparedReply(latest);
-			});
-			append($$anchor, div_27);
-		};
-		var d_2 = /* @__PURE__ */ user_derived(() => get(turns).at(-1)?.status === "prepared");
-		var consequent_28 = ($$anchor) => {
-			var div_28 = root_30();
-			var text_24 = only_child(div_28, true);
-			template_effect(($0) => set_text(text_24, $0), [() => turnStatus(get(turns).at(-1)?.status || get(detail).status)]);
-			append($$anchor, div_28);
-		};
-		if_block(node_29, ($$render) => {
-			if (get(d_1)) $$render(consequent_25);
-			else if (get(detail) && get(turns).length === 1 && get(turns)[0].status === "completed" && get(turns)[0].conversation_id && !get(turns)[0].message_id) $$render(consequent_26, 1);
-			else if (get(d_2)) $$render(consequent_27, 2);
-			else if (get(detail) && get(turns).length > 1) $$render(consequent_28, 3);
+		key(sibling(div_16, 2), () => $$props.selectedRunId, ($$anchor) => {
+			{
+				let $0 = /* @__PURE__ */ user_derived(() => get(turns).at(-1)?.status === "prepared" ? get(turns).at(-1)?.user_text ?? "" : "");
+				let $1 = /* @__PURE__ */ user_derived(() => !get(detail) || !["completed", "prepared"].includes(get(turns).at(-1)?.status ?? "") || get(recoveringReply));
+				ChatComposer($$anchor, {
+					mode: "reply",
+					onSend: sendReply,
+					get restoreDraft() {
+						return get($0);
+					},
+					get sendDisabled() {
+						return get($1);
+					}
+				});
+			}
 		});
 		delegated("click", button_13, () => $$props.onSelect(null));
 		append($$anchor, fragment_6);

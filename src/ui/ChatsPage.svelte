@@ -282,40 +282,57 @@
     }
   }
 
-  async function recoverReply() {
-    const id = selectedRunId;
-    const original = turns.length === 1 ? turns[0] : null;
-    if (!id || original?.status !== "completed" || !original.conversation_id ||
-        original.message_id || recoveringReply) return;
+  async function recoverReply(sendId: string): Promise<string> {
+    if (recoveringReply) return "";
     recoveringReply = true;
-    turnsError = "";
     try {
+      // A Send click is the explicit user action that permits exact-branch
+      // verification. Opening or refreshing a chat never contacts ChatGPT.
       const response = await fetch(
-        "./api/results/" + encodeURIComponent(id) + "/reply-recover",
+        "./api/results/" + encodeURIComponent(sendId) + "/reply-recover",
         { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
       );
-      if (!response.ok) {
-        turnsError = "The original reply branch could not be verified.";
-        return;
-      }
-      await loadDetail(id);
+      if (!response.ok) return "";
+      const recovered = await response.json() as { message_id?: string };
+      return selectedRunId === sendId ? recovered.message_id ?? "" : "";
     } catch {
-      turnsError = "Reply verification could not be completed.";
+      return "";
     } finally {
       recoveringReply = false;
     }
   }
 
   async function sendReply(text: string, _images: string[]) {
+    const sendId = selectedRunId;
     const latest = turns.at(-1);
-    if (!selectedRunId || latest?.status !== "completed"
-        || !latest.conversation_id || !latest.message_id) {
-      return { ok: false, message: "This saved branch is not eligible for a reply." };
+    if (sendId && latest?.status === "prepared") {
+      if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) {
+        return { ok: false, message: "A pending reply can only be retried with its original text." };
+      }
+      return sendExactReply(sendId, {
+        reply_id: latest.reply_id,
+        conversation_id: latest.conversation_id,
+        parent_id: latest.parent_id,
+        text: latest.user_text,
+      });
     }
-    return sendExactReply(selectedRunId, {
+    if (!sendId || latest?.status !== "completed") {
+      return { ok: false, message: "Wait for the current response to finish." };
+    }
+    if (!latest.conversation_id) {
+      return { ok: false, message: "This chat has no verified reply branch." };
+    }
+    const parentId = latest.message_id || (turns.length === 1 ? await recoverReply(sendId) : "");
+    if (!parentId) {
+      return { ok: false, message: "The reply branch could not be verified. Nothing was sent." };
+    }
+    if (selectedRunId !== sendId) {
+      return { ok: false, message: "The selected chat changed. Nothing was sent." };
+    }
+    return sendExactReply(sendId, {
       reply_id: crypto.randomUUID().replaceAll("-", ""),
       conversation_id: latest.conversation_id,
-      parent_id: latest.message_id,
+      parent_id: parentId,
       text,
     });
   }
@@ -335,25 +352,14 @@
           ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly."
           : "Reply was not queued. Check the account-wide send gap and saved branch.",
       };
-      void loadDetail(sendId);
-      return { ok: true, message: "Reply intent saved; explicit dispatch is starting." };
+      await loadDetail(sendId);
+      return { ok: true, message: "" };
     } catch {
       return {
         ok: false, ambiguous: true,
         message: "Reply acknowledgment was lost. Check local turns; no automatic retry.",
       };
     }
-  }
-
-  async function sendPreparedReply(turn: LocalTurn) {
-    if (!selectedRunId || !turn.reply_id || !turn.conversation_id || !turn.parent_id) return;
-    const result = await sendExactReply(selectedRunId, {
-      reply_id: turn.reply_id,
-      conversation_id: turn.conversation_id,
-      parent_id: turn.parent_id,
-      text: turn.user_text,
-    });
-    if (!result.ok) turnsError = result.message;
   }
 
   async function copyText(value: string, key: string) {
@@ -616,22 +622,11 @@
         </div>
       {/if}
       </div>
-      {#if detail && turns.at(-1)?.status === "completed" && turns.at(-1)?.conversation_id && turns.at(-1)?.message_id}
-        <ChatComposer mode="reply" onSend={sendReply} />
-      {:else if detail && turns.length === 1 && turns[0].status === "completed" && turns[0].conversation_id && !turns[0].message_id}
-        <div class="chat-reply-status">
-          <button type="button" disabled={recoveringReply} onclick={() => void recoverReply()}>
-            {recoveringReply ? "Verifying reply…" : "Reply to this chat"}
-          </button>
-        </div>
-      {:else if turns.at(-1)?.status === "prepared"}
-        <div class="chat-prepared-action">
-          <span>Reply saved locally, not yet sent.</span>
-          <button type="button" onclick={() => { const latest = turns.at(-1); if (latest) void sendPreparedReply(latest); }}>Send saved reply</button>
-        </div>
-      {:else if detail && turns.length > 1}
-        <div class="chat-reply-status">{turnStatus(turns.at(-1)?.status || detail.status)}</div>
-      {/if}
+      {#key selectedRunId}
+        <ChatComposer mode="reply" onSend={sendReply}
+          restoreDraft={turns.at(-1)?.status === "prepared" ? turns.at(-1)?.user_text ?? "" : ""}
+          sendDisabled={!detail || !["completed", "prepared"].includes(turns.at(-1)?.status ?? "") || recoveringReply} />
+      {/key}
     {/if}
   </div>
 </section>

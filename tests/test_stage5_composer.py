@@ -12,7 +12,7 @@ from http.client import HTTPConnection
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
@@ -144,8 +144,10 @@ def test_real_composer_keyboard_image_and_overflow(
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+@pytest.mark.parametrize("missing_parent", [False, True])
 def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int, height: int,
+    missing_parent: bool,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
@@ -155,13 +157,27 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
         jobs_path=tmp_path / "jobs.sqlite3",
     )
     now = time.time()
+    conversation_id = "11111111-1111-4111-8111-111111111111" if missing_parent else "c" * 32
+    parent_id = "22222222-2222-4222-8222-222222222222" if missing_parent else "m" * 32
     app.results.ensure_queued("run-1", "Synthetic original", now=now)
     assert app.results.accept("run-1", "owner", deadline=now + 4000)
     assert app.results.write(
         "run-1", "owner",
-        CaptureResult("sse", "complete", "Synthetic original answer", "c" * 32, "m" * 32, "p" * 32),
+        CaptureResult("sse", "complete", "Synthetic original answer", conversation_id,
+                      "" if missing_parent else parent_id, "p" * 32,
+                      "observer-1" if missing_parent else None),
     )
     calls: list[tuple[str, str, str]] = []
+    recoveries: list[str] = []
+
+    def recover(send_id: str) -> dict[str, str]:
+        recoveries.append(send_id)
+        assert app.replies.recover_original_parent(
+            send_id, conversation_id, parent_id, "Synthetic original answer",
+        )
+        return {"message_id": parent_id}
+
+    monkeypatch.setattr(app.reply_dispatch, "recover", recover)
 
     def local_dispatch(send_id: str, intent: object) -> dict[str, object]:
         from prompta.reply_contracts import ReplyIntent
@@ -182,8 +198,13 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             page = browser.new_page(viewport={"width": width, "height": height})
             page.on("request", lambda request: observed.append((request.method, request.url)))
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=run-1")
-            composer = page.get_by_role("textbox", name="Reply to this chat")
+            composer = page.get_by_role("textbox", name="Message for current chat")
             composer.wait_for()
+            expect(composer).to_be_enabled()
+            page.locator(".chat-detail-title").wait_for()
+            assert page.get_by_role("button", name="Reply to this chat").count() == 0
+            assert page.get_by_role("button", name="Send saved reply").count() == 0
+            assert not recoveries and not calls
             composer.fill("Synthetic follow-up")
             composer.press("Shift+Enter")
             composer.type("second line")
@@ -192,14 +213,37 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             assert page.locator(".chat-composer").evaluate(
                 "node => getComputedStyle(node).backgroundColor"
             ) == "rgb(48, 48, 48)"
-            path = screenshots / f"stage5-{width}x{height}-reply.png"
+            suffix = "recover" if missing_parent else "known"
+            path = screenshots / f"stage5-{width}x{height}-reply-{suffix}.png"
             page.screenshot(path=str(path), full_page=True)
             path.chmod(0o600)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
-            composer.press("Enter")
-            page.get_by_role("button", name="Send saved reply").wait_for()
-            assert calls == [("run-1", "c" * 32, "m" * 32)]
+            with page.expect_response(lambda response: response.url.endswith("/reply-send")) as sent:
+                composer.press("Enter")
+            assert sent.value.status == 202
+            page.locator(".message-group.user-group").nth(1).wait_for()
+            assert calls == [("run-1", conversation_id, parent_id)]
+            assert recoveries == (["run-1"] if missing_parent else [])
+            assert len([1 for method, url in observed if method == "POST" and "/reply-recover" in url]) == int(missing_parent)
             assert len([1 for method, url in observed if method == "POST" and "/reply-send" in url]) == 1
+            assert page.get_by_role("button", name="Reply to this chat").count() == 0
+            assert page.get_by_role("button", name="Send saved reply").count() == 0
+            assert composer.count() == 1
+            expect(composer).to_be_enabled()
+            expect(composer).to_have_value("")
+            expect(page.get_by_role("button", name="Send reply")).to_be_disabled()
+            # A stale prepared intent is restored inside the ordinary textbox
+            # after reload. A new explicit Enter reuses its immutable ID.
+            page.reload()
+            composer = page.get_by_role("textbox", name="Message for current chat")
+            expect(composer).to_have_value("Synthetic follow-up\nsecond line")
+            expect(page.get_by_role("button", name="Send reply")).to_be_enabled()
+            with page.expect_response(lambda response: response.url.endswith("/reply-send")) as retried:
+                composer.press("Enter")
+            assert retried.value.status == 202
+            assert calls == [("run-1", conversation_id, parent_id)] * 2
+            assert len([1 for method, url in observed if method == "POST" and "/reply-send" in url]) == 2
+            assert page.locator(".message-group.user-group").count() == 2
             assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in observed)
             browser.close()
     finally:

@@ -43,9 +43,9 @@ export type LocalTurn = {
 export function turnStatus(status: LocalTurn["status"]): string {
   switch (status) {
     case "prepared":
-      return "Reply saved locally · not sent";
+      return "Pending";
     case "dispatching":
-      return "Sending · confirmation pending";
+      return "Sending…";
     case "outcome_unknown":
       return "Send outcome unknown · no automatic retry";
     case "accepted":

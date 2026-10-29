@@ -983,17 +983,11 @@ button:disabled { cursor: default; opacity: 0.45; }
   .composer-preview { flex-basis: 72px; width: 72px; height: 72px; }
 }
 
-.chat-prepared-action, .chat-reply-status { flex: none; width: min(100%, 850px); margin: 0 auto; padding: 14px 30px 18px; color: #b7b7b7; font-size: .8rem; }
-.chat-prepared-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.chat-prepared-action button { background: #303030; color: #eee; border: 1px solid #555; border-radius: 10px; padding: 9px 12px; white-space: nowrap; }
-@media (max-width: 680px) {
-  .chat-prepared-action, .chat-reply-status { padding: 10px 14px max(12px, env(safe-area-inset-bottom)); }
-}
 
 /* UX01: predictable touch targets across Jobs, Chats, transcript and composer. */
 .sidebar-actions button, .chats-refresh, .chat-pin, .chats-pagination button,
 .filter-chip, .row-action, .job-image-picker .toolbar-button,
-.copy-message, .code-toolbar button, .chat-prepared-action button {
+.copy-message, .code-toolbar button {
   min-width: 44px;
   min-height: 44px;
 }

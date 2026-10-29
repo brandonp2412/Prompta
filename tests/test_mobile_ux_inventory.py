@@ -226,7 +226,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 scroll.evaluate("element => element.scrollTop = element.scrollHeight")
                 screenshot(page, root, "13-thread-bottom", notes)
                 if width <= 412:
-                    composer = page.get_by_role("textbox", name="Reply to this chat")
+                    composer = page.get_by_role("textbox", name="Message for current chat")
                     composer.fill("Synthetic unsent reply and a second line")
                     composer.press("Shift+Enter")
                     page.set_viewport_size({"width": width, "height": min(height, 520)})
