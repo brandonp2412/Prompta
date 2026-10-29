@@ -4,9 +4,10 @@
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
 
-  let { mode, onSend, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "" }: {
+  let { mode, onSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "" }: {
     mode: "fresh" | "reply";
     onSend: (text: string, images: string[]) => Promise<SendResult>;
+    onNewChat: () => void;
     disabled?: boolean;
     sendDisabled?: boolean;
     sendHint?: string;
@@ -26,7 +27,8 @@
   let fileInput = $state<HTMLInputElement>();
   const newChatDraftKey = "prompta.new-chat-draft.v1";
   const canAttach = $derived(mode === "fresh" && !disabled && !locked && !sending && !uploading);
-  const canSend = $derived(!disabled && !sendDisabled && !locked && !sending && !uploading && !!draft.trim());
+  const hasDraft = $derived(!!draft.trim());
+  const canSend = $derived(!disabled && !sendDisabled && !locked && !sending && !uploading && hasDraft);
 
   $effect(() => {
     if (mode !== "reply" || !restoreDraft || restoredDraft === restoreDraft) return;
@@ -199,10 +201,17 @@
         {/if}
         {#if uploading}<small role="status">Uploading images…</small>{/if}
       </div>
-      <button class="composer-send" type="submit" disabled={!canSend}
-        aria-label={sending ? "Sending" : mode === "fresh" ? "Send fresh chat" : "Send reply"}>
-        {sending ? "Sending…" : "↑"}
-      </button>
+      {#if !hasDraft && !sending}
+        <button class="composer-send composer-new-chat" type="button" onclick={onNewChat}
+          aria-label="New chat" title="New chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" /></svg>
+        </button>
+      {:else}
+        <button class="composer-send" type="submit" disabled={!canSend}
+          aria-label={sending ? "Sending" : mode === "fresh" ? "Send fresh chat" : "Send reply"}>
+          {sending ? "Sending…" : "↑"}
+        </button>
+      {/if}
     </div>
   </div>
   {#if feedback}<p class:composer-error={locked} class="composer-feedback" role="status">{feedback}</p>{/if}

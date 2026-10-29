@@ -5028,8 +5028,8 @@ var root_3$4 = /* @__PURE__ */ from_html(`<span> </span>`);
 var root_4$4 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
 var root_5$4 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
 var root_6$4 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <!> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
-var root_7$2 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
-var root_8$2 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button class="toolbar-button visible-toggle" type="button"> </button> <button class="toolbar-button refresh-action" type="button">Refresh</button> <button class="toolbar-button run-once-action" type="button">Run once</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs"><!> <button type="button" title="Include daily and interval-based repeating jobs">Repeating jobs <span> </span></button></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
+var root_7$3 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
+var root_8$3 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button class="toolbar-button visible-toggle" type="button"> </button> <button class="toolbar-button refresh-action" type="button">Refresh</button> <button class="toolbar-button run-once-action" type="button">Run once</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs"><!> <button type="button" title="Include daily and interval-based repeating jobs">Repeating jobs <span> </span></button></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
 var root_9$2 = /* @__PURE__ */ from_html(`<label class="name-field"><span>Name</span> <input autocomplete="off" required=""/></label>`);
 var root_10$2 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" max="43200" step="0.1" required=""/></label>`);
 var root_11$2 = /* @__PURE__ */ from_html(`<label><span>Delay (minutes, 0 = now)</span> <input type="number" min="0" max="43200" step="0.1" required=""/></label>`);
@@ -5548,7 +5548,7 @@ function JobsPage($$anchor, $$props) {
 	event("keydown", $window, onEditorKeydown);
 	var node = first_child(fragment);
 	var consequent_6 = ($$anchor) => {
-		var section = root_8$2();
+		var section = root_8$3();
 		var div = child(section);
 		var div_1 = child(div);
 		var text = only_child(sibling(child(div_1), 2), true);
@@ -5705,7 +5705,7 @@ function JobsPage($$anchor, $$props) {
 		reset(div_4);
 		var node_8 = sibling(div_4, 2);
 		var consequent_5 = ($$anchor) => {
-			var nav = root_7$2();
+			var nav = root_7$3();
 			var span_10 = child(nav);
 			var text_17 = only_child(span_10);
 			var div_16 = sibling(span_10, 2);
@@ -5998,9 +5998,11 @@ var root$4 = /* @__PURE__ */ from_html(`<div class="composer-preview"><img/> <bu
 var root_1$4 = /* @__PURE__ */ from_html(`<div class="composer-previews" aria-label="Images to attach"></div>`);
 var root_2$3 = /* @__PURE__ */ from_html(`<button type="button" aria-label="Attach images" title="Attach images"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6"></path></svg> <span> </span></button> <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple="" aria-label="Choose images"/>`, 1);
 var root_3$3 = /* @__PURE__ */ from_html(`<small role="status">Uploading images…</small>`);
-var root_4$3 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
-var root_5$3 = /* @__PURE__ */ from_html(`<p class="composer-hint" role="status"> </p>`);
-var root_6$3 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <button class="composer-send" type="submit"> </button></div></div> <!> <!></form>`);
+var root_4$3 = /* @__PURE__ */ from_html(`<button class="composer-send composer-new-chat" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg></button>`);
+var root_5$3 = /* @__PURE__ */ from_html(`<button class="composer-send" type="submit"> </button>`);
+var root_6$3 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
+var root_7$2 = /* @__PURE__ */ from_html(`<p class="composer-hint" role="status"> </p>`);
+var root_8$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <!></div></div> <!> <!></form>`);
 function ChatComposer($$anchor, $$props) {
 	push($$props, true);
 	let disabled = prop($$props, "disabled", 3, false), sendDisabled = prop($$props, "sendDisabled", 3, false), sendHint = prop($$props, "sendHint", 3, ""), restoreDraft = prop($$props, "restoreDraft", 3, "");
@@ -6017,7 +6019,8 @@ function ChatComposer($$anchor, $$props) {
 	let fileInput = /* @__PURE__ */ state(void 0);
 	const newChatDraftKey = "prompta.new-chat-draft.v1";
 	const canAttach = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" && !disabled() && !get(locked) && !get(sending) && !get(uploading));
-	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !sendDisabled() && !get(locked) && !get(sending) && !get(uploading) && !!get(draft).trim());
+	const hasDraft = /* @__PURE__ */ user_derived(() => !!get(draft).trim());
+	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !sendDisabled() && !get(locked) && !get(sending) && !get(uploading) && get(hasDraft));
 	user_effect(() => {
 		if ($$props.mode !== "reply" || !restoreDraft() || get(restoredDraft) === restoreDraft()) return;
 		set(restoredDraft, restoreDraft());
@@ -6145,7 +6148,7 @@ function ChatComposer($$anchor, $$props) {
 		set(dragging, false);
 		addFiles(Array.from(event.dataTransfer?.files || []));
 	}
-	var form = root_6$3();
+	var form = root_8$2();
 	let classes;
 	var div = child(form);
 	var node = child(div);
@@ -6207,13 +6210,33 @@ function ChatComposer($$anchor, $$props) {
 		if (get(uploading)) $$render(consequent_2);
 	});
 	reset(div_4);
-	var button_2 = sibling(div_4, 2);
-	var text_1 = only_child(button_2, true);
+	var node_3 = sibling(div_4, 2);
+	var consequent_3 = ($$anchor) => {
+		var button_2 = root_4$3();
+		delegated("click", button_2, function(...$$args) {
+			$$props.onNewChat?.apply(this, $$args);
+		});
+		append($$anchor, button_2);
+	};
+	var alternate = ($$anchor) => {
+		var button_3 = root_5$3();
+		var text_1 = only_child(button_3, true);
+		template_effect(() => {
+			button_3.disabled = !get(canSend);
+			set_attribute(button_3, "aria-label", get(sending) ? "Sending" : $$props.mode === "fresh" ? "Send fresh chat" : "Send reply");
+			set_text(text_1, get(sending) ? "Sending…" : "↑");
+		});
+		append($$anchor, button_3);
+	};
+	if_block(node_3, ($$render) => {
+		if (!get(hasDraft) && !get(sending)) $$render(consequent_3);
+		else $$render(alternate, -1);
+	});
 	reset(div_3);
 	reset(div);
-	var node_3 = sibling(div, 2);
-	var consequent_3 = ($$anchor) => {
-		var p = root_4$3();
+	var node_4 = sibling(div, 2);
+	var consequent_4 = ($$anchor) => {
+		var p = root_6$3();
 		let classes_1;
 		var text_2 = only_child(p, true);
 		template_effect(() => {
@@ -6222,18 +6245,18 @@ function ChatComposer($$anchor, $$props) {
 		});
 		append($$anchor, p);
 	};
-	if_block(node_3, ($$render) => {
-		if (get(feedback)) $$render(consequent_3);
+	if_block(node_4, ($$render) => {
+		if (get(feedback)) $$render(consequent_4);
 	});
-	var node_4 = sibling(node_3, 2);
-	var consequent_4 = ($$anchor) => {
-		var p_1 = root_5$3();
+	var node_5 = sibling(node_4, 2);
+	var consequent_5 = ($$anchor) => {
+		var p_1 = root_7$2();
 		var text_3 = only_child(p_1, true);
 		template_effect(() => set_text(text_3, sendHint()));
 		append($$anchor, p_1);
 	};
-	if_block(node_4, ($$render) => {
-		if (sendHint() && !get(feedback)) $$render(consequent_4);
+	if_block(node_5, ($$render) => {
+		if (sendHint() && !get(feedback)) $$render(consequent_5);
 	});
 	reset(form);
 	template_effect(() => {
@@ -6241,9 +6264,6 @@ function ChatComposer($$anchor, $$props) {
 		set_attribute(form, "aria-label", $$props.mode === "fresh" ? "New chat composer" : "Reply composer");
 		textarea_1.disabled = disabled() || get(locked) || get(sending);
 		set_attribute(textarea_1, "aria-label", $$props.mode === "fresh" ? "Message for new chat" : "Message for current chat");
-		button_2.disabled = !get(canSend);
-		set_attribute(button_2, "aria-label", get(sending) ? "Sending" : $$props.mode === "fresh" ? "Send fresh chat" : "Send reply");
-		set_text(text_1, get(sending) ? "Sending…" : "↑");
 	});
 	event("submit", form, (event) => {
 		event.preventDefault();
@@ -9173,7 +9193,8 @@ function ChatsPage($$anchor, $$props) {
 		var fragment_5 = root_12();
 		ChatComposer(sibling(first_child(fragment_5), 2), {
 			mode: "fresh",
-			onSend: sendFresh
+			onSend: sendFresh,
+			onNewChat: createChat
 		});
 		append($$anchor, fragment_5);
 	};
@@ -9393,6 +9414,7 @@ function ChatsPage($$anchor, $$props) {
 				ChatComposer($$anchor, {
 					mode: "reply",
 					onSend: sendReply,
+					onNewChat: createChat,
 					get restoreDraft() {
 						return get($0);
 					},

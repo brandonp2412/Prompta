@@ -697,7 +697,7 @@
       <div class="jobs-workspace"><JobsPage /></div>
     {:else if !selectedRunId && newChatOpen}
       <div class="new-chat-empty" aria-hidden="true"></div>
-      <ChatComposer mode="fresh" onSend={sendFresh} />
+      <ChatComposer mode="fresh" onSend={sendFresh} onNewChat={createChat} />
     {:else if !selectedRunId}
       <div class="chats-detail-empty"><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
@@ -758,7 +758,7 @@
       {/if}
       </div>
       {#key selectedRunId}
-        <ChatComposer mode="reply" onSend={sendReply}
+        <ChatComposer mode="reply" onSend={sendReply} onNewChat={createChat}
           restoreDraft={turns.at(-1)?.status === "prepared" ? turns.at(-1)?.user_text ?? "" : ""}
           sendDisabled={Boolean(replyBlockedReason) || recoveringReply}
           sendHint={replyBlockedReason} />

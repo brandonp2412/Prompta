@@ -89,7 +89,15 @@ def test_real_composer_keyboard_image_and_overflow(
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         composer = page.get_by_role("textbox", name="Message for new chat")
         composer.wait_for()
+        empty_action = page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")
+        expect(empty_action).to_be_enabled()
+        assert page.get_by_role("button", name="Send fresh chat").count() == 0
+        empty_action.click()
+        expect(composer).to_have_value("")
+        composer.fill("   ")
+        expect(empty_action).to_be_enabled()
         composer.fill("Synthetic line one")
+        expect(page.get_by_role("button", name="Send fresh chat")).to_be_enabled()
         composer.press("Shift+Enter")
         composer.type("Synthetic line two")
         assert composer.input_value() == "Synthetic line one\nSynthetic line two"
@@ -209,6 +217,14 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             assert page.get_by_role("button", name="Reply to this chat").count() == 0
             assert page.get_by_role("button", name="Send saved reply").count() == 0
             assert not recoveries and not calls
+            empty_action = page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")
+            expect(empty_action).to_be_enabled()
+            assert page.get_by_role("button", name="Send reply").count() == 0
+            empty_action.click()
+            page.wait_for_url("**/?view=chats&draft=new")
+            assert not recoveries and not calls
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&run=run-1")
+            composer = page.get_by_role("textbox", name="Message for current chat")
             composer.fill("Synthetic follow-up")
             composer.press("Shift+Enter")
             composer.type("second line")
@@ -235,7 +251,7 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             assert composer.count() == 1
             expect(composer).to_be_enabled()
             expect(composer).to_have_value("")
-            expect(page.get_by_role("button", name="Send reply")).to_be_disabled()
+            expect(page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")).to_be_enabled()
             # A stale prepared intent is restored inside the ordinary textbox
             # after reload. A new explicit Enter reuses its immutable ID.
             page.reload()
