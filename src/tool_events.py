@@ -1,0 +1,168 @@
+"""Bounded, redacted tool-call summaries from an already observed owned POST stream.
+
+Never capture analysis/reasoning or make independent ChatGPT requests.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Final
+
+_MAX_TOOLS: Final = 128
+_PRIVATE_KEYS: Final = re.compile(
+    r"(?:token|secret|password|cookie|authorization|api.?key|credential|session.?key)", re.I
+)
+
+
+def _record(value: object) -> dict[str, object]:
+    return {k: v for k, v in value.items() if isinstance(k, str)} if isinstance(value, dict) else {}
+
+
+def _text(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _decode(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return value
+
+
+def _redact(value: object, depth: int = 0) -> object:
+    if depth >= 8:
+        return "[nested value omitted]"
+    if isinstance(value, dict):
+        return {
+            k: "[redacted]" if _PRIVATE_KEYS.search(k) else _redact(v, depth + 1)
+            for k, v in value.items() if isinstance(k, str)
+        }
+    if isinstance(value, list):
+        return [_redact(item, depth + 1) for item in value[:64]]
+    return value
+
+
+def _display(value: object, limit: int = 6000) -> str:
+    if value is None or value == "":
+        return ""
+    safe = _redact(_decode(value))
+    if isinstance(safe, str):
+        result = safe
+    else:
+        try:
+            result = json.dumps(safe, indent=2, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            return "[unavailable]"
+    return result if len(result) <= limit else result[:limit] + "\n… (truncated)"
+
+
+def _name_from_path(value: object) -> str:
+    path = _text(value)
+    return path.rstrip("/").rsplit("/", 1)[-1] if path else ""
+
+
+class ToolEventCollector:
+    """Deduplicates invocation snapshots and pairs tool results without recording thoughts."""
+
+    def __init__(self) -> None:
+        self._calls: dict[str, dict[str, object]] = {}
+        self._pending: list[str] = []
+
+    def observe(self, message: dict[str, object]) -> bool:
+        author = _record(message.get("author"))
+        role = _text(author.get("role"))
+        recipient = _text(message.get("recipient"))
+        metadata = _record(message.get("metadata"))
+        if metadata.get("is_visually_hidden_from_conversation") is True:
+            return False
+        if role == "tool":
+            self._result(message)
+            return True
+        if role != "assistant":
+            return False
+        content = _record(message.get("content"))
+        parts = content.get("parts")
+        first = parts[0] if isinstance(parts, list) and parts else content.get("text")
+        parsed = _record(_decode(first))
+        if set(parsed) == {"text"}:
+            nested = _record(_decode(parsed["text"]))
+            if nested:
+                parsed = nested
+        if not parsed:
+            return False
+        app = _record(parsed.get("appContext"))
+        invoked = _record(message.get("invoked_resource"))
+        path = parsed.get("path")
+        action = (
+            _text(app.get("actionName")) or _name_from_path(path)
+            or _text(parsed.get("tool")).rsplit(".", 1)[-1]
+            or recipient.rsplit(".", 1)[-1]
+        )
+        is_call = (
+            parsed.get("type") == "mcpToolCall" or bool(app)
+            or (recipient == "api_tool.call_tool" and bool(path))
+            or ("arguments" in parsed and bool(action))
+        )
+        if not is_call or not action or (recipient in ("", "all") and not (
+            parsed.get("type") == "mcpToolCall" or bool(app)
+        )):
+            return False
+        identifier = _text(message.get("id")) or f"tool-{len(self._calls)}"
+        existing = self._calls.get(identifier)
+        if existing is None and len(self._calls) >= _MAX_TOOLS:
+            return True
+        connector = (
+            _text(app.get("appName")) or _text(invoked.get("app_name"))
+            or _text(author.get("name")) or _text(parsed.get("tool")).split(".", 1)[0]
+            or (_text(path).strip("/").split("/", 1)[0] if path else "")
+        )
+        if connector.startswith(("asdk_app_", "plugin_", "link_")):
+            connector = ""
+        if not connector or connector == action:
+            connector = recipient.split(".", 1)[0].replace("api_tool", "Tool")
+        arguments = parsed.get("arguments", parsed.get("args"))
+        status = _text(parsed.get("status")) or "running"
+        result = parsed.get("result")
+        if result is not None and status == "running":
+            status = "completed"
+        if existing is not None and existing.get("status") in ("completed", "error") and status == "running":
+            # Replayed invocation snapshots cannot reopen a finished tool.
+            status = str(existing["status"])
+        entry: dict[str, object] = {
+            "id": identifier, "connector": connector[:100], "action": action[:120],
+            "status": status[:30], "arguments": _display(arguments),
+            "result": _display(result), "error": _display(parsed.get("error"), 2000),
+        }
+        if existing is not None:
+            for field in ("arguments", "result", "error"):
+                if not entry[field]:
+                    entry[field] = existing[field]
+        self._calls[identifier] = entry
+        if status == "running" and identifier not in self._pending:
+            self._pending.append(identifier)
+        if status != "running" and identifier in self._pending:
+            self._pending.remove(identifier)
+        return True
+
+    def _result(self, message: dict[str, object]) -> None:
+        if not self._pending:
+            return
+        invoked = _record(message.get("invoked_resource"))
+        action = _name_from_path(invoked.get("resource_uri"))
+        matching = [key for key in self._pending if not action or self._calls[key]["action"] == action]
+        if not matching:
+            return
+        key = matching[-1]
+        entry = self._calls[key]
+        content = _record(message.get("content"))
+        parts = content.get("parts")
+        value = parts[0] if isinstance(parts, list) and parts else content.get("text")
+        entry["result"] = _display(value)
+        entry["status"] = "error" if _record(message.get("metadata")).get("is_error") is True else "completed"
+        self._pending.remove(key)
+
+    def snapshot(self) -> tuple[dict[str, object], ...]:
+        return tuple(dict(call) for call in self._calls.values())

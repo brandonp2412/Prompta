@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, TypeVar, runtime_checkable
 
@@ -377,6 +378,8 @@ class BrowserDeliverySender:
         next_recovery_probe = (
             asyncio.get_running_loop().time() + _PASSIVE_RECOVERY_PROBE_SECONDS
         )
+        dom_completed_at: float | None = None
+        seen_tool_calls: tuple[dict[str, object], ...] = ()
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
                 if not driver.is_connected:
@@ -384,7 +387,7 @@ class BrowserDeliverySender:
                 # Waiting is local: queue entries are emitted by the existing
                 # POST or semantic MutationObserver, not by reading ChatGPT.
                 try:
-                    update = await driver.wait_capture_update(timeout=min(5.0, remaining))
+                    update = await driver.wait_capture_update(timeout=min(0.3 if dom_completed_at is not None else 5.0, remaining))
                 except Exception as exc:
                     # A transient observer failure is not proof that the
                     # already-accepted response has disappeared.
@@ -458,6 +461,13 @@ class BrowserDeliverySender:
                     )
                     final_status = "unavailable"
                     break
+                if sse is not None and sse.tool_calls and sse.tool_calls != seen_tool_calls:
+                    # Tool-only SSE may finish before any user-facing answer exists.
+                    # Persist its redacted events against this unique owned lease.
+                    if not self.results.write(send_id, owner, sse):
+                        final_status = "unavailable"
+                        break
+                    seen_tool_calls = sse.tool_calls
                 if sse is not None and sse.status == "complete":
                     update = sse
                 elif update is None and sse is not None and sse.text:
@@ -479,7 +489,17 @@ class BrowserDeliverySender:
                         or len(update.text) >= len(pending.text)
                     ):
                         pending = update
+                if sse is not None and sse.tool_calls and pending is not None and not pending.tool_calls:
+                    # A DOM answer may finish just before the observed POST stream.
+                    pending = replace(pending, tool_calls=sse.tool_calls)
                 now = asyncio.get_running_loop().time()
+                if (pending is not None and pending.status == "complete"
+                    and pending.source == "dom" and sse is None
+                    and capture.get("response_started") and deadline - now > 2):
+                    if dom_completed_at is None:
+                        dom_completed_at = now
+                    if now - dom_completed_at < 1.5:
+                        continue
                 if pending is not None and (
                     pending.status == "complete" or now - last_saved_at >= 5.0
                 ):

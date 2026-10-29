@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -48,6 +49,7 @@ results = Table(
     Column("job_name", String, nullable=False, default=""),
     Column("user_text", Text, nullable=False),
     Column("assistant_text", Text, nullable=False, default=""),
+    Column("tool_calls_json", Text, nullable=False, default="[]"),
     Column("status", String, nullable=False, default="queued"),
     Column("source", String, nullable=False, default=""),
     Column("conversation_id", String, nullable=False, default=""),
@@ -66,6 +68,54 @@ local_chat_pins = Table(
     Column("send_id", String, primary_key=True),
     Column("pinned_at", Float, nullable=False),
 )
+
+
+def serialize_tool_calls(calls: tuple[dict[str, object], ...]) -> str:
+    """Persist bounded display data only; never source SSE frames or thoughts."""
+    selected: list[dict[str, object]] = []
+    for call in calls[:128]:
+        candidate = json.dumps([*selected, call], ensure_ascii=False)
+        if len(candidate) > 512_000:
+            break
+        selected.append(call)
+    return json.dumps(selected, ensure_ascii=False)
+
+
+def deserialize_tool_calls(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, str):
+        return []
+    try:
+        parsed: object = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [{key: child for key, child in item.items() if isinstance(key, str)}
+            for item in parsed[:128] if isinstance(item, dict)]
+
+
+def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) -> str:
+    """Merge successive owned SSE snapshots by invocation ID without dropping earlier calls."""
+    if not incoming:
+        return previous if isinstance(previous, str) else "[]"
+    merged = deserialize_tool_calls(previous)
+    by_id = {str(call.get("id")): i for i, call in enumerate(merged)}
+    for call in incoming:
+        identifier = str(call.get("id"))
+        if identifier in by_id:
+            index = by_id[identifier]
+            old = merged[index]
+            refreshed = {**old, **call}
+            for field in ("arguments", "result", "error"):
+                if not call.get(field):
+                    refreshed[field] = old.get(field, "")
+            if old.get("status") in ("completed", "error") and call.get("status") == "running":
+                refreshed["status"] = old["status"]
+            merged[index] = refreshed
+        elif len(merged) < 128:
+            by_id[identifier] = len(merged)
+            merged.append(call)
+    return serialize_tool_calls(tuple(merged))
 
 
 def _alive(owner: str) -> bool:
@@ -107,6 +157,9 @@ class ResponseStore:
                               nullable=column.nullable) for column in results.columns),
                 )
                 migration.create_index("job_responses_active", results.name, ["status", "capture_deadline"])
+            if "tool_calls_json" not in {column["name"] for column in inspect(connection).get_columns(results.name)}:
+                migration = Operations(MigrationContext.configure(connection))
+                migration.add_column(results.name, Column("tool_calls_json", Text, nullable=False, server_default="[]"))
             if not inspect(connection).has_table(local_chat_pins.name):
                 migration = Operations(MigrationContext.configure(connection))
                 migration.create_table(
@@ -198,15 +251,25 @@ class ResponseStore:
                 text and (capture.message_id or capture.observer_id)
             )
             prior = str(row["assistant_text"])
+            tool_json = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
+            if not text:
+                if tool_json == row["tool_calls_json"]:
+                    return True
+                changed = connection.execute(update(results).where(
+                    results.c.send_id == send_id,
+                    results.c.capture_owner == owner,
+                    results.c.status.in_(("accepted", "generating")),
+                    results.c.capture_deadline > at,
+                ).values(tool_calls_json=tool_json, updated_at=at))
+                return changed.rowcount == 1
             # A shorter partial observer snapshot cannot erase a longer answer.
             if not complete and len(text) < len(prior):
                 text = prior
-            if not text:
-                return True
             if (
                 not complete
                 and row["status"] == "generating"
                 and text == prior
+                and tool_json == row["tool_calls_json"]
                 and row["source"] == capture.source
                 and (not capture.conversation_id or row["conversation_id"] == capture.conversation_id)
                 and (not capture.message_id or row["message_id"] == capture.message_id)
@@ -222,6 +285,7 @@ class ResponseStore:
                     results.c.capture_deadline > at,
                 ).values(
                     assistant_text=text,
+                    tool_calls_json=tool_json,
                     status="completed" if complete else "generating",
                     source=capture.source if complete or len(text) >= len(prior) else row["source"],
                     conversation_id=capture.conversation_id or row["conversation_id"],
@@ -442,7 +506,9 @@ class ResponseStore:
         row = self.get(send_id)
         if row is None:
             return None
-        return {key: row[key] for key in (
+        detail = {key: row[key] for key in (
             "send_id", "job_name", "user_text", "assistant_text", "status", "source",
             "created_at", "accepted_at", "updated_at", "finished_at",
         )}
+        detail["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
+        return detail

@@ -10,6 +10,7 @@ import os
 import threading
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from playwright.async_api import Error as PlaywrightError
@@ -270,6 +271,7 @@ class ManualReplyDispatcher:
                     sender._handle_connector_approvals(driver, deadline=deadline),
                 )
             last_verified_text = ""
+            observed_tool_calls: tuple[dict[str, object], ...] = ()
             try:
                 while asyncio.get_running_loop().time() < deadline and driver.is_connected:
                     update = await driver.wait_capture_update(
@@ -301,6 +303,10 @@ class ManualReplyDispatcher:
                         if self.store.renew(reply_id, owner, deadline=refreshed):
                             deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
                     result = driver.captured_assistant_response(capture)
+                    if (result is not None and result.tool_calls
+                        and result.conversation_id in (None, conversation_id)
+                        and not capture.get("ambiguous_request")):
+                        observed_tool_calls = result.tool_calls
                     if (
                         result is not None
                         and result.status == "complete"
@@ -326,7 +332,7 @@ class ManualReplyDispatcher:
                             result = CaptureResult(
                                 result.source, result.status, result.text,
                                 conversation_id, response_id, result.parent_id,
-                                result.observer_id,
+                                result.observer_id, result.tool_calls,
                             )
                         if not self.store.accepted(
                             reply_id,
@@ -365,6 +371,8 @@ class ManualReplyDispatcher:
                             response_parent_id="",
                         ):
                             break
+                        if observed_tool_calls:
+                            update = replace(update, tool_calls=observed_tool_calls)
                         if self.store.observe(reply_id, owner, update):
                             completed = True
                             driver.record_verified_activity()

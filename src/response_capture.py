@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+from .tool_events import ToolEventCollector
+
 CaptureStatus = Literal[
     "complete", "partial", "timeout", "approval_wait", "rate_limited", "interrupted", "unknown"
 ]
@@ -32,6 +34,7 @@ class CaptureResult:
     message_id: str | None
     parent_id: str | None
     observer_id: str | None = None
+    tool_calls: tuple[dict[str, object], ...] = ()
 
 
 def conversation_id_from_path(path: object) -> str | None:
@@ -117,6 +120,7 @@ class SseResponseAccumulator:
         self._ambiguous = False
         self._overflow = False
         self._received = 0
+        self._tools = ToolEventCollector()
 
     def feed(self, chunk: str) -> None:
         if not chunk or self._overflow:
@@ -178,7 +182,8 @@ class SseResponseAccumulator:
         conversation_id: object,
         parent_id: object,
     ) -> None:
-        if not _is_final_assistant(message):
+        is_tool = self._tools.observe(message)
+        if is_tool or not _is_final_assistant(message):
             self._tracking = False
             return
         # Tool/thought nodes can have different parents within one stream;
@@ -285,7 +290,8 @@ class SseResponseAccumulator:
         else:
             status = "unknown"
         return CaptureResult(
-            "sse", status, text, self._conversation_id, self._message_id, self._parent_id
+            "sse", status, text, self._conversation_id, self._message_id, self._parent_id,
+            tool_calls=self._tools.snapshot(),
         )
 
 

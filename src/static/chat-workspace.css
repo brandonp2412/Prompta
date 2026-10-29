@@ -79,3 +79,28 @@
 .queue-waiting .chat-row-top { align-items: center; }
 .queue-position { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--accent, #84b6ff); }
 .queue-subtitle { display: block; margin-top: 3px; font-size: 12px; opacity: .7; text-align: left; }
+/* Captured tool activity: compact by default, details available on demand. */
+.tool-timeline { margin: 5px 0 18px; width: min(100%, 760px); color: #d9d9d9; font-size: .86rem; }
+.tool-timeline summary { cursor: pointer; list-style: none; }
+.tool-timeline summary::-webkit-details-marker { display: none; }
+.tool-timeline-summary { display: flex; align-items: center; gap: 9px; width: fit-content; min-height: 38px; color: #bdbdbd; font-weight: 550; }
+.tool-timeline-icon { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 9px; background: #30343b; color: #aab9d3; font-size: 1rem; }
+.tool-timeline-toggle, .tool-call-chevron { color: #888; font-size: 1.12rem; transition: transform .15s ease; }
+.tool-timeline:not([open]) .tool-timeline-toggle, .tool-call:not([open]) .tool-call-chevron { transform: rotate(-90deg); }
+.tool-failure-count { color: #f6a19d; font-size: .76rem; }
+.tool-call-list { display: grid; gap: 5px; margin: 5px 0 0 13px; padding-left: 17px; border-left: 1px solid #3b3b3b; }
+.tool-call { min-width: 0; border: 1px solid #353535; background: #252525; border-radius: 11px; overflow: hidden; }
+.tool-call-summary { display: flex; gap: 9px; align-items: center; min-height: 42px; padding: 8px 12px; }
+.tool-call-summary:hover { background: #303030; }
+.tool-call-mark { display: grid; flex: none; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: #244038; color: #8cd7b2; font-size: .73rem; }
+.tool-call.failed .tool-call-mark { background: #4a292a; color: #ffb7b7; }
+.tool-call.running .tool-call-mark { background: #3c3526; color: #f0cf8e; }
+.tool-call-name { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: .84rem; font-weight: 520; }
+.tool-call-status { flex: none; color: #999; font-size: .73rem; }
+.tool-call.failed .tool-call-status { color: #f5a29e; }
+.tool-call-body { display: grid; gap: 12px; padding: 12px; border-top: 1px solid #393939; }
+.tool-call-body h4 { margin: 0 0 5px; color: #aaa; font-size: .73rem; font-weight: 550; }
+.tool-call-body pre { margin: 0; padding: 11px 12px; max-height: 320px; overflow: auto; border-radius: 8px; background: #171717; color: #dbdbdb; font: .78rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-call-body p { margin: 0; color: #aaa; font-size: .8rem; }
+@media (max-width: 680px) { .tool-call-list { margin-left: 9px; padding-left: 10px; } .tool-call-summary { padding: 10px; } .tool-call-status { font-size: .7rem; } }
+@media (prefers-reduced-motion: reduce) { .tool-timeline-toggle, .tool-call-chevron { transition: none; } }
