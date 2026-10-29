@@ -194,6 +194,40 @@ def test_prepared_reply_reuses_only_an_identical_existing_draft(
     assert turns[-1]["status"] == ("completed" if expected_send else "prepared")
 
 
+class FlakyConnectDriver(FakeDriver):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.connect_attempts = 0
+
+    async def connect(self) -> None:
+        self.connect_attempts += 1
+        if self.connect_attempts <= self.failures:
+            raise RuntimeError("Synthetic authentication connection failure")
+        self.is_connected = True
+
+
+@pytest.mark.parametrize(("failures", "expected_sends"), [(1, 1), (2, 0)])
+def test_manual_reply_retries_only_preclaim_browser_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failures: int, expected_sends: int,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = FlakyConnectDriver(failures)
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 4.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None
+    assert fake.connect_attempts == 2
+    assert fake.calls == expected_sends
+    assert turns[-1]["status"] == ("completed" if expected_sends else "prepared")
+
+
 def test_atomic_manual_claim_is_exactly_once_across_workers(tmp_path: Path) -> None:
     store, _state = completed_store(tmp_path)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")

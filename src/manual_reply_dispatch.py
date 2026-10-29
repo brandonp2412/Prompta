@@ -12,6 +12,8 @@ import time
 import uuid
 from pathlib import Path
 
+from playwright.async_api import Error as PlaywrightError
+
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .delivery_browser import BrowserDeliverySender
@@ -183,7 +185,20 @@ class ManualReplyDispatcher:
         completed = False
         preflight_stage = "connect"
         try:
-            await driver.connect()
+            # Only retry establishing the authenticated browser. No reply has
+            # been claimed, typed or submitted at this point.
+            for attempt in range(2):
+                try:
+                    await driver.connect()
+                except (PlaywrightError, RuntimeError) as exc:
+                    if attempt == 1:
+                        raise
+                    logger.warning(
+                        "Explicit reply connection retrying error_type=%s", type(exc).__name__
+                    )
+                    await asyncio.sleep(1.0)
+                else:
+                    break
             preflight_stage = "open_exact_tab"
             context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
             await driver.wait_for_composer()
