@@ -181,26 +181,34 @@ class ManualReplyDispatcher:
         capture: dict[str, object] | None = None
         claimed = False
         completed = False
+        preflight_stage = "connect"
         try:
             await driver.connect()
+            preflight_stage = "open_exact_tab"
             context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
             await driver.wait_for_composer()
+            preflight_stage = "await_exact_parent"
             wait_for_parent = _branch_wait_probe(conversation_id, parent_id)
             if await driver.eval(wait_for_parent) is not True:
                 return
+            preflight_stage = "check_existing_composer"
             baseline = await driver.dom_state()
             existing_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
             requested_text = _normalise_composer_text(text)
             if (existing_text and existing_text != requested_text) or baseline.get("send_in_progress"):
                 return
+            preflight_stage = "arm_passive_observer"
             await driver.enable_passive_updates()
             await driver.eval(load_browser_script("passive_response_observer.js"))
             # A never-claimed reply may leave its exact text in the composer.
             # Reuse only that identical draft after another explicit user click.
+            preflight_stage = "prepare_composer"
             if existing_text != requested_text:
                 await driver.type_message(text)
+            preflight_stage = "reverify_exact_parent"
             if await driver.eval(wait_for_parent) is not True:
                 return
+            preflight_stage = "check_typed_composer"
             before_send = await driver.dom_state()
             if _normalise_composer_text(
                 str(before_send.get("composer_text") or "")
@@ -208,6 +216,7 @@ class ManualReplyDispatcher:
                 return
             if runtime.global_backoff_remaining() > 0:
                 return
+            preflight_stage = "irreversible_claim"
             claimed = self.store.claim(
                 reply_id,
                 owner,
@@ -353,6 +362,8 @@ class ManualReplyDispatcher:
                     except asyncio.CancelledError:
                         pass
         finally:
+            if not claimed:
+                logger.info("Explicit reply preflight left unsent stage=%s", preflight_stage)
             if claimed and not completed:
                 self.store.finish(reply_id, owner, uncertain=True)
             if capture is not None:
