@@ -299,3 +299,49 @@ Stage 2 handoff remains: only an explicit manual user reply can target an exact 
 - Buildq #1885 and #1896 focused config/admission tests PASS, #1897 full Ruff PASS, #1898 strict Ty PASS, #1899 **425 real-Chromium pytest tests passed in 121.13s**; `git diff --check` PASS. Tests prove absent/disabled means no special cap, 1/3 Auckland wall-clock rules including NZST, hot-reload without restarting producer, future stage job without mutex metadata, and fail-closed validation. No test touched real ChatGPT sends or private responses.
 - Pushed feature into clean synchronized `main` under `prompta-main-merge.lock`; buildq #1901 Nox locked package reinstall PASS. Restarted **only** `prompta-scheduler.service` (PID 2779815 to 2813925); delivery worker 2689076 and UI 2722362 unchanged, preserving passive capture. Live `GET /api/health` returned HTTP 200 `ok:true` and `/api/jobs` returned 42 remaining entries (Stage 1 had already been legitimately queued as a one-shot). A read-only probe in the installed production environment verified enabled user config, the absence-default unlimited special cap, scheduler cache matching the live setting, and exact Auckland boundary outputs **1 / 3 / 3 / 1** at 22:29:59, 22:30, 06:59:59 and 07:00. The next stage was still scheduled at 12:30; no queue item was replayed or tab reopened.
 - Concurrency remains an *admission maximum* based on distinct pending stage deliveries and active local capture leases, not a guarantee of three independent code changes. Stages still honor predecessor merge/deploy gates, repository exclusion lock, backoff and no blind retry after ambiguous sends. No other users or maintenance jobs acquired the Nox-specific cap.
+
+
+## Passive tool-call capture and local transcript (2026-10-29 NZDT)
+
+User-authorized exception to the prior tool-data suppression: only tool calls emitted by the
+**existing owned conversation POST** are eligible for private, bounded capture. No independent
+GET, history import, browser navigation, or scheduled reply is added. Hidden reasoning, raw SSE
+frames and credentials are not stored; structured argument/result previews have field-key
+redaction, size and count caps. Ambiguous final branches discard tool details together with
+assistant text. Existing plain-text conversations remain supported.
+
+- `ToolEventCollector` deduplicates SSE invocation snapshots, understands path/args and combined
+  `mcpToolCall` forms, pairs subsequent tool messages where identifiable, and preserves call order.
+- `CaptureResult.tool_calls` passes display summaries through the established single-run capture
+  boundary. The active owned-tab capture briefly waits for its already-issued POST response when
+  DOM finality arrives first. No extra HTTP request or cross-branch merge is allowed.
+- SQLAlchemy/Alembic adds `tool_calls_json` to existing job and manual-reply rows with legacy
+  `[]` defaults, retaining private WAL permissions, branch checks, and exactly-once state rules.
+  `/api/results/{send_id}` and `/turns` expose the same structured data from local SQLite.
+- Chats renders a compact expandable tool timeline, individual connector/action/status cards,
+  redacted inputs/outputs/errors, and the original final Markdown separately. Mobile remains
+  touch-friendly; static historical rows without tool fields keep their original rendering.
+
+Verification: `tests/test_tool_events.py` covers a complete synthetic owned SSE POST through
+private storage and local turn retrieval, duplicate invocation events, combined MCP messages,
+redaction and ambiguous branch isolation. `test_tool_cards_desktop_mobile_local_only` exercises
+real Chromium at 1440×900 and 390×844 against an isolated local HTTP server, including detail
+expansion, error styles, final answer, zero nonlocal/POST requests and screenshots. Full test,
+strict type/lint and Nox deployment results are recorded with the integration commit.
+
+
+### Rebased validation evidence
+
+- Rebased onto `eb15737` (exact stored-parent manual reply recovery); only generated
+  `src/static/app.js` conflicted and was rebuilt from the combined Svelte sources.
+- Buildq `#2100` Ruff passed, `#2101` Ty strict passed, `#2102` Bun fmt/lint/TypeScript/
+  Svelte/Vite passed, `#2103` isolated Chromium E2E passed, `#2104` full pytest
+  **434 passed, 20 skipped** in 177.89 seconds.
+- Real Chromium screenshots at 1440×900 and 390×844 are private under
+  `/home/brandon/.local/state/prompta/visual-baselines/tool-events-rebased-20261029/`.
+  The initial synthetic screenshots for both viewports were opened and visually reviewed:
+  tool badges, expanded input/output, failed state, final Markdown, narrow widths and
+  composer layout were checked. Browser test confirmed all network requests were local
+  GETs and zero POSTs. No real ChatGPT conversation was fetched or sent for this test.
+- Live-event ingestion after service deployment still requires a natural owned job with
+  structured tool events; the deterministic E2E proves parser→SQLite→API→browser.

@@ -406,3 +406,56 @@ def test_explicit_reply_intent_contract_is_local_and_not_dispatched(
         assert "lease_owner" not in turn
         assert "Private manual question" not in caplog.text
         assert "Private answer" not in caplog.text
+
+
+def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    screenshots = Path(os.environ.get("PROMPTA_SCREENSHOT_DIR", str(tmp_path)))
+    screenshots.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("tool-demo", "Summarise the checks", "Tool verification", now=200)
+        assert app.results.accept("tool-demo", "100:tool", deadline=500, now=201)
+        calls: tuple[dict[str, object], ...] = (
+            {"id": "one", "connector": "GitHub", "action": "search_issues",
+             "status": "completed", "arguments": '{"repo": "demo/project"}',
+             "result": '{"count": 2}', "error": ""},
+            {"id": "two", "connector": "Terminal", "action": "run_tests",
+             "status": "error", "arguments": '{"suite": "e2e"}',
+             "result": "", "error": "One example failed"},
+        )
+        assert app.results.write("tool-demo", "100:tool", CaptureResult(
+            "sse", "complete", "## Final answer\n\nTwo checks were performed.",
+            "c1", "m1", "p1", tool_calls=calls,
+        ), now=202)
+        status, body, _ = get(port, "/api/results/tool-demo")
+        returned_calls = body["tool_calls"]
+        assert status == 200 and isinstance(returned_calls, list) and len(returned_calls) == 2
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium_path, headless=True,
+                args=["--no-sandbox", "--disable-gpu"],
+            )
+            try:
+                for width, height, mobile in [(1440, 900, False), (390, 844, True)]:
+                    page = browser.new_page(viewport={"width": width, "height": height},
+                                            is_mobile=mobile, has_touch=mobile)
+                    requests: list[tuple[str, str]] = []
+                    page.on("request", lambda req: requests.append((req.method, req.url)))
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats&run=tool-demo", wait_until="networkidle")
+                    expect(page.locator(".tool-call")).to_have_count(2)
+                    expect(page.locator(".tool-timeline-summary")).to_contain_text("2 tool calls")
+                    expect(page.locator(".tool-failure-count")).to_have_text("1 failed")
+                    expect(page.get_by_role("heading", name="Final answer")).to_be_visible()
+                    page.locator(".tool-call-summary").first.click()
+                    expect(page.locator(".tool-call-body pre").first).to_contain_text("demo/project")
+                    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                    assert requests and all(method == "GET" and url.startswith(f"http://127.0.0.1:{port}/")
+                                            for method, url in requests)
+                    target = screenshots / f"tool-events-{width}.png"
+                    page.screenshot(path=str(target), animations="disabled", full_page=True)
+                    target.chmod(0o600)
+                    page.close()
+            finally:
+                browser.close()

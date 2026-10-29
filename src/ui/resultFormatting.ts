@@ -21,9 +21,20 @@ export type RunSummary = {
 export type RunDetail = RunSummary & {
   user_text: string;
   assistant_text: string;
+  tool_calls?: CapturedToolCall[];
   source: string;
   accepted_at: number;
   images: { name: string; url: string }[];
+};
+
+export type CapturedToolCall = {
+  id: string;
+  connector: string;
+  action: string;
+  status: string;
+  arguments: string;
+  result: string;
+  error: string;
 };
 
 export type LocalTurn = {
@@ -33,6 +44,7 @@ export type LocalTurn = {
   message_id?: string;
   user_text: string;
   assistant_text: string;
+  tool_calls?: CapturedToolCall[];
   status: ResultStatus | "prepared" | "dispatching" | "outcome_unknown";
   created_at: number;
   updated_at: number;

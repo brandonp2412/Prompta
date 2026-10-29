@@ -27,7 +27,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import insert
 
 from .response_capture import CaptureResult
-from .response_store import ResponseStore, results
+from .response_store import (
+    ResponseStore,
+    deserialize_tool_calls,
+    results,
+    serialize_tool_calls,
+)
 
 ReplyStatus = Literal[
     "prepared", "dispatching", "outcome_unknown", "accepted",
@@ -42,6 +47,7 @@ replies = Table(
     Column("parent_id", String, nullable=False),
     Column("user_text", Text, nullable=False),
     Column("assistant_text", Text, nullable=False, default=""),
+    Column("tool_calls_json", Text, nullable=False, default="[]"),
     Column("message_id", String, nullable=False, default=""),
     Column("response_parent_id", String, nullable=False, default=""),
     Column("status", String, nullable=False),
@@ -112,14 +118,19 @@ class ManualReplyStore:
                         "response_parent_id", String, nullable=False, server_default="",
                     ),
                 )
+            if "tool_calls_json" not in {column["name"] for column in inspect(connection).get_columns(replies.name)}:
+                migration = Operations(MigrationContext.configure(connection))
+                migration.add_column(replies.name, Column("tool_calls_json", Text, nullable=False, server_default="[]"))
         self.responses._secure_files()
 
     @staticmethod
     def _public(row: dict[str, object]) -> dict[str, object]:
-        return {key: row[key] for key in (
+        public = {key: row[key] for key in (
             "reply_id", "send_id", "conversation_id", "parent_id", "message_id",
             "user_text", "assistant_text", "status", "created_at", "updated_at",
         )}
+        public["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
+        return public
 
     def get(self, reply_id: str) -> dict[str, object] | None:
         with self.engine.connect() as connection:
@@ -249,7 +260,9 @@ class ManualReplyStore:
                 replies.c.reply_id == reply_id, replies.c.lease_owner == owner,
                 replies.c.status.in_(("accepted", "generating")),
             ).values(status="completed" if complete else "generating",
-                     assistant_text=capture.text[:2 * 1024 * 1024], updated_at=at,
+                     assistant_text=capture.text[:2 * 1024 * 1024],
+                      tool_calls_json=serialize_tool_calls(capture.tool_calls) if capture.tool_calls else row["tool_calls_json"],
+                      updated_at=at,
                      lease_owner="" if complete else owner))
         return changed.rowcount == 1
 
@@ -323,7 +336,9 @@ class ManualReplyStore:
             {"reply_id": "", "send_id": send_id,
              "conversation_id": original["conversation_id"], "parent_id": original["parent_id"],
              "message_id": original["message_id"], "user_text": original["user_text"],
-             "assistant_text": original["assistant_text"], "status": original["status"],
+             "assistant_text": original["assistant_text"],
+              "tool_calls": deserialize_tool_calls(original["tool_calls_json"]),
+              "status": original["status"],
              "created_at": original["created_at"], "updated_at": original["updated_at"]},
             *(self._public(dict(row)) for row in rows),
         ]

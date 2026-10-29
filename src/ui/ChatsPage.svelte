@@ -3,6 +3,7 @@
   import JobsPage from "./JobsPage.svelte";
   import ChatComposer from "./ChatComposer.svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
+  import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import {
     groupRuns, nzTime, statusLabel, turnStatus,
@@ -177,6 +178,7 @@
       detail = body;
       turns = saved?.turns?.length ? saved.turns : [{
         reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
+        tool_calls: body.tool_calls,
         status: body.status, created_at: body.created_at, updated_at: body.updated_at,
       }];
       turnsError = !replyResponse.ok ? "Saved replies are temporarily unavailable locally." : "";
@@ -547,10 +549,11 @@
                   </button>
                 {/if}
               </div>
+              {#if turn.tool_calls?.length}<ToolCalls calls={turn.tool_calls} />{/if}
               {#if turn.assistant_text}
                 <ResultMarkdown source={turn.assistant_text} captureSource={index === 0 ? detail.source : ""} />
                 {#if turn.status !== "completed"}<p class="partial-note">{turn.status === "generating" ? "Partial response · " : ""}{turnStatus(turn.status)}</p>{/if}
-              {:else}
+              {:else if !turn.tool_calls?.length}
                 <p class="no-response">{turnStatus(turn.status)}</p>
               {/if}
             </div>

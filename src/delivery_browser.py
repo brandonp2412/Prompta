@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, TypeVar, runtime_checkable
 
@@ -373,13 +374,16 @@ class BrowserDeliverySender:
         seen_observer = ""
         last_verified_text = ""
         final_status: str = "interrupted"
+        dom_completed_at: float | None = None
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
                 if not driver.is_connected:
                     break
                 # Waiting is local: queue entries are emitted by the existing
                 # POST or semantic MutationObserver, not by reading ChatGPT.
-                update = await driver.wait_capture_update(timeout=min(5.0, remaining))
+                update = await driver.wait_capture_update(
+                    timeout=min(0.3 if dom_completed_at is not None else 5.0, remaining)
+                )
                 if (
                     update is not None
                     and update.source == "dom"
@@ -425,7 +429,17 @@ class BrowserDeliverySender:
                         or len(update.text) >= len(pending.text)
                     ):
                         pending = update
+                if sse is not None and sse.tool_calls and pending is not None and not pending.tool_calls:
+                    # A DOM answer may finish just before the observed POST stream.
+                    pending = replace(pending, tool_calls=sse.tool_calls)
                 now = asyncio.get_running_loop().time()
+                if (pending is not None and pending.status == "complete"
+                    and pending.source == "dom" and sse is None
+                    and capture.get("response_started") and deadline - now > 2):
+                    if dom_completed_at is None:
+                        dom_completed_at = now
+                    if now - dom_completed_at < 1.5:
+                        continue
                 if pending is not None and (
                     pending.status == "complete" or now - last_saved_at >= 5.0
                 ):
