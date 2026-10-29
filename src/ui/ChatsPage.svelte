@@ -52,6 +52,7 @@
   let readRevisions = $state<Record<string, string>>({});
   let optimisticReads = $state<Record<string, string>>({});
   let readError = $state("");
+  let markingAllRead = $state(false);
   let baselineAt = $state(0);
   let drawerOpen = $state(false);
   let filtersOpen = $state(false);
@@ -209,6 +210,35 @@
       }
       readError = "Could not save read status. Try opening the chat again.";
       void loadList();
+    }
+  }
+
+  async function markAllRead() {
+    if (markingAllRead) return;
+    markingAllRead = true;
+    readError = "";
+    try {
+      const response = await fetch("./api/local-chat-reads/all", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      if (!response.ok) throw new Error("Bulk read receipt rejected");
+      // Keep already-loaded off-page entries in place while refreshing the first page.
+      const asRead = (item: RunSummary): RunSummary => item.last_reply_revision
+        ? { ...item, last_read_revision: item.last_reply_revision } : item;
+      items = items.map(asRead);
+      pinnedItems = pinnedItems.map(asRead);
+      optimisticReads = {};
+      await Promise.all([loadList(), loadPins()]);
+      try {
+        localStorage.setItem(readSyncKey, "all:" + Date.now());
+      } catch {
+        // The server receipt remains durable if cross-tab notification is unavailable.
+      }
+    } catch {
+      readError = "Could not mark all chats as read. Try again.";
+    } finally {
+      markingAllRead = false;
     }
   }
 
@@ -714,6 +744,13 @@
         {#if search || statusFilter}<span class="filter-active-dot" aria-label="Filters active"></span>{/if}
       </button>
     </nav>
+    <div class="sidebar-read-actions">
+      <button type="button" class="mark-all-read" onclick={markAllRead} disabled={markingAllRead}
+        aria-label="Mark all local chats as read" title="Mark all local chats as read">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 12 4 4L16 6M9 12l4 4L23 6" /></svg>
+        {markingAllRead ? "Marking as read…" : "Mark all as read"}
+      </button>
+    </div>
     {#if filtersOpen}
     <div id="chat-filters" class="chats-controls">
       <label class="search-label">

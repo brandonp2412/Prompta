@@ -31,6 +31,7 @@ from .response_capture import CaptureResult
 from .response_store import (
     ResponseStore,
     deserialize_tool_calls,
+    local_chat_reads,
     merge_tool_calls,
     results,
 )
@@ -409,6 +410,76 @@ class ManualReplyStore:
             revision, at = markers[str(item["send_id"])]
             item["last_reply_revision"] = revision
             item["last_reply_at"] = at
+
+    def mark_all_local_read(self) -> int:
+        """Read all currently completed local answers, including off-page runs.
+
+        Take a single SQLite write snapshot so a concurrent new reply cannot be
+        accidentally acknowledged without its exact completed revision.
+        """
+        at = time.time()
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            markers: dict[str, str] = {}
+            originals = connection.execute(
+                select(
+                    results.c.send_id,
+                    results.c.assistant_text,
+                ).where(
+                    results.c.status == "completed",
+                    results.c.assistant_text != "",
+                )
+            ).all()
+            for send_id, answer in originals:
+                markers[str(send_id)] = hashlib.sha256(
+                    f"initial\0{send_id}\0{answer}".encode()
+                ).hexdigest()
+            completed_replies = connection.execute(
+                select(
+                    replies.c.send_id,
+                    replies.c.reply_id,
+                    replies.c.assistant_text,
+                )
+                .where(
+                    replies.c.status == "completed",
+                    replies.c.assistant_text != "",
+                )
+                .order_by(
+                    replies.c.created_at,
+                    replies.c.reply_id,
+                )
+            ).all()
+            for send_id, reply_id, answer in completed_replies:
+                markers[str(send_id)] = hashlib.sha256(
+                    f"manual\0{reply_id}\0{answer}".encode()
+                ).hexdigest()
+            existing = dict(
+                connection.execute(
+                    select(
+                        local_chat_reads.c.send_id,
+                        local_chat_reads.c.seen_revision,
+                    )
+                ).all()
+            )
+            changed = {
+                send_id: revision
+                for send_id, revision in markers.items()
+                if existing.get(send_id) != revision
+            }
+            for send_id, revision in changed.items():
+                connection.execute(
+                    insert(local_chat_reads)
+                    .values(
+                        send_id=send_id,
+                        seen_revision=revision,
+                        read_at=at,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["send_id"],
+                        set_={"seen_revision": revision, "read_at": at},
+                    )
+                )
+        return len(changed)
 
     def turns(self, send_id: str) -> list[dict[str, object]] | None:
         original = self.responses.get(send_id)

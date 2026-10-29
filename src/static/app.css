@@ -730,6 +730,16 @@ button:disabled { cursor: default; opacity: 0.45; }
 .sidebar-brand div { display: grid; gap: 5px; }
 .sidebar-brand strong { font-size: 1.12rem; letter-spacing: -.035em; }
 .sidebar-brand span { font-size: .72rem; color: #777; }
+.sidebar-read-actions { padding: 0 13px 9px; }
+.mark-all-read {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 5px 10px; min-height: 30px; border: 0; border-radius: 8px;
+  background: transparent; color: #a6a6a6; text-align: left;
+  font: inherit; font-size: .76rem; cursor: pointer;
+}
+.mark-all-read svg { width: 15px; height: 15px; flex: none; }
+.mark-all-read:hover:not(:disabled), .mark-all-read:focus-visible { color: white; background: #292929; }
+.mark-all-read:disabled { opacity: .55; cursor: progress; }
 .sidebar-close { display: none; }
 .sidebar-actions { display: grid; gap: 3px; padding: 0 11px 17px; }
 .sidebar-actions button, .sidebar-primary {
@@ -897,6 +907,8 @@ button:disabled { cursor: default; opacity: 0.45; }
     white-space: nowrap;
   }
   .sidebar-actions button span { width: auto; font-size: 1.05rem; }
+  .sidebar-read-actions { padding: 0 15px 6px; }
+  .mark-all-read { min-height: 38px; }
   .sidebar-close { width: 44px; height: 44px; }
   .chats-heading { padding: 7px 14px 8px; }
   .chats-refresh { width: 44px; height: 44px; }

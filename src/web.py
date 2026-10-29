@@ -347,7 +347,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
         send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
         recover_reply_path = path.startswith("/api/results/") and path.endswith("/reply-recover")
-        if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import", "/api/local-chat-reads", "/api/local-chat-reads/import"} and not (
+        if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import", "/api/local-chat-reads", "/api/local-chat-reads/import", "/api/local-chat-reads/all"} and not (
             reply_path or send_reply_path or recover_reply_path
         ):
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -382,10 +382,16 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                     turn = self.server.replies.prepare(send_id, intent)
                     self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
                 return
-            if path in {"/api/local-chat-reads", "/api/local-chat-reads/import"}:
+            if path in {"/api/local-chat-reads", "/api/local-chat-reads/import", "/api/local-chat-reads/all"}:
                 if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise ValueError("Local read changes require JSON")
                 payload = self._json_body(max_bytes=786432 if path.endswith("/import") else 1024)
+                if path.endswith("/all"):
+                    if payload:
+                        raise ValueError("Mark all read accepts no fields")
+                    count = self.server.replies.mark_all_local_read()
+                    self._json({"ok": True, "count": count})
+                    return
                 if path.endswith("/import"):
                     raw_reads = payload.get("reads")
                     if set(payload) != {"reads"} or not isinstance(raw_reads, dict):
