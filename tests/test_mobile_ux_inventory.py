@@ -241,6 +241,17 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 page.goto(base + "?view=chats&draft=new", wait_until="networkidle")
                 screenshot(page, root, "17-fresh-chat", notes)
                 composer = page.get_by_role("textbox", name="Message for new chat")
+                initial = composer.bounding_box()
+                assert initial is not None and 25 <= initial["height"] <= 40
+                composer.fill("A wrapped synthetic line of text. " * 70)
+                expanded = composer.bounding_box()
+                assert expanded is not None
+                max_height = 67 if width <= 680 else 110
+                assert initial["height"] < expanded["height"] <= max_height + 1
+                assert composer.evaluate("(element) => getComputedStyle(element).overflowY") == "auto"
+                composer.fill("")
+                collapsed = composer.bounding_box()
+                assert collapsed is not None and abs(collapsed["height"] - initial["height"]) <= 1
                 composer.fill("An unsent synthetic new-chat draft")
                 screenshot(page, root, "18-fresh-draft", notes)
                 if width <= 412:

@@ -6039,9 +6039,10 @@ function ChatComposer($$anchor, $$props) {
 	function resizeTextarea() {
 		if (!get(textarea)) return;
 		get(textarea).style.height = "auto";
-		const maxHeight = Math.min(window.innerHeight * (window.innerWidth <= 680 ? .3 : .42), 360);
-		get(textarea).style.height = Math.min(get(textarea).scrollHeight, maxHeight) + "px";
-		get(textarea).style.overflowY = get(textarea).scrollHeight > maxHeight ? "auto" : "hidden";
+		const maxHeight = Number.parseFloat(getComputedStyle(get(textarea)).maxHeight);
+		const contentHeight = get(textarea).scrollHeight;
+		get(textarea).style.height = Math.min(contentHeight, maxHeight) + "px";
+		get(textarea).style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
 	}
 	function draftChanged(event) {
 		if ($$props.mode === "fresh") try {

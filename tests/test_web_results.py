@@ -402,12 +402,18 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 initial_box = composer.bounding_box()
                 assert initial_box is not None
                 initial_height = initial_box["height"]
-                assert initial_height >= 100
+                assert 25 <= initial_height <= 40  # Exactly one text row when empty.
                 draft_text = chr(10).join(["Draft survives reloading."] * 18)
                 composer.fill(draft_text)
                 expanded_composer_box = composer.bounding_box()
                 assert expanded_composer_box is not None
-                assert expanded_composer_box["height"] > initial_height
+                assert initial_height < expanded_composer_box["height"] <= 111
+                assert composer.evaluate("(element) => getComputedStyle(element).overflowY") == "auto"
+                composer.fill("")
+                shrunk_box = composer.bounding_box()
+                assert shrunk_box is not None
+                assert abs(shrunk_box["height"] - initial_height) <= 1
+                composer.fill(draft_text)
                 page.reload(wait_until="networkidle")
                 expect(page.get_by_role("textbox", name="Message for new chat")).to_have_value(draft_text)
                 page.get_by_role("button", name="Chats", exact=True).click()

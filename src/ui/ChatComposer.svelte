@@ -51,9 +51,10 @@
   function resizeTextarea() {
     if (!textarea) return;
     textarea.style.height = "auto";
-    const maxHeight = Math.min(window.innerHeight * (window.innerWidth <= 680 ? 0.3 : 0.42), 360);
-    textarea.style.height = Math.min(textarea.scrollHeight, maxHeight) + "px";
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+    const maxHeight = Number.parseFloat(getComputedStyle(textarea).maxHeight);
+    const contentHeight = textarea.scrollHeight;
+    textarea.style.height = Math.min(contentHeight, maxHeight) + "px";
+    textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
   }
 
   function draftChanged(event: Event) {
