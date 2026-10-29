@@ -25,7 +25,7 @@
 .prompt-expand svg { width: 15px; height: 15px; transition: transform .15s ease; }
 .prompt-expand svg.rotated { transform: rotate(180deg); }
 .chat-composer-wrap { width: min(100%, 920px); padding-bottom: max(15px, env(safe-area-inset-bottom)); }
-.chat-composer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; border-radius: 23px; padding: 14px 16px 11px; }
+.chat-composer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 23px; padding: 14px 16px 11px; }
 .chat-composer textarea { order: 2; flex: 1 1 0; min-width: 0; min-height: 0; max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 2px; }
 .composer-actions { display: contents; }
 .composer-attach { order: 1; flex: none; }

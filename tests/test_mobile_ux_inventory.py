@@ -245,6 +245,13 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 composer = page.get_by_role("textbox", name="Message for new chat")
                 initial = composer.bounding_box()
                 assert initial is not None and 25 <= initial["height"] <= 40
+                attach_initial = page.get_by_role("button", name="Attach images").bounding_box()
+                send_initial = page.get_by_role("button", name="Send fresh chat").bounding_box()
+                assert attach_initial is not None and send_initial is not None
+                text_center = initial["y"] + initial["height"] / 2
+                for button in (attach_initial, send_initial):
+                    button_center = button["y"] + button["height"] / 2
+                    assert abs(text_center - button_center) <= 2, (width, text_center, button_center)
                 composer.fill("A wrapped synthetic line of text. " * 70)
                 expanded = composer.bounding_box()
                 assert expanded is not None
