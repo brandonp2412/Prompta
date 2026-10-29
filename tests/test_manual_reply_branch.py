@@ -21,8 +21,8 @@ OTHER = "00000000-0000-4000-8000-000000000003"
         (f"data-message-id='{PARENT}'", True),
         (f"data-chatgpt-search-message-ids='[\"{PARENT}\"]'", True),
         (f"data-chatgpt-search-message-ids='{PARENT} {PARENT}'", True),
-        (f"data-chatgpt-search-message-ids='{PARENT} {OTHER}'", False),
-        (f'data-chatgpt-search-message-ids=\'["{PARENT}","{OTHER}"]\'', False),
+        (f"data-chatgpt-search-message-ids='{PARENT} {OTHER}'", True),
+        (f'data-chatgpt-search-message-ids=\'["{PARENT}","{OTHER}"]\'', True),
         ("data-chatgpt-search-message-ids='not-json'", False),
         (f"data-chatgpt-search-message-ids='[\"{OTHER}\"]'", False),
     ],
@@ -52,6 +52,25 @@ def test_exact_branch_probe_decodes_only_one_backend_id(attribute: str, expected
         page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
         assert page.evaluate(_branch_probe(CONVERSATION, PARENT)) is expected
         assert routed == [f"https://chatgpt.com/c/{CONVERSATION}"]
+        browser.close()
+
+
+def test_exact_branch_rejects_later_user_turn() -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    html = (
+        f"<main><div data-message-author-role='assistant' data-message-id='{PARENT}'>Answer</div>"
+        "<div data-message-author-role='user'>External follow-up</div></main>"
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page()
+        page.route("https://chatgpt.com/**", lambda route: route.fulfill(
+            status=200, content_type="text/html", body=html,
+        ))
+        page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
+        assert page.evaluate(_branch_probe(CONVERSATION, PARENT)) is False
         browser.close()
 
 

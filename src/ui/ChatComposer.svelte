@@ -20,6 +20,7 @@
   let restoredDraft = $state("");
   let restoredPreflight = $state(false);
   let hydrated = $state(false);
+  let hasLocalDraft = $state(false);
   let images = $state<ImageRef[]>([]);
   let uploading = $state(false);
   let sending = $state(false);
@@ -41,15 +42,19 @@
     if (restoredDraft === restoreDraft && restoredPreflight === retryablePreflight) return;
     restoredDraft = restoreDraft;
     restoredPreflight = retryablePreflight;
-    if (!sending && draft !== restoreDraft) {
+    if (!sending && !hasLocalDraft) {
       draft = restoreDraft;
+      hasLocalDraft = true;
       try { if (draftStorageKey) localStorage.setItem(draftStorageKey, draft); } catch { /* In-memory editing still works. */ }
       requestAnimationFrame(resizeTextarea);
     }
   });
 
   onMount(() => {
-    try { if (draftStorageKey) draft = localStorage.getItem(draftStorageKey)?.slice(0, 32000) ?? ""; } catch { /* Storage may be unavailable. */ }
+    try {
+      const cached = draftStorageKey ? localStorage.getItem(draftStorageKey) : null;
+      if (cached !== null) { draft = cached.slice(0, 32000); hasLocalDraft = true; }
+    } catch { /* Storage may be unavailable. */ }
     hydrated = true;
     if (mode === "fresh") textarea?.focus();
     requestAnimationFrame(resizeTextarea);
@@ -67,6 +72,7 @@
   }
 
   function draftChanged(event: Event) {
+    hasLocalDraft = true;
     if (draftStorageKey) {
       try { localStorage.setItem(draftStorageKey, (event.currentTarget as HTMLTextAreaElement).value); } catch { /* In-memory editing still works. */ }
     }
@@ -132,6 +138,7 @@
         images = [];
         feedback = result.message;
         try { if (draftStorageKey) localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
+        hasLocalDraft = false;
         requestAnimationFrame(resizeTextarea);
       } else {
         feedback = result.message;

@@ -46,6 +46,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
         ReplyIntent("r" * 32, "c" * 32, "m" * 32, "Saved exact Alpha reply"),
         now=now + 1,
     )
+    assert app.replies.mark_preflight_failed("r" * 32)
 
     thread = threading.Thread(target=app.serve_forever, daemon=True)
     thread.start()
@@ -63,6 +64,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
             page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run=run-a")
             reply = page.get_by_role("textbox", name="Message for current chat")
             expect(reply).to_have_value("Saved exact Alpha reply")
+            reply.fill("Locally edited Alpha only")
 
             def select(title: str, send_id: str) -> None:
                 if width <= 680:
@@ -75,7 +77,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
             expect(reply).to_have_value("")
             reply.fill("Unsent Beta only")
             select("Synthetic chat Alpha", "run-a")
-            expect(reply).to_have_value("Saved exact Alpha reply")
+            expect(reply).to_have_value("Locally edited Alpha only")
             select("Synthetic chat Beta", "run-b")
             expect(reply).to_have_value("Unsent Beta only")
             page.reload()
@@ -92,12 +94,15 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
             select("Synthetic chat Beta", "run-b")
             expect(reply).to_have_value("Unsent Beta only")
             select("Synthetic chat Alpha", "run-a")
-            expect(reply).to_have_value("Saved exact Alpha reply")
+            expect(reply).to_have_value("Locally edited Alpha only")
+            page.reload()
+            expect(reply).to_have_value("Locally edited Alpha only")
             if width <= 680:
                 page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-sidebar .sidebar-primary").click()
             expect(fresh).to_have_value("Unsent fresh only")
-            assert not seen_posts, seen_posts
+            # Local read receipts are allowed; navigation must never send a reply.
+            assert all(url.endswith("/api/local-chat-reads") for url in seen_posts), seen_posts
             browser.close()
     finally:
         app.shutdown()
