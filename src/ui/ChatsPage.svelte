@@ -711,11 +711,13 @@
       {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}
       {#if detail}
         <div class="chat-detail-content">
-          <header class="chat-detail-title"><h2>{detail.job_name || "Prompta run"}</h2><p>{nzTime(detail.created_at)}</p></header>
           {#if turnsError}<p class="result-error" role="alert">{turnsError}</p>{/if}
           {#each turns as turn, index (turn.reply_id || detail.send_id)}
             <div class="message-group user-group">
-              <div class="message-role">You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</div>
+              <div class="message-role">
+                <span>You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</span>
+                <time class="message-timestamp" datetime={new Date((turn.created_at || detail.created_at) * 1000).toISOString()}>{nzTime(turn.created_at || detail.created_at)}</time>
+              </div>
               <div class="prompt-bubble">
                 <div class:collapsed={turn.user_text.length > 280 && !expandedPrompts[(detail?.send_id ?? "") + ":" + index]} class="prompt-message">{turn.user_text}</div>
                 {#if turn.user_text.length > 280}

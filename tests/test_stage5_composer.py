@@ -201,7 +201,11 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             composer = page.get_by_role("textbox", name="Message for current chat")
             composer.wait_for()
             expect(composer).to_be_enabled()
-            page.locator(".chat-detail-title").wait_for()
+            page.locator(".user-group .message-timestamp").first.wait_for()
+            assert page.locator(".chat-detail-title").count() == 0
+            assert page.locator(".chat-detail-content h2").count() == 0
+            assert page.locator(".user-group .message-timestamp").first.get_attribute("datetime")
+            assert "Time unavailable" not in page.locator(".user-group .message-timestamp").first.inner_text()
             assert page.get_by_role("button", name="Reply to this chat").count() == 0
             assert page.get_by_role("button", name="Send saved reply").count() == 0
             assert not recoveries and not calls

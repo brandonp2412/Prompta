@@ -8390,8 +8390,8 @@ var root_21 = /* @__PURE__ */ from_html(`<button class="copy-message" type="butt
 var root_22 = /* @__PURE__ */ from_html(`<p class="partial-note"> </p>`);
 var root_23 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_24 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
-var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role">You <!></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!> <!></div>`, 1);
-var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><header class="chat-detail-title"><h2> </h2><p> </p></header> <!> <!></div>`);
+var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span>You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!> <!></div>`, 1);
+var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
 var root_27 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
 var root_28 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> Jobs</button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New chat</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search chats</span> <!></button></nav> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
@@ -9221,17 +9221,12 @@ function ChatsPage($$anchor, $$props) {
 		var node_18 = sibling(node_17, 2);
 		var consequent_26 = ($$anchor) => {
 			var div_15 = root_26();
-			var header = child(div_15);
-			var h2 = child(header);
-			var text_15 = only_child(h2, true);
-			var text_16 = only_child(sibling(h2), true);
-			reset(header);
-			var node_19 = sibling(header, 2);
+			var node_19 = child(div_15);
 			var consequent_16 = ($$anchor) => {
-				var p_4 = root_16();
-				var text_17 = only_child(p_4, true);
-				template_effect(() => set_text(text_17, get(turnsError)));
-				append($$anchor, p_4);
+				var p_3 = root_16();
+				var text_15 = only_child(p_3, true);
+				template_effect(() => set_text(text_15, get(turnsError)));
+				append($$anchor, p_3);
 			};
 			if_block(node_19, ($$render) => {
 				if (get(turnsError)) $$render(consequent_16);
@@ -9240,34 +9235,38 @@ function ChatsPage($$anchor, $$props) {
 				var fragment_7 = root_25();
 				var div_16 = first_child(fragment_7);
 				var div_17 = child(div_16);
-				var node_21 = sibling(child(div_17));
+				var span_11 = child(div_17);
+				var node_21 = sibling(child(span_11));
 				var consequent_17 = ($$anchor) => {
 					append($$anchor, text("· Job prompt"));
 				};
 				var alternate_1 = ($$anchor) => {
-					var text_19 = text();
-					template_effect(() => set_text(text_19, `· Reply ${get(index) ?? ""}`));
-					append($$anchor, text_19);
+					var text_17 = text();
+					template_effect(() => set_text(text_17, `· Reply ${get(index) ?? ""}`));
+					append($$anchor, text_17);
 				};
 				if_block(node_21, ($$render) => {
 					if (get(index) === 0) $$render(consequent_17);
 					else $$render(alternate_1, -1);
 				});
+				reset(span_11);
+				var time = sibling(span_11, 2);
+				var text_18 = only_child(time, true);
 				reset(div_17);
 				var div_18 = sibling(div_17, 2);
 				var div_19 = child(div_18);
 				let classes_5;
-				var text_20 = only_child(div_19, true);
+				var text_19 = only_child(div_19, true);
 				var node_22 = sibling(div_19, 2);
 				var consequent_18 = ($$anchor) => {
 					var button_11 = root_17();
-					var text_21 = child(button_11);
-					var svg = sibling(text_21);
+					var text_20 = child(button_11);
+					var svg = sibling(text_20);
 					let classes_6;
 					reset(button_11);
 					template_effect(($0) => {
 						set_attribute(button_11, "aria-expanded", $0);
-						set_text(text_21, `${get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] ? "Show less" : "Show full prompt"} `);
+						set_text(text_20, `${get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] ? "Show less" : "Show full prompt"} `);
 						classes_6 = set_class(svg, 0, "", null, classes_6, { rotated: get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] });
 					}, [() => Boolean(get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)])]);
 					delegated("click", button_11, (event) => void togglePrompt((get(detail)?.send_id ?? "") + ":" + get(index), event));
@@ -9300,22 +9299,22 @@ function ChatsPage($$anchor, $$props) {
 				reset(div_16);
 				var div_21 = sibling(div_16, 2);
 				var div_22 = child(div_21);
-				var span_11 = child(div_22);
-				var node_24 = sibling(child(span_11));
+				var span_12 = child(div_22);
+				var node_24 = sibling(child(span_12));
 				var consequent_20 = ($$anchor) => {
 					append($$anchor, root_20());
 				};
 				if_block(node_24, ($$render) => {
 					if (get(turn).status === "generating") $$render(consequent_20);
 				});
-				reset(span_11);
-				var node_25 = sibling(span_11, 2);
+				reset(span_12);
+				var node_25 = sibling(span_12, 2);
 				var consequent_21 = ($$anchor) => {
 					var button_12 = root_21();
-					var text_22 = only_child(button_12, true);
+					var text_21 = only_child(button_12, true);
 					template_effect(() => {
 						set_attribute(button_12, "aria-label", "Copy assistant reply " + (get(index) + 1));
-						set_text(text_22, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
+						set_text(text_21, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
 					});
 					delegated("click", button_12, () => copyText(formatStoredResponse(get(turn).assistant_text, get(index) === 0 ? get(detail)?.source ?? "" : ""), get(turn).reply_id || $$props.selectedRunId || ""));
 					append($$anchor, button_12);
@@ -9350,10 +9349,10 @@ function ChatsPage($$anchor, $$props) {
 					}
 					var node_29 = sibling(node_28, 2);
 					var consequent_23 = ($$anchor) => {
-						var p_5 = root_22();
-						var text_23 = only_child(p_5);
-						template_effect(($0) => set_text(text_23, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
-						append($$anchor, p_5);
+						var p_4 = root_22();
+						var text_22 = only_child(p_4);
+						template_effect(($0) => set_text(text_22, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
+						append($$anchor, p_4);
 					};
 					if_block(node_29, ($$render) => {
 						if (get(turn).status !== "completed") $$render(consequent_23);
@@ -9361,27 +9360,25 @@ function ChatsPage($$anchor, $$props) {
 					append($$anchor, fragment_10);
 				};
 				var consequent_25 = ($$anchor) => {
-					var p_6 = root_24();
-					var text_24 = only_child(p_6, true);
-					template_effect(($0) => set_text(text_24, $0), [() => turnStatus(get(turn).status)]);
-					append($$anchor, p_6);
+					var p_5 = root_24();
+					var text_23 = only_child(p_5, true);
+					template_effect(($0) => set_text(text_23, $0), [() => turnStatus(get(turn).status)]);
+					append($$anchor, p_5);
 				};
 				if_block(node_27, ($$render) => {
 					if (get(turn).assistant_text) $$render(consequent_24);
 					else if (!get(turn).tool_calls?.length) $$render(consequent_25, 1);
 				});
 				reset(div_21);
-				template_effect(() => {
+				template_effect(($0, $1) => {
+					set_attribute(time, "datetime", $0);
+					set_text(text_18, $1);
 					classes_5 = set_class(div_19, 1, "prompt-message", null, classes_5, { collapsed: get(turn).user_text.length > 280 && !get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] });
-					set_text(text_20, get(turn).user_text);
-				});
+					set_text(text_19, get(turn).user_text);
+				}, [() => (/* @__PURE__ */ new Date((get(turn).created_at || get(detail).created_at) * 1e3)).toISOString(), () => nzTime(get(turn).created_at || get(detail).created_at)]);
 				append($$anchor, fragment_7);
 			});
 			reset(div_15);
-			template_effect(($0) => {
-				set_text(text_15, get(detail).job_name || "Prompta run");
-				set_text(text_16, $0);
-			}, [() => nzTime(get(detail).created_at)]);
 			append($$anchor, div_15);
 		};
 		if_block(node_18, ($$render) => {

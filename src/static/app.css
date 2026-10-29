@@ -131,11 +131,9 @@ button:disabled { cursor: default; opacity: 0.45; }
 .result-pill.status-prepared, .result-pill.status-dispatching, .result-pill.status-accepted { border-color: #695c39; color: #dec489; }
 .result-pill.status-outcome_unknown { border-color: #794848; color: #f0a2a2; }
 .chat-detail-content { width: min(100%, 830px); margin: 0 auto; padding: 28px 40px 100px; }
-.chat-detail-title { border-bottom: 1px solid #2c2c2c; padding-bottom: 22px; margin-bottom: 24px; }
-.chat-detail-title h2 { font-size: 1.28rem; font-weight: 650; letter-spacing: -.022em; overflow-wrap: anywhere; margin: 0 0 7px; }
-.chat-detail-title p { color: #848484; font-size: .77rem; margin: 0; }
 .message-group { min-width: 0; margin-bottom: 31px; }
 .message-role { font-size: .78rem; font-weight: 650; color: #ddd; margin-bottom: 13px; }
+.message-timestamp { color: #888; font-size: .75rem; font-weight: 400; text-align: right; white-space: nowrap; }
 .prompt-message { margin-left: auto; max-width: 92%; width: fit-content; border-radius: 17px; border-top-right-radius: 5px; background: #303030; padding: 14px 18px; white-space: pre-wrap; overflow-wrap: anywhere; color: #ececec; line-height: 1.55; font-size: .87rem; }
 .assistant-group { border-top: 1px solid #262626; padding-top: 24px; }
 .capture-live { color: #9abbe8; font-weight: 500; }
@@ -1044,7 +1042,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .workspace-header span, .toolbar-title > span, .status-line,
 .job-submeta, .job-cell, .job-message, .cell-label,
 .editor-body label > span, .prompt-counter, .job-image-count,
-.chat-detail-title p, .no-response, .partial-note, .capture-note,
+.message-timestamp, .no-response, .partial-note, .capture-note,
 .composer-feedback, .composer-disclaimer, .code-toolbar,
 .chat-detail-content .message-role, .result-pill {
   font-size: var(--font-caption);
@@ -1053,7 +1051,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 }
 .sidebar-footnote, .server-name, .workspace-header span, .job-submeta,
 .prompt-counter, .chat-entry .chat-job, .chats-pagination,
-.chat-detail-title p, .composer-disclaimer { color: var(--text-quiet); }
+.message-timestamp, .composer-disclaimer { color: var(--text-quiet); }
 
 .job-prompt, .chat-entry .chat-preview, .prompt-message, .result-markdown {
   font-size: var(--font-body);
