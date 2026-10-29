@@ -61,6 +61,27 @@ to reset. If
 `working_hours` is omitted or disabled, Prompta can deliver at any time.
 
 
+## Global parallelism
+
+Scheduled Prompta jobs have **unlimited parallelism by default**. To cap all
+automatic jobs to three ongoing workers, add this to
+`~/.config/prompta/config.toml`:
+
+```toml
+[parallelism]
+max_workers = 3
+```
+
+The cap covers pending scheduled deliveries and live response captures, even
+when a one-shot job is removed from the job list. Jobs waiting for a free slot
+stay due; running jobs are never interrupted when the cap is lowered. Changes
+are loaded without restarting the scheduler. Remove `max_workers` (or the
+whole section) for unlimited parallelism. The value must be a positive integer.
+Explicit manual sends are not blocked by this automatic-job admission cap.
+Per-job mutex groups and the optional stage-specific concurrency policy still
+apply.
+
+
 ## Optional stage concurrency
 
 Prompta has **no time-of-day parallelism limit by default**. To opt in for specific

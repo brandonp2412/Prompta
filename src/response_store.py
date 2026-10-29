@@ -291,18 +291,23 @@ class ResponseStore:
         return recovered
 
     def active_capture_send_ids(
-        self, job_prefixes: tuple[str, ...], *, now: float
+        self, job_prefixes: tuple[str, ...] | None = None, *, now: float
     ) -> set[str]:
         """Count only live owned captures; never read private response bodies."""
-        if not job_prefixes:
+        if job_prefixes == ():
             return set()
+        predicates = [results.c.job_name != ""]
+        if job_prefixes is not None:
+            predicates.append(
+                or_(*(results.c.job_name.startswith(prefix) for prefix in job_prefixes))
+            )
         with self.engine.connect() as connection:
             rows = connection.execute(
                 select(results.c.send_id).where(
                     results.c.status.in_(("accepted", "generating")),
                     results.c.capture_deadline > now,
                     results.c.capture_owner != "",
-                    or_(*(results.c.job_name.startswith(prefix) for prefix in job_prefixes)),
+                    *predicates,
                 )
             ).scalars().all()
         return {str(send_id) for send_id in rows}

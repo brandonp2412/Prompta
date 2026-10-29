@@ -7,7 +7,7 @@ import random
 import time
 from pathlib import Path
 
-from .config import DEFAULT_CONFIG_PATH, StageConcurrencySettings
+from .config import DEFAULT_CONFIG_PATH, ParallelismSettings, StageConcurrencySettings
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -45,6 +45,8 @@ class DurableSchedulerProducer:
         self.concurrency_config_path = concurrency_config_path.expanduser()
         self._concurrency_signature: tuple[int, int, int] | None = None
         self._concurrency_settings: StageConcurrencySettings | None = None
+        self._parallelism_signature: tuple[int, int, int] | None = None
+        self._parallelism_settings: ParallelismSettings | None = None
 
     def _current_concurrency_settings(self) -> StageConcurrencySettings:
         """Reload only on file replacement/change; invalid files never disable the cap."""
@@ -58,6 +60,19 @@ class DurableSchedulerProducer:
             self._concurrency_settings = settings
             self._concurrency_signature = signature
         return self._concurrency_settings
+
+    def _current_parallelism_settings(self) -> ParallelismSettings:
+        """Hot-reload the global limit, failing closed if configuration is invalid."""
+        try:
+            stat = self.concurrency_config_path.stat()
+            signature = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            signature = None
+        if self._parallelism_settings is None or signature != self._parallelism_signature:
+            settings = ParallelismSettings.load(self.concurrency_config_path)
+            self._parallelism_settings = settings
+            self._parallelism_signature = signature
+        return self._parallelism_settings
 
     def _occurrence_key(self, job: PromptJob) -> str:
         return occurrence_key(job, self.runtime.job_state(job.name))
@@ -75,6 +90,13 @@ class DurableSchedulerProducer:
         return receipt if receipt_is_pending(receipt) else None
 
     def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob], *, now: float) -> bool:
+        global_limit = self._current_parallelism_settings().max_workers
+        if global_limit is not None:
+            active = self.queue.pending_scheduled_send_ids()
+            active.update(self.queue.results.active_capture_send_ids(now=now))
+            if len(active) >= global_limit:
+                return True
+
         settings = self._current_concurrency_settings()
         if settings.enabled and job.name.startswith(settings.job_prefixes):
             # One-shot definitions vanish on enqueue, but their active response

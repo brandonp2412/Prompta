@@ -23,6 +23,33 @@ def _parse_local_time(value: object, *, key: str) -> time:
 
 
 @dataclass(frozen=True)
+class ParallelismSettings:
+    """Maximum simultaneous scheduled jobs; omitted means unlimited."""
+
+    max_workers: int | None = None
+
+    @classmethod
+    def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> ParallelismSettings:
+        try:
+            with path.expanduser().open("rb") as config_file:
+                raw = tomllib.load(config_file)
+        except FileNotFoundError:
+            return cls()
+
+        section = raw.get("parallelism")
+        if section is None:
+            return cls()
+        if not isinstance(section, dict):
+            raise ValueError("[parallelism] must be a table")
+        max_workers = section.get("max_workers")
+        if max_workers is None:
+            return cls()
+        if type(max_workers) is not int or max_workers < 1:
+            raise ValueError("parallelism.max_workers must be a positive integer")
+        return cls(max_workers)
+
+
+@dataclass(frozen=True)
 class StageConcurrencySettings:
     """Optional per-install admission policy; missing settings mean no special limit."""
 

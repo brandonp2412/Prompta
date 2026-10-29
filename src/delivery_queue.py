@@ -68,10 +68,20 @@ class DeliveryQueueStore:
             )
         return [self.record_from_row(row) for row in rows]
 
-    def pending_scheduled_send_ids(self, job_prefixes: tuple[str, ...]) -> set[str]:
+    def pending_scheduled_send_ids(self, job_prefixes: tuple[str, ...] | None = None) -> set[str]:
         """Count unsent or in-flight scheduled jobs, even after a one-shot job is removed."""
-        if not job_prefixes:
+        if job_prefixes == ():
             return set()
+        predicates = [job_deliveries.c.client_id.like("scheduled:%")]
+        if job_prefixes is not None:
+            predicates.append(
+                or_(
+                    *(
+                        job_deliveries.c.client_id.like(f"scheduled:%:{prefix}%")
+                        for prefix in job_prefixes
+                    )
+                )
+            )
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
@@ -79,12 +89,7 @@ class DeliveryQueueStore:
                         job_deliveries.c.status.in_(
                             ("queued", "retrying", "rate_limited", "running")
                         ),
-                        or_(
-                            *(
-                                job_deliveries.c.client_id.like(f"scheduled:%:{prefix}%")
-                                for prefix in job_prefixes
-                            )
-                        ),
+                        *predicates,
                     )
                 )
                 .scalars()

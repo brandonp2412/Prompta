@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from prompta.config import StageConcurrencySettings
+from prompta.config import ParallelismSettings, StageConcurrencySettings
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
 from prompta.scheduler_service import DurableSchedulerProducer
@@ -381,6 +381,62 @@ def test_no_parallelism_config_adds_no_global_limit(tmp_path: Path) -> None:
     )
     assert producer._current_concurrency_settings().limit_at(due) is None
     assert producer.tick(now=due) == 4
+
+
+def test_global_parallelism_caps_independent_jobs_and_active_captures(tmp_path: Path) -> None:
+    due = _nz_epoch("2026-10-29T12:00:00")
+    state = tmp_path / "runtime.sqlite3"
+    for index in range(5):
+        add_job(state, f"independent-{index}", "Fresh independent chat", 0, run_at_epoch=due)
+    config = tmp_path / "config.toml"
+    config.write_text("[parallelism]\nmax_workers = 3\n", encoding="utf-8")
+    producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
+
+    assert producer.tick(now=due) == 3
+    assert len(producer.queue.records()) == 3
+    first_send_id, _ = _accept_and_finish_delivery(producer, now=due + 1, deadline=due + 7200)
+    assert producer.queue.pending_scheduled_send_ids() == {
+        str(row["send_id"]) for row in producer.queue.records() if row["status"] == "queued"
+    }
+    assert producer.queue.results.active_capture_send_ids(now=due + 2) == {first_send_id}
+    assert producer.tick(now=due + 2) == 1  # receipt reconciliation, no new admission
+    assert len(producer.queue.records()) == 3
+
+    assert producer.queue.results.finish(first_send_id, "test-owner", "interrupted", now=due + 3)
+    assert producer.tick(now=due + 4) == 1
+    assert len(producer.queue.records()) == 4
+
+
+def test_global_parallelism_hot_reloads_without_restart(tmp_path: Path) -> None:
+    due = _nz_epoch("2026-10-29T12:00:00")
+    state = tmp_path / "runtime.sqlite3"
+    for index in range(5):
+        add_job(state, f"independent-{index}", "Fresh independent chat", 0, run_at_epoch=due)
+    config = tmp_path / "config.toml"
+    config.write_text("[parallelism]\nmax_workers = 3\n", encoding="utf-8")
+    producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
+    assert producer.tick(now=due) == 3
+
+    config.write_text("[parallelism]\nmax_workers = 4\n", encoding="utf-8")
+    assert producer.tick(now=due + 1) == 1
+    assert producer._current_parallelism_settings() == ParallelismSettings(4)
+    config.write_text("[parallelism]\n", encoding="utf-8")
+    assert producer.tick(now=due + 2) == 1
+    assert len(producer.queue.records()) == 5
+
+
+def test_invalid_global_parallelism_reload_does_not_admit_work(tmp_path: Path) -> None:
+    due = _nz_epoch("2026-10-29T12:00:00")
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "independent", "Fresh independent chat", 0, run_at_epoch=due)
+    config = tmp_path / "config.toml"
+    config.write_text("[parallelism]\nmax_workers = 3\n", encoding="utf-8")
+    producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
+    assert producer._current_parallelism_settings().max_workers == 3
+    config.write_text("[parallelism]\nmax_workers = 0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="parallelism.max_workers"):
+        producer.tick(now=due)
+    assert producer.queue.records() == []
 
 
 def test_invalid_reloaded_stage_cap_fails_closed(tmp_path: Path) -> None:
