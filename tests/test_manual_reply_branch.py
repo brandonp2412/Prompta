@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
-from prompta.manual_reply_dispatch import _branch_probe, _recovery_probe
+from prompta.manual_reply_dispatch import _branch_probe, _branch_wait_probe, _recovery_probe
 
 CONVERSATION = "00000000-0000-4000-8000-000000000001"
 PARENT = "00000000-0000-4000-8000-000000000002"
@@ -86,4 +86,35 @@ def test_explicit_recovery_verifies_only_the_one_original_branch(
         page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
         assert page.evaluate(_recovery_probe(CONVERSATION, "Original answer")) == expected
         assert page.evaluate(_recovery_probe(OTHER, "Original answer")) is None
+        browser.close()
+
+
+def test_branch_wait_observes_delayed_assistant_hydration_without_polling() -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page()
+        routed: list[str] = []
+
+        def serve(route: object) -> None:
+            from playwright.sync_api import Route
+            assert isinstance(route, Route)
+            routed.append(route.request.url)
+            route.fulfill(status=200, content_type="text/html", body="<main></main>")
+        page.route("https://chatgpt.com/**", serve)
+        page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
+        page.evaluate(
+            """(parent) => setTimeout(() => {
+                const assistant = document.createElement('div');
+                assistant.setAttribute('data-message-author-role', 'assistant');
+                assistant.setAttribute('data-message-id', parent);
+                assistant.innerText = 'Hydrated answer';
+                document.querySelector('main').append(assistant);
+            }, 450)""",
+            PARENT,
+        )
+        assert page.evaluate(_branch_wait_probe(CONVERSATION, PARENT)) is True
+        assert routed == [f"https://chatgpt.com/c/{CONVERSATION}"]
         browser.close()

@@ -47,6 +47,13 @@ def _recovery_probe(conversation_id: str, original_answer: str) -> str:
     )
 
 
+def _branch_wait_probe(conversation_id: str, parent_id: str) -> str:
+    """Wait on the exact tab's DOM mutations for conversation hydration."""
+    return load_browser_script("wait_for_manual_reply_branch.js").replace(
+        "__VERIFY__", _branch_probe(conversation_id, parent_id)
+    )
+
+
 class ManualReplyDispatcher:
     def __init__(self, store: ManualReplyStore, state_path: Path) -> None:
         self.store = store
@@ -179,7 +186,7 @@ class ManualReplyDispatcher:
             context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
             await driver.wait_for_composer()
             verify = _branch_probe(conversation_id, parent_id)
-            if await driver.eval(verify) is not True:
+            if await driver.eval(_branch_wait_probe(conversation_id, parent_id)) is not True:
                 return
             baseline = await driver.dom_state()
             if _normalise_composer_text(
