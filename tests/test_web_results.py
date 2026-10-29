@@ -463,3 +463,87 @@ def test_explicit_reply_intent_contract_is_local_and_not_dispatched(
         assert "lease_owner" not in turn
         assert "Private manual question" not in caplog.text
         assert "Private answer" not in caplog.text
+
+
+def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> None:
+    """End-to-end: no false badge for queued/partial/status writes or unsent replies."""
+    from sqlalchemy import update
+
+    from prompta.reply_contracts import ReplyIntent
+    from prompta.response_store import results
+
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not chromium or not Path(chromium).is_file():
+        pytest.skip("Headless Chromium unavailable")
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("pending", "Pending prompt", "Pending", now=300)
+        app.results.ensure_queued("partial", "Partial prompt", "Partial", now=310)
+        assert app.results.accept("partial", "100:partial", deadline=900, now=311)
+        assert app.results.write("partial", "100:partial", CaptureResult(
+            "dom", "partial", "Still writing...", "c1", "m1", "p1",
+        ), now=312)
+        completed_run(app, "answered", "Answered", 400)
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium, headless=True,
+                args=["--no-sandbox", "--single-process", "--no-zygote"],
+            )
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                page.add_init_script("""if (!localStorage.getItem("prompta.local-sidebar.v1")) {
+                    localStorage.setItem(
+                        "prompta.local-sidebar.v1",
+                        JSON.stringify({baselineAt: 100, pinnedIds: [], readAt: {}})
+                    );
+                }""")
+                remote: list[str] = []
+                page.on("request", lambda request: remote.append(request.url)
+                        if not request.url.startswith(f"http://127.0.0.1:{port}/") else None)
+                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+                page.get_by_role("button", name="Chats", exact=True).click()
+                answered = page.locator(".chat-entry").filter(has_text="Answered")
+                pending = page.locator(".chat-entry").filter(has_text="Pending")
+                partial = page.locator(".chat-entry").filter(has_text="Partial")
+                expect(answered.locator(".unread-indicator")).to_have_count(1)
+                expect(pending.locator(".unread-indicator")).to_have_count(0)
+                expect(partial.locator(".unread-indicator")).to_have_count(0)
+
+                answered.locator(".chat-row").click()
+                expect(answered.locator(".unread-indicator")).to_have_count(0)
+                pending.locator(".chat-row").click()
+                page.reload(wait_until="networkidle")
+                expect(answered.locator(".unread-indicator")).to_have_count(0)
+                with app.results.engine.begin() as connection:
+                    connection.execute(update(results).where(
+                        results.c.send_id == "answered",
+                    ).values(updated_at=800))
+                page.get_by_role("button", name="Refresh local results").click()
+                expect(answered.locator(".unread-indicator")).to_have_count(0)
+
+                intent = ReplyIntent("reply-12345678901234", "c1", "m1", "Follow up")
+                assert app.replies.prepare("answered", intent, now=600)
+                page.get_by_role("button", name="Refresh local results").click()
+                expect(answered.locator(".unread-indicator")).to_have_count(0)
+                assert app.replies.claim(intent.reply_id, "100:manual", deadline=900, now=601)
+                assert app.replies.accepted(
+                    intent.reply_id, "100:manual", conversation_id="c1",
+                    parent_id="m1", message_id="m2", now=602,
+                )
+                assert app.replies.observe(intent.reply_id, "100:manual", CaptureResult(
+                    "dom", "partial", "Working on the answer", "c1", "m2", "m1",
+                ), now=603)
+                page.get_by_role("button", name="Refresh local results").click()
+                expect(answered.locator(".unread-indicator")).to_have_count(0)
+                assert app.replies.observe(intent.reply_id, "100:manual", CaptureResult(
+                    "sse", "complete", "New verified assistant reply", "c1", "m2", "m1",
+                ), now=604)
+                page.get_by_role("button", name="Refresh local results").click()
+                expect(answered.locator(".unread-indicator")).to_have_count(1)
+                answered.locator(".chat-row").click()
+                expect(page.locator(".assistant-group")).to_have_count(2)
+                expect(page.get_by_text("New verified assistant reply")).to_have_count(1)
+                expect(answered.locator(".unread-indicator")).to_have_count(0)
+                assert remote == []
+            finally:
+                browser.close()

@@ -35,6 +35,7 @@
   let pinnedItems = $state<RunSummary[]>([]);
   let pinnedIds = $state<string[]>([]);
   let readAt = $state<Record<string, number>>({});
+  let readRevisions = $state<Record<string, string>>({});
   let baselineAt = $state(0);
   let drawerOpen = $state(false);
   let filtersOpen = $state(false);
@@ -79,10 +80,11 @@
     try {
       const saved = localStorage.getItem(preferencesKey);
       if (saved) {
-        const prefs: { baselineAt?: number; pinnedIds?: string[]; readAt?: Record<string, number> } = JSON.parse(saved);
+        const prefs: { baselineAt?: number; pinnedIds?: string[]; readAt?: Record<string, number>; readRevisions?: Record<string, string> } = JSON.parse(saved);
         baselineAt = Number.isFinite(prefs.baselineAt) ? Number(prefs.baselineAt) : Date.now() / 1000;
         pinnedIds = Array.isArray(prefs.pinnedIds) ? prefs.pinnedIds.filter((id) => typeof id === "string").slice(0, 24) : [];
         readAt = prefs.readAt && typeof prefs.readAt === "object" ? prefs.readAt : {};
+        readRevisions = prefs.readRevisions && typeof prefs.readRevisions === "object" ? prefs.readRevisions : {};
       } else baselineAt = Date.now() / 1000;
     } catch {
       baselineAt = Date.now() / 1000;
@@ -94,8 +96,10 @@
     try {
       // Only opaque local send IDs and timestamps are stored, never chat content.
       const recent = Object.entries(readAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
+      const recentIds = new Set(recent.map(([id]) => id));
       localStorage.setItem(preferencesKey, JSON.stringify({
         baselineAt, pinnedIds, readAt: Object.fromEntries(recent),
+        readRevisions: Object.fromEntries(Object.entries(readRevisions).filter(([id]) => recentIds.has(id))),
       }));
     } catch {
       // Private browsing and disabled storage still allow in-memory navigation.
@@ -103,11 +107,18 @@
   }
 
   function isUnread(item: RunSummary) {
-    return activity(item) > (readAt[item.send_id] ?? baselineAt);
+    if (!item.last_reply_revision) return false;
+    const seenRevision = readRevisions[item.send_id];
+    if (seenRevision) return seenRevision !== item.last_reply_revision;
+    // Existing timestamp-only read preferences migrate without false alerts.
+    return item.last_reply_at > (readAt[item.send_id] ?? baselineAt);
   }
 
   function markRead(item: RunSummary) {
     readAt = { ...readAt, [item.send_id]: Math.max(Date.now() / 1000, activity(item)) };
+    if (item.last_reply_revision) {
+      readRevisions = { ...readRevisions, [item.send_id]: item.last_reply_revision };
+    }
     savePreferences();
   }
 
@@ -406,7 +417,7 @@
       aria-current={view === "chats" && selectedRunId === item.send_id ? "true" : undefined}
     >
       <span class="chat-row-top">
-        {#if isUnread(item)}<span class="unread-indicator" title="Unread activity"><span class="sr-only">Unread</span></span>{/if}
+        {#if isUnread(item)}<span class="unread-indicator" title="Unread reply"><span class="sr-only">Unread reply</span></span>{/if}
         <strong>{item.title || "Untitled run"}</strong>
         <span class={"result-dot status-" + item.status} title={statusLabel(item.status)}><span class="sr-only">{statusLabel(item.status)}</span></span>
       </span>

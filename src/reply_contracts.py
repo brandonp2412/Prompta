@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import time
@@ -321,6 +322,40 @@ class ManualReplyStore:
                          lease_owner="", updated_at=at))
                 changed += result.rowcount
         return changed
+
+    def annotate_response_markers(self, summaries: list[dict[str, object]]) -> None:
+        """Annotate only saved completed answers, never job/capture metadata activity."""
+        send_ids = [str(item["send_id"]) for item in summaries]
+        if not send_ids:
+            return
+        markers: dict[str, tuple[str, float]] = {send_id: ("", 0.0) for send_id in send_ids}
+        with self.engine.connect() as connection:
+            originals = connection.execute(select(
+                results.c.send_id, results.c.assistant_text, results.c.status,
+                results.c.finished_at,
+            ).where(results.c.send_id.in_(send_ids))).all()
+            for send_id, answer, status, finished_at in originals:
+                if status == "completed" and answer:
+                    marker = hashlib.sha256(
+                        f"initial\0{send_id}\0{answer}".encode()
+                    ).hexdigest()
+                    markers[str(send_id)] = (marker, float(finished_at))
+            completed_replies = connection.execute(select(
+                replies.c.send_id, replies.c.reply_id, replies.c.assistant_text,
+                replies.c.updated_at,
+            ).where(
+                replies.c.send_id.in_(send_ids),
+                replies.c.status == "completed", replies.c.assistant_text != "",
+            ).order_by(replies.c.created_at, replies.c.reply_id)).all()
+            for send_id, reply_id, answer, updated_at in completed_replies:
+                marker = hashlib.sha256(
+                    f"manual\0{reply_id}\0{answer}".encode()
+                ).hexdigest()
+                markers[str(send_id)] = (marker, float(updated_at))
+        for item in summaries:
+            revision, at = markers[str(item["send_id"])]
+            item["last_reply_revision"] = revision
+            item["last_reply_at"] = at
 
     def turns(self, send_id: str) -> list[dict[str, object]] | None:
         original = self.responses.get(send_id)

@@ -290,6 +290,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                     limit=limit, offset=offset, query=params.get("q", [""])[0].strip(),
                     status=params.get("status", [""])[0],
                 )
+                self.server.replies.annotate_response_markers(payload["items"])
             except ValueError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
@@ -315,6 +316,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             if record is None:
                 self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
             else:
+                self.server.replies.annotate_response_markers([record])
                 queued = self.server.queue.get(send_id)
                 record["images"] = [
                     {"name": ref.split("/", 1)[1], "url": "./api/images/" + ref}

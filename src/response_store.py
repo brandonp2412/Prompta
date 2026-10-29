@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -30,6 +30,15 @@ from sqlalchemy.engine import Engine
 from .response_capture import CaptureResult, conversation_id_from_path
 
 ResultStatus = Literal["queued", "accepted", "generating", "completed", "interrupted", "unavailable"]
+
+
+class ResultsPage(TypedDict):
+    items: list[dict[str, object]]
+    total: int
+    limit: int
+    offset: int
+
+
 _MAX_TEXT = 2 * 1024 * 1024
 _SCHEMA = MetaData()
 results = Table(
@@ -298,7 +307,7 @@ class ResponseStore:
 
     def page(
         self, *, limit: int = 20, offset: int = 0, query: str = "", status: str = ""
-    ) -> dict[str, object]:
+    ) -> ResultsPage:
         """List only locally persisted Prompta runs; never touch browser state."""
         if status and status not in (
             "queued", "accepted", "generating", "completed", "interrupted", "unavailable"
@@ -328,7 +337,7 @@ class ResponseStore:
                 .where(*criteria).order_by(results.c.created_at.desc(), results.c.send_id.desc())
                 .limit(limit).offset(offset)
             ).mappings().all()
-        items = []
+        items: list[dict[str, object]] = []
         for row in rows:
             prompt = str(row["user_preview"])
             answer = str(row["assistant_preview"])

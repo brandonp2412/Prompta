@@ -8220,7 +8220,7 @@ function ResultMarkdown($$anchor, $$props) {
 delegate(["click"]);
 //#endregion
 //#region src/ui/ChatsPage.svelte
-var root$1 = /* @__PURE__ */ from_html(`<span class="unread-indicator" title="Unread activity"><span class="sr-only">Unread</span></span>`);
+var root$1 = /* @__PURE__ */ from_html(`<span class="unread-indicator" title="Unread reply"><span class="sr-only">Unread reply</span></span>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-row"><span class="chat-row-top"><!> <strong> </strong> <span><span class="sr-only"> </span></span></span></button> <button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button></div>`);
 var root_2 = /* @__PURE__ */ from_html(`<button type="button" class="drawer-backdrop" aria-label="Close chat sidebar"></button>`);
 var root_3 = /* @__PURE__ */ from_html(`<span class="filter-active-dot" aria-label="Filters active"></span>`);
@@ -8341,6 +8341,7 @@ function ChatsPage($$anchor, $$props) {
 	let pinnedItems = /* @__PURE__ */ state(proxy([]));
 	let pinnedIds = /* @__PURE__ */ state(proxy([]));
 	let readAt = /* @__PURE__ */ state(proxy({}));
+	let readRevisions = /* @__PURE__ */ state(proxy({}));
 	let baselineAt = /* @__PURE__ */ state(0);
 	let drawerOpen = /* @__PURE__ */ state(false);
 	let filtersOpen = /* @__PURE__ */ state(false);
@@ -8381,6 +8382,7 @@ function ChatsPage($$anchor, $$props) {
 				set(baselineAt, Number.isFinite(prefs.baselineAt) ? Number(prefs.baselineAt) : Date.now() / 1e3, true);
 				set(pinnedIds, Array.isArray(prefs.pinnedIds) ? prefs.pinnedIds.filter((id) => typeof id === "string").slice(0, 24) : [], true);
 				set(readAt, prefs.readAt && typeof prefs.readAt === "object" ? prefs.readAt : {}, true);
+				set(readRevisions, prefs.readRevisions && typeof prefs.readRevisions === "object" ? prefs.readRevisions : {}, true);
 			} else set(baselineAt, Date.now() / 1e3);
 		} catch {
 			set(baselineAt, Date.now() / 1e3);
@@ -8390,20 +8392,29 @@ function ChatsPage($$anchor, $$props) {
 	function savePreferences() {
 		try {
 			const recent = Object.entries(get(readAt)).sort((a, b) => b[1] - a[1]).slice(0, 2e3);
+			const recentIds = new Set(recent.map(([id]) => id));
 			localStorage.setItem(preferencesKey, JSON.stringify({
 				baselineAt: get(baselineAt),
 				pinnedIds: get(pinnedIds),
-				readAt: Object.fromEntries(recent)
+				readAt: Object.fromEntries(recent),
+				readRevisions: Object.fromEntries(Object.entries(get(readRevisions)).filter(([id]) => recentIds.has(id)))
 			}));
 		} catch {}
 	}
 	function isUnread(item) {
-		return activity(item) > (get(readAt)[item.send_id] ?? get(baselineAt));
+		if (!item.last_reply_revision) return false;
+		const seenRevision = get(readRevisions)[item.send_id];
+		if (seenRevision) return seenRevision !== item.last_reply_revision;
+		return item.last_reply_at > (get(readAt)[item.send_id] ?? get(baselineAt));
 	}
 	function markRead(item) {
 		set(readAt, {
 			...get(readAt),
 			[item.send_id]: Math.max(Date.now() / 1e3, activity(item))
+		}, true);
+		if (item.last_reply_revision) set(readRevisions, {
+			...get(readRevisions),
+			[item.send_id]: item.last_reply_revision
 		}, true);
 		savePreferences();
 	}
