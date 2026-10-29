@@ -71,3 +71,11 @@
 @media (prefers-reduced-motion: reduce) {
   .prompt-expand svg { transition: none; }
 }
+
+/* Scheduled chats that are due but cannot yet enter the durable delivery queue. */
+.queue-heading { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.queue-heading span:last-child { font-weight: 500; font-size: 11px; opacity: .7; white-space: nowrap; }
+.queue-waiting .chat-row { min-width: 0; padding-block: 8px; flex-direction: column; align-items: stretch; gap: 2px; }
+.queue-waiting .chat-row-top { align-items: center; }
+.queue-position { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--accent, #84b6ff); }
+.queue-subtitle { display: block; margin-top: 3px; font-size: 12px; opacity: .7; text-align: left; }

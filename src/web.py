@@ -24,6 +24,7 @@ from .live_events import LocalEventSignals
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_store import ResponseStore
+from .scheduler_service import DurableSchedulerProducer
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
 from .strict_types import json_object
 from .web_jobs import WebJobService
@@ -94,6 +95,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         self.host_name = host.split(".", 1)[0]
         self.health = ServiceHealthStore(self.state_path)
         self.queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
+        self.queue_view = DurableSchedulerProducer(self.state_path, self.jobs_path)
         self.results = ResponseStore(self.state_path.parent / "chat-results.sqlite3")
         self.replies = ManualReplyStore(self.state_path.parent / "chat-results.sqlite3")
         self.replies.recover_orphans()
@@ -138,7 +140,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
-        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins")):
+        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins", "/api/queue-status")):
             # Search terms and run identifiers can be sensitive; don't log request URLs.
             logger.info("%s - %s /api/results", self.address_string(), self.command)
             return
@@ -281,6 +283,9 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             pinned = self.server.results.local_pinned_runs()
             self.server.replies.annotate_response_markers(pinned)
             self._json({"items": pinned})
+            return
+        if path == "/api/queue-status":
+            self._json(self.server.queue_view.concurrency_queue_snapshot())
             return
         if path == "/api/results":
             params = parse_qs(parsed.query, keep_blank_values=True)

@@ -31,6 +31,11 @@
     { value: "queued", label: "Queued" },
   ];
 
+  type WaitingJob = { name: string; position: number; reason: "global" | "stage"; occupied: number; limit: number };
+  type QueueSnapshot = { max_workers: number | null; occupied_slots: number; waiting: WaitingJob[] };
+  let queueSnapshot = $state<QueueSnapshot>({ max_workers: null, occupied_slots: 0, waiting: [] });
+  let queueGeneration = 0;
+  let queuePollTimer: ReturnType<typeof setInterval> | undefined;
   let items = $state<RunSummary[]>([]);
   let pinnedItems = $state<RunSummary[]>([]);
   let pinnedIds = $state<string[]>([]);
@@ -80,6 +85,12 @@
   });
   let groups = $derived(groupRuns(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst)));
   let pageCount = $derived(Math.min(5001, Math.max(1, Math.ceil(total / pageSize))));
+  let visibleWaiting = $derived(
+    statusFilter && statusFilter !== "queued" ? [] :
+      queueSnapshot.waiting.filter((job) =>
+        !search.trim() || job.name.toLowerCase().includes(search.trim().toLowerCase())
+      )
+  );
 
   function loadPreferences() {
     try {
@@ -190,6 +201,18 @@
         }
       }
     });
+  }
+
+  async function loadQueue() {
+    const generation = ++queueGeneration;
+    try {
+      const response = await fetch("./api/queue-status", { cache: "no-store" });
+      if (!response.ok) return;
+      const body: QueueSnapshot = await response.json();
+      if (generation === queueGeneration) queueSnapshot = body;
+    } catch {
+      // Keep the last confirmed snapshot through a transient local outage.
+    }
   }
 
   async function loadList() {
@@ -372,6 +395,7 @@
   }
 
   function refresh() {
+    void loadQueue();
     void loadList();
     void loadPins();
     if (view === "chats" && selectedRunId) void loadDetail(selectedRunId);
@@ -446,12 +470,17 @@
     loadPreferences();
     void loadList();
     void loadPins();
+    void loadQueue();
+    queuePollTimer = setInterval(() => { if (document.visibilityState === "visible") void loadQueue(); }, 15000);
+    const unsubscribeJobs = subscribeLiveUpdates("jobs", () => void loadQueue());
     const unsubscribe = subscribeLiveUpdates("chats", () => {
       clearTimeout(liveRefreshTimer);
       liveRefreshTimer = setTimeout(refresh, 100);
     });
     return () => {
       unsubscribe();
+      unsubscribeJobs();
+      clearInterval(queuePollTimer);
       clearTimeout(liveRefreshTimer);
       clearTimeout(searchTimer);
     };
@@ -527,13 +556,27 @@
     {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
     {#if pinError}<div class="result-error" role="alert">{pinError}</div>{/if}
     <div class="chats-list">
+      {#if visibleWaiting.length}
+        <div class="chats-date queue-heading" aria-live="polite">
+          <span>Waiting to start · {visibleWaiting.length}</span>
+          <span>{queueSnapshot.max_workers === null ? "Stage capacity" : `${queueSnapshot.occupied_slots}/${queueSnapshot.max_workers} global slots`}</span>
+        </div>
+        {#each visibleWaiting as waiting (waiting.name)}
+          <div class="chat-entry queue-waiting">
+            <button type="button" class="chat-row" onclick={showJobs} title={"Open Jobs for " + waiting.name}>
+              <span class="chat-row-top"><strong>{waiting.name}</strong><span class="queue-position">#{waiting.position}</span></span>
+              <span class="queue-subtitle">Queued · {waiting.reason === "stage" ? "stage" : "global"} limit ({waiting.occupied}/{waiting.limit})</span>
+            </button>
+          </div>
+        {/each}
+      {/if}
       {#if pinned.length}
         <div class="chats-date">Pinned</div>
         {#each pinned as item (item.send_id)}{@render chatItem(item)}{/each}
       {/if}
       {#if loadingList && !items.length}
         <p class="chats-empty">Loading chats…</p>
-      {:else if !items.length && !pinned.length}
+      {:else if !items.length && !pinned.length && !visibleWaiting.length}
         <p class="chats-empty">{search || statusFilter ? "No matching chats" : "No chats"}</p>
       {:else}
         {#each groups as group (group.date)}

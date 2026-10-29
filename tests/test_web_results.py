@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from http.client import HTTPConnection
@@ -664,5 +665,89 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 expect(page.get_by_text("New verified assistant reply")).to_have_count(1)
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert remote == []
+            finally:
+                browser.close()
+
+
+def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(tmp_path: Path) -> None:
+    with server(tmp_path) as (app, port):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text("[parallelism]\nmax_workers = 1\n")
+        app.queue_view.concurrency_config_path = config_path
+        for name in ("alpha", "beta", "gamma"):
+            add_job(app.jobs_path, name, f"Secret prompt {name}", 60, exact_interval=True)
+            app.queue_view.runtime.update_job_state(name, {"initial_due_at_epoch": 1000.0})
+        assert app.queue_view.tick(now=1000.0) == 1
+
+        status, payload, headers = get(port, "/api/queue-status")
+        assert status == 200 and headers["cache-control"] == "no-store"
+        assert payload == {
+            "max_workers": 1, "occupied_slots": 1,
+            "waiting": [{"name": "beta", "position": 1, "reason": "global", "occupied": 1, "limit": 1}, {"name": "gamma", "position": 2, "reason": "global", "occupied": 1, "limit": 1}],
+        }
+        assert "Secret prompt" not in str(payload)
+        assert get(port, "/api/queue-status", method="POST")[0] == 404
+        assert len(app.queue.records()) == 1
+
+
+def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    with server(tmp_path) as (app, port):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text("[parallelism]\nmax_workers = 1\n")
+        app.queue_view.concurrency_config_path = config_path
+        at = time.time()
+        for name in ("alpha", "beta", "gamma"):
+            add_job(app.jobs_path, name, f"Synthetic prompt for {name}", 60, exact_interval=True)
+            app.queue_view.runtime.update_job_state(name, {"initial_due_at_epoch": at})
+        assert app.queue_view.tick(now=at) == 1
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium_path, headless=True, args=["--no-sandbox"]
+            )
+            try:
+                for width, height in ((1440, 900), (390, 844), (320, 700)):
+                    context = browser.new_context(viewport={"width": width, "height": height})
+                    page = context.new_page()
+                    requests: list[tuple[str, str]] = []
+                    page.on("request", lambda req: requests.append((req.method, req.url)))
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded")
+                    expect(page.locator(".queue-heading")).to_contain_text("1/1 global slots")
+                    rows = page.locator(".queue-waiting")
+                    expect(rows).to_have_count(2)
+                    expect(rows.nth(0)).to_contain_text("beta")
+                    expect(rows.nth(0)).to_contain_text("#1")
+                    expect(rows.nth(1)).to_contain_text("gamma")
+                    expect(rows.nth(1)).to_contain_text("#2")
+                    top = rows.nth(0).locator(".chat-row-top").bounding_box()
+                    subtitle = rows.nth(0).locator(".queue-subtitle").bounding_box()
+                    assert top is not None and subtitle is not None
+                    assert subtitle["y"] >= top["y"] + top["height"] - 2
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                    page.screenshot(path=str(tmp_path / f"queued-{width}x{height}.png"))
+                    assert all(method == "GET" for method, _ in requests)
+                    assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in requests)
+                    if width == 1440:
+                        rows.first.locator("button").click()
+                        expect(page.locator(".jobs-workspace")).to_be_visible()
+                        assert all(method == "GET" for method, _ in requests)
+                    context.close()
+                context = browser.new_context(viewport={"width": 1440, "height": 900})
+                page = context.new_page()
+                page.goto(f"http://127.0.0.1:{port}/?view=chats")
+                rows = page.locator(".queue-waiting")
+                expect(rows).to_have_count(2)
+                claimed = app.queue.claim_next("worker", now=at + 1, lease_seconds=30.0)
+                assert claimed is not None
+                assert app.queue.complete_claim(str(claimed["send_id"]), "worker", now=at + 2)
+                assert app.queue_view.tick(now=at + 3) >= 1
+                # SSE invalidates the local queue snapshot without a navigation or refresh.
+                expect(rows).to_have_count(1)
+                expect(rows.first).to_contain_text("gamma")
+                expect(rows.first).to_contain_text("#1")
+                expect(page.locator(".chat-entry:not(.queue-waiting)").filter(has_text="beta")).to_have_count(1)
+                context.close()
             finally:
                 browser.close()

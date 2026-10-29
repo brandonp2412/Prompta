@@ -117,6 +117,59 @@ class DurableSchedulerProducer:
             for other in jobs
         )
 
+    def concurrency_queue_snapshot(self, *, now: float | None = None) -> dict[str, object]:
+        """Read-only view of due chats waiting behind global or stage worker limits.
+
+        The scheduler deliberately does not enqueue these until capacity frees.
+        Do not create fake result rows or advance a job's occurrence marker.
+        """
+        at = time.time() if now is None else float(now)
+        limit = self._current_parallelism_settings().max_workers
+        active = self.queue.pending_scheduled_send_ids()
+        active.update(self.queue.results.active_capture_send_ids(now=at))
+        global_full = limit is not None and len(active) >= limit
+
+        stage = self._current_concurrency_settings()
+        stage_limit = stage.limit_at(at) if stage.enabled else None
+        stage_active: set[str] = set()
+        if stage_limit is not None:
+            stage_active = self.queue.pending_scheduled_send_ids(stage.job_prefixes)
+            stage_active.update(
+                self.queue.results.active_capture_send_ids(stage.job_prefixes, now=at)
+            )
+        stage_full = stage_limit is not None and len(stage_active) >= stage_limit
+
+        waiting: list[dict[str, object]] = []
+        if global_full or stage_full:
+            raw_states = self.runtime.load_state().get("jobs")
+            states = string_object_dict(raw_states) or {}
+            # Preserve tick()'s job iteration order when numbering waiters.
+            for job in self.runtime.read_jobs().values():
+                is_stage = stage_full and job.name.startswith(stage.job_prefixes)
+                if not global_full and not is_stage:
+                    continue
+                raw_state = states.get(job.name)
+                state = string_object_dict(raw_state) or {}
+                send_id = str(state.get("last_delivery_send_id") or "")
+                receipt = self.queue.get(send_id) if send_id else None
+                if not should_enqueue_job(
+                    job, state, now=at, pending_delivery=receipt_is_pending(receipt)
+                ):
+                    continue
+                if self._external_mutex_group_busy(job):
+                    continue
+                if global_full:
+                    assert limit is not None
+                    reason, occupied, capacity = "global", len(active), limit
+                else:
+                    assert stage_limit is not None
+                    reason, occupied, capacity = "stage", len(stage_active), stage_limit
+                waiting.append({
+                    "name": job.name, "position": len(waiting) + 1,
+                    "reason": reason, "occupied": occupied, "limit": capacity,
+                })
+        return {"max_workers": limit, "occupied_slots": len(active), "waiting": waiting}
+
     def _external_mutex_group_busy(self, job: PromptJob) -> bool:
         if not job.mutex_group:
             return False

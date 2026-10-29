@@ -477,3 +477,63 @@ def test_stage_prefix_cap_applies_to_future_cli_jobs_without_mutex_group(
     path.write_text("[stage_concurrency]\nenabled = false\n", encoding="utf-8")
     assert producer.tick(now=due + 1) == 3
     assert len(producer.queue.records()) == 4
+
+
+def test_concurrency_queue_snapshot_tracks_due_chats_without_dispatching_them(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[parallelism]\nmax_workers = 1\n")
+    for name in ("first", "second", "third"):
+        add_job(state, name, f"Private prompt for {name}", 60, exact_interval=True)
+    producer = DurableSchedulerProducer(state, state, queue_path, config_path)
+    for name in ("first", "second", "third"):
+        producer.runtime.update_job_state(name, {"initial_due_at_epoch": 1000.0})
+
+    assert producer.tick(now=1000.0) == 1
+    expected = {
+        "max_workers": 1,
+        "occupied_slots": 1,
+        "waiting": [{"name": "second", "position": 1, "reason": "global", "occupied": 1, "limit": 1}, {"name": "third", "position": 2, "reason": "global", "occupied": 1, "limit": 1}],
+    }
+    assert producer.concurrency_queue_snapshot(now=1001.0) == expected
+    assert DurableSchedulerProducer(state, state, queue_path, config_path).concurrency_queue_snapshot(now=1001.0) == expected
+    assert len(producer.queue.records()) == 1
+    assert "Private prompt" not in str(expected)
+
+    claimed = producer.queue.claim_next("worker", now=1001.0, lease_seconds=30.0)
+    assert claimed is not None
+    assert producer.queue.complete_claim(str(claimed["send_id"]), "worker", now=1002.0)
+    assert producer.concurrency_queue_snapshot(now=1003.0)["waiting"] == []
+    assert producer.tick(now=1003.0) >= 1
+    assert producer.concurrency_queue_snapshot(now=1004.0)["waiting"] == [
+        {"name": "third", "position": 1, "reason": "global", "occupied": 1, "limit": 1}
+    ]
+    assert len(producer.queue.records()) == 2
+
+
+def test_concurrency_queue_snapshot_includes_daytime_stage_limit(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "[parallelism]\nmax_workers = 3\n"
+        "[stage_concurrency]\nenabled = true\njob_prefixes = ['stage-']\n"
+        "timezone = 'Pacific/Auckland'\nnight_start = '22:30'\n"
+        "night_end = '07:00'\nday_limit = 1\nnight_limit = 3\n"
+    )
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=ZoneInfo("Pacific/Auckland")).timestamp()
+    for name in ("stage-first", "stage-second", "unrestricted"):
+        add_job(state, name, f"Private prompt {name}", 60, exact_interval=True)
+    producer = DurableSchedulerProducer(state, state, tmp_path / "ui-send-jobs.sqlite3", config_path)
+    for name in ("stage-first", "stage-second", "unrestricted"):
+        producer.runtime.update_job_state(name, {"initial_due_at_epoch": now})
+
+    assert producer.tick(now=now) == 2
+    snapshot = producer.concurrency_queue_snapshot(now=now + 1)
+    assert snapshot == {
+        "max_workers": 3, "occupied_slots": 2,
+        "waiting": [{
+            "name": "stage-second", "position": 1, "reason": "stage", "occupied": 1, "limit": 1,
+        }],
+    }
+    assert len(producer.queue.records()) == 2
