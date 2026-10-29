@@ -207,6 +207,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 expect(page.locator(".chat-row")).to_have_count(5)
                 screenshot(page, root, "10-chats-list", notes)
                 page.get_by_role("button", name="Refresh local results").click()
+                page.get_by_role("button", name="Search chats").click()
                 page.locator(".chats-controls select").select_option("completed")
                 expect(page.locator(".chat-row")).to_have_count(3)
                 page.locator(".chats-controls select").select_option("")

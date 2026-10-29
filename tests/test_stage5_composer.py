@@ -130,6 +130,7 @@ def test_real_composer_keyboard_image_and_overflow(
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
         composer.press("Enter")
         page.wait_for_url("**/?view=chats&run=manual-*")
+        assert page.evaluate("localStorage.getItem('prompta.new-chat-draft.v1')") is None
         assert len([url for method, url in requests if method == "POST" and "/api/chats" in url]) == 1
         assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in requests)
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")

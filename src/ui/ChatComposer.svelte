@@ -19,12 +19,34 @@
   let dragging = $state(false);
   let textarea = $state<HTMLTextAreaElement>();
   let fileInput = $state<HTMLInputElement>();
+  const newChatDraftKey = "prompta.new-chat-draft.v1";
   const canAttach = $derived(mode === "fresh" && !disabled && !locked && !sending && !uploading);
   const canSend = $derived(!disabled && !locked && !sending && !uploading && !!draft.trim());
 
   onMount(() => {
-    if (mode === "fresh") textarea?.focus();
+    if (mode === "fresh") {
+      try { draft = localStorage.getItem(newChatDraftKey)?.slice(0, 32000) ?? ""; } catch { /* Storage may be unavailable. */ }
+      textarea?.focus();
+    }
+    requestAnimationFrame(resizeTextarea);
+    window.addEventListener("resize", resizeTextarea);
+    return () => window.removeEventListener("resize", resizeTextarea);
   });
+
+  function resizeTextarea() {
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const maxHeight = Math.min(window.innerHeight * (window.innerWidth <= 680 ? 0.3 : 0.42), 360);
+    textarea.style.height = Math.min(textarea.scrollHeight, maxHeight) + "px";
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  }
+
+  function draftChanged(event: Event) {
+    if (mode === "fresh") {
+      try { localStorage.setItem(newChatDraftKey, (event.currentTarget as HTMLTextAreaElement).value); } catch { /* In-memory editing still works. */ }
+    }
+    resizeTextarea();
+  }
 
   async function addFiles(files: File[]) {
     if (!files.length) return;
@@ -83,6 +105,10 @@
         draft = "";
         images = [];
         feedback = result.message;
+        if (mode === "fresh") {
+          try { localStorage.removeItem(newChatDraftKey); } catch { /* Storage may be unavailable. */ }
+        }
+        requestAnimationFrame(resizeTextarea);
       } else {
         feedback = result.message;
         locked = !!result.ambiguous;
@@ -133,15 +159,18 @@
         {/each}
       </div>
     {/if}
-    <textarea bind:this={textarea} bind:value={draft} onkeydown={keydown} onpaste={pasted}
-      rows="2" maxlength="32000" disabled={disabled || locked || sending}
+    <textarea bind:this={textarea} bind:value={draft} oninput={draftChanged} onkeydown={keydown} onpaste={pasted}
+      rows="4" maxlength="32000" disabled={disabled || locked || sending}
       aria-label={mode === "fresh" ? "Message for new chat" : "Reply to this chat"}
       placeholder={mode === "fresh" ? "Message Prompta…" : "Reply to this chat…"}></textarea>
     <div class="composer-actions">
       <div class="composer-attach">
         {#if mode === "fresh"}
           <button type="button" aria-label="Attach images" title="Attach images" disabled={!canAttach}
-            onclick={() => fileInput?.click()}>＋</button>
+            onclick={() => fileInput?.click()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6" /></svg>
+            <span>{images.length ? `Add images (${images.length}/4)` : "Attach images"}</span>
+          </button>
           <input bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple
             aria-label="Choose images" disabled={!canAttach}
             onchange={(event) => {
@@ -149,7 +178,7 @@
               event.currentTarget.value = "";
             }} />
         {/if}
-        {#if uploading || images.length}<small>{uploading ? "Uploading…" : images.length + "/4 images"}</small>{/if}
+        {#if uploading}<small role="status">Uploading images…</small>{/if}
       </div>
       <button class="composer-send" type="submit" disabled={!canSend}
         aria-label={sending ? "Sending" : mode === "fresh" ? "Send fresh chat" : "Send reply"}>

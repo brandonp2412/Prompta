@@ -31,6 +31,7 @@ _STATIC_ROOT = Path(__file__).with_name("static")
 _ALLOWED_STATIC = {
     "app.js",
     "app.css",
+    "chat-workspace.css",
     "icon.svg",
     "icon-maskable.svg",
     "icon-192.png",

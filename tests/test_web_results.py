@@ -183,7 +183,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 page.on("request", lambda request: network_hosts.append(request.url.split("/")[2]))
                 page.on("request", lambda request: network_methods.append(request.method))
                 page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-                page.get_by_role("button", name="Chats").click()
+                page.get_by_role("button", name="Chats", exact=True).click()
                 page.locator(".chat-row").first.wait_for()
                 assert page.locator(".chat-row").count() == 4
                 page.locator(".chat-row").filter(has_text="Daily review").click()
@@ -207,18 +207,44 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
 
                 page.locator(".chat-row").filter(has_text="Security").click()
                 expect(page.locator(".prompt-message.collapsed")).to_have_count(1)
+                bubble = page.locator(".prompt-bubble")
+                bubble.scroll_into_view_if_needed()
+                collapsed_box = bubble.bounding_box()
                 page.get_by_role("button", name="Show full prompt").click()
                 expect(page.locator(".prompt-message.collapsed")).to_have_count(0)
+                expanded_box = bubble.bounding_box()
+                assert collapsed_box and expanded_box
+                assert expanded_box["height"] > collapsed_box["height"]
+                assert abs(expanded_box["y"] - collapsed_box["y"]) < 4
                 page.get_by_role("button", name="Show less").click()
                 assert page.locator(".result-markdown img").count() == 0
                 assert page.locator(".result-markdown a").count() == 0
                 assert "<img" in page.locator(".result-markdown").inner_text()
+                page.get_by_role("button", name="Search chats").click()
                 page.locator(".chats-controls select").select_option("completed")
                 expect(page.locator(".chat-row")).to_have_count(3)
                 page.locator(".chats-controls select").select_option("")
                 page.locator(".chats-controls input").fill("Nightly")
                 expect(page.locator(".chat-row")).to_have_count(1)
                 assert page.locator(".chat-row").inner_text().find("Nightly summary") >= 0
+                page.locator(".sidebar-actions").get_by_role("button", name="New chat").click()
+                composer = page.get_by_role("textbox", name="Message for new chat")
+                initial_box = composer.bounding_box()
+                assert initial_box is not None
+                initial_height = initial_box["height"]
+                assert initial_height >= 100
+                draft_text = chr(10).join(["Draft survives reloading."] * 18)
+                composer.fill(draft_text)
+                expanded_composer_box = composer.bounding_box()
+                assert expanded_composer_box is not None
+                assert expanded_composer_box["height"] > initial_height
+                page.reload(wait_until="networkidle")
+                expect(page.get_by_role("textbox", name="Message for new chat")).to_have_value(draft_text)
+                page.get_by_role("button", name="Chats", exact=True).click()
+                page.locator(".sidebar-actions").get_by_role("button", name="New chat").click()
+                expect(page.get_by_role("textbox", name="Message for new chat")).to_have_value(draft_text)
+                page.get_by_role("textbox", name="Message for new chat").fill("")
+                assert page.evaluate("localStorage.getItem('prompta.new-chat-draft.v1')") == ""
                 assert all(host == f"127.0.0.1:{port}" for host in network_hosts)
                 assert all(method == "GET" for method in network_methods)
 

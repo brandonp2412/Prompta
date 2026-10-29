@@ -4,13 +4,13 @@
   import ChatComposer from "./ChatComposer.svelte";
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import {
-    groupRuns, nzTime, plainPreview, statusLabel, turnStatus,
+    groupRuns, nzTime, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
   let { view, selectedRunId, newChatOpen, onSelect, onNavigate, onNewChat, onQueued }: {
     view: "jobs" | "chats";
-    selectedRunId: string | null;
+     selectedRunId: string | null;
     newChatOpen: boolean;
     onSelect: (sendId: string | null) => void;
     onNavigate: (view: "jobs" | "chats") => void;
@@ -36,6 +36,7 @@
   let readAt = $state<Record<string, number>>({});
   let baselineAt = $state(0);
   let drawerOpen = $state(false);
+  let filtersOpen = $state(false);
   let expandedPrompts = $state<Record<string, boolean>>({});
   let total = $state(0);
   let page = $state(0);
@@ -326,6 +327,17 @@
     if (event.key === "Escape" && drawerOpen) drawerOpen = false;
   }
 
+  async function togglePrompt(key: string, event: MouseEvent) {
+    const bubble = (event.currentTarget as HTMLElement).closest(".prompt-bubble");
+    const originalTop = bubble?.getBoundingClientRect().top;
+    expandedPrompts = { ...expandedPrompts, [key]: !expandedPrompts[key] };
+    await tick();
+    // Keep the start of the bubble in place instead of letting scroll anchoring grow it upward.
+    if (bubble && scrollPane && originalTop !== undefined) {
+      scrollPane.scrollTop += bubble.getBoundingClientRect().top - originalTop;
+    }
+  }
+
   $effect(() => {
     const id = view === "chats" ? selectedRunId : null;
     untrack(() => {
@@ -367,10 +379,8 @@
       <span class="chat-row-top">
         {#if isUnread(item)}<span class="unread-indicator" title="Unread activity"><span class="sr-only">Unread</span></span>{/if}
         <strong>{item.title || "Untitled run"}</strong>
-        <small>{nzTime(activity(item)).split(", ").at(-1)}</small>
+        <span class={"result-dot status-" + item.status} title={statusLabel(item.status)}><span class="sr-only">{statusLabel(item.status)}</span></span>
       </span>
-      <span class="chat-row-meta"><span class={"result-dot status-" + item.status}></span>{statusLabel(item.status)}{#if item.job_name}<span class="chat-job">{item.job_name}</span>{/if}</span>
-      {#if plainPreview(item.preview)}<span class="chat-preview">{plainPreview(item.preview)}</span>{/if}
     </button>
     <button
       type="button" class:active={pinnedIds.includes(item.send_id)} class="chat-pin"
@@ -395,20 +405,21 @@
     </div>
     <nav class="sidebar-actions" aria-label="Main navigation">
       <button class="sidebar-primary" type="button" onclick={createChat}>
-        <span aria-hidden="true">＋</span> New chat
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" /></svg>
+        New chat
       </button>
-      <button class:active={view === "chats"} type="button" onclick={showChats}>
-        <span aria-hidden="true">▤</span> Chats
-      </button>
-      <button class:active={view === "jobs"} type="button" onclick={showJobs}>
-        <span aria-hidden="true">▦</span> Jobs
+      <button class:active={filtersOpen} class="sidebar-search" type="button" aria-expanded={filtersOpen} aria-controls="chat-filters" onclick={() => filtersOpen = !filtersOpen}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+        Search chats
+        {#if search || statusFilter}<span class="filter-active-dot" aria-label="Filters active"></span>{/if}
       </button>
     </nav>
     <div class="chats-heading">
-      <h2>Recent <span class="chats-count">{total}</span></h2>
+      <h2><button class="chats-heading-link" type="button" onclick={showChats}>Chats</button> <span class="chats-count">{total}</span></h2>
       <button class="chats-refresh" type="button" onclick={refresh} aria-label="Refresh local results" title="Refresh local results">↻</button>
     </div>
-    <div class="chats-controls">
+    {#if filtersOpen}
+    <div id="chat-filters" class="chats-controls">
       <label class="search-label">
         <span class="sr-only">Search job results</span>
         <input type="search" placeholder="Search chats" bind:value={search} oninput={searchChanged} />
@@ -420,6 +431,7 @@
         </select>
       </label>
     </div>
+    {/if}
     {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
     <div class="chats-list">
       {#if pinned.length}
@@ -437,9 +449,17 @@
         {/each}
       {/if}
     </div>
-    <div class="chats-pagination">
-      <span>{total ? page * pageSize + 1 : 0}–{Math.min(total, (page + 1) * pageSize)} of {total}</span>
-      <div><button disabled={page === 0} onclick={() => movePage(page - 1)}>Previous</button><button disabled={page + 1 >= pageCount} onclick={() => movePage(page + 1)}>Next</button></div>
+    {#if total > pageSize}
+      <div class="chats-pagination">
+        <span>{page + 1} / {pageCount}</span>
+        <div><button disabled={page === 0} aria-label="Previous chat page" onclick={() => movePage(page - 1)}>‹</button><button disabled={page + 1 >= pageCount} aria-label="Next chat page" onclick={() => movePage(page + 1)}>›</button></div>
+      </div>
+    {/if}
+    <div class="sidebar-footer">
+      <button class:active={view === "jobs"} type="button" onclick={showJobs}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
+        Jobs
+      </button>
     </div>
   </aside>
 
@@ -470,12 +490,15 @@
           {#each turns as turn, index (turn.reply_id || detail.send_id)}
             <div class="message-group user-group">
               <div class="message-role">You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</div>
-              <div class:collapsed={turn.user_text.length > 280 && !expandedPrompts[(detail?.send_id ?? "") + ":" + index]} class="prompt-message">{turn.user_text}</div>
+              <div class="prompt-bubble">
+                <div class:collapsed={turn.user_text.length > 280 && !expandedPrompts[(detail?.send_id ?? "") + ":" + index]} class="prompt-message">{turn.user_text}</div>
                 {#if turn.user_text.length > 280}
-                  <button class="prompt-expand" type="button" aria-expanded={Boolean(expandedPrompts[(detail?.send_id ?? "") + ":" + index])} onclick={() => (expandedPrompts[(detail?.send_id ?? "") + ":" + index] = !expandedPrompts[(detail?.send_id ?? "") + ":" + index])}>
+                  <button class="prompt-expand" type="button" aria-expanded={Boolean(expandedPrompts[(detail?.send_id ?? "") + ":" + index])} onclick={(event) => void togglePrompt((detail?.send_id ?? "") + ":" + index, event)}>
                     {expandedPrompts[(detail?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt"}
+                    <svg class:rotated={expandedPrompts[(detail?.send_id ?? "") + ":" + index]} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
                   </button>
                 {/if}
+              </div>
               {#if index === 0 && detail.images?.length}
                 <div class="chat-attachments" aria-label="Attached images">
                   {#each detail.images as attachment (attachment.url)}
