@@ -576,10 +576,23 @@
         type="button"
         disabled={!visibleJobs.length || saving}
         title={allVisiblePaused ? "Resume the jobs shown on this page" : "Pause the jobs shown on this page"}
+        aria-label={allVisiblePaused ? "Resume visible jobs" : "Pause visible jobs"}
         onclick={() => void toggleVisible()}
-      >{allVisiblePaused ? "Resume visible" : "Pause visible"} ({visibleJobs.length})</button>
+      >
+        <span class="action-copy">{allVisiblePaused ? "Resume visible" : "Pause visible"} ({visibleJobs.length})</span>
+        <span class="compact-action-icon" aria-hidden="true">
+          {#if allVisiblePaused}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 5 11 7-11 7z" /></svg>
+          {:else}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14M16 5v14" /></svg>
+          {/if}
+        </span>
+      </button>
 
-      <button class="toolbar-button refresh-action" type="button" disabled={saving} onclick={() => void load()}>Refresh</button>
+      <button class="toolbar-button refresh-action" type="button" disabled={saving} aria-label="Refresh jobs" title="Refresh jobs" onclick={() => void load()}>
+        <span class="action-copy">Refresh</span>
+        <span class="compact-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.9 9A7 7 0 0 1 18.5 7L20 12M4 12l1.5 5A7 7 0 0 0 18.1 15" /></svg></span>
+      </button>
       <button class="toolbar-button run-once-action" type="button" disabled={saving} onclick={beginOnce}>Run once</button>
       <button class="primary-button" type="button" disabled={saving} onclick={beginNew}>New job</button>
     </div>

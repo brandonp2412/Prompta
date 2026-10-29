@@ -168,3 +168,89 @@
   .job-image-picker { gap: 8px; margin-top: 1px; }
   .job-image-previews { gap: 6px; }
 }
+
+
+/* Compact mobile Jobs list: dense summaries with full-size actions. */
+.compact-action-icon { display: none; }
+@media (max-width: 680px) {
+  .jobs-toolbar { gap: 5px; padding: 8px 0 5px; }
+  .toolbar-title h1 { font-size: 1.08rem; }
+  .toolbar-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px 44px;
+    gap: 5px;
+    align-items: center;
+  }
+  .toolbar-actions > button { min-width: 0; min-height: 44px; padding: 0 6px; white-space: nowrap; font-size: .82rem; }
+  .toolbar-actions .visible-toggle, .toolbar-actions .refresh-action { display: grid; place-items: center; padding: 0; }
+  .toolbar-actions .visible-toggle { order: 2; }
+  .toolbar-actions .refresh-action { order: 3; }
+  .toolbar-actions .status-line { order: 4; grid-column: 1 / -1; font-size: .7rem; line-height: 1.3; }
+  .toolbar-actions .status-line:empty { display: none; }
+  .toolbar-actions .action-copy { display: none; }
+  .toolbar-actions .compact-action-icon { display: inline-flex; width: 20px; height: 20px; }
+  .toolbar-actions .compact-action-icon svg { width: 20px; height: 20px; }
+
+  .jobs-summary {
+    flex-wrap: nowrap;
+    gap: 5px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    padding: 3px 0 6px;
+  }
+  .jobs-summary::-webkit-scrollbar { display: none; }
+  .filter-chip { flex: none; scroll-snap-align: start; min-height: 44px; padding: 8px 10px; white-space: nowrap; }
+
+  .job-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main state" "next next" "actions actions";
+    align-items: start;
+    column-gap: 6px;
+    row-gap: 3px;
+    margin: 3px 0;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+  .job-row > .job-main { grid-area: main; min-width: 0; }
+  .job-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+    margin-bottom: 2px;
+  }
+  .job-prompt { -webkit-line-clamp: 1; line-height: 1.35; font-size: .78rem; }
+  .job-submeta { display: none; }
+  .job-image-count { margin-top: 1px; font-size: .7rem; }
+  .job-row > .schedule-cell { display: none; }
+  .job-row > .job-cell:not(.schedule-cell):not(.state-cell) {
+    grid-area: next;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: .75rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .job-row > .job-cell:not(.schedule-cell):not(.state-cell) .cell-label {
+    display: inline;
+    flex: none;
+    margin: 0;
+    font-size: .7rem;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+  .job-row > .state-cell { grid-area: state; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; max-width: 128px; }
+  .state-cell .cell-label { display: none; }
+  .state-value { font-size: .72rem; white-space: nowrap; }
+  .state-cell .job-message { max-width: 128px; text-align: right; }
+  .job-row > .job-actions { grid-area: actions; display: flex; gap: 3px; min-width: 0; justify-content: stretch; }
+  .job-actions .row-action { flex: 1; min-width: 0; min-height: 44px; padding: 7px 3px; font-size: .75rem; border-radius: 8px; }
+  .job-actions .row-action:hover:not(:disabled) { background: #2b2b2b; }
+}
