@@ -8196,10 +8196,11 @@ var root_24 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root_25 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
 var root_26 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role">You <!></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!></div>`, 1);
 var root_27 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><header class="chat-detail-title"><h2> </h2><p> </p></header> <!> <!></div>`);
-var root_28 = /* @__PURE__ */ from_html(`<div class="chat-prepared-action"><span>Reply saved locally, not yet sent.</span> <button type="button">Send saved reply</button></div>`);
-var root_29 = /* @__PURE__ */ from_html(`<div class="chat-reply-status"> </div>`);
-var root_30 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
-var root_31 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button class="sidebar-primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> New chat</button> <button type="button" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> Search chats <!></button></nav> <div class="chats-heading"><h2><button class="chats-heading-link" type="button">Chats</button> <span class="chats-count"> </span></h2> <button class="chats-refresh" type="button" aria-label="Refresh local results" title="Refresh local results">↻</button></div> <!> <!> <div class="chats-list"><!> <!></div> <!> <div class="sidebar-footer"><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> Jobs</button></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
+var root_28 = /* @__PURE__ */ from_html(`<div class="chat-reply-status"><button type="button"> </button></div>`);
+var root_29 = /* @__PURE__ */ from_html(`<div class="chat-prepared-action"><span>Reply saved locally, not yet sent.</span> <button type="button">Send saved reply</button></div>`);
+var root_30 = /* @__PURE__ */ from_html(`<div class="chat-reply-status"> </div>`);
+var root_31 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
+var root_32 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button class="sidebar-primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> New chat</button> <button type="button" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> Search chats <!></button></nav> <div class="chats-heading"><h2><button class="chats-heading-link" type="button">Chats</button> <span class="chats-count"> </span></h2> <button class="chats-refresh" type="button" aria-label="Refresh local results" title="Refresh local results">↻</button></div> <!> <!> <div class="chats-list"><!> <!></div> <!> <div class="sidebar-footer"><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> Jobs</button></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
 	push($$props, true);
 	const chatItem = ($$anchor, item = noop) => {
@@ -8299,6 +8300,7 @@ function ChatsPage($$anchor, $$props) {
 	let detail = /* @__PURE__ */ state(null);
 	let turns = /* @__PURE__ */ state(proxy([]));
 	let turnsError = /* @__PURE__ */ state("");
+	let recoveringReply = /* @__PURE__ */ state(false);
 	let copyState = /* @__PURE__ */ state("");
 	let scrollPane = /* @__PURE__ */ state(void 0);
 	let loadingList = /* @__PURE__ */ state(true);
@@ -8471,6 +8473,28 @@ function ChatsPage($$anchor, $$props) {
 			};
 		}
 	}
+	async function recoverReply() {
+		const id = $$props.selectedRunId;
+		const original = get(turns).length === 1 ? get(turns)[0] : null;
+		if (!id || original?.status !== "completed" || !original.conversation_id || original.message_id || get(recoveringReply)) return;
+		set(recoveringReply, true);
+		set(turnsError, "");
+		try {
+			if (!(await fetch("./api/results/" + encodeURIComponent(id) + "/reply-recover", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{}"
+			})).ok) {
+				set(turnsError, "The original reply branch could not be verified.");
+				return;
+			}
+			await loadDetail(id);
+		} catch {
+			set(turnsError, "Reply verification could not be completed.");
+		} finally {
+			set(recoveringReply, false);
+		}
+	}
 	async function sendReply(text, _images) {
 		const latest = get(turns).at(-1);
 		if (!$$props.selectedRunId || latest?.status !== "completed" || !latest.conversation_id || !latest.message_id) return {
@@ -8601,7 +8625,7 @@ function ChatsPage($$anchor, $$props) {
 			clearTimeout(searchTimer);
 		};
 	});
-	var section = root_31();
+	var section = root_32();
 	event("keydown", $window, escapeDrawer);
 	let classes_2;
 	var node_1 = child(section);
@@ -8774,7 +8798,7 @@ function ChatsPage($$anchor, $$props) {
 		append($$anchor, div_13);
 	};
 	var alternate_3 = ($$anchor) => {
-		var fragment_6 = root_30();
+		var fragment_6 = root_31();
 		var div_14 = first_child(fragment_6);
 		var button_13 = child(div_14);
 		var node_14 = sibling(button_13, 2);
@@ -8981,25 +9005,38 @@ function ChatsPage($$anchor, $$props) {
 		var d_1 = /* @__PURE__ */ user_derived(() => get(detail) && get(turns).at(-1)?.status === "completed" && get(turns).at(-1)?.conversation_id && get(turns).at(-1)?.message_id);
 		var consequent_25 = ($$anchor) => {
 			var div_25 = root_28();
-			var button_16 = sibling(child(div_25), 2);
+			var button_16 = child(div_25);
+			var text_22 = only_child(button_16, true);
 			reset(div_25);
-			delegated("click", button_16, () => {
+			template_effect(() => {
+				button_16.disabled = get(recoveringReply);
+				set_text(text_22, get(recoveringReply) ? "Verifying reply…" : "Reply to this chat");
+			});
+			delegated("click", button_16, () => void recoverReply());
+			append($$anchor, div_25);
+		};
+		var consequent_26 = ($$anchor) => {
+			var div_26 = root_29();
+			var button_17 = sibling(child(div_26), 2);
+			reset(div_26);
+			delegated("click", button_17, () => {
 				const latest = get(turns).at(-1);
 				if (latest) sendPreparedReply(latest);
 			});
-			append($$anchor, div_25);
+			append($$anchor, div_26);
 		};
 		var d_2 = /* @__PURE__ */ user_derived(() => get(turns).at(-1)?.status === "prepared");
-		var consequent_26 = ($$anchor) => {
-			var div_26 = root_29();
-			var text_22 = only_child(div_26, true);
-			template_effect(($0) => set_text(text_22, $0), [() => turnStatus(get(turns).at(-1)?.status || get(detail).status)]);
-			append($$anchor, div_26);
+		var consequent_27 = ($$anchor) => {
+			var div_27 = root_30();
+			var text_23 = only_child(div_27, true);
+			template_effect(($0) => set_text(text_23, $0), [() => turnStatus(get(turns).at(-1)?.status || get(detail).status)]);
+			append($$anchor, div_27);
 		};
 		if_block(node_28, ($$render) => {
 			if (get(d_1)) $$render(consequent_24);
-			else if (get(d_2)) $$render(consequent_25, 1);
-			else if (get(detail) && get(turns).length > 1) $$render(consequent_26, 2);
+			else if (get(detail) && get(turns).length === 1 && get(turns)[0].status === "completed" && get(turns)[0].conversation_id && !get(turns)[0].message_id) $$render(consequent_25, 1);
+			else if (get(d_2)) $$render(consequent_26, 2);
+			else if (get(detail) && get(turns).length > 1) $$render(consequent_27, 3);
 		});
 		delegated("click", button_13, () => $$props.onSelect(null));
 		append($$anchor, fragment_6);

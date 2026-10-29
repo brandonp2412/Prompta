@@ -37,11 +37,21 @@ def _branch_probe(conversation_id: str, parent_id: str) -> str:
     )
 
 
+def _recovery_probe(conversation_id: str, original_answer: str) -> str:
+    """Verify the one original turn on an explicitly reopened exact branch."""
+    return (
+        load_browser_script("recover_manual_reply_parent.js")
+        .replace("__CONVERSATION__", json.dumps(conversation_id))
+        .replace("__ORIGINAL_ANSWER__", json.dumps(original_answer))
+    )
+
+
 class ManualReplyDispatcher:
     def __init__(self, store: ManualReplyStore, state_path: Path) -> None:
         self.store = store
         self.state_path = state_path
         self._active: set[str] = set()
+        self._recovering: set[str] = set()
         self._lock = threading.Lock()
 
     def submit(self, send_id: str, intent: ReplyIntent) -> dict[str, object]:
@@ -74,6 +84,62 @@ class ManualReplyDispatcher:
                 self._active.discard(intent.reply_id)
             raise ReplyConflict("Manual reply worker is unavailable") from None
         return turn
+
+    def recover(self, send_id: str) -> dict[str, str]:
+        """Only an explicit UI POST can inspect the exact persisted branch."""
+        with self._lock:
+            if send_id in self._recovering:
+                raise ReplyConflict("This chat's reply identity is already being verified")
+            self._recovering.add(send_id)
+        try:
+            return asyncio.run(self._recover_exact_parent(send_id))
+        finally:
+            with self._lock:
+                self._recovering.discard(send_id)
+
+    async def _recover_exact_parent(self, send_id: str) -> dict[str, str]:
+        original = self.store.responses.get(send_id)
+        if original is None or original["status"] != "completed":
+            raise ReplyConflict("A completed Prompta chat is required")
+        conversation_id = str(original["conversation_id"])
+        answer = str(original["assistant_text"])
+        if not conversation_id or not answer:
+            raise ReplyConflict("The original conversation cannot be verified")
+        if original["message_id"]:
+            return {"message_id": str(original["message_id"])}
+        sender = BrowserDeliverySender(
+            self.state_path,
+            debugger_address=os.environ.get(
+                "PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9223"
+            ),
+        )
+        driver = PlaywrightDriver(
+            profile=sender.profile,
+            chrome_path=sender.chrome_path,
+            debugger_address=sender.debugger_address,
+            auth_timeout_seconds=sender.auth_timeout_seconds,
+            ownership_prefix="prompta:reply:",
+        )
+        context = ""
+        try:
+            await driver.connect()
+            context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
+            await driver.wait_for_composer()
+            candidate = await driver.eval(_recovery_probe(conversation_id, answer))
+            if not isinstance(candidate, str) or not candidate:
+                raise ReplyConflict("The original assistant message could not be verified")
+            if not self.store.recover_original_parent(
+                send_id, conversation_id, candidate, answer
+            ):
+                raise ReplyConflict("The saved branch changed or already has a reply")
+            return {"message_id": candidate}
+        finally:
+            if context:
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    pass
+            await driver.close()
 
     def _run(self, turn: dict[str, object]) -> None:
         try:

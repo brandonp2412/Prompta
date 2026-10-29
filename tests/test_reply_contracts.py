@@ -163,3 +163,29 @@ def test_verified_idle_lease_legacy_migration_and_no_resurrection(tmp_path: Path
     assert not touch_owned_tab("missing", 300, path)
     assert not touch_owned_tab("owned", 210 + MAX_OWNED_TAB_AGE_SECONDS + 1, path)
     assert owned_tab_records(path)["owned"] == 210
+
+
+def test_original_parent_recovery_requires_exact_saved_answer_and_is_one_time(
+    tmp_path: Path,
+) -> None:
+    original = ManualReplyStore(tmp_path / "recover.sqlite3")
+    original.responses.ensure_queued("run", "Original prompt", now=10)
+    assert original.responses.accept("run", "test:owner", deadline=100, now=11)
+    conversation = "00000000-0000-4000-8000-000000000001"
+    message = "00000000-0000-4000-8000-000000000002"
+    assert original.responses.write(
+        "run", "test:owner",
+        CaptureResult("dom", "complete", "Original answer", conversation,
+                      None, None, "rendered:assistant"), now=12,
+    )
+    assert not original.recover_original_parent("run", conversation, message, "Wrong answer")
+    assert not original.recover_original_parent("run", message, message, "Original answer")
+    assert not original.recover_original_parent("run", conversation, "not-an-id", "Original answer")
+    assert original.recover_original_parent("run", conversation, message, "Original answer")
+    saved_turns = original.turns("run")
+    assert saved_turns is not None and saved_turns[0]["message_id"] == message
+    assert not original.recover_original_parent("run", conversation, message, "Original answer")
+    prepared = original.prepare(
+        "run", ReplyIntent("reply-1234567890123", conversation, message, "Follow-up")
+    )
+    assert prepared["status"] == "prepared"

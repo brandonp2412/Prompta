@@ -176,6 +176,29 @@ class ManualReplyStore:
             "status": "prepared", "created_at": at, "updated_at": at,
         }
 
+    def recover_original_parent(
+        self, send_id: str, conversation_id: str, message_id: str, original_answer: str
+    ) -> bool:
+        """Bind one missing parent only after an explicit, exact-branch DOM verification."""
+        uuid = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+        if re.fullmatch(uuid, conversation_id) is None or re.fullmatch(uuid, message_id) is None:
+            return False
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            existing = connection.execute(select(replies.c.reply_id).where(
+                replies.c.send_id == send_id
+            ).limit(1)).first()
+            if existing is not None:
+                return False
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.status == "completed",
+                results.c.conversation_id == conversation_id,
+                results.c.message_id == "",
+                results.c.assistant_text == original_answer,
+            ).values(message_id=message_id.lower()))
+        return changed.rowcount == 1
+
     def claim(self, reply_id: str, owner: str, *, deadline: float, now: float | None = None) -> bool:
         """A single irreversible dispatch claim; recovery never retries it."""
         at = time.time() if now is None else now

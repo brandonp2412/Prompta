@@ -331,19 +331,32 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
         send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
-        if path not in {"/api/jobs", "/api/images", "/api/chats"} and not (reply_path or send_reply_path):
+        recover_reply_path = path.startswith("/api/results/") and path.endswith("/reply-recover")
+        if path not in {"/api/jobs", "/api/images", "/api/chats"} and not (
+            reply_path or send_reply_path or recover_reply_path
+        ):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
-            if reply_path or send_reply_path:
-                suffix = "/reply-send" if send_reply_path else "/reply-intents"
+            if reply_path or send_reply_path or recover_reply_path:
+                suffix = (
+                    "/reply-recover" if recover_reply_path
+                    else "/reply-send" if send_reply_path else "/reply-intents"
+                )
                 send_id = unquote(path[len("/api/results/"):-len(suffix)])
                 if not send_id or "/" in send_id:
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
                 if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise ValueError("Reply contract requires JSON")
-                intent = ReplyIntent.parse(self._json_body(max_bytes=65536))
+                payload = self._json_body(max_bytes=65536)
+                if recover_reply_path:
+                    if payload:
+                        raise ValueError("Reply recovery does not accept message content")
+                    recovered = self.server.reply_dispatch.recover(send_id)
+                    self._json({"ok": True, **recovered})
+                    return
+                intent = ReplyIntent.parse(payload)
                 if send_reply_path:
                     turn = self.server.reply_dispatch.submit(send_id, intent)
                     self._json(
@@ -396,7 +409,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         except Exception as exc:
-            if reply_path or send_reply_path or path == "/api/chats":
+            if reply_path or send_reply_path or recover_reply_path or path == "/api/chats":
                 # DB/driver exceptions may contain secret prompts or SQLite parameters.
                 logger.error("Chat send contract failed error_type=%s", type(exc).__name__)
                 self._json({"ok": False, "error": "Chat send contract unavailable"},

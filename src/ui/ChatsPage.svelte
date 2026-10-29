@@ -46,6 +46,7 @@
   let detail = $state<RunDetail | null>(null);
   let turns = $state<LocalTurn[]>([]);
   let turnsError = $state("");
+  let recoveringReply = $state(false);
   let copyState = $state("");
   let scrollPane = $state<HTMLDivElement>();
   let loadingList = $state(true);
@@ -221,6 +222,30 @@
         ok: false, ambiguous: true,
         message: "Queue confirmation was lost. Check local Chats before another explicit send; no automatic retry.",
       };
+    }
+  }
+
+  async function recoverReply() {
+    const id = selectedRunId;
+    const original = turns.length === 1 ? turns[0] : null;
+    if (!id || original?.status !== "completed" || !original.conversation_id ||
+        original.message_id || recoveringReply) return;
+    recoveringReply = true;
+    turnsError = "";
+    try {
+      const response = await fetch(
+        "./api/results/" + encodeURIComponent(id) + "/reply-recover",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      );
+      if (!response.ok) {
+        turnsError = "The original reply branch could not be verified.";
+        return;
+      }
+      await loadDetail(id);
+    } catch {
+      turnsError = "Reply verification could not be completed.";
+    } finally {
+      recoveringReply = false;
     }
   }
 
@@ -535,6 +560,12 @@
       </div>
       {#if detail && turns.at(-1)?.status === "completed" && turns.at(-1)?.conversation_id && turns.at(-1)?.message_id}
         <ChatComposer mode="reply" onSend={sendReply} />
+      {:else if detail && turns.length === 1 && turns[0].status === "completed" && turns[0].conversation_id && !turns[0].message_id}
+        <div class="chat-reply-status">
+          <button type="button" disabled={recoveringReply} onclick={() => void recoverReply()}>
+            {recoveringReply ? "Verifying reply…" : "Reply to this chat"}
+          </button>
+        </div>
       {:else if turns.at(-1)?.status === "prepared"}
         <div class="chat-prepared-action">
           <span>Reply saved locally, not yet sent.</span>

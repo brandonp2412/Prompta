@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
-from prompta.manual_reply_dispatch import _branch_probe
+from prompta.manual_reply_dispatch import _branch_probe, _recovery_probe
 
 CONVERSATION = "00000000-0000-4000-8000-000000000001"
 PARENT = "00000000-0000-4000-8000-000000000002"
@@ -50,4 +50,40 @@ def test_exact_branch_probe_decodes_only_one_backend_id(attribute: str, expected
         page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
         assert page.evaluate(_branch_probe(CONVERSATION, PARENT)) is expected
         assert routed == [f"https://chatgpt.com/c/{CONVERSATION}"]
+        browser.close()
+
+
+@pytest.mark.parametrize(
+    ("ids", "answer", "extra", "expected"),
+    [
+        (f"{PARENT} {PARENT}", "Original answer", "", PARENT),
+        (f"{PARENT} {OTHER}", "Original answer", "", None),
+        (f"{PARENT} {PARENT}", "Changed answer", "", None),
+        (f"{PARENT} {PARENT}", "Original answer",
+         "<div data-chatgpt-search-unit-key='other:assistant' data-chatgpt-search-message-ids='"
+         + OTHER + "'><div class='markdown'>Other answer</div></div>", None),
+    ],
+)
+def test_explicit_recovery_verifies_only_the_one_original_branch(
+    ids: str, answer: str, extra: str, expected: str | None
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    html = (
+        "<main><div data-chatgpt-search-unit-key='first:user'>Original prompt</div>"
+        "<div data-chatgpt-search-unit-key='first:assistant' "
+        f"data-chatgpt-search-message-ids='{ids}'>"
+        f"<div class='markdown'>{answer}</div></div>{extra}</main>"
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page()
+        page.route(
+            "https://chatgpt.com/**",
+            lambda route: route.fulfill(status=200, content_type="text/html", body=html),
+        )
+        page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
+        assert page.evaluate(_recovery_probe(CONVERSATION, "Original answer")) == expected
+        assert page.evaluate(_recovery_probe(OTHER, "Original answer")) is None
         browser.close()
