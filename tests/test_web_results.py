@@ -752,6 +752,7 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
             finally:
                 browser.close()
 
+
 def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():
