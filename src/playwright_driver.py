@@ -491,6 +491,8 @@ class PlaywrightDriver:
         if capture is None or capture.get("request_obj") is not response.request:
             return
         capture["status"] = int(response.status)
+        capture["retry_after"] = response.headers.get("retry-after", "")
+        capture["retry_after_ms"] = response.headers.get("retry-after-ms", "")
         capture["response_started"] = True
         if (
             not capture.get("ambiguous_request")

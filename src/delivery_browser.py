@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import os
 import threading
 import time
@@ -17,7 +16,7 @@ from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
 from .image_store import ImageStore, image_refs
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
-from .rate_limit import RateLimitError, is_rate_limited_text
+from .rate_limit import RateLimitError, captured_retry_after, is_rate_limited_text
 from .response_capture import CaptureResult
 from .response_store import ResponseStore
 from .scheduler_runtime import SchedulerRuntime
@@ -148,9 +147,6 @@ class BrowserDeliverySender:
             ownership_prefix=_DELIVERY_WINDOW_PREFIX,
         )
 
-    def _global_cooldown_remaining(self) -> float:
-        return self.runtime.global_backoff_remaining()
-
     async def _ensure_high_effort(self, driver: BrowserDriver) -> None:
         await _timed_stage("chat_surface_ready", driver.ensure_chat_surface(), timeout=12.0)
         now = asyncio.get_running_loop().time()
@@ -212,13 +208,6 @@ class BrowserDeliverySender:
         if not message.strip():
             raise ValueError("prompta prompt is empty")
 
-        remaining = self._global_cooldown_remaining()
-        if remaining > 0:
-            raise RateLimitError(
-                "ChatGPT account-wide rate limit backoff is active",
-                retry_after=max(1, math.ceil(remaining)),
-            )
-
         image_paths = tuple(self.images.path(ref) for ref in image_refs(images))
         dispatch_started = threading.Event()
         if send_id:
@@ -270,9 +259,6 @@ class BrowserDeliverySender:
                     raise DeliveryBackendUnavailableError(
                         "Prompta delivery deadline expired before dispatch"
                     ) from exc
-                if isinstance(exc, RateLimitError):
-                    delay = self.runtime.record_global_rate_limit(exc)
-                    raise RateLimitError(str(exc), retry_after=max(1, math.ceil(delay))) from exc
                 raise exc
             raise RuntimeError("Background delivery ended without a receipt")
         try:
@@ -319,12 +305,6 @@ class BrowserDeliverySender:
                 ) from exc
             raise DeliveryBackendUnavailableError(
                 "Prompta delivery deadline expired before dispatch"
-            ) from exc
-        except RateLimitError as exc:
-            delay = self.runtime.record_global_rate_limit(exc)
-            raise RateLimitError(
-                str(exc),
-                retry_after=max(1, math.ceil(delay)),
             ) from exc
 
     async def _handle_connector_approvals(
@@ -402,25 +382,26 @@ class BrowserDeliverySender:
                 now = asyncio.get_running_loop().time()
                 if now >= next_recovery_probe and driver.is_connected:
                     next_recovery_probe = now + _PASSIVE_RECOVERY_PROBE_SECONDS
-                    # A lost callback can be recovered from the original
-                    # tab's semantic observer without opening a tab, reading
-                    # history, issuing a request, or resending a prompt.
-                    try:
-                        snapshot = await asyncio.wait_for(
-                            driver.observed_assistant_response(),
-                            timeout=min(5.0, max(0.01, deadline - now)),
-                        )
-                        if snapshot.text and (
-                            update is None
-                            or snapshot.status == "complete"
-                            or len(snapshot.text) > len(update.text)
-                        ):
-                            update = snapshot
-                    except Exception as exc:
-                        logger.info(
-                            "Passive recovery snapshot unavailable error_type=%s",
-                            type(exc).__name__,
-                        )
+                    if self.runtime.read_backoff_remaining() <= 0:
+                        # A lost callback can be recovered from the original
+                        # tab's semantic observer without opening a tab, reading
+                        # history, issuing a request, or resending a prompt.
+                        try:
+                            snapshot = await asyncio.wait_for(
+                                driver.observed_assistant_response(),
+                                timeout=min(5.0, max(0.01, deadline - now)),
+                            )
+                            if snapshot.text and (
+                                update is None
+                                or snapshot.status == "complete"
+                                or len(snapshot.text) > len(update.text)
+                            ):
+                                update = snapshot
+                        except Exception as exc:
+                            logger.info(
+                                "Passive recovery snapshot unavailable error_type=%s",
+                                type(exc).__name__,
+                            )
                     # A conversation route can appear after the initial
                     # acceptance check. Bind only this live capture lease.
                     try:
@@ -456,8 +437,11 @@ class BrowserDeliverySender:
                     else driver.captured_assistant_response(capture)
                 )
                 if int_value(capture.get("status")) == 429:
-                    self.runtime.record_global_rate_limit(
-                        RateLimitError("ChatGPT response rate limited")
+                    self.runtime.record_read_rate_limit(
+                        RateLimitError(
+                            "ChatGPT response rate limited",
+                            retry_after=captured_retry_after(capture),
+                        )
                     )
                     final_status = "unavailable"
                     break
@@ -522,8 +506,9 @@ class BrowserDeliverySender:
                         ):
                             deadline = now + MAX_OWNED_TAB_AGE_SECONDS
                     if pending.status == "complete" and (pending.message_id or pending.observer_id):
+                        self.runtime.record_read_success()
                         return
-                if 0 < deadline - now <= 2.0:
+                if 0 < deadline - now <= 2.0 and self.runtime.read_backoff_remaining() <= 0:
                     # At most one DOM fallback read, inside the hard tab TTL.
                     snapshot = await asyncio.wait_for(
                         driver.observed_assistant_response(), timeout=deadline - now

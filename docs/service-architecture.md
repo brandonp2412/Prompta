@@ -40,10 +40,16 @@ The durable queue stores delivery metadata. A separate private per-run response 
 
 ## Completion rule
 
-A delivery is accepted when prompt submission is confirmed. Its *response* is completed only with explicit final evidence. After acceptance, each passive capture runs independently; verified answer changes refresh its 45-minute inactivity lease. The independent watchdog closes idle owned tabs, even after worker failure. New chats are dispatched when due without an artificial global send interval; active captures may overlap. Partial/failed captures remain distinct from completed ones. Connector approvals and global rate-limit backoff remain in force.
+A delivery is accepted when prompt submission is confirmed. Its *response* is completed only with explicit final evidence. After acceptance, each passive capture runs independently; verified answer changes refresh its 45-minute inactivity lease. The independent watchdog closes idle owned tabs, even after worker failure. New chats are dispatched when due without an artificial global send interval; active captures may overlap. Partial/failed captures remain distinct from completed ones. Connector approvals remain in force. Read-side throttling never gates new-chat dispatch.
 
 Pre-dispatch failures are retryable. A post-dispatch outcome that cannot be proven is terminal outcome_unknown, preventing an automatic duplicate.
 
+
+## Read-side rate limits
+
+A `429 Too Many Requests` observed while capturing a response records a durable, SQLite-backed `read_rate_limit_backoff` independent of delivery admission. Active semantic-DOM recovery probes pause during this cooldown; already-arriving passive POST/DOM events remain eligible for capture. An accepted prompt is never automatically resent to recover its response, and the cooldown never authorizes history requests or account-wide polling.
+
+The read cooldown starts at five minutes, doubles for repeated rate limits up to a 30-minute exponential cap, adds positive jitter, and honours a longer `Retry-After` (seconds, HTTP date or supported millisecond header). A completed capture after expiry clears the stale backoff. New scheduled chats and explicit manual replies are not blocked by this read-only state; a rejected send is retried only as its own bounded queue item, still subject to delivery parallelism. Current cooldown details are available via `SchedulerRuntime.read_admission_status()`.
 
 ## Service control
 

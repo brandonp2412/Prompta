@@ -40,7 +40,7 @@ class SchedulerRuntime:
         self.state_path = state_path
         self.jobs_file = jobs_file
         self.backoffs: dict[str, RateLimitBackoff] = {}
-        self.global_backoff = RateLimitBackoff()
+        self.read_backoff = RateLimitBackoff()
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
 
@@ -259,37 +259,45 @@ class SchedulerRuntime:
         finally:
             engine.dispose()
 
-    def _durable_global_backoff(self) -> RateLimitBackoff:
+    def _durable_read_backoff(self) -> RateLimitBackoff:
         backoff = RateLimitBackoff()
-        snapshot = string_object_dict(self.account_state(strict=True).get("rate_limit_backoff"))
+        snapshot = string_object_dict(
+            self.account_state(strict=True).get("read_rate_limit_backoff")
+        )
         if snapshot is not None:
             backoff.restore(snapshot)
         return backoff
 
-    def global_backoff_remaining(self) -> float:
-        backoff = self._durable_global_backoff()
+    def read_backoff_remaining(self) -> float:
+        backoff = self._durable_read_backoff()
         remaining = backoff.remaining()
         if remaining <= 0:
             state = self.account_state()
-            if state.get("rate_limit_reason"):
-                self.update_account_state({"rate_limit_reason": ""})
+            if state.get("read_rate_limit_reason"):
+                self.update_account_state({"read_rate_limit_reason": ""})
         return remaining
 
-    def global_backoff_status(self) -> tuple[float, int]:
-        backoff = self._durable_global_backoff()
+    def read_backoff_status(self) -> tuple[float, int]:
+        backoff = self._durable_read_backoff()
         return backoff.remaining(), backoff.attempts
 
-    def clear_global_rate_limit(self) -> None:
-        self.global_backoff.reset()
-        snapshot = self.global_backoff.snapshot()
+    def record_read_success(self) -> None:
+        """Clear stale read throttling only after its minimum cooldown elapsed."""
+        remaining, attempts = self.read_backoff_status()
+        if attempts and remaining <= 0:
+            self.clear_read_rate_limit()
+
+    def clear_read_rate_limit(self) -> None:
+        self.read_backoff.reset()
+        snapshot = self.read_backoff.snapshot()
         self.update_account_state(
             {
-                "rate_limit_backoff": snapshot,
-                "rate_limit_reason": "",
-                "rate_limit_updated_at": time.time(),
+                "read_rate_limit_backoff": snapshot,
+                "read_rate_limit_reason": "",
+                "read_rate_limit_updated_at": time.time(),
             }
         )
-        self.update_scheduler_state({"rate_limit_backoff": snapshot})
+        self.update_scheduler_state({"read_rate_limit_backoff": snapshot})
 
     def set_resource_admission(self, allowed: bool, reason: str = "") -> None:
         self.update_account_state(
@@ -302,20 +310,6 @@ class SchedulerRuntime:
 
     def account_admission_status(self) -> dict[str, object]:
         state = self.account_state()
-        backoff = RateLimitBackoff()
-        snapshot = string_object_dict(state.get("rate_limit_backoff"))
-        if snapshot is not None:
-            backoff.restore(snapshot)
-        remaining = backoff.remaining()
-        if remaining > 0:
-            reason = str(state.get("rate_limit_reason") or "ChatGPT account throttling is active")
-            return {
-                "blocked": True,
-                "kind": "rate_limit",
-                "reason": reason,
-                "retry_after_seconds": max(1, int(remaining + 0.999)),
-                "retry_at_epoch": time.time() + remaining,
-            }
         if bool(state.get("resource_blocked")):
             return {
                 "blocked": True,
@@ -332,13 +326,25 @@ class SchedulerRuntime:
             "retry_at_epoch": 0.0,
         }
 
+    def read_admission_status(self) -> dict[str, object]:
+        remaining, attempts = self.read_backoff_status()
+        state = self.account_state()
+        return {
+            "blocked": remaining > 0,
+            "kind": "rate_limit" if remaining > 0 else "",
+            "reason": str(state.get("read_rate_limit_reason") or "") if remaining > 0 else "",
+            "retry_after_seconds": max(1, int(remaining + 0.999)) if remaining > 0 else 0,
+            "retry_at_epoch": time.time() + remaining if remaining > 0 else 0.0,
+            "attempts": attempts,
+        }
+
     def restore_backoffs(self) -> None:
         state = self.load_state()
         scheduler = state.get("scheduler")
         if isinstance(scheduler, dict):
-            snapshot = string_object_dict(scheduler.get("rate_limit_backoff"))
+            snapshot = string_object_dict(scheduler.get("read_rate_limit_backoff"))
             if snapshot is not None:
-                self.global_backoff.restore(snapshot)
+                self.read_backoff.restore(snapshot)
         jobs = state.get("jobs")
         if not isinstance(jobs, dict):
             return
@@ -356,19 +362,19 @@ class SchedulerRuntime:
     def persist_backoff(self, name: str, backoff: RateLimitBackoff) -> None:
         self.update_job_state(name, {"rate_limit_backoff": backoff.snapshot()})
 
-    def persist_global_backoff(self) -> None:
-        snapshot = self.global_backoff.snapshot()
-        self.update_account_state({"rate_limit_backoff": snapshot})
-        self.update_scheduler_state({"rate_limit_backoff": snapshot})
+    def persist_read_backoff(self) -> None:
+        snapshot = self.read_backoff.snapshot()
+        self.update_account_state({"read_rate_limit_backoff": snapshot})
+        self.update_scheduler_state({"read_rate_limit_backoff": snapshot})
 
-    def record_global_rate_limit(self, exc: RateLimitError) -> float:
+    def record_read_rate_limit(self, exc: RateLimitError) -> float:
         wall_time = time.time()
         engine = self._connect_state()
         try:
             with engine.begin() as connection:
                 value_json = connection.execute(
                     select(account_state.c.value_json).where(
-                        account_state.c.key == "rate_limit_backoff"
+                        account_state.c.key == "read_rate_limit_backoff"
                     )
                 ).scalar_one_or_none()
                 backoff = RateLimitBackoff()
@@ -379,14 +385,12 @@ class SchedulerRuntime:
                         decoded = {}
                     snapshot = string_object_dict(decoded) or {}
                     backoff.restore(snapshot, wall_time=wall_time)
-                remaining = backoff.remaining()
-                if remaining <= 0:
-                    remaining = backoff.record(float(exc.retry_after))
+                remaining = backoff.record(float(exc.retry_after))
                 snapshot = backoff.snapshot(wall_time=wall_time)
                 updates = {
-                    "rate_limit_backoff": snapshot,
-                    "rate_limit_reason": str(exc),
-                    "rate_limit_updated_at": wall_time,
+                    "read_rate_limit_backoff": snapshot,
+                    "read_rate_limit_reason": str(exc),
+                    "read_rate_limit_updated_at": wall_time,
                 }
                 rows = [
                     {"key": key, "value_json": json.dumps(value, ensure_ascii=False)}
@@ -395,8 +399,8 @@ class SchedulerRuntime:
                 self._upsert_state(connection, account_state, rows)
         finally:
             engine.dispose()
-        self.global_backoff.restore(snapshot)
-        self.update_scheduler_state({"rate_limit_backoff": snapshot})
+        self.read_backoff.restore(snapshot)
+        self.update_scheduler_state({"read_rate_limit_backoff": snapshot})
         return remaining
 
     def ensure_initial_schedules(self, jobs: list[PromptJob], now: float) -> None:

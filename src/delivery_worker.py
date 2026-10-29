@@ -85,15 +85,6 @@ class DeliveryAdmission:
             if not allowed:
                 return False, reason, retry_after
 
-        remaining, _attempts = self.runtime.global_backoff_status()
-        if remaining > 0:
-            status = self.runtime.account_admission_status()
-            return (
-                False,
-                str(status.get("reason") or "ChatGPT account throttling is active"),
-                remaining,
-            )
-
         allowed, reason = self.resource_admission()
         state = (allowed, reason)
         if state != self._last_resource_state:
@@ -220,21 +211,21 @@ def _deliver_one(
             else:
                 sender(message, pin_chat=pin_chat)
         except RateLimitError as exc:
-            remaining, _attempts = runtime.global_backoff_status()
-            delay = remaining if remaining > 0 else max(1.0, float(exc.retry_after))
-            _retry(
-                queue,
-                record,
-                owner,
-                error=str(exc),
-                delay=delay,
-                status="rate_limited",
-            )
-            logger.warning(
-                "Rate limited fresh-chat delivery send_id=%s retry_in=%.1fs",
-                send_id,
-                delay,
-            )
+            # A rejected send is retried only as its own queued item. It must
+            # never close admission for other independent, parallel deliveries.
+            attempt = max(0, _record_int(record, "retry_attempt")) + 1
+            if attempt >= _MAX_REJECTED_ATTEMPTS:
+                queue.fail_claim(send_id, owner, status="dead_lettered", error=str(exc))
+                logger.error("Rate limited delivery exhausted retries send_id=%s", send_id)
+            else:
+                delay = _retry_delay(attempt)
+                _retry(queue, record, owner, error=str(exc), delay=delay, status="rate_limited")
+                logger.warning(
+                    "Rate limited send_id=%s attempt=%d retry_in=%.1fs",
+                    send_id,
+                    attempt,
+                    delay,
+                )
             return
         except DeliveryBackendUnavailableError as exc:
             attempt = max(0, _record_int(record, "retry_attempt")) + 1

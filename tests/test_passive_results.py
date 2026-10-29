@@ -156,15 +156,15 @@ async def test_disconnect_keeps_partial_and_approval_task_stops(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_during_capture_updates_global_backoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rate_limit_during_capture_updates_read_backoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
     sender.results.ensure_queued("s", "private")
     owner = f"{os.getpid()}:test"
     assert sender.results.accept("s", owner, deadline=time.time() + 60)
-    seen: list[str] = []
-    monkeypatch.setattr(sender.runtime, "record_global_rate_limit", lambda exc: seen.append(type(exc).__name__))
-    await sender._capture_until_complete(StreamDriver([None]), {"status": 429}, "s", owner, deadline=asyncio.get_running_loop().time() + 2)
-    assert seen == ["RateLimitError"]
+    seen: list[int] = []
+    monkeypatch.setattr(sender.runtime, "record_read_rate_limit", lambda exc: seen.append(exc.retry_after))
+    await sender._capture_until_complete(StreamDriver([None]), {"status": 429, "retry_after": "900"}, "s", owner, deadline=asyncio.get_running_loop().time() + 2)
+    assert seen == [900]
     row = sender.results.get("s")
     assert row is not None
     assert row["status"] == "unavailable"

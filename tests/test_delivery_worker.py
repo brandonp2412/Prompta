@@ -41,7 +41,9 @@ def test_delivery_admission_blocks_outside_working_hours(
     assert retry_after > 0
 
 
-def test_delivery_admission_ignores_previous_claim_and_dispatch(tmp_path: Path, monkeypatch) -> None:
+def test_delivery_admission_ignores_previous_claim_and_dispatch(
+    tmp_path: Path, monkeypatch
+) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
     admission = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
     now = 10_000.0
@@ -280,14 +282,14 @@ def test_admission_does_not_hide_nonlocking_database_failures(
 
 def test_admission_reads_fail_closed_when_runtime_database_is_locked(tmp_path: Path) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
-    runtime.update_account_state({"rate_limit_backoff": {}})
+    runtime.update_account_state({"read_rate_limit_backoff": {}})
     with sqlite3.connect(tmp_path / "state.sqlite3", timeout=1) as blocker:
         blocker.execute("BEGIN EXCLUSIVE")
         with pytest.raises(OperationalError) as exc:
-            runtime.global_backoff_status()
+            runtime.read_backoff_status()
         assert _sqlite_busy(exc.value)
         blocker.rollback()
-    assert runtime.global_backoff_status()[0] == 0
+    assert runtime.read_backoff_status()[0] == 0
 
 
 def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkeypatch) -> None:
@@ -343,3 +345,38 @@ def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkey
     delivery_worker.run(state_path=tmp_path / "runtime.sqlite3")
     assert health.beats == 2
     assert sleeps == 2
+
+
+def test_send_429_retries_only_its_own_delivery_without_read_throttling(
+    tmp_path: Path,
+) -> None:
+    from prompta.rate_limit import RateLimitError
+
+    state = tmp_path / "runtime.sqlite3"
+    runtime = SchedulerRuntime(state, state)
+    queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
+    receipt = queue.enqueue_manual("Send independently", now=10.0)
+    record = queue.claim_next("worker", now=20.0, lease_seconds=30.0)
+    assert record is not None
+
+    def send_rejected(message: str, *, pin_chat: bool = False) -> None:
+        raise RateLimitError("Send rejected", retry_after=3600)
+
+    _deliver_one(
+        queue,
+        send_rejected,
+        runtime,
+        ServiceHealthStore(tmp_path / "health.sqlite3"),
+        "worker",
+        record,
+    )
+    queued = queue.get(str(receipt["send_id"]))
+    assert queued is not None
+    assert queued["status"] == "rate_limited"
+    assert queued["retry_attempt"] == 1
+    assert runtime.read_backoff_status() == (0.0, 0)
+    assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))(manual=True) == (
+        True,
+        "",
+        0.0,
+    )

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
 import random
 import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 
 from .strict_types import float_value, int_value
 
@@ -40,6 +43,35 @@ def parse_retry_after(text: str) -> int:
     if unit.startswith(("hour", "hr")):
         return value * 60 * 60
     return value * 60 if unit.startswith(("min", "minute")) else value
+
+
+def parse_retry_after_header(value: str | None, *, now: float | None = None) -> int:
+    """Parse the RFC 9110 Retry-After delay-seconds or HTTP-date field."""
+    if not value:
+        return 0
+    value = value.strip()
+    if value.isdecimal():
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    try:
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    now = time.time() if now is None else now
+    return max(0, math.ceil(deadline.timestamp() - now))
+
+
+def captured_retry_after(capture: Mapping[str, object]) -> int:
+    seconds = parse_retry_after_header(str(capture.get("retry_after") or ""))
+    milliseconds = float_value(capture.get("retry_after_ms"))
+    return max(
+        seconds,
+        math.ceil(milliseconds / 1000) if math.isfinite(milliseconds) and milliseconds > 0 else 0,
+    )
 
 
 def is_rate_limited_text(text: str) -> bool:
@@ -123,7 +155,7 @@ def transition_rate_limit_backoff(
         float(DEFAULT_RETRY_AFTER) * (2 ** min(attempts - 1, 20)),
     )
     explicit_retry_after = max(0.0, float(retry_after))
-    floor = explicit_retry_after if explicit_retry_after > 0 else exponential
+    floor = max(exponential, explicit_retry_after)
     jitter_cap = min(_RATE_LIMIT_JITTER_CAP_SECONDS, floor * _RATE_LIMIT_JITTER_FRACTION)
     jitter = max(0.0, min(1.0, float(jitter_fraction))) * jitter_cap
     blocked_until = max(state.blocked_until, now + floor + jitter)

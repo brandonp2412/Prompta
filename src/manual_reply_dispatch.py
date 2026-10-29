@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import os
 import threading
 import time
@@ -19,10 +18,8 @@ from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .delivery_browser import BrowserDeliverySender
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
-from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult
-from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
@@ -70,12 +67,6 @@ class ManualReplyDispatcher:
         existing = self.store.get(intent.reply_id)
         if existing is not None and existing["status"] != "prepared":
             return self.store.prepare(send_id, intent)
-        runtime = SchedulerRuntime(self.state_path, self.state_path)
-        backoff = runtime.global_backoff_remaining()
-        if backoff > 0:
-            raise ReplyConflict(
-                f"Account-wide rate limit backoff ends in {math.ceil(backoff)} seconds"
-            )
         turn = self.store.prepare(send_id, intent)
         if turn["status"] != "prepared":
             return turn
@@ -168,7 +159,6 @@ class ManualReplyDispatcher:
         parent_id = str(turn["parent_id"])
         text = str(turn["user_text"])
         owner = f"{os.getpid()}:{uuid.uuid4().hex}"
-        runtime = SchedulerRuntime(self.state_path, self.state_path)
         sender = BrowserDeliverySender(
             self.state_path,
             debugger_address=os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9223"),
@@ -230,8 +220,6 @@ class ManualReplyDispatcher:
                 str(before_send.get("composer_text") or "")
             ) != _normalise_composer_text(text) or before_send.get("send_in_progress"):
                 return
-            if runtime.global_backoff_remaining() > 0:
-                return
             preflight_stage = "irreversible_claim"
             claimed = self.store.claim(
                 reply_id,
@@ -252,7 +240,6 @@ class ManualReplyDispatcher:
             while asyncio.get_running_loop().time() < confirm_end:
                 status = int_value(capture.get("status"))
                 if status == 429:
-                    runtime.record_global_rate_limit(RateLimitError("ChatGPT rate limited"))
                     break
                 if status >= 400 or capture.get("fetch_error") or capture.get("ambiguous_request"):
                     break
