@@ -34,6 +34,12 @@
   let items = $state<RunSummary[]>([]);
   let pinnedItems = $state<RunSummary[]>([]);
   let pinnedIds = $state<string[]>([]);
+  let legacyPinIds: string[] = [];
+  let confirmedPins: RunSummary[] = [];
+  let pinsReady = $state(false);
+  let pendingPinWrites = 0;
+  let pinWriteQueue: Promise<void> = Promise.resolve();
+  let pinError = $state("");
   let readAt = $state<Record<string, number>>({});
   let readRevisions = $state<Record<string, string>>({});
   let baselineAt = $state(0);
@@ -70,8 +76,7 @@
     return pinnedIds
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
-      .filter((item) => !filtered || items.some((listed) => listed.send_id === item.send_id))
-      .sort(newestFirst);
+      .filter((item) => !filtered || items.some((listed) => listed.send_id === item.send_id));
   });
   let groups = $derived(groupRuns(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst)));
   let pageCount = $derived(Math.min(5001, Math.max(1, Math.ceil(total / pageSize))));
@@ -82,7 +87,7 @@
       if (saved) {
         const prefs: { baselineAt?: number; pinnedIds?: string[]; readAt?: Record<string, number>; readRevisions?: Record<string, string> } = JSON.parse(saved);
         baselineAt = Number.isFinite(prefs.baselineAt) ? Number(prefs.baselineAt) : Date.now() / 1000;
-        pinnedIds = Array.isArray(prefs.pinnedIds) ? prefs.pinnedIds.filter((id) => typeof id === "string").slice(0, 24) : [];
+        legacyPinIds = Array.isArray(prefs.pinnedIds) ? prefs.pinnedIds.filter((id) => typeof id === "string").slice(0, 24) : [];
         readAt = prefs.readAt && typeof prefs.readAt === "object" ? prefs.readAt : {};
         readRevisions = prefs.readRevisions && typeof prefs.readRevisions === "object" ? prefs.readRevisions : {};
       } else baselineAt = Date.now() / 1000;
@@ -98,7 +103,8 @@
       const recent = Object.entries(readAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
       const recentIds = new Set(recent.map(([id]) => id));
       localStorage.setItem(preferencesKey, JSON.stringify({
-        baselineAt, pinnedIds, readAt: Object.fromEntries(recent),
+        baselineAt, readAt: Object.fromEntries(recent),
+        ...(legacyPinIds.length ? { pinnedIds: legacyPinIds } : {}),
         readRevisions: Object.fromEntries(Object.entries(readRevisions).filter(([id]) => recentIds.has(id))),
       }));
     } catch {
@@ -124,27 +130,66 @@
 
   async function loadPins() {
     const generation = ++pinsGeneration;
-    const loaded = await Promise.all(pinnedIds.map(async (id): Promise<RunSummary | null> => {
-      try {
-        const response = await fetch("./api/results/" + encodeURIComponent(id), { cache: "no-store" });
-        if (!response.ok) return null;
-        return await response.json() as RunDetail;
-      } catch {
-        return null;
+    if (pendingPinWrites) return;
+    try {
+      if (legacyPinIds.length) {
+        const imported = await fetch("./api/local-chat-pins/import", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ send_ids: legacyPinIds }),
+        });
+        if (!imported.ok) throw new Error("Local pin import failed");
+        legacyPinIds = [];
+        savePreferences();
       }
-    }));
-    if (generation === pinsGeneration) pinnedItems = loaded.filter((item): item is RunSummary => item !== null);
+      const response = await fetch("./api/local-chat-pins", { cache: "no-store" });
+      if (!response.ok) throw new Error("Local pins unavailable");
+      const body: { items: RunSummary[] } = await response.json();
+      if (generation !== pinsGeneration || pendingPinWrites) return;
+      confirmedPins = body.items;
+      pinnedItems = body.items;
+      pinnedIds = body.items.map((item) => item.send_id);
+      pinsReady = true;
+    } catch {
+      if (generation === pinsGeneration) pinError = "Pinned chats are temporarily unavailable.";
+    }
   }
 
   function togglePin(item: RunSummary) {
-    if (pinnedIds.includes(item.send_id)) {
+    if (!pinsReady) return;
+    const next = !pinnedIds.includes(item.send_id);
+    pinsGeneration += 1; // Ignore older GETs while an explicit change is pending.
+    pinError = "";
+    if (next) {
+      pinnedIds = [item.send_id, ...pinnedIds];
+      pinnedItems = [item, ...pinnedItems.filter((pinnedItem) => pinnedItem.send_id !== item.send_id)];
+    } else {
       pinnedIds = pinnedIds.filter((id) => id !== item.send_id);
       pinnedItems = pinnedItems.filter((pinnedItem) => pinnedItem.send_id !== item.send_id);
-    } else {
-      pinnedIds = [item.send_id, ...pinnedIds].slice(0, 24);
-      pinnedItems = [item, ...pinnedItems];
     }
-    savePreferences();
+    pendingPinWrites += 1;
+    // Serialize requests so rapid pin/unpin operations reach SQLite in click order.
+    pinWriteQueue = pinWriteQueue.then(async () => {
+      try {
+        const response = await fetch("./api/local-chat-pins", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ send_id: item.send_id, pinned: next }),
+        });
+        if (!response.ok) throw new Error("Local pin update failed");
+        confirmedPins = next
+          ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)]
+          : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
+      } catch {
+        pinError = "Could not save pinned chat.";
+      } finally {
+        pendingPinWrites -= 1;
+        if (!pendingPinWrites) {
+          // A failed request must not leave a phantom optimistic pin on screen.
+          pinnedItems = confirmedPins;
+          pinnedIds = confirmedPins.map((confirmed) => confirmed.send_id);
+          void loadPins();
+        }
+      }
+    });
   }
 
   async function loadList() {
@@ -423,7 +468,7 @@
       </span>
     </button>
     <button
-      type="button" class:active={pinnedIds.includes(item.send_id)} class="chat-pin"
+      type="button" disabled={!pinsReady} class:active={pinnedIds.includes(item.send_id)} class="chat-pin"
       title={pinnedIds.includes(item.send_id) ? "Unpin local chat" : "Pin local chat"}
       aria-label={pinnedIds.includes(item.send_id) ? "Unpin " + item.title : "Pin " + item.title}
       aria-pressed={pinnedIds.includes(item.send_id)}
@@ -473,6 +518,7 @@
     </div>
     {/if}
     {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
+    {#if pinError}<div class="result-error" role="alert">{pinError}</div>{/if}
     <div class="chats-list">
       {#if pinned.length}
         <div class="chats-date">Pinned</div>

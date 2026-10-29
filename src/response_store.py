@@ -18,6 +18,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    delete,
     func,
     inspect,
     or_,
@@ -60,6 +61,11 @@ results = Table(
     Column("capture_deadline", Float, nullable=False, default=0),
 )
 Index("job_responses_active", results.c.status, results.c.capture_deadline)
+local_chat_pins = Table(
+    "local_chat_pins", _SCHEMA,
+    Column("send_id", String, primary_key=True),
+    Column("pinned_at", Float, nullable=False),
+)
 
 
 def _alive(owner: str) -> bool:
@@ -101,6 +107,13 @@ class ResponseStore:
                               nullable=column.nullable) for column in results.columns),
                 )
                 migration.create_index("job_responses_active", results.name, ["status", "capture_deadline"])
+            if not inspect(connection).has_table(local_chat_pins.name):
+                migration = Operations(MigrationContext.configure(connection))
+                migration.create_table(
+                    local_chat_pins.name,
+                    Column("send_id", String, primary_key=True),
+                    Column("pinned_at", Float, nullable=False),
+                )
         self._secure_files()
 
     def _secure_files(self) -> None:
@@ -293,6 +306,74 @@ class ResponseStore:
                 )
             ).scalars().all()
         return {str(send_id) for send_id in rows}
+
+    def set_local_pin(self, send_id: str, *, pinned: bool) -> bool:
+        """Pin a known local run only; never request or alter ChatGPT pin state."""
+        if not send_id or len(send_id) > 200 or "/" in send_id:
+            raise ValueError("Invalid local run ID")
+        with self.engine.begin() as connection:
+            exists = connection.execute(
+                select(results.c.send_id).where(results.c.send_id == send_id)
+            ).scalar_one_or_none()
+            if exists is None:
+                return False
+            if pinned:
+                connection.execute(
+                    insert(local_chat_pins).values(send_id=send_id, pinned_at=time.time())
+                    .on_conflict_do_nothing(index_elements=["send_id"])
+                )
+            else:
+                connection.execute(delete(local_chat_pins).where(local_chat_pins.c.send_id == send_id))
+        return True
+
+    def import_legacy_local_pins(self, send_ids: list[str]) -> None:
+        """One-time migration from a browser's old pins, without resurrecting old pins later."""
+        if len(send_ids) > 24 or any(
+            not send_id or len(send_id) > 200 or "/" in send_id for send_id in send_ids
+        ):
+            raise ValueError("Invalid legacy local pin IDs")
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            if connection.execute(select(func.count()).select_from(local_chat_pins)).scalar_one():
+                return
+            pinned_at = time.time()
+            for index, send_id in enumerate(dict.fromkeys(send_ids)):
+                exists = connection.execute(
+                    select(results.c.send_id).where(results.c.send_id == send_id)
+                ).scalar_one_or_none()
+                if exists is not None:
+                    connection.execute(insert(local_chat_pins).values(
+                        send_id=send_id, pinned_at=pinned_at - index * 0.001,
+                    ))
+
+    def local_pinned_runs(self) -> list[dict[str, object]]:
+        """Compact local-only sidebar summaries, including runs outside the visible page."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    results.c.send_id, results.c.job_name,
+                    func.substr(results.c.user_text, 1, 180).label("user_preview"),
+                    func.substr(results.c.assistant_text, 1, 180).label("assistant_preview"),
+                    results.c.status, results.c.created_at, results.c.updated_at,
+                    results.c.finished_at,
+                )
+                .select_from(local_chat_pins.join(
+                    results, local_chat_pins.c.send_id == results.c.send_id
+                ))
+                .order_by(local_chat_pins.c.pinned_at.desc(), local_chat_pins.c.send_id.desc())
+            ).mappings().all()
+        items: list[dict[str, object]] = []
+        for row in rows:
+            prompt = str(row["user_preview"])
+            answer = str(row["assistant_preview"])
+            title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
+            items.append({
+                "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
+                "status": row["status"], "preview": (answer or prompt)[:180],
+                "has_response": bool(answer), "created_at": row["created_at"],
+                "updated_at": row["updated_at"], "finished_at": row["finished_at"],
+            })
+        return items
 
     def get(self, send_id: str) -> dict[str, object] | None:
         with self.engine.connect() as connection:

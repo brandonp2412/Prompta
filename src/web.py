@@ -138,7 +138,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
-        if urlparse(self.path).path.startswith(("/api/results", "/api/images")):
+        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins")):
             # Search terms and run identifiers can be sensitive; don't log request URLs.
             logger.info("%s - %s /api/results", self.address_string(), self.command)
             return
@@ -277,6 +277,11 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._json(self.server.health_payload())
             return
+        if path == "/api/local-chat-pins":
+            pinned = self.server.results.local_pinned_runs()
+            self.server.replies.annotate_response_markers(pinned)
+            self._json({"items": pinned})
+            return
         if path == "/api/results":
             params = parse_qs(parsed.query, keep_blank_values=True)
             try:
@@ -334,7 +339,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
         send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
         recover_reply_path = path.startswith("/api/results/") and path.endswith("/reply-recover")
-        if path not in {"/api/jobs", "/api/images", "/api/chats"} and not (
+        if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import"} and not (
             reply_path or send_reply_path or recover_reply_path
         ):
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -368,6 +373,29 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                 else:
                     turn = self.server.replies.prepare(send_id, intent)
                     self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
+                return
+            if path in {"/api/local-chat-pins", "/api/local-chat-pins/import"}:
+                if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+                    raise ValueError("Local pin changes require JSON")
+                payload = self._json_body(max_bytes=8192)
+                if path.endswith("/import"):
+                    raw_ids = payload.get("send_ids")
+                    if set(payload) != {"send_ids"} or not isinstance(raw_ids, list):
+                        raise ValueError("Invalid legacy pin import")
+                    ids: list[str] = []
+                    for item in raw_ids:
+                        if not isinstance(item, str):
+                            raise ValueError("Invalid legacy pin import")
+                        ids.append(item)
+                    self.server.results.import_legacy_local_pins(ids)
+                else:
+                    send_id, pinned = payload.get("send_id"), payload.get("pinned")
+                    if set(payload) != {"send_id", "pinned"} or not isinstance(send_id, str) or not isinstance(pinned, bool):
+                        raise ValueError("Invalid local pin change")
+                    if not self.server.results.set_local_pin(send_id, pinned=pinned):
+                        self._json({"ok": False, "error": "Local run not found"}, HTTPStatus.NOT_FOUND)
+                        return
+                self._json({"ok": True})
                 return
             payload = self._json_body(max_bytes=11 * 1024 * 1024 if path == "/api/images" else 1024 * 1024)
             if path == "/api/chats":
@@ -411,7 +439,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         except Exception as exc:
-            if reply_path or send_reply_path or recover_reply_path or path == "/api/chats":
+            if reply_path or send_reply_path or recover_reply_path or path == "/api/chats" or path.startswith("/api/local-chat-pins"):
                 # DB/driver exceptions may contain secret prompts or SQLite parameters.
                 logger.error("Chat send contract failed error_type=%s", type(exc).__name__)
                 self._json({"ok": False, "error": "Chat send contract unavailable"},

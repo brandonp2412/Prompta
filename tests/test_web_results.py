@@ -47,6 +47,16 @@ def get(port: int, path: str, *, method: Literal["GET", "POST"] = "GET") -> tupl
         conn.close()
 
 
+def post_json(port: int, path: str, data: dict[str, object]) -> tuple[int, dict[str, object]]:
+    conn = HTTPConnection("127.0.0.1", port, timeout=3)
+    try:
+        conn.request("POST", path, body=json.dumps(data), headers={"content-type": "application/json"})
+        response = conn.getresponse()
+        return response.status, json_object(response.read(), label="pin response")
+    finally:
+        conn.close()
+
+
 def completed_run(app: PromptaJobServer, send_id: str, name: str, now: float) -> None:
     app.results.ensure_queued(send_id, f"Prompt for {name}", name, now=now)
     assert app.results.accept(send_id, f"100:{send_id}", deadline=now + 1000, now=now + 1)
@@ -94,6 +104,109 @@ def test_results_api_lists_only_local_runs_with_filter_search_and_pagination(tmp
         assert get(port, "/api/results?offset=-1")[0] == 400
         assert get(port, "/api/results/xx%2Fyy")[0] == 404
         assert get(port, "/api/results/run-1", method="POST")[0] == 404
+
+
+def pin_ids(payload: dict[str, object]) -> list[str]:
+    items = payload.get("items")
+    assert isinstance(items, list)
+    ids: list[str] = []
+    for item in items:
+        row = string_object_dict(item)
+        assert row is not None
+        send_id = row.get("send_id")
+        assert isinstance(send_id, str)
+        ids.append(send_id)
+    return ids
+
+
+def test_local_pins_persist_in_sqlite_and_never_change_chatgpt_pins(tmp_path: Path) -> None:
+    from sqlalchemy import text
+
+    from prompta.response_store import ResponseStore
+
+    with server(tmp_path) as (app, port):
+        completed_run(app, "a", "First", 100)
+        completed_run(app, "b", "Second", 200)
+        completed_run(app, "c", "Third", 300)
+        path = app.results.path
+        assert get(port, "/api/local-chat-pins")[1] == {"items": []}
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "missing", "pinned": True})[0] == 404
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "a", "pinned": "yes"})[0] == 400
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "a", "pinned": True, "extra": 1})[0] == 400
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "../a", "pinned": True})[0] == 400
+        assert post_json(port, "/api/local-chat-pins/import", {"send_ids": ["missing", "b", "a"]})[0] == 200
+        assert post_json(port, "/api/local-chat-pins/import", {"send_ids": ["c"]})[0] == 200
+        _, initial, headers = get(port, "/api/local-chat-pins")
+        assert headers["cache-control"] == "no-store"
+        assert pin_ids(initial) == ["b", "a"]
+        initial_items = initial["items"]
+        assert isinstance(initial_items, list)
+        assert all(isinstance(row, dict) and "assistant_text" not in row and "conversation_id" not in row for row in initial_items)
+        assert all(isinstance(row, dict) and row.get("last_reply_revision") and row.get("last_reply_at") for row in initial_items)
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "a", "pinned": True})[0] == 200
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "b", "pinned": False})[0] == 200
+        assert post_json(port, "/api/local-chat-pins", {"send_id": "c", "pinned": True})[0] == 200
+        expected = ["c", "a"]
+        assert pin_ids(get(port, "/api/local-chat-pins")[1]) == expected
+        fresh_store = ResponseStore(path)
+        assert [row["send_id"] for row in fresh_store.local_pinned_runs()] == expected
+        with fresh_store.engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM local_chat_pins")).scalar_one() == 2
+        assert path.stat().st_mode & 0o077 == 0
+        assert str(path) not in str(initial)
+
+
+def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Path) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    with server(tmp_path) as (app, port):
+        for i in range(26):
+            completed_run(app, f"run-{i:02}", f"Chat {i:02}", 1000 + i)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium_path, headless=True,
+                args=["--no-sandbox"],
+            )
+            try:
+                first = browser.new_context(viewport={"width": 390, "height": 844})
+                second = browser.new_context(viewport={"width": 1440, "height": 900})
+                a = first.new_page()
+                b = second.new_page()
+                host = f"127.0.0.1:{port}"
+                remote_hosts: list[str] = []
+                a.on("request", lambda request: remote_hosts.append(request.url.split("/")[2]))
+                b.on("request", lambda request: remote_hosts.append(request.url.split("/")[2]))
+                a.goto(f"http://{host}/?view=chats", wait_until="domcontentloaded")
+                a.evaluate("""() => localStorage.setItem("prompta.local-sidebar.v1",
+                    JSON.stringify({ baselineAt: 1, readAt: {}, pinnedIds: ["run-00"] }))""")
+                a.reload(wait_until="domcontentloaded")
+                expect(a.locator(".chats-date").filter(has_text="Pinned")).to_have_count(1)
+                expect(a.locator(".chat-entry").filter(has_text="Chat 00")).to_have_count(1)
+                assert "pinnedIds" not in json.loads(a.evaluate(
+                    "localStorage.getItem('prompta.local-sidebar.v1')"))
+                b.goto(f"http://{host}/?view=chats", wait_until="domcontentloaded")
+                expect(b.locator(".chat-entry").filter(has_text="Chat 00")).to_have_count(1)
+                target = b.locator(".chat-entry").filter(has_text="Chat 25").locator(".chat-pin")
+                target.click()
+                expect(a.locator(".chat-entry").filter(has_text="Chat 25").locator(".chat-pin")).to_have_attribute("aria-pressed", "true")
+                target.click()
+                target.click()
+                target.click()
+                expect(a.locator(".chat-entry").filter(has_text="Chat 25").locator(".chat-pin")).to_have_attribute("aria-pressed", "false")
+                expect(b.locator(".chat-entry").filter(has_text="Chat 00").locator(".chat-pin")).to_have_attribute("aria-pressed", "true")
+                b.route(f"http://{host}/api/local-chat-pins", lambda route: (
+                    route.abort() if route.request.method == "POST" else route.continue_()
+                ))
+                target.click()
+                expect(b.get_by_role("alert").filter(has_text="Could not save pinned chat")).to_be_visible()
+                expect(target).to_have_attribute("aria-pressed", "false")
+                b.unroute(f"http://{host}/api/local-chat-pins")
+                a.reload(wait_until="domcontentloaded")
+                assert pin_ids(get(port, "/api/local-chat-pins")[1]) == ["run-00"]
+                assert all(value == host for value in remote_hosts)
+            finally:
+                browser.close()
 
 
 def test_partial_and_unavailable_states_are_truthful_and_logs_private(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

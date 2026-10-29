@@ -261,7 +261,9 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                     composer.focus()
                     screenshot(page, root, "19-fresh-keyboard", notes)
                 assert all(
-                    method in ("GET", "HEAD") and url.startswith(base) for method, url in requests
+                    url.startswith(base)
+                    and (method in ("GET", "HEAD") or (method == "POST" and url == base + "api/local-chat-pins"))
+                    for method, url in requests
                 ), requests
                 context.close()
             finally:

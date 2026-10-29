@@ -28,6 +28,9 @@ def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     assert 'fetch("./api/results?' in sidebar
     assert 'fetch("./api/results/"' in sidebar
     assert "localStorage.setItem(preferencesKey" in sidebar
+    assert 'fetch("./api/local-chat-pins"' in sidebar
+    assert "pinnedIds = Array.isArray(prefs.pinnedIds)" not in sidebar
+    assert "/backend-api/pins" not in sidebar
     assert "onNewChat" in sidebar
     for component in Path("src/ui").glob("*.svelte"):
         source = component.read_text()
