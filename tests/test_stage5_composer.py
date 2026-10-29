@@ -253,6 +253,61 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+@pytest.mark.parametrize(
+    ("status", "missing_conversation", "expected_hint"),
+    [
+        ("completed", True, "without its ChatGPT conversation ID"),
+        ("interrupted", False, "did not finish reliably"),
+        ("accepted", False, "when this chat has a completed response"),
+    ],
+)
+def test_reply_composer_explains_unavailable_branch_without_sending(
+    tmp_path: Path, width: int, height: int, status: str,
+    missing_conversation: bool, expected_hint: str,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    app = PromptaJobServer(
+        ("127.0.0.1", 0), state_path=tmp_path / "state.sqlite3",
+        jobs_path=tmp_path / "jobs.sqlite3",
+    )
+    now = time.time()
+    app.results.ensure_queued("run-1", "Synthetic original", now=now)
+    assert app.results.accept("run-1", "owner", deadline=now + 4000)
+    if status == "completed":
+        assert app.results.write(
+            "run-1", "owner",
+            CaptureResult("dom", "complete", "Synthetic answer", None if missing_conversation else "c" * 32,
+                          "m" * 32, None),
+        )
+    elif status == "interrupted":
+        assert app.results.finish("run-1", "owner", "interrupted")
+    thread = threading.Thread(target=app.serve_forever, daemon=True)
+    thread.start()
+    observed: list[tuple[str, str]] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.on("request", lambda request: observed.append((request.method, request.url)))
+            page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run=run-1")
+            composer = page.get_by_role("textbox", name="Message for current chat")
+            composer.wait_for()
+            composer.fill("This should never be sent")
+            expect(page.get_by_text(expected_hint, exact=False)).to_be_visible()
+            expect(page.get_by_role("button", name="Send reply")).to_be_disabled()
+            composer.press("Enter")
+            assert not [request for request in observed if request[0] == "POST"]
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+            browser.close()
+    finally:
+        app.shutdown()
+        thread.join(timeout=3)
+        app.server_close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
     tmp_path: Path, width: int, height: int,
 ) -> None:

@@ -84,6 +84,30 @@
       .filter((item) => !filtered || items.some((listed) => listed.send_id === item.send_id));
   });
   let groups = $derived(groupRuns(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst)));
+  const replyBlockedReason = $derived.by((): string => {
+    const latest = turns.at(-1);
+    if (!detail || !latest) return "Loading reply availability…";
+    if (latest.status === "prepared") {
+      return latest.reply_id && latest.conversation_id && latest.parent_id
+        ? "" : "The saved reply has no verified target, so it cannot be resent.";
+    }
+    if (latest.status === "completed") {
+      if (!latest.conversation_id) {
+        return "This chat was saved without its ChatGPT conversation ID, so it cannot be safely replied to.";
+      }
+      if (turns.length > 1 && !latest.message_id) {
+        return "The latest assistant reply has no verified message ID. This branch cannot be safely continued.";
+      }
+      return "";
+    }
+    if (latest.status === "outcome_unknown") {
+      return "The last reply may have been sent. Check ChatGPT before trying anything else.";
+    }
+    if (latest.status === "interrupted" || latest.status === "unavailable") {
+      return "The last response did not finish reliably, so a same-branch reply is unavailable.";
+    }
+    return "You can reply when this chat has a completed response.";
+  });
   let pageCount = $derived(Math.min(5001, Math.max(1, Math.ceil(total / pageSize))));
   let visibleWaiting = $derived(
     statusFilter && statusFilter !== "queued" ? [] :
@@ -369,12 +393,16 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) return {
-        ok: false, ambiguous: response.status >= 500,
-        message: response.status >= 500
-          ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly."
-          : "Reply was not queued. Check the account-wide send gap and saved branch.",
-      };
+      if (!response.ok) {
+        const problem = response.status < 500
+          ? await response.json().catch(() => null) as { error?: string } | null : null;
+        return {
+          ok: false, ambiguous: response.status >= 500,
+          message: response.status >= 500
+            ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly."
+            : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch.",
+        };
+      }
       await loadDetail(sendId);
       return { ok: true, message: "" };
     } catch {
@@ -668,7 +696,8 @@
       {#key selectedRunId}
         <ChatComposer mode="reply" onSend={sendReply}
           restoreDraft={turns.at(-1)?.status === "prepared" ? turns.at(-1)?.user_text ?? "" : ""}
-          sendDisabled={!detail || !["completed", "prepared"].includes(turns.at(-1)?.status ?? "") || recoveringReply} />
+          sendDisabled={Boolean(replyBlockedReason) || recoveringReply}
+          sendHint={replyBlockedReason} />
       {/key}
     {/if}
   </div>

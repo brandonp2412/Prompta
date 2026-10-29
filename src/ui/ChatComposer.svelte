@@ -4,11 +4,12 @@
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
 
-  let { mode, onSend, disabled = false, sendDisabled = false, restoreDraft = "" }: {
+  let { mode, onSend, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "" }: {
     mode: "fresh" | "reply";
     onSend: (text: string, images: string[]) => Promise<SendResult>;
     disabled?: boolean;
     sendDisabled?: boolean;
+    sendHint?: string;
     restoreDraft?: string;
   } = $props();
 
@@ -205,4 +206,5 @@
     </div>
   </div>
   {#if feedback}<p class:composer-error={locked} class="composer-feedback" role="status">{feedback}</p>{/if}
+  {#if sendHint && !feedback}<p class="composer-hint" role="status">{sendHint}</p>{/if}
 </form>
