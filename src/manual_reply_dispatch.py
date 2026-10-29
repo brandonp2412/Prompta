@@ -185,18 +185,21 @@ class ManualReplyDispatcher:
             await driver.connect()
             context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
             await driver.wait_for_composer()
-            verify = _branch_probe(conversation_id, parent_id)
-            if await driver.eval(_branch_wait_probe(conversation_id, parent_id)) is not True:
+            wait_for_parent = _branch_wait_probe(conversation_id, parent_id)
+            if await driver.eval(wait_for_parent) is not True:
                 return
             baseline = await driver.dom_state()
-            if _normalise_composer_text(
-                str(baseline.get("composer_text") or "")
-            ) or baseline.get("send_in_progress"):
+            existing_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
+            requested_text = _normalise_composer_text(text)
+            if (existing_text and existing_text != requested_text) or baseline.get("send_in_progress"):
                 return
             await driver.enable_passive_updates()
             await driver.eval(load_browser_script("passive_response_observer.js"))
-            await driver.type_message(text)
-            if await driver.eval(verify) is not True:
+            # A never-claimed reply may leave its exact text in the composer.
+            # Reuse only that identical draft after another explicit user click.
+            if existing_text != requested_text:
+                await driver.type_message(text)
+            if await driver.eval(wait_for_parent) is not True:
                 return
             before_send = await driver.dom_state()
             if _normalise_composer_text(

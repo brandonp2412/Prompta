@@ -24,6 +24,7 @@ class FakeDriver:
         self.is_connected = True
         self.text = ""
         self.calls = 0
+        self.type_calls = 0
         self.capture: dict[str, object] = {}
         self.sent = threading.Event()
 
@@ -48,6 +49,7 @@ class FakeDriver:
         pass
 
     async def type_message(self, text: str) -> None:
+        self.type_calls += 1
         self.text = text
 
     def arm_send_capture(self) -> dict[str, object]:
@@ -164,6 +166,32 @@ def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
     assert fake.calls == 1
     turns = store.turns("send-1")
     assert turns is not None and turns[-1]["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    ("existing_draft", "expected_send"),
+    [("Synthetic explicit reply", 1), ("Unrelated human draft", 0)],
+)
+def test_prepared_reply_reuses_only_an_identical_existing_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    existing_draft: str, expected_send: int,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = FakeDriver(correct_branch=True)
+    fake.text = existing_draft
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    assert fake.calls == expected_send
+    assert fake.type_calls == 0
+    turns = store.turns("send-1")
+    assert turns is not None
+    assert turns[-1]["status"] == ("completed" if expected_send else "prepared")
 
 
 def test_atomic_manual_claim_is_exactly_once_across_workers(tmp_path: Path) -> None:
