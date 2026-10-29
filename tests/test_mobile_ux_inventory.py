@@ -387,3 +387,48 @@ def test_mobile_ux_destructive_job_confirmation_is_dismissed_in_fixture(tmp_path
                 expect(page.get_by_text("16 configured jobs.")).to_be_visible()
             finally:
                 browser.close()
+
+
+@pytest.mark.parametrize(("width", "height"), [(320, 700), (360, 800), (390, 844), (412, 915)])
+def test_new_chat_composer_keyboard_layout(tmp_path: Path, width: int, height: int) -> None:
+    """Chrome Android must resize the layout viewport for the on-screen keyboard."""
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium")
+    if not Path(chromium).exists():
+        pytest.skip("Chromium unavailable")
+    with server(tmp_path) as (_, port), sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
+        )
+        try:
+            page = browser.new_page(
+                viewport={"width": width, "height": height},
+                is_mobile=True,
+                has_touch=True,
+                device_scale_factor=1,
+            )
+            requests: list[str] = []
+            page.on("request", lambda request: requests.append(request.method))
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new", wait_until="networkidle")
+            viewport = page.locator('meta[name="viewport"]').get_attribute("content") or ""
+            assert "interactive-widget=resizes-content" in viewport
+            composer = page.get_by_role("textbox", name="Message for new chat")
+            expect(composer).to_be_visible()
+            page.wait_for_timeout(80)
+            initial_height = composer.bounding_box()
+            assert initial_height is not None
+            assert initial_height["height"] <= 90, initial_height
+
+            # The second viewport models the layout dimensions after the Android keyboard opens.
+            page.set_viewport_size({"width": width, "height": 430})
+            composer.focus()
+            composer.fill("A draft that should remain visible as the keyboard opens.")
+            form = page.locator("form.chat-composer-wrap")
+            bounds = form.bounding_box()
+            assert bounds is not None
+            assert bounds["y"] >= -1, bounds
+            assert bounds["y"] + bounds["height"] <= 431, bounds
+            assert page.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1
+            assert composer.input_value().startswith("A draft")
+            assert requests.count("POST") == 0
+        finally:
+            browser.close()

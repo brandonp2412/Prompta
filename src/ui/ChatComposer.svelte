@@ -160,7 +160,7 @@
       </div>
     {/if}
     <textarea bind:this={textarea} bind:value={draft} oninput={draftChanged} onkeydown={keydown} onpaste={pasted}
-      rows="4" maxlength="32000" disabled={disabled || locked || sending}
+      rows="1" maxlength="32000" disabled={disabled || locked || sending}
       aria-label={mode === "fresh" ? "Message for new chat" : "Reply to this chat"}
       placeholder={mode === "fresh" ? "Message Prompta…" : "Reply to this chat…"}></textarea>
     <div class="composer-actions">
