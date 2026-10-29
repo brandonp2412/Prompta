@@ -131,10 +131,12 @@ def test_foundations_readability_and_editor_hit_testing(
                 page.goto(base + "?view=chats", wait_until="networkidle")
                 if tablet_dir is not None:
                     page.screenshot(path=str(tablet_dir / "10-chats-list.png"))
-                for selector in [".chat-entry .chat-preview", ".chats-date", ".chat-entry .chat-row-meta"]:
+                for selector in [".chat-entry .chat-row-top strong", ".chats-date", ".chats-count"]:
                     result = typography(page, selector)
                     assert result["fontSize"] >= 13, (selector, result, width)
                     assert result["contrast"] >= 4.5, (selector, result, width)
+                page.get_by_role("button", name="Search chats").click()
+                expect(page.locator(".chats-controls input")).to_be_visible()
                 page.locator(".chats-controls input").fill("Synthetic")
                 page.locator(".chats-controls input").fill("")
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
