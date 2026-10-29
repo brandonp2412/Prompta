@@ -254,3 +254,70 @@
   .job-actions .row-action { flex: 1; min-width: 0; min-height: 44px; padding: 7px 3px; font-size: .75rem; border-radius: 8px; }
   .job-actions .row-action:hover:not(:disabled) { background: #2b2b2b; }
 }
+
+/* Response render hierarchy: clear turn boundaries and distinct content types. */
+.assistant-group {
+  --response-accent: #97bdff;
+  --response-surface: #1b2637;
+  margin: 5px 0 25px;
+  padding: 15px 18px 16px;
+  border: 1px solid #35445c;
+  border-left: 3px solid var(--response-accent);
+  border-radius: 15px;
+  background: linear-gradient(135deg, var(--response-surface), #1a1e27 55%, #17191e);
+  box-shadow: 0 7px 22px rgb(0 0 0 / 12%);
+}
+.assistant-group.response-completed {
+  --response-accent: #8ad6b6;
+  --response-surface: #1b2a28;
+  border-color: #35483f;
+  border-left-color: var(--response-accent);
+}
+.assistant-group.response-interrupted,
+.assistant-group.response-unavailable,
+.assistant-group.response-preflight_failed,
+.assistant-group.response-outcome_unknown {
+  --response-accent: #ffad9e;
+  --response-surface: #302325;
+  border-color: #58403e;
+  border-left-color: var(--response-accent);
+}
+.assistant-group.response-queued,
+.assistant-group.response-accepted,
+.assistant-group.response-prepared,
+.assistant-group.response-dispatching {
+  --response-accent: #e5c384;
+  --response-surface: #2a281f;
+  border-color: #524936;
+  border-left-color: var(--response-accent);
+}
+.assistant-group .response-header { margin-bottom: 11px; }
+.assistant-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; color: #f2f3f7; font-weight: 650; }
+.assistant-avatar { display: grid; place-items: center; flex: none; width: 27px; height: 27px; border: 1px solid #405169; border-radius: 9px; background: #263141; color: var(--response-accent); font-size: 1rem; line-height: 1; }
+.response-state { display: inline-flex; align-items: center; min-height: 23px; padding: 2px 8px; border: 1px solid #4c535b; border-radius: 999px; background: #252e38; color: var(--response-accent); font-size: .72rem; font-weight: 650; line-height: 1.2; }
+.assistant-group .partial-note, .assistant-group .no-response { margin: 10px 0 0; padding: 9px 11px; border-left: 2px solid var(--response-accent); border-radius: 0 8px 8px 0; background: rgb(0 0 0 / 18%); color: #d6d0c3; }
+.assistant-group .result-markdown h1 { color: #f5f7ff; }
+.assistant-group .result-markdown h2 { padding-bottom: 7px; border-bottom: 1px solid #394451; }
+.assistant-group .result-markdown blockquote { padding: 9px 13px; border-left-color: #86b2ee; border-radius: 0 9px 9px 0; background: #24303d; color: #d4dfed; }
+.assistant-group .result-markdown :not(pre) > code { background: #303746; color: #cadfff; }
+.assistant-group .code-snippet { border-color: #40516a; background: #151b25; }
+.assistant-group .code-toolbar { background: #263345; border-bottom-color: #40516a; color: #b7cae7; }
+.assistant-group .result-markdown th { background: #273544; color: #e7f0ff; }
+.assistant-group .result-markdown td { background: rgb(20 27 35 / 35%); }
+.assistant-group .result-markdown th, .assistant-group .result-markdown td { border-color: #405061; }
+.assistant-group .tool-timeline { width: 100%; margin: 0 0 13px; padding: 0 10px 7px; border: 1px solid #36465b; border-radius: 11px; background: #182230; }
+.assistant-group .tool-timeline-summary { width: 100%; color: #bcd4f1; }
+.assistant-group .tool-timeline-icon { background: #2b3d54; color: #b8d5ff; }
+.assistant-group .tool-timeline-toggle { margin-left: auto; }
+.assistant-group .tool-call-list { border-left-color: #426078; }
+.assistant-group .tool-call { border-color: #3a4b5b; background: #202c37; }
+.assistant-group .tool-call-summary:hover { background: #2b3b49; }
+.assistant-group .tool-call-body { border-top-color: #3a4b5b; }
+@media (max-width: 680px) {
+  .assistant-group { margin: 2px 0 17px; padding: 12px 12px 13px; border-radius: 13px; }
+  .assistant-group .response-header { margin-bottom: 8px; }
+  .assistant-avatar { width: 24px; height: 24px; border-radius: 8px; }
+  .assistant-identity { gap: 6px; }
+  .response-state { min-height: 21px; padding: 2px 7px; }
+  .assistant-group .tool-timeline { padding: 0 8px 5px; }
+}

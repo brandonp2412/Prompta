@@ -33,6 +33,21 @@
     { value: "queued", label: "Queued" },
   ];
 
+  function responseBadge(status: LocalTurn["status"]): string {
+    switch (status) {
+      case "completed": return "Final";
+      case "generating": return "Live";
+      case "interrupted": return "Interrupted";
+      case "unavailable": return "Unavailable";
+      case "outcome_unknown": return "Uncertain";
+      case "preflight_failed": return "Not sent";
+      case "dispatching": return "Sending";
+      case "accepted": return "Waiting";
+      case "queued": return "Queued";
+      case "prepared": return "Draft";
+    }
+  }
+
   type WaitingJob = { name: string; position: number; reason: "global" | "stage"; occupied: number; limit: number };
   type QueueSnapshot = { max_workers: number | null; occupied_slots: number; waiting: WaitingJob[] };
   let queueSnapshot = $state<QueueSnapshot>({ max_workers: null, occupied_slots: 0, waiting: [] });
@@ -875,9 +890,13 @@
                 </div>
               {/if}
             </div>
-            <div class="message-group assistant-group">
-              <div class="message-role">
-                <span>Assistant {#if turn.status === "generating"}<span class="capture-live">· Capturing</span>{/if}</span>
+            <div class={"message-group assistant-group response-" + turn.status} aria-label={"Assistant response " + (index + 1)}>
+              <div class="message-role response-header">
+                <span class="assistant-identity">
+                  <span class="assistant-avatar" aria-hidden="true">✦</span>
+                  <span>Response {index + 1}</span>
+                  <span class="response-state">{responseBadge(turn.status)}</span>
+                </span>
                 {#if turn.assistant_text}
                   <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail?.source ?? "" : ""), turn.reply_id || selectedRunId || "")}>
                     {copyState === (turn.reply_id || detail.send_id) ? "Copied" : copyState === "error:" + (turn.reply_id || detail.send_id) ? "Copy failed" : "Copy"}
