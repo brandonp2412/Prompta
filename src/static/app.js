@@ -4937,15 +4937,14 @@ if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ 
 function isRepeatingJob(job) {
 	return job.run_at_epoch === null && (job.daily_at !== null || job.interval_minutes > 0);
 }
-function frequencyMinutes(job) {
-	if (job.run_at_epoch) return Number.POSITIVE_INFINITY;
-	if (job.daily_at) return 1440;
-	return job.interval_minutes;
+function nextRunEpoch(job) {
+	const nextDue = job.next_due_at_epoch;
+	return !job.paused && Number.isFinite(nextDue) && nextDue > 0 ? nextDue : Number.POSITIVE_INFINITY;
 }
 function compareJobs(left, right) {
-	const leftFrequency = frequencyMinutes(left);
-	const rightFrequency = frequencyMinutes(right);
-	if (leftFrequency !== rightFrequency) return leftFrequency < rightFrequency ? -1 : 1;
+	const leftNextRun = nextRunEpoch(left);
+	const rightNextRun = nextRunEpoch(right);
+	if (leftNextRun !== rightNextRun) return leftNextRun < rightNextRun ? -1 : 1;
 	return right.created_order - left.created_order || left.name.localeCompare(right.name);
 }
 function sortJobs(jobs) {

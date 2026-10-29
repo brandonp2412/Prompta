@@ -61,7 +61,7 @@ def test_jobs_table_sorts_next_run_before_pagination(
             page.get_by_role("button", name="Next", exact=True).click()
             expect(page.locator(".job-row")).to_have_count(4)
             assert page.locator(".job-row .job-name").all_text_contents() == [
-                "Job-01", "Job-00", "Job-12", "Job-13"
+                "Job-01", "Job-00", "Job-13", "Job-12"
             ]
             jobs[0]["next_due_at_epoch"] = 1_700_000_000
             page.get_by_role("button", name="Refresh", exact=True).click()
