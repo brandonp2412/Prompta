@@ -11,7 +11,7 @@
 
 - New regression: a synthetic observer exception followed by a same-tab semantic final answer is recovered as `completed` under the original lease. The conversation ID is supplied only through the later pathname probe, not the capture payload.
 - Existing tests cover disconnect with partial preservation, rate-limit interruption, branch rollover refusal, SSE completion and private SQLite lease behavior.
-- `tests/test_passive_results.py`: 13 passed.
+- `tests/test_passive_results.py`: 14 passed, including a real local Chromium DOM-observer recovery with no nonlocal network requests.
 - Full Python suite was queued through `buildq`/pueue task 2128 and succeeded on the isolated worktree before the final annotation-only test edit.
 - Full-repository Ruff and strict Ty checks passed after the final test edit.
 

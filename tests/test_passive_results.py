@@ -235,6 +235,99 @@ async def test_late_same_tab_recovery_after_observer_failure(
     assert driver.dom_reads == 1 and driver.eval_calls == 1
 
 
+@pytest.mark.asyncio
+async def test_real_browser_late_answer_recovers_without_external_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import shutil
+
+    from playwright.async_api import async_playwright
+
+    from prompta import delivery_browser
+    from prompta.browser_script_loader import load_browser_script
+    from prompta.response_capture import normalize_dom_snapshot
+
+    chromium = shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("Local Chromium unavailable")
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("browser-recover", "private synthetic prompt")
+    owner = f"{os.getpid()}:browser-recovery"
+    assert sender.results.accept("browser-recover", owner, deadline=time.time() + 60)
+    monkeypatch.setattr(delivery_browser, "_PASSIVE_RECOVERY_PROBE_SECONDS", 0.08)
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox"],
+        )
+        try:
+            page = await browser.new_page()
+            requests: list[str] = []
+            page.on("request", lambda request: requests.append(request.url))
+            await page.route(
+                "**/*",
+                lambda route: route.fulfill(
+                    status=200, content_type="text/html", body="<html><main></main></html>",
+                ),
+            )
+            await page.goto(f"http://127.0.0.1:9876/c/{_RECOVERED_CHAT}")
+            assert await page.evaluate(load_browser_script("passive_response_observer.js"))
+            await page.evaluate(
+                """() => {
+                  const answer = document.createElement("section");
+                  answer.setAttribute("data-chatgpt-search-unit-key", "synthetic:assistant");
+                  answer.setAttribute(
+                    "data-chatgpt-search-message-ids",
+                    '["11111111-1111-4111-8111-111111111111"]'
+                  );
+                  answer.innerHTML =
+                    '<div class="markdown"><p>Real browser recovered answer</p></div>' +
+                    '<button data-testid="copy-turn-action-button">Copy</button>';
+                  document.querySelector("main").append(answer);
+                }"""
+            )
+
+            class SilentBrowserDriver:
+                is_connected = True
+                reads = 0
+
+                async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+                    await asyncio.sleep(min(timeout, 0.03))
+                    return None
+
+                def captured_assistant_response(
+                    self, _capture: dict[str, object],
+                ) -> CaptureResult | None:
+                    return None
+
+                async def observed_assistant_response(self) -> CaptureResult:
+                    self.reads += 1
+                    payload = await page.evaluate(
+                        load_browser_script("passive_response_read.js")
+                    )
+                    return normalize_dom_snapshot(payload)
+
+                async def eval(self, script: str) -> object:
+                    return await page.evaluate(script)
+
+            driver = SilentBrowserDriver()
+            await sender._capture_until_complete(
+                driver, {"status": 200}, "browser-recover", owner,
+                deadline=asyncio.get_running_loop().time() + 3.0,
+            )
+            row = sender.results.get("browser-recover")
+            assert row is not None
+            assert row["status"] == "completed"
+            assert row["assistant_text"] == "Real browser recovered answer"
+            assert row["conversation_id"] == _RECOVERED_CHAT
+            assert driver.reads > 1
+            assert requests and all(
+                url.startswith("http://127.0.0.1:9876/") for url in requests
+            )
+        finally:
+            await browser.close()
+
+
 def test_delivery_queue_persists_scheduled_run_and_terminal_status(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
     receipt, created = queue.enqueue_idempotent({
