@@ -363,7 +363,7 @@ class ManualReplyDispatcher:
                         pass
         finally:
             if not claimed:
-                logger.info("Explicit reply preflight left unsent stage=%s", preflight_stage)
+                logger.warning("Explicit reply preflight left unsent stage=%s", preflight_stage)
             if claimed and not completed:
                 self.store.finish(reply_id, owner, uncertain=True)
             if capture is not None:
