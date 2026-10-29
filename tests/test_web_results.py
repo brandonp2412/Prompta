@@ -210,6 +210,144 @@ def test_local_read_receipts_persist_and_reject_stale_revisions(tmp_path: Path) 
         assert received["read-two"] == second_revision
 
 
+def test_mark_all_local_chats_read_uses_completed_revisions_across_pages(tmp_path: Path) -> None:
+    from sqlalchemy import select, update
+
+    from prompta.response_store import local_chat_reads, results
+
+    with server(tmp_path) as (app, port):
+        for index in range(31):
+            completed_run(app, f"bulk-{index:02}", f"Bulk {index}", 100 + index)
+        app.results.ensure_queued("no-answer", "Waiting", "Waiting", now=500)
+        app.results.ensure_queued("partial-answer", "Partial", "Partial", now=510)
+        assert app.results.accept("partial-answer", "100:partial", deadline=999, now=511)
+        assert app.results.write(
+            "partial-answer",
+            "100:partial",
+            CaptureResult(
+                "dom",
+                "partial",
+                "Not final",
+                "cp",
+                "mp",
+                "pp",
+            ),
+            now=512,
+        )
+
+        status, payload = post_json(port, "/api/local-chat-reads/all", {})
+        assert status == 200 and payload == {"ok": True, "count": 31}
+        assert post_json(port, "/api/local-chat-reads/all", {}) == (
+            200,
+            {"ok": True, "count": 0},
+        )
+        assert post_json(port, "/api/local-chat-reads/all", {"send_id": "bulk-01"})[0] == 400
+        assert get(port, "/api/local-chat-reads/all")[0] == 404
+        for index in range(31):
+            detail = get(port, f"/api/results/bulk-{index:02}")[1]
+            assert detail["last_read_revision"] == detail["last_reply_revision"]
+        for send_id in ("no-answer", "partial-answer"):
+            detail = get(port, f"/api/results/{send_id}")[1]
+            assert detail["last_reply_revision"] == ""
+            assert detail["last_read_revision"] == ""
+        with app.results.engine.connect() as connection:
+            assert len(connection.execute(select(local_chat_reads.c.send_id)).all()) == 31
+
+        with app.results.engine.begin() as connection:
+            connection.execute(
+                update(results)
+                .where(
+                    results.c.send_id == "bulk-30",
+                )
+                .values(assistant_text="New final reply after bulk action")
+            )
+        revised = get(port, "/api/results/bulk-30")[1]
+        assert revised["last_read_revision"] != revised["last_reply_revision"]
+        assert post_json(port, "/api/local-chat-reads/all", {}) == (
+            200,
+            {"ok": True, "count": 1},
+        )
+        assert (
+            get(port, "/api/results/bulk-30")[1]["last_read_revision"]
+            == (revised["last_reply_revision"])
+        )
+
+        from prompta.reply_contracts import ReplyIntent
+
+        intent = ReplyIntent("bulk-reply-123456789", "c1", "m1", "Follow-up")
+        assert app.replies.prepare("bulk-30", intent, now=600)
+        assert app.replies.claim(intent.reply_id, "100:bulk", deadline=900, now=601)
+        assert app.replies.accepted(
+            intent.reply_id, "100:bulk", conversation_id="c1",
+            parent_id="m1", message_id="m2", now=602,
+        )
+        assert app.replies.observe(intent.reply_id, "100:bulk", CaptureResult(
+            "sse", "complete", "A completed manual follow-up", "c1", "m2", "m1",
+        ), now=603)
+        newer = get(port, "/api/results/bulk-30")[1]
+        assert newer["last_reply_revision"] != revised["last_reply_revision"]
+        assert post_json(port, "/api/local-chat-reads/all", {}) == (
+            200, {"ok": True, "count": 1},
+        )
+        assert get(port, "/api/results/bulk-30")[1]["last_read_revision"] == (
+            newer["last_reply_revision"]
+        )
+
+
+def test_mark_all_as_read_button_persists_across_tabs_and_reload(tmp_path: Path) -> None:
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not chromium or not Path(chromium).is_file():
+        pytest.skip("Headless Chromium unavailable")
+    with server(tmp_path) as (app, port):
+        for index in range(65):
+            completed_run(app, f"button-{index:02}", f"Button {index}", 100 + index)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium,
+                headless=True,
+                args=["--no-sandbox"],
+            )
+            try:
+                first = browser.new_context(viewport={"width": 390, "height": 844})
+                second = browser.new_context(viewport={"width": 1440, "height": 900})
+                mobile = first.new_page()
+                desktop = second.new_page()
+                for page in (mobile, desktop):
+                    page.add_init_script("""localStorage.setItem(
+                        "prompta.local-sidebar.v1",
+                        JSON.stringify({baselineAt: 1, readAt: {}})
+                    );""")
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
+                    page.wait_for_function("() => document.querySelectorAll('.unread-indicator').length >= 20")
+                assert page.locator(".unread-indicator").count() < 65
+
+                for _ in range(6):
+                    mobile.locator(".chats-list").evaluate(
+                        "(element) => { element.scrollTop = element.scrollHeight; }"
+                    )
+                    mobile.wait_for_timeout(150)
+                    if mobile.locator(".chat-entry").count() == 65:
+                        break
+                expect(mobile.locator(".chat-entry")).to_have_count(65)
+
+                button = mobile.get_by_role("button", name="Mark all local chats as read")
+                expect(button).to_be_visible()
+                button.click()
+                expect(mobile.locator(".unread-indicator")).to_have_count(0)
+                mobile.reload(wait_until="networkidle")
+                expect(mobile.locator(".unread-indicator")).to_have_count(0)
+                desktop.reload(wait_until="networkidle")
+                expect(desktop.locator(".unread-indicator")).to_have_count(0)
+
+                mobile.evaluate("localStorage.clear()")
+                mobile.reload(wait_until="networkidle")
+                expect(mobile.locator(".unread-indicator")).to_have_count(0)
+                off_page = get(port, "/api/results/button-00")[1]
+                assert off_page["last_read_revision"] == off_page["last_reply_revision"]
+            finally:
+                browser.close()
+
+
 def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Path) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():
