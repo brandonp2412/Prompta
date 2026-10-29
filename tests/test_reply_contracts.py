@@ -57,6 +57,89 @@ def test_migration_permissions_and_explicit_intent_validation(tmp_path: Path) ->
     assert store.turns("absent") is None
 
 
+def test_early_followups_wait_for_verified_parent_and_dispatch_in_order(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "private" / "chat-results.sqlite3")
+    store.responses.ensure_queued("run", "Original question", now=100)
+    first = "queued-1111111111111111"
+    second = "queued-2222222222222222"
+    assert store.queue_followup("run", first, "One more question", now=101)["status"] == "queued"
+    assert store.queue_followup("run", second, "And a second", now=102)["status"] == "queued"
+    assert store.queue_followup("run", first, "One more question", now=103)["reply_id"] == first
+    with pytest.raises(ReplyConflict, match="Idempotency"):
+        store.queue_followup("run", first, "Different text")
+    assert store.next_queued_intent(now=103) is None
+    assert [turn["status"] for turn in store.turns("run") or []] == ["queued", "queued", "queued"]
+
+    assert store.responses.accept("run", "10:initial", deadline=300, now=104)
+    assert store.next_queued_intent(now=105) is None
+    assert store.responses.write("run", "10:initial", CaptureResult(
+        "sse", "complete", "Initial answer", CONVERSATION, PARENT, "user-1234567890123",
+    ), now=106)
+    ready = store.next_queued_intent(now=107)
+    assert ready == ("run", ReplyIntent(first, CONVERSATION, PARENT, "One more question"))
+    assert store.next_queued_intent(exclude={first}, now=108) is None
+    # Restart after preparing, but before claiming the browser send: safe to resume.
+    restored = ManualReplyStore(store.responses.path)
+    assert restored.next_queued_intent(now=109) == ready
+    assert restored.claim(first, "123:worker", deadline=300, now=110)
+    assert restored.accepted(
+        first, "123:worker", conversation_id=CONVERSATION, parent_id=PARENT,
+        message_id=MESSAGE, now=111,
+    )
+    assert restored.observe(first, "123:worker", CaptureResult(
+        "sse", "complete", "First follow-up answer", CONVERSATION, MESSAGE, PARENT,
+    ), now=112)
+    assert restored.next_queued_intent(now=113) == (
+        "run", ReplyIntent(second, CONVERSATION, MESSAGE, "And a second"),
+    )
+    assert [turn["user_text"] for turn in restored.turns("run") or []] == [
+        "Original question", "One more question", "And a second",
+    ]
+
+
+def test_explicit_queue_pump_waits_for_first_answer_and_serializes_followups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "private" / "chat-results.sqlite3")
+    store.responses.ensure_queued("run", "Initial prompt", now=100)
+    first = "queued-pump-111111111111"
+    second = "queued-pump-222222222222"
+    store.queue_followup("run", first, "First", now=101)
+    store.queue_followup("run", second, "Second", now=102)
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    submitted: list[ReplyIntent] = []
+
+    def fake_submit(send_id: str, submission: ReplyIntent) -> dict[str, object]:
+        assert send_id == "run"
+        assert store.claim(submission.reply_id, "123:worker", deadline=400, now=110)
+        submitted.append(submission)
+        return {"status": "dispatching"}
+
+    monkeypatch.setattr(dispatcher, "submit", fake_submit)
+    dispatcher.pump_queued()
+    assert submitted == []
+
+    assert store.responses.accept("run", "10:initial", deadline=400, now=103)
+    assert store.responses.write("run", "10:initial", CaptureResult(
+        "sse", "complete", "Initial answer", CONVERSATION, PARENT, "user-1234567890123",
+    ), now=104)
+    dispatcher.pump_queued()
+    assert submitted == [ReplyIntent(first, CONVERSATION, PARENT, "First")]
+    dispatcher.pump_queued()
+    assert len(submitted) == 1
+    assert store.accepted(
+        first, "123:worker", conversation_id=CONVERSATION,
+        parent_id=PARENT, message_id=MESSAGE, now=112,
+    )
+    assert store.observe(first, "123:worker", CaptureResult(
+        "sse", "complete", "First answer", CONVERSATION, MESSAGE, PARENT,
+    ), now=113)
+    dispatcher.pump_queued()
+    assert submitted[-1] == ReplyIntent(second, CONVERSATION, MESSAGE, "Second")
+
+
 def test_exact_branch_idempotency_and_concurrent_intents(tmp_path: Path) -> None:
     store = seed(tmp_path)
     with pytest.raises(ReplyConflict, match="different"):

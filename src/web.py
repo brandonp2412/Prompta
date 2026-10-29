@@ -117,6 +117,10 @@ class PromptaJobServer(ThreadingHTTPServer):
             return
         self.health.beat("ui", now=now)
         self.replies.recover_orphans(now=now)
+        try:
+            self.reply_dispatch.pump_queued()
+        except Exception as exc:
+            logger.warning("Queued follow-up scan failed error_type=%s", type(exc).__name__)
         notify_watchdog()
         self._last_health_beat = now
 
@@ -347,15 +351,17 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
         send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
         recover_reply_path = path.startswith("/api/results/") and path.endswith("/reply-recover")
+        queue_reply_path = path.startswith("/api/results/") and path.endswith("/reply-queue")
         if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import", "/api/local-chat-reads", "/api/local-chat-reads/import", "/api/local-chat-reads/all"} and not (
-            reply_path or send_reply_path or recover_reply_path
+            reply_path or send_reply_path or recover_reply_path or queue_reply_path
         ):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
-            if reply_path or send_reply_path or recover_reply_path:
+            if reply_path or send_reply_path or recover_reply_path or queue_reply_path:
                 suffix = (
                     "/reply-recover" if recover_reply_path
+                    else "/reply-queue" if queue_reply_path
                     else "/reply-send" if send_reply_path else "/reply-intents"
                 )
                 send_id = unquote(path[len("/api/results/"):-len(suffix)])
@@ -370,6 +376,16 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                         raise ValueError("Reply recovery does not accept message content")
                     recovered = self.server.reply_dispatch.recover(send_id)
                     self._json({"ok": True, **recovered})
+                    return
+                if queue_reply_path:
+                    if set(payload) != {"reply_id", "text"}:
+                        raise ValueError("Invalid queued follow-up fields")
+                    reply_id, text = payload["reply_id"], payload["text"]
+                    if not isinstance(reply_id, str) or not isinstance(text, str):
+                        raise ValueError("Invalid queued follow-up fields")
+                    turn = self.server.replies.queue_followup(send_id, reply_id, text)
+                    self._json({"ok": True, "turn": turn}, HTTPStatus.ACCEPTED)
+                    self.server.reply_dispatch.pump_queued()
                     return
                 intent = ReplyIntent.parse(payload)
                 if send_reply_path:
@@ -483,7 +499,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         except Exception as exc:
-            if reply_path or send_reply_path or recover_reply_path or path == "/api/chats" or path.startswith(("/api/local-chat-pins", "/api/local-chat-reads")):
+            if reply_path or send_reply_path or recover_reply_path or queue_reply_path or path == "/api/chats" or path.startswith(("/api/local-chat-pins", "/api/local-chat-reads")):
                 # DB/driver exceptions may contain secret prompts or SQLite parameters.
                 logger.error("Chat send contract failed error_type=%s", type(exc).__name__)
                 self._json({"ok": False, "error": "Chat send contract unavailable"},

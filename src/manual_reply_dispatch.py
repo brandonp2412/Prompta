@@ -107,6 +107,26 @@ class ManualReplyDispatcher:
             raise ReplyConflict("Manual reply worker is unavailable") from None
         return turn
 
+    def pump_queued(self) -> None:
+        """Dispatch only explicit user-clicked follow-ups whose parent is ready.
+
+        The durable intent survives page closes and process restarts. A prepared
+        intent that was never claimed can be resumed; failed preflights and
+        ambiguous submissions are never automatically retried.
+        """
+        selected: set[str] = set()
+        for _ in range(4):
+            ready = self.store.next_queued_intent(exclude=selected)
+            if ready is None:
+                return
+            send_id, intent = ready
+            selected.add(intent.reply_id)
+            try:
+                self.submit(send_id, intent)
+            except ReplyConflict:
+                # A concurrent explicit request may already own this turn.
+                continue
+
     def recover(self, send_id: str) -> dict[str, str]:
         """Only an explicit UI POST can inspect the exact persisted branch."""
         with self._lock:

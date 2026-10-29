@@ -72,6 +72,60 @@ def test_fresh_chat_endpoint_is_idempotent_and_payload_bound(tmp_path: Path) -> 
         assert [item["send_id"] for item in results.local_pinned_runs()] == ["manual-" + "b" * 32]
 
 
+def test_early_followup_http_queue_is_durable_and_idempotent(tmp_path: Path) -> None:
+    with serve_test_ui(tmp_path) as port:
+        results = ResponseStore(tmp_path / "chat-results.sqlite3")
+        results.ensure_queued("early", "Original private prompt")
+        payload: dict[str, object] = {"reply_id": "queued-" + "a" * 32, "text": "Additional context"}
+        first_status, first = post(port, "/api/results/early/reply-queue", payload)
+        second_status, second = post(port, "/api/results/early/reply-queue", payload)
+        assert first_status == second_status == 202
+        assert first["turn"] == second["turn"]
+        turn = json_object(json.dumps(first["turn"]).encode(), label="queued follow-up")
+        assert turn["status"] == "queued"
+        assert post(port, "/api/results/early/reply-queue", {**payload, "text": "Different"})[0] == 409
+        assert post(port, "/api/results/absent/reply-queue", payload)[0] == 409
+        from prompta.reply_contracts import ManualReplyStore
+        turns = ManualReplyStore(results.path).turns("early")
+        assert turns is not None
+        assert [turn["status"] for turn in turns] == ["queued", "queued"]
+        assert turns[1]["user_text"] == "Additional context"
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_composer_queues_followup_while_first_answer_is_pending(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    results = ResponseStore(tmp_path / "chat-results.sqlite3")
+    results.ensure_queued("early", "Original private prompt")
+    assert results.accept("early", "owner", deadline=time.time() + 4000)
+    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        page.goto(f"http://127.0.0.1:{port}/?view=chats&run=early")
+        composer = page.get_by_role("textbox", name="Message for current chat")
+        composer.fill("Important follow-up before first answer")
+        expect(page.get_by_role("button", name="Send reply")).to_be_enabled()
+        with page.expect_response(lambda response: response.url.endswith("/reply-queue")) as queued:
+            composer.press("Enter")
+        assert queued.value.status == 202
+        expect(composer).to_have_value("")
+        expect(page.get_by_text("Important follow-up before first answer")).to_be_visible()
+        expect(page.get_by_text("Follow-up queued", exact=False)).to_be_visible()
+        composer.fill("Another queued instruction")
+        with page.expect_response(lambda response: response.url.endswith("/reply-queue")):
+            composer.press("Enter")
+        expect(page.get_by_text("Another queued instruction")).to_be_visible()
+        assert page.locator(".message-group.user-group").count() == 3
+        page.reload()
+        expect(page.locator(".message-group.user-group")).to_have_count(3)
+        expect(page.get_by_role("textbox", name="Message for current chat")).to_be_enabled()
+        browser.close()
+
+
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_real_composer_keyboard_image_and_overflow(
     tmp_path: Path, width: int, height: int,
@@ -278,7 +332,6 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     [
         ("completed", True, True),
         ("interrupted", False, True),
-        ("accepted", False, False),
     ],
 )
 def test_reply_composer_preserves_terminal_recovery_without_sending(

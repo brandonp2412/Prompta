@@ -13,6 +13,7 @@ from typing import Literal
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import (
+    Boolean,
     Column,
     Float,
     Index,
@@ -40,7 +41,7 @@ from .response_store import (
 )
 
 ReplyStatus = Literal[
-    "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
+    "queued", "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
     "generating", "completed", "interrupted",
 ]
 _SCHEMA = MetaData()
@@ -56,6 +57,7 @@ replies = Table(
     Column("message_id", String, nullable=False, default=""),
     Column("response_parent_id", String, nullable=False, default=""),
     Column("status", String, nullable=False),
+    Column("queued_by_user", Boolean, nullable=False, server_default="0"),
     Column("lease_owner", String, nullable=False, default=""),
     Column("lease_deadline", Float, nullable=False, default=0),
     Column("created_at", Float, nullable=False),
@@ -107,7 +109,8 @@ class ManualReplyStore:
                 migration = Operations(MigrationContext.configure(connection))
                 migration.create_table(
                     replies.name,
-                    *(Column(c.name, c.type, primary_key=c.primary_key, nullable=c.nullable)
+                    *(Column(c.name, c.type, primary_key=c.primary_key, nullable=c.nullable,
+                             server_default=c.server_default)
                       for c in replies.columns),
                 )
                 migration.create_index(
@@ -123,16 +126,20 @@ class ManualReplyStore:
                         "response_parent_id", String, nullable=False, server_default="",
                     ),
                 )
-            if "tool_calls_json" not in {column["name"] for column in inspect(connection).get_columns(replies.name)}:
+            existing_columns = {column["name"] for column in inspect(connection).get_columns(replies.name)}
+            if "tool_calls_json" not in existing_columns:
                 migration = Operations(MigrationContext.configure(connection))
                 migration.add_column(replies.name, Column("tool_calls_json", Text, nullable=False, server_default="[]"))
+            if "queued_by_user" not in existing_columns:
+                migration = Operations(MigrationContext.configure(connection))
+                migration.add_column(replies.name, Column("queued_by_user", Boolean, nullable=False, server_default="0"))
         self.responses._secure_files()
 
     @staticmethod
     def _public(row: dict[str, object]) -> dict[str, object]:
         public = {key: row[key] for key in (
             "reply_id", "send_id", "conversation_id", "parent_id", "message_id",
-            "user_text", "assistant_text", "status", "created_at", "updated_at",
+            "user_text", "assistant_text", "status", "queued_by_user", "created_at", "updated_at",
         )}
         public["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
         return public
@@ -191,6 +198,107 @@ class ManualReplyStore:
             "message_id": "", "user_text": intent.text, "assistant_text": "",
             "status": "prepared", "created_at": at, "updated_at": at,
         }
+
+    def queue_followup(
+        self, send_id: str, reply_id: str, text: str, *, now: float | None = None,
+    ) -> dict[str, object]:
+        """Persist a user-clicked follow-up before the preceding answer is available.
+
+        Queueing never infers a ChatGPT parent or performs a browser send. The
+        parent is bound transactionally only after the preceding turn resolves.
+        """
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,200}", reply_id):
+            raise ValueError("Invalid follow-up identifier")
+        if not text.strip() or len(text) > 32000:
+            raise ValueError("Invalid follow-up text")
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            existing = connection.execute(select(replies).where(
+                replies.c.reply_id == reply_id,
+            )).mappings().one_or_none()
+            if existing is not None:
+                if (existing["send_id"], existing["user_text"], existing["queued_by_user"]) != (
+                    send_id, text, True,
+                ):
+                    raise ReplyConflict("Idempotency key already belongs to a different follow-up")
+                return self._public(dict(existing))
+            if connection.execute(select(results.c.send_id).where(
+                results.c.send_id == send_id,
+            )).scalar_one_or_none() is None:
+                raise ReplyConflict("A saved Prompta chat is required")
+            outstanding = connection.execute(select(func.count()).select_from(replies).where(
+                replies.c.send_id == send_id,
+                replies.c.status.in_(("queued", "prepared", "preflight_failed", "dispatching",
+                                     "accepted", "generating", "outcome_unknown")),
+            )).scalar_one()
+            if outstanding >= 20:
+                raise ReplyConflict("This chat already has 20 unresolved follow-ups")
+            connection.execute(insert(replies).values(
+                reply_id=reply_id, send_id=send_id,
+                conversation_id="", parent_id="", user_text=text,
+                assistant_text="", message_id="", status="queued",
+                queued_by_user=True, lease_owner="", lease_deadline=0,
+                created_at=at, updated_at=at,
+            ))
+        row = self.get(reply_id)
+        assert row is not None
+        return row
+
+    def next_queued_intent(
+        self, *, exclude: set[str] | None = None, now: float | None = None,
+    ) -> tuple[str, ReplyIntent] | None:
+        """Bind one explicitly queued turn only after verified, ordered predecessors."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            candidates = connection.execute(select(replies).where(
+                replies.c.queued_by_user.is_(True),
+                replies.c.status.in_(("queued", "prepared")),
+            ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
+            for row in candidates:
+                reply_id = str(row["reply_id"])
+                if exclude and reply_id in exclude:
+                    continue
+                send_id = str(row["send_id"])
+                original = connection.execute(select(results).where(
+                    results.c.send_id == send_id,
+                )).mappings().one_or_none()
+                if (original is None or original["status"] not in
+                        ("completed", "interrupted", "unavailable") or
+                        not original["conversation_id"] or not original["message_id"]):
+                    continue
+                conversation_id = str(original["conversation_id"])
+                parent_id = str(original["message_id"])
+                predecessors = connection.execute(select(replies).where(
+                    replies.c.send_id == send_id,
+                ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
+                eligible = False
+                for previous in predecessors:
+                    if previous["reply_id"] == reply_id:
+                        eligible = True
+                        break
+                    if (previous["status"] not in ("completed", "interrupted")
+                            or not previous["message_id"]
+                            or previous["conversation_id"] != conversation_id
+                            or previous["parent_id"] != parent_id):
+                        break
+                    parent_id = str(previous["message_id"])
+                if not eligible:
+                    continue
+                if row["status"] == "queued":
+                    connection.execute(update(replies).where(
+                        replies.c.reply_id == reply_id, replies.c.status == "queued",
+                    ).values(status="prepared", conversation_id=conversation_id,
+                             parent_id=parent_id, updated_at=at))
+                elif (row["conversation_id"], row["parent_id"]) != (
+                    conversation_id, parent_id,
+                ):
+                    continue
+                return send_id, ReplyIntent(
+                    reply_id, conversation_id, parent_id, str(row["user_text"]),
+                )
+        return None
 
     def mark_preflight_failed(self, reply_id: str, *, now: float | None = None) -> bool:
         """Only a never-claimed reply can fail safely before dispatch."""

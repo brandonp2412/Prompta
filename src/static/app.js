@@ -8506,11 +8506,12 @@ var root_19 = /* @__PURE__ */ from_html(`<div class="chat-attachments" aria-labe
 var root_20 = /* @__PURE__ */ from_html(`<button class="copy-message" type="button"> </button>`);
 var root_21 = /* @__PURE__ */ from_html(`<p class="partial-note"> </p>`);
 var root_22 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
-var root_23 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
-var root_24 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span>You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div><div class="message-role response-header"><span class="assistant-identity"><span class="assistant-avatar" aria-hidden="true">✦</span> <span> </span> <span class="response-state"> </span></span> <!></div> <!> <!></div>`, 1);
-var root_25 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
-var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
-var root_27 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <div class="sidebar-read-actions"><button type="button" class="mark-all-read" aria-label="Mark all local chats as read" title="Mark all local chats as read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path></svg> </button></div> <!> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
+var root_23 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Retry this follow-up</button>`);
+var root_24 = /* @__PURE__ */ from_html(`<p class="no-response"> </p> <!>`, 1);
+var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span>You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div><div class="message-role response-header"><span class="assistant-identity"><span class="assistant-avatar" aria-hidden="true">✦</span> <span> </span> <span class="response-state"> </span></span> <!></div> <!> <!></div>`, 1);
+var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
+var root_27 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
+var root_28 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <div class="sidebar-read-actions"><button type="button" class="mark-all-read" aria-label="Mark all local chats as read" title="Mark all local chats as read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path></svg> </button></div> <!> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
 	push($$props, true);
 	const chatItem = ($$anchor, item = noop) => {
@@ -8676,9 +8677,13 @@ function ChatsPage($$anchor, $$props) {
 			"completed",
 			"interrupted",
 			"unavailable",
-			"outcome_unknown"
+			"outcome_unknown",
+			"queued",
+			"accepted",
+			"generating",
+			"dispatching"
 		].includes(latest.status)) return "";
-		return "Wait for the current response before replying.";
+		return "This reply is not yet ready to resend.";
 	});
 	let visibleWaiting = /* @__PURE__ */ user_derived(() => get(statusFilter) && get(statusFilter) !== "queued" ? [] : get(queueSnapshot).waiting.filter((job) => !get(search).trim() || job.name.toLowerCase().includes(get(search).trim().toLowerCase())));
 	let unpinned = /* @__PURE__ */ user_derived(() => get(items).filter((item) => !get(pinnedIds).includes(item.send_id)).sort(newestFirst));
@@ -8972,6 +8977,7 @@ function ChatsPage($$anchor, $$props) {
 	}
 	let pendingFresh = null;
 	let pendingReply = null;
+	let pendingQueued = null;
 	async function sendFresh(text, images) {
 		const signature = JSON.stringify([text, images]);
 		const requestId = pendingFresh?.signature === signature ? pendingFresh.requestId : crypto.randomUUID().replaceAll("-", "");
@@ -9041,6 +9047,59 @@ function ChatsPage($$anchor, $$props) {
 	function originalImageRefs() {
 		return (get(detail)?.images ?? []).filter((attachment) => attachment.url.startsWith("./api/images/")).map((attachment) => attachment.url.slice(13));
 	}
+	async function queueEarlyReply(sendId, text) {
+		const storageKey = "prompta.pending-followup.v1." + sendId;
+		let cached = null;
+		try {
+			cached = JSON.parse(localStorage.getItem(storageKey) || "null");
+		} catch {}
+		const previous = pendingQueued?.sendId === sendId ? pendingQueued : null;
+		const replyId = previous?.text === text ? previous.replyId : cached?.text === text && /^[A-Za-z0-9_-]{16,200}$/.test(cached.replyId) ? cached.replyId : crypto.randomUUID().replaceAll("-", "");
+		pendingQueued = {
+			sendId,
+			replyId,
+			text
+		};
+		try {
+			localStorage.setItem(storageKey, JSON.stringify({
+				replyId,
+				text
+			}));
+		} catch {}
+		try {
+			const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					reply_id: replyId,
+					text
+				})
+			});
+			if (!response.ok) {
+				const problem = response.status < 500 ? await response.json().catch(() => null) : null;
+				return {
+					ok: false,
+					ambiguous: response.status >= 500,
+					message: problem?.error || "Follow-up queue receipt is uncertain. Retry with the saved draft to reconcile."
+				};
+			}
+			if (pendingQueued?.replyId === replyId) pendingQueued = null;
+			try {
+				if (JSON.parse(localStorage.getItem(storageKey) || "null")?.replyId === replyId) localStorage.removeItem(storageKey);
+			} catch {}
+			if ($$props.selectedRunId === sendId) await loadDetail(sendId);
+			return {
+				ok: true,
+				message: ""
+			};
+		} catch {
+			return {
+				ok: false,
+				ambiguous: true,
+				message: "Queue receipt was lost. The draft is saved; press Send to reconcile."
+			};
+		}
+	}
 	async function sendReply(text, _images) {
 		const sendId = $$props.selectedRunId;
 		if (!sendId || get(detail)?.send_id !== sendId) return {
@@ -9048,7 +9107,14 @@ function ChatsPage($$anchor, $$props) {
 			message: "The selected chat is still loading. Nothing was sent."
 		};
 		const latest = get(turns).at(-1);
+		if (latest && [
+			"queued",
+			"accepted",
+			"generating",
+			"dispatching"
+		].includes(latest.status)) return queueEarlyReply(sendId, text);
 		if (latest?.status === "prepared" || latest?.status === "preflight_failed") {
+			if (latest.queued_by_user && text !== latest.user_text) return queueEarlyReply(sendId, text);
 			if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) return {
 				ok: false,
 				message: "A pending reply can only be retried with its original text."
@@ -9137,6 +9203,17 @@ function ChatsPage($$anchor, $$props) {
 				message: "Reply acknowledgment was lost. Check local turns; no automatic retry."
 			};
 		}
+	}
+	async function retryFailedTurn(turn) {
+		const sendId = $$props.selectedRunId;
+		if (!sendId || turn.status !== "preflight_failed" || !turn.reply_id || !turn.conversation_id || !turn.parent_id) return;
+		const result = await sendExactReply(sendId, {
+			reply_id: turn.reply_id,
+			conversation_id: turn.conversation_id,
+			parent_id: turn.parent_id,
+			text: turn.user_text
+		});
+		if ($$props.selectedRunId === sendId) set(turnsError, result.ok ? "" : result.message, true);
 	}
 	async function copyText(value, key) {
 		try {
@@ -9261,7 +9338,7 @@ function ChatsPage($$anchor, $$props) {
 			clearTimeout(searchTimer);
 		};
 	});
-	var section = root_27();
+	var section = root_28();
 	event("keydown", $window, escapeDrawer);
 	event("touchstart", $window, startSwipe, void 0, true);
 	event("touchend", $window, finishSwipe);
@@ -9467,7 +9544,7 @@ function ChatsPage($$anchor, $$props) {
 		append($$anchor, div_13);
 	};
 	var alternate_3 = ($$anchor) => {
-		var fragment_6 = root_26();
+		var fragment_6 = root_27();
 		var div_14 = first_child(fragment_6);
 		var button_11 = child(div_14);
 		var node_16 = sibling(button_11, 2);
@@ -9503,8 +9580,8 @@ function ChatsPage($$anchor, $$props) {
 			if (get(loadingDetail) && !get(detail)) $$render(consequent_16);
 		});
 		var node_19 = sibling(node_18, 2);
-		var consequent_25 = ($$anchor) => {
-			var div_17 = root_25();
+		var consequent_26 = ($$anchor) => {
+			var div_17 = root_26();
 			var node_20 = child(div_17);
 			var consequent_17 = ($$anchor) => {
 				var p_3 = root_16();
@@ -9516,7 +9593,7 @@ function ChatsPage($$anchor, $$props) {
 				if (get(turnsError)) $$render(consequent_17);
 			});
 			each(sibling(node_20, 2), 19, () => get(turns), (turn) => turn.reply_id || get(detail).send_id, ($$anchor, turn, index) => {
-				var fragment_7 = root_24();
+				var fragment_7 = root_25();
 				var div_18 = first_child(fragment_7);
 				var div_19 = child(div_18);
 				var span_11 = child(div_19);
@@ -9640,10 +9717,20 @@ function ChatsPage($$anchor, $$props) {
 					append($$anchor, fragment_10);
 				};
 				var alternate_2 = ($$anchor) => {
-					var p_5 = root_23();
+					var fragment_11 = root_24();
+					var p_5 = first_child(fragment_11);
 					var text_27 = only_child(p_5, true);
-					template_effect(($0) => set_text(text_27, $0), [() => turnStatus(get(turn).status)]);
-					append($$anchor, p_5);
+					var node_30 = sibling(p_5, 2);
+					var consequent_25 = ($$anchor) => {
+						var button_14 = root_23();
+						delegated("click", button_14, () => void retryFailedTurn(get(turn)));
+						append($$anchor, button_14);
+					};
+					if_block(node_30, ($$render) => {
+						if (get(turn).status === "preflight_failed" && get(turn).reply_id && get(turn).conversation_id && get(turn).parent_id) $$render(consequent_25);
+					});
+					template_effect(($0) => set_text(text_27, $0), [() => get(index) > 0 && get(turn).status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(get(turn).status)]);
+					append($$anchor, fragment_11);
 				};
 				if_block(node_27, ($$render) => {
 					if (get(turn).assistant_text) $$render(consequent_24);
@@ -9670,16 +9757,16 @@ function ChatsPage($$anchor, $$props) {
 			append($$anchor, div_17);
 		};
 		if_block(node_19, ($$render) => {
-			if (get(detail)) $$render(consequent_25);
+			if (get(detail)) $$render(consequent_26);
 		});
 		reset(div_15);
 		bind_this(div_15, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
-		var node_30 = sibling(div_15, 2);
+		var node_31 = sibling(div_15, 2);
 		{
 			let $0 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && ["prepared", "preflight_failed"].includes(get(turns).at(-1)?.status ?? "") ? get(turns).at(-1)?.user_text ?? "" : "");
 			let $1 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed");
 			let $2 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id !== $$props.selectedRunId || Boolean(get(replyBlockedReason)) || get(recoveringReply));
-			ChatComposer(node_30, {
+			ChatComposer(node_31, {
 				mode: "reply",
 				get chatId() {
 					return $$props.selectedRunId;

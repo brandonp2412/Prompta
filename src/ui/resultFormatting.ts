@@ -49,6 +49,7 @@ export type LocalTurn = {
   assistant_text: string;
   tool_calls?: CapturedToolCall[];
   status: ResultStatus | "prepared" | "preflight_failed" | "dispatching" | "outcome_unknown";
+  queued_by_user?: boolean;
   created_at: number;
   updated_at: number;
 };

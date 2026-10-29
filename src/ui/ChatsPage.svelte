@@ -118,8 +118,8 @@
     }
     // Terminal capture failures do not mean the conversation itself failed.
     // An explicit Send can recover its parent, or start a contextual fresh chat.
-    if (["completed", "interrupted", "unavailable", "outcome_unknown"].includes(latest.status)) return "";
-    return "Wait for the current response before replying.";
+    if (["completed", "interrupted", "unavailable", "outcome_unknown", "queued", "accepted", "generating", "dispatching"].includes(latest.status)) return "";
+    return "This reply is not yet ready to resend.";
   });
   let visibleWaiting = $derived(
     statusFilter && statusFilter !== "queued" ? [] :
@@ -439,6 +439,7 @@
 
   let pendingFresh: { signature: string; requestId: string } | null = null;
   let pendingReply: { sendId: string; replyId: string; conversationId: string; parentId: string; text: string } | null = null;
+  let pendingQueued: { sendId: string; replyId: string; text: string } | null = null;
 
   async function sendFresh(text: string, images: string[]) {
     const signature = JSON.stringify([text, images]);
@@ -515,13 +516,53 @@
       .map((attachment) => attachment.url.slice("./api/images/".length));
   }
 
+  async function queueEarlyReply(sendId: string, text: string) {
+    const storageKey = "prompta.pending-followup.v1." + sendId;
+    let cached: { replyId: string; text: string } | null = null;
+    try { cached = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch { /* Storage is optional. */ }
+    const previous = pendingQueued?.sendId === sendId ? pendingQueued : null;
+    const replyId = previous?.text === text ? previous.replyId
+      : cached?.text === text && /^[A-Za-z0-9_-]{16,200}$/.test(cached.replyId) ? cached.replyId
+      : crypto.randomUUID().replaceAll("-", "");
+    pendingQueued = { sendId, replyId, text };
+    try { localStorage.setItem(storageKey, JSON.stringify({ replyId, text })); } catch { /* Keep the in-memory receipt. */ }
+    try {
+      const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reply_id: replyId, text }),
+      });
+      if (!response.ok) {
+        const problem = response.status < 500
+          ? await response.json().catch(() => null) as { error?: string } | null : null;
+        return {
+          ok: false, ambiguous: response.status >= 500,
+          message: problem?.error || "Follow-up queue receipt is uncertain. Retry with the saved draft to reconcile.",
+        };
+      }
+      if (pendingQueued?.replyId === replyId) pendingQueued = null;
+      try {
+        const saved: { replyId?: string } | null = JSON.parse(localStorage.getItem(storageKey) || "null");
+        if (saved?.replyId === replyId) localStorage.removeItem(storageKey);
+      } catch { /* An acknowledged reply is already durable on the server. */ }
+      if (selectedRunId === sendId) await loadDetail(sendId);
+      return { ok: true, message: "" };
+    } catch {
+      return { ok: false, ambiguous: true, message: "Queue receipt was lost. The draft is saved; press Send to reconcile." };
+    }
+  }
+
   async function sendReply(text: string, _images: string[]) {
     const sendId = selectedRunId;
     if (!sendId || detail?.send_id !== sendId) {
       return { ok: false, message: "The selected chat is still loading. Nothing was sent." };
     }
     const latest = turns.at(-1);
+    if (latest && ["queued", "accepted", "generating", "dispatching"].includes(latest.status)) {
+      return queueEarlyReply(sendId, text);
+    }
     if (latest?.status === "prepared" || latest?.status === "preflight_failed") {
+      if (latest.queued_by_user && text !== latest.user_text) return queueEarlyReply(sendId, text);
       if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) {
         return { ok: false, message: "A pending reply can only be retried with its original text." };
       }
@@ -600,6 +641,17 @@
         message: "Reply acknowledgment was lost. Check local turns; no automatic retry.",
       };
     }
+  }
+
+  async function retryFailedTurn(turn: LocalTurn) {
+    const sendId = selectedRunId;
+    if (!sendId || turn.status !== "preflight_failed" || !turn.reply_id ||
+        !turn.conversation_id || !turn.parent_id) return;
+    const result = await sendExactReply(sendId, {
+      reply_id: turn.reply_id, conversation_id: turn.conversation_id,
+      parent_id: turn.parent_id, text: turn.user_text,
+    });
+    if (selectedRunId === sendId) turnsError = result.ok ? "" : result.message;
   }
 
   async function copyText(value: string, key: string) {
@@ -910,7 +962,10 @@
                 <ResultMarkdown source={turn.assistant_text} captureSource={index === 0 ? detail.source : ""} />
                 {#if turn.status !== "completed"}<p class="partial-note">{turn.status === "generating" ? "Partial response · " : ""}{turnStatus(turn.status)}</p>{/if}
               {:else}
-                <p class="no-response">{turnStatus(turn.status)}</p>
+                <p class="no-response">{index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)}</p>
+                {#if turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id}
+                  <button class="row-action" type="button" onclick={() => void retryFailedTurn(turn)}>Retry this follow-up</button>
+                {/if}
               {/if}
             </div>
           {/each}
