@@ -98,24 +98,12 @@
     if (!detail || detail.send_id !== selectedRunId || !latest) return "Loading reply availability…";
     if (latest.status === "prepared" || latest.status === "preflight_failed") {
       return latest.reply_id && latest.conversation_id && latest.parent_id
-        ? "" : "The saved reply has no verified target, so it cannot be resent.";
+        ? "" : "The saved reply target is incomplete. Try again after refreshing.";
     }
-    if (latest.status === "completed") {
-      if (!latest.conversation_id) {
-        return "This chat was saved without its ChatGPT conversation ID, so it cannot be safely replied to.";
-      }
-      if (turns.length > 1 && !latest.message_id) {
-        return "The latest assistant reply has no verified message ID. This branch cannot be safely continued.";
-      }
-      return "";
-    }
-    if (latest.status === "outcome_unknown") {
-      return "The last reply may have been sent. Check ChatGPT before trying anything else.";
-    }
-    if (latest.status === "interrupted" || latest.status === "unavailable") {
-      return "The last response did not finish reliably, so a same-branch reply is unavailable.";
-    }
-    return "You can reply when this chat has a completed response.";
+    // Terminal capture failures do not mean the conversation itself failed.
+    // An explicit Send can recover its parent, or start a contextual fresh chat.
+    if (["completed", "interrupted", "unavailable", "outcome_unknown"].includes(latest.status)) return "";
+    return "Wait for the current response before replying.";
   });
   let visibleWaiting = $derived(
     statusFilter && statusFilter !== "queued" ? [] :
@@ -433,8 +421,14 @@
     }
   }
 
+  let pendingFresh: { signature: string; requestId: string } | null = null;
+  let pendingReply: { sendId: string; replyId: string; conversationId: string; parentId: string; text: string } | null = null;
+
   async function sendFresh(text: string, images: string[]) {
-    const requestId = crypto.randomUUID().replaceAll("-", "");
+    const signature = JSON.stringify([text, images]);
+    const requestId = pendingFresh?.signature === signature
+      ? pendingFresh.requestId : crypto.randomUUID().replaceAll("-", "");
+    pendingFresh = { signature, requestId };
     try {
       const response = await fetch("./api/chats", {
         method: "POST",
@@ -455,6 +449,7 @@
       // the receipt is confirmed, even if the previous list was filtered.
       search = "";
       statusFilter = "";
+      pendingFresh = null;
       onQueued(body.send_id);
       void loadList(true);
       void loadPins();
@@ -487,13 +482,29 @@
     }
   }
 
+  function freshContinuationPrompt(text: string): string {
+    const introduction = "Continue the following saved conversation in a new chat. The previous ChatGPT branch could not be verified. Treat the quoted transcript as context, then answer the final new message.\n\n";
+    const finalMessage = "\n\nNew user message:\n" + text;
+    if (introduction.length + finalMessage.length >= 32000) return text;
+    const transcript = turns.map((turn) =>
+      "User:\n" + turn.user_text + (turn.assistant_text ? "\n\nAssistant:\n" + turn.assistant_text : "")
+    ).join("\n\n");
+    return introduction + transcript.slice(-Math.max(0, 32000 - introduction.length - finalMessage.length)) + finalMessage;
+  }
+
+  function originalImageRefs(): string[] {
+    return (detail?.images ?? [])
+      .filter((attachment) => attachment.url.startsWith("./api/images/"))
+      .map((attachment) => attachment.url.slice("./api/images/".length));
+  }
+
   async function sendReply(text: string, _images: string[]) {
     const sendId = selectedRunId;
     if (!sendId || detail?.send_id !== sendId) {
       return { ok: false, message: "The selected chat is still loading. Nothing was sent." };
     }
     const latest = turns.at(-1);
-    if (sendId && (latest?.status === "prepared" || latest?.status === "preflight_failed")) {
+    if (latest?.status === "prepared" || latest?.status === "preflight_failed") {
       if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) {
         return { ok: false, message: "A pending reply can only be retried with its original text." };
       }
@@ -504,21 +515,35 @@
         text: latest.user_text,
       });
     }
-    if (!sendId || latest?.status !== "completed") {
+    if (!latest || !["completed", "interrupted", "unavailable", "outcome_unknown"].includes(latest.status)) {
       return { ok: false, message: "Wait for the current response to finish." };
     }
     if (!latest.conversation_id) {
-      return { ok: false, message: "This chat has no verified reply branch." };
+      return sendFresh(freshContinuationPrompt(text), originalImageRefs());
     }
-    const parentId = latest.message_id || (turns.length === 1 ? await recoverReply(sendId) : "");
+    // Explicit Send is the sole trigger for recovering a persisted ChatGPT branch.
+    // Failed or partial response capture must never permanently lock the composer.
+    const parentId = latest.message_id || await recoverReply(sendId);
     if (!parentId) {
-      return { ok: false, message: "The reply branch could not be verified. Nothing was sent." };
+      if (selectedRunId !== sendId) {
+        return { ok: false, message: "The selected chat changed. Nothing was sent." };
+      }
+      return {
+        ok: false,
+        message: "The exact ChatGPT branch could not be verified yet. Press Send to retry, or continue in a new chat.",
+        fallbackAvailable: true,
+      };
     }
     if (selectedRunId !== sendId) {
       return { ok: false, message: "The selected chat changed. Nothing was sent." };
     }
+    const previous = pendingReply;
+    const replyId = previous?.sendId === sendId && previous.conversationId === latest.conversation_id &&
+      previous.parentId === parentId && previous.text === text
+      ? previous.replyId : crypto.randomUUID().replaceAll("-", "");
+    pendingReply = { sendId, replyId, conversationId: latest.conversation_id, parentId, text };
     return sendExactReply(sendId, {
-      reply_id: crypto.randomUUID().replaceAll("-", ""),
+      reply_id: replyId,
       conversation_id: latest.conversation_id,
       parent_id: parentId,
       text,
@@ -544,6 +569,12 @@
             : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch.",
         };
       }
+      const receipt = await response.json() as { turn?: { status?: string } };
+      if (receipt.turn?.status === "outcome_unknown") {
+        if (selectedRunId === sendId) await loadDetail(sendId);
+        return { ok: false, message: "The prior send is uncertain. Press Send to attempt branch recovery or continue in a new chat." };
+      }
+      pendingReply = null;
       if (selectedRunId === sendId) await loadDetail(sendId);
       return { ok: true, message: "" };
     } catch {
@@ -866,7 +897,9 @@
       {/if}
       </div>
       {#key selectedRunId}
-        <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply} onNewChat={createChat}
+        <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply}
+          onFallbackSend={(text) => sendFresh(freshContinuationPrompt(text), originalImageRefs())}
+          onNewChat={createChat}
           restoreDraft={detail?.send_id === selectedRunId && ["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
           retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
           sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}

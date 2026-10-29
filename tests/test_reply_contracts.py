@@ -217,3 +217,73 @@ def test_accepted_post_dom_answer_preserves_unknown_response_parent(
     )
     turns = store.turns("run")
     assert turns is not None and turns[-1]["status"] == "completed"
+
+
+def test_terminal_original_capture_with_verified_parent_can_continue(tmp_path: Path) -> None:
+    for status in ("interrupted", "unavailable"):
+        store = seed(tmp_path / status)
+        with store.engine.begin() as connection:
+            connection.exec_driver_sql(
+                "UPDATE job_responses SET status = ? WHERE send_id = 'run'", (status,),
+            )
+        prepared = store.prepare("run", intent(), now=200)
+        assert prepared["status"] == "prepared"
+
+
+def test_interrupted_verified_manual_reply_can_continue_without_duplicate(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    owner = f"{os.getpid()}:interrupted"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert store.accepted(
+        REPLY_ID, owner, conversation_id=CONVERSATION,
+        parent_id=PARENT, message_id=MESSAGE, now=202,
+    )
+    assert store.finish(REPLY_ID, owner, uncertain=True, now=203)
+    next_intent = intent("reply-99999999999999", MESSAGE, "Later follow-up")
+    assert store.prepare("run", next_intent, now=204)["status"] == "prepared"
+    with pytest.raises(ReplyConflict, match="unresolved"):
+        store.prepare("run", intent("reply-88888888888888", MESSAGE), now=205)
+
+
+def test_manual_tip_recovery_after_uncertain_send(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "recover-tip.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    original_id = "00000000-0000-4000-8000-000000000002"
+    recovered_id = "00000000-0000-4000-8000-000000000003"
+    store.responses.ensure_queued("run", "Original", now=100)
+    assert store.responses.accept("run", "test:owner", deadline=300, now=101)
+    assert store.responses.write(
+        "run", "test:owner", CaptureResult(
+            "sse", "complete", "Initial answer", conversation, original_id,
+            "00000000-0000-4000-8000-000000000004",
+        ), now=102,
+    )
+    reply = ReplyIntent(REPLY_ID, conversation, original_id, "Follow-up")
+    store.prepare("run", reply, now=200)
+    assert store.claim(REPLY_ID, "99999999:dead", deadline=400, now=201)
+    assert store.recover_orphans(now=202) == 1
+    assert not store.recover_reply_parent(
+        "run", REPLY_ID, conversation, original_id,
+        "Wrong user", "", recovered_id,
+    )
+    assert not store.recover_reply_parent(
+        "run", REPLY_ID, conversation, original_id,
+        "Follow-up", "", original_id,
+    )
+    assert store.recover_reply_parent(
+        "run", REPLY_ID, conversation, original_id,
+        "Follow-up", "", recovered_id,
+    )
+    assert not store.recover_reply_parent(
+        "run", REPLY_ID, conversation, original_id,
+        "Follow-up", "", recovered_id,
+    )
+    saved = store.turns("run")
+    assert saved is not None
+    assert saved[-1]["status"] == "interrupted"
+    assert saved[-1]["message_id"] == recovered_id
+    assert store.prepare(
+        "run", ReplyIntent("reply-99999999999999", conversation, recovered_id, "Continue"),
+        now=205,
+    )["status"] == "prepared"

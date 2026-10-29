@@ -57,3 +57,20 @@ The read cooldown starts at five minutes, doubles for repeated rate limits up to
     systemctl --user status prompta-ui prompta-scheduler prompta-delivery-worker prompta-browser
 
 There is no prompta-conversation-worker.service.
+
+
+## Manual reply recovery
+
+An interrupted or unavailable passive response capture is not evidence that its ChatGPT
+conversation has disappeared. Explicit user Send can continue a saved conversation from
+the latest verified assistant message, even if that answer was partial or interrupted.
+If the latest response message ID is absent, an explicitly reopened owned conversation
+is checked read-only for the exact route, message ordering, saved text and unique parent.
+A failed verification leaves the draft available for another Send attempt, and offers a
+separate user-triggered contextual fresh-chat fallback.
+
+If no conversation ID was ever captured, an explicit Send creates a new chat containing
+the locally saved conversation transcript and user's new message. Original attached
+images are included again when available. A repeated uncertain local queue receipt uses
+the same request ID; ambiguous ChatGPT POSTs are not automatically resent. Browsing the
+local Chats UI still never opens ChatGPT or reads account-wide history.

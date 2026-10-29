@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
-from prompta.manual_reply_dispatch import _branch_probe, _branch_wait_probe, _recovery_probe
+from prompta.manual_reply_dispatch import (
+    _branch_probe,
+    _branch_wait_probe,
+    _recovery_probe,
+    _tip_recovery_probe,
+)
 
 CONVERSATION = "00000000-0000-4000-8000-000000000001"
 PARENT = "00000000-0000-4000-8000-000000000002"
@@ -148,4 +153,36 @@ def test_branch_wait_observes_delayed_assistant_hydration_without_polling(
         )
         assert page.evaluate(_branch_wait_probe(CONVERSATION, PARENT)) is True
         assert routed == [f"https://chatgpt.com/c/{CONVERSATION}"]
+        browser.close()
+
+
+def test_recover_manual_tip_requires_exact_preceding_parent_and_latest_user() -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    previous = PARENT
+    recovered = OTHER
+    html = (
+        "<main>"
+        "<div data-message-author-role='user'>Initial prompt</div>"
+        f"<div data-message-author-role='assistant' data-message-id='{previous}'>"
+        "<div class='markdown'>Original answer</div></div>"
+        "<div data-message-author-role='user'>Follow-up</div>"
+        f"<div data-message-author-role='assistant' data-message-id='{recovered}'>"
+        "<div class='markdown'>Partial reply that grew longer</div></div></main>"
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page()
+        page.route("https://chatgpt.com/**", lambda route: route.fulfill(
+            status=200, content_type="text/html", body=html,
+        ))
+        page.goto(f"https://chatgpt.com/c/{CONVERSATION}")
+
+        def probe(user: str, parent: str, answer: str) -> str:
+            return _tip_recovery_probe(CONVERSATION, parent, user, answer, 2)
+        assert page.evaluate(probe("Follow-up", previous, "Partial reply")) == recovered
+        assert page.evaluate(probe("Different", previous, "Partial reply")) is None
+        assert page.evaluate(probe("Follow-up", recovered, "Partial reply")) is None
+        assert page.evaluate(probe("Follow-up", previous, "Different")) is None
         browser.close()

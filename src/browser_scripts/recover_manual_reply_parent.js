@@ -1,6 +1,7 @@
 (() => {
   const conversation = __CONVERSATION__;
   const originalAnswer = __ORIGINAL_ANSWER__;
+  const allowPartial = __ALLOW_PARTIAL__;
   if (location.origin !== "https://chatgpt.com" ||
       location.pathname !== "/c/" + conversation) return null;
   const visible = (element) => element.getClientRects().length > 0 &&
@@ -19,8 +20,12 @@
     (root) => !root.parentElement?.closest(markdownSelector) && visible(root)
   );
   const normalize = (value) => value.replace(/\s+/g, " ").trim();
-  if (!roots.length || normalize(roots.map((root) => root.innerText || root.textContent || "")
-    .join("\n\n")) !== normalize(originalAnswer)) return null;
+  if (!roots.length) return null;
+  const visibleAnswer = normalize(roots.map((root) => root.innerText || root.textContent || "")
+    .join("\n\n"));
+  const savedAnswer = normalize(originalAnswer);
+  if (!savedAnswer || (allowPartial ? !visibleAnswer.startsWith(savedAnswer)
+    : visibleAnswer !== savedAnswer)) return null;
   const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const legacy = last.getAttribute("data-message-id");
   if (legacy) return uuid.test(legacy) ? legacy.toLowerCase() : null;

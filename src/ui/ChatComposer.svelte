@@ -2,12 +2,13 @@
   import { onMount } from "svelte";
 
   type ImageRef = { ref: string; name: string; url: string };
-  type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
+  type SendResult = { ok: boolean; message: string; ambiguous?: boolean; fallbackAvailable?: boolean };
 
-  let { mode, chatId, onSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
+  let { mode, chatId, onSend, onFallbackSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
     mode: "fresh" | "reply";
     chatId?: string;
     onSend: (text: string, images: string[]) => Promise<SendResult>;
+    onFallbackSend?: (text: string, images: string[]) => Promise<SendResult>;
     onNewChat: () => void;
     disabled?: boolean;
     sendDisabled?: boolean;
@@ -24,16 +25,16 @@
   let images = $state<ImageRef[]>([]);
   let uploading = $state(false);
   let sending = $state(false);
-  let locked = $state(false);
   let feedback = $state("");
+  let fallbackAvailable = $state(false);
   let dragging = $state(false);
   let textarea = $state<HTMLTextAreaElement>();
   let fileInput = $state<HTMLInputElement>();
   const newChatDraftKey = "prompta.new-chat-draft.v1";
   const draftStorageKey = $derived(mode === "fresh" ? newChatDraftKey : chatId ? "prompta.reply-draft.v1." + chatId : "");
-  const canAttach = $derived(mode === "fresh" && !disabled && !locked && !sending && !uploading);
+  const canAttach = $derived(mode === "fresh" && !disabled && !sending && !uploading);
   const hasDraft = $derived(!!draft.trim());
-  const canSend = $derived(!disabled && !sendDisabled && !locked && !sending && !uploading && hasDraft);
+  const canSend = $derived(!disabled && !sendDisabled && !sending && !uploading && hasDraft);
 
   $effect(() => {
     if (mode !== "reply" || !restoreDraft || !hydrated) return;
@@ -73,6 +74,7 @@
 
   function draftChanged(event: Event) {
     hasLocalDraft = true;
+    fallbackAvailable = false;
     if (draftStorageKey) {
       try { localStorage.setItem(draftStorageKey, (event.currentTarget as HTMLTextAreaElement).value); } catch { /* In-memory editing still works. */ }
     }
@@ -126,27 +128,28 @@
     }
   }
 
-  async function submit() {
-    if (!canSend) return;
+  async function submit(useFallback = false) {
+    if (!canSend || (useFallback && (!fallbackAvailable || !onFallbackSend))) return;
     sending = true;
     feedback = "";
     try {
       const submitted = draft;
-      const result = await onSend(submitted, images.map((image) => image.ref));
+      const send = useFallback && onFallbackSend ? onFallbackSend : onSend;
+      const result = await send(submitted, images.map((image) => image.ref));
       if (result.ok) {
         draft = "";
         images = [];
         feedback = result.message;
         try { if (draftStorageKey) localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
         hasLocalDraft = false;
+        fallbackAvailable = false;
         requestAnimationFrame(resizeTextarea);
       } else {
         feedback = result.message;
-        locked = !!result.ambiguous;
+        fallbackAvailable = Boolean(result.fallbackAvailable);
       }
     } catch {
-      locked = true;
-      feedback = "Send confirmation was lost. Check local Chats before making a separate new request; this draft will not retry.";
+      feedback = "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
     } finally {
       sending = false;
     }
@@ -191,7 +194,7 @@
       </div>
     {/if}
     <textarea bind:this={textarea} bind:value={draft} oninput={draftChanged} onkeydown={keydown} onpaste={pasted}
-      rows="1" maxlength="32000" disabled={disabled || locked || sending}
+      rows="1" maxlength="32000" disabled={disabled || sending}
       aria-label={mode === "fresh" ? "Message for new chat" : "Message for current chat"}
       placeholder="Message Prompta…"></textarea>
     <div class="composer-actions">
@@ -224,6 +227,9 @@
       {/if}
     </div>
   </div>
-  {#if feedback}<p class:composer-error={locked} class="composer-feedback" role="status">{feedback}</p>{/if}
+  {#if feedback}<p class="composer-feedback" role="status">{feedback}</p>{/if}
+  {#if fallbackAvailable && onFallbackSend && hasDraft}
+    <button type="button" class="composer-fallback" disabled={sending} onclick={() => void submit(true)}>Continue in new chat</button>
+  {/if}
   {#if sendHint && !feedback}<p class="composer-hint" role="status">{sendHint}</p>{/if}
 </form>

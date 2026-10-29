@@ -5076,7 +5076,7 @@ var root_5$4 = /* @__PURE__ */ from_html(`<span> </span>`);
 var root_6$4 = /* @__PURE__ */ from_html(`<span class="job-message"> </span>`);
 var root_7$3 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Edit</button>`);
 var root_8$3 = /* @__PURE__ */ from_html(`<div class="job-row" role="row"><div class="job-main" role="cell"><div class="job-name"> </div> <div class="job-prompt"> </div> <!> <div class="job-submeta"><span> </span> <!></div></div> <div class="job-cell schedule-cell" role="cell"><span class="cell-label">Schedule</span> <span> </span></div> <div class="job-cell" role="cell"><span class="cell-label">Next run</span> <span> </span></div> <div class="job-cell state-cell" role="cell"><span class="cell-label">State</span> <span><span class="state-dot"></span> </span> <!></div> <div class="job-actions" role="cell"><button class="row-action" type="button">Fire now</button> <!> <button class="row-action" type="button"> </button> <button class="row-action danger-text" type="button">Remove</button></div></div>`);
-var root_9$2 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
+var root_9$3 = /* @__PURE__ */ from_html(`<nav class="pagination" aria-label="Job pages"><span> </span> <div class="pagination-actions"><button class="toolbar-button" type="button">Previous</button> <button class="toolbar-button" type="button">Next</button></div></nav>`);
 var root_10$2 = /* @__PURE__ */ from_html(`<section class="jobs-panel" aria-labelledby="jobs-title"><div class="jobs-toolbar"><div class="toolbar-title"><h1 id="jobs-title">Jobs</h1> <span> </span></div> <div class="toolbar-actions"><span class="status-line" role="status" aria-live="polite"> </span> <button class="toolbar-button visible-toggle" type="button"><span class="action-copy"> </span> <span class="compact-action-icon" aria-hidden="true"><!></span></button> <button class="toolbar-button refresh-action" type="button" aria-label="Refresh jobs" title="Refresh jobs"><span class="action-copy">Refresh</span> <span class="compact-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v5h-5M4 17v-5h5"></path><path d="M5.9 9A7 7 0 0 1 18.5 7L20 12M4 12l1.5 5A7 7 0 0 0 18.1 15"></path></svg></span></button> <button class="toolbar-button run-once-action" type="button">Run once</button> <button class="primary-button" type="button">New job</button></div></div> <div class="jobs-summary" role="group" aria-label="Filter jobs"><!> <button type="button" title="Include daily and interval-based repeating jobs">Repeating jobs <span> </span></button></div> <div class="jobs-table" role="table" aria-label="Scheduled jobs"><div class="jobs-table-head" role="row"><span role="columnheader">Job</span> <span role="columnheader">Schedule</span> <span role="columnheader">Next run</span> <span role="columnheader">State</span> <span role="columnheader" class="actions-heading">Actions</span></div> <!> <!></div> <!> <footer class="jobs-footer"><button class="row-action danger-text" type="button">Clear all jobs</button></footer></section>`);
 var root_11$2 = /* @__PURE__ */ from_html(`<label class="name-field"><span>Name</span> <input autocomplete="off" required=""/></label>`);
 var root_12$2 = /* @__PURE__ */ from_html(`<label><span>Every (minutes)</span> <input type="number" min="0.1" max="43200" step="0.1" required=""/></label>`);
@@ -5768,7 +5768,7 @@ function JobsPage($$anchor, $$props) {
 		reset(div_4);
 		var node_9 = sibling(div_4, 2);
 		var consequent_6 = ($$anchor) => {
-			var nav = root_9$2();
+			var nav = root_9$3();
 			var span_12 = child(nav);
 			var text_17 = only_child(span_12);
 			var div_16 = sibling(span_12, 2);
@@ -6064,9 +6064,10 @@ var root_2$3 = /* @__PURE__ */ from_html(`<button type="button" aria-label="Atta
 var root_3$3 = /* @__PURE__ */ from_html(`<small role="status">Uploading images…</small>`);
 var root_4$3 = /* @__PURE__ */ from_html(`<button class="composer-send composer-new-chat" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg></button>`);
 var root_5$3 = /* @__PURE__ */ from_html(`<button class="composer-send" type="submit"> </button>`);
-var root_6$3 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
-var root_7$2 = /* @__PURE__ */ from_html(`<p class="composer-hint" role="status"> </p>`);
-var root_8$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <!></div></div> <!> <!></form>`);
+var root_6$3 = /* @__PURE__ */ from_html(`<p class="composer-feedback" role="status"> </p>`);
+var root_7$2 = /* @__PURE__ */ from_html(`<button type="button" class="composer-fallback">Continue in new chat</button>`);
+var root_8$2 = /* @__PURE__ */ from_html(`<p class="composer-hint" role="status"> </p>`);
+var root_9$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <!></div></div> <!> <!> <!></form>`);
 function ChatComposer($$anchor, $$props) {
 	push($$props, true);
 	let disabled = prop($$props, "disabled", 3, false), sendDisabled = prop($$props, "sendDisabled", 3, false), sendHint = prop($$props, "sendHint", 3, ""), restoreDraft = prop($$props, "restoreDraft", 3, ""), retryablePreflight = prop($$props, "retryablePreflight", 3, false);
@@ -6078,16 +6079,16 @@ function ChatComposer($$anchor, $$props) {
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploading = /* @__PURE__ */ state(false);
 	let sending = /* @__PURE__ */ state(false);
-	let locked = /* @__PURE__ */ state(false);
 	let feedback = /* @__PURE__ */ state("");
+	let fallbackAvailable = /* @__PURE__ */ state(false);
 	let dragging = /* @__PURE__ */ state(false);
 	let textarea = /* @__PURE__ */ state(void 0);
 	let fileInput = /* @__PURE__ */ state(void 0);
 	const newChatDraftKey = "prompta.new-chat-draft.v1";
 	const draftStorageKey = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" ? newChatDraftKey : $$props.chatId ? "prompta.reply-draft.v1." + $$props.chatId : "");
-	const canAttach = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" && !disabled() && !get(locked) && !get(sending) && !get(uploading));
+	const canAttach = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" && !disabled() && !get(sending) && !get(uploading));
 	const hasDraft = /* @__PURE__ */ user_derived(() => !!get(draft).trim());
-	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !sendDisabled() && !get(locked) && !get(sending) && !get(uploading) && get(hasDraft));
+	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !sendDisabled() && !get(sending) && !get(uploading) && get(hasDraft));
 	user_effect(() => {
 		if ($$props.mode !== "reply" || !restoreDraft() || !get(hydrated)) return;
 		if (get(restoredDraft) === restoreDraft() && get(restoredPreflight) === retryablePreflight()) return;
@@ -6126,6 +6127,7 @@ function ChatComposer($$anchor, $$props) {
 	}
 	function draftChanged(event) {
 		set(hasLocalDraft, true);
+		set(fallbackAvailable, false);
 		if (get(draftStorageKey)) try {
 			localStorage.setItem(get(draftStorageKey), event.currentTarget.value);
 		} catch {}
@@ -6181,13 +6183,13 @@ function ChatComposer($$anchor, $$props) {
 			set(uploading, false);
 		}
 	}
-	async function submit() {
-		if (!get(canSend)) return;
+	async function submit(useFallback = false) {
+		if (!get(canSend) || useFallback && (!get(fallbackAvailable) || !$$props.onFallbackSend)) return;
 		set(sending, true);
 		set(feedback, "");
 		try {
 			const submitted = get(draft);
-			const result = await $$props.onSend(submitted, get(images).map((image) => image.ref));
+			const result = await (useFallback && $$props.onFallbackSend ? $$props.onFallbackSend : $$props.onSend)(submitted, get(images).map((image) => image.ref));
 			if (result.ok) {
 				set(draft, "");
 				set(images, [], true);
@@ -6196,14 +6198,14 @@ function ChatComposer($$anchor, $$props) {
 					if (get(draftStorageKey)) localStorage.removeItem(get(draftStorageKey));
 				} catch {}
 				set(hasLocalDraft, false);
+				set(fallbackAvailable, false);
 				requestAnimationFrame(resizeTextarea);
 			} else {
 				set(feedback, result.message, true);
-				set(locked, !!result.ambiguous);
+				set(fallbackAvailable, Boolean(result.fallbackAvailable), true);
 			}
 		} catch {
-			set(locked, true);
-			set(feedback, "Send confirmation was lost. Check local Chats before making a separate new request; this draft will not retry.");
+			set(feedback, "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.");
 		} finally {
 			set(sending, false);
 		}
@@ -6225,7 +6227,7 @@ function ChatComposer($$anchor, $$props) {
 		set(dragging, false);
 		addFiles(Array.from(event.dataTransfer?.files || []));
 	}
-	var form = root_8$2();
+	var form = root_9$2();
 	let classes;
 	var div = child(form);
 	var node = child(div);
@@ -6314,12 +6316,8 @@ function ChatComposer($$anchor, $$props) {
 	var node_4 = sibling(div, 2);
 	var consequent_4 = ($$anchor) => {
 		var p = root_6$3();
-		let classes_1;
 		var text_2 = only_child(p, true);
-		template_effect(() => {
-			classes_1 = set_class(p, 1, "composer-feedback", null, classes_1, { "composer-error": get(locked) });
-			set_text(text_2, get(feedback));
-		});
+		template_effect(() => set_text(text_2, get(feedback)));
 		append($$anchor, p);
 	};
 	if_block(node_4, ($$render) => {
@@ -6327,19 +6325,29 @@ function ChatComposer($$anchor, $$props) {
 	});
 	var node_5 = sibling(node_4, 2);
 	var consequent_5 = ($$anchor) => {
-		var p_1 = root_7$2();
+		var button_4 = root_7$2();
+		template_effect(() => button_4.disabled = get(sending));
+		delegated("click", button_4, () => void submit(true));
+		append($$anchor, button_4);
+	};
+	if_block(node_5, ($$render) => {
+		if (get(fallbackAvailable) && $$props.onFallbackSend && get(hasDraft)) $$render(consequent_5);
+	});
+	var node_6 = sibling(node_5, 2);
+	var consequent_6 = ($$anchor) => {
+		var p_1 = root_8$2();
 		var text_3 = only_child(p_1, true);
 		template_effect(() => set_text(text_3, sendHint()));
 		append($$anchor, p_1);
 	};
-	if_block(node_5, ($$render) => {
-		if (sendHint() && !get(feedback)) $$render(consequent_5);
+	if_block(node_6, ($$render) => {
+		if (sendHint() && !get(feedback)) $$render(consequent_6);
 	});
 	reset(form);
 	template_effect(() => {
 		classes = set_class(form, 1, "chat-composer-wrap", null, classes, { dragging: get(dragging) });
 		set_attribute(form, "aria-label", $$props.mode === "fresh" ? "New chat composer" : "Reply composer");
-		textarea_1.disabled = disabled() || get(locked) || get(sending);
+		textarea_1.disabled = disabled() || get(sending);
 		set_attribute(textarea_1, "aria-label", $$props.mode === "fresh" ? "Message for new chat" : "Message for current chat");
 	});
 	event("submit", form, (event) => {
@@ -8637,15 +8645,14 @@ function ChatsPage($$anchor, $$props) {
 	const replyBlockedReason = /* @__PURE__ */ user_derived(() => {
 		const latest = get(turns).at(-1);
 		if (!get(detail) || get(detail).send_id !== $$props.selectedRunId || !latest) return "Loading reply availability…";
-		if (latest.status === "prepared" || latest.status === "preflight_failed") return latest.reply_id && latest.conversation_id && latest.parent_id ? "" : "The saved reply has no verified target, so it cannot be resent.";
-		if (latest.status === "completed") {
-			if (!latest.conversation_id) return "This chat was saved without its ChatGPT conversation ID, so it cannot be safely replied to.";
-			if (get(turns).length > 1 && !latest.message_id) return "The latest assistant reply has no verified message ID. This branch cannot be safely continued.";
-			return "";
-		}
-		if (latest.status === "outcome_unknown") return "The last reply may have been sent. Check ChatGPT before trying anything else.";
-		if (latest.status === "interrupted" || latest.status === "unavailable") return "The last response did not finish reliably, so a same-branch reply is unavailable.";
-		return "You can reply when this chat has a completed response.";
+		if (latest.status === "prepared" || latest.status === "preflight_failed") return latest.reply_id && latest.conversation_id && latest.parent_id ? "" : "The saved reply target is incomplete. Try again after refreshing.";
+		if ([
+			"completed",
+			"interrupted",
+			"unavailable",
+			"outcome_unknown"
+		].includes(latest.status)) return "";
+		return "Wait for the current response before replying.";
 	});
 	let visibleWaiting = /* @__PURE__ */ user_derived(() => get(statusFilter) && get(statusFilter) !== "queued" ? [] : get(queueSnapshot).waiting.filter((job) => !get(search).trim() || job.name.toLowerCase().includes(get(search).trim().toLowerCase())));
 	let unpinned = /* @__PURE__ */ user_derived(() => get(items).filter((item) => !get(pinnedIds).includes(item.send_id)).sort(newestFirst));
@@ -8937,8 +8944,15 @@ function ChatsPage($$anchor, $$props) {
 			if (generation === detailGeneration) set(loadingDetail, false);
 		}
 	}
+	let pendingFresh = null;
+	let pendingReply = null;
 	async function sendFresh(text, images) {
-		const requestId = crypto.randomUUID().replaceAll("-", "");
+		const signature = JSON.stringify([text, images]);
+		const requestId = pendingFresh?.signature === signature ? pendingFresh.requestId : crypto.randomUUID().replaceAll("-", "");
+		pendingFresh = {
+			signature,
+			requestId
+		};
 		try {
 			const response = await fetch("./api/chats", {
 				method: "POST",
@@ -8958,6 +8972,7 @@ function ChatsPage($$anchor, $$props) {
 			if (!body.send_id) throw new Error("Missing queue receipt");
 			set(search, "");
 			set(statusFilter, "");
+			pendingFresh = null;
 			$$props.onQueued(body.send_id);
 			loadList(true);
 			loadPins();
@@ -8991,6 +9006,15 @@ function ChatsPage($$anchor, $$props) {
 			set(recoveringReply, false);
 		}
 	}
+	function freshContinuationPrompt(text) {
+		const introduction = "Continue the following saved conversation in a new chat. The previous ChatGPT branch could not be verified. Treat the quoted transcript as context, then answer the final new message.\n\n";
+		const finalMessage = "\n\nNew user message:\n" + text;
+		if (184 + finalMessage.length >= 32e3) return text;
+		return introduction + get(turns).map((turn) => "User:\n" + turn.user_text + (turn.assistant_text ? "\n\nAssistant:\n" + turn.assistant_text : "")).join("\n\n").slice(-Math.max(0, 31816 - finalMessage.length)) + finalMessage;
+	}
+	function originalImageRefs() {
+		return (get(detail)?.images ?? []).filter((attachment) => attachment.url.startsWith("./api/images/")).map((attachment) => attachment.url.slice(13));
+	}
 	async function sendReply(text, _images) {
 		const sendId = $$props.selectedRunId;
 		if (!sendId || get(detail)?.send_id !== sendId) return {
@@ -8998,7 +9022,7 @@ function ChatsPage($$anchor, $$props) {
 			message: "The selected chat is still loading. Nothing was sent."
 		};
 		const latest = get(turns).at(-1);
-		if (sendId && (latest?.status === "prepared" || latest?.status === "preflight_failed")) {
+		if (latest?.status === "prepared" || latest?.status === "preflight_failed") {
 			if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) return {
 				ok: false,
 				message: "A pending reply can only be retried with its original text."
@@ -9010,25 +9034,43 @@ function ChatsPage($$anchor, $$props) {
 				text: latest.user_text
 			});
 		}
-		if (!sendId || latest?.status !== "completed") return {
+		if (!latest || ![
+			"completed",
+			"interrupted",
+			"unavailable",
+			"outcome_unknown"
+		].includes(latest.status)) return {
 			ok: false,
 			message: "Wait for the current response to finish."
 		};
-		if (!latest.conversation_id) return {
-			ok: false,
-			message: "This chat has no verified reply branch."
-		};
-		const parentId = latest.message_id || (get(turns).length === 1 ? await recoverReply(sendId) : "");
-		if (!parentId) return {
-			ok: false,
-			message: "The reply branch could not be verified. Nothing was sent."
-		};
+		if (!latest.conversation_id) return sendFresh(freshContinuationPrompt(text), originalImageRefs());
+		const parentId = latest.message_id || await recoverReply(sendId);
+		if (!parentId) {
+			if ($$props.selectedRunId !== sendId) return {
+				ok: false,
+				message: "The selected chat changed. Nothing was sent."
+			};
+			return {
+				ok: false,
+				message: "The exact ChatGPT branch could not be verified yet. Press Send to retry, or continue in a new chat.",
+				fallbackAvailable: true
+			};
+		}
 		if ($$props.selectedRunId !== sendId) return {
 			ok: false,
 			message: "The selected chat changed. Nothing was sent."
 		};
+		const previous = pendingReply;
+		const replyId = previous?.sendId === sendId && previous.conversationId === latest.conversation_id && previous.parentId === parentId && previous.text === text ? previous.replyId : crypto.randomUUID().replaceAll("-", "");
+		pendingReply = {
+			sendId,
+			replyId,
+			conversationId: latest.conversation_id,
+			parentId,
+			text
+		};
 		return sendExactReply(sendId, {
-			reply_id: crypto.randomUUID().replaceAll("-", ""),
+			reply_id: replyId,
 			conversation_id: latest.conversation_id,
 			parent_id: parentId,
 			text
@@ -9049,6 +9091,14 @@ function ChatsPage($$anchor, $$props) {
 					message: response.status >= 500 ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly." : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch."
 				};
 			}
+			if ((await response.json()).turn?.status === "outcome_unknown") {
+				if ($$props.selectedRunId === sendId) await loadDetail(sendId);
+				return {
+					ok: false,
+					message: "The prior send is uncertain. Press Send to attempt branch recovery or continue in a new chat."
+				};
+			}
+			pendingReply = null;
 			if ($$props.selectedRunId === sendId) await loadDetail(sendId);
 			return {
 				ok: true,
@@ -9602,6 +9652,7 @@ function ChatsPage($$anchor, $$props) {
 						return $$props.selectedRunId;
 					},
 					onSend: sendReply,
+					onFallbackSend: (text) => sendFresh(freshContinuationPrompt(text), originalImageRefs()),
 					onNewChat: createChat,
 					get restoreDraft() {
 						return get($0);

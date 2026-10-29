@@ -161,8 +161,8 @@ class ManualReplyStore:
             original = connection.execute(select(results).where(
                 results.c.send_id == send_id
             )).mappings().one_or_none()
-            if original is None or original["status"] != "completed":
-                raise ReplyConflict("A completed, persisted Prompta run is required")
+            if original is None or original["status"] not in ("completed", "interrupted", "unavailable"):
+                raise ReplyConflict("A terminal, persisted Prompta run is required")
             conversation_id = str(original["conversation_id"])
             parent_id = str(original["message_id"])
             if not conversation_id or not parent_id:
@@ -171,7 +171,7 @@ class ManualReplyStore:
                 replies.c.send_id == send_id
             ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
             for turn in previous:
-                if turn["status"] != "completed" or not turn["message_id"]:
+                if turn["status"] not in ("completed", "interrupted") or not turn["message_id"]:
                     raise ReplyConflict("An unresolved reply already occupies this branch")
                 if turn["conversation_id"] != conversation_id or turn["parent_id"] != parent_id:
                     raise ReplyConflict("Persisted branch lineage is inconsistent")
@@ -248,11 +248,68 @@ class ManualReplyStore:
                 return False
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
-                results.c.status == "completed",
+                results.c.status.in_(("completed", "interrupted", "unavailable")),
                 results.c.conversation_id == conversation_id,
                 results.c.message_id == "",
                 results.c.assistant_text == original_answer,
             ).values(message_id=message_id.lower()))
+        return changed.rowcount == 1
+
+    def recover_reply_parent(
+        self, send_id: str, reply_id: str, conversation_id: str,
+        previous_parent_id: str, user_text: str, assistant_text: str,
+        message_id: str,
+    ) -> bool:
+        """Bind a missing manual reply tip proven in the exact owned conversation DOM."""
+        uuid = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+        if (
+            re.fullmatch(uuid, conversation_id) is None
+            or re.fullmatch(uuid, previous_parent_id) is None
+            or re.fullmatch(uuid, message_id) is None
+            or message_id.lower() == previous_parent_id.lower()
+        ):
+            return False
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            original = connection.execute(select(results.c.conversation_id).where(
+                results.c.send_id == send_id,
+                results.c.status.in_(("completed", "interrupted", "unavailable")),
+            )).scalar_one_or_none()
+            if original != conversation_id:
+                return False
+            rows = connection.execute(select(replies).where(
+                replies.c.send_id == send_id
+            ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
+            if not rows or rows[-1]["reply_id"] != reply_id:
+                return False
+            row = rows[-1]
+            if (
+                row["conversation_id"] != conversation_id
+                or row["parent_id"] != previous_parent_id
+                or row["user_text"] != user_text
+                or row["assistant_text"] != assistant_text
+                or row["message_id"]
+                or row["status"] not in ("completed", "interrupted", "outcome_unknown")
+                or row["lease_owner"]
+            ):
+                return False
+            expected_parent = (
+                rows[-2]["message_id"] if len(rows) > 1
+                else connection.execute(select(results.c.message_id).where(
+                    results.c.send_id == send_id
+                )).scalar_one()
+            )
+            if expected_parent != previous_parent_id:
+                return False
+            changed = connection.execute(update(replies).where(
+                replies.c.reply_id == reply_id,
+                replies.c.status.in_(("completed", "interrupted", "outcome_unknown")),
+                replies.c.message_id == "",
+                replies.c.lease_owner == "",
+            ).values(message_id=message_id.lower(), status=case(
+                (replies.c.status == "outcome_unknown", "interrupted"),
+                else_=replies.c.status,
+            ), updated_at=time.time()))
         return changed.rowcount == 1
 
     def claim(self, reply_id: str, owner: str, *, deadline: float, now: float | None = None) -> bool:

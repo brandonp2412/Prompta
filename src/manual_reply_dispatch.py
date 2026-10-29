@@ -38,12 +38,30 @@ def _branch_probe(conversation_id: str, parent_id: str) -> str:
     )
 
 
-def _recovery_probe(conversation_id: str, original_answer: str) -> str:
+def _recovery_probe(
+    conversation_id: str, original_answer: str, *, allow_partial: bool = False,
+) -> str:
     """Verify the one original turn on an explicitly reopened exact branch."""
     return (
         load_browser_script("recover_manual_reply_parent.js")
         .replace("__CONVERSATION__", json.dumps(conversation_id))
         .replace("__ORIGINAL_ANSWER__", json.dumps(original_answer))
+        .replace("__ALLOW_PARTIAL__", json.dumps(allow_partial))
+    )
+
+
+def _tip_recovery_probe(
+    conversation_id: str, parent_id: str, user_text: str,
+    assistant_text: str, turn_count: int,
+) -> str:
+    """Verify the final manual reply and its preceding assistant, without sending."""
+    return (
+        load_browser_script("recover_manual_reply_tip.js")
+        .replace("__CONVERSATION__", json.dumps(conversation_id))
+        .replace("__PARENT__", json.dumps(parent_id))
+        .replace("__USER_TEXT__", json.dumps(user_text))
+        .replace("__ASSISTANT_TEXT__", json.dumps(assistant_text))
+        .replace("__TURN_COUNT__", str(turn_count))
     )
 
 
@@ -102,15 +120,23 @@ class ManualReplyDispatcher:
                 self._recovering.discard(send_id)
 
     async def _recover_exact_parent(self, send_id: str) -> dict[str, str]:
-        original = self.store.responses.get(send_id)
-        if original is None or original["status"] != "completed":
-            raise ReplyConflict("A completed Prompta chat is required")
-        conversation_id = str(original["conversation_id"])
-        answer = str(original["assistant_text"])
-        if not conversation_id or not answer:
-            raise ReplyConflict("The original conversation cannot be verified")
-        if original["message_id"]:
-            return {"message_id": str(original["message_id"])}
+        turns = self.store.turns(send_id)
+        if not turns:
+            raise ReplyConflict("A saved Prompta chat is required")
+        latest = turns[-1]
+        if latest["status"] not in ("completed", "interrupted", "unavailable", "outcome_unknown"):
+            raise ReplyConflict("A terminal Prompta turn is required")
+        conversation_id = str(latest.get("conversation_id") or "")
+        answer = str(latest["assistant_text"])
+        if not conversation_id:
+            raise ReplyConflict("The conversation ID is unavailable")
+        if latest["message_id"]:
+            return {"message_id": str(latest["message_id"])}
+        if len(turns) == 1 and not answer:
+            raise ReplyConflict("The original assistant message has not appeared")
+        previous_parent = str(turns[-2]["message_id"] or "") if len(turns) > 1 else ""
+        if len(turns) > 1 and not previous_parent:
+            raise ReplyConflict("The preceding assistant identity is unavailable")
         sender = BrowserDeliverySender(
             self.state_path,
             debugger_address=os.environ.get(
@@ -129,13 +155,29 @@ class ManualReplyDispatcher:
             await driver.connect()
             context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
             await driver.wait_for_composer()
-            candidate = await driver.eval(_recovery_probe(conversation_id, answer))
+            if len(turns) == 1:
+                probe = _recovery_probe(
+                    conversation_id, answer, allow_partial=latest["status"] != "completed"
+                )
+            else:
+                probe = _tip_recovery_probe(
+                    conversation_id, previous_parent, str(latest["user_text"]),
+                    answer, len(turns),
+                )
+            candidate = await driver.eval(probe)
             if not isinstance(candidate, str) or not candidate:
-                raise ReplyConflict("The original assistant message could not be verified")
-            if not self.store.recover_original_parent(
-                send_id, conversation_id, candidate, answer
-            ):
-                raise ReplyConflict("The saved branch changed or already has a reply")
+                raise ReplyConflict("The latest assistant message could not be verified")
+            if len(turns) == 1:
+                recovered = self.store.recover_original_parent(
+                    send_id, conversation_id, candidate, answer
+                )
+            else:
+                recovered = self.store.recover_reply_parent(
+                    send_id, str(latest["reply_id"]), conversation_id,
+                    previous_parent, str(latest["user_text"]), answer, candidate,
+                )
+            if not recovered:
+                raise ReplyConflict("The saved branch changed during recovery")
             return {"message_id": candidate}
         finally:
             if context:

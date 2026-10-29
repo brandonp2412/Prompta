@@ -995,6 +995,9 @@ button:disabled { cursor: default; opacity: 0.45; }
 .composer-feedback, .composer-disclaimer { color: #969696; font-size: .69rem; text-align: center; line-height: 1.4; margin: 6px 0 0; }
 .composer-error { color: #f2a3a3; }
 .composer-hint { color: #b4a78d; font-size: .72rem; line-height: 1.45; text-align: center; margin: 7px 0 0; }
+.composer-fallback { display: block; margin: 7px auto 0; padding: 7px 12px; border: 1px solid #716752; border-radius: 999px; background: #302b24; color: #e7d6b5; font: inherit; font-size: .76rem; cursor: pointer; }
+.composer-fallback:hover { background: #3d3428; }
+.composer-fallback:disabled { opacity: .5; cursor: default; }
 @media (max-width: 680px) {
   .chat-composer-wrap { padding: 8px 10px max(12px, env(safe-area-inset-bottom)); }
   .chat-composer { border-radius: 20px; padding: 9px 12px 7px; }
