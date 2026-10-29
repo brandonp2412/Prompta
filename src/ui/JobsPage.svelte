@@ -87,8 +87,6 @@
   let dirty = $derived(editorOpen && formSnapshot() !== initialForm);
   let runOnce = $derived(!editing && activeEditorRoute === "new:once");
   let duplicateName = $derived(!runOnce && !editing && jobs.some((job) => job.name === name.trim()));
-  let promptCharacters = $derived(prompt.length);
-  let promptLines = $derived(prompt ? prompt.split("\n").length : 0);
   let loadInFlight = false;
   let dataGeneration = 0;
 
@@ -779,11 +777,10 @@
             <span>Prompt</span>
             <textarea bind:value={prompt} rows="14" required onfocus={() => requestAnimationFrame(keepFocusedPromptVisible)}></textarea>
           </label>
-          <div class="prompt-counter">{promptCharacters.toLocaleString()} characters · {promptLines.toLocaleString()} lines</div>
           <div class="job-image-picker">
             <button class="toolbar-button" type="button" disabled={uploadingImage || saving || images.length >= 4} onclick={() => imageInput?.click()}>Add images</button>
             <input bind:this={imageInput} class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={uploadingImage || saving || images.length >= 4} onchange={(event) => void addImages(event.currentTarget)} />
-            <span>{uploadingImage ? "Uploading…" : images.length + "/4 images"}</span>
+            {#if uploadingImage || images.length}<span>{uploadingImage ? "Uploading…" : images.length + "/4 images"}</span>{/if}
           </div>
           {#if images.length}
             <div class="job-image-previews">
@@ -816,7 +813,6 @@
           </div>
           {#if !confirmDiscard}
           <div class="editor-actions">
-            <span class="keyboard-hint">Ctrl/⌘ + Enter to {runOnce ? "run" : "save"}</span>
             <button class="toolbar-button" type="button" disabled={saving} onclick={requestClose}>Cancel</button>
             <button class="primary-button" type="submit" disabled={saving || uploadingImage || !dirty || duplicateName || !prompt.trim() || (!runOnce && !name.trim())}>
               {saving ? (runOnce ? "Queuing…" : "Saving…") : editing ? "Save changes" : runOnce ? (Number(onceDelay) > 0 ? "Schedule once" : "Run once") : "Create job"}

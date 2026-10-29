@@ -8,9 +8,8 @@
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
-  let { view, serverName, selectedRunId, newChatOpen, onSelect, onNavigate, onNewChat, onQueued }: {
+  let { view, selectedRunId, newChatOpen, onSelect, onNavigate, onNewChat, onQueued }: {
     view: "jobs" | "chats";
-    serverName: string;
     selectedRunId: string | null;
     newChatOpen: boolean;
     onSelect: (sendId: string | null) => void;
@@ -206,8 +205,14 @@
       }
       const body = await response.json() as { send_id?: string };
       if (!body.send_id) throw new Error("Missing queue receipt");
+      // The queue has already persisted this run locally. Show it as soon as
+      // the receipt is confirmed, even if the previous list was filtered.
+      page = 0;
+      search = "";
+      statusFilter = "";
       onQueued(body.send_id);
-      return { ok: true, message: "Queued one fresh chat." };
+      void loadList();
+      return { ok: true, message: "" };
     } catch {
       return {
         ok: false, ambiguous: true,
@@ -365,7 +370,7 @@
         <small>{nzTime(activity(item)).split(", ").at(-1)}</small>
       </span>
       <span class="chat-row-meta"><span class={"result-dot status-" + item.status}></span>{statusLabel(item.status)}{#if item.job_name}<span class="chat-job">{item.job_name}</span>{/if}</span>
-      <span class="chat-preview">{plainPreview(item.preview) || "No response captured yet"}</span>
+      {#if plainPreview(item.preview)}<span class="chat-preview">{plainPreview(item.preview)}</span>{/if}
     </button>
     <button
       type="button" class:active={pinnedIds.includes(item.send_id)} class="chat-pin"
@@ -385,7 +390,7 @@
   {/if}
   <aside class="chats-sidebar" aria-label="Local chat sidebar">
     <div class="sidebar-brand">
-      <div><strong>Prompta</strong><span>{serverName}</span></div>
+      <div><strong>Prompta</strong></div>
       <button class="sidebar-close" type="button" aria-label="Close sidebar" onclick={() => drawerOpen = false}>×</button>
     </div>
     <nav class="sidebar-actions" aria-label="Main navigation">
@@ -422,9 +427,9 @@
         {#each pinned as item (item.send_id)}{@render chatItem(item)}{/each}
       {/if}
       {#if loadingList && !items.length}
-        <p class="chats-empty">Loading local results…</p>
+        <p class="chats-empty">Loading chats…</p>
       {:else if !items.length && !pinned.length}
-        <p class="chats-empty">{search || statusFilter ? "No runs match these filters." : "No captured job runs yet."}</p>
+        <p class="chats-empty">{search || statusFilter ? "No matching chats" : "No chats"}</p>
       {:else}
         {#each groups as group (group.date)}
           <div class="chats-date">{group.date}</div>
@@ -436,22 +441,20 @@
       <span>{total ? page * pageSize + 1 : 0}–{Math.min(total, (page + 1) * pageSize)} of {total}</span>
       <div><button disabled={page === 0} onclick={() => movePage(page - 1)}>Previous</button><button disabled={page + 1 >= pageCount} onclick={() => movePage(page + 1)}>Next</button></div>
     </div>
-    <div class="sidebar-footnote">Local Prompta runs only</div>
   </aside>
 
   <div class="chats-detail">
     <div class="workspace-header">
       <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
       <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
-      <span>{serverName}</span>
     </div>
     {#if view === "jobs"}
       <div class="jobs-workspace"><JobsPage /></div>
     {:else if !selectedRunId && newChatOpen}
-      <div class="new-chat-empty"><div class="empty-icon">✦</div><h2>Start a fresh chat</h2></div>
+      <div class="new-chat-empty" aria-hidden="true"></div>
       <ChatComposer mode="fresh" onSend={sendFresh} />
     {:else if !selectedRunId}
-      <div class="chats-detail-empty"><div class="empty-icon">✦</div><h2>What would you like to revisit?</h2><p>Select a locally captured run from the sidebar, or start a fresh chat.</p><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
+      <div class="chats-detail-empty"><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
       <div class="chat-detail-toolbar">
         <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
@@ -462,7 +465,7 @@
       {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}
       {#if detail}
         <div class="chat-detail-content">
-          <header class="chat-detail-title"><h2>{detail.job_name || "Prompta run"}</h2><p>{nzTime(detail.created_at)} · Prompta job run</p></header>
+          <header class="chat-detail-title"><h2>{detail.job_name || "Prompta run"}</h2><p>{nzTime(detail.created_at)}</p></header>
           {#if turnsError}<p class="result-error" role="alert">{turnsError}</p>{/if}
           {#each turns as turn, index (turn.reply_id || detail.send_id)}
             <div class="message-group user-group">
@@ -498,9 +501,6 @@
               {:else}
                 <p class="no-response">{turnStatus(turn.status)}</p>
               {/if}
-              {#if turn.status === "interrupted" || turn.status === "unavailable" || turn.status === "outcome_unknown"}
-                <p class="capture-note">{turnStatus(turn.status)}. No automatic history fetch or retry.</p>
-              {/if}
             </div>
           {/each}
         </div>
@@ -514,7 +514,7 @@
           <button type="button" onclick={() => { const latest = turns.at(-1); if (latest) void sendPreparedReply(latest); }}>Send saved reply</button>
         </div>
       {:else if detail && turns.length > 1}
-        <div class="chat-reply-status">{turnStatus(turns.at(-1)?.status || detail.status)} · No automatic retry</div>
+        <div class="chat-reply-status">{turnStatus(turns.at(-1)?.status || detail.status)}</div>
       {/if}
     {/if}
   </div>

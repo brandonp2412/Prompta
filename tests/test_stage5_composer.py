@@ -15,6 +15,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 from prompta.response_capture import CaptureResult
+from prompta.response_store import ResponseStore
 from prompta.strict_types import json_object
 from prompta.web import PromptaJobServer
 
@@ -198,3 +199,52 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
         app.shutdown()
         thread.join(timeout=3)
         app.server_close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
+        results = ResponseStore(tmp_path / "chat-results.sqlite3")
+        for index in range(35):
+            results.ensure_queued(
+                f"synthetic-{index:03}",
+                f"A very long synthetic chat {index} " + "X" * 250,
+                now=time.time() - 100 - index,
+            )
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
+        page.get_by_role("textbox", name="Message for new chat").fill("Instant new sidebar chat")
+        page.get_by_role("button", name="Send fresh chat").click()
+        page.wait_for_url("**/?view=chats&run=manual-*")
+        if width < 681:
+            page.get_by_role("button", name="Open chat sidebar").click()
+        page.locator(".chats-list .chat-row").filter(has_text="Instant new sidebar chat").wait_for(
+            timeout=2000,
+        )
+        assert page.locator(".chats-list .chat-row").first.inner_text().startswith(
+            "Instant new sidebar chat",
+        )
+        assert page.locator(".chats-list").evaluate(
+            "node => getComputedStyle(node).overflowX",
+        ) == "hidden"
+        sidebar = page.locator(".chats-sidebar")
+        assert sidebar.evaluate("node => getComputedStyle(node).overflowX") == "clip"
+        dimensions = page.locator(".chats-list").evaluate(
+            "node => ({clientWidth:node.clientWidth, scrollWidth:node.scrollWidth, "
+            "clientHeight:node.clientHeight, scrollHeight:node.scrollHeight})",
+        )
+        assert dimensions["scrollWidth"] <= dimensions["clientWidth"] + 1
+        assert dimensions["scrollHeight"] > dimensions["clientHeight"]
+        page.locator(".chats-list").evaluate("node => node.scrollTop = 300")
+        assert page.locator(".chats-list").evaluate("node => node.scrollTop") > 0
+        assert page.get_by_text("Local Prompta runs only").count() == 0
+        assert page.get_by_text("paste or drop").count() == 0
+        assert page.get_by_text("Exact saved branch only").count() == 0
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+        browser.close()

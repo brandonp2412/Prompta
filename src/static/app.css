@@ -1023,3 +1023,11 @@ button:disabled { cursor: default; opacity: 0.45; }
   .editor-body .prompt-field { flex: none; }
   .editor-footer { position: static; padding: 8px 0; }
 }
+
+/* Keep the chat rail vertically scrollable, including long unbroken titles. */
+.chats-sidebar { min-width: 0; overflow-x: clip; }
+.chats-list { min-width: 0; overflow-x: hidden; overflow-y: auto; }
+.sidebar-brand > div, .sidebar-actions, .chats-controls, .chats-heading, .chats-pagination { min-width: 0; }
+.chat-entry, .chat-row-meta { min-width: 0; max-width: 100%; }
+.chat-row-meta { overflow: hidden; }
+.chats-pagination { flex-wrap: wrap; }

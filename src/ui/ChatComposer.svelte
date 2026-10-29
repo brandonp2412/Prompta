@@ -149,7 +149,7 @@
               event.currentTarget.value = "";
             }} />
         {/if}
-        <small>{uploading ? "Uploading…" : mode === "fresh" ? images.length + "/4 images · paste or drop" : "Exact saved branch only"}</small>
+        {#if uploading || images.length}<small>{uploading ? "Uploading…" : images.length + "/4 images"}</small>{/if}
       </div>
       <button class="composer-send" type="submit" disabled={!canSend}
         aria-label={sending ? "Sending" : mode === "fresh" ? "Send fresh chat" : "Send reply"}>
@@ -158,7 +158,4 @@
     </div>
   </div>
   {#if feedback}<p class:composer-error={locked} class="composer-feedback" role="status">{feedback}</p>{/if}
-  <p class="composer-disclaimer">{mode === "fresh"
-    ? "Queues one fresh ChatGPT chat using Prompta delivery. Enter sends · Shift+Enter adds a line."
-    : "Only an explicit send can reopen this exact saved conversation. Enter sends · Shift+Enter adds a line."}</p>
 </form>

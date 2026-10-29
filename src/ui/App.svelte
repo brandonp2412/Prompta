@@ -52,7 +52,7 @@
 </svelte:head>
 
 <main class="jobs-app">
-  <ChatsPage {view} {serverName} {selectedRunId} {newChatOpen}
+  <ChatsPage {view} {selectedRunId} {newChatOpen}
     onSelect={(id) => navigate("chats", id)}
     onNavigate={(nextView) => navigate(nextView)}
     onNewChat={newChat} onQueued={(id) => navigate("chats", id)} />
