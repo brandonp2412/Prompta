@@ -36,6 +36,7 @@ _MODEL_SELECTION_TIMEOUT_SECONDS = 20.0
 _EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
 _SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
 _SEND_CONFIRM_STATE_TIMEOUT_SECONDS = 8.0
+_PASSIVE_RECOVERY_PROBE_SECONDS = 45.0
 
 
 def _is_conversation_path(path: str) -> bool:
@@ -373,13 +374,66 @@ class BrowserDeliverySender:
         seen_observer = ""
         last_verified_text = ""
         final_status: str = "interrupted"
+        next_recovery_probe = (
+            asyncio.get_running_loop().time() + _PASSIVE_RECOVERY_PROBE_SECONDS
+        )
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
                 if not driver.is_connected:
                     break
                 # Waiting is local: queue entries are emitted by the existing
                 # POST or semantic MutationObserver, not by reading ChatGPT.
-                update = await driver.wait_capture_update(timeout=min(5.0, remaining))
+                try:
+                    update = await driver.wait_capture_update(timeout=min(5.0, remaining))
+                except Exception as exc:
+                    # A transient observer failure is not proof that the
+                    # already-accepted response has disappeared.
+                    logger.warning(
+                        "Passive capture observer will retry error_type=%s",
+                        type(exc).__name__,
+                    )
+                    await asyncio.sleep(
+                        min(1.0, max(0.0, deadline - asyncio.get_running_loop().time()))
+                    )
+                    update = None
+                now = asyncio.get_running_loop().time()
+                if now >= next_recovery_probe and driver.is_connected:
+                    next_recovery_probe = now + _PASSIVE_RECOVERY_PROBE_SECONDS
+                    # A lost callback can be recovered from the original
+                    # tab's semantic observer without opening a tab, reading
+                    # history, issuing a request, or resending a prompt.
+                    try:
+                        snapshot = await asyncio.wait_for(
+                            driver.observed_assistant_response(),
+                            timeout=min(5.0, max(0.01, deadline - now)),
+                        )
+                        if snapshot.text and (
+                            update is None
+                            or snapshot.status == "complete"
+                            or len(snapshot.text) > len(update.text)
+                        ):
+                            update = snapshot
+                    except Exception as exc:
+                        logger.info(
+                            "Passive recovery snapshot unavailable error_type=%s",
+                            type(exc).__name__,
+                        )
+                    # A conversation route can appear after the initial
+                    # acceptance check. Bind only this live capture lease.
+                    try:
+                        path = await asyncio.wait_for(
+                            driver.eval(load_browser_script("location_pathname.js")),
+                            timeout=min(
+                                5.0,
+                                max(0.01, deadline - asyncio.get_running_loop().time()),
+                            ),
+                        )
+                        self.results.bind_conversation_route(send_id, owner, path)
+                    except Exception as exc:
+                        logger.info(
+                            "Passive recovery route unavailable error_type=%s",
+                            type(exc).__name__,
+                        )
                 if (
                     update is not None
                     and update.source == "dom"

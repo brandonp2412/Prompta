@@ -16,6 +16,8 @@ from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.strict_types import string_object_dict
 
+_RECOVERED_CHAT = "12345678-1234-4123-8123-123456789abc"
+
 
 def _capture(text: str, status: str = "partial", message: str = "m1") -> CaptureResult:
     from prompta.response_capture import CaptureStatus
@@ -117,7 +119,7 @@ class StreamDriver:
         self.dom_reads += 1
         return _capture("")
 
-    async def eval(self, _script: str) -> bool:
+    async def eval(self, _script: str) -> object:
         self.eval_calls += 1
         return False
 
@@ -183,6 +185,54 @@ async def test_extra_chatgpt_continuation_post_uses_dom_without_closing_early(tm
     assert row is not None and row["status"] == "completed"
     assert row["source"] == "dom" and row["assistant_text"] == "Approved answer"
     assert driver.dom_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_late_same_tab_recovery_after_observer_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta import delivery_browser
+
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("recover", "private prompt")
+    owner = f"{os.getpid()}:recovery"
+    assert sender.results.accept("recover", owner, deadline=time.time() + 60)
+    monkeypatch.setattr(delivery_browser, "_PASSIVE_RECOVERY_PROBE_SECONDS", 0.03)
+
+    class RecoveringDriver(StreamDriver):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.fail_once = True
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            if self.fail_once:
+                self.fail_once = False
+                raise RuntimeError("temporary callback failure")
+            return await super().wait_capture_update(timeout=timeout)
+
+        async def observed_assistant_response(self) -> CaptureResult:
+            self.dom_reads += 1
+            return CaptureResult(
+                "dom", "complete", "Recovered final answer", None,
+                "11111111-1111-4111-8111-111111111111", None,
+                observer_id="owned-answer",
+            )
+
+        async def eval(self, _script: str) -> str:
+            self.eval_calls += 1
+            return f"/c/{_RECOVERED_CHAT}"
+
+    driver = RecoveringDriver()
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "recover", owner,
+        deadline=asyncio.get_running_loop().time() + 2.0,
+    )
+    row = sender.results.get("recover")
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["assistant_text"] == "Recovered final answer"
+    assert row["conversation_id"] == _RECOVERED_CHAT
+    assert driver.dom_reads == 1 and driver.eval_calls == 1
 
 
 def test_delivery_queue_persists_scheduled_run_and_terminal_status(tmp_path: Path) -> None:
