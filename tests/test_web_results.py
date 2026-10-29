@@ -509,7 +509,9 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert attach["y"] >= initial_box["y"] + initial_height - 2
                 assert abs(attach["x"] - initial_box["x"]) <= 4
                 assert attach["width"] == 44
-                assert abs(attach["y"] - send["y"]) <= 4
+                assert abs(
+                    (initial_box["y"] + initial_height / 2) - (send["y"] + send["height"] / 2)
+                ) <= 2
                 assert send["x"] > initial_box["x"] + initial_box["width"] / 2
                 draft_text = chr(10).join(["Draft survives reloading."] * 18)
                 composer.fill(draft_text)
