@@ -633,14 +633,15 @@
     <nav class="sidebar-actions" aria-label="Main navigation">
       <button class:active={view === "jobs"} class="sidebar-jobs" type="button" onclick={showJobs} aria-label="Jobs" title="Jobs" aria-current={view === "jobs" ? "page" : undefined}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
+        <span class="action-label">Jobs</span>
       </button>
       <button class="sidebar-primary" type="button" onclick={createChat} aria-label="New chat" title="New chat">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" /></svg>
-        <span class="action-label">New chat</span>
+        <span class="action-label">New</span>
       </button>
       <button class:active={filtersOpen} class="sidebar-search" type="button" aria-label="Search chats" title="Search chats" aria-expanded={filtersOpen} aria-controls="chat-filters" onclick={toggleSearch}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
-        <span class="action-label">Search chats</span>
+        <span class="action-label">Search</span>
         {#if search || statusFilter}<span class="filter-active-dot" aria-label="Filters active"></span>{/if}
       </button>
     </nav>
