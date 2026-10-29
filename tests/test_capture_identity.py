@@ -112,6 +112,31 @@ async def test_real_browser_observer_binds_owned_route_without_network() -> None
                 ANSWER,
             )
             assert result.text == "Exact response"
+            # The observer must preserve rendered Markdown semantics rather
+            # than flatten every table cell and list item into a paragraph.
+            await page.evaluate("""
+                () => {
+                    document.querySelector('.markdown').innerHTML = `
+                        <h2>Verification</h2>
+                        <p><strong>Passed</strong> with <a href="https://example.com/report">report</a>.</p>
+                        <ul><li>First check</li><li>Second check</li></ul>
+                        <table><thead><tr><th>Check</th><th>Result</th></tr></thead>
+                        <tbody><tr><td>Mobile</td><td>Passed</td></tr></tbody></table>
+                        <pre><code class="language-ts">const ready = true;</code></pre>
+                        <p><a href="javascript:alert(1)">unsafe label</a></p>
+                    `;
+                }
+            """)
+            semantic = await page.evaluate("window.__promptaPassiveResponseObserver.read()")
+            assert "## Verification" in semantic["text"]
+            assert "**Passed** with [report](https://example.com/report)." in semantic["text"]
+            assert "- First check\n- Second check" in semantic["text"]
+            assert "| Check | Result |" in semantic["text"]
+            assert "| --- | --- |" in semantic["text"]
+            assert "| Mobile | Passed |" in semantic["text"]
+            assert "```ts\nconst ready = true;\n```" in semantic["text"]
+            assert "unsafe label" in semantic["text"]
+            assert "javascript:" not in semantic["text"]
         finally:
             await browser.close()
 

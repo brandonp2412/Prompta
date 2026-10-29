@@ -1,8 +1,9 @@
 <script lang="ts">
   import { marked, type Token, type Tokens } from "marked";
-  import { safeHref } from "./resultFormatting";
+  import { isFlattenedDomResponse, safeHref } from "./resultFormatting";
 
-  let { source }: { source: string } = $props();
+  let { source, captureSource = "" }: { source: string; captureSource?: string } = $props();
+  let flattened = $derived(isFlattenedDomResponse(source, captureSource));
   // The token tree is rendered as Svelte text/elements. Untrusted HTML is never injected.
   let tokens = $derived(marked.lexer(source, { gfm: true, breaks: false }));
   let copiedCode = $state("");
@@ -81,4 +82,4 @@
   {/each}
 {/snippet}
 
-<div class="result-markdown">{@render blocks(tokens)}</div>
+<div class:flattened class="result-markdown">{@render blocks(tokens)}</div>

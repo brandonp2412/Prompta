@@ -118,6 +118,23 @@ export function plainPreview(text: string): string {
     .trim();
 }
 
+// Older DOM captures contain plain innerText with every heading, list item and
+// table cell separated as a paragraph. Keep those archived answers compact;
+// new semantic captures and genuine Markdown retain normal formatting.
+export function isFlattenedDomResponse(text: string, captureSource: string): boolean {
+  if (captureSource !== "dom") return false;
+  if (/^\s*(?:#{1,6}\s|[-*+]\s|\d+\.\s|>|\|\s|`{3})/m.test(text)) return false;
+  const blocks = text
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (blocks.length < 10) return false;
+  const shortLabels = blocks.filter(
+    (item) => item.length <= 80 && !/[.!?:]$/.test(item) && !item.includes("\n"),
+  );
+  return shortLabels.length >= 7 && shortLabels.length >= blocks.length * 0.45;
+}
+
 export function groupRuns(items: RunSummary[]): { date: string; items: RunSummary[] }[] {
   const groups: { date: string; items: RunSummary[] }[] = [];
   for (const item of items) {

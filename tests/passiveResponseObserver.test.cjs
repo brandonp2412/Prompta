@@ -45,6 +45,7 @@ const context = {
     querySelectorAll: () => nodes,
   },
   getComputedStyle: () => ({ visibility: "visible" }),
+  location: { pathname: "/c/test" },
   MutationObserver: class {
     constructor(fn) { callback = fn; }
     observe() {}
@@ -108,6 +109,7 @@ const modernContext = {
     querySelectorAll: () => modernNodes,
   },
   getComputedStyle: () => ({ visibility: "visible" }),
+  location: { pathname: "/c/test" },
   MutationObserver: class {
     constructor() {}
     observe(target) { observedRoot = target; }

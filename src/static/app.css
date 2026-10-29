@@ -136,6 +136,8 @@ button:disabled { cursor: default; opacity: 0.45; }
 .capture-note { padding: 13px 15px; background: #241e1e; border: 1px solid #443030; border-radius: 8px; }
 .result-markdown { font-size: .9rem; line-height: 1.65; color: #dedede; overflow-wrap: anywhere; }
 .result-markdown > :first-child { margin-top: 0; }
+.result-markdown.flattened { line-height: 1.52; }
+.result-markdown.flattened p { margin-bottom: 5px; }
 .result-markdown p, .result-markdown ul, .result-markdown ol { margin: 0 0 14px; }
 .result-markdown h1, .result-markdown h2, .result-markdown h3 { color: #f1f1f1; line-height: 1.35; margin: 25px 0 11px; }
 .result-markdown h1 { font-size: 1.45rem; }.result-markdown h2 { font-size: 1.2rem; }.result-markdown h3 { font-size: 1.05rem; }
