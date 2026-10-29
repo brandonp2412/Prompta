@@ -1,0 +1,105 @@
+"""Chat composers never import another run's unsent or saved reply text."""
+
+from __future__ import annotations
+
+import os
+import threading
+import time
+from pathlib import Path
+
+import pytest
+from playwright.sync_api import expect, sync_playwright
+
+from prompta.reply_contracts import ReplyIntent
+from prompta.response_capture import CaptureResult
+from prompta.web import PromptaJobServer
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
+    tmp_path: Path,
+    width: int,
+    height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+
+    app = PromptaJobServer(
+        ("127.0.0.1", 0),
+        state_path=tmp_path / "state.sqlite3",
+        jobs_path=tmp_path / "jobs.sqlite3",
+    )
+    now = time.time()
+    for send_id, prompt in [("run-a", "Synthetic chat Alpha"), ("run-b", "Synthetic chat Beta")]:
+        app.results.ensure_queued(send_id, prompt, now=now)
+        assert app.results.accept(send_id, "owner", deadline=now + 3000)
+        assert app.results.write(
+            send_id,
+            "owner",
+            CaptureResult(
+                "sse", "complete", "Response for " + prompt, "c" * 32, "m" * 32, "p" * 32
+            ),
+        )
+    assert app.replies.prepare(
+        "run-a",
+        ReplyIntent("r" * 32, "c" * 32, "m" * 32, "Saved exact Alpha reply"),
+        now=now + 1,
+    )
+
+    thread = threading.Thread(target=app.serve_forever, daemon=True)
+    thread.start()
+    seen_posts: list[str] = []
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.on(
+                "request",
+                lambda request: (
+                    seen_posts.append(request.url) if request.method == "POST" else None
+                ),
+            )
+            page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run=run-a")
+            reply = page.get_by_role("textbox", name="Message for current chat")
+            expect(reply).to_have_value("Saved exact Alpha reply")
+
+            def select(title: str, send_id: str) -> None:
+                if width <= 680:
+                    page.get_by_role("button", name="Open chat sidebar").click()
+                page.locator(".chats-list .chat-row").filter(has_text=title).click()
+                page.wait_for_url("**/?view=chats&run=" + send_id)
+
+            # Switching away from a pending reply must not hydrate it into Beta.
+            select("Synthetic chat Beta", "run-b")
+            expect(reply).to_have_value("")
+            reply.fill("Unsent Beta only")
+            select("Synthetic chat Alpha", "run-a")
+            expect(reply).to_have_value("Saved exact Alpha reply")
+            select("Synthetic chat Beta", "run-b")
+            expect(reply).to_have_value("Unsent Beta only")
+            page.reload()
+            expect(reply).to_have_value("Unsent Beta only")
+
+            # The fresh-chat draft has a separate namespace from either reply.
+            if width <= 680:
+                page.get_by_role("button", name="Open chat sidebar").click()
+            page.locator(".chats-sidebar .sidebar-primary").click()
+            page.wait_for_url("**/?view=chats&draft=new")
+            fresh = page.get_by_role("textbox", name="Message for new chat")
+            expect(fresh).to_have_value("")
+            fresh.fill("Unsent fresh only")
+            select("Synthetic chat Beta", "run-b")
+            expect(reply).to_have_value("Unsent Beta only")
+            select("Synthetic chat Alpha", "run-a")
+            expect(reply).to_have_value("Saved exact Alpha reply")
+            if width <= 680:
+                page.get_by_role("button", name="Open chat sidebar").click()
+            page.locator(".chats-sidebar .sidebar-primary").click()
+            expect(fresh).to_have_value("Unsent fresh only")
+            assert not seen_posts, seen_posts
+            browser.close()
+    finally:
+        app.shutdown()
+        thread.join(timeout=3)
+        app.server_close()

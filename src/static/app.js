@@ -6008,7 +6008,8 @@ function ChatComposer($$anchor, $$props) {
 	let disabled = prop($$props, "disabled", 3, false), sendDisabled = prop($$props, "sendDisabled", 3, false), sendHint = prop($$props, "sendHint", 3, ""), restoreDraft = prop($$props, "restoreDraft", 3, ""), retryablePreflight = prop($$props, "retryablePreflight", 3, false);
 	let draft = /* @__PURE__ */ state("");
 	let restoredDraft = /* @__PURE__ */ state("");
-	let lastSubmitted = /* @__PURE__ */ state("");
+	let restoredPreflight = /* @__PURE__ */ state(false);
+	let hydrated = /* @__PURE__ */ state(false);
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploading = /* @__PURE__ */ state(false);
 	let sending = /* @__PURE__ */ state(false);
@@ -6018,25 +6019,29 @@ function ChatComposer($$anchor, $$props) {
 	let textarea = /* @__PURE__ */ state(void 0);
 	let fileInput = /* @__PURE__ */ state(void 0);
 	const newChatDraftKey = "prompta.new-chat-draft.v1";
+	const draftStorageKey = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" ? newChatDraftKey : $$props.chatId ? "prompta.reply-draft.v1." + $$props.chatId : "");
 	const canAttach = /* @__PURE__ */ user_derived(() => $$props.mode === "fresh" && !disabled() && !get(locked) && !get(sending) && !get(uploading));
 	const hasDraft = /* @__PURE__ */ user_derived(() => !!get(draft).trim());
 	const canSend = /* @__PURE__ */ user_derived(() => !disabled() && !sendDisabled() && !get(locked) && !get(sending) && !get(uploading) && get(hasDraft));
 	user_effect(() => {
-		if ($$props.mode !== "reply" || !restoreDraft()) return;
-		if (!(get(restoredDraft) !== restoreDraft()) && !retryablePreflight()) return;
+		if ($$props.mode !== "reply" || !restoreDraft() || !get(hydrated)) return;
+		if (get(restoredDraft) === restoreDraft() && get(restoredPreflight) === retryablePreflight()) return;
 		set(restoredDraft, restoreDraft());
-		if (!get(draft) && !get(sending) && (retryablePreflight() || restoreDraft() !== get(lastSubmitted))) {
+		set(restoredPreflight, retryablePreflight());
+		if (!get(sending) && get(draft) !== restoreDraft()) {
 			set(draft, restoreDraft());
+			try {
+				if (get(draftStorageKey)) localStorage.setItem(get(draftStorageKey), get(draft));
+			} catch {}
 			requestAnimationFrame(resizeTextarea);
 		}
 	});
 	onMount(() => {
-		if ($$props.mode === "fresh") {
-			try {
-				set(draft, localStorage.getItem(newChatDraftKey)?.slice(0, 32e3) ?? "", true);
-			} catch {}
-			get(textarea)?.focus();
-		}
+		try {
+			if (get(draftStorageKey)) set(draft, localStorage.getItem(get(draftStorageKey))?.slice(0, 32e3) ?? "", true);
+		} catch {}
+		set(hydrated, true);
+		if ($$props.mode === "fresh") get(textarea)?.focus();
 		requestAnimationFrame(resizeTextarea);
 		window.addEventListener("resize", resizeTextarea);
 		return () => window.removeEventListener("resize", resizeTextarea);
@@ -6050,8 +6055,8 @@ function ChatComposer($$anchor, $$props) {
 		get(textarea).style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
 	}
 	function draftChanged(event) {
-		if ($$props.mode === "fresh") try {
-			localStorage.setItem(newChatDraftKey, event.currentTarget.value);
+		if (get(draftStorageKey)) try {
+			localStorage.setItem(get(draftStorageKey), event.currentTarget.value);
 		} catch {}
 		resizeTextarea();
 	}
@@ -6113,12 +6118,11 @@ function ChatComposer($$anchor, $$props) {
 			const submitted = get(draft);
 			const result = await $$props.onSend(submitted, get(images).map((image) => image.ref));
 			if (result.ok) {
-				set(lastSubmitted, submitted, true);
 				set(draft, "");
 				set(images, [], true);
 				set(feedback, result.message, true);
-				if ($$props.mode === "fresh") try {
-					localStorage.removeItem(newChatDraftKey);
+				try {
+					if (get(draftStorageKey)) localStorage.removeItem(get(draftStorageKey));
 				} catch {}
 				requestAnimationFrame(resizeTextarea);
 			} else {
@@ -8556,7 +8560,7 @@ function ChatsPage($$anchor, $$props) {
 	});
 	const replyBlockedReason = /* @__PURE__ */ user_derived(() => {
 		const latest = get(turns).at(-1);
-		if (!get(detail) || !latest) return "Loading reply availability…";
+		if (!get(detail) || get(detail).send_id !== $$props.selectedRunId || !latest) return "Loading reply availability…";
 		if (latest.status === "prepared" || latest.status === "preflight_failed") return latest.reply_id && latest.conversation_id && latest.parent_id ? "" : "The saved reply has no verified target, so it cannot be resent.";
 		if (latest.status === "completed") {
 			if (!latest.conversation_id) return "This chat was saved without its ChatGPT conversation ID, so it cannot be safely replied to.";
@@ -8753,6 +8757,7 @@ function ChatsPage($$anchor, $$props) {
 		}
 	}
 	async function loadDetail(id) {
+		if ($$props.selectedRunId !== id || $$props.view !== "chats") return;
 		const generation = ++detailGeneration;
 		const newSelection = get(detail)?.send_id !== id;
 		if (newSelection) {
@@ -8767,7 +8772,7 @@ function ChatsPage($$anchor, $$props) {
 			if (!response.ok) throw new Error("Result not found");
 			const body = await response.json();
 			const saved = replyResponse.ok ? await replyResponse.json() : null;
-			if (generation !== detailGeneration) return;
+			if (generation !== detailGeneration || $$props.selectedRunId !== id) return;
 			set(detail, body, true);
 			set(turns, saved?.turns?.length ? saved.turns : [{
 				reply_id: "",
@@ -8845,6 +8850,10 @@ function ChatsPage($$anchor, $$props) {
 	}
 	async function sendReply(text, _images) {
 		const sendId = $$props.selectedRunId;
+		if (!sendId || get(detail)?.send_id !== sendId) return {
+			ok: false,
+			message: "The selected chat is still loading. Nothing was sent."
+		};
 		const latest = get(turns).at(-1);
 		if (sendId && (latest?.status === "prepared" || latest?.status === "preflight_failed")) {
 			if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) return {
@@ -8897,7 +8906,7 @@ function ChatsPage($$anchor, $$props) {
 					message: response.status >= 500 ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly." : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch."
 				};
 			}
-			await loadDetail(sendId);
+			if ($$props.selectedRunId === sendId) await loadDetail(sendId);
 			return {
 				ok: true,
 				message: ""
@@ -9422,11 +9431,14 @@ function ChatsPage($$anchor, $$props) {
 		bind_this(div_13, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
 		key(sibling(div_13, 2), () => $$props.selectedRunId, ($$anchor) => {
 			{
-				let $0 = /* @__PURE__ */ user_derived(() => ["prepared", "preflight_failed"].includes(get(turns).at(-1)?.status ?? "") ? get(turns).at(-1)?.user_text ?? "" : "");
-				let $1 = /* @__PURE__ */ user_derived(() => get(turns).at(-1)?.status === "preflight_failed");
-				let $2 = /* @__PURE__ */ user_derived(() => Boolean(get(replyBlockedReason)) || get(recoveringReply));
+				let $0 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && ["prepared", "preflight_failed"].includes(get(turns).at(-1)?.status ?? "") ? get(turns).at(-1)?.user_text ?? "" : "");
+				let $1 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed");
+				let $2 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id !== $$props.selectedRunId || Boolean(get(replyBlockedReason)) || get(recoveringReply));
 				ChatComposer($$anchor, {
 					mode: "reply",
+					get chatId() {
+						return $$props.selectedRunId;
+					},
 					onSend: sendReply,
 					onNewChat: createChat,
 					get restoreDraft() {

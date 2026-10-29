@@ -4,8 +4,9 @@
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean };
 
-  let { mode, onSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
+  let { mode, chatId, onSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
     mode: "fresh" | "reply";
+    chatId?: string;
     onSend: (text: string, images: string[]) => Promise<SendResult>;
     onNewChat: () => void;
     disabled?: boolean;
@@ -17,7 +18,8 @@
 
   let draft = $state("");
   let restoredDraft = $state("");
-  let lastSubmitted = $state("");
+  let restoredPreflight = $state(false);
+  let hydrated = $state(false);
   let images = $state<ImageRef[]>([]);
   let uploading = $state(false);
   let sending = $state(false);
@@ -27,28 +29,29 @@
   let textarea = $state<HTMLTextAreaElement>();
   let fileInput = $state<HTMLInputElement>();
   const newChatDraftKey = "prompta.new-chat-draft.v1";
+  const draftStorageKey = $derived(mode === "fresh" ? newChatDraftKey : chatId ? "prompta.reply-draft.v1." + chatId : "");
   const canAttach = $derived(mode === "fresh" && !disabled && !locked && !sending && !uploading);
   const hasDraft = $derived(!!draft.trim());
   const canSend = $derived(!disabled && !sendDisabled && !locked && !sending && !uploading && hasDraft);
 
   $effect(() => {
-    if (mode !== "reply" || !restoreDraft) return;
-    const changed = restoredDraft !== restoreDraft;
-    if (!changed && !retryablePreflight) return;
+    if (mode !== "reply" || !restoreDraft || !hydrated) return;
+    // Saved reply intents are immutable. Hydrate them only when the server
+    // changes the intent/status, never on each keystroke in this composer.
+    if (restoredDraft === restoreDraft && restoredPreflight === retryablePreflight) return;
     restoredDraft = restoreDraft;
-    // A confirmed preflight failure never clicked Send, so refill its original
-    // immutable text. Normal pending sends still wait for a later visit.
-    if (!draft && !sending && (retryablePreflight || restoreDraft !== lastSubmitted)) {
+    restoredPreflight = retryablePreflight;
+    if (!sending && draft !== restoreDraft) {
       draft = restoreDraft;
+      try { if (draftStorageKey) localStorage.setItem(draftStorageKey, draft); } catch { /* In-memory editing still works. */ }
       requestAnimationFrame(resizeTextarea);
     }
   });
 
   onMount(() => {
-    if (mode === "fresh") {
-      try { draft = localStorage.getItem(newChatDraftKey)?.slice(0, 32000) ?? ""; } catch { /* Storage may be unavailable. */ }
-      textarea?.focus();
-    }
+    try { if (draftStorageKey) draft = localStorage.getItem(draftStorageKey)?.slice(0, 32000) ?? ""; } catch { /* Storage may be unavailable. */ }
+    hydrated = true;
+    if (mode === "fresh") textarea?.focus();
     requestAnimationFrame(resizeTextarea);
     window.addEventListener("resize", resizeTextarea);
     return () => window.removeEventListener("resize", resizeTextarea);
@@ -64,8 +67,8 @@
   }
 
   function draftChanged(event: Event) {
-    if (mode === "fresh") {
-      try { localStorage.setItem(newChatDraftKey, (event.currentTarget as HTMLTextAreaElement).value); } catch { /* In-memory editing still works. */ }
+    if (draftStorageKey) {
+      try { localStorage.setItem(draftStorageKey, (event.currentTarget as HTMLTextAreaElement).value); } catch { /* In-memory editing still works. */ }
     }
     resizeTextarea();
   }
@@ -125,13 +128,10 @@
       const submitted = draft;
       const result = await onSend(submitted, images.map((image) => image.ref));
       if (result.ok) {
-        lastSubmitted = submitted;
         draft = "";
         images = [];
         feedback = result.message;
-        if (mode === "fresh") {
-          try { localStorage.removeItem(newChatDraftKey); } catch { /* Storage may be unavailable. */ }
-        }
+        try { if (draftStorageKey) localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
         requestAnimationFrame(resizeTextarea);
       } else {
         feedback = result.message;

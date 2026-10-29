@@ -91,7 +91,7 @@
   });
   const replyBlockedReason = $derived.by((): string => {
     const latest = turns.at(-1);
-    if (!detail || !latest) return "Loading reply availability…";
+    if (!detail || detail.send_id !== selectedRunId || !latest) return "Loading reply availability…";
     if (latest.status === "prepared" || latest.status === "preflight_failed") {
       return latest.reply_id && latest.conversation_id && latest.parent_id
         ? "" : "The saved reply has no verified target, so it cannot be resent.";
@@ -317,6 +317,7 @@
   }
 
   async function loadDetail(id: string) {
+    if (selectedRunId !== id || view !== "chats") return;
     const generation = ++detailGeneration;
     const newSelection = detail?.send_id !== id;
     if (newSelection) { detail = null; turns = []; }
@@ -332,7 +333,7 @@
       if (!response.ok) throw new Error("Result not found");
       const body: RunDetail = await response.json();
       const saved = replyResponse.ok ? await replyResponse.json() as { turns: LocalTurn[] } : null;
-      if (generation !== detailGeneration) return;
+      if (generation !== detailGeneration || selectedRunId !== id) return;
       detail = body;
       turns = saved?.turns?.length ? saved.turns : [{
         reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
@@ -407,6 +408,9 @@
 
   async function sendReply(text: string, _images: string[]) {
     const sendId = selectedRunId;
+    if (!sendId || detail?.send_id !== sendId) {
+      return { ok: false, message: "The selected chat is still loading. Nothing was sent." };
+    }
     const latest = turns.at(-1);
     if (sendId && (latest?.status === "prepared" || latest?.status === "preflight_failed")) {
       if (!latest.reply_id || !latest.conversation_id || !latest.parent_id || text !== latest.user_text) {
@@ -459,7 +463,7 @@
             : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch.",
         };
       }
-      await loadDetail(sendId);
+      if (selectedRunId === sendId) await loadDetail(sendId);
       return { ok: true, message: "" };
     } catch {
       return {
@@ -769,10 +773,10 @@
       {/if}
       </div>
       {#key selectedRunId}
-        <ChatComposer mode="reply" onSend={sendReply} onNewChat={createChat}
-          restoreDraft={["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
-          retryablePreflight={turns.at(-1)?.status === "preflight_failed"}
-          sendDisabled={Boolean(replyBlockedReason) || recoveringReply}
+        <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply} onNewChat={createChat}
+          restoreDraft={detail?.send_id === selectedRunId && ["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
+          retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
+          sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}
           sendHint={replyBlockedReason} />
       {/key}
     {/if}
