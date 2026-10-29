@@ -1,4 +1,4 @@
-//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
+//#region node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -71,7 +71,7 @@ var STALE_REACTION = new class StaleReactionError extends Error {
 }();
 var IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/constants.js
+//#region node_modules/svelte/src/constants.js
 var HYDRATION_ERROR = {};
 var UNINITIALIZED = Symbol("uninitialized");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
@@ -101,7 +101,7 @@ function svelte_boundary_reset_noop() {
 	console.warn(`https://svelte.dev/e/svelte_boundary_reset_noop`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
+//#region node_modules/svelte/src/internal/client/dom/hydration.js
 /** @import { TemplateNode } from '#client' */
 /**
 * Use this variable to guard everything related to hydration code so it can be treeshaken out
@@ -180,7 +180,7 @@ function read_hydration_instruction(node) {
 	return node.data;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -207,7 +207,7 @@ function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
+//#region node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -292,13 +292,13 @@ function svelte_boundary_reset_onerror() {
 	throw new Error(`https://svelte.dev/e/svelte_boundary_reset_onerror`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
+//#region node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
 /** True if we're not certain that we only have Svelte 5 code in the compilation */
 var legacy_mode_flag = false;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
+//#region node_modules/svelte/src/internal/client/context.js
 /** @import { ComponentContext, DevStackEntry, Effect } from '#client' */
 /** @type {ComponentContext | null} */
 var component_context = null;
@@ -358,7 +358,7 @@ function is_runes() {
 	return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
+//#region node_modules/svelte/src/internal/client/dom/task.js
 /** @type {Array<() => void>} */
 var micro_tasks = [];
 function run_micro_tasks() {
@@ -385,7 +385,7 @@ function flush_tasks() {
 	while (micro_tasks.length > 0) run_micro_tasks();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
+//#region node_modules/svelte/src/internal/client/reactivity/status.js
 /** @import { Derived, Signal } from '#client' */
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 /**
@@ -404,7 +404,7 @@ function update_derived_status(derived) {
 	else set_signal_status(derived, MAYBE_DIRTY);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region node_modules/svelte/src/internal/client/reactivity/utils.js
 /** @import { Effect } from '#client' */
 /**
 * @param {Effect} effect
@@ -417,7 +417,7 @@ function defer_effect(effect, dirty_effects, maybe_dirty_effects) {
 	set_signal_status(effect, CLEAN);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -440,7 +440,7 @@ function add_form_reset_listener() {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -478,7 +478,7 @@ function listen_to_event_and_reset_event(element, event, handler, on_reset = han
 	add_form_reset_listener();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
+//#region node_modules/svelte/src/internal/client/reactivity/async.js
 /** @import { Blocker, Effect, Source, Value } from '#client' */
 /**
 * @param {Blocker[]} blockers
@@ -766,7 +766,7 @@ function unfreeze_derived_effects(derived) {
 	for (const e of derived.effects) if (e.teardown && e.fn !== null) update_effect(e);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region node_modules/svelte/src/internal/client/reactivity/batch.js
 /** @import { Fork } from 'svelte' */
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /** @type {Batch | null} */
@@ -1531,7 +1531,7 @@ function reset_all(effect) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
+//#region node_modules/svelte/src/internal/client/reactivity/sources.js
 /** @import { Derived, Effect, Source, Value } from '#client' */
 /** @type {Set<Effect>} */
 var eager_effects = /* @__PURE__ */ new Set();
@@ -1862,7 +1862,7 @@ function is(a, b) {
 	return Object.is(get_proxied_value(a), get_proxied_value(b));
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
+//#region node_modules/svelte/src/internal/client/dom/operations.js
 /** @import { Effect, TemplateNode } from '#client' */
 /** @type {Window} */
 var $window;
@@ -2090,7 +2090,7 @@ function invoke_error_boundary(error, effect) {
 	throw error;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region node_modules/svelte/src/internal/client/reactivity/effects.js
 /** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -2482,14 +2482,14 @@ function move_effect(effect, fragment) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
+//#region node_modules/svelte/src/internal/client/legacy.js
 /**
 * @type {Set<Value> | null}
 * @deprecated
 */
 var captured_signals = null;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
+//#region node_modules/svelte/src/internal/client/runtime.js
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /**
 * True if updating in an effect context that is reactive (i.e. not branch/root effects)
@@ -2872,7 +2872,7 @@ function is_passive_event(name) {
 	return PASSIVE_EVENTS.includes(name);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * Used on elements, as a map of event type -> event handler,
 * and on events themselves to track which element handled an event
@@ -3023,7 +3023,7 @@ function handle_event_propagation(event) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
 /** @param {string} html */
 createHTML: (html) => {
@@ -3042,7 +3042,7 @@ function create_fragment_from_html(html) {
 	return elem.content;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
+//#region node_modules/svelte/src/internal/client/dom/template.js
 /** @import { Effect, EffectNodes, TemplateNode } from '#client' */
 /** @import { TemplateStructure } from './types' */
 /**
@@ -3142,7 +3142,7 @@ function append(anchor, dom) {
 	anchor.before(dom);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
+//#region node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3215,7 +3215,7 @@ function createSubscriber(start) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /** @import { Effect, Source, TemplateNode, } from '#client' */
 /**
 * @typedef {{
@@ -3690,7 +3690,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 */
 var mounted_components = /* @__PURE__ */ new WeakMap();
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
 /** @import { Effect, TemplateNode } from '#client' */
 /**
 * @typedef {{ effect: Effect, fragment: DocumentFragment }} Branch
@@ -3838,7 +3838,7 @@ var BranchManager = class {
 	}
 };
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {TemplateNode} node
@@ -3884,7 +3884,7 @@ function if_block(node, fn, elseif = false) {
 	}, flags);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/key.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/key.js
 /** @import { TemplateNode } from '#client' */
 var NAN = Symbol("NaN");
 /**
@@ -3906,7 +3906,7 @@ function key(node, get_key, render_fn) {
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
 /** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
 /** @import { Batch } from '../../reactivity/batch.js'; */
 /**
@@ -4323,7 +4323,7 @@ function link(state, prev, next) {
 	else next.prev = prev;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {string} hash
@@ -4369,7 +4369,7 @@ function head(hash, render_fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
+//#region node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4384,7 +4384,7 @@ function clsx$1() {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
+//#region node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -4419,7 +4419,7 @@ function to_class(value, hash, directives) {
 	return classname === "" ? null : classname;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -4446,7 +4446,7 @@ function set_class(dom, is_html, value, hash, prev_classes, next_classes) {
 	return next_classes;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -4586,7 +4586,7 @@ function is_selectedcontent_mutation(entry) {
 	return false;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /** @import { Blocker, Effect } from '#client' */
 var IS_CUSTOM_ELEMENT = Symbol("is custom element");
 var IS_HTML = Symbol("is html");
@@ -4668,7 +4668,7 @@ function get_setters(element) {
 	return setters;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /** @import { Batch } from '../../../reactivity/batch.js' */
 /**
 * @param {HTMLInputElement} input
@@ -4747,7 +4747,7 @@ function to_number(value) {
 	return value === "" ? null : +value;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 /** @import { ComponentContext, Effect } from '#client' */
 /**
 * @param {any} bound_value
@@ -4799,7 +4799,7 @@ function bind_this(element_or_component = mark_as_component(), update, get_value
 	return element_or_component;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
+//#region node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Whether or not the prop currently being read is a store binding, as in
 * `<Child bind:x={$y} />`. If it is, we treat the prop as mutable even in
@@ -4824,7 +4824,7 @@ function capture_store_binding(fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
+//#region node_modules/svelte/src/internal/client/reactivity/props.js
 /** @import { Derived, Effect, Source } from './types.js' */
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
@@ -4952,7 +4952,7 @@ function init_update_callbacks(context) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
+//#region node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
 //#region src/ui/jobSorting.ts
@@ -6294,7 +6294,7 @@ delegate([
 	"change"
 ]);
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -8419,7 +8419,7 @@ var root_24 = /* @__PURE__ */ from_html(`<p class="no-response"> </p>`);
 var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span>You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div class="message-group assistant-group"><div class="message-role"><span>Assistant <!></span> <!></div> <!> <!></div>`, 1);
 var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
 var root_27 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
-var root_28 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
+var root_28 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <!> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
 	push($$props, true);
 	const chatItem = ($$anchor, item = noop) => {
@@ -8475,6 +8475,7 @@ function ChatsPage($$anchor, $$props) {
 	};
 	const pageSize = 20;
 	const preferencesKey = "prompta.local-sidebar.v1";
+	const readSyncKey = "prompta.local-read-sync.v1";
 	const statuses = [
 		{
 			value: "",
@@ -8524,6 +8525,8 @@ function ChatsPage($$anchor, $$props) {
 	let pinError = /* @__PURE__ */ state("");
 	let readAt = /* @__PURE__ */ state(proxy({}));
 	let readRevisions = /* @__PURE__ */ state(proxy({}));
+	let optimisticReads = /* @__PURE__ */ state(proxy({}));
+	let readError = /* @__PURE__ */ state("");
 	let baselineAt = /* @__PURE__ */ state(0);
 	let drawerOpen = /* @__PURE__ */ state(false);
 	let filtersOpen = /* @__PURE__ */ state(false);
@@ -8602,20 +8605,60 @@ function ChatsPage($$anchor, $$props) {
 	}
 	function isUnread(item) {
 		if (!item.last_reply_revision) return false;
-		const seenRevision = get(readRevisions)[item.send_id];
+		const seenRevision = get(optimisticReads)[item.send_id] || item.last_read_revision || get(readRevisions)[item.send_id];
 		if (seenRevision) return seenRevision !== item.last_reply_revision;
 		return item.last_reply_at > (get(readAt)[item.send_id] ?? get(baselineAt));
 	}
-	function markRead(item) {
-		set(readAt, {
-			...get(readAt),
-			[item.send_id]: Math.max(Date.now() / 1e3, activity(item))
+	async function importLegacyReads() {
+		const reads = Object.fromEntries(Object.entries(get(readRevisions)).filter(([id, revision]) => id.length > 0 && id.length <= 200 && /^[a-f0-9]{64}$/.test(revision)).slice(0, 2e3));
+		if (!Object.keys(reads).length) return;
+		try {
+			if (!(await fetch("./api/local-chat-reads/import", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ reads })
+			})).ok) throw new Error("Read import failed");
+			set(readRevisions, {}, true);
+			savePreferences();
+		} catch {
+			set(readError, "Saved read status could not be synced yet.");
+		}
+	}
+	async function markRead(item) {
+		const revision = item.last_reply_revision;
+		if (!revision || item.last_read_revision === revision || get(optimisticReads)[item.send_id] === revision) return;
+		set(optimisticReads, {
+			...get(optimisticReads),
+			[item.send_id]: revision
 		}, true);
-		if (item.last_reply_revision) set(readRevisions, {
-			...get(readRevisions),
-			[item.send_id]: item.last_reply_revision
-		}, true);
-		savePreferences();
+		try {
+			if (!(await fetch("./api/local-chat-reads", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					send_id: item.send_id,
+					revision
+				})
+			})).ok) throw new Error("Read receipt rejected");
+			set(readError, "");
+			try {
+				localStorage.setItem(readSyncKey, item.send_id + ":" + Date.now());
+			} catch {}
+		} catch {
+			if (get(optimisticReads)[item.send_id] === revision) {
+				const next = { ...get(optimisticReads) };
+				delete next[item.send_id];
+				set(optimisticReads, next, true);
+			}
+			set(readError, "Could not save read status. Try opening the chat again.");
+			loadList();
+		}
+	}
+	function onReadStorage(event) {
+		if (event.key !== readSyncKey) return;
+		loadList();
+		loadPins();
+		if ($$props.view === "chats" && $$props.selectedRunId) loadDetail($$props.selectedRunId);
 	}
 	async function loadPins() {
 		const generation = ++pinsGeneration;
@@ -9009,9 +9052,12 @@ function ChatsPage($$anchor, $$props) {
 	});
 	onMount(() => {
 		loadPreferences();
-		loadList();
-		loadPins();
+		importLegacyReads().finally(() => {
+			loadList();
+			loadPins();
+		});
 		loadQueue();
+		window.addEventListener("storage", onReadStorage);
 		queuePollTimer = setInterval(() => {
 			if (document.visibilityState === "visible") loadQueue();
 		}, 15e3);
@@ -9032,6 +9078,7 @@ function ChatsPage($$anchor, $$props) {
 		return () => {
 			unsubscribe();
 			unsubscribeJobs();
+			window.removeEventListener("storage", onReadStorage);
 			clearInterval(queuePollTimer);
 			clearInterval(detailPollTimer);
 			clearTimeout(liveRefreshTimer);
@@ -9125,63 +9172,73 @@ function ChatsPage($$anchor, $$props) {
 	if_block(node_5, ($$render) => {
 		if (get(pinError)) $$render(consequent_5);
 	});
-	var div_5 = sibling(node_5, 2);
-	var node_6 = child(div_5);
+	var node_6 = sibling(node_5, 2);
 	var consequent_6 = ($$anchor) => {
+		var div_5 = root_6();
+		var text_6 = only_child(div_5, true);
+		template_effect(() => set_text(text_6, get(readError)));
+		append($$anchor, div_5);
+	};
+	if_block(node_6, ($$render) => {
+		if (get(readError)) $$render(consequent_6);
+	});
+	var div_6 = sibling(node_6, 2);
+	var node_7 = child(div_6);
+	var consequent_7 = ($$anchor) => {
 		var fragment = root_8();
-		var div_6 = first_child(fragment);
-		var span_5 = child(div_6);
-		var text_6 = only_child(span_5);
-		var text_7 = only_child(sibling(span_5, 2), true);
-		reset(div_6);
-		each(sibling(div_6, 2), 17, () => get(visibleWaiting), (waiting) => waiting.name, ($$anchor, waiting) => {
-			var div_7 = root_7();
-			var button_7 = child(div_7);
+		var div_7 = first_child(fragment);
+		var span_5 = child(div_7);
+		var text_7 = only_child(span_5);
+		var text_8 = only_child(sibling(span_5, 2), true);
+		reset(div_7);
+		each(sibling(div_7, 2), 17, () => get(visibleWaiting), (waiting) => waiting.name, ($$anchor, waiting) => {
+			var div_8 = root_7();
+			var button_7 = child(div_8);
 			var span_7 = child(button_7);
 			var strong_1 = child(span_7);
-			var text_8 = only_child(strong_1, true);
-			var text_9 = only_child(sibling(strong_1));
+			var text_9 = only_child(strong_1, true);
+			var text_10 = only_child(sibling(strong_1));
 			reset(span_7);
-			var text_10 = only_child(sibling(span_7, 2));
+			var text_11 = only_child(sibling(span_7, 2));
 			reset(button_7);
-			reset(div_7);
+			reset(div_8);
 			template_effect(() => {
 				set_attribute(button_7, "title", "Open Jobs for " + get(waiting).name);
-				set_text(text_8, get(waiting).name);
-				set_text(text_9, `#${get(waiting).position ?? ""}`);
-				set_text(text_10, `Queued · ${get(waiting).reason === "stage" ? "stage" : "global"} limit (${get(waiting).occupied ?? ""}/${get(waiting).limit ?? ""})`);
+				set_text(text_9, get(waiting).name);
+				set_text(text_10, `#${get(waiting).position ?? ""}`);
+				set_text(text_11, `Queued · ${get(waiting).reason === "stage" ? "stage" : "global"} limit (${get(waiting).occupied ?? ""}/${get(waiting).limit ?? ""})`);
 			});
 			delegated("click", button_7, showJobs);
-			append($$anchor, div_7);
+			append($$anchor, div_8);
 		});
 		template_effect(() => {
-			set_text(text_6, `Waiting to start · ${get(visibleWaiting).length ?? ""}`);
-			set_text(text_7, get(queueSnapshot).max_workers === null ? "Stage capacity" : `${get(queueSnapshot).occupied_slots}/${get(queueSnapshot).max_workers} global slots`);
+			set_text(text_7, `Waiting to start · ${get(visibleWaiting).length ?? ""}`);
+			set_text(text_8, get(queueSnapshot).max_workers === null ? "Stage capacity" : `${get(queueSnapshot).occupied_slots}/${get(queueSnapshot).max_workers} global slots`);
 		});
 		append($$anchor, fragment);
 	};
-	if_block(node_6, ($$render) => {
-		if (get(visibleWaiting).length) $$render(consequent_6);
+	if_block(node_7, ($$render) => {
+		if (get(visibleWaiting).length) $$render(consequent_7);
 	});
-	var node_8 = sibling(node_6, 2);
-	var consequent_7 = ($$anchor) => {
+	var node_9 = sibling(node_7, 2);
+	var consequent_8 = ($$anchor) => {
 		var fragment_1 = comment();
 		each(first_child(fragment_1), 17, () => get(pinned), (item) => item.send_id, ($$anchor, item) => {
 			chatItem($$anchor, () => get(item));
 		});
 		append($$anchor, fragment_1);
 	};
-	if_block(node_8, ($$render) => {
-		if (get(pinned).length) $$render(consequent_7);
+	if_block(node_9, ($$render) => {
+		if (get(pinned).length) $$render(consequent_8);
 	});
-	var node_10 = sibling(node_8, 2);
-	var consequent_8 = ($$anchor) => {
+	var node_11 = sibling(node_9, 2);
+	var consequent_9 = ($$anchor) => {
 		append($$anchor, root_9());
 	};
-	var consequent_9 = ($$anchor) => {
+	var consequent_10 = ($$anchor) => {
 		var p_1 = root_10();
-		var text_11 = only_child(p_1, true);
-		template_effect(() => set_text(text_11, get(search) || get(statusFilter) ? "No matching chats" : "No chats"));
+		var text_12 = only_child(p_1, true);
+		template_effect(() => set_text(text_12, get(search) || get(statusFilter) ? "No matching chats" : "No chats"));
 		append($$anchor, p_1);
 	};
 	var alternate = ($$anchor) => {
@@ -9191,27 +9248,27 @@ function ChatsPage($$anchor, $$props) {
 		});
 		append($$anchor, fragment_3);
 	};
-	if_block(node_10, ($$render) => {
-		if (get(loadingList) && !get(items).length) $$render(consequent_8);
-		else if (!get(items).length && !get(pinned).length && !get(visibleWaiting).length) $$render(consequent_9, 1);
+	if_block(node_11, ($$render) => {
+		if (get(loadingList) && !get(items).length) $$render(consequent_9);
+		else if (!get(items).length && !get(pinned).length && !get(visibleWaiting).length) $$render(consequent_10, 1);
 		else $$render(alternate, -1);
 	});
-	reset(div_5);
-	bind_this(div_5, ($$value) => set(listPane, $$value), () => get(listPane));
+	reset(div_6);
+	bind_this(div_6, ($$value) => set(listPane, $$value), () => get(listPane));
 	reset(aside);
-	var div_8 = sibling(aside, 2);
-	var div_9 = child(div_8);
-	var button_8 = child(div_9);
-	var text_12 = only_child(sibling(button_8, 2), true);
-	reset(div_9);
-	var node_12 = sibling(div_9, 2);
-	var consequent_10 = ($$anchor) => {
-		var div_10 = root_11();
-		JobsPage(child(div_10), {});
-		reset(div_10);
-		append($$anchor, div_10);
-	};
+	var div_9 = sibling(aside, 2);
+	var div_10 = child(div_9);
+	var button_8 = child(div_10);
+	var text_13 = only_child(sibling(button_8, 2), true);
+	reset(div_10);
+	var node_13 = sibling(div_10, 2);
 	var consequent_11 = ($$anchor) => {
+		var div_11 = root_11();
+		JobsPage(child(div_11), {});
+		reset(div_11);
+		append($$anchor, div_11);
+	};
+	var consequent_12 = ($$anchor) => {
 		var fragment_5 = root_12();
 		ChatComposer(sibling(first_child(fragment_5), 2), {
 			mode: "fresh",
@@ -9220,109 +9277,109 @@ function ChatsPage($$anchor, $$props) {
 		});
 		append($$anchor, fragment_5);
 	};
-	var consequent_12 = ($$anchor) => {
-		var div_11 = root_13();
-		delegated("click", only_child(div_11), createChat);
-		append($$anchor, div_11);
+	var consequent_13 = ($$anchor) => {
+		var div_12 = root_13();
+		delegated("click", only_child(div_12), createChat);
+		append($$anchor, div_12);
 	};
 	var alternate_2 = ($$anchor) => {
 		var fragment_6 = root_27();
-		var div_12 = first_child(fragment_6);
-		var button_10 = child(div_12);
-		var node_15 = sibling(button_10, 2);
-		var consequent_13 = ($$anchor) => {
+		var div_13 = first_child(fragment_6);
+		var button_10 = child(div_13);
+		var node_16 = sibling(button_10, 2);
+		var consequent_14 = ($$anchor) => {
 			var span_10 = root_14();
-			var text_13 = only_child(span_10, true);
+			var text_14 = only_child(span_10, true);
 			template_effect(($0, $1) => {
 				set_class(span_10, 1, $0);
-				set_text(text_13, $1);
+				set_text(text_14, $1);
 			}, [() => "result-pill status-" + (get(turns).at(-1)?.status || get(detail).status), () => get(turns).length > 1 ? "Latest reply · " + turnStatus(get(turns).at(-1)?.status || get(detail).status) : statusLabel(get(detail).status)]);
 			append($$anchor, span_10);
 		};
-		if_block(node_15, ($$render) => {
-			if (get(detail)) $$render(consequent_13);
-		});
-		reset(div_12);
-		var div_13 = sibling(div_12, 2);
-		var node_16 = child(div_13);
-		var consequent_14 = ($$anchor) => {
-			var div_14 = root_6();
-			var text_14 = only_child(div_14, true);
-			template_effect(() => set_text(text_14, get(detailError)));
-			append($$anchor, div_14);
-		};
 		if_block(node_16, ($$render) => {
-			if (get(detailError)) $$render(consequent_14);
+			if (get(detail)) $$render(consequent_14);
 		});
-		var node_17 = sibling(node_16, 2);
+		reset(div_13);
+		var div_14 = sibling(div_13, 2);
+		var node_17 = child(div_14);
 		var consequent_15 = ($$anchor) => {
-			append($$anchor, root_15());
+			var div_15 = root_6();
+			var text_15 = only_child(div_15, true);
+			template_effect(() => set_text(text_15, get(detailError)));
+			append($$anchor, div_15);
 		};
 		if_block(node_17, ($$render) => {
-			if (get(loadingDetail) && !get(detail)) $$render(consequent_15);
+			if (get(detailError)) $$render(consequent_15);
 		});
 		var node_18 = sibling(node_17, 2);
-		var consequent_26 = ($$anchor) => {
-			var div_15 = root_26();
-			var node_19 = child(div_15);
-			var consequent_16 = ($$anchor) => {
+		var consequent_16 = ($$anchor) => {
+			append($$anchor, root_15());
+		};
+		if_block(node_18, ($$render) => {
+			if (get(loadingDetail) && !get(detail)) $$render(consequent_16);
+		});
+		var node_19 = sibling(node_18, 2);
+		var consequent_27 = ($$anchor) => {
+			var div_16 = root_26();
+			var node_20 = child(div_16);
+			var consequent_17 = ($$anchor) => {
 				var p_3 = root_16();
-				var text_15 = only_child(p_3, true);
-				template_effect(() => set_text(text_15, get(turnsError)));
+				var text_16 = only_child(p_3, true);
+				template_effect(() => set_text(text_16, get(turnsError)));
 				append($$anchor, p_3);
 			};
-			if_block(node_19, ($$render) => {
-				if (get(turnsError)) $$render(consequent_16);
+			if_block(node_20, ($$render) => {
+				if (get(turnsError)) $$render(consequent_17);
 			});
-			each(sibling(node_19, 2), 19, () => get(turns), (turn) => turn.reply_id || get(detail).send_id, ($$anchor, turn, index) => {
+			each(sibling(node_20, 2), 19, () => get(turns), (turn) => turn.reply_id || get(detail).send_id, ($$anchor, turn, index) => {
 				var fragment_7 = root_25();
-				var div_16 = first_child(fragment_7);
-				var div_17 = child(div_16);
-				var span_11 = child(div_17);
-				var node_21 = sibling(child(span_11));
-				var consequent_17 = ($$anchor) => {
+				var div_17 = first_child(fragment_7);
+				var div_18 = child(div_17);
+				var span_11 = child(div_18);
+				var node_22 = sibling(child(span_11));
+				var consequent_18 = ($$anchor) => {
 					append($$anchor, text("· Job prompt"));
 				};
 				var alternate_1 = ($$anchor) => {
-					var text_17 = text();
-					template_effect(() => set_text(text_17, `· Reply ${get(index) ?? ""}`));
-					append($$anchor, text_17);
+					var text_18 = text();
+					template_effect(() => set_text(text_18, `· Reply ${get(index) ?? ""}`));
+					append($$anchor, text_18);
 				};
-				if_block(node_21, ($$render) => {
-					if (get(index) === 0) $$render(consequent_17);
+				if_block(node_22, ($$render) => {
+					if (get(index) === 0) $$render(consequent_18);
 					else $$render(alternate_1, -1);
 				});
 				reset(span_11);
 				var time = sibling(span_11, 2);
-				var text_18 = only_child(time, true);
-				reset(div_17);
-				var div_18 = sibling(div_17, 2);
-				var div_19 = child(div_18);
+				var text_19 = only_child(time, true);
+				reset(div_18);
+				var div_19 = sibling(div_18, 2);
+				var div_20 = child(div_19);
 				let classes_5;
-				var text_19 = only_child(div_19, true);
-				var node_22 = sibling(div_19, 2);
-				var consequent_18 = ($$anchor) => {
+				var text_20 = only_child(div_20, true);
+				var node_23 = sibling(div_20, 2);
+				var consequent_19 = ($$anchor) => {
 					var button_11 = root_17();
-					var text_20 = child(button_11);
-					var svg = sibling(text_20);
+					var text_21 = child(button_11);
+					var svg = sibling(text_21);
 					let classes_6;
 					reset(button_11);
 					template_effect(($0) => {
 						set_attribute(button_11, "aria-expanded", $0);
-						set_text(text_20, `${get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] ? "Show less" : "Show full prompt"} `);
+						set_text(text_21, `${get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] ? "Show less" : "Show full prompt"} `);
 						classes_6 = set_class(svg, 0, "", null, classes_6, { rotated: get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] });
 					}, [() => Boolean(get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)])]);
 					delegated("click", button_11, (event) => void togglePrompt((get(detail)?.send_id ?? "") + ":" + get(index), event));
 					append($$anchor, button_11);
 				};
-				if_block(node_22, ($$render) => {
-					if (get(turn).user_text.length > 280) $$render(consequent_18);
+				if_block(node_23, ($$render) => {
+					if (get(turn).user_text.length > 280) $$render(consequent_19);
 				});
-				reset(div_18);
-				var node_23 = sibling(div_18, 2);
-				var consequent_19 = ($$anchor) => {
-					var div_20 = root_19();
-					each(div_20, 21, () => get(detail).images, (attachment) => attachment.url, ($$anchor, attachment) => {
+				reset(div_19);
+				var node_24 = sibling(div_19, 2);
+				var consequent_20 = ($$anchor) => {
+					var div_21 = root_19();
+					each(div_21, 21, () => get(detail).images, (attachment) => attachment.url, ($$anchor, attachment) => {
 						var a_1 = root_18();
 						var img = only_child(a_1);
 						template_effect(() => {
@@ -9333,55 +9390,55 @@ function ChatsPage($$anchor, $$props) {
 						});
 						append($$anchor, a_1);
 					});
-					reset(div_20);
-					append($$anchor, div_20);
-				};
-				if_block(node_23, ($$render) => {
-					if (get(index) === 0 && get(detail).images?.length) $$render(consequent_19);
-				});
-				reset(div_16);
-				var div_21 = sibling(div_16, 2);
-				var div_22 = child(div_21);
-				var span_12 = child(div_22);
-				var node_24 = sibling(child(span_12));
-				var consequent_20 = ($$anchor) => {
-					append($$anchor, root_20());
+					reset(div_21);
+					append($$anchor, div_21);
 				};
 				if_block(node_24, ($$render) => {
-					if (get(turn).status === "generating") $$render(consequent_20);
+					if (get(index) === 0 && get(detail).images?.length) $$render(consequent_20);
+				});
+				reset(div_17);
+				var div_22 = sibling(div_17, 2);
+				var div_23 = child(div_22);
+				var span_12 = child(div_23);
+				var node_25 = sibling(child(span_12));
+				var consequent_21 = ($$anchor) => {
+					append($$anchor, root_20());
+				};
+				if_block(node_25, ($$render) => {
+					if (get(turn).status === "generating") $$render(consequent_21);
 				});
 				reset(span_12);
-				var node_25 = sibling(span_12, 2);
-				var consequent_21 = ($$anchor) => {
+				var node_26 = sibling(span_12, 2);
+				var consequent_22 = ($$anchor) => {
 					var button_12 = root_21();
-					var text_21 = only_child(button_12, true);
+					var text_22 = only_child(button_12, true);
 					template_effect(() => {
 						set_attribute(button_12, "aria-label", "Copy assistant reply " + (get(index) + 1));
-						set_text(text_21, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
+						set_text(text_22, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
 					});
 					delegated("click", button_12, () => copyText(formatStoredResponse(get(turn).assistant_text, get(index) === 0 ? get(detail)?.source ?? "" : ""), get(turn).reply_id || $$props.selectedRunId || ""));
 					append($$anchor, button_12);
 				};
-				if_block(node_25, ($$render) => {
-					if (get(turn).assistant_text) $$render(consequent_21);
+				if_block(node_26, ($$render) => {
+					if (get(turn).assistant_text) $$render(consequent_22);
 				});
-				reset(div_22);
-				var node_26 = sibling(div_22, 2);
-				var consequent_22 = ($$anchor) => {
+				reset(div_23);
+				var node_27 = sibling(div_23, 2);
+				var consequent_23 = ($$anchor) => {
 					ToolCalls($$anchor, { get calls() {
 						return get(turn).tool_calls;
 					} });
 				};
-				if_block(node_26, ($$render) => {
-					if (get(turn).tool_calls?.length) $$render(consequent_22);
+				if_block(node_27, ($$render) => {
+					if (get(turn).tool_calls?.length) $$render(consequent_23);
 				});
-				var node_27 = sibling(node_26, 2);
-				var consequent_24 = ($$anchor) => {
+				var node_28 = sibling(node_27, 2);
+				var consequent_25 = ($$anchor) => {
 					var fragment_10 = root_23();
-					var node_28 = first_child(fragment_10);
+					var node_29 = first_child(fragment_10);
 					{
 						let $0 = /* @__PURE__ */ user_derived(() => get(index) === 0 ? get(detail).source : "");
-						ResultMarkdown(node_28, {
+						ResultMarkdown(node_29, {
 							get source() {
 								return get(turn).assistant_text;
 							},
@@ -9390,46 +9447,46 @@ function ChatsPage($$anchor, $$props) {
 							}
 						});
 					}
-					var node_29 = sibling(node_28, 2);
-					var consequent_23 = ($$anchor) => {
+					var node_30 = sibling(node_29, 2);
+					var consequent_24 = ($$anchor) => {
 						var p_4 = root_22();
-						var text_22 = only_child(p_4);
-						template_effect(($0) => set_text(text_22, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
+						var text_23 = only_child(p_4);
+						template_effect(($0) => set_text(text_23, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
 						append($$anchor, p_4);
 					};
-					if_block(node_29, ($$render) => {
-						if (get(turn).status !== "completed") $$render(consequent_23);
+					if_block(node_30, ($$render) => {
+						if (get(turn).status !== "completed") $$render(consequent_24);
 					});
 					append($$anchor, fragment_10);
 				};
-				var consequent_25 = ($$anchor) => {
+				var consequent_26 = ($$anchor) => {
 					var p_5 = root_24();
-					var text_23 = only_child(p_5, true);
-					template_effect(($0) => set_text(text_23, $0), [() => turnStatus(get(turn).status)]);
+					var text_24 = only_child(p_5, true);
+					template_effect(($0) => set_text(text_24, $0), [() => turnStatus(get(turn).status)]);
 					append($$anchor, p_5);
 				};
-				if_block(node_27, ($$render) => {
-					if (get(turn).assistant_text) $$render(consequent_24);
-					else if (!get(turn).tool_calls?.length) $$render(consequent_25, 1);
+				if_block(node_28, ($$render) => {
+					if (get(turn).assistant_text) $$render(consequent_25);
+					else if (!get(turn).tool_calls?.length) $$render(consequent_26, 1);
 				});
-				reset(div_21);
+				reset(div_22);
 				template_effect(($0, $1) => {
 					set_attribute(time, "datetime", $0);
-					set_text(text_18, $1);
-					classes_5 = set_class(div_19, 1, "prompt-message", null, classes_5, { collapsed: get(turn).user_text.length > 280 && !get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] });
-					set_text(text_19, get(turn).user_text);
+					set_text(text_19, $1);
+					classes_5 = set_class(div_20, 1, "prompt-message", null, classes_5, { collapsed: get(turn).user_text.length > 280 && !get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] });
+					set_text(text_20, get(turn).user_text);
 				}, [() => (/* @__PURE__ */ new Date((get(turn).created_at || get(detail).created_at) * 1e3)).toISOString(), () => nzTime(get(turn).created_at || get(detail).created_at)]);
 				append($$anchor, fragment_7);
 			});
-			reset(div_15);
-			append($$anchor, div_15);
+			reset(div_16);
+			append($$anchor, div_16);
 		};
-		if_block(node_18, ($$render) => {
-			if (get(detail)) $$render(consequent_26);
+		if_block(node_19, ($$render) => {
+			if (get(detail)) $$render(consequent_27);
 		});
-		reset(div_13);
-		bind_this(div_13, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
-		key(sibling(div_13, 2), () => $$props.selectedRunId, ($$anchor) => {
+		reset(div_14);
+		bind_this(div_14, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
+		key(sibling(div_14, 2), () => $$props.selectedRunId, ($$anchor) => {
 			{
 				let $0 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && ["prepared", "preflight_failed"].includes(get(turns).at(-1)?.status ?? "") ? get(turns).at(-1)?.user_text ?? "" : "");
 				let $1 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed");
@@ -9459,13 +9516,13 @@ function ChatsPage($$anchor, $$props) {
 		delegated("click", button_10, () => $$props.onSelect(null));
 		append($$anchor, fragment_6);
 	};
-	if_block(node_12, ($$render) => {
-		if ($$props.view === "jobs") $$render(consequent_10);
-		else if (!$$props.selectedRunId && $$props.newChatOpen) $$render(consequent_11, 1);
-		else if (!$$props.selectedRunId) $$render(consequent_12, 2);
+	if_block(node_13, ($$render) => {
+		if ($$props.view === "jobs") $$render(consequent_11);
+		else if (!$$props.selectedRunId && $$props.newChatOpen) $$render(consequent_12, 1);
+		else if (!$$props.selectedRunId) $$render(consequent_13, 2);
 		else $$render(alternate_2, -1);
 	});
-	reset(div_8);
+	reset(div_9);
 	reset(section);
 	template_effect(() => {
 		classes_2 = set_class(section, 1, "chats-layout", null, classes_2, {
@@ -9477,13 +9534,13 @@ function ChatsPage($$anchor, $$props) {
 		classes_4 = set_class(button_6, 1, "sidebar-search", null, classes_4, { active: get(filtersOpen) });
 		set_attribute(button_6, "aria-expanded", get(filtersOpen));
 		set_attribute(button_8, "aria-expanded", get(drawerOpen));
-		set_text(text_12, $$props.view === "jobs" ? "Jobs" : get(detail)?.title || get(detail)?.job_name || "Chats");
+		set_text(text_13, $$props.view === "jobs" ? "Jobs" : get(detail)?.title || get(detail)?.job_name || "Chats");
 	});
 	delegated("click", button_3, () => set(drawerOpen, false));
 	delegated("click", button_4, showJobs);
 	delegated("click", button_5, createChat);
 	delegated("click", button_6, toggleSearch);
-	event("scroll", div_5, maybeLoadMore);
+	event("scroll", div_6, maybeLoadMore);
 	delegated("click", button_8, () => set(drawerOpen, true));
 	append($$anchor, section);
 	pop();

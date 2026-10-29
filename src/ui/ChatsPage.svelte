@@ -22,6 +22,7 @@
 
   const pageSize = 20;
   const preferencesKey = "prompta.local-sidebar.v1";
+  const readSyncKey = "prompta.local-read-sync.v1";
   const statuses: { value: ResultStatus | ""; label: string }[] = [
     { value: "", label: "All states" },
     { value: "accepted", label: "Accepted" },
@@ -49,6 +50,8 @@
   let pinError = $state("");
   let readAt = $state<Record<string, number>>({});
   let readRevisions = $state<Record<string, string>>({});
+  let optimisticReads = $state<Record<string, string>>({});
+  let readError = $state("");
   let baselineAt = $state(0);
   let drawerOpen = $state(false);
   let filtersOpen = $state(false);
@@ -154,18 +157,66 @@
 
   function isUnread(item: RunSummary) {
     if (!item.last_reply_revision) return false;
-    const seenRevision = readRevisions[item.send_id];
+    const seenRevision = optimisticReads[item.send_id] || item.last_read_revision ||
+      readRevisions[item.send_id];
     if (seenRevision) return seenRevision !== item.last_reply_revision;
-    // Existing timestamp-only read preferences migrate without false alerts.
+    // Keep timestamp-only legacy preferences through the transition.
     return item.last_reply_at > (readAt[item.send_id] ?? baselineAt);
   }
 
-  function markRead(item: RunSummary) {
-    readAt = { ...readAt, [item.send_id]: Math.max(Date.now() / 1000, activity(item)) };
-    if (item.last_reply_revision) {
-      readRevisions = { ...readRevisions, [item.send_id]: item.last_reply_revision };
+  async function importLegacyReads() {
+    const reads = Object.fromEntries(Object.entries(readRevisions).filter(
+      ([id, revision]) => id.length > 0 && id.length <= 200 &&
+        /^[a-f0-9]{64}$/.test(revision)
+    ).slice(0, 2000));
+    if (!Object.keys(reads).length) return;
+    try {
+      const response = await fetch("./api/local-chat-reads/import", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reads }),
+      });
+      if (!response.ok) throw new Error("Read import failed");
+      readRevisions = {};
+      savePreferences();
+    } catch {
+      readError = "Saved read status could not be synced yet.";
     }
-    savePreferences();
+  }
+
+  async function markRead(item: RunSummary) {
+    const revision = item.last_reply_revision;
+    if (!revision || item.last_read_revision === revision ||
+      optimisticReads[item.send_id] === revision) return;
+    optimisticReads = { ...optimisticReads, [item.send_id]: revision };
+    try {
+      const response = await fetch("./api/local-chat-reads", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ send_id: item.send_id, revision }),
+      });
+      if (!response.ok) throw new Error("Read receipt rejected");
+      readError = "";
+      // Notify other tabs only after SQLite has confirmed this read.
+      try {
+        localStorage.setItem(readSyncKey, item.send_id + ":" + Date.now());
+      } catch {
+        // A blocked storage event does not undo a confirmed server receipt.
+      }
+    } catch {
+      if (optimisticReads[item.send_id] === revision) {
+        const next = { ...optimisticReads };
+        delete next[item.send_id];
+        optimisticReads = next;
+      }
+      readError = "Could not save read status. Try opening the chat again.";
+      void loadList();
+    }
+  }
+
+  function onReadStorage(event: StorageEvent) {
+    if (event.key !== readSyncKey) return;
+    void loadList();
+    void loadPins();
+    if (view === "chats" && selectedRunId) void loadDetail(selectedRunId);
   }
 
   async function loadPins() {
@@ -579,9 +630,12 @@
 
   onMount(() => {
     loadPreferences();
-    void loadList();
-    void loadPins();
+    void importLegacyReads().finally(() => {
+      void loadList();
+      void loadPins();
+    });
     void loadQueue();
+    window.addEventListener("storage", onReadStorage);
     queuePollTimer = setInterval(() => { if (document.visibilityState === "visible") void loadQueue(); }, 15000);
     // Poll only Prompta's local turn record while an explicit reply is active.
     // This never opens ChatGPT or submits another message.
@@ -599,6 +653,7 @@
     return () => {
       unsubscribe();
       unsubscribeJobs();
+      window.removeEventListener("storage", onReadStorage);
       clearInterval(queuePollTimer);
       clearInterval(detailPollTimer);
       clearTimeout(liveRefreshTimer);
@@ -675,6 +730,7 @@
     {/if}
     {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
     {#if pinError}<div class="result-error" role="alert">{pinError}</div>{/if}
+    {#if readError}<div class="result-error" role="alert">{readError}</div>{/if}
     <div class="chats-list" bind:this={listPane} onscroll={maybeLoadMore}>
       {#if visibleWaiting.length}
         <div class="chats-date queue-heading" aria-live="polite">

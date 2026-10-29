@@ -14,6 +14,7 @@ export type RunSummary = {
   status: ResultStatus;
   has_response: boolean;
   last_reply_revision: string;
+  last_read_revision: string;
   last_reply_at: number;
   created_at: number;
   updated_at: number;

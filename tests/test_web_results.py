@@ -167,6 +167,49 @@ def test_local_pins_persist_in_sqlite_and_never_change_chatgpt_pins(tmp_path: Pa
         assert str(path) not in str(initial)
 
 
+def test_local_read_receipts_persist_and_reject_stale_revisions(tmp_path: Path) -> None:
+    from sqlalchemy import update
+
+    from prompta.response_store import ResponseStore, results
+
+    with server(tmp_path) as (app, port):
+        completed_run(app, "read-one", "Read one", 100)
+        completed_run(app, "read-two", "Read two", 200)
+        detail = get(port, "/api/results/read-one")[1]
+        revision = detail["last_reply_revision"]
+        assert isinstance(revision, str) and len(revision) == 64
+        assert detail["last_read_revision"] == ""
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "absent", "revision": revision})[0] == 404
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "read-one", "revision": "no"})[0] == 409
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "read-one", "revision": revision, "extra": True})[0] == 400
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "../read-one", "revision": revision})[0] == 404
+        assert post_json(port, "/api/local-chat-reads/import", {"reads": {"unknown": revision}})[0] == 200
+
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "read-one", "revision": revision})[0] == 200
+        assert get(port, "/api/results/read-one")[1]["last_read_revision"] == revision
+        second_revision = get(port, "/api/results/read-two")[1]["last_reply_revision"]
+        assert isinstance(second_revision, str)
+        assert post_json(port, "/api/local-chat-reads/import", {"reads": {"read-two": second_revision}})[0] == 200
+        assert get(port, "/api/results/read-two")[1]["last_read_revision"] == second_revision
+
+        # A stale browser import must never overwrite a later, acknowledged revision.
+        with app.results.engine.begin() as connection:
+            connection.execute(update(results).where(
+                results.c.send_id == "read-one"
+            ).values(assistant_text="A newer final answer"))
+        fresh_revision = get(port, "/api/results/read-one")[1]["last_reply_revision"]
+        assert fresh_revision != revision
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "read-one", "revision": revision})[0] == 409
+        assert post_json(port, "/api/local-chat-reads", {"send_id": "read-one", "revision": fresh_revision})[0] == 200
+        assert post_json(port, "/api/local-chat-reads/import", {"reads": {"read-one": revision}})[0] == 200
+        store = ResponseStore(app.results.path)
+        items = store.page(limit=10)["items"]
+        store.annotate_local_reads(items)
+        received = {item["send_id"]: item["last_read_revision"] for item in items}
+        assert received["read-one"] == fresh_revision
+        assert received["read-two"] == second_revision
+
+
 def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Path) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():
@@ -795,6 +838,63 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 expect(page.get_by_text("New verified assistant reply")).to_have_count(1)
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert remote == []
+            finally:
+                browser.close()
+
+
+def test_read_receipts_survive_independent_browser_tabs(tmp_path: Path) -> None:
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not chromium or not Path(chromium).is_file():
+        pytest.skip("Headless Chromium unavailable")
+    from sqlalchemy import update
+
+    from prompta.response_store import results
+
+    with server(tmp_path) as (app, port):
+        completed_run(app, "multi-tab", "Cross-tab receipt", 400)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chromium, headless=True,
+                args=["--no-sandbox"],
+            )
+            try:
+                first = browser.new_context()
+                second = browser.new_context()
+                a = first.new_page()
+                b = second.new_page()
+                for page in (a, b):
+                    page.add_init_script("""if (!localStorage.getItem("prompta.local-sidebar.v1"))
+                        localStorage.setItem("prompta.local-sidebar.v1",
+                            JSON.stringify({baselineAt: 1, readAt: {}}));""")
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
+                row_a = a.locator(".chat-entry").filter(has_text="Cross-tab receipt")
+                row_b = b.locator(".chat-entry").filter(has_text="Cross-tab receipt")
+                expect(row_a.locator(".unread-indicator")).to_have_count(1)
+                expect(row_b.locator(".unread-indicator")).to_have_count(1)
+
+                row_a.locator(".chat-row").click()
+                expect(row_a.locator(".unread-indicator")).to_have_count(0)
+                a.wait_for_function("""async () => {
+                    const response = await fetch("./api/results/multi-tab");
+                    const result = await response.json();
+                    return result.last_read_revision === result.last_reply_revision;
+                }""")
+                b.reload(wait_until="networkidle")
+                expect(row_b.locator(".unread-indicator")).to_have_count(0)
+                a.evaluate("localStorage.clear()")
+                a.reload(wait_until="networkidle")
+                expect(row_a.locator(".unread-indicator")).to_have_count(0)
+
+                with app.results.engine.begin() as connection:
+                    connection.execute(update(results).where(
+                        results.c.send_id == "multi-tab"
+                    ).values(assistant_text="New completed response"))
+                b.reload(wait_until="networkidle")
+                expect(row_b.locator(".unread-indicator")).to_have_count(1)
+                row_b.locator(".chat-row").click()
+                expect(row_b.locator(".unread-indicator")).to_have_count(0)
+                a.reload(wait_until="networkidle")
+                expect(row_a.locator(".unread-indicator")).to_have_count(0)
             finally:
                 browser.close()
 

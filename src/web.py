@@ -140,7 +140,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
-        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins", "/api/queue-status")):
+        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins", "/api/local-chat-reads", "/api/queue-status")):
             # Search terms and run identifiers can be sensitive; don't log request URLs.
             logger.info("%s - %s /api/results", self.address_string(), self.command)
             return
@@ -282,6 +282,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         if path == "/api/local-chat-pins":
             pinned = self.server.results.local_pinned_runs()
             self.server.replies.annotate_response_markers(pinned)
+            self.server.results.annotate_local_reads(pinned)
             self._json({"items": pinned})
             return
         if path == "/api/queue-status":
@@ -301,6 +302,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                     status=params.get("status", [""])[0],
                 )
                 self.server.replies.annotate_response_markers(payload["items"])
+                self.server.results.annotate_local_reads(payload["items"])
             except ValueError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
@@ -327,6 +329,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                 self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
             else:
                 self.server.replies.annotate_response_markers([record])
+                self.server.results.annotate_local_reads([record])
                 queued = self.server.queue.get(send_id)
                 record["images"] = [
                     {"name": ref.split("/", 1)[1], "url": "./api/images/" + ref}
@@ -344,7 +347,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
         reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
         send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
         recover_reply_path = path.startswith("/api/results/") and path.endswith("/reply-recover")
-        if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import"} and not (
+        if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import", "/api/local-chat-reads", "/api/local-chat-reads/import"} and not (
             reply_path or send_reply_path or recover_reply_path
         ):
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -378,6 +381,35 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                 else:
                     turn = self.server.replies.prepare(send_id, intent)
                     self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
+                return
+            if path in {"/api/local-chat-reads", "/api/local-chat-reads/import"}:
+                if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+                    raise ValueError("Local read changes require JSON")
+                payload = self._json_body(max_bytes=786432 if path.endswith("/import") else 1024)
+                if path.endswith("/import"):
+                    raw_reads = payload.get("reads")
+                    if set(payload) != {"reads"} or not isinstance(raw_reads, dict):
+                        raise ValueError("Invalid legacy read import")
+                    reads: dict[str, str] = {}
+                    for send_id, revision in raw_reads.items():
+                        if not isinstance(send_id, str) or not isinstance(revision, str):
+                            raise ValueError("Invalid legacy read import")
+                        reads[send_id] = revision
+                    self.server.results.import_legacy_local_reads(reads)
+                else:
+                    send_id, revision = payload.get("send_id"), payload.get("revision")
+                    if set(payload) != {"send_id", "revision"} or not isinstance(send_id, str) or not isinstance(revision, str):
+                        raise ValueError("Invalid local read receipt")
+                    record = self.server.results.detail(send_id)
+                    if record is None:
+                        self._json({"ok": False, "error": "Local run not found"}, HTTPStatus.NOT_FOUND)
+                        return
+                    self.server.replies.annotate_response_markers([record])
+                    if not revision or record["last_reply_revision"] != revision:
+                        self._json({"ok": False, "error": "Reply revision changed"}, HTTPStatus.CONFLICT)
+                        return
+                    self.server.results.mark_local_read(send_id, revision)
+                self._json({"ok": True})
                 return
             if path in {"/api/local-chat-pins", "/api/local-chat-pins/import"}:
                 if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -445,7 +477,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         except Exception as exc:
-            if reply_path or send_reply_path or recover_reply_path or path == "/api/chats" or path.startswith("/api/local-chat-pins"):
+            if reply_path or send_reply_path or recover_reply_path or path == "/api/chats" or path.startswith(("/api/local-chat-pins", "/api/local-chat-reads")):
                 # DB/driver exceptions may contain secret prompts or SQLite parameters.
                 logger.error("Chat send contract failed error_type=%s", type(exc).__name__)
                 self._json({"ok": False, "error": "Chat send contract unavailable"},

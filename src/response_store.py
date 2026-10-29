@@ -69,6 +69,12 @@ local_chat_pins = Table(
     Column("send_id", String, primary_key=True),
     Column("pinned_at", Float, nullable=False),
 )
+local_chat_reads = Table(
+    "local_chat_reads", _SCHEMA,
+    Column("send_id", String, primary_key=True),
+    Column("seen_revision", String(64), nullable=False),
+    Column("read_at", Float, nullable=False),
+)
 history_recovery_attempts = Table(
     "history_recovery_attempts", _SCHEMA,
     Column("send_id", String, primary_key=True),
@@ -174,6 +180,14 @@ class ResponseStore:
                     local_chat_pins.name,
                     Column("send_id", String, primary_key=True),
                     Column("pinned_at", Float, nullable=False),
+                )
+            if not inspect(connection).has_table(local_chat_reads.name):
+                migration = Operations(MigrationContext.configure(connection))
+                migration.create_table(
+                    local_chat_reads.name,
+                    Column("send_id", String, primary_key=True),
+                    Column("seen_revision", String(64), nullable=False),
+                    Column("read_at", Float, nullable=False),
                 )
             if not inspect(connection).has_table(history_recovery_attempts.name):
                 migration = Operations(MigrationContext.configure(connection))
@@ -392,6 +406,66 @@ class ResponseStore:
                 )
             ).scalars().all()
         return {str(send_id) for send_id in rows}
+
+    @staticmethod
+    def _valid_local_read(send_id: str, revision: str) -> bool:
+        return (
+            bool(send_id) and len(send_id) <= 200 and "/" not in send_id
+            and len(revision) == 64
+            and all(character in "0123456789abcdef" for character in revision)
+        )
+
+    def mark_local_read(self, send_id: str, revision: str) -> bool:
+        """Record a specific local answer, never an account-wide ChatGPT read."""
+        if not self._valid_local_read(send_id, revision):
+            raise ValueError("Invalid local read receipt")
+        with self.engine.begin() as connection:
+            exists = connection.execute(
+                select(results.c.send_id).where(results.c.send_id == send_id)
+            ).scalar_one_or_none()
+            if exists is None:
+                return False
+            connection.execute(
+                insert(local_chat_reads).values(
+                    send_id=send_id, seen_revision=revision, read_at=time.time()
+                ).on_conflict_do_update(
+                    index_elements=["send_id"],
+                    set_={"seen_revision": revision, "read_at": time.time()},
+                )
+            )
+        return True
+
+    def import_legacy_local_reads(self, reads: dict[str, str]) -> None:
+        """Migrate browser receipts once without overwriting later server receipts."""
+        if len(reads) > 2000 or any(
+            not self._valid_local_read(send_id, revision)
+            for send_id, revision in reads.items()
+        ):
+            raise ValueError("Invalid legacy local read receipts")
+        with self.engine.begin() as connection:
+            for send_id, revision in reads.items():
+                exists = connection.execute(
+                    select(results.c.send_id).where(results.c.send_id == send_id)
+                ).scalar_one_or_none()
+                if exists is not None:
+                    connection.execute(
+                        insert(local_chat_reads).values(
+                            send_id=send_id, seen_revision=revision, read_at=time.time()
+                        ).on_conflict_do_nothing(index_elements=["send_id"])
+                    )
+
+    def annotate_local_reads(self, summaries: list[dict[str, object]]) -> None:
+        """Attach local read revision IDs without private message contents."""
+        if not summaries:
+            return
+        send_ids = [str(item["send_id"]) for item in summaries]
+        with self.engine.connect() as connection:
+            revisions = dict(connection.execute(
+                select(local_chat_reads.c.send_id, local_chat_reads.c.seen_revision)
+                .where(local_chat_reads.c.send_id.in_(send_ids))
+            ).all())
+        for item in summaries:
+            item["last_read_revision"] = revisions.get(str(item["send_id"]), "")
 
     def set_local_pin(self, send_id: str, *, pinned: bool) -> bool:
         """Pin a known local run only; never request or alter ChatGPT pin state."""
