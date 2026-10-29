@@ -9,6 +9,8 @@
 .sidebar-actions .sidebar-primary { background: transparent; font-weight: 550; }
 .sidebar-actions .sidebar-primary:hover, .sidebar-actions .sidebar-search:hover { background: #292929; }
 .sidebar-actions .sidebar-search { color: #bcbcbc; }
+/* Desktop action labels are prose, not the 22px icon spans from the base stylesheet. */
+.sidebar-actions .action-label { width: auto; min-width: 0; font-size: inherit; line-height: 1.25; text-align: left; white-space: nowrap; }
 .filter-active-dot { width: 6px !important; height: 6px; margin-left: auto; border-radius: 50%; background: #8eafff; }
 .chats-controls { grid-template-columns: 1fr; padding: 4px 10px 10px; gap: 7px; border-bottom: 0; }
 .chats-controls input, .chats-controls select { height: 38px; font-size: .85rem; }
@@ -25,15 +27,17 @@
 .prompt-expand svg { width: 15px; height: 15px; transition: transform .15s ease; }
 .prompt-expand svg.rotated { transform: rotate(180deg); }
 .chat-composer-wrap { width: min(100%, 920px); padding-bottom: max(15px, env(safe-area-inset-bottom)); }
-.chat-composer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 23px; padding: 14px 16px 11px; }
-.chat-composer textarea { order: 2; flex: 1 1 0; min-width: 0; min-height: 0; max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 2px; }
-.composer-actions { display: contents; }
-.composer-attach { order: 1; flex: none; }
-.composer-send { order: 3; flex: none; }
-.composer-previews { order: 0; flex: 0 0 100%; }
-.composer-attach button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto; min-width: 0; min-height: 38px; height: 38px; padding: 0 12px; border: 0; border-radius: 20px; background: #454545; color: #eee; font-size: .82rem; font-weight: 550; cursor: pointer; }
-.composer-attach button:hover:not(:disabled) { background: #585858; }
-.composer-attach button svg { width: 18px; height: 18px; }
+.chat-composer { display: flex; flex-direction: column; align-items: stretch; gap: 4px; border-radius: 23px; padding: 14px 16px 11px; }
+.chat-composer textarea { width: 100%; min-width: 0; min-height: 0; max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 2px; }
+/* The attachment lives in the footer, below the full-width text area, not in a text column. */
+.composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-top: 0; }
+.composer-attach { display: flex; flex: 0 1 auto; align-items: center; min-width: 0; }
+.composer-send { flex: none; margin-left: auto; }
+.composer-previews { flex: none; }
+.composer-attach button { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; min-height: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #cfcfcf; cursor: pointer; }
+.composer-attach button:hover:not(:disabled) { background: #454545; color: #fff; }
+.composer-attach button svg { width: 19px; height: 19px; }
+.composer-attach button span { display: none; }
 .composer-attach small { font-size: .78rem; }
 @media (max-width: 680px) {
   .chats-layout { display: block; }
@@ -53,9 +57,7 @@
   .prompt-bubble { max-width: 96%; }
   .chat-composer { padding: 11px 13px 9px; }
   .chat-composer textarea { min-height: 0; max-height: 67px; font-size: 16px; }
-  .composer-attach button { min-width: 44px; }
-  .composer-attach button span { display: none; }
-  .composer-attach button { min-height: 44px; height: 44px; padding: 0 11px; }
+  .composer-attach button { min-height: 44px; height: 44px; padding: 0; }
 }
 @media (min-width: 681px) and (max-width: 950px) and (max-height: 520px) {
   .chats-layout { grid-template-columns: 218px minmax(0, 1fr); }

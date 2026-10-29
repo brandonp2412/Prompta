@@ -478,6 +478,14 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert page.locator(".result-markdown img").count() == 0
                 assert page.locator(".result-markdown a").count() == 0
                 assert "<img" in page.locator(".result-markdown").inner_text()
+                # Desktop sidebar actions must display readable, unwrapped labels.
+                for label in ("New chat", "Search chats"):
+                    action = page.locator(".sidebar-actions").get_by_role("button", name=label)
+                    text = action.locator(".action-label")
+                    assert text.is_visible()
+                    assert text.evaluate("element => element.scrollWidth <= element.clientWidth")
+                    action_box = action.bounding_box()
+                    assert action_box is not None and action_box["height"] <= 55
                 page.get_by_role("button", name="Search chats").click()
                 assert page.locator(".chats-controls input").evaluate(
                     "element => document.activeElement === element"
@@ -494,6 +502,15 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert initial_box is not None
                 initial_height = initial_box["height"]
                 assert 25 <= initial_height <= 40  # Exactly one text row when empty.
+                attach = page.get_by_role("button", name="Attach images").bounding_box()
+                send = page.get_by_role("button", name="Send fresh chat").bounding_box()
+                assert attach and send
+                # Attachment is a small bottom-left icon; textarea spans the composer width.
+                assert attach["y"] >= initial_box["y"] + initial_height - 2
+                assert abs(attach["x"] - initial_box["x"]) <= 4
+                assert attach["width"] == 44
+                assert abs(attach["y"] - send["y"]) <= 4
+                assert send["x"] > initial_box["x"] + initial_box["width"] / 2
                 draft_text = chr(10).join(["Draft survives reloading."] * 18)
                 composer.fill(draft_text)
                 expanded_composer_box = composer.bounding_box()
