@@ -274,16 +274,16 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 @pytest.mark.parametrize(
-    ("status", "missing_conversation", "expected_hint"),
+    ("status", "missing_conversation", "reply_allowed"),
     [
-        ("completed", True, "without its ChatGPT conversation ID"),
-        ("interrupted", False, "did not finish reliably"),
-        ("accepted", False, "when this chat has a completed response"),
+        ("completed", True, True),
+        ("interrupted", False, True),
+        ("accepted", False, False),
     ],
 )
-def test_reply_composer_explains_unavailable_branch_without_sending(
+def test_reply_composer_preserves_terminal_recovery_without_sending(
     tmp_path: Path, width: int, height: int, status: str,
-    missing_conversation: bool, expected_hint: str,
+    missing_conversation: bool, reply_allowed: bool,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
@@ -314,11 +314,21 @@ def test_reply_composer_explains_unavailable_branch_without_sending(
             page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run=run-1")
             composer = page.get_by_role("textbox", name="Message for current chat")
             composer.wait_for()
-            composer.fill("This should never be sent")
-            expect(page.get_by_text(expected_hint, exact=False)).to_be_visible()
-            expect(page.get_by_role("button", name="Send reply")).to_be_disabled()
-            composer.press("Enter")
-            assert not [request for request in observed if request[0] == "POST"]
+            composer.fill("Unsent local draft")
+            send_button = page.get_by_role("button", name="Send reply")
+            if reply_allowed:
+                # Missing capture identity and interrupted reads cannot permanently block Send.
+                expect(send_button).to_be_enabled()
+            else:
+                expect(page.get_by_text("Wait for the current response", exact=False)).to_be_visible()
+                expect(send_button).to_be_disabled()
+                composer.press("Enter")
+            assert not [
+                request for request in observed
+                if request[0] == "POST" and any(path in request[1] for path in (
+                    "/api/chats", "/reply-send", "/reply-recover",
+                ))
+            ]
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             browser.close()
     finally:

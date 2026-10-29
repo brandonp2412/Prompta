@@ -23,7 +23,7 @@ def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     assert "ChatsPage" in app
     assert 'import JobsPage from "./JobsPage.svelte"' in sidebar
     assert '{#if view === "jobs"}' in sidebar
-    assert "<JobsPage />" in sidebar
+    assert "<JobsPage workspace={jobsWorkspace} />" in sidebar
     assert "Machine Gun" not in app
     assert 'fetch("./api/results?' in sidebar
     assert 'fetch("./api/results/"' in sidebar

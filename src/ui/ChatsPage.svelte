@@ -84,6 +84,7 @@
   let copyState = $state("");
   let scrollPane = $state<HTMLDivElement>();
   let listPane = $state<HTMLDivElement>();
+  let jobsWorkspace = $state<HTMLDivElement>();
   let searchInput = $state<HTMLInputElement>();
   let loadingList = $state(true);
   let loadingDetail = $state(false);
@@ -466,7 +467,8 @@
       statusFilter = "";
       pendingFresh = null;
       onQueued(body.send_id);
-      void loadList(true);
+      // Refetch in place: clearing the sidebar remounts every chat row and flashes.
+      void loadList();
       void loadPins();
       return { ok: true, message: "" };
     } catch {
@@ -848,7 +850,7 @@
       <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
     </div>
     {#if view === "jobs"}
-      <div class="jobs-workspace"><JobsPage /></div>
+      <div class="jobs-workspace" bind:this={jobsWorkspace}><JobsPage workspace={jobsWorkspace} /></div>
     {:else if !selectedRunId && newChatOpen}
       <div class="new-chat-empty" aria-hidden="true"></div>
       <ChatComposer mode="fresh" onSend={sendFresh} onNewChat={createChat} />
@@ -915,15 +917,13 @@
         </div>
       {/if}
       </div>
-      {#key selectedRunId}
-        <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply}
-          onFallbackSend={(text) => sendFresh(freshContinuationPrompt(text), originalImageRefs())}
-          onNewChat={createChat}
-          restoreDraft={detail?.send_id === selectedRunId && ["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
-          retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
-          sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}
-          sendHint={replyBlockedReason} />
-      {/key}
+      <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply}
+        onFallbackSend={(text) => sendFresh(freshContinuationPrompt(text), originalImageRefs())}
+        onNewChat={createChat}
+        restoreDraft={detail?.send_id === selectedRunId && ["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
+        retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
+        sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}
+        sendHint={replyBlockedReason} />
     {/if}
   </div>
 </section>

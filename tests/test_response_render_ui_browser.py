@@ -91,6 +91,7 @@ def test_response_renders_have_distinct_state_and_markdown_surfaces(
         finally:
             browser.close()
 
+
 def test_multiple_local_responses_keep_separate_cards_and_tool_activity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

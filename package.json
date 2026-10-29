@@ -9,7 +9,8 @@
     "build": "vite build && bun scripts/normalize-bundle.mjs src/static/app.js",
     "fmt": "bun x oxfmt src/ui vite.config.ts svelte.config.js",
     "fmt:check": "bun x oxfmt --check src/ui vite.config.ts svelte.config.js",
-    "lint": "bun x oxlint --deny-warnings --type-aware --type-check src/ui",
+    "lint": "bun x oxlint --deny-warnings --type-aware --type-check src/ui && bun run lint:dom",
+    "lint:dom": "bun scripts/lint-svelte-dom.mjs && node --test tests/lintSvelteDom.test.mjs",
     "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
     "check:svelte": "svelte-check --tsconfig ./tsconfig.json",
     "check": "bun run fmt:check && bun run lint && bun run typecheck && bun run check:svelte && bun run build"

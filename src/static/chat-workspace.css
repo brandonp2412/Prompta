@@ -3,7 +3,7 @@
 .sidebar-brand { padding: 17px 15px 10px; }
 .sidebar-brand strong { font-size: 1.02rem; font-weight: 650; letter-spacing: -.035em; }
 .sidebar-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0 9px 10px; }
-.sidebar-actions button { flex-direction: column; justify-content: center; min-width: 0; min-height: 58px; padding: 7px 3px; gap: 4px; border-radius: 10px; font-size: .8rem; font-weight: 540; white-space: nowrap; }
+.sidebar-actions button { flex-direction: column; justify-content: center; min-width: 0; min-height: 58px; padding: 7px 3px; gap: 4px; border-radius: 10px; font-size: var(--font-caption); font-weight: 540; white-space: nowrap; }
 .sidebar-actions button svg { width: 19px; height: 19px; flex: none; }
 .sidebar-actions .sidebar-jobs { width: 100%; padding: 7px 3px; color: #c3c3c3; }
 .sidebar-actions .sidebar-primary { background: transparent; font-weight: 550; }
@@ -222,7 +222,7 @@
     line-height: 1.35;
     margin-bottom: 2px;
   }
-  .job-prompt { -webkit-line-clamp: 1; line-height: 1.35; font-size: .78rem; }
+  .job-prompt { -webkit-line-clamp: 1; line-height: 1.35; font-size: var(--font-caption); }
   .job-submeta { display: none; }
   .job-image-count { margin-top: 1px; font-size: .7rem; }
   .job-row > .schedule-cell { display: none; }
@@ -233,7 +233,7 @@
     gap: 6px;
     min-width: 0;
     overflow: hidden;
-    font-size: .75rem;
+    font-size: var(--font-caption);
     line-height: 1.3;
     white-space: nowrap;
     text-overflow: ellipsis;

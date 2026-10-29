@@ -64,7 +64,7 @@ def test_jobs_table_sorts_next_run_before_pagination(
                 "Job-01", "Job-00", "Job-13", "Job-12"
             ]
             jobs[0]["next_due_at_epoch"] = 1_700_000_000
-            page.get_by_role("button", name="Refresh", exact=True).click()
+            page.get_by_role("button", name="Refresh jobs", exact=True).click()
             page.get_by_role("button", name="Previous", exact=True).click()
             expect(page.locator(".job-row .job-name").first).to_have_text("Job-00")
         finally:

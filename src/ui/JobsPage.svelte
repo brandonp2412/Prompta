@@ -3,6 +3,8 @@
   import { isRepeatingJob, sortJobs } from "./jobSorting";
   import { subscribeLiveUpdates } from "./liveUpdates";
 
+  let { workspace }: { workspace?: HTMLDivElement } = $props();
+
   type ImageRef = { ref: string; name: string; url: string };
 
   type Job = {
@@ -79,6 +81,12 @@
   let exact = $state(false);
   let editorOpen = $state(false);
   let editorPage = $state<HTMLElement>();
+  let editorFooter = $state<HTMLDivElement>();
+  let nameInput = $state<HTMLInputElement>();
+  let promptInput = $state<HTMLTextAreaElement>();
+  let editorForm = $state<HTMLFormElement>();
+  let jobsTitle = $state<HTMLHeadingElement>();
+  let imagePreviewList = $state<HTMLDivElement>();
   let activeEditorRoute = $state("");
   let listScrollY = 0;
   let editorError = $state("");
@@ -137,7 +145,7 @@
   }
 
   function workspaceScroll() {
-    return document.querySelector<HTMLElement>(".jobs-workspace");
+    return workspace;
   }
 
   function restoreListScroll() {
@@ -151,7 +159,7 @@
     const pane = workspaceScroll();
     const focused = document.activeElement;
     if (!pane || !(focused instanceof HTMLTextAreaElement) || !editorPage?.contains(focused)) return;
-    const footerTop = editorPage.querySelector<HTMLElement>(".editor-footer")?.getBoundingClientRect().top ?? innerHeight;
+    const footerTop = editorFooter?.getBoundingClientRect().top ?? innerHeight;
     const visibleBottom = Math.min(footerTop, window.visualViewport?.height ?? innerHeight) - 44;
     const overlap = focused.getBoundingClientRect().bottom - visibleBottom;
     if (overlap > 0) pane.scrollTop += overlap;
@@ -191,11 +199,11 @@
       if (pane) pane.scrollTop = 0;
       else window.scrollTo(0, 0);
       if (focusName) {
-        editorPage?.querySelector<HTMLInputElement>(".name-field input")?.focus();
+        nameInput?.focus();
       } else if (window.matchMedia("(pointer: coarse)").matches) {
         editorPage?.focus();
       } else {
-        const textarea = editorPage?.querySelector<HTMLTextAreaElement>(".prompt-field textarea");
+        const textarea = promptInput;
         textarea?.focus();
         textarea?.setSelectionRange(0, 0);
       }
@@ -273,7 +281,7 @@
     if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
     if (!(event.target instanceof Node) || !editorPage?.contains(event.target)) return;
     event.preventDefault();
-    editorPage.querySelector<HTMLFormElement>("#job-editor")?.requestSubmit();
+    editorForm?.requestSubmit();
   }
 
   function formatDate(epoch: number) {
@@ -360,7 +368,7 @@
 
   function changePage(nextPage: number) {
     page = Math.max(1, Math.min(nextPage, pageCount));
-    document.getElementById("jobs-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    jobsTitle?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function load({ quiet = false }: { quiet?: boolean } = {}) {
@@ -457,7 +465,7 @@
         if (activeEditorRoute !== route) return;
         images = [...images, result.image as ImageRef];
         await tick();
-        editorPage?.querySelector(".job-image-preview:last-child")?.scrollIntoView({
+        imagePreviewList?.scrollIntoView({
           block: "nearest",
           behavior: "smooth",
         });
@@ -564,7 +572,7 @@
 <section class="jobs-panel" aria-labelledby="jobs-title">
   <div class="jobs-toolbar">
     <div class="toolbar-title">
-      <h1 id="jobs-title">Jobs</h1>
+      <h1 id="jobs-title" bind:this={jobsTitle}>Jobs</h1>
       <span>{cadenceJobs.length}</span>
     </div>
 
@@ -725,6 +733,7 @@
   <section bind:this={editorPage} class="editor-page" aria-labelledby="editor-title" tabindex="-1">
       <form
         id="job-editor"
+        bind:this={editorForm}
         class="job-editor"
         onsubmit={(event) => {
           event.preventDefault();
@@ -750,7 +759,7 @@
             {#if !runOnce}
               <label class="name-field">
                 <span>Name</span>
-                <input bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
+                <input bind:this={nameInput} bind:value={name} autocomplete="off" readonly={Boolean(editing)} required />
               </label>
             {/if}
 
@@ -795,7 +804,7 @@
 
           <label class="prompt-field">
             <span>Prompt</span>
-            <textarea bind:value={prompt} rows="14" required onfocus={() => requestAnimationFrame(keepFocusedPromptVisible)}></textarea>
+            <textarea bind:this={promptInput} bind:value={prompt} rows="14" required onfocus={() => requestAnimationFrame(keepFocusedPromptVisible)}></textarea>
           </label>
           <div class="job-image-picker">
             <button class="toolbar-button" type="button" disabled={uploadingImage || saving || images.length >= 4} onclick={() => imageInput?.click()}>Add images</button>
@@ -803,7 +812,7 @@
             {#if uploadingImage || images.length}<span>{uploadingImage ? "Uploading…" : images.length + "/4 images"}</span>{/if}
           </div>
           {#if images.length}
-            <div class="job-image-previews">
+            <div class="job-image-previews" bind:this={imagePreviewList}>
               {#each images as image (image.ref)}
                 <div class="job-image-preview">
                   <img src={image.url} alt={image.name} />
@@ -815,7 +824,7 @@
           {/if}
         </div>
 
-        <div class="editor-footer">
+        <div class="editor-footer" bind:this={editorFooter}>
           <div class="editor-feedback" role={confirmDiscard ? "alertdialog" : "status"} aria-label={confirmDiscard ? "Discard unsaved changes" : undefined} aria-live="polite">
             {#if confirmDiscard}
               <span>Discard unsaved changes?</span>

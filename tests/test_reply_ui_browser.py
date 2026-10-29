@@ -11,6 +11,7 @@ from playwright.sync_api import Route, expect, sync_playwright
 from test_web_results import server
 
 from prompta.response_capture import CaptureResult
+from prompta.strict_types import json_object
 
 CONVERSATION = "00000000-0000-4000-8000-000000000001"
 ASSISTANT = "00000000-0000-4000-8000-000000000002"
@@ -57,12 +58,12 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
             fresh: list[dict[str, object]] = []
 
             def reply_route(route: Route) -> None:
-                sent.append(route.request.post_data_json)
+                sent.append(json_object(route.request.post_data or "{}", label="reply payload"))
                 route.fulfill(status=202, content_type="application/json",
                               body=json.dumps({"ok": True, "turn": {"status": "prepared"}}))
 
             def fresh_route(route: Route) -> None:
-                fresh.append(route.request.post_data_json)
+                fresh.append(json_object(route.request.post_data or "{}", label="fresh payload"))
                 route.fulfill(status=202, content_type="application/json",
                               body=json.dumps({"send_id": "new-run"}))
 
@@ -170,7 +171,7 @@ def test_uncertain_fresh_queue_reuses_idempotency_key(
             requests: list[dict[str, object]] = []
 
             def fresh_route(route: Route) -> None:
-                requests.append(route.request.post_data_json)
+                requests.append(json_object(route.request.post_data or "{}", label="fresh retry payload"))
                 if len(requests) == 1:
                     route.fulfill(status=503, content_type="application/json",
                                   body='{"error":"queue uncertain"}')

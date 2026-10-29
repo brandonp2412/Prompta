@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
 
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean; fallbackAvailable?: boolean };
@@ -21,6 +21,7 @@
   let restoredDraft = $state("");
   let restoredPreflight = $state(false);
   let hydrated = $state(false);
+  let hydratedKey = "";
   let hasLocalDraft = $state(false);
   let images = $state<ImageRef[]>([]);
   let uploading = $state(false);
@@ -35,6 +36,30 @@
   const canAttach = $derived(mode === "fresh" && !disabled && !sending && !uploading);
   const hasDraft = $derived(!!draft.trim());
   const canSend = $derived(!disabled && !sendDisabled && !sending && !uploading && hasDraft);
+
+  $effect(() => {
+    const key = draftStorageKey;
+    untrack(() => {
+      if (key === hydratedKey) return;
+      hydratedKey = key;
+      let saved = "";
+      let found = false;
+      try {
+        const cached = key ? localStorage.getItem(key) : null;
+        if (cached !== null) { saved = cached.slice(0, 32000); found = true; }
+      } catch { /* Storage may be unavailable. */ }
+      draft = saved;
+      hasLocalDraft = found;
+      images = [];
+      feedback = "";
+      fallbackAvailable = false;
+      restoredDraft = "";
+      restoredPreflight = false;
+      sending = false;
+      hydrated = true;
+      requestAnimationFrame(resizeTextarea);
+    });
+  });
 
   $effect(() => {
     if (mode !== "reply" || !restoreDraft || !hydrated) return;
@@ -52,11 +77,6 @@
   });
 
   onMount(() => {
-    try {
-      const cached = draftStorageKey ? localStorage.getItem(draftStorageKey) : null;
-      if (cached !== null) { draft = cached.slice(0, 32000); hasLocalDraft = true; }
-    } catch { /* Storage may be unavailable. */ }
-    hydrated = true;
     if (mode === "fresh") textarea?.focus();
     requestAnimationFrame(resizeTextarea);
     window.addEventListener("resize", resizeTextarea);
@@ -130,12 +150,14 @@
 
   async function submit(useFallback = false) {
     if (!canSend || (useFallback && (!fallbackAvailable || !onFallbackSend))) return;
+    const submittedKey = draftStorageKey;
     sending = true;
     feedback = "";
     try {
       const submitted = draft;
       const send = useFallback && onFallbackSend ? onFallbackSend : onSend;
       const result = await send(submitted, images.map((image) => image.ref));
+      if (draftStorageKey !== submittedKey) return;
       if (result.ok) {
         draft = "";
         images = [];
@@ -149,9 +171,9 @@
         fallbackAvailable = Boolean(result.fallbackAvailable);
       }
     } catch {
-      feedback = "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
+      if (draftStorageKey === submittedKey) feedback = "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
     } finally {
-      sending = false;
+      if (draftStorageKey === submittedKey) sending = false;
     }
   }
 
