@@ -35,6 +35,7 @@ class CaptureResult:
     parent_id: str | None
     observer_id: str | None = None
     tool_calls: tuple[dict[str, object], ...] = ()
+    ended_without_answer: bool = False
 
 
 def conversation_id_from_path(path: object) -> str | None:
@@ -116,6 +117,7 @@ class SseResponseAccumulator:
         self._parent_id: str | None = None
         self._tracking = False
         self._seen_final = False
+        self._saw_reasoning = False
         self._complete = False
         self._ambiguous = False
         self._overflow = False
@@ -182,6 +184,13 @@ class SseResponseAccumulator:
         conversation_id: object,
         parent_id: object,
     ) -> None:
+        content = _record(message.get("content"))
+        if _record(message.get("author")).get("role") == "assistant" and (
+            content.get("content_type") in ("thoughts", "reasoning_recap")
+            or message.get("channel") == "analysis"
+        ):
+            # Boolean liveness evidence only; never retain thoughts or their text.
+            self._saw_reasoning = True
         is_tool = self._tools.observe(message)
         if is_tool or not _is_final_assistant(message):
             self._tracking = False
@@ -292,6 +301,11 @@ class SseResponseAccumulator:
         return CaptureResult(
             "sse", status, text, self._conversation_id, self._message_id, self._parent_id,
             tool_calls=self._tools.snapshot(),
+            ended_without_answer=self._complete
+            and self._saw_reasoning
+            and not text
+            and not self._seen_final
+            and not self._ambiguous,
         )
 
 

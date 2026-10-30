@@ -20,10 +20,10 @@
   const main = document.querySelector("main");
   if (!main) return empty;
   const users = [...main.querySelectorAll(
-    '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]'
+    '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], [data-content-search-unit-key$=":user"]'
   )].filter(visible);
   const assistants = [...main.querySelectorAll(
-    '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]'
+    '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]'
   )].filter(visible);
   if (users.length !== 2 || assistants.length > 2) return { ...empty, ambiguous: users.length > 2 || assistants.length > 2 };
   const texts = [originalPrompt, replyText];
@@ -35,7 +35,7 @@
   const branchId = (node) => {
     const legacy = node.getAttribute("data-message-id") || "";
     if (uuid.test(legacy)) return legacy.toLowerCase();
-    const raw = node.getAttribute("data-chatgpt-search-message-ids") || "";
+    const raw = node.getAttribute("data-chatgpt-search-message-ids") || node.getAttribute("data-content-search-message-ids") || "";
     try {
       const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
       if (!Array.isArray(ids) || !ids.length || !ids.every((id) => typeof id === "string" && uuid.test(id))) return "";
@@ -46,7 +46,7 @@
   if (branchId(assistants[0]) !== parent.toLowerCase()) return { ...empty, ambiguous: true };
   if (assistants.length < 2) return { ...empty, verified: true };
   const assistant = assistants[1];
-  const identity = assistant.getAttribute("data-message-id") || assistant.getAttribute("data-chatgpt-search-unit-key") || "";
+  const identity = assistant.getAttribute("data-message-id") || assistant.getAttribute("data-chatgpt-search-unit-key") || assistant.getAttribute("data-content-search-unit-key") || "";
   if (!identity || identity === parent) return { ...empty, ambiguous: true };
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
   const roots = [...assistant.querySelectorAll(markdownSelector)].filter((root) =>

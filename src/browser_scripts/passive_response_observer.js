@@ -5,7 +5,7 @@
   window[key]?.stop?.();
   const root = document.documentElement;
   if (!root) return false;
-  const messageSelector = '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]';
+  const messageSelector = '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]';
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
   const stopSelector = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]';
   const copySelector = 'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]';
@@ -19,13 +19,13 @@
     if (legacy) return legacy;
     // Modern assistant turns aggregate multiple message IDs (tools/thoughts/final).
     // The assistant unit key identifies the rendered answer container across updates.
-    return element.getAttribute("data-chatgpt-search-unit-key") || "";
+    return element.getAttribute("data-chatgpt-search-unit-key") || element.getAttribute("data-content-search-unit-key") || "";
   };
   const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const branchMessageId = (element) => {
     const legacy = element.getAttribute("data-message-id") || "";
     if (uuid.test(legacy)) return legacy.toLowerCase();
-    const raw = element.getAttribute("data-chatgpt-search-message-ids");
+    const raw = element.getAttribute("data-chatgpt-search-message-ids") || element.getAttribute("data-content-search-message-ids");
     if (!raw) return "";
     try {
       // ChatGPT also emits whitespace-separated IDs, sometimes repeating the
@@ -92,7 +92,7 @@
     });
     const copyReady = [...turn.querySelectorAll(copySelector)].some(visible);
     const streaming = !!turn.querySelector('[data-is-streaming="true"], .result-streaming');
-    const generating = !!document.querySelector(stopSelector);
+    const generating = [...document.querySelectorAll(stopSelector)].some(visible);
     result = {
       message_id: identity(element),
       branch_message_id: branchMessageId(element),

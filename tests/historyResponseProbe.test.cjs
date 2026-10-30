@@ -14,6 +14,7 @@ const source = raw.replace("__CONVERSATION__", JSON.stringify(id))
   .replace("__ORIGINAL_PROMPT__", JSON.stringify(prompt));
 let responseText = "Recovered answer";
 let generating = false;
+let hiddenStop = false;
 let copyReady = true;
 let alertText = "";
 let route = "/c/" + id;
@@ -36,8 +37,9 @@ const turn = {
 };
 const assistant = visible({
   getAttribute: (name) => ({
-    "data-message-id": "87654321-4321-4321-8321-123456789abc",
-    "data-chatgpt-search-unit-key": "unit:assistant",
+    "data-message-id": "",
+    "data-content-search-unit-key": "unit:assistant",
+    "data-content-search-message-ids": "87654321-4321-4321-8321-123456789abc",
   })[name] || "",
   querySelectorAll: () => [root],
   closest: () => turn,
@@ -48,7 +50,9 @@ const main = {
 const context = {
   location: { origin: "https://chatgpt.com", get pathname() { return route; } },
   document: {
-    querySelectorAll: () => alertText ? [visible({ textContent: alertText })] : [],
+    querySelectorAll: (selector) => selector.includes('stop-button') ?
+      (generating ? [visible({})] : hiddenStop ? [{ isConnected: true, getClientRects: () => [] }] : []) :
+      alertText ? [visible({ textContent: alertText })] : [],
     querySelector: (selector) => selector === "main" ? main : generating ? {} : null,
   },
   getComputedStyle: () => ({ visibility: "visible" }),
@@ -67,6 +71,9 @@ assert.equal(result.branch_message_id, "87654321-4321-4321-8321-123456789abc");
 generating = true;
 assert.equal(probe().complete, false, "generating response is never final");
 generating = false;
+hiddenStop = true;
+assert.equal(probe().complete, true, 'hidden stop does not block completion');
+hiddenStop = false;
 copyReady = false;
 assert.equal(probe().complete, false, "missing final-copy action is not completion");
 copyReady = true;

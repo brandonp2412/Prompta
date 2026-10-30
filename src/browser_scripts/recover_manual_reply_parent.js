@@ -7,9 +7,9 @@
   const visible = (element) => element.getClientRects().length > 0 &&
     getComputedStyle(element).visibility !== "hidden";
   const assistantSelector =
-    'main [data-message-author-role="assistant"][data-message-id], main [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]';
+    'main [data-message-author-role="assistant"][data-message-id], main [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], main [data-content-search-unit-key$=":assistant"]';
   const userSelector =
-    'main [data-message-author-role="user"], main [data-chatgpt-search-unit-key$=":user"]';
+    'main [data-message-author-role="user"], main [data-chatgpt-search-unit-key$=":user"], main [data-content-search-unit-key$=":user"]';
   const assistants = [...document.querySelectorAll(assistantSelector)].filter(visible);
   const users = [...document.querySelectorAll(userSelector)].filter(visible);
   // An externally continued chat cannot be mistaken for the original single turn.
@@ -29,7 +29,7 @@
   const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const legacy = last.getAttribute("data-message-id");
   if (legacy) return uuid.test(legacy) ? legacy.toLowerCase() : null;
-  const raw = last.getAttribute("data-chatgpt-search-message-ids") || "";
+  const raw = last.getAttribute("data-chatgpt-search-message-ids") || last.getAttribute("data-content-search-message-ids") || "";
   try {
     const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
     if (!Array.isArray(ids) || !ids.length ||

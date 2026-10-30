@@ -820,24 +820,24 @@ class PlaywrightDriver:
     async def _image_input(self, page: Page) -> Locator | None:
         # ChatGPT now exposes multiple hidden camera, photos, video and file
         # pickers at once. Select its semantically named photo picker first.
-        photos = page.locator('input[type="file"][aria-label="Attach photos"]')
+        photos = page.locator('input[type="file"][aria-label="Attach photos"]:not([capture])')
         if await photos.count() == 1 and await photos.first.is_enabled():
             return photos.first
-        images = page.locator('input[type="file"][multiple][accept*="image/"]:not([accept*="video/"])')
+        images = page.locator('input[type="file"][multiple][accept*="image/"]:not([accept*="video/"]):not([capture])')
         if await images.count() == 1 and await images.first.is_enabled():
             return images.first
         composer = await self._composer(page)
         if composer is not None:
             owner = composer.locator('xpath=ancestor::*[.//input[@type="file"]][1]')
-            inputs = owner.locator('input[type="file"]')
+            inputs = owner.locator('input[type="file"]:not([capture])')
             count = await inputs.count()
             if count == 1 and await inputs.first.is_enabled():
                 return inputs.first
             if count > 1:
-                multi = owner.locator('input[type="file"][multiple]')
+                multi = owner.locator('input[type="file"][multiple]:not([capture])')
                 if await multi.count() == 1 and await multi.first.is_enabled():
                     return multi.first
-        inputs = page.locator('input[type="file"]')
+        inputs = page.locator('input[type="file"]:not([capture])')
         if await inputs.count() == 1 and await inputs.first.is_enabled():
             return inputs.first
         return None
@@ -1348,8 +1348,42 @@ class PlaywrightDriver:
             raise RuntimeError("ChatGPT login required; composer unavailable")
         raise RuntimeError("ChatGPT composer did not become ready")
 
+    async def _dismiss_known_composer_promo(self, page: Page) -> bool:
+        """Dismiss only a recognised, nonessential ChatGPT composer promotion."""
+        dialogs = page.get_by_role("dialog")
+        try:
+            count = await dialogs.count()
+        except PlaywrightError:
+            return False
+        # Never scan an unbounded number of dialogs or click generic OK/CTA buttons.
+        if count > 4:
+            return False
+        for index in range(count):
+            dialog = dialogs.nth(index)
+            try:
+                if not await dialog.is_visible():
+                    continue
+                description = (await dialog.inner_text())[:1200]
+                if not re.search(r"try thinking effort|introducing thinking effort", description, re.I):
+                    continue
+                close = await self._first_usable(
+                    [
+                        dialog.get_by_role(
+                            "button", name=re.compile(r"^(close|dismiss|not now)$", re.I)
+                        )
+                    ]
+                )
+                if close is None:
+                    continue
+                await close.click(timeout=1500)
+                return True
+            except PlaywrightError:
+                continue
+        return False
+
     async def _focus_composer(self) -> Locator:
         await self.wait_for_composer()
+        await self._dismiss_known_composer_promo(self._page())
         page = self._page()
 
         # The first server-rendered textarea is short-lived. Give ChatGPT a

@@ -18,7 +18,7 @@
   const main = document.querySelector("main");
   if (!main) return empty;
   const users = [...main.querySelectorAll(
-    '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]'
+    '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], [data-content-search-unit-key$=":user"]'
   )].filter(visible);
   if (!users.length) return empty;
   const userText = normalize(users[0].innerText || users[0].textContent || "");
@@ -28,12 +28,12 @@
     return { ...empty, ambiguous: true };
   }
   const assistants = [...main.querySelectorAll(
-    '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]'
+    '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]'
   )].filter(visible);
   if (!assistants.length) return { ...empty, verified: true };
   const assistant = assistants[0];
   const identity = assistant.getAttribute("data-message-id") ||
-    assistant.getAttribute("data-chatgpt-search-unit-key") || "";
+    assistant.getAttribute("data-chatgpt-search-unit-key") || assistant.getAttribute("data-content-search-unit-key") || "";
   if (!identity) return { ...empty, ambiguous: true };
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
   const roots = [...assistant.querySelectorAll(markdownSelector)].filter((root) =>
@@ -58,14 +58,14 @@
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
   )].some(visible);
   const streaming = !!turn.querySelector('[data-is-streaming="true"], .result-streaming');
-  const generating = !!document.querySelector(
+  const generating = [...document.querySelectorAll(
     'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
-  );
+  )].some(visible);
   const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const legacy = assistant.getAttribute("data-message-id") || "";
   let branch = uuid.test(legacy) ? legacy.toLowerCase() : "";
   if (!branch) {
-    const raw = assistant.getAttribute("data-chatgpt-search-message-ids") || "";
+    const raw = assistant.getAttribute("data-chatgpt-search-message-ids") || assistant.getAttribute("data-content-search-message-ids") || "";
     try {
       const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
       if (Array.isArray(ids) && ids.length && ids.every((id) => typeof id === "string" && uuid.test(id))) {

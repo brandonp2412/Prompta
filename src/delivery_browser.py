@@ -43,6 +43,7 @@ _EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
 _SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
 _SEND_CONFIRM_STATE_TIMEOUT_SECONDS = 8.0
 _PASSIVE_RECOVERY_PROBE_SECONDS = 45.0
+_EMPTY_REASONING_GRACE_SECONDS = 60.0
 # Allow bounded pinning and receipt persistence after the dispatch deadline.
 _HANDOFF_GRACE_SECONDS = 60.0
 
@@ -412,6 +413,7 @@ class BrowserDeliverySender:
             asyncio.get_running_loop().time() + _PASSIVE_RECOVERY_PROBE_SECONDS
         )
         dom_completed_at: float | None = None
+        empty_reasoning_since: float | None = None
         seen_tool_calls: tuple[dict[str, object], ...] = ()
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
@@ -489,6 +491,23 @@ class BrowserDeliverySender:
                     if capture.get("ambiguous_request")
                     else driver.captured_assistant_response(capture)
                 )
+                if (
+                    sse is not None
+                    and sse.ended_without_answer
+                    and not sse.tool_calls
+                    and pending is None
+                ):
+                    if empty_reasoning_since is None:
+                        empty_reasoning_since = now
+                    elif now - empty_reasoning_since >= _EMPTY_REASONING_GRACE_SECONDS:
+                        logger.warning(
+                            "Prompta owned response stream ended with reasoning only; "
+                            "no final answer after observation grace"
+                        )
+                        final_status = "unavailable"
+                        break
+                else:
+                    empty_reasoning_since = None
                 if int_value(capture.get("status")) == 429:
                     self.runtime.record_read_rate_limit(
                         RateLimitError(
@@ -862,6 +881,30 @@ class BrowserDeliverySender:
                         return
 
                     await asyncio.sleep(_SEND_CONFIRM_POLL_SECONDS)
+
+                # A POST acknowledgement may arrive during the last browser probe or
+                # confirmation sleep. Re-read transport evidence before declaring a
+                # retry-safe rejection; a late accepted POST must never be resent.
+                final_status = int_value((capture or {}).get("status"))
+                if final_status == 429:
+                    raise RateLimitError(
+                        "prompta send rate limited",
+                        retry_after=captured_retry_after(capture or {}) or DEFAULT_RETRY_AFTER,
+                    )
+                if final_status >= 500:
+                    raise SendOutcomeUnknownError(
+                        f"prompta send returned HTTP {final_status} after dispatch",
+                        stage="send_response",
+                    )
+                if final_status >= 400:
+                    raise SendNotAcceptedError(f"prompta send failed with HTTP {final_status}")
+                if capture is not None and capture.get("fetch_error"):
+                    raise SendOutcomeUnknownError(
+                        "prompta send transport failed after dispatch", stage="send_transport"
+                    )
+                if capture is not None and driver.captured_send_response(capture) is not None:
+                    logger.info("Prompta dispatched fresh-chat prompt late_transport_confirmed=true")
+                    return
 
                 final_composer = _normalise_composer_text(
                     str(last_state.get("composer_text") or "")

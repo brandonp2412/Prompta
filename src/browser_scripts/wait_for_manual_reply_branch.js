@@ -19,7 +19,7 @@
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ["data-message-id", "data-chatgpt-search-message-ids"],
+      attributeFilter: ["data-message-id", "data-chatgpt-search-message-ids", "data-content-search-message-ids"],
     });
     if (verify()) finish(true);
   });

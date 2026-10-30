@@ -13,6 +13,7 @@ for (const script of [source, readSource]) {
 }
 const nodes = [];
 let hasStop = true;
+let hiddenStop = false;
 let time = 1000;
 let callback;
 const markdown = (text) => ({
@@ -44,7 +45,8 @@ const context = {
   document: {
     documentElement: {},
     querySelector: (selector) => selector === "main" ? main : hasStop ? {} : null,
-    querySelectorAll: () => nodes,
+    querySelectorAll: (selector) => selector.includes('stop-button') ?
+      (hasStop ? [markdown('Stop')] : hiddenStop ? [{ isConnected: true, getClientRects: () => [] }] : []) : nodes,
   },
   getComputedStyle: () => ({ visibility: "visible" }),
   location: { pathname: "/c/test" },
@@ -73,6 +75,9 @@ snap = vm.runInContext(readSource, context);
 assert.equal(snap.complete, true);
 assert.equal(pushed.at(-1).complete, true);
 assert.equal(pushed.at(-1).text, "Answer");
+hiddenStop = true;
+assert.equal(vm.runInContext(readSource, context).complete, true, 'hidden Stop button must not block a final answer');
+hiddenStop = false;
 nodes[0] = makeMessage("other-branch", "Wrong branch", true);
 snap = vm.runInContext(readSource, context);
 assert.equal(snap.ambiguous, true);
@@ -95,8 +100,8 @@ const modernResponse = {
   getClientRects: () => [{}],
   getAttribute: (name) => ({
     "data-message-id": "",
-    "data-chatgpt-search-unit-key": "new-turn:assistant",
-    "data-chatgpt-search-message-ids": "id1 id2 id3 id4 id5",
+    "data-content-search-unit-key": "new-turn:assistant",
+    "data-content-search-message-ids": "id1 id2 id3 id4 id5",
   })[name] || "",
   querySelectorAll: (selector) => selector.includes(".markdown") ? [markdown("Actual answer")] :
     selector.includes("copy-turn") ? (modernCopy ? [markdown("")] : []) : [],
@@ -108,7 +113,7 @@ const modernContext = {
   document: {
     documentElement: modernRoot,
     querySelector: (selector) => selector === "main" ? modernMain : null,
-    querySelectorAll: () => modernNodes,
+    querySelectorAll: (selector) => selector.includes('stop-button') ? [] : modernNodes,
   },
   getComputedStyle: () => ({ visibility: "visible" }),
   location: { pathname: "/c/test" },

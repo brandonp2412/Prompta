@@ -19,16 +19,16 @@
   if (!main) return empty;
 
   const nodes = [...main.querySelectorAll(
-    '[data-message-author-role], [data-chatgpt-search-unit-key]'
+    '[data-message-author-role], [data-chatgpt-search-unit-key], [data-content-search-unit-key]'
   )].filter(visible).map((node) => ({
     node,
     role: node.getAttribute("data-message-author-role") ||
-      (node.getAttribute("data-chatgpt-search-unit-key") || "").split(":").at(-1),
+      (node.getAttribute("data-chatgpt-search-unit-key") || node.getAttribute("data-content-search-unit-key") || "").split(":").at(-1),
   })).filter((item) => item.role === "user" || item.role === "assistant");
   const ids = (node) => {
     const legacy = node.getAttribute("data-message-id");
     if (legacy) return uuid.test(legacy) ? [legacy.toLowerCase()] : [];
-    const raw = node.getAttribute("data-chatgpt-search-message-ids") || "";
+    const raw = node.getAttribute("data-chatgpt-search-message-ids") || node.getAttribute("data-content-search-message-ids") || "";
     try {
       const parsed = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
       return Array.isArray(parsed) && parsed.length &&
@@ -67,9 +67,9 @@
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
   )].some(visible);
   const streaming = !!turn.querySelector('[data-is-streaming="true"], .result-streaming');
-  const generating = !!document.querySelector(
+  const generating = [...document.querySelectorAll(
     'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
-  );
+  )].some(visible);
   return { verified: true, complete: !!text && copyReady && !streaming && !generating,
     message_id: messageIds[0], text };
 })()

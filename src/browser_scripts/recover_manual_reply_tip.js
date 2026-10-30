@@ -9,10 +9,10 @@
   const visible = (element) => element.getClientRects().length > 0 &&
     getComputedStyle(element).visibility !== "hidden";
   const assistants = [...document.querySelectorAll(
-    'main [data-message-author-role="assistant"][data-message-id], main [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids]'
+    'main [data-message-author-role="assistant"][data-message-id], main [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], main [data-content-search-unit-key$=":assistant"]'
   )].filter(visible);
   const users = [...document.querySelectorAll(
-    'main [data-message-author-role="user"], main [data-chatgpt-search-unit-key$=":user"]'
+    'main [data-message-author-role="user"], main [data-chatgpt-search-unit-key$=":user"], main [data-content-search-unit-key$=":user"]'
   )].filter(visible);
   // The last saved manual reply must be the actual conversation tip.
   if (assistants.length !== turns || users.length !== turns) return null;
@@ -36,7 +36,7 @@
   const ids = (node) => {
     const legacy = node.getAttribute("data-message-id");
     if (legacy) return uuid.test(legacy) ? [legacy.toLowerCase()] : [];
-    const raw = node.getAttribute("data-chatgpt-search-message-ids") || "";
+    const raw = node.getAttribute("data-chatgpt-search-message-ids") || node.getAttribute("data-content-search-message-ids") || "";
     try {
       const parsed = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
       return Array.isArray(parsed) && parsed.length && parsed.every((id) =>
