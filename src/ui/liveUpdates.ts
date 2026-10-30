@@ -8,6 +8,10 @@ const listeners: Record<Topic, Set<Listener>> = {
 };
 let source: EventSource | null = null;
 let fallbackTimer: number | undefined;
+let streamDisconnected = true;
+let repairTicks = 0;
+const repairIntervalMs = 15_000;
+const connectedRepairTicks = 8;
 
 function notify(topic: Topic) {
   if (document.visibilityState !== "visible") return;
@@ -23,18 +27,42 @@ function visibleAgain() {
   if (document.visibilityState === "visible") refreshBoth();
 }
 
+function periodicRepair() {
+  // When an SSE connection fails, repair local views every 15s instead of
+  // waiting two minutes. A healthy stream keeps the inexpensive 2m audit.
+  repairTicks += 1;
+  if (streamDisconnected || repairTicks >= connectedRepairTicks) {
+    repairTicks = 0;
+    refreshBoth();
+  }
+}
+
 function start() {
+  streamDisconnected = true;
+  repairTicks = 0;
   if (typeof EventSource !== "undefined") {
     source = new EventSource("./api/events");
-    // An unconditional sync after each (re)connection covers every missed event.
-    source.addEventListener("sync", refreshBoth);
+    source.addEventListener("open", () => {
+      streamDisconnected = false;
+      repairTicks = 0;
+      refreshBoth();
+    });
+    source.addEventListener("error", () => {
+      streamDisconnected = true;
+      repairTicks = 0;
+      refreshBoth();
+    });
+    // An unconditional sync after each (re)connection covers missed events.
+    source.addEventListener("sync", () => {
+      streamDisconnected = false;
+      repairTicks = 0;
+      refreshBoth();
+    });
     source.addEventListener("jobs", () => notify("jobs"));
     source.addEventListener("chats", () => notify("chats"));
   }
-  // Even a connected stream can miss an invalidation (process restart,
-  // observer fault or dropped frame). Repair stale local views periodically;
-  // subscribers already coalesce their GETs and keep existing data visible.
-  fallbackTimer = window.setInterval(refreshBoth, 120000);
+  // Subscribers already coalesce GETs and retain the last confirmed data.
+  fallbackTimer = window.setInterval(periodicRepair, repairIntervalMs);
   document.addEventListener("visibilitychange", visibleAgain);
   window.addEventListener("online", visibleAgain);
   window.addEventListener("pageshow", visibleAgain);
@@ -45,6 +73,8 @@ function stop() {
   source = null;
   window.clearInterval(fallbackTimer);
   fallbackTimer = undefined;
+  streamDisconnected = true;
+  repairTicks = 0;
   document.removeEventListener("visibilitychange", visibleAgain);
   window.removeEventListener("online", visibleAgain);
   window.removeEventListener("pageshow", visibleAgain);

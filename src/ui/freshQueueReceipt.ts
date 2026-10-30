@@ -9,8 +9,8 @@ type PendingFreshRequest = {
 };
 
 const storageKey = "prompta.pending-fresh-requests.v1";
-const maxRecords = 128;
-const maxAgeMs = 14 * 24 * 60 * 60 * 1000;
+// Never silently evict an unresolved fresh-chat request ID.
+const maxRecords = 1024;
 let memoryRecords: PendingFreshRequest[] = [];
 // A browser can allow reads while rejecting writes (quota, policy or storage errors).
 // Once that happens, local memory must win until a later write succeeds.
@@ -28,8 +28,7 @@ function valid(record: unknown, now: number): record is PendingFreshRequest {
     "createdAt" in record &&
     typeof record.createdAt === "number" &&
     Number.isFinite(record.createdAt) &&
-    record.createdAt <= now &&
-    record.createdAt > now - maxAgeMs
+    record.createdAt <= now
   );
 }
 
@@ -39,17 +38,20 @@ function records(): PendingFreshRequest[] {
     try {
       const stored: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
       if (Array.isArray(stored)) {
-        return stored.filter((item) => valid(item, now)).slice(-maxRecords);
+        return stored.filter((item) => valid(item, now));
       }
     } catch {
       // Storage may be unavailable or damaged. Keep same-page safety in memory.
     }
   }
-  return memoryRecords.filter((item) => valid(item, now)).slice(-maxRecords);
+  return memoryRecords.filter((item) => valid(item, now));
 }
 
 function persist(items: PendingFreshRequest[]): void {
-  memoryRecords = items.slice(-maxRecords);
+  if (items.length > maxRecords) {
+    throw new Error("Unresolved chat requests are at capacity; no new send was attempted.");
+  }
+  memoryRecords = items;
   try {
     localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
     memoryOnly = false;

@@ -12,9 +12,11 @@ from playwright.sync_api import Route, expect, sync_playwright
 from test_web_results import completed_run, server
 
 
-@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+@pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915), (1440, 900)])
+@pytest.mark.parametrize("failure_mode", ["http", "network", "invalid_json"])
 def test_transient_turn_outage_keeps_confirmed_reply_visible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int, height: int,
+    failure_mode: str,
 ) -> None:
     executable = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not executable.is_file():
@@ -40,7 +42,12 @@ def test_transient_turn_outage_keeps_confirmed_reply_visible(
 
             def turns_route(route: Route) -> None:
                 if fail:
-                    route.fulfill(status=503)
+                    if failure_mode == "network":
+                        route.abort("failed")
+                    elif failure_mode == "invalid_json":
+                        route.fulfill(status=200, content_type="application/json", body="{broken")
+                    else:
+                        route.fulfill(status=503)
                 else:
                     route.fulfill(
                         status=200,
@@ -68,6 +75,7 @@ def test_transient_turn_outage_keeps_confirmed_reply_visible(
             expect(page.get_by_text("Second saved response")).to_be_visible()
             # Opening a local chat may persist its read receipt; never dispatch a reply.
             assert all(url.endswith("/api/local-chat-reads") for url in writes)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             assert not errors
         finally:
             browser.close()

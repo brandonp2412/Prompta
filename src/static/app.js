@@ -5128,6 +5128,10 @@ var listeners = {
 };
 var source = null;
 var fallbackTimer;
+var streamDisconnected = true;
+var repairTicks = 0;
+var repairIntervalMs = 15e3;
+var connectedRepairTicks = 8;
 function notify(topic) {
 	if (document.visibilityState !== "visible") return;
 	for (const listener of listeners[topic]) listener();
@@ -5139,14 +5143,37 @@ function refreshBoth() {
 function visibleAgain() {
 	if (document.visibilityState === "visible") refreshBoth();
 }
+function periodicRepair() {
+	repairTicks += 1;
+	if (streamDisconnected || repairTicks >= connectedRepairTicks) {
+		repairTicks = 0;
+		refreshBoth();
+	}
+}
 function start() {
+	streamDisconnected = true;
+	repairTicks = 0;
 	if (typeof EventSource !== "undefined") {
 		source = new EventSource("./api/events");
-		source.addEventListener("sync", refreshBoth);
+		source.addEventListener("open", () => {
+			streamDisconnected = false;
+			repairTicks = 0;
+			refreshBoth();
+		});
+		source.addEventListener("error", () => {
+			streamDisconnected = true;
+			repairTicks = 0;
+			refreshBoth();
+		});
+		source.addEventListener("sync", () => {
+			streamDisconnected = false;
+			repairTicks = 0;
+			refreshBoth();
+		});
 		source.addEventListener("jobs", () => notify("jobs"));
 		source.addEventListener("chats", () => notify("chats"));
 	}
-	fallbackTimer = window.setInterval(refreshBoth, 12e4);
+	fallbackTimer = window.setInterval(periodicRepair, repairIntervalMs);
 	document.addEventListener("visibilitychange", visibleAgain);
 	window.addEventListener("online", visibleAgain);
 	window.addEventListener("pageshow", visibleAgain);
@@ -5156,6 +5183,8 @@ function stop() {
 	source = null;
 	window.clearInterval(fallbackTimer);
 	fallbackTimer = void 0;
+	streamDisconnected = true;
+	repairTicks = 0;
 	document.removeEventListener("visibilitychange", visibleAgain);
 	window.removeEventListener("online", visibleAgain);
 	window.removeEventListener("pageshow", visibleAgain);
@@ -5195,23 +5224,24 @@ function localPost(url, payload, { timeoutMs = localMutationTimeoutMs, signal } 
 //#endregion
 //#region src/ui/freshQueueReceipt.ts
 var storageKey$1 = "prompta.pending-fresh-requests.v1";
-var maxAgeMs$1 = 12096e5;
+var maxRecords$1 = 1024;
 var memoryRecords$1 = [];
 var memoryOnly$1 = false;
 function valid$1(record, now) {
 	if (!record || typeof record !== "object") return false;
-	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now && record.createdAt > now - maxAgeMs$1;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now;
 }
 function records$1() {
 	const now = Date.now();
 	if (!memoryOnly$1) try {
 		const stored = JSON.parse(localStorage.getItem(storageKey$1) || "[]");
-		if (Array.isArray(stored)) return stored.filter((item) => valid$1(item, now)).slice(-128);
+		if (Array.isArray(stored)) return stored.filter((item) => valid$1(item, now));
 	} catch {}
-	return memoryRecords$1.filter((item) => valid$1(item, now)).slice(-128);
+	return memoryRecords$1.filter((item) => valid$1(item, now));
 }
 function persist$1(items) {
-	memoryRecords$1 = items.slice(-128);
+	if (items.length > maxRecords$1) throw new Error("Unresolved chat requests are at capacity; no new send was attempted.");
+	memoryRecords$1 = items;
 	try {
 		localStorage.setItem(storageKey$1, JSON.stringify(memoryRecords$1));
 		memoryOnly$1 = false;
@@ -9109,23 +9139,24 @@ function reconcileResultPage(existing, firstPage, total, pageSize, status) {
 //#endregion
 //#region src/ui/pendingExactReply.ts
 var storageKey = "prompta.pending-exact-replies.v1";
-var maxAgeMs = 7776e6;
+var maxRecords = 1024;
 var memoryRecords = [];
 var memoryOnly = false;
 function valid(record, now) {
 	if (!record || typeof record !== "object") return false;
-	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[a-f0-9]{32}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now && record.createdAt > now - maxAgeMs;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[a-f0-9]{32}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now;
 }
 function records() {
 	const now = Date.now();
 	if (!memoryOnly) try {
 		const stored = JSON.parse(localStorage.getItem(storageKey) || "[]");
-		if (Array.isArray(stored)) return stored.filter((item) => valid(item, now)).slice(-128);
+		if (Array.isArray(stored)) return stored.filter((item) => valid(item, now));
 	} catch {}
-	return memoryRecords.filter((item) => valid(item, now)).slice(-128);
+	return memoryRecords.filter((item) => valid(item, now));
 }
 function persist(items) {
-	memoryRecords = items.slice(-128);
+	if (items.length > maxRecords) throw new Error("Unresolved reply receipts are at capacity; no new send was attempted.");
+	memoryRecords = items;
 	try {
 		localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
 		memoryOnly = false;
@@ -9163,6 +9194,42 @@ async function pendingExactReplyRequest(sendId, conversationId, parentId, text) 
 }
 function acknowledgeExactReplyRequest(fingerprint, replyId) {
 	persist(records().filter((entry) => entry.fingerprint !== fingerprint || entry.replyId !== replyId));
+}
+async function pendingQueuedFollowupRequest(sendId, text) {
+	const bytes = new TextEncoder().encode(JSON.stringify([sendId, text]));
+	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+	const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+	const saved = records();
+	const previous = saved.find((entry) => entry.fingerprint === fingerprint);
+	if (previous) return {
+		replyId: previous.replyId,
+		fingerprint,
+		reused: true
+	};
+	let legacyId = "";
+	try {
+		const legacy = JSON.parse(localStorage.getItem("prompta.pending-followup.v1." + sendId) || "null");
+		if (legacy && typeof legacy === "object" && "replyId" in legacy && typeof legacy.replyId === "string" && /^[A-Za-z0-9_-]{16,200}$/.test(legacy.replyId) && ("fingerprint" in legacy && legacy.fingerprint === fingerprint || "text" in legacy && legacy.text === text)) legacyId = legacy.replyId;
+	} catch {}
+	const replyId = legacyId || crypto.randomUUID().replaceAll("-", "");
+	persist([...saved, {
+		fingerprint,
+		replyId,
+		createdAt: Date.now()
+	}]);
+	return {
+		replyId,
+		fingerprint,
+		reused: !!legacyId
+	};
+}
+function acknowledgeQueuedFollowupRequest(sendId, fingerprint, replyId) {
+	acknowledgeExactReplyRequest(fingerprint, replyId);
+	try {
+		const key = "prompta.pending-followup.v1." + sendId;
+		const legacy = JSON.parse(localStorage.getItem(key) || "null");
+		if (legacy && typeof legacy === "object" && "replyId" in legacy && legacy.replyId === replyId) localStorage.removeItem(key);
+	} catch {}
 }
 //#endregion
 //#region src/ui/ChatsPage.svelte
@@ -9667,13 +9734,14 @@ function ChatsPage($$anchor, $$props) {
 		set(loadingDetail, true);
 		try {
 			const path = "./api/results/" + encodeURIComponent(id);
-			const [response, replyResponse] = await Promise.all([localGet(path), localGet(path + "/turns")]);
+			const [response, replyResponse] = await Promise.all([localGet(path), localGet(path + "/turns").catch(() => null)]);
 			if (!response.ok) throw new Error("Result not found");
 			const body = await response.json();
-			const saved = replyResponse.ok ? await replyResponse.json() : null;
+			const saved = replyResponse?.ok ? await replyResponse.json().catch(() => null) : null;
+			const savedTurns = Array.isArray(saved?.turns) ? saved.turns : null;
 			if (generation !== detailGeneration || $$props.selectedRunId !== id) return;
 			set(detail, body, true);
-			set(turns, recoverVisibleTurns(saved?.turns ?? null, get(turns), {
+			set(turns, recoverVisibleTurns(savedTurns, get(turns), {
 				reply_id: "",
 				user_text: body.user_text,
 				assistant_text: body.assistant_text,
@@ -9682,7 +9750,7 @@ function ChatsPage($$anchor, $$props) {
 				created_at: body.created_at,
 				updated_at: body.updated_at
 			}, !newSelection), true);
-			set(turnsError, !replyResponse.ok ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "", true);
+			set(turnsError, !savedTurns ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "", true);
 			set(detailError, "");
 			if ($$props.view === "chats" && $$props.selectedRunId === id) markRead(body);
 			await tick();
@@ -9700,7 +9768,6 @@ function ChatsPage($$anchor, $$props) {
 			}
 		}
 	}
-	let pendingQueued = null;
 	async function sendFresh(text, images) {
 		let request;
 		try {
@@ -9773,30 +9840,18 @@ function ChatsPage($$anchor, $$props) {
 		return (get(detail)?.images ?? []).filter((attachment) => attachment.url.startsWith("./api/images/")).map((attachment) => attachment.url.slice(13));
 	}
 	async function queueEarlyReply(sendId, text) {
-		const storageKey = "prompta.pending-followup.v1." + sendId;
-		const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([sendId, text]))));
-		const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-		let cached = null;
+		let request;
 		try {
-			cached = JSON.parse(localStorage.getItem(storageKey) || "null");
-		} catch {}
-		const previous = pendingQueued?.sendId === sendId ? pendingQueued : null;
-		const cachedMatches = cached?.fingerprint === fingerprint || cached?.text === text;
-		const replyId = previous?.text === text ? previous.replyId : cachedMatches && cached?.replyId && /^[A-Za-z0-9_-]{16,200}$/.test(cached.replyId) ? cached.replyId : crypto.randomUUID().replaceAll("-", "");
-		pendingQueued = {
-			sendId,
-			replyId,
-			text
-		};
-		try {
-			localStorage.setItem(storageKey, JSON.stringify({
-				replyId,
-				fingerprint
-			}));
-		} catch {}
+			request = await pendingQueuedFollowupRequest(sendId, text);
+		} catch {
+			return {
+				ok: false,
+				message: "A durable follow-up ID could not be created. Nothing was sent."
+			};
+		}
 		try {
 			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
-				reply_id: replyId,
+				reply_id: request.replyId,
 				text
 			});
 			if (!response.ok) {
@@ -9807,10 +9862,12 @@ function ChatsPage($$anchor, $$props) {
 					message: problem?.error || "Follow-up queue receipt is uncertain. Retry with the saved draft to reconcile."
 				};
 			}
-			if (pendingQueued?.replyId === replyId) pendingQueued = null;
-			try {
-				if (JSON.parse(localStorage.getItem(storageKey) || "null")?.replyId === replyId) localStorage.removeItem(storageKey);
-			} catch {}
+			if ((await response.json()).turn?.reply_id !== request.replyId) return {
+				ok: false,
+				ambiguous: true,
+				message: "Follow-up receipt did not match. The saved ID will be reused on retry."
+			};
+			acknowledgeQueuedFollowupRequest(sendId, request.fingerprint, request.replyId);
 			if ($$props.selectedRunId === sendId) await loadDetail(sendId);
 			return {
 				ok: true,
@@ -10571,6 +10628,7 @@ function ChatsPage($$anchor, $$props) {
 			let $0 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed" ? get(turns).at(-1)?.user_text ?? "" : "");
 			let $1 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed");
 			let $2 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id !== $$props.selectedRunId || Boolean(get(replyBlockedReason)) || get(recoveringReply));
+			let $3 = /* @__PURE__ */ user_derived(() => get(recoveringReply) ? "Verifying the exact saved ChatGPT branch…" : get(replyBlockedReason));
 			ChatComposer(node_32, {
 				mode: "reply",
 				get chatId() {
@@ -10589,7 +10647,7 @@ function ChatsPage($$anchor, $$props) {
 					return get($2);
 				},
 				get sendHint() {
-					return get(replyBlockedReason);
+					return get($3);
 				}
 			});
 		}

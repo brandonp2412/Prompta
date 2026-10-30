@@ -94,12 +94,11 @@ def test_early_followup_uses_hashed_receipt_across_lost_ack_and_reload(
         composer.fill("Synthetic private follow-up text")
         page.get_by_role("button", name="Send reply").click()
         expect(page.get_by_text("Follow-up queue receipt is uncertain.", exact=False)).to_be_visible()
-        receipt = page.evaluate("localStorage.getItem('prompta.pending-followup.v1.early')")
+        receipt = page.evaluate("localStorage.getItem('prompta.pending-exact-replies.v1')")
         assert isinstance(receipt, str)
         saved = json.loads(receipt)
-        assert saved["replyId"] == ids[0]
-        assert len(saved["fingerprint"]) == 64
-        assert "text" not in saved
+        assert any(record["replyId"] == ids[0] and len(record["fingerprint"]) == 64 for record in saved)
+        assert "text" not in receipt
         assert "Synthetic private follow-up text" not in receipt
 
         page.unroute("**/api/results/early/reply-queue")
@@ -111,7 +110,44 @@ def test_early_followup_uses_hashed_receipt_across_lost_ack_and_reload(
         turns = ManualReplyStore(results.path).turns("early")
         assert turns is not None
         assert len(turns) == 2, "Reconciliation must not enqueue another follow-up"
-        assert page.evaluate("localStorage.getItem('prompta.pending-followup.v1.early')") is None
+        remaining = page.evaluate("localStorage.getItem('prompta.pending-exact-replies.v1')")
+        assert remaining is not None
+        assert all(record["replyId"] != ids[0] for record in json.loads(remaining))
+        browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_mismatched_followup_receipt_retains_id_and_does_not_duplicate(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    results = ResponseStore(tmp_path / "chat-results.sqlite3")
+    results.ensure_queued("mismatch", "Original synthetic prompt")
+    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        ids: list[str] = []
+
+        def wrong_receipt(route: Route) -> None:
+            accepted = route.fetch()
+            assert accepted.status == 202
+            route.fulfill(status=202, content_type="application/json", body='{"turn":{"reply_id":"wrong"}}')
+
+        page.route("**/api/events", lambda route: route.abort())
+        page.route("**/api/results/mismatch/reply-queue", wrong_receipt)
+        page.on("request", lambda request: ids.append(str(json.loads(request.post_data or "{}")["reply_id"]))
+                if request.url.endswith("/reply-queue") and request.method == "POST" else None)
+        page.goto(f"http://127.0.0.1:{port}/?view=chats&run=mismatch")
+        composer = page.get_by_role("textbox", name="Message for current chat")
+        composer.fill("Keep this immutable follow-up")
+        page.get_by_role("button", name="Send reply").click()
+        expect(page.get_by_text("Follow-up receipt did not match.", exact=False)).to_be_visible()
+        expect(composer).to_have_value("Keep this immutable follow-up")
+        page.unroute("**/api/results/mismatch/reply-queue")
+        page.get_by_role("button", name="Send reply").click()
+        expect(composer).to_have_value("")
+        assert len(ids) == 2 and ids[0] == ids[1]
+        turns = ManualReplyStore(results.path).turns("mismatch")
+        assert turns is not None and len(turns) == 2
         browser.close()
 
 

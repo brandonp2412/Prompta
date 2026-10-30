@@ -108,7 +108,8 @@ def test_browser_reconnect_and_periodic_repair_only_refresh_local_views(
         page.wait_for_timeout(400)
         assert sum("/api/jobs" in url for _, url in requests) > baseline
         baseline = sum("/api/jobs" in url for _, url in requests)
-        page.clock.fast_forward(120001)
+        # Run each 15-second health tick; fast_forward coalesces interval callbacks.
+        page.clock.run_for(120001)
         page.wait_for_timeout(400)
         assert sum("/api/jobs" in url for _, url in requests) > baseline
         assert not any(method == "POST" for method, _ in requests)

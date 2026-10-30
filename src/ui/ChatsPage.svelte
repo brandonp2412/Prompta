@@ -9,7 +9,12 @@
   import { reconcileResultPage } from "./resultListRefresh";
   import { localGet, localReadTimeoutMs } from "./localRead";
   import { localPost } from "./localMutation";
-  import { acknowledgeExactReplyRequest, pendingExactReplyRequest } from "./pendingExactReply";
+  import {
+    acknowledgeExactReplyRequest,
+    acknowledgeQueuedFollowupRequest,
+    pendingExactReplyRequest,
+    pendingQueuedFollowupRequest,
+  } from "./pendingExactReply";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
@@ -471,19 +476,23 @@
       const path = "./api/results/" + encodeURIComponent(id);
       const [response, replyResponse] = await Promise.all([
         localGet(path),
-        localGet(path + "/turns"),
+        // A dropped/aborted turns GET must not hide the confirmed main result.
+        localGet(path + "/turns").catch(() => null),
       ]);
       if (!response.ok) throw new Error("Result not found");
       const body: RunDetail = await response.json();
-      const saved = replyResponse.ok ? await replyResponse.json() as { turns: LocalTurn[] } : null;
+      const saved = replyResponse?.ok
+        ? await replyResponse.json().catch(() => null) as { turns?: LocalTurn[] } | null
+        : null;
+      const savedTurns = Array.isArray(saved?.turns) ? saved.turns : null;
       if (generation !== detailGeneration || selectedRunId !== id) return;
       detail = body;
-      turns = recoverVisibleTurns(saved?.turns ?? null, turns, {
+      turns = recoverVisibleTurns(savedTurns, turns, {
         reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
         tool_calls: body.tool_calls,
         status: body.status, created_at: body.created_at, updated_at: body.updated_at,
       }, !newSelection);
-      turnsError = !replyResponse.ok
+      turnsError = !savedTurns
         ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
         : "";
       detailError = "";
@@ -503,8 +512,6 @@
       }
     }
   }
-
-  let pendingQueued: { sendId: string; replyId: string; text: string } | null = null;
 
    async function sendFresh(text: string, images: string[]) {
     let request: Awaited<ReturnType<typeof freshQueueRequest>>;
@@ -582,24 +589,17 @@
   }
 
   async function queueEarlyReply(sendId: string, text: string) {
-    const storageKey = "prompta.pending-followup.v1." + sendId;
-    const digest = new Uint8Array(await crypto.subtle.digest(
-      "SHA-256", new TextEncoder().encode(JSON.stringify([sendId, text])),
-    ));
-    const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-    let cached: { replyId?: string; fingerprint?: string; text?: string } | null = null;
-    try { cached = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch { /* Storage is optional. */ }
-    const previous = pendingQueued?.sendId === sendId ? pendingQueued : null;
-    const cachedMatches = cached?.fingerprint === fingerprint || cached?.text === text;
-    const replyId = previous?.text === text ? previous.replyId
-      : cachedMatches && cached?.replyId && /^[A-Za-z0-9_-]{16,200}$/.test(cached.replyId)
-        ? cached.replyId : crypto.randomUUID().replaceAll("-", "");
-    pendingQueued = { sendId, replyId, text };
-    // Migrate any older plaintext receipt as soon as it is used. Store only IDs
-    // and a digest, never the user's message, in persistent browser storage.
-    try { localStorage.setItem(storageKey, JSON.stringify({ replyId, fingerprint })); } catch { /* Keep the in-memory receipt. */ }
+    let request: Awaited<ReturnType<typeof pendingQueuedFollowupRequest>>;
     try {
-      const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", { reply_id: replyId, text });
+      request = await pendingQueuedFollowupRequest(sendId, text);
+    } catch {
+      return { ok: false, message: "A durable follow-up ID could not be created. Nothing was sent." };
+    }
+    try {
+      const response = await localPost(
+        "./api/results/" + encodeURIComponent(sendId) + "/reply-queue",
+        { reply_id: request.replyId, text },
+      );
       if (!response.ok) {
         const problem = response.status < 500
           ? await response.json().catch(() => null) as { error?: string } | null : null;
@@ -608,11 +608,11 @@
           message: problem?.error || "Follow-up queue receipt is uncertain. Retry with the saved draft to reconcile.",
         };
       }
-      if (pendingQueued?.replyId === replyId) pendingQueued = null;
-      try {
-        const saved: { replyId?: string } | null = JSON.parse(localStorage.getItem(storageKey) || "null");
-        if (saved?.replyId === replyId) localStorage.removeItem(storageKey);
-      } catch { /* An acknowledged reply is already durable on the server. */ }
+      const receipt = await response.json() as { turn?: { reply_id?: string } };
+      if (receipt.turn?.reply_id !== request.replyId) {
+        return { ok: false, ambiguous: true, message: "Follow-up receipt did not match. The saved ID will be reused on retry." };
+      }
+      acknowledgeQueuedFollowupRequest(sendId, request.fingerprint, request.replyId);
       if (selectedRunId === sendId) await loadDetail(sendId);
       return { ok: true, message: "" };
     } catch {
@@ -1143,7 +1143,7 @@
         restoreDraft={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed" ? turns.at(-1)?.user_text ?? "" : ""}
         retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
         sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}
-        sendHint={replyBlockedReason} />
+        sendHint={recoveringReply ? "Verifying the exact saved ChatGPT branch…" : replyBlockedReason} />
     {/if}
   </div>
 </section>

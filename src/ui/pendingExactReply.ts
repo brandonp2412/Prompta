@@ -1,5 +1,5 @@
-// Preserve an exact-branch reply's idempotency key across a reload or lost HTTP
-// acknowledgment. Only opaque IDs and a hash are stored, never reply text.
+// Preserve exact-branch replies and early follow-ups across lost HTTP receipts.
+// Only opaque IDs and hashes are stored, never private message text.
 type PendingExactReply = {
   fingerprint: string;
   replyId: string;
@@ -7,8 +7,8 @@ type PendingExactReply = {
 };
 
 const storageKey = "prompta.pending-exact-replies.v1";
-const maxRecords = 128;
-const maxAgeMs = 90 * 24 * 60 * 60 * 1000;
+// Never silently evict an unacknowledged receipt: capacity must fail closed.
+const maxRecords = 1024;
 let memoryRecords: PendingExactReply[] = [];
 let memoryOnly = false;
 
@@ -24,8 +24,7 @@ function valid(record: unknown, now: number): record is PendingExactReply {
     "createdAt" in record &&
     typeof record.createdAt === "number" &&
     Number.isFinite(record.createdAt) &&
-    record.createdAt <= now &&
-    record.createdAt > now - maxAgeMs
+    record.createdAt <= now
   );
 }
 
@@ -35,17 +34,20 @@ function records(): PendingExactReply[] {
     try {
       const stored: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
       if (Array.isArray(stored)) {
-        return stored.filter((item) => valid(item, now)).slice(-maxRecords);
+        return stored.filter((item) => valid(item, now));
       }
     } catch {
       // An unavailable store cannot erase this tab's pending request.
     }
   }
-  return memoryRecords.filter((item) => valid(item, now)).slice(-maxRecords);
+  return memoryRecords.filter((item) => valid(item, now));
 }
 
 function persist(items: PendingExactReply[]): void {
-  memoryRecords = items.slice(-maxRecords);
+  if (items.length > maxRecords) {
+    throw new Error("Unresolved reply receipts are at capacity; no new send was attempted.");
+  }
+  memoryRecords = items;
   try {
     localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
     memoryOnly = false;
@@ -75,4 +77,59 @@ export function acknowledgeExactReplyRequest(fingerprint: string, replyId: strin
   persist(
     records().filter((entry) => entry.fingerprint !== fingerprint || entry.replyId !== replyId),
   );
+}
+
+// Keep one receipt per queued message, not one slot per chat: several early
+// follow-ups can be in flight simultaneously without losing their retry IDs.
+export async function pendingQueuedFollowupRequest(
+  sendId: string,
+  text: string,
+): Promise<{ replyId: string; fingerprint: string; reused: boolean }> {
+  // Match the old single-slot hash to migrate an unresolved legacy receipt.
+  const bytes = new TextEncoder().encode(JSON.stringify([sendId, text]));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const saved = records();
+  const previous = saved.find((entry) => entry.fingerprint === fingerprint);
+  if (previous) return { replyId: previous.replyId, fingerprint, reused: true };
+
+  let legacyId = "";
+  try {
+    const legacy: unknown = JSON.parse(
+      localStorage.getItem("prompta.pending-followup.v1." + sendId) || "null",
+    );
+    if (
+      legacy &&
+      typeof legacy === "object" &&
+      "replyId" in legacy &&
+      typeof legacy.replyId === "string" &&
+      /^[A-Za-z0-9_-]{16,200}$/.test(legacy.replyId) &&
+      (("fingerprint" in legacy && legacy.fingerprint === fingerprint) ||
+        ("text" in legacy && legacy.text === text))
+    ) {
+      legacyId = legacy.replyId;
+    }
+  } catch {
+    // Unavailable legacy storage must not prevent a safe new receipt.
+  }
+  const replyId = legacyId || crypto.randomUUID().replaceAll("-", "");
+  persist([...saved, { fingerprint, replyId, createdAt: Date.now() }]);
+  return { replyId, fingerprint, reused: !!legacyId };
+}
+
+export function acknowledgeQueuedFollowupRequest(
+  sendId: string,
+  fingerprint: string,
+  replyId: string,
+): void {
+  acknowledgeExactReplyRequest(fingerprint, replyId);
+  try {
+    const key = "prompta.pending-followup.v1." + sendId;
+    const legacy: unknown = JSON.parse(localStorage.getItem(key) || "null");
+    if (legacy && typeof legacy === "object" && "replyId" in legacy && legacy.replyId === replyId) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // A confirmed server receipt survives even if legacy cleanup is blocked.
+  }
 }

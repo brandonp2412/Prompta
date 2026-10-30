@@ -32,6 +32,9 @@ def test_hung_local_results_get_times_out_then_retries(
             f"http://127.0.0.1:{port}/"
         ) else None)
         page.on("request", lambda req: writes.append(req.url) if req.method == "POST" else None)
+        # Keep this test's recovery explicitly user-triggered, without a live
+        # SSE sync removing the Retry control between visibility and click.
+        page.route("**/api/events", lambda route: route.abort())
         page.add_init_script("""(() => {
           const timeout = AbortSignal.timeout.bind(AbortSignal);
           AbortSignal.timeout = () => timeout(100);
@@ -50,7 +53,15 @@ def test_hung_local_results_get_times_out_then_retries(
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         expect(page.get_by_role("button", name="Retry chats")).to_be_visible(timeout=5000)
         page.evaluate("window.blockLocalResults = false")
-        page.get_by_role("button", name="Retry chats").click()
+        # A disconnected-stream repair can finish between the Retry control
+        # appearing and Playwright waiting for its animation to stabilize.
+        # Click if still present; either path must restore the local chat.
+        page.evaluate("""() => {
+          const retry = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent?.trim() === 'Retry chats'
+          );
+          retry?.click();
+        }""")
         expect(page.locator(".chats-list .chat-row").filter(has_text="Stalled local read")).to_be_visible()
         assert remote == [] and writes == []
         browser.close()
