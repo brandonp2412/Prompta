@@ -9,6 +9,7 @@
   const visible = (node) => node.isConnected && node.getClientRects().length > 0 &&
     getComputedStyle(node).visibility !== "hidden";
   const normalize = (value) => value.replace(/\u200b/g, "").replace(/\s+/g, " ").trim();
+  /* PROMPTA_MARKDOWN_FROM_DOM */
   const rateText = [...document.querySelectorAll('[role="alert"], [role="status"], [role="dialog"]')]
     .filter(visible).map((node) => node.textContent || "").join(" ").toLowerCase();
   if (/too many requests|rate limit|try again in|usage cap|wait a few minutes/.test(rateText)) {
@@ -39,7 +40,7 @@
     !root.parentElement?.closest(markdownSelector) && visible(root)
   );
   // The main turn may contain tools and thoughts; only extract final-answer markdown.
-  const text = roots.map((root) => root.innerText || root.textContent || "").filter(Boolean)
+  const text = roots.map(markdownFromRoot).filter(Boolean)
     .join("\n\n").trim().slice(0, 2 * 1024 * 1024);
   const turn = assistant.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || assistant;
   // Only visible tool headings in this verified turn, never tool bodies or reasoning.

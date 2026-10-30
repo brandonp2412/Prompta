@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from prompta.browser_script_loader import load_browser_script
 from prompta.reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from prompta.response_capture import conversation_id_from_path, normalize_dom_snapshot
 from prompta.response_store import ResponseStore
@@ -74,9 +75,7 @@ async def test_real_browser_observer_binds_owned_route_without_network() -> None
 
     from playwright.async_api import async_playwright
 
-    script = (
-        Path(__file__).parents[1] / "src/browser_scripts/passive_response_observer.js"
-    ).read_text()
+    script = load_browser_script("passive_response_observer.js")
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(
             headless=True, executable_path=shutil.which("chromium")

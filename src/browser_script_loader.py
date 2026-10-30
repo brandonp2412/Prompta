@@ -18,4 +18,12 @@ def load_browser_script(name: str) -> str:
         raise ValueError(f"Invalid browser script name: {name!r}")
     path = _SCRIPT_ROOT / script_name
     stat = path.stat()
-    return _read_versioned_script(path, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+    source = _read_versioned_script(path, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+    # Keep live and historical ChatGPT DOM response serialization identical.
+    # The shared source is also cached against its own file version.
+    marker = "/* PROMPTA_MARKDOWN_FROM_DOM */"
+    if marker in source:
+        if name == "markdown_from_dom.js":
+            raise ValueError("Recursive Markdown serializer include")
+        return source.replace(marker, load_browser_script("markdown_from_dom.js"))
+    return source

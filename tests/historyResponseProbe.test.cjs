@@ -2,7 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
-const raw = fs.readFileSync("src/browser_scripts/historical_response_probe.js", "utf8");
+const serializer = fs.readFileSync("src/browser_scripts/markdown_from_dom.js", "utf8");
+const raw = fs.readFileSync("src/browser_scripts/historical_response_probe.js", "utf8")
+  .replace("/* PROMPTA_MARKDOWN_FROM_DOM */", serializer);
 for (const forbidden of [/fetch\s*\(/, /XMLHttpRequest/, /backend-api/, /window\.open\s*\(/, /setInterval\s*\(/]) {
   assert.ok(!forbidden.test(raw), "history probe must stay DOM-only");
 }

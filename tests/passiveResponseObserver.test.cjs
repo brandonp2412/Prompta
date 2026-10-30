@@ -2,7 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
-const source = fs.readFileSync("src/browser_scripts/passive_response_observer.js", "utf8");
+const serializer = fs.readFileSync("src/browser_scripts/markdown_from_dom.js", "utf8");
+const source = fs.readFileSync("src/browser_scripts/passive_response_observer.js", "utf8")
+  .replace("/* PROMPTA_MARKDOWN_FROM_DOM */", serializer);
 const readSource = fs.readFileSync("src/browser_scripts/passive_response_read.js", "utf8");
 for (const script of [source, readSource]) {
   for (const forbidden of [/fetch\s*\(/, /XMLHttpRequest/, /backend-api/, /\.location\s*=/, /window\.open\s*\(/, /setInterval\s*\(/]) {

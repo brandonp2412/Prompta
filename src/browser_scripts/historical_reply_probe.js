@@ -11,6 +11,7 @@
   const visible = (node) => node.isConnected && node.getClientRects().length > 0 &&
     getComputedStyle(node).visibility !== "hidden";
   const normalize = (value) => value.replace(/\u200b/g, "").replace(/\s+/g, " ").trim();
+  /* PROMPTA_MARKDOWN_FROM_DOM */
   const rateText = [...document.querySelectorAll('[role="alert"], [role="status"], [role="dialog"]')]
     .filter(visible).map((node) => node.textContent || "").join(" ").toLowerCase();
   if (/too many requests|rate limit|try again in|usage cap|wait a few minutes/.test(rateText)) {
@@ -51,7 +52,7 @@
   const roots = [...assistant.querySelectorAll(markdownSelector)].filter((root) =>
     !root.parentElement?.closest(markdownSelector) && visible(root)
   );
-  const text = roots.map((root) => root.innerText || root.textContent || "").filter(Boolean).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
+  const text = roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
   const turn = assistant.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || assistant;
   const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [aria-label^="Used "]';
   const tool_calls = [...turn.querySelectorAll(toolSelector)].filter((node) =>
