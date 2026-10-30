@@ -113,6 +113,22 @@ def test_delivery_queue_creates_jobs_only_lookup_indexes(tmp_path: Path) -> None
     assert "job_deliveries_client_id" in indexes
 
 
+def test_pending_scheduled_prefixes_are_literal_not_sql_wildcards(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    names = ("stage_under", "stageXunder", "rate%target", "rateXtarget", r"slash\name", "slashXname")
+    for index, name in enumerate(names):
+        store.upsert(_queued_record(f"send-{index}", client_id=f"scheduled:key:{name}"))
+
+    assert store.pending_scheduled_send_ids(("stage_",)) == {"send-0"}
+    assert store.pending_scheduled_send_ids(("rate%",)) == {"send-2"}
+    assert store.pending_scheduled_send_ids(("slash\\",)) == {"send-4"}
+    assert store.pending_scheduled_send_ids(("stage_", "rate%", "slash\\")) == {
+        "send-0", "send-2", "send-4"
+    }
+    assert store.pending_scheduled_send_ids(()) == set()
+    assert len(store.pending_scheduled_send_ids()) == len(names)
+
+
 def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())

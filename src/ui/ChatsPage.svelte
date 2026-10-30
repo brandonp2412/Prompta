@@ -106,6 +106,7 @@
   let loadingList = $state(true);
   let loadingDetail = $state(false);
   let listError = $state("");
+  let morePageFailed = $state(false);
   let detailError = $state("");
   let listGeneration = 0;
   let listInFlight = false;
@@ -415,8 +416,12 @@
       total = body.total;
       nextOffset = Math.min(body.total, Math.max(nextOffset, body.items.length));
       listError = "";
+      morePageFailed = false;
     } catch {
-      if (generation === listGeneration) listError = "Local results are temporarily unavailable.";
+      if (generation === listGeneration) {
+        morePageFailed = false;
+        listError = "Local results are temporarily unavailable.";
+      }
     } finally {
       if (generation === listGeneration) {
         loadingList = false;
@@ -444,9 +449,13 @@
       items = mergeRuns(items, body.items);
       total = body.total;
       nextOffset = offset + body.items.length;
+      morePageFailed = false;
       listError = "";
     } catch {
-      if (generation === listGeneration) listError = "More local chats could not be loaded.";
+      if (generation === listGeneration) {
+        morePageFailed = true;
+        listError = "More local chats could not be loaded.";
+      }
     } finally {
       if (generation === listGeneration) {
         loadingMore = false;
@@ -1002,7 +1011,7 @@
     {#if listError}
       <div class="result-error recovery-error" role="alert">
         <span>{listError}</span>
-        <button type="button" onclick={() => void loadList()}>Retry chats</button>
+        <button type="button" onclick={() => morePageFailed ? void loadMore() : void loadList()}>{morePageFailed ? "Retry older chats" : "Retry chats"}</button>
       </div>
     {/if}
     {#if pinError}

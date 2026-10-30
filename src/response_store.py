@@ -402,7 +402,7 @@ class ResponseStore:
         predicates = [results.c.job_name != ""]
         if job_prefixes is not None:
             predicates.append(
-                or_(*(results.c.job_name.startswith(prefix) for prefix in job_prefixes))
+                or_(*(results.c.job_name.startswith(prefix, autoescape=True) for prefix in job_prefixes))
             )
         with self.engine.connect() as connection:
             rows = connection.execute(

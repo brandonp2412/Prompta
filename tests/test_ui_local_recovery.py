@@ -94,3 +94,48 @@ def test_retry_chats_recovers_list_without_a_pin_failure(
         expect(page.get_by_role("button", name="Retry chats")).to_have_count(0)
         assert posts == []
         browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_retry_older_chats_retries_failed_page_without_resetting_list(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+        now = time.time()
+        for index in range(25):
+            completed_run(app, f"older-page-{index}", f"Older page {index}", now - index)
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        posts: list[str] = []
+        page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
+        page.route("**/api/events", lambda route: route.abort())
+        attempts = [0]
+
+        def older_page_response(route) -> None:
+            attempts[0] += 1
+            if attempts[0] == 1:
+                route.fulfill(status=503)
+            else:
+                route.continue_()
+
+        page.route("**/api/results?*offset=20*", older_page_response)
+        page.goto(f"http://127.0.0.1:{port}/?view=chats")
+        expect(page.locator(".chats-list .chat-entry")).to_have_count(20)
+        page.locator(".chats-list").evaluate("node => node.scrollTop = node.scrollHeight")
+        expect(page.get_by_role("button", name="Retry older chats")).to_be_visible()
+        # A narrow viewport can trigger an automatic second fetch while the
+        # sidebar scroll settles. Click the retry if still present; either
+        # recovery path must restore the older page without another POST.
+        page.evaluate("""() => {
+            const button = [...document.querySelectorAll('button')]
+                .find(item => item.textContent?.trim() === 'Retry older chats');
+            button?.click();
+        }""")
+        expect(page.locator(".chats-list .chat-entry")).to_have_count(25)
+        assert attempts[0] >= 2
+        expect(page.get_by_role("button", name="Retry older chats")).to_have_count(0)
+        assert posts == []
+        browser.close()

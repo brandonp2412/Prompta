@@ -32,17 +32,21 @@ class RateLimitError(RuntimeError):
 
 
 def parse_retry_after(text: str) -> int:
-    lowered = text.casefold()
+    lowered = text[:2048].casefold()
     if re.search(r"\b(?:a\s+)?few\s+(?:minutes?|mins?)\b", lowered):
         return 5 * 60
-    match = re.search(r"\b(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", lowered)
-    if match is None:
-        return DEFAULT_RETRY_AFTER
-    value = int(match.group(1))
-    unit = match.group(2)
-    if unit.startswith(("hour", "hr")):
-        return value * 60 * 60
-    return value * 60 if unit.startswith(("min", "minute")) else value
+    # ChatGPT may describe a compound or fractional wait in the response text.
+    # Parsing only the first integer misreads 1.5 minutes as five minutes.
+    duration = 0.0
+    found = False
+    pattern = r"(?<![\w.])(\d{1,6}(?:\.\d{1,3})?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)(?!\w)"
+    for match in re.finditer(pattern, lowered):
+        amount = float(match.group(1))
+        unit = match.group(2)
+        multiplier = 3600 if unit.startswith(("hour", "hr")) else 60 if unit.startswith(("min", "minute")) else 1
+        duration += amount * multiplier
+        found = True
+    return max(1, math.ceil(duration)) if found else DEFAULT_RETRY_AFTER
 
 
 def parse_retry_after_header(value: str | None, *, now: float | None = None) -> int:

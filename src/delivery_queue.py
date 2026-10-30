@@ -82,10 +82,17 @@ class DeliveryQueueStore:
             return set()
         predicates = [job_deliveries.c.client_id.like("scheduled:%")]
         if job_prefixes is not None:
+            # User-defined job prefixes are literals, not SQL LIKE patterns.
+            # Wildcards here could falsely occupy a different stage's slots.
             predicates.append(
                 or_(
                     *(
-                        job_deliveries.c.client_id.like(f"scheduled:%:{prefix}%")
+                        job_deliveries.c.client_id.like(
+                            "scheduled:%:"
+                            + prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                            + "%",
+                            escape="\\",
+                        )
                         for prefix in job_prefixes
                     )
                 )
