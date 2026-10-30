@@ -30,6 +30,8 @@ Privacy-scrubbed captures are in `after/<viewport>/` (new editor, picker, keyboa
 - Bun install: BUILDQ #2746, **pass**.
 - Bun/Svelte/TypeScript/Vite check: BUILDQ #2848, **pass** with 0 Svelte errors and 0 warnings.
 - Follow-up after Chats became the default route: test explicitly opens ?view=jobs. BUILDQ #2830: **6 passed**, #2837 Ruff **pass**, #2838 Ty **pass**, #2839 pytest **526 passed, 43 skipped**, #2848 Bun **pass**. The 32 synthetic screenshots in retest-20261030-1520/ were captured and representative portrait/keyboard/desktop states visually inspected.
+- 17:45 final rebased branch on current main `4f6d721` (no CSS/test overlap). BUILDQ #2942 real-touch six-viewport Playwright **6 passed**; #2943 full Ruff check **pass**; #2946 Ty **pass**; #2947 full pytest **551 passed, 43 skipped**; #2951 Bun/Svelte/TypeScript/Vite **pass**, 0 Svelte errors/warnings. BUILDQ #2956 formatted only the new test. Repo-wide `ruff format --check .` reports 49 pre-existing files requiring formatting, unrelated to this fix; no blanket formatting was performed. Generated Vite bundle only changed node_modules path annotations and was restored.
+- Inspected actual original and rebased 320×700 normal/keyboard and 1440×900 screenshot PNGs at native resolution: picker above footer and tappable. Hardware Galaxy S25 unlocked but Rotta active in foreground; did not interrupt unrelated app.
 - Integration, push, deployed synthetic browser gate and service health: pending final gate.
 
 Only `src/static/app.css`, the targeted regression test and this documentation are intended source changes. Do not change the mobile portrait footer or production job data.

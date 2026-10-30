@@ -107,27 +107,35 @@ def test_ux01_004_image_picker_and_footer_real_touch(
                     touch_center(page, ".job-image-picker button", touch=touch)
 
                 page.locator(".name-field input").fill("Synthetic unsaved job")
-                page.locator(".prompt-field textarea").fill("A synthetic draft with no live dispatch.")
+                page.locator(".prompt-field textarea").fill(
+                    "A synthetic draft with no live dispatch."
+                )
                 if width <= 420:
                     page.set_viewport_size({"width": width, "height": 430})
                     page.locator(".prompt-field textarea").focus()
                     capture(page, viewport, "03-keyboard-focused")
                     for _ in range(3):
-                        page.locator(".jobs-workspace").evaluate("(element) => { element.scrollTop = 0; }")
+                        page.locator(".jobs-workspace").evaluate(
+                            "(element) => { element.scrollTop = 0; }"
+                        )
                         page.locator(".job-image-picker button").scroll_into_view_if_needed()
                         with page.expect_file_chooser():
                             touch_center(page, ".job-image-picker button", touch=True)
                         page.locator(".editor-footer").scroll_into_view_if_needed()
                         capture(page, viewport, "04-keyboard-actions")
                         touch_center(page, ".editor-actions button:first-child", touch=True)
-                        expect(page.get_by_role("alertdialog", name="Discard unsaved changes")).to_be_visible()
+                        expect(
+                            page.get_by_role("alertdialog", name="Discard unsaved changes")
+                        ).to_be_visible()
                         touch_center(page, ".editor-feedback button:first-of-type", touch=True)
                         expect(page.get_by_role("alertdialog")).to_have_count(0)
                 else:
                     page.locator(".editor-footer").scroll_into_view_if_needed()
 
                 touch_center(page, ".editor-actions button:first-child", touch=touch)
-                expect(page.get_by_role("alertdialog", name="Discard unsaved changes")).to_be_visible()
+                expect(
+                    page.get_by_role("alertdialog", name="Discard unsaved changes")
+                ).to_be_visible()
                 capture(page, viewport, "05-discard-confirm")
                 touch_center(page, ".editor-feedback button:last-of-type", touch=touch)
                 expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
@@ -138,8 +146,7 @@ def test_ux01_004_image_picker_and_footer_real_touch(
                 touch_center(page, ".editor-actions button:first-child", touch=touch)
                 expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
                 assert all(
-                    method in ("GET", "HEAD") and url.startswith(base)
-                    for method, url in requests
+                    method in ("GET", "HEAD") and url.startswith(base) for method, url in requests
                 ), requests
                 context.close()
             finally:
