@@ -25,6 +25,8 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
     value: {
       setInterval: (callback: () => void, ms: number) => { repair = callback; period = ms; return 7; },
       clearInterval: (id: number) => { if (id === 7) cleared = true; },
+      setTimeout: () => 8,
+      clearTimeout: () => {},
       addEventListener: () => {},
       removeEventListener: () => {},
     },
@@ -49,25 +51,31 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
     const emit = (event: string) => { for (const callback of handlers.get(event) ?? []) callback(); };
     emit("sync");
     expect([jobs, chats]).toEqual([1, 1]);
-    for (let i = 0; i < 7; i += 1) repair?.();
-    expect([jobs, chats]).toEqual([1, 1]);
     repair?.();
     expect([jobs, chats]).toEqual([2, 2]);
     emit("error");
-    emit("error"); // Duplicate browser disconnects must not issue extra GETs.
+    emit("error"); // Repeated initial disconnects do not trigger GET storms.
     repair?.();
-    expect([jobs, chats]).toEqual([4, 4]);
+    expect([jobs, chats]).toEqual([3, 3]);
     visibility = "hidden";
     repair?.();
-    expect([jobs, chats]).toEqual([4, 4]);
+    expect([jobs, chats]).toEqual([3, 3]);
     visibility = "visible";
     documentHandlers.get("visibilitychange")?.();
-    expect([jobs, chats]).toEqual([5, 5]);
+    expect([jobs, chats]).toEqual([4, 4]);
     emit("open");
+    expect(period).toBe(120_000);
     // The server's sync frame, not the transport open event, refreshes views.
-    expect([jobs, chats]).toEqual([5, 5]);
+    expect([jobs, chats]).toEqual([4, 4]);
     emit("sync");
+    expect([jobs, chats]).toEqual([5, 5]);
+    emit("error");
+    expect(period).toBe(15_000);
+    expect([jobs, chats]).toEqual([6, 6]); // One immediate repair on healthy disconnect.
+    emit("error");
     expect([jobs, chats]).toEqual([6, 6]);
+    repair?.();
+    expect([jobs, chats]).toEqual([7, 7]);
     offJobs();
     offChats();
     expect(closed).toBe(true);

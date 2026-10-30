@@ -5264,17 +5264,27 @@ var storageKey$1 = "prompta.pending-fresh-requests.v1";
 var maxRecords$1 = 1024;
 var memoryRecords$1 = [];
 var memoryOnly$1 = false;
-function valid$1(record, now) {
+function valid$1(record) {
 	if (!record || typeof record !== "object") return false;
-	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt >= 0;
 }
 function records$1() {
-	const now = Date.now();
-	if (!memoryOnly$1) try {
-		const stored = JSON.parse(localStorage.getItem(storageKey$1) || "[]");
-		if (Array.isArray(stored)) return stored.filter((item) => valid$1(item, now));
-	} catch {}
-	return memoryRecords$1.filter((item) => valid$1(item, now));
+	if (memoryOnly$1) return memoryRecords$1;
+	let raw;
+	try {
+		raw = localStorage.getItem(storageKey$1);
+	} catch {
+		return memoryRecords$1;
+	}
+	if (raw === null) return [];
+	let stored;
+	try {
+		stored = JSON.parse(raw);
+	} catch {
+		throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
+	}
+	if (!Array.isArray(stored) || stored.length > maxRecords$1 || !stored.every(valid$1)) throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
+	return stored;
 }
 function persist$1(items) {
 	if (items.length > maxRecords$1) throw new Error("Unresolved chat requests are at capacity; no new send was attempted.");
@@ -5313,12 +5323,15 @@ async function freshQueueRequest(prompt, images, scope = "chat") {
 		reused: false
 	};
 }
-async function findFreshQueueReceipt(requestId) {
+async function findFreshQueueReceiptStatus(requestId) {
 	try {
 		const response = await localGet("./api/chats/requests/" + requestId);
 		if (!response.ok) return null;
 		const body = await response.json();
-		return body.send_id === "manual-" + requestId ? body.send_id : null;
+		return body.send_id === "manual-" + requestId && typeof body.status === "string" ? {
+			sendId: body.send_id,
+			status: body.status
+		} : null;
 	} catch {
 		return null;
 	}
@@ -5769,16 +5782,40 @@ function JobsPage($$anchor, $$props) {
 		let request;
 		let definitivelyRejected = false;
 		const reconcile = async () => {
-			if (!request || !await findFreshQueueReceipt(request.requestId)) return false;
+			if (!request) return "missing";
+			const receipt = await findFreshQueueReceiptStatus(request.requestId);
+			if (!receipt) return "missing";
+			if ([
+				"outcome_unknown",
+				"cancelled",
+				"dead_lettered"
+			].includes(receipt.status)) {
+				set(status, receipt.status === "outcome_unknown" ? "The earlier run may have reached ChatGPT. No automatic resend was attempted." : "The earlier run ended without confirmed delivery. Review Chats before retrying.", true);
+				await load({ quiet: true });
+				return "terminal";
+			}
+			if (![
+				"queued",
+				"running",
+				"retrying",
+				"rate_limited",
+				"succeeded"
+			].includes(receipt.status)) {
+				set(status, "The saved queue receipt has an unknown state. No resend was attempted.");
+				return "terminal";
+			}
 			acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
 			await load({ quiet: true });
 			set(status, success, true);
-			return true;
+			return "confirmed";
 		};
 		try {
 			if (queueContext) {
 				request = await freshQueueRequest(queueContext.prompt, queueContext.images, queueContext.scope);
-				if (request.reused && await reconcile()) return true;
+				if (request.reused) {
+					const previous = await reconcile();
+					if (previous !== "missing") return previous === "confirmed";
+				}
 				payload = {
 					...payload,
 					request_id: request.requestId
@@ -5794,7 +5831,8 @@ function JobsPage($$anchor, $$props) {
 			return true;
 		} catch (error) {
 			if (request && !definitivelyRejected) {
-				if (await reconcile()) return true;
+				const recovered = await reconcile();
+				if (recovered !== "missing") return recovered === "confirmed";
 				set(status, "Queue receipt uncertain. The request ID is saved; press the same action again to reconcile safely.");
 			} else set(status, definitivelyRejected ? "Job update failed: " + String(error).replace(/^Error:\s*/, "") : "Job update could not be confirmed. Refresh Jobs before repeating the action.", true);
 			return false;
@@ -6908,8 +6946,11 @@ function ChatComposer($$anchor, $$props) {
 				set(feedback, result.message, true);
 				set(fallbackAvailable, Boolean(result.fallbackAvailable), true);
 			}
-		} catch {
-			if (get(draftStorageKey) === submittedKey) set(feedback, "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.");
+		} catch (error) {
+			if (get(draftStorageKey) === submittedKey) {
+				const message = error instanceof Error ? error.message : "";
+				set(feedback, message.startsWith("Unresolved chat receipts") || message.startsWith("Unresolved reply receipts") || message.startsWith("Unresolved chat requests") || message.startsWith("Unresolved reply receipts are at capacity") ? message : "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.", true);
+			}
 		} finally {
 			if (get(draftStorageKey) === submittedKey) set(sending, false);
 		}
@@ -9463,17 +9504,27 @@ var storageKey = "prompta.pending-exact-replies.v1";
 var maxRecords = 1024;
 var memoryRecords = [];
 var memoryOnly = false;
-function valid(record, now) {
+function valid(record) {
 	if (!record || typeof record !== "object") return false;
-	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[a-f0-9]{32}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[a-f0-9]{32}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt >= 0;
 }
 function records() {
-	const now = Date.now();
-	if (!memoryOnly) try {
-		const stored = JSON.parse(localStorage.getItem(storageKey) || "[]");
-		if (Array.isArray(stored)) return stored.filter((item) => valid(item, now));
-	} catch {}
-	return memoryRecords.filter((item) => valid(item, now));
+	if (memoryOnly) return memoryRecords;
+	let raw;
+	try {
+		raw = localStorage.getItem(storageKey);
+	} catch {
+		return memoryRecords;
+	}
+	if (raw === null) return [];
+	let stored;
+	try {
+		stored = JSON.parse(raw);
+	} catch {
+		throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
+	}
+	if (!Array.isArray(stored) || stored.length > maxRecords || !stored.every(valid)) throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
+	return stored;
 }
 function persist(items) {
 	if (items.length > maxRecords) throw new Error("Unresolved reply receipts are at capacity; no new send was attempted.");
@@ -10129,17 +10180,45 @@ function ChatsPage($$anchor, $$props) {
 			}
 		}
 	}
+	function receiptFailureMessage(error, fallback) {
+		const message = error instanceof Error ? error.message : "";
+		return message.startsWith("Unresolved chat receipts") || message.startsWith("Unresolved chat requests") || message.startsWith("Unresolved reply receipts") ? message : fallback;
+	}
 	async function sendFresh(text, images) {
 		let request;
 		try {
 			request = await freshQueueRequest(text, images);
-		} catch {
+		} catch (error) {
 			return {
 				ok: false,
-				message: "A durable request ID could not be created. Nothing was sent."
+				message: receiptFailureMessage(error, "A durable request ID could not be created. Nothing was sent.")
 			};
 		}
-		const accepted = (sendId) => {
+		const accepted = (sendId, status) => {
+			if (status === "outcome_unknown") {
+				loadList();
+				return {
+					ok: false,
+					message: "The previous fresh-chat send may have reached ChatGPT. No automatic resend was attempted; inspect its status in Chats."
+				};
+			}
+			if (status === "cancelled" || status === "dead_lettered") {
+				loadList();
+				return {
+					ok: false,
+					message: "The earlier request ended without a confirmed delivery. Review its status in Chats before starting another."
+				};
+			}
+			if (![
+				"queued",
+				"running",
+				"retrying",
+				"rate_limited",
+				"succeeded"
+			].includes(status)) return {
+				ok: false,
+				message: "The queue receipt has an unknown state; the saved request ID was preserved."
+			};
 			acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
 			set(search, "");
 			set(statusFilter, "");
@@ -10152,8 +10231,8 @@ function ChatsPage($$anchor, $$props) {
 			};
 		};
 		if (request.reused) {
-			const existing = await findFreshQueueReceipt(request.requestId);
-			if (existing) return accepted(existing);
+			const existing = await findFreshQueueReceiptStatus(request.requestId);
+			if (existing) return accepted(existing.sendId, existing.status);
 		}
 		try {
 			const response = await localPost("./api/chats", {
@@ -10163,14 +10242,14 @@ function ChatsPage($$anchor, $$props) {
 			});
 			if (response.ok) {
 				const body = await response.json();
-				if (body.send_id === "manual-" + request.requestId) return accepted(body.send_id);
+				if (body.send_id === "manual-" + request.requestId && typeof body.status === "string") return accepted(body.send_id, body.status);
 			} else if (response.status < 500) return {
 				ok: false,
 				message: "The fresh chat was rejected. Review the prompt or images."
 			};
 		} catch {}
-		const recovered = await findFreshQueueReceipt(request.requestId);
-		if (recovered) return accepted(recovered);
+		const recovered = await findFreshQueueReceiptStatus(request.requestId);
+		if (recovered) return accepted(recovered.sendId, recovered.status);
 		return {
 			ok: false,
 			ambiguous: true,
@@ -10204,10 +10283,10 @@ function ChatsPage($$anchor, $$props) {
 		let request;
 		try {
 			request = await pendingQueuedFollowupRequest(sendId, text);
-		} catch {
+		} catch (error) {
 			return {
 				ok: false,
-				message: "A durable follow-up ID could not be created. Nothing was sent."
+				message: receiptFailureMessage(error, "A durable follow-up ID could not be created. Nothing was sent.")
 			};
 		}
 		try {
@@ -10297,10 +10376,10 @@ function ChatsPage($$anchor, $$props) {
 		let request;
 		try {
 			request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
-		} catch {
+		} catch (error) {
 			return {
 				ok: false,
-				message: "A durable reply ID could not be created. Nothing was sent."
+				message: receiptFailureMessage(error, "A durable reply ID could not be created. Nothing was sent.")
 			};
 		}
 		if ($$props.selectedRunId !== sendId) return {

@@ -172,7 +172,7 @@ def test_browser_polls_during_sse_outage_and_recovers_without_reloading(tmp_path
     with live_server(tmp_path) as (_, port, jobs_path):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                headless=True, executable_path="/usr/bin/chromium",
+                headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
                 args=["--no-sandbox"],
             )
             try:
