@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -120,7 +121,7 @@ def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) ->
     with live_server(tmp_path) as (app, port, jobs_path):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                headless=True, executable_path="/usr/bin/chromium",
+                headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
                 args=["--no-sandbox"],
             )
             try:
