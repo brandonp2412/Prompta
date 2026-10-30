@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 
 import pytest
@@ -57,7 +58,7 @@ async def test_blocked_account_opens_no_chat_tabs(monkeypatch: pytest.MonkeyPatc
 async def test_rate_limited_or_failed_load_is_not_a_successful_approval_watch(
     monkeypatch: pytest.MonkeyPatch, status: int, body: str, expected_events: int
 ) -> None:
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if not chromium:
         pytest.skip("Chromium unavailable")
     gate = FakeReadGate()

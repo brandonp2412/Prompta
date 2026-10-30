@@ -94,7 +94,7 @@ def completed_run(app: PromptaJobServer, send_id: str, name: str, now: float) ->
 def test_default_route_opens_chats_and_jobs_remains_linkable(tmp_path: Path) -> None:
     with server(tmp_path) as (_app, port):
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, executable_path="/usr/bin/chromium")
+            browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
             try:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
                 page.goto(f"http://127.0.0.1:{port}/")

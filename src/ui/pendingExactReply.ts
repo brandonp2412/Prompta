@@ -12,7 +12,7 @@ const maxRecords = 1024;
 let memoryRecords: PendingExactReply[] = [];
 let memoryOnly = false;
 
-function valid(record: unknown, now: number): record is PendingExactReply {
+function valid(record: unknown): record is PendingExactReply {
   if (!record || typeof record !== "object") return false;
   return (
     "fingerprint" in record &&
@@ -24,23 +24,31 @@ function valid(record: unknown, now: number): record is PendingExactReply {
     "createdAt" in record &&
     typeof record.createdAt === "number" &&
     Number.isFinite(record.createdAt) &&
-    record.createdAt <= now
+    record.createdAt >= 0
   );
 }
 
 function records(): PendingExactReply[] {
-  const now = Date.now();
-  if (!memoryOnly) {
-    try {
-      const stored: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
-      if (Array.isArray(stored)) {
-        return stored.filter((item) => valid(item, now));
-      }
-    } catch {
-      // An unavailable store cannot erase this tab's pending request.
-    }
+  if (memoryOnly) return memoryRecords;
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(storageKey);
+  } catch {
+    // A denied read cannot erase IDs already created in this page.
+    return memoryRecords;
   }
-  return memoryRecords.filter((item) => valid(item, now));
+  if (raw === null) return [];
+  let stored: unknown;
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
+  }
+  if (!Array.isArray(stored) || stored.length > maxRecords || !stored.every(valid)) {
+    // Preserve every uncertain request ID, even if an old entry is damaged.
+    throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
+  }
+  return stored;
 }
 
 function persist(items: PendingExactReply[]): void {

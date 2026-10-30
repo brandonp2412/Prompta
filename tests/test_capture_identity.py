@@ -71,6 +71,7 @@ def test_owned_lease_binds_route_once_and_preserves_terminal_identity(tmp_path: 
 @pytest.mark.asyncio
 async def test_real_browser_observer_binds_owned_route_without_network() -> None:
     import asyncio
+    import os
     import shutil
 
     from playwright.async_api import async_playwright
@@ -78,7 +79,7 @@ async def test_real_browser_observer_binds_owned_route_without_network() -> None
     script = load_browser_script("passive_response_observer.js")
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(
-            headless=True, executable_path=shutil.which("chromium")
+            headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
         )
         try:
             page = await browser.new_page()

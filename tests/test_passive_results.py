@@ -339,7 +339,7 @@ async def test_real_browser_late_answer_recovers_without_external_reads(
     from prompta.browser_script_loader import load_browser_script
     from prompta.response_capture import normalize_dom_snapshot
 
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("Local Chromium unavailable")
     sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)

@@ -62,7 +62,11 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
     expect([jobs, chats]).toEqual([4, 4]);
     visibility = "visible";
     documentHandlers.get("visibilitychange")?.();
+    expect([jobs, chats]).toEqual([5, 5]);
     emit("open");
+    // The server's sync frame, not the transport open event, refreshes views.
+    expect([jobs, chats]).toEqual([5, 5]);
+    emit("sync");
     expect([jobs, chats]).toEqual([6, 6]);
     offJobs();
     offChats();

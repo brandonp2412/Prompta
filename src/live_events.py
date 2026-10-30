@@ -13,7 +13,8 @@ def _version(path: Path) -> FileVersion:
     try:
         info = path.stat()
     except OSError:
-        # Observation is best-effort: the next readable snapshot will differ.
+        # A transient stat failure must not tear down SSE; a later readable
+        # snapshot will restore the revision.
         return (0, 0, 0)
     return (info.st_ino, info.st_size, info.st_mtime_ns)
 

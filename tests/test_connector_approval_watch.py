@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 
 import pytest
@@ -25,6 +26,12 @@ async def test_background_watcher_opens_unread_chat_and_grants_permission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import prompta.connector_approval_watch as watcher
+
+    # This fixture verifies an opt-in watcher regardless of the host's config.
+    monkeypatch.setattr(
+        watcher.ConnectorApproval, "load",
+        classmethod(lambda cls: cls(enabled=True)),
+    )
 
     class Sidebar:
         def __init__(self) -> None:
@@ -95,7 +102,7 @@ async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
 ) -> None:
     import prompta.connector_approval_watch as watcher
 
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
 
@@ -134,7 +141,7 @@ async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
 
 @pytest.mark.asyncio
 async def test_unread_sidebar_detection_and_connector_approval() -> None:
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if not chromium:
         pytest.skip("System Chromium is unavailable")
 

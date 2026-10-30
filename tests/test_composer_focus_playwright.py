@@ -15,7 +15,7 @@ from prompta.browser_script_loader import load_browser_script
 
 @pytest.mark.asyncio
 async def test_browser_composer_focus_rejects_embedded_button_and_focus_steal() -> None:
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
     async with async_playwright() as playwright:
@@ -46,7 +46,7 @@ async def test_browser_composer_focus_rejects_embedded_button_and_focus_steal() 
 
 @pytest.mark.asyncio
 async def test_connector_permission_controls() -> None:
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
     async with async_playwright() as playwright:
@@ -145,7 +145,7 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
         touch_owned_tab,
     )
 
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
     ledger = tmp_path / "leases.sqlite3"

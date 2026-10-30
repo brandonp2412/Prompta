@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 
@@ -28,8 +29,9 @@ HTML = f"""<html><body><main>
 
 
 def test_reply_history_probe_real_chromium_dom() -> None:
-    if not Path("/usr/bin/chromium").exists():
-        pytest.skip("Nox Chromium is not installed")
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.exists():
+        pytest.skip("Chromium test browser is not installed")
     source = load_browser_script("historical_reply_probe.js")
     for forbidden in (r"fetch\s*\(", "XMLHttpRequest", "backend-api", r"window\.open\s*\("):
         assert re.search(forbidden, source) is None
@@ -43,7 +45,7 @@ def test_reply_history_probe_real_chromium_dom() -> None:
     async def check() -> None:
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(
-                executable_path="/usr/bin/chromium",
+                executable_path=str(chromium),
                 headless=True,
             )
             try:

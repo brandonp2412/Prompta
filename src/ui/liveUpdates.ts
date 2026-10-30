@@ -80,6 +80,7 @@ function start() {
     const nextSource = new EventSource("./api/events");
     source = nextSource;
     nextSource.addEventListener("open", () => {
+      // The next sync event owns GET invalidation; open restores status only.
       if (source === nextSource) connectionRestored();
     });
     nextSource.addEventListener("error", () => {
