@@ -1151,3 +1151,9 @@ select:focus-visible {
   .editor-actions { flex-wrap: wrap; }
   .editor-actions > button { flex: 1 1 auto; }
 }
+
+/* Keep the desktop image picker above the sticky action bar without changing portrait or landscape footers. */
+@media (min-width: 1000px) {
+  .jobs-workspace .editor-body .prompt-field { flex: none; }
+  .jobs-workspace .editor-body textarea { flex: none; height: min(38dvh, 420px); min-height: 220px; }
+}
