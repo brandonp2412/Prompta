@@ -47,6 +47,33 @@ def test_only_verified_incomplete_conversations_are_recovery_candidates(tmp_path
     assert candidate is not None and candidate["attempt_count"] == 2
 
 
+def test_recovery_metrics_are_private_aggregate_and_respect_backoff(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "verified")
+    store.ensure_queued("unverified", "Sensitive prompt", now=10)
+    assert store.accept("unverified", "123:owner", deadline=100, now=11)
+    assert store.finish("unverified", "123:owner", "interrupted", now=100)
+    store.ensure_queued("active", "Still streaming", now=10)
+    assert store.accept("active", "123:owner", deadline=200, now=11)
+    store.schedule_history_recovery("verified", next_attempt_at=180, now=100)
+    store.schedule_history_recovery("__global_pacing__", next_attempt_at=160, now=100)
+    store.schedule_history_recovery("__security_pause__", next_attempt_at=210, now=100)
+
+    metrics = store.recovery_metrics(now=150)
+    assert metrics == {
+        "active_captures": 1,
+        "stale_capture_leases": 0,
+        "recoverable": 1,
+        "ready_for_read_only_probe": 0,
+        "missing_verified_identity": 1,
+        "security_pause_seconds": 60,
+        "global_pace_seconds": 10,
+    }
+    assert store.recovery_metrics(now=220)["ready_for_read_only_probe"] == 1
+    assert store.recovery_metrics(now=220)["stale_capture_leases"] == 1
+    assert "Sensitive prompt" not in str(metrics)
+
+
 def test_recovery_never_overwrites_completed_or_crosses_branches(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)

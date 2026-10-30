@@ -172,6 +172,37 @@ async def test_disconnect_keeps_partial_and_approval_task_stops(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_final_probe_failure_keeps_latest_unsaved_partial(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "private")
+    owner = f"{os.getpid()}:last-probe"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+
+    class FailingFinalProbe(StreamDriver):
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            if len(self.updates) == 1:
+                # Cross the two-second final-probe boundary after the first
+                # partial has been saved, before the newer update is flushed.
+                await asyncio.sleep(0.5)
+            return await super().wait_capture_update(timeout=timeout)
+
+        async def observed_assistant_response(self) -> CaptureResult:
+            self.dom_reads += 1
+            raise TimeoutError("last observer probe lost connection")
+
+    driver = FailingFinalProbe([_capture("First partial"), _capture("Updated partial")])
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "s", owner,
+        deadline=asyncio.get_running_loop().time() + 2.3,
+    )
+    row = sender.results.get("s")
+    assert row is not None
+    assert row["status"] == "interrupted"
+    assert row["assistant_text"] == "Updated partial"
+    assert driver.dom_reads == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("conversation_id", "message_id", "expect_renewal"),
     [(_RECOVERED_CHAT, "m1", True), (None, "m1", False), (_RECOVERED_CHAT, None, False)],

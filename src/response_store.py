@@ -543,6 +543,52 @@ class ResponseStore:
             })
         return items
 
+    def recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
+        """Expose aggregate local capture/recovery state without reading chat text."""
+        at = time.time() if now is None else now
+        joined = results.outerjoin(
+            history_recovery_attempts,
+            results.c.send_id == history_recovery_attempts.c.send_id,
+        )
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    results.c.status,
+                    results.c.conversation_id,
+                    results.c.capture_owner,
+                    results.c.capture_deadline,
+                    history_recovery_attempts.c.next_attempt_at,
+                ).select_from(joined).where(
+                    results.c.status.in_(("accepted", "generating", "interrupted", "unavailable"))
+                )
+            ).all()
+        active = stale = recoverable = due = missing_identity = 0
+        for status, conversation_id, owner, capture_deadline, next_attempt_at in rows:
+            if status in ("accepted", "generating"):
+                if owner and float(capture_deadline or 0.0) > at:
+                    active += 1
+                else:
+                    stale += 1
+            elif conversation_id and not owner:
+                recoverable += 1
+                if float(next_attempt_at or 0.0) <= at:
+                    due += 1
+            elif not conversation_id:
+                missing_identity += 1
+        return {
+            "active_captures": active,
+            "stale_capture_leases": stale,
+            "recoverable": recoverable,
+            "ready_for_read_only_probe": due,
+            "missing_verified_identity": missing_identity,
+            "security_pause_seconds": int(
+                self.history_recovery_security_pause_remaining(now=at) + 0.999
+            ),
+            "global_pace_seconds": int(
+                self.history_recovery_global_pace_remaining(now=at) + 0.999
+            ),
+        }
+
     def next_history_recovery(
         self, *, now: float | None = None, pinned_only: bool = False,
     ) -> dict[str, object] | None:

@@ -30,6 +30,16 @@
   };
 
   type DeliveryHealth = {
+    recovery: {
+      active_captures: number;
+      stale_capture_leases: number;
+      recoverable: number;
+      ready_for_read_only_probe: number;
+      missing_verified_identity: number;
+      security_pause_seconds: number;
+      global_pace_seconds: number;
+      account_read_backoff_seconds: number;
+    };
     ready: boolean;
     issues: string[];
     queue: {
@@ -49,6 +59,10 @@
     ? deliveryHealth.queue.queued + deliveryHealth.queue.running +
       deliveryHealth.queue.retrying + deliveryHealth.queue.rate_limited
     : 0);
+  const recoveryPauseSeconds = $derived(deliveryHealth ? Math.max(
+    deliveryHealth.recovery.account_read_backoff_seconds,
+    deliveryHealth.recovery.security_pause_seconds,
+  ) : 0);
 
   type QueueRequestContext = { prompt: string; images: string[]; scope: string };
 
@@ -729,6 +743,9 @@
           {#if deliveryHealth.queue.outcome_unknown}
             <span class="delivery-count">{deliveryHealth.queue.outcome_unknown} unconfirmed historically</span>
           {/if}
+          {#if recoveryPauseSeconds > 0 && deliveryHealth.recovery.recoverable > 0}
+            <span class="delivery-count">Recovery paused</span>
+          {/if}
         {/if}
       </summary>
       {#if deliveryHealthError}
@@ -751,6 +768,24 @@
           <div><dt>Dead letters</dt><dd>{deliveryHealth.queue.dead_lettered}</dd></div>
           <div><dt>Unconfirmed sends</dt><dd>{deliveryHealth.queue.outcome_unknown}</dd></div>
         </dl>
+        <dl>
+          <div><dt>Captures in progress</dt><dd>{deliveryHealth.recovery.active_captures}</dd></div>
+          <div><dt>Stale capture leases</dt><dd>{deliveryHealth.recovery.stale_capture_leases}</dd></div>
+          <div><dt>Chats eligible for read-only recovery</dt><dd>{deliveryHealth.recovery.recoverable}</dd></div>
+          <div><dt>Due for recovery probe</dt><dd>{deliveryHealth.recovery.ready_for_read_only_probe}</dd></div>
+          <div><dt>Missing verified chat identity</dt><dd>{deliveryHealth.recovery.missing_verified_identity}</dd></div>
+        </dl>
+        {#if deliveryHealth.recovery.stale_capture_leases > 0}
+          <p role="status">A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed.</p>
+        {/if}
+        {#if recoveryPauseSeconds > 0 && deliveryHealth.recovery.recoverable > 0}
+          <p role="status">Read-only recovery is waiting for the account safety cooldown (about {Math.ceil(recoveryPauseSeconds / 60)} min). No automatic resends will occur.</p>
+        {:else if deliveryHealth.recovery.global_pace_seconds > 0 && deliveryHealth.recovery.ready_for_read_only_probe > 0}
+          <p>Read-only recovery is paced to one verified chat at a time; next probe in about {Math.ceil(deliveryHealth.recovery.global_pace_seconds)} seconds.</p>
+        {/if}
+        {#if deliveryHealth.recovery.missing_verified_identity > 0}
+          <p>Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available.</p>
+        {/if}
         {#if deliveryHealth.queue.outcome_unknown}
           <p>Unconfirmed sends are not automatically retried. Review the exact saved chat before sending again.</p>
         {/if}

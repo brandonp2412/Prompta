@@ -71,7 +71,12 @@ async def _timed_stage(
             type(exc).__name__,
         )
         raise
-    logger.info(
+    # The 200ms send-confirmation poll is expected to repeat. Keep failures
+    # visible while avoiding dozens of duplicate INFO lines per accepted send.
+    level = (logging.DEBUG if stage in ("send_confirmation_route", "send_confirmation_state")
+             else logging.INFO)
+    logger.log(
+        level,
         "Prompta delivery stage finished stage=%s duration_ms=%d outcome=ok",
         stage,
         round((time.monotonic() - started) * 1000),
@@ -583,13 +588,22 @@ class BrowserDeliverySender:
                         return
                 if 0 < deadline - now <= 2.0 and self.runtime.read_backoff_remaining() <= 0:
                     # At most one DOM fallback read, inside the hard tab TTL.
-                    snapshot = await asyncio.wait_for(
-                        driver.observed_assistant_response(), timeout=deadline - now
-                    )
-                    if snapshot.text and (
-                        pending is None or len(snapshot.text) >= len(pending.text)
-                    ):
-                        pending = snapshot
+                    try:
+                        snapshot = await asyncio.wait_for(
+                            driver.observed_assistant_response(), timeout=deadline - now
+                        )
+                    except Exception as exc:
+                        # The last permitted local observer read is best-effort.
+                        # A timeout/disconnect must not discard unsaved partial text.
+                        logger.info(
+                            "Final passive capture probe unavailable error_type=%s",
+                            type(exc).__name__,
+                        )
+                    else:
+                        if snapshot.text and (
+                            pending is None or len(snapshot.text) >= len(pending.text)
+                        ):
+                            pending = snapshot
                     break
             if pending is not None and pending.text:
                 self.results.write(send_id, owner, pending)

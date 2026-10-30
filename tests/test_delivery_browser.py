@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import threading
 import time
@@ -22,6 +23,28 @@ from prompta.rate_limit import RateLimitError
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult, normalize_dom_snapshot
 from prompta.send_outcome import SendOutcomeUnknownError
+
+
+@pytest.mark.asyncio
+async def test_successful_confirmation_polls_do_not_spam_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.DEBUG, logger="prompta.delivery_browser"):
+        await delivery_browser._timed_stage(
+            "send_confirmation_state", asyncio.sleep(0), timeout=1,
+        )
+        await delivery_browser._timed_stage(
+            "send_dispatch", asyncio.sleep(0), timeout=1,
+        )
+    confirmation = [
+        record for record in caplog.records
+        if "stage=send_confirmation_state" in record.getMessage()
+    ]
+    assert len(confirmation) == 1 and confirmation[0].levelno == logging.DEBUG
+    assert any(
+        record.levelno == logging.INFO and "stage=send_dispatch" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 @pytest.fixture(autouse=True)
