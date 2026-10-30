@@ -161,6 +161,12 @@
       )
   );
   let unpinned = $derived(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst));
+  const switchingChat = $derived(view === "chats" && !!selectedRunId && detail?.send_id !== selectedRunId);
+  const selectedChatTitle = $derived.by(() => {
+    if (detail?.send_id === selectedRunId) return detail.title || detail.job_name || "Chats";
+    const summary = [...items, ...pinnedItems].find((item) => item.send_id === selectedRunId);
+    return summary?.title || "Chats";
+  });
 
   function loadPreferences() {
     try {
@@ -477,7 +483,12 @@
     detailInFlightFor = id;
     const generation = ++detailGeneration;
     const newSelection = detail?.send_id !== id;
-    if (newSelection) { detail = null; turns = []; }
+    if (newSelection) {
+      // Keep the previous transcript mounted behind the loading cover until
+      // the next chat is ready; clearing it causes a visible empty/full jump.
+      detailError = "";
+      turnsError = "";
+    }
     const followTail = newSelection || !!scrollPane &&
       scrollPane.scrollHeight - scrollPane.scrollTop - scrollPane.clientHeight < 96;
     loadingDetail = true;
@@ -1063,7 +1074,7 @@
       {:else}
         <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
       {/if}
-      <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
+      <strong>{view === "jobs" ? "Jobs" : selectedChatTitle}</strong>
     </div>
     {#if view === "jobs"}
       <div class="jobs-workspace" bind:this={jobsWorkspace}><JobsPage workspace={jobsWorkspace} /></div>
@@ -1079,14 +1090,15 @@
           <button type="button" onclick={() => void retryReadSync()}>Retry read status</button>
         </div>
       {/if}
-      <div class="chat-transcript-scroll" bind:this={scrollPane}>
+      <div class="chat-transcript-shell">
+      <div class="chat-transcript-scroll" bind:this={scrollPane} class:chat-switch-hidden={switchingChat} inert={switchingChat} aria-busy={switchingChat}>
       {#if detailError}
         <div class="result-error recovery-error" role="alert">
           <span>{detailError}</span>
           <button type="button" onclick={() => selectedRunId && void loadDetail(selectedRunId)}>Retry chat</button>
         </div>
       {/if}
-      {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}
+
       {#if detail}
         <div class="chat-detail-content">
           {#if turnsError}
@@ -1143,6 +1155,26 @@
               {/if}
             </div>
           {/each}
+        </div>
+      {/if}
+      </div>
+      {#if switchingChat}
+        <div class="chat-switch-cover" role="status" aria-label={detailError ? "Chat unavailable" : "Loading selected chat"}>
+          {#if detailError}
+            <div class="result-error recovery-error">
+              <span>{detailError}</span>
+              <button type="button" onclick={() => selectedRunId && void loadDetail(selectedRunId)}>Retry chat</button>
+            </div>
+          {:else}
+            <div class="chat-switch-skeleton" aria-hidden="true">
+              <div class="chat-switch-line short"></div>
+              <div class="chat-switch-line prompt"></div>
+              <div class="chat-switch-line medium"></div>
+              <div class="chat-switch-line answer"></div>
+              <div class="chat-switch-line answer last"></div>
+            </div>
+            <span class="sr-only">Loading selected chat…</span>
+          {/if}
         </div>
       {/if}
       </div>

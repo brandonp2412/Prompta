@@ -75,7 +75,8 @@
       restoredPreflight = false;
       sending = false;
       hydrated = true;
-      requestAnimationFrame(resizeTextarea);
+      // Keep the composer height stable when switching between saved replies.
+      // Long drafts remain scrollable and grow once the user edits them.
     });
   });
 
@@ -91,7 +92,7 @@
       hasLocalDraft = true;
       rememberComposerDraft(draftStorageKey, draft);
       try { if (draftStorageKey) localStorage.setItem(draftStorageKey, draft); } catch { /* In-memory editing still works. */ }
-      requestAnimationFrame(resizeTextarea);
+      // A restored failed send must not resize the surrounding transcript.
     }
   });
 
@@ -306,9 +307,12 @@
       {/if}
     </div>
   </div>
-  {#if feedback}<p class="composer-feedback" role="status">{feedback}</p>{/if}
+  {#if mode === "reply"}
+    <p class="composer-status" class:has-feedback={Boolean(feedback)} role="status">{feedback || sendHint || "\u00a0"}</p>
+  {:else if feedback}
+    <p class="composer-feedback" role="status">{feedback}</p>
+  {/if}
   {#if fallbackAvailable && onFallbackSend && hasDraft}
     <button type="button" class="composer-fallback" disabled={sending} onclick={() => void submit(true)}>Continue in new chat</button>
   {/if}
-  {#if sendHint && !feedback}<p class="composer-hint" role="status">{sendHint}</p>{/if}
 </form>
