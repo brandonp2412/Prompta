@@ -986,6 +986,10 @@ button:disabled { cursor: default; opacity: 0.45; }
 .composer-attach small { color: #b1b1b1; font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-send { width: 36px; min-width: 36px; height: 36px; border: 0; border-radius: 50%; background: #f3f3f3; color: #202020; font-size: 1.3rem; font-weight: 650; }
 .composer-send:disabled { background: #525252; color: #929292; cursor: default; }
+.composer-send svg { display: block; width: 20px; height: 20px; margin: auto; }
+.composer-send-spinner { animation: composer-send-spin .85s linear infinite; }
+@keyframes composer-send-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .composer-send-spinner { animation-duration: 2.5s; } }
 .composer-new-chat svg { display: block; width: 19px; height: 19px; margin: auto; }
 .composer-attach button:disabled { opacity: .5; }
 .composer-previews { display: flex; gap: 8px; overflow-x: auto; max-width: 100%; padding-bottom: 8px; }

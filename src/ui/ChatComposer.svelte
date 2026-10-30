@@ -244,7 +244,11 @@
       {:else}
         <button class="composer-send" type="submit" disabled={!canSend}
           aria-label={sending ? "Sending" : mode === "fresh" ? "Send fresh chat" : "Send reply"}>
-          {sending ? "Sending…" : "↑"}
+          {#if sending}
+            <svg class="composer-send-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 1-9 9" /></svg>
+          {:else}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
+          {/if}
         </button>
       {/if}
     </div>

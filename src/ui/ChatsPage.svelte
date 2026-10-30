@@ -911,7 +911,6 @@
     {:else}
       <div class="chat-detail-toolbar">
         <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
-        {#if detail}<span class={"result-pill status-" + (turns.at(-1)?.status || detail.status)}>{turns.length > 1 ? "Latest reply · " + turnStatus(turns.at(-1)?.status || detail.status) : statusLabel(detail.status)}</span>{/if}
       </div>
       <div class="chat-transcript-scroll" bind:this={scrollPane}>
       {#if detailError}<div class="result-error" role="alert">{detailError}</div>{/if}
