@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 _GLOBAL_INTERVAL_SECONDS = 90.0
 _MAX_PER_CHAT_INTERVAL_SECONDS = 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
+_HISTORY_CLOSE_TIMEOUT_SECONDS = 5.0
 
 
 class HistoryDriver(Protocol):
@@ -142,7 +143,15 @@ class HistoryRecovery:
                 await asyncio.sleep(2.0)
             return None
         finally:
-            await driver.close()
+            try:
+                # Cleanup is best effort. A failed CDP disconnect must not
+                # discard a verified response that was already read.
+                await asyncio.wait_for(driver.close(), timeout=_HISTORY_CLOSE_TIMEOUT_SECONDS)
+            except Exception as exc:
+                logger.warning(
+                    "Historical recovery browser cleanup failed error_type=%s",
+                    type(exc).__name__,
+                )
 
     def recover_once(self, *, now: float | None = None) -> bool:
         """Attempt at most one due chat; all retries are read-only and persisted."""

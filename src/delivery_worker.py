@@ -242,7 +242,9 @@ def _deliver_one(
                 queue.fail_claim(send_id, owner, status="dead_lettered", error=str(exc))
                 logger.error("Rate limited delivery exhausted retries send_id=%s", send_id)
             else:
-                delay = _retry_delay(attempt)
+                # Honor ChatGPT's per-request Retry-After. Short local retries
+                # would otherwise exhaust the budget before the limit resets.
+                delay = max(_retry_delay(attempt), float(exc.retry_after))
                 _retry(queue, record, owner, error=str(exc), delay=delay, status="rate_limited")
                 logger.warning(
                     "Rate limited send_id=%s attempt=%d retry_in=%.1fs",

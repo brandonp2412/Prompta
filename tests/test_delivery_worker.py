@@ -381,6 +381,9 @@ def test_send_429_retries_only_its_own_delivery_without_read_throttling(
     assert queued is not None
     assert queued["status"] == "rate_limited"
     assert queued["retry_attempt"] == 1
+    retry_at = queued["retry_at"]
+    assert isinstance(retry_at, (int, float))
+    assert retry_at >= epoch_time.time() + 3590
     assert runtime.read_backoff_status() == (0.0, 0)
     assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))(manual=True) == (
         True,

@@ -18,6 +18,7 @@ from prompta.delivery_browser import (
     _is_conversation_path,
 )
 from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
+from prompta.rate_limit import RateLimitError
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult, normalize_dom_snapshot
 from prompta.send_outcome import SendOutcomeUnknownError
@@ -140,6 +141,21 @@ async def test_owned_tab_lease_precedes_failing_viewport_setup(
         await driver._prepare_owned_page(page)
     assert registered == ["owned-target"]
     page.close.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fresh_send_429_respects_transport_retry_after(tmp_path: Path) -> None:
+    driver = FakeDriver()
+    driver.capture["status"] = 429
+    driver.capture["retry_after"] = "600"
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+    )
+    with pytest.raises(RateLimitError) as caught:
+        await sender._send_browser("Do the scheduled work")
+    assert caught.value.retry_after == 600
+    assert driver.closed
 
 
 @pytest.mark.asyncio

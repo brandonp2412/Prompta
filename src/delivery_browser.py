@@ -17,7 +17,12 @@ from .config import ConnectorApproval
 from .connector_approval_supervisor import supervise_connector_approvals
 from .image_store import ImageStore, image_refs
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
-from .rate_limit import RateLimitError, captured_retry_after, is_rate_limited_text
+from .rate_limit import (
+    DEFAULT_RETRY_AFTER,
+    RateLimitError,
+    captured_retry_after,
+    is_rate_limited_text,
+)
 from .response_capture import CaptureResult
 from .response_store import ResponseStore
 from .scheduler_runtime import SchedulerRuntime
@@ -38,6 +43,8 @@ _EFFORT_SELECTION_TIMEOUT_SECONDS = 12.0
 _SEND_DISPATCH_TIMEOUT_SECONDS = 25.0
 _SEND_CONFIRM_STATE_TIMEOUT_SECONDS = 8.0
 _PASSIVE_RECOVERY_PROBE_SECONDS = 45.0
+# Allow bounded pinning and receipt persistence after the dispatch deadline.
+_HANDOFF_GRACE_SECONDS = 60.0
 
 
 def _is_conversation_path(path: str) -> bool:
@@ -246,9 +253,18 @@ class BrowserDeliverySender:
                 ).start()
             except RuntimeError as exc:
                 raise DeliveryBackendUnavailableError("Passive capture thread unavailable") from exc
-            handshake.wait()
+            received = handshake.wait(
+                timeout=self.delivery_hard_timeout_seconds + _HANDOFF_GRACE_SECONDS
+            )
             if confirmed.is_set():
                 return
+            if not received:
+                # The background thread may still be inside a browser operation.
+                # Never launch a second fresh chat while its outcome is unresolved.
+                raise SendOutcomeUnknownError(
+                    "Prompta background dispatch did not return a durable receipt in time",
+                    stage="delivery_handoff",
+                )
             if errors:
                 exc = errors[0]
                 if isinstance(exc, TimeoutError):
@@ -260,8 +276,22 @@ class BrowserDeliverySender:
                     raise DeliveryBackendUnavailableError(
                         "Prompta delivery deadline expired before dispatch"
                     ) from exc
+                if dispatch_started.is_set() and not isinstance(
+                    exc, (RateLimitError, SendNotAcceptedError, SendOutcomeUnknownError)
+                ):
+                    raise SendOutcomeUnknownError(
+                        "Prompta background dispatch failed after send was attempted",
+                        stage="post_dispatch",
+                    ) from exc
                 raise exc
-            raise RuntimeError("Background delivery ended without a receipt")
+            if dispatch_started.is_set():
+                raise SendOutcomeUnknownError(
+                    "Background delivery ended after dispatch without a receipt",
+                    stage="delivery_handoff",
+                )
+            raise DeliveryBackendUnavailableError(
+                "Background delivery ended before dispatch without a receipt"
+            )
         try:
             if self.connector_approval:
                 finished = threading.Event()
@@ -672,7 +702,10 @@ class BrowserDeliverySender:
                 while asyncio.get_running_loop().time() < deadline:
                     status = int_value((capture or {}).get("status"))
                     if status == 429:
-                        raise RateLimitError("prompta send rate limited")
+                        raise RateLimitError(
+                            "prompta send rate limited",
+                            retry_after=captured_retry_after(capture or {}) or DEFAULT_RETRY_AFTER,
+                        )
                     if status >= 500:
                         raise SendOutcomeUnknownError(
                             f"prompta send returned HTTP {status} after dispatch",
@@ -735,7 +768,10 @@ class BrowserDeliverySender:
                         # classifying one transient probe failure as terminal.
                         status = int_value((capture or {}).get("status"))
                         if status == 429:
-                            raise RateLimitError("prompta send rate limited") from exc
+                            raise RateLimitError(
+                                "prompta send rate limited",
+                                retry_after=captured_retry_after(capture or {}) or DEFAULT_RETRY_AFTER,
+                            ) from exc
                         if status >= 500:
                             raise SendOutcomeUnknownError(
                                 f"prompta send returned HTTP {status} after dispatch",

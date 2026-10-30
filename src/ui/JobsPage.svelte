@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { isRepeatingJob, sortJobs } from "./jobSorting";
   import { subscribeLiveUpdates } from "./liveUpdates";
+  import { localGet } from "./localRead";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
 
   let { workspace }: { workspace?: HTMLDivElement } = $props();
@@ -397,7 +398,7 @@
 
   async function loadDeliveryHealth() {
     try {
-      const response = await fetch("./api/health", { cache: "no-store" });
+      const response = await localGet("./api/health");
       if (!response.ok) throw new Error("Health unavailable");
       deliveryHealth = await response.json() as DeliveryHealth;
       deliveryHealthError = "";
@@ -418,7 +419,7 @@
     if (!quiet) status = "Loading jobs…";
 
     try {
-      const response = await fetch("./api/jobs", { cache: "no-store" });
+      const response = await localGet("./api/jobs");
       if (!response.ok) throw new Error(String(response.status) + " " + response.statusText);
 
       const result = await response.json();

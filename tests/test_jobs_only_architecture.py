@@ -25,7 +25,10 @@ def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     assert '{#if view === "jobs"}' in sidebar
     assert "<JobsPage workspace={jobsWorkspace} />" in sidebar
     assert "Machine Gun" not in app
-    assert 'fetch("./api/results?' in sidebar
+    assert 'localGet("./api/results?' in sidebar
+    local_reads = Path("src/ui/localRead.ts").read_text()
+    assert 'cache: "no-store"' in local_reads
+    assert "AbortSignal.timeout" in local_reads
     assert 'fetch("./api/results/"' in sidebar
     assert "localStorage.setItem(preferencesKey" in sidebar
     assert 'fetch("./api/local-chat-pins"' in sidebar

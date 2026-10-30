@@ -1,3 +1,5 @@
+import { localGet } from "./localRead";
+
 // Remember only an opaque hash and queue request ID, never the prompt or attachments.
 // A lost HTTP receipt must not turn a later explicit Send into a second fresh chat.
 type PendingFreshRequest = {
@@ -75,7 +77,7 @@ export async function freshQueueRequest(
 
 export async function findFreshQueueReceipt(requestId: string): Promise<string | null> {
   try {
-    const response = await fetch("./api/chats/requests/" + requestId, { cache: "no-store" });
+    const response = await localGet("./api/chats/requests/" + requestId);
     if (!response.ok) return null;
     const body = (await response.json()) as { send_id?: string };
     return body.send_id === "manual-" + requestId ? body.send_id : null;

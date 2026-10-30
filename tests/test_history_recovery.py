@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import pytest
+
+import prompta.history_recovery as history_recovery
 from prompta.delivery_worker import DeliveryAdmission
 from prompta.history_recovery import (
     HistoryRecovery,
@@ -125,6 +129,43 @@ def test_read_only_recovery_restores_exact_run_without_dispatch(tmp_path: Path) 
     row = store.get("manual-1")
     assert row is not None and row["status"] == "completed"
     assert row["assistant_text"] == "Recovered from existing chat"
+
+
+def test_cleanup_failure_does_not_discard_verified_read_only_response(
+    tmp_path: Path,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+
+    class CleanupFailure(FakeHistoryDriver):
+        async def close(self) -> None:
+            self.closed = True
+            raise RuntimeError("CDP connection vanished during close")
+
+    driver = CleanupFailure()
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
+    assert driver.closed
+    row = store.get("manual-1")
+    assert row is not None and row["status"] == "completed"
+
+
+def test_stuck_cleanup_has_a_deadline_without_losing_verified_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+
+    class StuckCleanup(FakeHistoryDriver):
+        async def close(self) -> None:
+            await asyncio.sleep(60)
+
+    driver = StuckCleanup()
+    monkeypatch.setattr(history_recovery, "_HISTORY_CLOSE_TIMEOUT_SECONDS", 0.02)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
+    row = store.get("manual-1")
+    assert row is not None and row["status"] == "completed"
 
 
 def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(tmp_path: Path) -> None:

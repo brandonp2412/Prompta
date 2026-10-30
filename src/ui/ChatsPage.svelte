@@ -5,6 +5,7 @@
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
+  import { localGet, localReadTimeoutMs } from "./localRead";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
@@ -52,6 +53,7 @@
   type WaitingJob = { name: string; position: number; reason: "global" | "stage"; occupied: number; limit: number };
   type QueueSnapshot = { max_workers: number | null; occupied_slots: number; waiting: WaitingJob[] };
   let queueSnapshot = $state<QueueSnapshot>({ max_workers: null, occupied_slots: 0, waiting: [] });
+  let queueError = $state("");
   let queueGeneration = 0;
   let queuePollTimer: ReturnType<typeof setInterval> | undefined;
   let detailPollTimer: ReturnType<typeof setInterval> | undefined;
@@ -189,18 +191,30 @@
       ([id, revision]) => id.length > 0 && id.length <= 200 &&
         /^[a-f0-9]{64}$/.test(revision)
     ).slice(0, 2000));
-    if (!Object.keys(reads).length) return;
+    if (!Object.keys(reads).length) return false;
     try {
       const response = await fetch("./api/local-chat-reads/import", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ reads }),
+        signal: AbortSignal.timeout(localReadTimeoutMs),
       });
       if (!response.ok) throw new Error("Read import failed");
       readRevisions = {};
+      readError = "";
       savePreferences();
+      return true;
     } catch {
       readError = "Saved read status could not be synced yet.";
+      return false;
     }
+  }
+
+  async function retryReadSync() {
+    readError = "";
+    const hadLegacy = Object.keys(readRevisions).length > 0;
+    if (hadLegacy && !await importLegacyReads()) return;
+    if (detail?.send_id === selectedRunId) await markRead(detail);
+    await Promise.all([loadList(), loadPins()]);
   }
 
   async function markRead(item: RunSummary) {
@@ -276,12 +290,13 @@
         const imported = await fetch("./api/local-chat-pins/import", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ send_ids: legacyPinIds }),
+          signal: AbortSignal.timeout(localReadTimeoutMs),
         });
         if (!imported.ok) throw new Error("Local pin import failed");
         legacyPinIds = [];
         savePreferences();
       }
-      const response = await fetch("./api/local-chat-pins", { cache: "no-store" });
+      const response = await localGet("./api/local-chat-pins");
       if (!response.ok) throw new Error("Local pins unavailable");
       const body: { items: RunSummary[] } = await response.json();
       if (generation !== pinsGeneration || pendingPinWrites) return;
@@ -336,12 +351,16 @@
   async function loadQueue() {
     const generation = ++queueGeneration;
     try {
-      const response = await fetch("./api/queue-status", { cache: "no-store" });
-      if (!response.ok) return;
+      const response = await localGet("./api/queue-status");
+      if (!response.ok) throw new Error("Queue status unavailable");
       const body: QueueSnapshot = await response.json();
-      if (generation === queueGeneration) queueSnapshot = body;
+      if (generation === queueGeneration) {
+        queueSnapshot = body;
+        queueError = "";
+      }
     } catch {
-      // Keep the last confirmed snapshot through a transient local outage.
+      // Keep the last confirmed snapshot, but never present it as live status.
+      if (generation === queueGeneration) queueError = "Waiting-job status may be out of date.";
     }
   }
 
@@ -372,7 +391,7 @@
     }
     loadingList = items.length === 0;
     try {
-      const response = await fetch("./api/results?" + resultsParams(0), { cache: "no-store" });
+      const response = await localGet("./api/results?" + resultsParams(0));
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
@@ -397,7 +416,7 @@
     const offset = nextOffset;
     loadingMore = true;
     try {
-      const response = await fetch("./api/results?" + resultsParams(offset), { cache: "no-store" });
+      const response = await localGet("./api/results?" + resultsParams(offset));
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
@@ -428,8 +447,8 @@
     try {
       const path = "./api/results/" + encodeURIComponent(id);
       const [response, replyResponse] = await Promise.all([
-        fetch(path, { cache: "no-store" }),
-        fetch(path + "/turns", { cache: "no-store" }),
+        localGet(path),
+        localGet(path + "/turns"),
       ]);
       if (!response.ok) throw new Error("Result not found");
       const body: RunDetail = await response.json();
@@ -841,9 +860,12 @@
 
   onMount(() => {
     loadPreferences();
-    void importLegacyReads().finally(() => {
-      void loadList();
-      void loadPins();
+    // The one-time legacy read import is optional. A stalled import must never
+    // hold the entire chat rail hostage while local results are available.
+    void loadList();
+    void loadPins();
+    void importLegacyReads().then((imported) => {
+      if (imported) void loadList();
     });
     void loadQueue();
     window.addEventListener("storage", onReadStorage);
@@ -949,10 +971,16 @@
       </label>
     </div>
     {/if}
+    {#if queueError}
+      <div class="result-error recovery-error" role="alert">
+        <span>{queueError}</span>
+        <button type="button" onclick={() => void loadQueue()}>Retry queue status</button>
+      </div>
+    {/if}
     {#if listError}
       <div class="result-error recovery-error" role="alert">
         <span>{listError}</span>
-        <button type="button" onclick={() => void loadList(true)}>Retry chats</button>
+        <button type="button" onclick={() => void loadList()}>Retry chats</button>
       </div>
     {/if}
     {#if pinError}
@@ -961,7 +989,12 @@
         <button type="button" onclick={() => void loadPins()}>Retry pins</button>
       </div>
     {/if}
-    {#if readError}<div class="result-error" role="alert">{readError}</div>{/if}
+    {#if readError && (view !== "chats" || !selectedRunId)}
+      <div class="result-error recovery-error" role="alert">
+        <span>{readError}</span>
+        <button type="button" onclick={() => void retryReadSync()}>Retry read status</button>
+      </div>
+    {/if}
     <div class="chats-list" bind:this={listPane} onscroll={maybeLoadMore}>
       {#if visibleWaiting.length}
         <div class="chats-date queue-heading" aria-live="polite">
@@ -1009,6 +1042,12 @@
     {:else if !selectedRunId}
       <div class="chats-detail-empty"><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
+      {#if readError}
+        <div class="result-error recovery-error" role="alert">
+          <span>{readError}</span>
+          <button type="button" onclick={() => void retryReadSync()}>Retry read status</button>
+        </div>
+      {/if}
       <div class="chat-transcript-scroll" bind:this={scrollPane}>
       {#if detailError}
         <div class="result-error recovery-error" role="alert">
