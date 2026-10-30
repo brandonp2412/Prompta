@@ -712,12 +712,10 @@ class BrowserDeliverySender:
                             or ""
                         )
                         if _is_conversation_path(path) and path != baseline_path:
-                            logger.info(
-                                "Prompta dispatched fresh-chat prompt "
-                                "transport_confirmed=false route_confirmed=true "
-                                "generation_confirmed=false"
-                            )
-                            return
+                            # The route can change before the conversation POST is
+                            # acknowledged. Keep probing; navigation alone does not
+                            # prove that ChatGPT accepted the prompt.
+                            last_path = path
                     except Exception as exc:
                         logger.info(
                             "Prompta send confirmation probe unavailable probe=route error_type=%s",
@@ -780,12 +778,11 @@ class BrowserDeliverySender:
                         and not composer_now
                     )
 
-                    if route_confirmed or generation_confirmed:
+                    if generation_confirmed:
                         logger.info(
                             "Prompta dispatched fresh-chat prompt transport_confirmed=false "
-                            "route_confirmed=%s generation_confirmed=%s",
+                            "route_confirmed=%s generation_confirmed=true",
                             route_confirmed,
-                            generation_confirmed,
                         )
                         return
 

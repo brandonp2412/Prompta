@@ -537,7 +537,7 @@ async def test_unconfirmed_send_diagnostic_never_logs_raw_path(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_route_confirmation_does_not_wait_for_slow_composer_after_send(tmp_path: Path) -> None:
+async def test_route_navigation_alone_does_not_prove_send_acceptance(tmp_path: Path) -> None:
     class RouteConfirmedSlowComposer(FakeDriver):
         def __init__(self) -> None:
             super().__init__()
@@ -559,10 +559,57 @@ async def test_route_confirmation_does_not_wait_for_slow_composer_after_send(tmp
             return None
 
     driver = RouteConfirmedSlowComposer()
-    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
-    await sender._send_browser("Do the scheduled work")
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver, send_timeout_seconds=0.01
+    )
+    with pytest.raises(SendOutcomeUnknownError) as error:
+        await sender._send_browser("Do the scheduled work")
+    assert error.value.stage == "send_confirmation"
+    assert "conversation_route=True" in str(error.value)
     assert driver.dispatched
-    assert driver.confirmation_dom_calls == 0
+    assert driver.confirmation_dom_calls >= 1
+    assert driver.closed_contexts == ["fresh-tab"]
+    assert driver.closed
+
+
+@pytest.mark.asyncio
+async def test_route_navigation_waits_for_delayed_transport_proof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RouteThenTransportDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.dispatched = False
+            self.state_probes = 0
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.dispatched = True
+
+        async def eval(self, _script: str) -> str:
+            return "/c/new-fresh-chat" if self.dispatched else "/"
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            self.state_probes += 1
+            return {"composer_text": self.composer, "send_in_progress": False}
+
+        def captured_send_response(
+            self, _capture: dict[str, object],
+        ) -> tuple[str, int] | None:
+            return ("request-1", 200) if self.state_probes else None
+
+    monkeypatch.setattr(delivery_browser, "_SEND_CONFIRM_POLL_SECONDS", 0.001)
+    driver = RouteThenTransportDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3",
+        driver_factory=lambda: driver,
+        send_timeout_seconds=0.2,
+    )
+
+    await sender._send_browser("Do the scheduled work")
+
+    assert driver.dispatched
+    assert driver.state_probes >= 1
     assert driver.closed_contexts == ["fresh-tab"]
     assert driver.closed
 
