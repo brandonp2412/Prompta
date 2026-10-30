@@ -17,6 +17,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=%h/.local/state/prompta
 MemoryHigh=256M
 MemoryMax=512M
 TasksMax=128

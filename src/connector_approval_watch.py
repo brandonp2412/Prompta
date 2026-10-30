@@ -13,10 +13,12 @@ import logging
 import os
 import re
 from collections import OrderedDict
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Response, async_playwright
 
+from .account_read_gate import AccountReadGate
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
@@ -30,8 +32,10 @@ _SIDEBAR_REFRESH_SECONDS = 60.0
 _MAX_WATCHED_CHATS = 8
 _MAX_OPEN_CHAT_WATCHES = 16
 _MAX_REMEMBERED_CHATS = 512
+_FAILED_CHAT_RETRY_SECONDS = 90.0
 _UNREAD_SCRIPT = load_browser_script("find_unread_chats.js")
 _TAB_MARKER_SCRIPT = load_browser_script("get_window_name.js")
+_CHAT_LOAD_SCRIPT = load_browser_script("connector_chat_load_state.js")
 
 
 def unread_chat_paths(value: object) -> list[str]:
@@ -61,6 +65,55 @@ def chat_path_from_url(url: str) -> str | None:
     if parts.scheme != "https" or parts.netloc != "chatgpt.com":
         return None
     return parts.path if _CHAT_PATH.fullmatch(parts.path) else None
+
+
+def track_account_read_limits(page: Page, gate: AccountReadGate) -> None:
+    """Observe response status/Retry-After only; never inspect network bodies."""
+
+    def on_response(response: Response) -> None:
+        url = urlsplit(response.url)
+        if (
+            response.status != 429
+            or url.hostname != "chatgpt.com"
+            or not (url.path.startswith("/backend-api/") or url.path.startswith("/c/"))
+        ):
+            return
+        try:
+            gate.note_http_429(response.headers.get("retry-after"))
+        except Exception as exc:
+            logger.warning("ChatGPT read backoff persistence failed type=%s", type(exc).__name__)
+
+    page.on("response", on_response)
+
+
+async def wait_for_account_read(gate: AccountReadGate) -> bool:
+    """Stop all new ChatGPT network reads while the shared cooldown is active."""
+    while ConnectorApproval.load().enabled:
+        remaining = gate.remaining()
+        if remaining <= 0:
+            return True
+        await asyncio.sleep(min(10.0, max(0.2, remaining)))
+    return False
+
+
+async def chat_loaded(page: Page, gate: AccountReadGate) -> bool:
+    """A URL/title alone is not proof that ChatGPT hydrated its conversation."""
+    for _ in range(24):
+        if gate.remaining() > 0:
+            return False
+        state = await asyncio.wait_for(page.evaluate(_CHAT_LOAD_SCRIPT), timeout=3.0)
+        if isinstance(state, dict):
+            if state.get("limited") is True:
+                gate.note_http_429()
+                return False
+            if state.get("failed") is True:
+                logger.warning("ChatGPT approval tab failed to load conversation")
+                return False
+            if state.get("loaded") is True:
+                return True
+        await asyncio.sleep(0.5)
+    logger.warning("ChatGPT approval tab never hydrated conversation")
+    return False
 
 
 async def open_chat_candidates(
@@ -107,14 +160,25 @@ async def watch_open_chat(page: Page, path: str) -> None:
 
 
 async def watch_chat(
-    browser: Browser, context: BrowserContext, path: str, owned_pages: set[Page] | None = None
-) -> None:
+    browser: Browser,
+    context: BrowserContext,
+    path: str,
+    owned_pages: set[Page] | None = None,
+    gate: AccountReadGate | None = None,
+) -> bool:
     page: Page | None = None
     try:
+        if gate is not None and not await wait_for_account_read(gate):
+            return False
         page = await background_page(browser, context)
+        assert page is not None
         if owned_pages is not None:
             owned_pages.add(page)
+        if gate is not None:
+            track_account_read_limits(page, gate)
         await page.goto("https://chatgpt.com" + path, wait_until="domcontentloaded", timeout=30000)
+        if gate is not None and not await chat_loaded(page, gate):
+            return False
         watched_page = page
         deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
 
@@ -132,10 +196,12 @@ async def watch_chat(
             poll_interval_seconds=1.0,
             active=active,
         )
+        return True
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         logger.warning("Background ChatGPT conversation watch failed type=%s", type(exc).__name__)
+        return False
     finally:
         if page is not None:
             if owned_pages is not None:
@@ -144,53 +210,66 @@ async def watch_chat(
                 await page.close()
 
 
-async def watch_sidebar(browser: Browser, context: BrowserContext) -> None:
+async def watch_sidebar(
+    browser: Browser, context: BrowserContext, gate: AccountReadGate | None = None
+) -> None:
     sidebar: Page | None = None
-    watches: dict[str, asyncio.Task[None]] = {}
+    watches: dict[str, asyncio.Task[bool]] = {}
     open_watches: dict[Page, asyncio.Task[None]] = {}
     owned_pages: set[Page] = set()
     remembered: OrderedDict[str, float] = OrderedDict()
     loop = asyncio.get_running_loop()
     try:
+        if gate is not None and not await wait_for_account_read(gate):
+            return
         sidebar = await background_page(browser, context)
+        assert sidebar is not None
         owned_pages.add(sidebar)
+        if gate is not None:
+            track_account_read_limits(sidebar, gate)
         await sidebar.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=30000)
         last_refresh = loop.time()
         while not sidebar.is_closed():
             if not ConnectorApproval.load().enabled:
                 return
             now = loop.time()
-            if now - last_refresh >= _SIDEBAR_REFRESH_SECONDS:
+            allowed = gate is None or gate.remaining() <= 0
+            if allowed and now - last_refresh >= _SIDEBAR_REFRESH_SECONDS:
                 await sidebar.reload(wait_until="domcontentloaded", timeout=30000)
                 last_refresh = loop.time()
+                allowed = gate is None or gate.remaining() <= 0
             for path, task in list(watches.items()):
                 if task.done():
-                    await task
+                    succeeded = await task
+                    if succeeded:
+                        remembered[path] = now + MAX_OWNED_TAB_AGE_SECONDS
                     del watches[path]
             for page, task in list(open_watches.items()):
                 if task.done():
                     await task
                     del open_watches[page]
-            # An already-open non-Prompta chat may request another permission
-            # after its unread marker has disappeared. Never navigate/close it.
+            # Already-open user tabs only need local permission DOM checks.
             excluded = owned_pages | set(open_watches)
             for page, path in await open_chat_candidates(context, excluded):
                 if len(open_watches) >= _MAX_OPEN_CHAT_WATCHES:
                     break
                 open_watches[page] = asyncio.create_task(watch_open_chat(page, path))
-            # Rendered unread markers only: never fetch account history.
-            raw = await asyncio.wait_for(sidebar.evaluate(_UNREAD_SCRIPT), timeout=5.0)
-            for path in unread_chat_paths(raw):
-                if path in watches or remembered.get(path, 0.0) > now:
-                    continue
-                if len(watches) >= _MAX_WATCHED_CHATS:
-                    break
-                watches[path] = asyncio.create_task(watch_chat(browser, context, path, owned_pages))
-                remembered[path] = now + MAX_OWNED_TAB_AGE_SECONDS
-                remembered.move_to_end(path)
-                if len(remembered) > _MAX_REMEMBERED_CHATS:
-                    remembered.popitem(last=False)
-                logger.info("Background ChatGPT unread conversation watch started")
+            # Never navigate unread chats or refresh ChatGPT during account backoff.
+            if allowed:
+                raw = await asyncio.wait_for(sidebar.evaluate(_UNREAD_SCRIPT), timeout=5.0)
+                for path in unread_chat_paths(raw):
+                    if path in watches or remembered.get(path, 0.0) > now:
+                        continue
+                    if len(watches) >= _MAX_WATCHED_CHATS or (gate is not None and gate.remaining() > 0):
+                        break
+                    watches[path] = asyncio.create_task(
+                        watch_chat(browser, context, path, owned_pages, gate)
+                    )
+                    remembered[path] = now + _FAILED_CHAT_RETRY_SECONDS
+                    remembered.move_to_end(path)
+                    if len(remembered) > _MAX_REMEMBERED_CHATS:
+                        remembered.popitem(last=False)
+                    logger.info("Background ChatGPT unread conversation watch started")
             await asyncio.sleep(_SCAN_INTERVAL_SECONDS)
     finally:
         for task in [*watches.values(), *open_watches.values()]:
@@ -200,7 +279,17 @@ async def watch_sidebar(browser: Browser, context: BrowserContext) -> None:
             await sidebar.close()
 
 
-async def run_forever(address: str = "127.0.0.1:9223") -> None:
+async def run_forever(
+    address: str = "127.0.0.1:9223", gate: AccountReadGate | None = None
+) -> None:
+    if gate is None:
+        state_path = Path(
+            os.environ.get(
+                "PROMPTA_STATE_PATH",
+                str(Path.home() / ".local/state/prompta/runtime.sqlite3"),
+            )
+        ).expanduser()
+        gate = AccountReadGate(state_path)
     while True:
         if not ConnectorApproval.load().enabled:
             await asyncio.sleep(10.0)
@@ -214,7 +303,7 @@ async def run_forever(address: str = "127.0.0.1:9223") -> None:
                     contexts = browser.contexts
                     if not contexts:
                         raise RuntimeError("Configured ChatGPT Chromium session has no context")
-                    await watch_sidebar(browser, contexts[0])
+                    await watch_sidebar(browser, contexts[0], gate)
                 finally:
                     await browser.close()
         except asyncio.CancelledError:

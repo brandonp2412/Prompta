@@ -163,6 +163,11 @@ class ManualReplyDispatcher:
                 "PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9223"
             ),
         )
+        remaining = sender.runtime.read_backoff_remaining()
+        if remaining > 0:
+            raise ReplyConflict(
+                f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
+            )
         driver = PlaywrightDriver(
             profile=sender.profile,
             chrome_path=sender.chrome_path,
