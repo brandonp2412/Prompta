@@ -8,7 +8,7 @@ from prompta.history_recovery import (
     _read_backoff_remaining,
     _record_read_rate_limit,
 )
-from prompta.playwright_driver import BrowserSecurityChallengeError
+from prompta.playwright_driver import BrowserSecurityChallengeError, PlaywrightDriver
 from prompta.rate_limit import RateLimitError
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult
@@ -74,9 +74,13 @@ def test_recovery_never_overwrites_completed_or_crosses_branches(tmp_path: Path)
 
 
 class FakeHistoryDriver:
-    def __init__(self, *, rate_limited: bool = False, challenge: bool = False) -> None:
+    def __init__(
+        self, *, rate_limited: bool = False, challenge: bool = False,
+        http_limited: bool = False,
+    ) -> None:
         self.context = "owned"
         self.rate_limited = rate_limited
+        self.http_limited = http_limited
         self.challenge = challenge
         self.visited: list[str] = []
         self.closed = False
@@ -92,6 +96,9 @@ class FakeHistoryDriver:
 
     async def dom_state(self) -> dict[str, object]:
         return {"rate_limit_text": "Too many requests" if self.rate_limited else ""}
+
+    def history_rate_limited(self) -> bool:
+        return self.http_limited
 
     async def eval(self, expression: str) -> object:
         assert CONVERSATION in expression and "Original prompt" in expression
@@ -223,3 +230,34 @@ def test_read_specific_backoff_api_is_preferred_when_available() -> None:
     runtime = NewRuntime()
     assert _read_backoff_remaining(runtime) == 42.0
     assert _record_read_rate_limit(runtime, RateLimitError()) == 120.0
+
+
+def test_conversation_http_429_detection_is_exact(tmp_path: Path) -> None:
+    url = "https://chatgpt.com/backend-api/conversations/" + CONVERSATION + "?num_turns=10"
+    assert PlaywrightDriver._is_history_read_rate_limit(429, "GET", url)
+    assert not PlaywrightDriver._is_history_read_rate_limit(200, "GET", url)
+    assert not PlaywrightDriver._is_history_read_rate_limit(429, "POST", url)
+    assert not PlaywrightDriver._is_history_read_rate_limit(
+        429, "GET", "https://chatgpt.com/backend-api/pins?item_type=conversation"
+    )
+    assert not PlaywrightDriver._is_history_read_rate_limit(
+        429, "GET", "https://example.com/backend-api/conversations/" + CONVERSATION
+    )
+    driver = PlaywrightDriver(profile=tmp_path / "chrome-profile")
+    assert not driver.history_rate_limited()
+    driver._observe_history_read_response(429, "GET", url)
+    assert driver.history_rate_limited()
+
+
+def test_conversation_http_429_stops_recovery_and_persists_backoff(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+    driver = FakeHistoryDriver(http_limited=True)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert not HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
+    assert driver.closed and runtime.read_backoff_remaining() >= 299
+    restarted = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert restarted.read_backoff_remaining() > 0
+    row = store.get("manual-1")
+    assert row is not None and row["status"] == "interrupted"
+    assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]

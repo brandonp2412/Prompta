@@ -40,6 +40,11 @@ class HistoryDriver(Protocol):
 
 
 @runtime_checkable
+class _HistoryRateLimitSignal(Protocol):
+    def history_rate_limited(self) -> bool: ...
+
+
+@runtime_checkable
 class _ReadLimitAPI(Protocol):
     def read_backoff_remaining(self) -> float: ...
     def record_read_rate_limit(self, exc: RateLimitError) -> float: ...
@@ -112,6 +117,11 @@ class HistoryRecovery:
             deadline = asyncio.get_running_loop().time() + 25.0
             while asyncio.get_running_loop().time() < deadline:
                 state = await driver.dom_state()
+                if (
+                    isinstance(driver, _HistoryRateLimitSignal)
+                    and driver.history_rate_limited()
+                ):
+                    raise RateLimitError("ChatGPT conversation read returned HTTP 429")
                 limit_text = str(state.get("rate_limit_text") or "")
                 if is_rate_limited_text(limit_text):
                     raise RateLimitError.from_text(limit_text)

@@ -274,6 +274,29 @@ class PlaywrightDriver:
         )
 
     @staticmethod
+    def _is_history_read_rate_limit(status: int, method: str, url: str) -> bool:
+        if status != 429 or method.upper() != "GET":
+            return False
+        parsed = urlsplit(url)
+        return (
+            parsed.scheme == "https"
+            and (parsed.hostname or "").casefold() == "chatgpt.com"
+            and re.fullmatch(
+                r"/backend-api/conversations/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}",
+                parsed.path,
+            )
+            is not None
+        )
+
+    def _observe_history_read_response(self, status: int, method: str, url: str) -> None:
+        if self._is_history_read_rate_limit(status, method, url):
+            self._history_rate_limit_seen = True
+
+    def history_rate_limited(self) -> bool:
+        """Whether this owned page observed a conversation-read HTTP 429."""
+        return self._history_rate_limit_seen
+
+    @staticmethod
     def captured_send_response(capture: dict[str, object]) -> tuple[str, int] | None:
         request_id = str(capture.get("request_id") or "")
         status = int_value(capture.get("status"))
@@ -487,6 +510,11 @@ class PlaywrightDriver:
         capture["request_id"] = str(id(request))
 
     def _on_response(self, response: Response) -> None:
+        # A failed conversation GET can show only a generic load-error banner.
+        # Preserve the HTTP status so read-only recovery applies durable backoff.
+        self._observe_history_read_response(
+            response.status, response.request.method, response.url
+        )
         capture = self._send_capture
         if capture is None or capture.get("request_obj") is not response.request:
             return
