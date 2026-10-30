@@ -1,4 +1,4 @@
-//#region node_modules/svelte/src/internal/shared/utils.js
+//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -71,7 +71,7 @@ var STALE_REACTION = new class StaleReactionError extends Error {
 }();
 var IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
 //#endregion
-//#region node_modules/svelte/src/constants.js
+//#region ../../prompta/node_modules/svelte/src/constants.js
 var HYDRATION_ERROR = {};
 var UNINITIALIZED = Symbol("uninitialized");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
@@ -101,7 +101,7 @@ function svelte_boundary_reset_noop() {
 	console.warn(`https://svelte.dev/e/svelte_boundary_reset_noop`);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/hydration.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
 /** @import { TemplateNode } from '#client' */
 /**
 * Use this variable to guard everything related to hydration code so it can be treeshaken out
@@ -180,7 +180,7 @@ function read_hydration_instruction(node) {
 	return node.data;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -207,7 +207,7 @@ function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/errors.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -292,13 +292,13 @@ function svelte_boundary_reset_onerror() {
 	throw new Error(`https://svelte.dev/e/svelte_boundary_reset_onerror`);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/flags/index.js
+//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
 /** True if we're not certain that we only have Svelte 5 code in the compilation */
 var legacy_mode_flag = false;
 //#endregion
-//#region node_modules/svelte/src/internal/client/context.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
 /** @import { ComponentContext, DevStackEntry, Effect } from '#client' */
 /** @type {ComponentContext | null} */
 var component_context = null;
@@ -358,7 +358,7 @@ function is_runes() {
 	return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/task.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
 /** @type {Array<() => void>} */
 var micro_tasks = [];
 function run_micro_tasks() {
@@ -385,7 +385,7 @@ function flush_tasks() {
 	while (micro_tasks.length > 0) run_micro_tasks();
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/status.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
 /** @import { Derived, Signal } from '#client' */
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 /**
@@ -404,7 +404,7 @@ function update_derived_status(derived) {
 	else set_signal_status(derived, MAYBE_DIRTY);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
 /** @import { Effect } from '#client' */
 /**
 * @param {Effect} effect
@@ -417,7 +417,7 @@ function defer_effect(effect, dirty_effects, maybe_dirty_effects) {
 	set_signal_status(effect, CLEAN);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -440,7 +440,7 @@ function add_form_reset_listener() {
 	}
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -478,7 +478,7 @@ function listen_to_event_and_reset_event(element, event, handler, on_reset = han
 	add_form_reset_listener();
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/async.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
 /** @import { Blocker, Effect, Source, Value } from '#client' */
 /**
 * @param {Blocker[]} blockers
@@ -766,7 +766,7 @@ function unfreeze_derived_effects(derived) {
 	for (const e of derived.effects) if (e.teardown && e.fn !== null) update_effect(e);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
 /** @import { Fork } from 'svelte' */
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /** @type {Batch | null} */
@@ -1531,7 +1531,7 @@ function reset_all(effect) {
 	}
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/sources.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
 /** @import { Derived, Effect, Source, Value } from '#client' */
 /** @type {Set<Effect>} */
 var eager_effects = /* @__PURE__ */ new Set();
@@ -1862,7 +1862,7 @@ function is(a, b) {
 	return Object.is(get_proxied_value(a), get_proxied_value(b));
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/operations.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
 /** @import { Effect, TemplateNode } from '#client' */
 /** @type {Window} */
 var $window;
@@ -2090,7 +2090,7 @@ function invoke_error_boundary(error, effect) {
 	throw error;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
 /** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -2482,14 +2482,14 @@ function move_effect(effect, fragment) {
 	}
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/legacy.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
 /**
 * @type {Set<Value> | null}
 * @deprecated
 */
 var captured_signals = null;
 //#endregion
-//#region node_modules/svelte/src/internal/client/runtime.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /**
 * True if updating in an effect context that is reactive (i.e. not branch/root effects)
@@ -2872,7 +2872,7 @@ function is_passive_event(name) {
 	return PASSIVE_EVENTS.includes(name);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * Used on elements, as a map of event type -> event handler,
 * and on events themselves to track which element handled an event
@@ -3023,7 +3023,7 @@ function handle_event_propagation(event) {
 	}
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
 /** @param {string} html */
 createHTML: (html) => {
@@ -3042,7 +3042,7 @@ function create_fragment_from_html(html) {
 	return elem.content;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/template.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
 /** @import { Effect, EffectNodes, TemplateNode } from '#client' */
 /** @import { TemplateStructure } from './types' */
 /**
@@ -3188,7 +3188,7 @@ function append(anchor, dom) {
 	anchor.before(dom);
 }
 //#endregion
-//#region node_modules/svelte/src/reactivity/create-subscriber.js
+//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3261,7 +3261,7 @@ function createSubscriber(start) {
 	};
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /** @import { Effect, Source, TemplateNode, } from '#client' */
 /**
 * @typedef {{
@@ -3736,7 +3736,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 */
 var mounted_components = /* @__PURE__ */ new WeakMap();
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
 /** @import { Effect, TemplateNode } from '#client' */
 /**
 * @typedef {{ effect: Effect, fragment: DocumentFragment }} Branch
@@ -3884,7 +3884,7 @@ var BranchManager = class {
 	}
 };
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {TemplateNode} node
@@ -3930,7 +3930,7 @@ function if_block(node, fn, elseif = false) {
 	}, flags);
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
 /** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
 /** @import { Batch } from '../../reactivity/batch.js'; */
 /**
@@ -4347,7 +4347,7 @@ function link(state, prev, next) {
 	else next.prev = prev;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {string} hash
@@ -4393,7 +4393,7 @@ function head(hash, render_fn) {
 	}
 }
 //#endregion
-//#region node_modules/clsx/dist/clsx.mjs
+//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4408,7 +4408,7 @@ function clsx$1() {
 	return n;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/shared/attributes.js
+//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -4443,7 +4443,7 @@ function to_class(value, hash, directives) {
 	return classname === "" ? null : classname;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -4470,7 +4470,7 @@ function set_class(dom, is_html, value, hash, prev_classes, next_classes) {
 	return next_classes;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -4610,7 +4610,7 @@ function is_selectedcontent_mutation(entry) {
 	return false;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /** @import { Blocker, Effect } from '#client' */
 var IS_CUSTOM_ELEMENT = Symbol("is custom element");
 var IS_HTML = Symbol("is html");
@@ -4692,7 +4692,7 @@ function get_setters(element) {
 	return setters;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /** @import { Batch } from '../../../reactivity/batch.js' */
 /**
 * @param {HTMLInputElement} input
@@ -4771,7 +4771,7 @@ function to_number(value) {
 	return value === "" ? null : +value;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 /** @import { ComponentContext, Effect } from '#client' */
 /**
 * @param {any} bound_value
@@ -4823,7 +4823,7 @@ function bind_this(element_or_component = mark_as_component(), update, get_value
 	return element_or_component;
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/store.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Whether or not the prop currently being read is a store binding, as in
 * `<Child bind:x={$y} />`. If it is, we treat the prop as mutable even in
@@ -4848,7 +4848,7 @@ function capture_store_binding(fn) {
 	}
 }
 //#endregion
-//#region node_modules/svelte/src/internal/client/reactivity/props.js
+//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
 /** @import { Derived, Effect, Source } from './types.js' */
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
@@ -4976,7 +4976,7 @@ function init_update_callbacks(context) {
 	};
 }
 //#endregion
-//#region node_modules/svelte/src/internal/disclose-version.js
+//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
 //#region src/ui/jobSorting.ts
@@ -5067,10 +5067,10 @@ var root_18$2 = /* @__PURE__ */ from_html(`<div class="job-image-previews"></div
 var root_19$2 = /* @__PURE__ */ from_html(`<span>Discard unsaved changes?</span> <button class="toolbar-button" type="button">Keep editing</button> <button class="toolbar-button danger-text" type="button">Discard</button>`, 1);
 var root_20$2 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
 var root_21$2 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
-var root_22$1 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
-var root_23$1 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
-var root_24$1 = /* @__PURE__ */ from_html(`<div class="editor-actions"><button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div>`);
-var root_25$1 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select aria-label="Schedule"><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <!></div> <!></div> <div class="editor-footer"><div class="editor-feedback" aria-live="polite"><!></div> <!></div></form></section>`);
+var root_22$2 = /* @__PURE__ */ from_html(`<span>Unsaved changes</span>`);
+var root_23$2 = /* @__PURE__ */ from_html(`<span>No changes</span>`);
+var root_24$2 = /* @__PURE__ */ from_html(`<div class="editor-actions"><button class="toolbar-button" type="button">Cancel</button> <button class="primary-button" type="submit"> </button></div>`);
+var root_25$2 = /* @__PURE__ */ from_html(`<section class="editor-page" aria-labelledby="editor-title" tabindex="-1"><form id="job-editor" class="job-editor"><div class="editor-heading"><button class="toolbar-button editor-back" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M5 12h14"></path></svg> Jobs</button> <div class="editor-title"><h2 id="editor-title"> </h2> <!></div></div> <div><div class="editor-settings"><!> <label><span>Schedule</span> <select aria-label="Schedule"><option>Interval</option><option>Daily</option><option>Once</option></select></label> <!></div> <!> <label class="prompt-field"><span>Prompt</span> <textarea rows="14" required=""></textarea></label> <div class="job-image-picker"><button class="toolbar-button" type="button">Add images</button> <input class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple=""/> <!></div> <!></div> <div class="editor-footer"><div class="editor-feedback" aria-live="polite"><!></div> <!></div></form></section>`);
 var root_26$1 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 function JobsPage($$anchor, $$props) {
 	push($$props, true);
@@ -5807,7 +5807,7 @@ function JobsPage($$anchor, $$props) {
 	});
 	var node_10 = sibling(node, 2);
 	var consequent_23 = ($$anchor) => {
-		var section_1 = root_25$1();
+		var section_1 = root_25$2();
 		var form = child(section_1);
 		var div_17 = child(form);
 		var button_13 = child(div_17);
@@ -5981,10 +5981,10 @@ function JobsPage($$anchor, $$props) {
 			append($$anchor, root_21$2());
 		};
 		var consequent_20 = ($$anchor) => {
-			append($$anchor, root_22$1());
+			append($$anchor, root_22$2());
 		};
 		var consequent_21 = ($$anchor) => {
-			append($$anchor, root_23$1());
+			append($$anchor, root_23$2());
 		};
 		if_block(node_17, ($$render) => {
 			if (get(confirmDiscard)) $$render(consequent_17);
@@ -5996,7 +5996,7 @@ function JobsPage($$anchor, $$props) {
 		reset(div_25);
 		var node_18 = sibling(div_25, 2);
 		var consequent_22 = ($$anchor) => {
-			var div_26 = root_24$1();
+			var div_26 = root_24$2();
 			var button_18 = child(div_26);
 			var button_19 = sibling(button_18, 2);
 			var text_23 = only_child(button_19, true);
@@ -6386,7 +6386,7 @@ delegate([
 	"change"
 ]);
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -7940,14 +7940,8 @@ var dateOptions = {
 	month: "short",
 	year: "numeric"
 };
-function nzTime(epoch) {
-	if (epoch <= 0) return "Time unavailable";
-	return new Intl.DateTimeFormat("en-NZ", {
-		...dateOptions,
-		hour: "numeric",
-		minute: "2-digit",
-		hour12: true
-	}).format(epoch * 1e3);
+function dateGroup(epoch) {
+	return new Intl.DateTimeFormat("en-NZ", dateOptions).format(epoch * 1e3);
 }
 function statusLabel(status) {
 	switch (status) {
@@ -8027,6 +8021,53 @@ function isFlattenedDomResponse(text, captureSource) {
 	const shortLabels = blocks.filter((item) => item.length <= 80 && !/[.!?:]$/.test(item) && !item.includes("\n"));
 	return shortLabels.length >= 7 && shortLabels.length >= blocks.length * .45;
 }
+function chatMessageTime(epoch, nowEpoch = Date.now() / 1e3) {
+	if (epoch <= 0) return "Time unavailable";
+	const dayParts = (value) => {
+		const parts = new Intl.DateTimeFormat("en-NZ", {
+			timeZone: "Pacific/Auckland",
+			year: "numeric",
+			month: "numeric",
+			day: "numeric"
+		}).formatToParts(value * 1e3);
+		const read = (type) => Number(parts.find((part) => part.type === type)?.value);
+		return Date.UTC(read("year"), read("month") - 1, read("day")) / 864e5;
+	};
+	const difference = dayParts(nowEpoch) - dayParts(epoch);
+	const day = difference === 0 ? "Today" : difference === 1 ? "Yesterday" : dateGroup(epoch);
+	const time = new Intl.DateTimeFormat("en-NZ", {
+		timeZone: "Pacific/Auckland",
+		hour: "numeric",
+		minute: "2-digit",
+		hour12: true
+	}).format(epoch * 1e3);
+	return day + " " + time;
+}
+function legacyMetricSummary(text) {
+	const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
+	if (lines.length !== 6) return null;
+	const metrics = [];
+	for (let i = 0; i < 6; i += 2) {
+		const value = lines[i];
+		const label = lines[i + 1];
+		if (!/^[+-]?[$£€]?\d[\d,.]*%?$/.test(value) || !/^[\p{L}][\p{L}\p{N} /&-]{0,30}$/u.test(label)) return null;
+		const lower = label.toLowerCase();
+		const tone = /^(completed|passed|success(?:ful)?|healthy)$/.test(lower) ? "success" : /^(failed|interrupted|errors?)$/.test(lower) ? "error" : "neutral";
+		metrics.push({
+			value,
+			label,
+			tone
+		});
+	}
+	return metrics;
+}
+function legacyLabelList(text, captureSource) {
+	if (captureSource !== "dom") return null;
+	const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
+	if (lines.length < 4 || lines.length > 12 || lines.some((line) => !line || line.length > 110)) return null;
+	if (lines.filter((line) => /^[^:]{2,55}:\s+\S/.test(line)).length < lines.length * .6) return null;
+	return lines;
+}
 //#endregion
 //#region src/ui/ResultMarkdown.svelte
 var root$3 = /* @__PURE__ */ from_html(`<strong><!></strong>`);
@@ -8038,19 +8079,23 @@ var root_5$2 = /* @__PURE__ */ from_html(`<br/>`);
 var root_6$2 = /* @__PURE__ */ from_html(`<h1><!></h1>`);
 var root_7$1 = /* @__PURE__ */ from_html(`<h2><!></h2>`);
 var root_8$1 = /* @__PURE__ */ from_html(`<h3><!></h3>`);
-var root_9$1 = /* @__PURE__ */ from_html(`<p><!></p>`);
-var root_10$1 = /* @__PURE__ */ from_html(`<div class="code-snippet"><div class="code-toolbar"><span> </span><button type="button" aria-label="Copy code"> </button></div> <pre><code> </code></pre></div>`);
-var root_11$1 = /* @__PURE__ */ from_html(`<li><!></li>`);
-var root_12$1 = /* @__PURE__ */ from_html(`<ol></ol>`);
-var root_13$1 = /* @__PURE__ */ from_html(`<ul></ul>`);
-var root_14$1 = /* @__PURE__ */ from_html(`<blockquote><!></blockquote>`);
-var root_15$1 = /* @__PURE__ */ from_html(`<th><!></th>`);
-var root_16$1 = /* @__PURE__ */ from_html(`<td><!></td>`);
-var root_17$1 = /* @__PURE__ */ from_html(`<tr></tr>`);
-var root_18$1 = /* @__PURE__ */ from_html(`<div class="result-table-scroll"><table><thead><tr></tr></thead><tbody></tbody></table></div>`);
-var root_19$1 = /* @__PURE__ */ from_html(`<hr/>`);
-var root_20$1 = /* @__PURE__ */ from_html(`<p> </p>`);
-var root_21$1 = /* @__PURE__ */ from_html(`<div><!></div>`);
+var root_9$1 = /* @__PURE__ */ from_html(`<div class="response-metric"><strong> </strong> <span> </span></div>`);
+var root_10$1 = /* @__PURE__ */ from_html(`<div class="response-metrics" role="group" aria-label="Response metrics"></div>`);
+var root_11$1 = /* @__PURE__ */ from_html(`<li> </li>`);
+var root_12$1 = /* @__PURE__ */ from_html(`<ul class="result-recovered-list"></ul>`);
+var root_13$1 = /* @__PURE__ */ from_html(`<p><!></p>`);
+var root_14$1 = /* @__PURE__ */ from_html(`<div class="code-snippet"><div class="code-toolbar"><span> </span><button type="button" aria-label="Copy code"> </button></div> <pre><code> </code></pre></div>`);
+var root_15$1 = /* @__PURE__ */ from_html(`<li><!></li>`);
+var root_16$1 = /* @__PURE__ */ from_html(`<ol></ol>`);
+var root_17$1 = /* @__PURE__ */ from_html(`<ul></ul>`);
+var root_18$1 = /* @__PURE__ */ from_html(`<blockquote><!></blockquote>`);
+var root_19$1 = /* @__PURE__ */ from_html(`<th><!></th>`);
+var root_20$1 = /* @__PURE__ */ from_html(`<td><!></td>`);
+var root_21$1 = /* @__PURE__ */ from_html(`<tr></tr>`);
+var root_22$1 = /* @__PURE__ */ from_html(`<div class="result-table-scroll"><table><thead><tr></tr></thead><tbody></tbody></table></div>`);
+var root_23$1 = /* @__PURE__ */ from_html(`<hr/>`);
+var root_24$1 = /* @__PURE__ */ from_html(`<p> </p>`);
+var root_25$1 = /* @__PURE__ */ from_html(`<div><!></div>`);
 function ResultMarkdown($$anchor, $$props) {
 	push($$props, true);
 	const inline = ($$anchor, items = noop) => {
@@ -8209,88 +8254,129 @@ function ResultMarkdown($$anchor, $$props) {
 				});
 				append($$anchor, fragment_10);
 			};
-			var consequent_13 = ($$anchor) => {
-				var p = root_9$1();
-				var node_14 = child(p);
-				{
-					let $0 = /* @__PURE__ */ user_derived(() => children(get(token)).length ? children(get(token)) : [get(token)]);
-					inline(node_14, () => get($0));
-				}
-				reset(p);
-				append($$anchor, p);
-			};
-			var consequent_14 = ($$anchor) => {
-				var div = root_10$1();
-				var div_1 = child(div);
-				var span = child(div_1);
-				var text_4 = only_child(span, true);
-				var button = sibling(span);
-				var text_5 = only_child(button, true);
-				reset(div_1);
-				var pre = sibling(div_1, 2);
-				var code_1 = child(pre);
-				var text_6 = only_child(code_1, true);
-				reset(pre);
-				reset(div);
-				template_effect(($0) => {
-					set_text(text_4, get(token).lang || "Code");
-					set_text(text_5, get(copiedCode) === get(token).text ? "Copied" : "Copy code");
-					set_class(code_1, 1, $0);
-					set_text(text_6, get(token).text);
-				}, [() => clsx(get(token).lang ? "language-" + get(token).lang.split(/\s+/)[0] : "")]);
-				delegated("click", button, () => copyCode(get(token).text));
-				append($$anchor, div);
-			};
-			var consequent_16 = ($$anchor) => {
+			var consequent_15 = ($$anchor) => {
+				const metrics = /* @__PURE__ */ user_derived(() => legacyMetricSummary(get(token).text));
+				const labelList = /* @__PURE__ */ user_derived(() => legacyLabelList(get(token).text, captureSource()));
 				var fragment_11 = comment();
-				var node_15 = first_child(fragment_11);
-				var consequent_15 = ($$anchor) => {
-					var ol = root_12$1();
-					each(ol, 21, () => get(token).items, index, ($$anchor, item) => {
+				var node_14 = first_child(fragment_11);
+				var consequent_13 = ($$anchor) => {
+					var div = root_10$1();
+					each(div, 21, () => get(metrics), index, ($$anchor, metric) => {
+						var div_1 = root_9$1();
+						var strong_1 = child(div_1);
+						var text_4 = only_child(strong_1, true);
+						var text_5 = only_child(sibling(strong_1, 2), true);
+						reset(div_1);
+						template_effect(() => {
+							set_class(strong_1, 1, "response-metric-value tone-" + get(metric).tone);
+							set_text(text_4, get(metric).value);
+							set_text(text_5, get(metric).label);
+						});
+						append($$anchor, div_1);
+					});
+					reset(div);
+					append($$anchor, div);
+				};
+				var consequent_14 = ($$anchor) => {
+					var ul = root_12$1();
+					each(ul, 21, () => get(labelList), index, ($$anchor, item) => {
 						var li = root_11$1();
-						var node_16 = child(li);
-						blocks(node_16, () => get(item).tokens);
-						reset(li);
+						var text_6 = only_child(li, true);
+						template_effect(() => set_text(text_6, get(item)));
 						append($$anchor, li);
 					});
-					reset(ol);
-					template_effect(() => set_attribute(ol, "start", get(token).start || 1));
-					append($$anchor, ol);
+					reset(ul);
+					append($$anchor, ul);
 				};
 				var alternate_3 = ($$anchor) => {
-					var ul = root_13$1();
-					each(ul, 21, () => get(token).items, index, ($$anchor, item) => {
-						var li_1 = root_11$1();
+					var p = root_13$1();
+					var node_15 = child(p);
+					{
+						let $0 = /* @__PURE__ */ user_derived(() => children(get(token)).length ? children(get(token)) : [get(token)]);
+						inline(node_15, () => get($0));
+					}
+					reset(p);
+					append($$anchor, p);
+				};
+				if_block(node_14, ($$render) => {
+					if (get(metrics)) $$render(consequent_13);
+					else if (get(labelList)) $$render(consequent_14, 1);
+					else $$render(alternate_3, -1);
+				});
+				append($$anchor, fragment_11);
+			};
+			var consequent_16 = ($$anchor) => {
+				var div_2 = root_14$1();
+				var div_3 = child(div_2);
+				var span_1 = child(div_3);
+				var text_7 = only_child(span_1, true);
+				var button = sibling(span_1);
+				var text_8 = only_child(button, true);
+				reset(div_3);
+				var pre = sibling(div_3, 2);
+				var code_1 = child(pre);
+				var text_9 = only_child(code_1, true);
+				reset(pre);
+				reset(div_2);
+				template_effect(($0) => {
+					set_text(text_7, get(token).lang || "Code");
+					set_text(text_8, get(copiedCode) === get(token).text ? "Copied" : "Copy code");
+					set_class(code_1, 1, $0);
+					set_text(text_9, get(token).text);
+				}, [() => clsx(get(token).lang ? "language-" + get(token).lang.split(/\s+/)[0] : "")]);
+				delegated("click", button, () => copyCode(get(token).text));
+				append($$anchor, div_2);
+			};
+			var consequent_18 = ($$anchor) => {
+				var fragment_12 = comment();
+				var node_16 = first_child(fragment_12);
+				var consequent_17 = ($$anchor) => {
+					var ol = root_16$1();
+					each(ol, 21, () => get(token).items, index, ($$anchor, item) => {
+						var li_1 = root_15$1();
 						var node_17 = child(li_1);
 						blocks(node_17, () => get(item).tokens);
 						reset(li_1);
 						append($$anchor, li_1);
 					});
-					reset(ul);
-					append($$anchor, ul);
+					reset(ol);
+					template_effect(() => set_attribute(ol, "start", get(token).start || 1));
+					append($$anchor, ol);
 				};
-				if_block(node_15, ($$render) => {
-					if (get(token).ordered) $$render(consequent_15);
-					else $$render(alternate_3, -1);
+				var alternate_4 = ($$anchor) => {
+					var ul_1 = root_17$1();
+					each(ul_1, 21, () => get(token).items, index, ($$anchor, item) => {
+						var li_2 = root_15$1();
+						var node_18 = child(li_2);
+						blocks(node_18, () => get(item).tokens);
+						reset(li_2);
+						append($$anchor, li_2);
+					});
+					reset(ul_1);
+					append($$anchor, ul_1);
+				};
+				if_block(node_16, ($$render) => {
+					if (get(token).ordered) $$render(consequent_17);
+					else $$render(alternate_4, -1);
 				});
-				append($$anchor, fragment_11);
+				append($$anchor, fragment_12);
 			};
-			var consequent_17 = ($$anchor) => {
-				var blockquote = root_14$1();
-				var node_18 = child(blockquote);
-				blocks(node_18, () => get(token).tokens ?? []);
+			var consequent_19 = ($$anchor) => {
+				var blockquote = root_18$1();
+				var node_19 = child(blockquote);
+				blocks(node_19, () => get(token).tokens ?? []);
 				reset(blockquote);
 				append($$anchor, blockquote);
 			};
-			var consequent_18 = ($$anchor) => {
-				var div_2 = root_18$1();
-				var table = child(div_2);
+			var consequent_20 = ($$anchor) => {
+				var div_4 = root_22$1();
+				var table = child(div_4);
 				var thead = child(table);
 				var tr = child(thead);
 				each(tr, 21, () => get(token).header, index, ($$anchor, cell) => {
-					var th = root_15$1();
-					var node_19 = child(th);
-					inline(node_19, () => get(cell).tokens);
+					var th = root_19$1();
+					var node_20 = child(th);
+					inline(node_20, () => get(cell).tokens);
 					reset(th);
 					append($$anchor, th);
 				});
@@ -8298,11 +8384,11 @@ function ResultMarkdown($$anchor, $$props) {
 				reset(thead);
 				var tbody = sibling(thead);
 				each(tbody, 21, () => get(token).rows, index, ($$anchor, row) => {
-					var tr_1 = root_17$1();
+					var tr_1 = root_21$1();
 					each(tr_1, 21, () => get(row), index, ($$anchor, cell) => {
-						var td = root_16$1();
-						var node_20 = child(td);
-						inline(node_20, () => get(cell).tokens);
+						var td = root_20$1();
+						var node_21 = child(td);
+						inline(node_21, () => get(cell).tokens);
 						reset(td);
 						append($$anchor, td);
 					});
@@ -8311,27 +8397,27 @@ function ResultMarkdown($$anchor, $$props) {
 				});
 				reset(tbody);
 				reset(table);
-				reset(div_2);
-				append($$anchor, div_2);
+				reset(div_4);
+				append($$anchor, div_4);
 			};
-			var consequent_19 = ($$anchor) => {
-				append($$anchor, root_19$1());
+			var consequent_21 = ($$anchor) => {
+				append($$anchor, root_23$1());
 			};
-			var consequent_20 = ($$anchor) => {
-				var p_1 = root_20$1();
-				var text_7 = only_child(p_1, true);
-				template_effect(() => set_text(text_7, get(token).text));
+			var consequent_22 = ($$anchor) => {
+				var p_1 = root_24$1();
+				var text_10 = only_child(p_1, true);
+				template_effect(() => set_text(text_10, get(token).text));
 				append($$anchor, p_1);
 			};
 			if_block(node_9, ($$render) => {
 				if (get(token).type === "heading") $$render(consequent_12);
-				else if (get(token).type === "paragraph" || get(token).type === "text") $$render(consequent_13, 1);
-				else if (get(token).type === "code") $$render(consequent_14, 2);
-				else if (get(token).type === "list") $$render(consequent_16, 3);
-				else if (get(token).type === "blockquote") $$render(consequent_17, 4);
-				else if (get(token).type === "table") $$render(consequent_18, 5);
-				else if (get(token).type === "hr") $$render(consequent_19, 6);
-				else if (get(token).type === "html") $$render(consequent_20, 7);
+				else if (get(token).type === "paragraph" || get(token).type === "text") $$render(consequent_15, 1);
+				else if (get(token).type === "code") $$render(consequent_16, 2);
+				else if (get(token).type === "list") $$render(consequent_18, 3);
+				else if (get(token).type === "blockquote") $$render(consequent_19, 4);
+				else if (get(token).type === "table") $$render(consequent_20, 5);
+				else if (get(token).type === "hr") $$render(consequent_21, 6);
+				else if (get(token).type === "html") $$render(consequent_22, 7);
 			});
 			append($$anchor, fragment_9);
 		});
@@ -8356,12 +8442,12 @@ function ResultMarkdown($$anchor, $$props) {
 	function children(token) {
 		return "tokens" in token && Array.isArray(token.tokens) ? token.tokens : [];
 	}
-	var div_3 = root_21$1();
+	var div_5 = root_25$1();
 	let classes;
-	blocks(child(div_3), () => get(tokens));
-	reset(div_3);
-	template_effect(() => classes = set_class(div_3, 1, "result-markdown", null, classes, { flattened: get(flattened) }));
-	append($$anchor, div_3);
+	blocks(child(div_5), () => get(tokens));
+	reset(div_5);
+	template_effect(() => classes = set_class(div_5, 1, "result-markdown", null, classes, { flattened: get(flattened) }));
+	append($$anchor, div_5);
 	pop();
 }
 delegate(["click"]);
@@ -8373,7 +8459,7 @@ var root_2$1 = /* @__PURE__ */ from_html(`<section><h4>Output</h4><pre> </pre></
 var root_3$1 = /* @__PURE__ */ from_html(`<section><h4>Error</h4><pre> </pre></section>`);
 var root_4$1 = /* @__PURE__ */ from_html(`<p>No additional details captured.</p>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<details><summary class="tool-call-summary"><span class="tool-call-mark" aria-hidden="true"> </span> <span class="tool-call-name"> </span> <span class="tool-call-status"> </span> <span class="tool-call-chevron" aria-hidden="true">⌄</span></summary> <div class="tool-call-body"><!> <!> <!> <!></div></details>`);
-var root_6$1 = /* @__PURE__ */ from_html(`<details class="tool-timeline" open=""><summary class="tool-timeline-summary"><span class="tool-timeline-icon" aria-hidden="true">⌘</span> <span> </span> <!> <span class="tool-timeline-toggle" aria-hidden="true">⌄</span></summary> <div class="tool-call-list"></div></details>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<details class="tool-timeline"><summary class="tool-timeline-summary"><span class="tool-timeline-icon" aria-hidden="true">⌘</span> <span> </span> <!> <span class="tool-timeline-toggle" aria-hidden="true">⌄</span></summary> <div class="tool-call-list"></div></details>`);
 function ToolCalls($$anchor, $$props) {
 	push($$props, true);
 	let failures = /* @__PURE__ */ user_derived(() => $$props.calls.filter((call) => call.status === "error" || call.error).length);
@@ -8503,12 +8589,12 @@ var root_16 = /* @__PURE__ */ from_html(`<p class="result-error" role="alert"> <
 var root_17 = /* @__PURE__ */ from_html(`<button class="prompt-expand" type="button"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>`);
 var root_18 = /* @__PURE__ */ from_html(`<a target="_blank" rel="noopener noreferrer"><img loading="lazy"/></a>`);
 var root_19 = /* @__PURE__ */ from_html(`<div class="chat-attachments" aria-label="Attached images"></div>`);
-var root_20 = /* @__PURE__ */ from_html(`<button class="copy-message" type="button"> </button>`);
+var root_20 = /* @__PURE__ */ from_html(`<div class="message-role response-header"><span class="response-state" role="status"> </span></div>`);
 var root_21 = /* @__PURE__ */ from_html(`<p class="partial-note"> </p>`);
-var root_22 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_22 = /* @__PURE__ */ from_html(`<!> <!> <div class="response-actions"><button class="copy-message" type="button"> </button></div>`, 1);
 var root_23 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Retry this follow-up</button>`);
 var root_24 = /* @__PURE__ */ from_html(`<p class="no-response"> </p> <!>`, 1);
-var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span>You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div><div class="message-role response-header"><span class="assistant-identity"><span class="assistant-avatar" aria-hidden="true">✦</span> <span> </span> <span class="response-state"> </span></span> <!></div> <!> <!></div>`, 1);
+var root_25 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span class="sr-only">You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div><!> <!> <!></div>`, 1);
 var root_26 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
 var root_27 = /* @__PURE__ */ from_html(`<div class="chat-detail-toolbar"><button class="chat-detail-back">‹ <span>All chats</span></button> <!></div> <div class="chat-transcript-scroll"><!> <!> <!></div> <!>`, 1);
 var root_28 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><!> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <div class="sidebar-read-actions"><button type="button" class="mark-all-read" aria-label="Mark all local chats as read" title="Mark all local chats as read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path></svg> </button></div> <!> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><button class="sidebar-menu" type="button" aria-label="Open chat sidebar">☰</button> <strong> </strong></div> <!></div></section>`);
@@ -9659,28 +9745,18 @@ function ChatsPage($$anchor, $$props) {
 				});
 				reset(div_18);
 				var div_23 = sibling(div_18, 2);
-				var div_24 = child(div_23);
-				var span_12 = child(div_24);
-				var span_13 = sibling(child(span_12), 2);
-				var text_23 = only_child(span_13);
-				var text_24 = only_child(sibling(span_13, 2), true);
-				reset(span_12);
-				var node_25 = sibling(span_12, 2);
+				var node_25 = child(div_23);
 				var consequent_21 = ($$anchor) => {
-					var button_13 = root_20();
-					var text_25 = only_child(button_13, true);
-					template_effect(() => {
-						set_attribute(button_13, "aria-label", "Copy assistant reply " + (get(index) + 1));
-						set_text(text_25, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
-					});
-					delegated("click", button_13, () => copyText(formatStoredResponse(get(turn).assistant_text, get(index) === 0 ? get(detail)?.source ?? "" : ""), get(turn).reply_id || $$props.selectedRunId || ""));
-					append($$anchor, button_13);
+					var div_24 = root_20();
+					var text_23 = only_child(child(div_24), true);
+					reset(div_24);
+					template_effect(($0) => set_text(text_23, $0), [() => responseBadge(get(turn).status)]);
+					append($$anchor, div_24);
 				};
 				if_block(node_25, ($$render) => {
-					if (get(turn).assistant_text) $$render(consequent_21);
+					if (get(turn).status !== "completed") $$render(consequent_21);
 				});
-				reset(div_24);
-				var node_26 = sibling(div_24, 2);
+				var node_26 = sibling(node_25, 2);
 				var consequent_22 = ($$anchor) => {
 					ToolCalls($$anchor, { get calls() {
 						return get(turn).tool_calls;
@@ -9707,19 +9783,28 @@ function ChatsPage($$anchor, $$props) {
 					var node_29 = sibling(node_28, 2);
 					var consequent_23 = ($$anchor) => {
 						var p_4 = root_21();
-						var text_26 = only_child(p_4);
-						template_effect(($0) => set_text(text_26, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
+						var text_24 = only_child(p_4);
+						template_effect(($0) => set_text(text_24, `${get(turn).status === "generating" ? "Partial response · " : ""}${$0 ?? ""}`), [() => turnStatus(get(turn).status)]);
 						append($$anchor, p_4);
 					};
 					if_block(node_29, ($$render) => {
 						if (get(turn).status !== "completed") $$render(consequent_23);
 					});
+					var div_25 = sibling(node_29, 2);
+					var button_13 = child(div_25);
+					var text_25 = only_child(button_13, true);
+					reset(div_25);
+					template_effect(() => {
+						set_attribute(button_13, "aria-label", "Copy assistant reply " + (get(index) + 1));
+						set_text(text_25, get(copyState) === (get(turn).reply_id || get(detail).send_id) ? "Copied" : get(copyState) === "error:" + (get(turn).reply_id || get(detail).send_id) ? "Copy failed" : "Copy");
+					});
+					delegated("click", button_13, () => copyText(formatStoredResponse(get(turn).assistant_text, get(index) === 0 ? get(detail)?.source ?? "" : ""), get(turn).reply_id || $$props.selectedRunId || ""));
 					append($$anchor, fragment_10);
 				};
 				var alternate_2 = ($$anchor) => {
 					var fragment_11 = root_24();
 					var p_5 = first_child(fragment_11);
-					var text_27 = only_child(p_5, true);
+					var text_26 = only_child(p_5, true);
 					var node_30 = sibling(p_5, 2);
 					var consequent_25 = ($$anchor) => {
 						var button_14 = root_23();
@@ -9729,7 +9814,7 @@ function ChatsPage($$anchor, $$props) {
 					if_block(node_30, ($$render) => {
 						if (get(turn).status === "preflight_failed" && get(turn).reply_id && get(turn).conversation_id && get(turn).parent_id) $$render(consequent_25);
 					});
-					template_effect(($0) => set_text(text_27, $0), [() => get(index) > 0 && get(turn).status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(get(turn).status)]);
+					template_effect(($0) => set_text(text_26, $0), [() => get(index) > 0 && get(turn).status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(get(turn).status)]);
 					append($$anchor, fragment_11);
 				};
 				if_block(node_27, ($$render) => {
@@ -9737,20 +9822,14 @@ function ChatsPage($$anchor, $$props) {
 					else $$render(alternate_2, -1);
 				});
 				reset(div_23);
-				template_effect(($0, $1, $2) => {
+				template_effect(($0, $1) => {
 					set_attribute(time, "datetime", $0);
 					set_text(text_20, $1);
 					classes_5 = set_class(div_21, 1, "prompt-message", null, classes_5, { collapsed: get(turn).user_text.length > 280 && !get(expandedPrompts)[(get(detail)?.send_id ?? "") + ":" + get(index)] });
 					set_text(text_21, get(turn).user_text);
 					set_class(div_23, 1, "message-group assistant-group response-" + get(turn).status);
 					set_attribute(div_23, "aria-label", "Assistant response " + (get(index) + 1));
-					set_text(text_23, `Response ${get(index) + 1}`);
-					set_text(text_24, $2);
-				}, [
-					() => (/* @__PURE__ */ new Date((get(turn).created_at || get(detail).created_at) * 1e3)).toISOString(),
-					() => nzTime(get(turn).created_at || get(detail).created_at),
-					() => responseBadge(get(turn).status)
-				]);
+				}, [() => (/* @__PURE__ */ new Date((get(turn).created_at || get(detail).created_at) * 1e3)).toISOString(), () => chatMessageTime(get(turn).created_at || get(detail).created_at)]);
 				append($$anchor, fragment_7);
 			});
 			reset(div_17);

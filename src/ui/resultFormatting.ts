@@ -219,6 +219,76 @@ export function isFlattenedDomResponse(text: string, captureSource: string): boo
   return shortLabels.length >= 7 && shortLabels.length >= blocks.length * 0.45;
 }
 
+// Use the same relative day labels as a chat transcript, in Auckland time.
+export function chatMessageTime(epoch: number, nowEpoch = Date.now() / 1000): string {
+  if (epoch <= 0) return "Time unavailable";
+  const dayParts = (value: number) => {
+    const parts = new Intl.DateTimeFormat("en-NZ", {
+      timeZone: "Pacific/Auckland",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).formatToParts(value * 1000);
+    const read = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    return Date.UTC(read("year"), read("month") - 1, read("day")) / 86_400_000;
+  };
+  const difference = dayParts(nowEpoch) - dayParts(epoch);
+  const day = difference === 0 ? "Today" : difference === 1 ? "Yesterday" : dateGroup(epoch);
+  const time = new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(epoch * 1000);
+  return day + " " + time;
+}
+
+export type ResponseMetric = {
+  value: string;
+  label: string;
+  tone: "neutral" | "success" | "error";
+};
+
+// Early DOM text captures flatten ChatGPT's compact numeric cards into six
+// newline-separated values. Recognise only a complete three-metric paragraph.
+export function legacyMetricSummary(text: string): ResponseMetric[] | null {
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  if (lines.length !== 6) return null;
+  const metrics: ResponseMetric[] = [];
+  for (let i = 0; i < 6; i += 2) {
+    const value = lines[i];
+    const label = lines[i + 1];
+    if (!/^[+-]?[$£€]?\d[\d,.]*%?$/.test(value) || !/^[\p{L}][\p{L}\p{N} /&-]{0,30}$/u.test(label))
+      return null;
+    const lower = label.toLowerCase();
+    const tone = /^(completed|passed|success(?:ful)?|healthy)$/.test(lower)
+      ? "success"
+      : /^(failed|interrupted|errors?)$/.test(lower)
+        ? "error"
+        : "neutral";
+    metrics.push({ value, label, tone });
+  }
+  return metrics;
+}
+
+// Reconstruct lists only where legacy DOM text has several short, label/value
+// lines. Do not guess at prose, code, genuine Markdown or SSE captures.
+export function legacyLabelList(text: string, captureSource: string): string[] | null {
+  if (captureSource !== "dom") return null;
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  if (lines.length < 4 || lines.length > 12 || lines.some((line) => !line || line.length > 110))
+    return null;
+  if (lines.filter((line) => /^[^:]{2,55}:\s+\S/.test(line)).length < lines.length * 0.6)
+    return null;
+  return lines;
+}
+
 export function groupRuns(items: RunSummary[]): { date: string; items: RunSummary[] }[] {
   const groups: { date: string; items: RunSummary[] }[] = [];
   for (const item of items) {

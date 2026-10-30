@@ -6,7 +6,7 @@
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import {
-    formatStoredResponse, nzTime, statusLabel, turnStatus,
+    chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
@@ -922,8 +922,8 @@
           {#each turns as turn, index (turn.reply_id || detail.send_id)}
             <div class="message-group user-group">
               <div class="message-role">
-                <span>You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</span>
-                <time class="message-timestamp" datetime={new Date((turn.created_at || detail.created_at) * 1000).toISOString()}>{nzTime(turn.created_at || detail.created_at)}</time>
+                <span class="sr-only">You {#if index === 0}· Job prompt{:else}· Reply {index}{/if}</span>
+                <time class="message-timestamp" datetime={new Date((turn.created_at || detail.created_at) * 1000).toISOString()}>{chatMessageTime(turn.created_at || detail.created_at)}</time>
               </div>
               <div class="prompt-bubble">
                 <div class:collapsed={turn.user_text.length > 280 && !expandedPrompts[(detail?.send_id ?? "") + ":" + index]} class="prompt-message">{turn.user_text}</div>
@@ -945,22 +945,20 @@
               {/if}
             </div>
             <div class={"message-group assistant-group response-" + turn.status} aria-label={"Assistant response " + (index + 1)}>
-              <div class="message-role response-header">
-                <span class="assistant-identity">
-                  <span class="assistant-avatar" aria-hidden="true">✦</span>
-                  <span>Response {index + 1}</span>
-                  <span class="response-state">{responseBadge(turn.status)}</span>
-                </span>
-                {#if turn.assistant_text}
-                  <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail?.source ?? "" : ""), turn.reply_id || selectedRunId || "")}>
-                    {copyState === (turn.reply_id || detail.send_id) ? "Copied" : copyState === "error:" + (turn.reply_id || detail.send_id) ? "Copy failed" : "Copy"}
-                  </button>
-                {/if}
-              </div>
+              {#if turn.status !== "completed"}
+                <div class="message-role response-header">
+                  <span class="response-state" role="status">{responseBadge(turn.status)}</span>
+                </div>
+              {/if}
               {#if turn.tool_calls?.length}<ToolCalls calls={turn.tool_calls} />{/if}
               {#if turn.assistant_text}
                 <ResultMarkdown source={turn.assistant_text} captureSource={index === 0 ? detail.source : ""} />
                 {#if turn.status !== "completed"}<p class="partial-note">{turn.status === "generating" ? "Partial response · " : ""}{turnStatus(turn.status)}</p>{/if}
+                <div class="response-actions">
+                  <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail?.source ?? "" : ""), turn.reply_id || selectedRunId || "")}>
+                    {copyState === (turn.reply_id || detail.send_id) ? "Copied" : copyState === "error:" + (turn.reply_id || detail.send_id) ? "Copy failed" : "Copy"}
+                  </button>
+                </div>
               {:else}
                 <p class="no-response">{index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)}</p>
                 {#if turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id}

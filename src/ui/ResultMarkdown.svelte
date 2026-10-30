@@ -1,6 +1,6 @@
 <script lang="ts">
   import { marked, type Token, type Tokens } from "marked";
-  import { formatStoredResponse, isFlattenedDomResponse, safeHref } from "./resultFormatting";
+  import { formatStoredResponse, isFlattenedDomResponse, legacyLabelList, legacyMetricSummary, safeHref } from "./resultFormatting";
 
   let { source, captureSource = "" }: { source: string; captureSource?: string } = $props();
   let displaySource = $derived(formatStoredResponse(source, captureSource));
@@ -56,7 +56,22 @@
       {:else if token.depth === 2}<h2>{@render inline(children(token))}</h2>
       {:else}<h3>{@render inline(children(token))}</h3>{/if}
     {:else if token.type === "paragraph" || token.type === "text"}
-      <p>{@render inline(children(token).length ? children(token) : [token])}</p>
+      {@const metrics = legacyMetricSummary(token.text)}
+      {@const labelList = legacyLabelList(token.text, captureSource)}
+      {#if metrics}
+        <div class="response-metrics" role="group" aria-label="Response metrics">
+          {#each metrics as metric}
+            <div class="response-metric">
+              <strong class={"response-metric-value tone-" + metric.tone}>{metric.value}</strong>
+              <span>{metric.label}</span>
+            </div>
+          {/each}
+        </div>
+      {:else if labelList}
+        <ul class="result-recovered-list">{#each labelList as item}<li>{item}</li>{/each}</ul>
+      {:else}
+        <p>{@render inline(children(token).length ? children(token) : [token])}</p>
+      {/if}
     {:else if token.type === "code"}
       <div class="code-snippet">
         <div class="code-toolbar"><span>{token.lang || "Code"}</span><button type="button" aria-label="Copy code" onclick={() => copyCode(token.text)}>{copiedCode === token.text ? "Copied" : "Copy code"}</button></div>

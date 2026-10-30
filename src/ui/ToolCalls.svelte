@@ -9,7 +9,7 @@
 </script>
 
 {#if calls.length}
-  <details class="tool-timeline" open>
+  <details class="tool-timeline">
     <summary class="tool-timeline-summary">
       <span class="tool-timeline-icon" aria-hidden="true">⌘</span>
       <span>{calls.length} tool {calls.length === 1 ? "call" : "calls"}</span>
