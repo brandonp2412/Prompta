@@ -261,3 +261,35 @@ def test_conversation_http_429_stops_recovery_and_persists_backoff(tmp_path: Pat
     row = store.get("manual-1")
     assert row is not None and row["status"] == "interrupted"
     assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
+
+
+def test_pinned_incomplete_chat_recovers_before_unpinned_backlog(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "manual-unpinned")
+    _expired(store, "manual-pinned")
+    assert store.set_local_pin("manual-pinned", pinned=True)
+    pinned = store.next_history_recovery(now=150, pinned_only=True)
+    assert pinned is not None and pinned["send_id"] == "manual-pinned"
+
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert HistoryRecovery(store, runtime, FakeHistoryDriver).recover_once(now=150)
+    recovered = store.get("manual-pinned")
+    waiting = store.get("manual-unpinned")
+    assert recovered is not None and recovered["status"] == "completed"
+    assert waiting is not None and waiting["status"] == "interrupted"
+
+
+def test_pinned_recovery_does_not_bypass_per_chat_backoff(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "manual-unpinned")
+    _expired(store, "manual-pinned")
+    assert store.set_local_pin("manual-pinned", pinned=True)
+    store.schedule_history_recovery("manual-pinned", now=100, next_attempt_at=500)
+    assert store.next_history_recovery(now=150, pinned_only=True) is None
+
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert HistoryRecovery(store, runtime, FakeHistoryDriver).recover_once(now=150)
+    recovered = store.get("manual-unpinned")
+    waiting = store.get("manual-pinned")
+    assert recovered is not None and recovered["status"] == "completed"
+    assert waiting is not None and waiting["status"] == "interrupted"

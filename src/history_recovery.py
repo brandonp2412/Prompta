@@ -153,8 +153,10 @@ class HistoryRecovery:
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
             return False
-        reply = self.replies.next_history_reply_recovery(now=at)
-        candidate = reply or self.results.next_history_recovery(now=at)
+        # User-pinned, already-due chats go first, without increasing scan cadence.
+        pinned = self.results.next_history_recovery(now=at, pinned_only=True)
+        reply = None if pinned is not None else self.replies.next_history_reply_recovery(now=at)
+        candidate = pinned or reply or self.results.next_history_recovery(now=at)
         if candidate is None:
             return False
         self.results.reserve_history_recovery_global_slot(

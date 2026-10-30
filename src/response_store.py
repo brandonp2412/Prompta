@@ -543,11 +543,15 @@ class ResponseStore:
             })
         return items
 
-    def next_history_recovery(self, *, now: float | None = None) -> dict[str, object] | None:
+    def next_history_recovery(
+        self, *, now: float | None = None, pinned_only: bool = False,
+    ) -> dict[str, object] | None:
         """Choose only expired, Prompta-owned conversations with durable identities."""
         at = time.time() if now is None else now
         attempts = history_recovery_attempts
         joined = results.outerjoin(attempts, results.c.send_id == attempts.c.send_id)
+        if pinned_only:
+            joined = joined.join(local_chat_pins, results.c.send_id == local_chat_pins.c.send_id)
         with self.engine.connect() as connection:
             row = connection.execute(
                 select(
