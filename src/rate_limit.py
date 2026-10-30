@@ -31,18 +31,40 @@ class RateLimitError(RuntimeError):
         return cls(message, retry_after=parse_retry_after(message))
 
 
+_DURATION_TOKEN = re.compile(
+    r"(?<![\w.])(\d+(?:\.\d+)?)\s*"
+    r"(weeks?|w|days?|d|hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)\b"
+)
+_RETRY_PHRASE = re.compile(r"\b(?:try\s+again|retry|available|resets?|wait)\s+(?:in|after|for)\b")
+
+
 def parse_retry_after(text: str) -> int:
+    """Honor compound, fractional and day-long retry instructions in UI errors."""
     lowered = text.casefold()
-    if re.search(r"\b(?:a\s+)?few\s+(?:minutes?|mins?)\b", lowered):
+    # A message may describe the account's quota window before specifying
+    # when this rejected request can actually be retried.
+    phrase = _RETRY_PHRASE.search(lowered)
+    duration_text = lowered[phrase.end() :] if phrase else lowered
+    seconds = 0.0
+    for match in _DURATION_TOKEN.finditer(duration_text):
+        value = float(match.group(1))
+        unit = match.group(2)
+        if unit.startswith(("week", "w")):
+            multiplier = 7 * 86400
+        elif unit.startswith(("day", "d")):
+            multiplier = 86400
+        elif unit.startswith(("hour", "hr", "h")):
+            multiplier = 3600
+        elif unit.startswith(("min", "m")):
+            multiplier = 60
+        else:
+            multiplier = 1
+        seconds += value * multiplier
+    if seconds > 0 and math.isfinite(seconds):
+        return math.ceil(min(seconds, 365 * 86400))
+    if re.search(r"\b(?:a\s+)?few\s+(?:minutes?|mins?)\b", duration_text):
         return 5 * 60
-    match = re.search(r"\b(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", lowered)
-    if match is None:
-        return DEFAULT_RETRY_AFTER
-    value = int(match.group(1))
-    unit = match.group(2)
-    if unit.startswith(("hour", "hr")):
-        return value * 60 * 60
-    return value * 60 if unit.startswith(("min", "minute")) else value
+    return DEFAULT_RETRY_AFTER
 
 
 def parse_retry_after_header(value: str | None, *, now: float | None = None) -> int:
