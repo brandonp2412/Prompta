@@ -478,9 +478,10 @@ class BrowserDeliverySender:
                     last_saved_at = now
                     if (
                         pending.text != last_verified_text
+                        # The owned conversation and assistant message identify the
+                        # branch; ChatGPT's DOM snapshots do not expose parent_id.
                         and pending.conversation_id
                         and pending.message_id
-                        and pending.parent_id
                         and isinstance(driver, VerifiedActivityDriver)
                         and driver.record_verified_activity()
                     ):

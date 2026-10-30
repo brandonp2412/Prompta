@@ -156,6 +156,51 @@ async def test_disconnect_keeps_partial_and_approval_task_stops(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("conversation_id", "message_id", "expect_renewal"),
+    [(_RECOVERED_CHAT, "m1", True), (None, "m1", False), (_RECOVERED_CHAT, None, False)],
+)
+async def test_partial_response_activity_renews_lease_without_parent_id(
+    tmp_path: Path,
+    conversation_id: str | None,
+    message_id: str | None,
+    expect_renewal: bool,
+) -> None:
+    from prompta.browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
+
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "Long-running prompt")
+    owner = f"{os.getpid()}:activity"
+    original_deadline = time.time() + 30
+    assert sender.results.accept("s", owner, deadline=original_deadline)
+
+    class OwnedDriver(StreamDriver):
+        touches = 0
+
+        def record_verified_activity(self) -> bool:
+            self.touches += 1
+            return True
+
+    partial = CaptureResult("dom", "partial", "Still working", conversation_id, message_id, None)
+    driver = OwnedDriver([partial])
+    driver.stop_after_first = True
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "s", owner,
+        deadline=asyncio.get_running_loop().time() + 2,
+    )
+    row = sender.results.get("s")
+    assert row is not None and row["status"] == "interrupted"
+    assert row["assistant_text"] == "Still working"
+    assert driver.touches == int(expect_renewal)
+    capture_deadline = row["capture_deadline"]
+    assert isinstance(capture_deadline, float)
+    if expect_renewal:
+        assert capture_deadline > original_deadline + MAX_OWNED_TAB_AGE_SECONDS - 90
+    else:
+        assert capture_deadline == original_deadline
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_during_capture_updates_read_backoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
     sender.results.ensure_queued("s", "private")
